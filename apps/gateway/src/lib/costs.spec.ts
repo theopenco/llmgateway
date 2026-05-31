@@ -303,7 +303,13 @@ describe("calculateCosts", () => {
 			},
 		);
 
-		const discountMultiplier = 0.8;
+		// Read discount from the model definition so the test stays correct
+		// even if the bedrock discount value changes.
+		const bedrockProvider = models
+			.find((m) => m.id === "claude-haiku-4-5")
+			?.providers.find((p) => p.providerId === "aws-bedrock");
+		const discount = Number(bedrockProvider?.discount ?? "0");
+		const discountMultiplier = 1 - discount;
 		expect(result.inputCost).toBeCloseTo(4 * (1.0 / 1e6) * discountMultiplier);
 		expect(result.outputCost).toBeCloseTo(
 			50 * (5.0 / 1e6) * discountMultiplier,
@@ -313,7 +319,7 @@ describe("calculateCosts", () => {
 		expect(result.cacheWriteInputCost).toBeCloseTo(
 			(fiveMinuteCacheWriteCost + oneHourCacheWriteCost) * discountMultiplier,
 		);
-		expect(result.discount).toBeCloseTo(0.2);
+		expect(result.discount).toBeCloseTo(discount);
 		expect(result.cacheWriteTokens).toBe(1000);
 	});
 
