@@ -5018,7 +5018,7 @@ export interface paths {
             parameters: {
                 query?: {
                     search?: string;
-                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "avgTimeToFirstToken" | "updatedAt";
+                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "cost" | "avgTimeToFirstToken" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number | null;
                     offset?: number | null;
@@ -5052,6 +5052,7 @@ export interface paths {
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
                                 cachedCount: number;
+                                cost: number;
                                 avgTimeToFirstToken: number | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;
