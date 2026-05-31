@@ -215,7 +215,7 @@ function SingleModeItem({
 					{model.isLoading && <Skeleton className="h-64 rounded-lg" />}
 				</div>
 			)}
-			{(firstImage || onInsertPrompt) && (
+			{!model.isLoading && (firstImage || onInsertPrompt) && (
 				<Actions>
 					{firstImage && onUseAsReference && (
 						<Action
@@ -304,26 +304,27 @@ function ComparisonModeItem({
 					</div>
 				))}
 			</div>
-			{(firstImage || onInsertPrompt) && (
-				<Actions>
-					{firstImage && onUseAsReference && (
-						<Action
-							tooltip="Use as image reference"
-							onClick={() => onUseAsReference(firstImage)}
-						>
-							<ImagePlus className="h-4 w-4" />
-						</Action>
-					)}
-					{onInsertPrompt && (
-						<Action
-							tooltip="Insert prompt"
-							onClick={() => onInsertPrompt(item.prompt)}
-						>
-							<CornerDownLeft className="h-4 w-4" />
-						</Action>
-					)}
-				</Actions>
-			)}
+			{!item.models.some((m) => m.isLoading) &&
+				(firstImage || onInsertPrompt) && (
+					<Actions>
+						{firstImage && onUseAsReference && (
+							<Action
+								tooltip="Use as image reference"
+								onClick={() => onUseAsReference(firstImage)}
+							>
+								<ImagePlus className="h-4 w-4" />
+							</Action>
+						)}
+						{onInsertPrompt && (
+							<Action
+								tooltip="Insert prompt"
+								onClick={() => onInsertPrompt(item.prompt)}
+							>
+								<CornerDownLeft className="h-4 w-4" />
+							</Action>
+						)}
+					</Actions>
+				)}
 		</div>
 	);
 }
