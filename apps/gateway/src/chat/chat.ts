@@ -3734,6 +3734,7 @@ chat.openapi(completions, async (c) => {
 		_insertLog(
 			{
 				...logData,
+				sessionId: logData.sessionId ?? sessionId ?? null,
 				internalContentFilter: shouldTagContentFilter
 					? true
 					: logData.internalContentFilter,
