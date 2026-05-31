@@ -7550,7 +7550,9 @@ chat.openapi(completions, async (c) => {
 								// Extract usage data from transformedData to update tracking variables
 								if (
 									transformedData.usage &&
-									(usedProvider === "openai" || usedProvider === "azure")
+									(usedProvider === "openai" ||
+										usedProvider === "openai-discount" ||
+										usedProvider === "azure")
 								) {
 									const usage = transformedData.usage;
 									if (
@@ -7654,7 +7656,10 @@ chat.openapi(completions, async (c) => {
 											webSearchCount = 1;
 										}
 									}
-								} else if (usedProvider === "openai") {
+								} else if (
+									usedProvider === "openai" ||
+									usedProvider === "openai-discount"
+								) {
 									// For OpenAI Responses API, count web_search_call.completed events
 									if (data.type === "response.web_search_call.completed") {
 										webSearchCount++;

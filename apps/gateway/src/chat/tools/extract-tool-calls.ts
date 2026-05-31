@@ -112,6 +112,7 @@ export function extractToolCalls(
 			return null;
 		}
 		case "openai":
+		case "openai-discount":
 		case "azure":
 			return (transformedData ?? data).choices?.[0]?.delta?.tool_calls ?? null;
 		default: // OpenAI-compatible format

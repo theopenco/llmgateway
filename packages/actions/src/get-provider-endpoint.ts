@@ -129,6 +129,16 @@ export function getProviderEndpoint(
 			case "openai":
 				url = "https://api.openai.com";
 				break;
+			case "openai-discount":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("openai-discount", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"OpenAI Discount provider requires LLM_OPENAI_DISCOUNT_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "anthropic":
 				url = "https://api.anthropic.com";
 				break;
@@ -543,7 +553,8 @@ export function getProviderEndpoint(
 				"2024-05-01-preview";
 			return `${url}/models/chat/completions?api-version=${apiVersion}`;
 		}
-		case "openai": {
+		case "openai":
+		case "openai-discount": {
 			if (imageGenerations) {
 				return `${url}/v1/images/generations`;
 			}
@@ -551,7 +562,7 @@ export function getProviderEndpoint(
 			if (model) {
 				const modelDef = models.find((m) => m.id === (modelId ?? model));
 				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === "openai",
+					(p) => p.providerId === provider,
 				);
 				const supportsResponsesApi =
 					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===

@@ -150,6 +150,28 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "openai-discount",
+		name: "OpenAI (Discount)",
+		description:
+			"OpenAI-compatible provider routed through a discounted endpoint configured via environment variables.",
+		env: {
+			required: {
+				apiKey: "LLM_OPENAI_DISCOUNT_API_KEY",
+				baseUrl: "LLM_OPENAI_DISCOUNT_BASE_URL",
+			},
+		},
+		priority: 1.5,
+		streaming: true,
+		cancellation: true,
+		color: "#0ea5e9",
+		website: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+	},
+	{
 		id: "anthropic",
 		name: "Anthropic",
 		description:

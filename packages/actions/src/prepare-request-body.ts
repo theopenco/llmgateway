@@ -752,6 +752,7 @@ export async function prepareRequestBody(
 	// unsupported enum value.
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
+		usedProvider === "openai-discount" ||
 		usedProvider === "azure" ||
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
@@ -764,7 +765,9 @@ export async function prepareRequestBody(
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (
 		imageGenerations &&
-		(usedProvider === "openai" || usedProvider === "azure")
+		(usedProvider === "openai" ||
+			usedProvider === "openai-discount" ||
+			usedProvider === "azure")
 	) {
 		// Extract prompt and image URLs from last user message
 		const lastUserMessage = [...messages]
@@ -1243,7 +1246,8 @@ export async function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "azure":
-		case "openai": {
+		case "openai":
+		case "openai-discount": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
 			// Otherwise, fall back to checking the model definition.
@@ -1281,7 +1285,7 @@ export async function prepareRequestBody(
 					},
 				};
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "openai-discount") {
 					if (prompt_cache_key !== undefined) {
 						responsesBody.prompt_cache_key = prompt_cache_key;
 					}
@@ -1365,7 +1369,7 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "openai-discount") {
 					if (prompt_cache_key !== undefined) {
 						requestBody.prompt_cache_key = prompt_cache_key;
 					}

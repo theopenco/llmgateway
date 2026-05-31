@@ -745,7 +745,8 @@ export function transformResponseToOpenai(
 		case "azure":
 		case "mistral":
 		case "novita":
-		case "openai": {
+		case "openai":
+		case "openai-discount": {
 			// Handle OpenAI / Azure image generation responses (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string }], usage?: {...} }
 			if (
