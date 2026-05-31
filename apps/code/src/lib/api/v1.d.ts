@@ -653,6 +653,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/providers/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "24h" | "7d" | "30d";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregated per-provider performance stats (uptime, latency, throughput) over the requested window. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providers: {
+                                providerId: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTimeToFirstToken: number | null;
+                                throughput: number | null;
+                                uptime: number | null;
+                                updatedAt: string | null;
+                            }[];
+                            window: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/master/projects": {
         parameters: {
             query?: never;
@@ -2134,7 +2183,7 @@ export interface paths {
                     to?: string;
                     projectId?: string;
                     apiKeyId?: string;
-                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
+                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d" | "365d";
                     groupBy?: "model" | "apiKey";
                 };
                 header?: never;

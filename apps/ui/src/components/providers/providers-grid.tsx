@@ -1,7 +1,15 @@
 "use client";
 
-import { ExternalLink, ArrowRight, ShieldCheck, MapPin } from "lucide-react";
+import {
+	ArrowRight,
+	ExternalLink,
+	MapPin,
+	Search,
+	ShieldCheck,
+	Zap,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 import {
 	Card,
@@ -9,6 +17,15 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { Input } from "@/lib/components/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
+import { useApi } from "@/lib/fetch-client";
 
 import {
 	models as modelDefinitions,
@@ -17,44 +34,174 @@ import {
 } from "@llmgateway/models";
 import { providerLogoUrls } from "@llmgateway/shared/components";
 
+type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
+
 const getProviderLogo = (providerId: ProviderId) => {
 	const LogoComponent = providerLogoUrls[providerId];
-
 	if (LogoComponent) {
 		return <LogoComponent className="h-12 w-12 object-contain" />;
 	}
-
 	return <div className="h-12 w-12 bg-muted rounded-lg" />;
 };
 
-const getModelsCountByProvider = () => {
+const getModelsCountByProvider = (): Record<string, number> => {
 	const counts: Record<string, number> = {};
-
 	for (const model of modelDefinitions) {
 		for (const providerMapping of model.providers) {
 			const providerId = providerMapping.providerId;
 			counts[providerId] = (counts[providerId] || 0) + 1;
 		}
 	}
-
 	return counts;
 };
 
 const modelCounts = getModelsCountByProvider();
 
-const sortedProviders = [...providerDefinitions]
-	.filter((p) => p.name !== "LLM Gateway" && p.id !== "custom")
-	.sort((a, b) => {
-		const countA = modelCounts[a.id] || 0;
-		const countB = modelCounts[b.id] || 0;
-		return countB - countA;
-	});
+const baseProviders = providerDefinitions.filter(
+	(p) => p.name !== "LLM Gateway" && p.id !== "custom",
+);
 
 const totalModels = modelDefinitions.length;
-const totalProviders = sortedProviders.length;
+const totalProviders = baseProviders.length;
+
+function formatTtft(ms: number | null | undefined): string {
+	if (ms === null || ms === undefined) {
+		return "—";
+	}
+	if (ms < 1000) {
+		return `${Math.round(ms)}ms`;
+	}
+	return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function formatUptime(pct: number | null | undefined): string {
+	if (pct === null || pct === undefined) {
+		return "—";
+	}
+	return `${pct.toFixed(2)}%`;
+}
+
+function speedBadge(ttft: number | null | undefined) {
+	if (ttft === null || ttft === undefined) {
+		return null;
+	}
+	if (ttft < 350) {
+		return {
+			label: "Blazing",
+			className:
+				"bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/20",
+		};
+	}
+	if (ttft < 800) {
+		return {
+			label: "Fast",
+			className: "bg-sky-500/10 text-sky-600 dark:text-sky-400 ring-sky-500/20",
+		};
+	}
+	if (ttft < 1800) {
+		return {
+			label: "Steady",
+			className:
+				"bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20",
+		};
+	}
+	return {
+		label: "Patient",
+		className:
+			"bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-rose-500/20",
+	};
+}
 
 export function ProvidersGrid() {
 	const router = useRouter();
+	const api = useApi();
+	const [search, setSearch] = useState("");
+	const [sort, setSort] = useState<SortKey>("popular");
+
+	const { data: statsData } = api.useQuery(
+		"get",
+		"/public/providers/stats",
+		{ params: { query: { window: "7d" as const } } },
+		{
+			refetchOnWindowFocus: false,
+			staleTime: 5 * 60_000,
+		},
+	);
+
+	const statsByProvider = useMemo(() => {
+		const map = new Map<
+			string,
+			{
+				uptime: number | null;
+				avgTimeToFirstToken: number | null;
+				throughput: number | null;
+				logsCount: number;
+			}
+		>();
+		if (statsData?.providers) {
+			for (const row of statsData.providers) {
+				map.set(row.providerId, {
+					uptime: row.uptime,
+					avgTimeToFirstToken: row.avgTimeToFirstToken,
+					throughput: row.throughput,
+					logsCount: row.logsCount,
+				});
+			}
+		}
+		return map;
+	}, [statsData]);
+
+	const filteredAndSorted = useMemo(() => {
+		const query = search.trim().toLowerCase();
+
+		const enriched = baseProviders.map((provider) => {
+			const stats = statsByProvider.get(provider.id);
+			return {
+				...provider,
+				stats,
+				modelsCount: modelCounts[provider.id] || 0,
+			};
+		});
+
+		const filtered = query
+			? enriched.filter(
+					(p) =>
+						p.name.toLowerCase().includes(query) ||
+						p.id.toLowerCase().includes(query) ||
+						(p.description?.toLowerCase().includes(query) ?? false),
+				)
+			: enriched;
+
+		const sortValue = (
+			n: number | null | undefined,
+			fallback: number,
+		): number => (n === null || n === undefined ? fallback : n);
+
+		switch (sort) {
+			case "fastest":
+				return [...filtered].sort(
+					(a, b) =>
+						sortValue(a.stats?.avgTimeToFirstToken, Number.POSITIVE_INFINITY) -
+						sortValue(b.stats?.avgTimeToFirstToken, Number.POSITIVE_INFINITY),
+				);
+			case "slowest":
+				return [...filtered].sort(
+					(a, b) =>
+						sortValue(b.stats?.avgTimeToFirstToken, -1) -
+						sortValue(a.stats?.avgTimeToFirstToken, -1),
+				);
+			case "uptime":
+				return [...filtered].sort(
+					(a, b) =>
+						sortValue(b.stats?.uptime, -1) - sortValue(a.stats?.uptime, -1),
+				);
+			case "name":
+				return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+			case "popular":
+			default:
+				return [...filtered].sort((a, b) => b.modelsCount - a.modelsCount);
+		}
+	}, [search, sort, statsByProvider]);
 
 	return (
 		<div className="container mx-auto px-4 pt-60 pb-8">
@@ -73,71 +220,146 @@ export function ProvidersGrid() {
 						<div className="w-2 h-2 bg-blue-500 rounded-full" />
 						<span>{totalModels} Models</span>
 					</div>
+					{statsData?.window && (
+						<div className="flex items-center gap-2">
+							<Zap className="h-3.5 w-3.5 text-amber-500" />
+							<span>Stats from last {statsData.window}</span>
+						</div>
+					)}
 				</div>
 			</header>
 
-			<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-				{sortedProviders.map((provider) => {
-					const modelsCount = modelCounts[provider.id] || 0;
-
-					return (
-						<Card
-							key={provider.id}
-							className="h-full transition-all hover:shadow-md hover:border-primary/50 group cursor-pointer"
-							onClick={() => router.push(`/providers/${provider.id}`)}
-						>
-							<CardHeader className="space-y-4">
-								<div className="flex items-start justify-between">
-									{getProviderLogo(provider.id as ProviderId)}
-									<div className="flex items-center gap-1 text-sm text-muted-foreground group-hover:text-primary transition-colors">
-										<span>View models</span>
-										<ArrowRight className="h-4 w-4" />
-									</div>
-								</div>
-								<div>
-									<CardTitle className="text-xl mb-2">
-										{provider.name}
-									</CardTitle>
-									<CardDescription className="line-clamp-2">
-										{provider.description}
-									</CardDescription>
-								</div>
-								<div className="flex items-center justify-between pt-2 border-t">
-									<div className="flex items-center gap-2">
-										<span className="text-sm font-medium">
-											{modelsCount} model{modelsCount !== 1 ? "s" : ""}
-										</span>
-										{provider.headquarters && (
-											<span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
-												<MapPin className="h-3 w-3" />
-												{provider.headquarters}
-											</span>
-										)}
-										{provider.dataPolicy?.apiTraining === false && (
-											<span className="inline-flex items-center gap-0.5 rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-600 dark:text-green-400">
-												<ShieldCheck className="h-3 w-3" />
-												No training
-											</span>
-										)}
-									</div>
-									{provider.website && (
-										<a
-											href={provider.website}
-											target="_blank"
-											rel="noopener noreferrer"
-											onClick={(e) => e.stopPropagation()}
-											className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
-										>
-											<ExternalLink className="h-3 w-3" />
-											Website
-										</a>
-									)}
-								</div>
-							</CardHeader>
-						</Card>
-					);
-				})}
+			<div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				<div className="relative w-full sm:max-w-md">
+					<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+					<Input
+						type="search"
+						value={search}
+						onChange={(e) => setSearch(e.target.value)}
+						placeholder="Search providers by name or description"
+						className="pl-9"
+					/>
+				</div>
+				<div className="flex items-center gap-2">
+					<span className="text-sm text-muted-foreground hidden sm:inline">
+						Sort by
+					</span>
+					<Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+						<SelectTrigger className="w-[180px]">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="popular">Most models</SelectItem>
+							<SelectItem value="fastest">Fastest (TTFT)</SelectItem>
+							<SelectItem value="slowest">Slowest (TTFT)</SelectItem>
+							<SelectItem value="uptime">Highest uptime</SelectItem>
+							<SelectItem value="name">Name (A–Z)</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
 			</div>
+
+			{filteredAndSorted.length === 0 ? (
+				<div className="rounded-xl border border-dashed py-16 text-center">
+					<p className="text-muted-foreground">
+						No providers match "{search}". Try a different search term.
+					</p>
+				</div>
+			) : (
+				<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+					{filteredAndSorted.map((provider) => {
+						const badge = speedBadge(provider.stats?.avgTimeToFirstToken);
+						return (
+							<Card
+								key={provider.id}
+								className="h-full transition-all hover:shadow-md hover:border-primary/50 group cursor-pointer"
+								onClick={() => router.push(`/providers/${provider.id}`)}
+							>
+								<CardHeader className="space-y-4">
+									<div className="flex items-start justify-between">
+										{getProviderLogo(provider.id as ProviderId)}
+										<div className="flex items-center gap-1 text-sm text-muted-foreground group-hover:text-primary transition-colors">
+											<span>View models</span>
+											<ArrowRight className="h-4 w-4" />
+										</div>
+									</div>
+									<div>
+										<div className="flex items-center gap-2 mb-2">
+											<CardTitle className="text-xl">{provider.name}</CardTitle>
+											{badge && (
+												<span
+													className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${badge.className}`}
+												>
+													{badge.label}
+												</span>
+											)}
+										</div>
+										<CardDescription className="line-clamp-2">
+											{provider.description}
+										</CardDescription>
+									</div>
+
+									{provider.stats &&
+										(provider.stats.avgTimeToFirstToken !== null ||
+											provider.stats.uptime !== null) && (
+											<div className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/30 p-2.5 text-xs">
+												<div>
+													<div className="text-muted-foreground mb-0.5">
+														TTFT
+													</div>
+													<div className="font-mono font-medium tabular-nums">
+														{formatTtft(provider.stats.avgTimeToFirstToken)}
+													</div>
+												</div>
+												<div>
+													<div className="text-muted-foreground mb-0.5">
+														Uptime
+													</div>
+													<div className="font-mono font-medium tabular-nums">
+														{formatUptime(provider.stats.uptime)}
+													</div>
+												</div>
+											</div>
+										)}
+
+									<div className="flex items-center justify-between pt-2 border-t">
+										<div className="flex items-center gap-2">
+											<span className="text-sm font-medium">
+												{provider.modelsCount} model
+												{provider.modelsCount !== 1 ? "s" : ""}
+											</span>
+											{provider.headquarters && (
+												<span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+													<MapPin className="h-3 w-3" />
+													{provider.headquarters}
+												</span>
+											)}
+											{provider.dataPolicy?.apiTraining === false && (
+												<span className="inline-flex items-center gap-0.5 rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-600 dark:text-green-400">
+													<ShieldCheck className="h-3 w-3" />
+													No training
+												</span>
+											)}
+										</div>
+										{provider.website && (
+											<a
+												href={provider.website}
+												target="_blank"
+												rel="noopener noreferrer"
+												onClick={(e) => e.stopPropagation()}
+												className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+											>
+												<ExternalLink className="h-3 w-3" />
+												Website
+											</a>
+										)}
+									</div>
+								</CardHeader>
+							</Card>
+						);
+					})}
+				</div>
+			)}
 		</div>
 	);
 }

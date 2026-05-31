@@ -42,6 +42,7 @@ import { useApi } from "@/lib/fetch-client";
 import type { PlanOption, PlanTier } from "./types";
 import type { DevPlanCycle } from "@llmgateway/shared";
 
+const ActivityHeatmap = dynamic(() => import("./components/ActivityHeatmap"));
 const DashboardIntegrations = dynamic(
 	() => import("./components/DashboardIntegrations"),
 );
@@ -491,6 +492,9 @@ export default function DashboardClient() {
 			<main className="container mx-auto px-4 py-8 max-w-6xl">
 				{hasActivePlan ? (
 					<div className="space-y-10">
+						{/* GitHub-style activity heatmap — first thing the user sees */}
+						<ActivityHeatmap projectId={devPlanStatus?.projectId ?? null} />
+
 						{/* Usage — full-width with metrics + chart */}
 						<UsageOverview
 							projectId={devPlanStatus?.projectId ?? null}
