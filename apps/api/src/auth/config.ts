@@ -539,7 +539,11 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 	instrumentBetterAuth(
 		betterAuth({
 			logger: {
-				log: (level, message, ...args) => {
+				log: (
+					level: "info" | "success" | "warn" | "error" | "debug",
+					message: string,
+					...args: unknown[]
+				) => {
 					const text = `[Better Auth] ${message}`;
 					const effectiveLevel =
 						level === "error" && isClientJsonError(message, args)
