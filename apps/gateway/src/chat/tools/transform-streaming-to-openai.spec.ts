@@ -77,7 +77,7 @@ describe("transformStreamingToOpenai", () => {
 			content_block: { type: "thinking", thinking: "" },
 		},
 		{ type: "content_block_stop" },
-	])("treats Anthropic %s as a handled non-renderable chunk", (chunk) => {
+	])("drops Anthropic %s without warning", (chunk) => {
 		warn.mockClear();
 
 		const result = transformStreamingToOpenai(
@@ -87,17 +87,7 @@ describe("transformStreamingToOpenai", () => {
 			[],
 		);
 
-		expect(result).toMatchObject({
-			object: "chat.completion.chunk",
-			model: "claude-opus-4-8",
-			choices: [
-				{
-					index: 0,
-					delta: { role: "assistant" },
-					finish_reason: null,
-				},
-			],
-		});
+		expect(result).toBeNull();
 		expect(warn).not.toHaveBeenCalled();
 	});
 
