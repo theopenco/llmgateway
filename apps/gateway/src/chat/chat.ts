@@ -28,6 +28,7 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
@@ -44,6 +45,7 @@ import {
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
+import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
@@ -53,6 +55,7 @@ import {
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
+import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
 	createCombinedSignal,
@@ -83,7 +86,6 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	getProviderMetricsForCombinations,
 	type InferSelectModel,
 	isCachingEnabled,
 	metricsKey,
@@ -118,6 +120,7 @@ import {
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
+import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
 	getContentFilterMethod,
@@ -172,7 +175,6 @@ import {
 	type RoutingAttempt,
 	getErrorType,
 	isRetryableErrorType,
-	MAX_RETRIES,
 	providerRetryKey,
 	selectNextProvider,
 	shouldRetryAlternateKey,
@@ -185,6 +187,7 @@ import {
 import {
 	applyExtendedUsageFields,
 	stripRequestScopedMetadataFromOpenAiResponse,
+	toResponseMetadataExtras,
 	transformResponseToOpenai,
 	withCurrentRequestMetadataOnOpenAiResponse,
 } from "./tools/transform-response-to-openai.js";
@@ -194,6 +197,7 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -306,6 +310,7 @@ function collapseProvidersToBestRegionPerProvider(
 		isStreaming: boolean;
 		promptTokens?: number;
 		sessionId?: string;
+		routingConfig?: ResolvedRoutingConfig;
 	},
 ): ProviderModelMapping[] {
 	const providersById = new Map<string, ProviderModelMapping[]>();
@@ -584,30 +589,6 @@ function withUsedApiKeyHash(
 	return {
 		...routingMetadata,
 		usedApiKeyHash,
-	};
-}
-
-function buildRoutingAttempt(
-	provider: string,
-	model: string,
-	statusCode: number,
-	errorType: string,
-	succeeded: boolean,
-	options?: {
-		region?: string;
-		apiKeyHash?: string;
-		logId?: string;
-	},
-): RoutingAttempt {
-	return {
-		provider,
-		model,
-		...(options?.region && { region: options.region }),
-		status_code: statusCode,
-		error_type: errorType,
-		succeeded,
-		...(options?.apiKeyHash && { apiKeyHash: options.apiKeyHash }),
-		...(options?.logId && { logId: options.logId }),
 	};
 }
 
@@ -999,6 +980,10 @@ const completions = createRoute({
 							used_provider: z.string(),
 							used_region: z.string().nullable().optional(),
 							underlying_used_model: z.string(),
+							log_id: z.string().optional(),
+							organization_id: z.string().optional(),
+							project_id: z.string().optional(),
+							discount: z.number().nullable().optional(),
 							routing: z
 								.array(
 									z.object({
@@ -1269,6 +1254,7 @@ chat.openapi(completions, async (c) => {
 		: undefined;
 	const syncLogInsert = responsesContext?.syncInsert ?? false;
 	const logIdOverride = responsesContext?.logId;
+	const finalLogId = logIdOverride ?? shortid();
 	const responsesApiData: unknown = responsesContext?.responsesApiData ?? null;
 
 	// Wrapper that injects Responses API fields into every log entry.
@@ -1418,6 +1404,14 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	const buildFinalResponseMetadata = (discount?: number | null) =>
+		toResponseMetadataExtras({
+			logId: finalLogId,
+			organizationId: project.organizationId,
+			projectId: apiKey.projectId,
+			discount: discount ?? null,
+		});
+
 	// Filter region candidates based on available keys.
 	// - credits mode: only keep regions with env keys (base key → default region only)
 	// - hybrid mode: providers with a DB key keep all regions (user chose their region);
@@ -1485,6 +1479,11 @@ chat.openapi(completions, async (c) => {
 			message: "Organization has been disabled and is no longer accessible",
 		});
 	}
+
+	const routingCfg = await getResolvedRoutingConfig(
+		project.id,
+		organization.plan,
+	);
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -2045,8 +2044,10 @@ chat.openapi(completions, async (c) => {
 				providerId: p.providerId,
 				region: p.region,
 			}));
-			const metricsMap =
-				await getProviderMetricsForCombinations(metricsCombinations);
+			const metricsMap = await getProviderMetricsForRouting(
+				metricsCombinations,
+				routingCfg,
+			);
 			providerAgnosticSelectedProviders =
 				collapseProvidersToBestRegionPerProvider(
 					selectedProviders,
@@ -2056,6 +2057,7 @@ chat.openapi(completions, async (c) => {
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
 						sessionId,
+						routingConfig: routingCfg,
 					},
 				);
 
@@ -2067,6 +2069,7 @@ chat.openapi(completions, async (c) => {
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
 					sessionId,
+					routingConfig: routingCfg,
 				},
 			);
 
@@ -2273,8 +2276,10 @@ chat.openapi(completions, async (c) => {
 						providerId: provider.providerId,
 						region: provider.region,
 					}));
-					const metricsMap =
-						await getProviderMetricsForCombinations(metricsCombinations);
+					const metricsMap = await getProviderMetricsForRouting(
+						metricsCombinations,
+						routingCfg,
+					);
 					const bestRegionResult = getCheapestFromAvailableProviders(
 						eligibleMappings,
 						modelInfo as ModelDefinition & {
@@ -2286,6 +2291,7 @@ chat.openapi(completions, async (c) => {
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
 							sessionId,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -2466,8 +2472,10 @@ chat.openapi(completions, async (c) => {
 							providerId: p.providerId,
 							region: p.region,
 						}));
-						const allMetricsMap =
-							await getProviderMetricsForCombinations(metricsCombinations);
+						const allMetricsMap = await getProviderMetricsForRouting(
+							metricsCombinations,
+							routingCfg,
+						);
 
 						const cheapestResult = getCheapestFromAvailableProviders(
 							candidatesForRouting,
@@ -2477,6 +2485,7 @@ chat.openapi(completions, async (c) => {
 								isStreaming: stream,
 								promptTokens: routingPromptTokens,
 								sessionId,
+								routingConfig: routingCfg,
 							},
 						);
 
@@ -2537,20 +2546,27 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 
 		// Fetch uptime metrics for the requested provider
-		const metricsMap = await getProviderMetricsForCombinations([
-			{
-				modelId: baseModelId,
-				providerId: usedProvider,
-				region: usedRegion,
-			},
-		]);
+		const metricsMap = await getProviderMetricsForRouting(
+			[
+				{
+					modelId: baseModelId,
+					providerId: usedProvider,
+					region: usedRegion,
+				},
+			],
+			routingCfg,
+		);
 
 		const metrics = metricsMap.get(
 			metricsKey(baseModelId, usedProvider, usedRegion),
 		);
 
-		// If we have metrics and uptime is below 90%, route to an alternative
-		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
+		// If we have metrics and uptime is below the configured threshold, route to an alternative
+		if (
+			metrics &&
+			metrics.uptime !== undefined &&
+			metrics.uptime < routingCfg.retry.lowUptimeFallbackThreshold
+		) {
 			const currentUptime = metrics.uptime;
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
@@ -2622,8 +2638,10 @@ chat.openapi(completions, async (c) => {
 							providerId: p.providerId,
 							region: p.region,
 						}));
-						const allMetricsMap =
-							await getProviderMetricsForCombinations(metricsCombinations);
+						const allMetricsMap = await getProviderMetricsForRouting(
+							metricsCombinations,
+							routingCfg,
+						);
 						const providerAgnosticCandidates =
 							collapseProvidersToBestRegionPerProvider(
 								uptimeFallbackCandidates,
@@ -2633,6 +2651,7 @@ chat.openapi(completions, async (c) => {
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
 									sessionId,
+									routingConfig: routingCfg,
 								},
 							);
 
@@ -2663,6 +2682,7 @@ chat.openapi(completions, async (c) => {
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
 									sessionId,
+									routingConfig: routingCfg,
 								},
 							);
 
@@ -2841,8 +2861,10 @@ chat.openapi(completions, async (c) => {
 					providerId: provider.providerId,
 					region: provider.region,
 				}));
-				const metricsMap =
-					await getProviderMetricsForCombinations(metricsCombinations);
+				const metricsMap = await getProviderMetricsForRouting(
+					metricsCombinations,
+					routingCfg,
+				);
 				const providerAgnosticCandidates =
 					collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
@@ -2852,6 +2874,7 @@ chat.openapi(completions, async (c) => {
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
 							sessionId,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -2863,6 +2886,7 @@ chat.openapi(completions, async (c) => {
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
 						sessionId,
+						routingConfig: routingCfg,
 					},
 				);
 
@@ -2873,7 +2897,10 @@ chat.openapi(completions, async (c) => {
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
 
-					if (hysteresisSelectionReason !== "random-exploration") {
+					if (
+						hysteresisSelectionReason !== "random-exploration" &&
+						routingCfg.sticky.enabled
+					) {
 						const preferred = await getPreferredProvider(
 							project.organizationId,
 							modelWithPricing.id,
@@ -2884,6 +2911,7 @@ chat.openapi(completions, async (c) => {
 								preferred,
 								providerAgnosticCandidates,
 								cheapestResult.metadata.providerScores,
+								routingCfg.sticky,
 							);
 							if (stableCandidate) {
 								selectedProvider = stableCandidate;
@@ -2894,6 +2922,7 @@ chat.openapi(completions, async (c) => {
 									modelWithPricing.id,
 									cheapestResult.provider.providerId,
 									cheapestResult.provider.region,
+									routingCfg.sticky,
 								);
 							}
 						} else {
@@ -2902,6 +2931,7 @@ chat.openapi(completions, async (c) => {
 								modelWithPricing.id,
 								cheapestResult.provider.providerId,
 								cheapestResult.provider.region,
+								routingCfg.sticky,
 							);
 						}
 					}
@@ -3061,7 +3091,10 @@ chat.openapi(completions, async (c) => {
 				providerId: provider.providerId,
 				region: provider.region,
 			}));
-			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
+			metricsMap = await getProviderMetricsForRouting(
+				metricsCombinations,
+				routingCfg,
+			);
 		}
 
 		const weightedScores =
@@ -3079,6 +3112,7 @@ chat.openapi(completions, async (c) => {
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
 							sessionId,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -3569,13 +3603,11 @@ chat.openapi(completions, async (c) => {
 	// long-lived credential (kept in usedApiKeyHash above for health tracking)
 	// while the short-lived access token is what travels in the Authorization
 	// header — so swap usedToken here so downstream header builders just work.
-	// Read the env var directly to bypass round-robin comma-splitting (an SA
-	// JSON value contains commas and would otherwise be truncated).
+	// usedToken already holds the selected SA JSON: round-robin no longer
+	// splits a JSON credential on its inner commas, so the selected entry is
+	// used as-is (whether it came from a provider key or the env var).
 	if (usedProvider === "vertex-openai") {
-		const fullSaJson = providerKey
-			? usedToken
-			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
-		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+		usedToken = await getVertexOpenAIAccessToken(usedToken);
 	}
 
 	const contentFilterBlocked =
@@ -3999,6 +4031,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					id: finalLogId,
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
@@ -4052,6 +4085,41 @@ chat.openapi(completions, async (c) => {
 							?.toolResults ?? null,
 				});
 
+				const cachedResponseMetadata = buildFinalResponseMetadata(
+					costs.discount ?? null,
+				);
+				let hasMetadataChunk = false;
+				for (
+					let chunkIndex = cachedStreamingResponse.chunks.length - 1;
+					chunkIndex >= 0;
+					chunkIndex--
+				) {
+					const chunk = cachedStreamingResponse.chunks[chunkIndex];
+					if (!chunk) {
+						continue;
+					}
+					const isMetadataChunk = (() => {
+						if (chunk.data === "[DONE]") {
+							return false;
+						}
+						try {
+							const parsed: unknown = JSON.parse(chunk.data);
+							return (
+								typeof parsed === "object" &&
+								parsed !== null &&
+								!Array.isArray(parsed) &&
+								("usage" in parsed || "metadata" in parsed)
+							);
+						} catch {
+							return false;
+						}
+					})();
+					if (isMetadataChunk) {
+						hasMetadataChunk = true;
+						break;
+					}
+				}
+
 				// Return cached streaming response by replaying chunks with original timing
 				return streamSSE(
 					c,
@@ -4070,8 +4138,49 @@ chat.openapi(completions, async (c) => {
 								});
 							}
 
+							let data = chunk.data;
+							if (hasMetadataChunk && chunk.data !== "[DONE]") {
+								let parsed: Record<string, unknown> | undefined;
+								try {
+									const parsedValue: unknown = JSON.parse(chunk.data);
+									if (
+										typeof parsedValue === "object" &&
+										parsedValue !== null &&
+										!Array.isArray(parsedValue) &&
+										("usage" in parsedValue || "metadata" in parsedValue)
+									) {
+										parsed = parsedValue;
+									}
+								} catch {
+									parsed = undefined;
+								}
+								if (parsed) {
+									const metadata =
+										typeof parsed.metadata === "object" &&
+										parsed.metadata !== null &&
+										!Array.isArray(parsed.metadata)
+											? parsed.metadata
+											: {};
+									data = JSON.stringify({
+										...parsed,
+										metadata: {
+											...metadata,
+											...cachedResponseMetadata,
+										},
+									});
+								}
+							} else if (!hasMetadataChunk && chunk.data === "[DONE]") {
+								// No usage/metadata chunk in the cached stream — emit a
+								// synthetic metadata chunk before [DONE] so consumers always
+								// receive logId, organizationId, projectId, and discount.
+								await stream.writeSSE({
+									data: JSON.stringify({ metadata: cachedResponseMetadata }),
+									id: `${chunk.eventId}-metadata`,
+								});
+							}
+
 							await stream.writeSSE({
-								data: chunk.data,
+								data,
 								id: String(chunk.eventId),
 								event: chunk.event,
 							});
@@ -4094,11 +4203,54 @@ chat.openapi(completions, async (c) => {
 			cacheKey = generateCacheKey(cachePayload);
 			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
 			if (cachedResponse) {
-				const responseForCurrentRequest =
-					withCurrentRequestMetadataOnOpenAiResponse(cachedResponse, requestId);
-
 				// Log the cached request
 				const duration = 0; // No processing time needed
+
+				// Calculate costs for cached response
+				const cachedCosts = await calculateCosts(
+					usedInternalModel,
+					usedProvider,
+					usedRegion ?? null,
+					cachedResponse.usage?.prompt_tokens ?? null,
+					cachedResponse.usage?.completion_tokens ?? null,
+					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
+					undefined,
+					cachedResponse.usage?.reasoning_tokens ?? null,
+					0, // outputImageCount
+					undefined, // imageSize
+					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
+					undefined,
+					null,
+					null,
+					{
+						cacheWriteTokens:
+							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
+							cachedResponse.usage?.prompt_tokens_details
+								?.cache_creation_tokens ??
+							null,
+						cacheWrite1hTokens:
+							cachedResponse.usage?.prompt_tokens_details?.cache_creation
+								?.ephemeral_1h_input_tokens ?? null,
+						audioInputTokens:
+							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
+						explicitCacheUsed,
+					},
+				);
+
+				const responseForCurrentRequest =
+					withCurrentRequestMetadataOnOpenAiResponse(
+						cachedResponse,
+						requestId,
+						{
+							logId: finalLogId,
+							organizationId: project.organizationId,
+							projectId: apiKey.projectId,
+							discount: cachedCosts.discount ?? null,
+						},
+					);
+
 				// Extract plugin IDs for logging (cached non-streaming)
 				const cachedPluginIds = plugins?.map((p) => p.id) ?? [];
 
@@ -4138,39 +4290,6 @@ chat.openapi(completions, async (c) => {
 					undefined, // No plugin results for cached response
 				);
 
-				// Calculate costs for cached response
-				const cachedCosts = await calculateCosts(
-					usedInternalModel,
-					usedProvider,
-					usedRegion ?? null,
-					cachedResponse.usage?.prompt_tokens ?? null,
-					cachedResponse.usage?.completion_tokens ?? null,
-					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
-					undefined,
-					cachedResponse.usage?.reasoning_tokens ?? null,
-					0, // outputImageCount
-					undefined, // imageSize
-					inputImageCount,
-					null, // webSearchCount
-					project.organizationId,
-					undefined,
-					null,
-					null,
-					{
-						cacheWriteTokens:
-							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
-							cachedResponse.usage?.prompt_tokens_details
-								?.cache_creation_tokens ??
-							null,
-						cacheWrite1hTokens:
-							cachedResponse.usage?.prompt_tokens_details?.cache_creation
-								?.ephemeral_1h_input_tokens ?? null,
-						audioInputTokens:
-							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
-						explicitCacheUsed,
-					},
-				);
-
 				// Estimate cached response size based on content to avoid expensive stringify
 				const cachedContent = cachedResponse.choices?.[0]?.message?.content;
 				const cachedReasoningContent =
@@ -4182,6 +4301,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					id: finalLogId,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
@@ -4582,8 +4702,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	const startTime = Date.now();
-	const failedEnvKeyIndicesByProvider = new Map<string, Set<number>>();
-	const failedTrackedKeyIdsByProvider = new Map<string, Set<string>>();
+	const failedKeys = createFailedKeyTracker();
 
 	function rememberFailedKey(
 		providerId: string,
@@ -4594,21 +4713,7 @@ chat.openapi(completions, async (c) => {
 			providerKeyId?: string;
 		},
 	): void {
-		const retryKey = providerRetryKey(providerId, region);
-
-		if (options.envVarName !== undefined && options.configIndex !== undefined) {
-			const failedIndices =
-				failedEnvKeyIndicesByProvider.get(retryKey) ?? new Set<number>();
-			failedIndices.add(options.configIndex);
-			failedEnvKeyIndicesByProvider.set(retryKey, failedIndices);
-		}
-
-		if (options.providerKeyId) {
-			const failedKeyIds =
-				failedTrackedKeyIdsByProvider.get(retryKey) ?? new Set<string>();
-			failedKeyIds.add(options.providerKeyId);
-			failedTrackedKeyIdsByProvider.set(retryKey, failedKeyIds);
-		}
+		failedKeys.remember(providerId, region, options);
 	}
 
 	async function resolveProviderContextForRetry(
@@ -4619,10 +4724,6 @@ chat.openapi(completions, async (c) => {
 		},
 		streamValue: boolean,
 	) {
-		const retryKey = providerRetryKey(
-			providerMapping.providerId,
-			providerMapping.region,
-		);
 		return await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
@@ -4650,8 +4751,14 @@ chat.openapi(completions, async (c) => {
 				hasExistingToolCalls,
 				customProviderName,
 				webSearchEnabled: !!webSearchTool,
-				excludedEnvKeyIndices: failedEnvKeyIndicesByProvider.get(retryKey),
-				excludedProviderKeyIds: failedTrackedKeyIdsByProvider.get(retryKey),
+				excludedEnvKeyIndices: failedKeys.envKeyIndicesFor(
+					providerMapping.providerId,
+					providerMapping.region,
+				),
+				excludedProviderKeyIds: failedKeys.providerKeyIdsFor(
+					providerMapping.providerId,
+					providerMapping.region,
+				),
 				providerCacheControlEnabled,
 			},
 		);
@@ -4977,10 +5084,9 @@ chat.openapi(completions, async (c) => {
 				const routingAttempts: RoutingAttempt[] = [];
 				const failedProviderIds = new Set<string>();
 				let res: Response | undefined;
-				const finalLogId = logIdOverride ?? shortid();
 				for (
 					let retryAttempt = 0;
-					retryAttempt <= MAX_RETRIES;
+					retryAttempt <= routingCfg.retry.maxRetries;
 					retryAttempt++
 				) {
 					const perAttemptStartTime = Date.now();
@@ -5078,6 +5184,7 @@ chat.openapi(completions, async (c) => {
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
 							requestCanBeCanceled ? controller : undefined,
+							routingCfg,
 						);
 
 						res = await fetch(url, {
@@ -5134,6 +5241,7 @@ chat.openapi(completions, async (c) => {
 									failedProviderIds.size -
 									1,
 								usedProvider,
+								maxRetries: routingCfg.retry.maxRetries,
 							});
 							const willRetrySameProvider = sameProviderRetryContext !== null;
 							const willRetryRequest =
@@ -5467,6 +5575,7 @@ chat.openapi(completions, async (c) => {
 									failedProviderIds.size -
 									1,
 								usedProvider,
+								maxRetries: routingCfg.retry.maxRetries,
 							});
 							const willRetrySameProvider = sameProviderRetryContext !== null;
 							const willRetryRequest = willRetrySameProvider || willRetryFetch;
@@ -5709,6 +5818,7 @@ chat.openapi(completions, async (c) => {
 								failedProviderIds.size -
 								1,
 							usedProvider,
+							maxRetries: routingCfg.retry.maxRetries,
 						});
 						const willRetrySameProvider = sameProviderRetryContext !== null;
 						const willRetryRequest =
@@ -6028,6 +6138,7 @@ chat.openapi(completions, async (c) => {
 								failedProviderIds.size -
 								1,
 							usedProvider,
+							maxRetries: routingCfg.retry.maxRetries,
 						});
 						const willRetrySameProvider = sameProviderRetryContext !== null;
 						const willRetryRequest =
@@ -6835,6 +6946,9 @@ chat.openapi(completions, async (c) => {
 											},
 										],
 										usage: finalStreamUsage,
+										metadata: buildFinalResponseMetadata(
+											streamingCosts.discount ?? null,
+										),
 									};
 
 									await writeSSEAndCache({
@@ -8163,6 +8277,9 @@ chat.openapi(completions, async (c) => {
 									});
 									return earlyUsage;
 								})(),
+								metadata: buildFinalResponseMetadata(
+									streamingCostsEarly.discount ?? null,
+								),
 							};
 
 							await writeSSEAndCache({
@@ -8281,6 +8398,9 @@ chat.openapi(completions, async (c) => {
 										...(usedRegion && { used_region: usedRegion }),
 										underlying_used_model: usedInternalModel,
 										routing: routingAttempts,
+										...buildFinalResponseMetadata(
+											streamingCostsEarly.discount ?? null,
+										),
 									},
 								};
 								await writeSSEAndCache({
@@ -8477,7 +8597,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
-						id: routingAttempts.length > 0 ? finalLogId : undefined,
+						id: finalLogId,
 						duration,
 						timeToFirstToken,
 						timeToFirstReasoningToken,
@@ -8666,8 +8786,11 @@ chat.openapi(completions, async (c) => {
 	let isTimeoutFetchError = false;
 	let res: Response | undefined;
 	let duration = 0;
-	const finalLogId = logIdOverride ?? shortid();
-	for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
+	for (
+		let retryAttempt = 0;
+		retryAttempt <= routingCfg.retry.maxRetries;
+		retryAttempt++
+	) {
 		const perAttemptStartTime = Date.now();
 
 		// Type guard: narrow variables that TypeScript widens due to loop reassignment
@@ -8770,8 +8893,12 @@ chat.openapi(completions, async (c) => {
 			const fetchSignal = forceImageStreamUpstream
 				? createStreamingCombinedSignal(
 						requestCanBeCanceled ? controller : undefined,
+						routingCfg,
 					)
-				: createCombinedSignal(requestCanBeCanceled ? controller : undefined);
+				: createCombinedSignal(
+						requestCanBeCanceled ? controller : undefined,
+						routingCfg,
+					);
 
 			res = await fetch(url, {
 				method: "POST",
@@ -8850,6 +8977,7 @@ chat.openapi(completions, async (c) => {
 					failedProviderIds.size -
 					1,
 				usedProvider,
+				maxRetries: routingCfg.retry.maxRetries,
 			});
 			const willRetrySameProvider = sameProviderRetryContext !== null;
 			const willRetryRequest =
@@ -9343,6 +9471,7 @@ chat.openapi(completions, async (c) => {
 					failedProviderIds.size -
 					1,
 				usedProvider,
+				maxRetries: routingCfg.retry.maxRetries,
 			});
 			const willRetrySameProvider = sameProviderRetryContext !== null;
 			const willRetryRequest =
@@ -10279,6 +10408,15 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		audioInputTokens,
 	);
+	const transformedMetadata =
+		transformedResponse.metadata &&
+		typeof transformedResponse.metadata === "object"
+			? transformedResponse.metadata
+			: {};
+	transformedResponse.metadata = {
+		...transformedMetadata,
+		...buildFinalResponseMetadata(costs.discount ?? null),
+	};
 
 	// Extract plugin IDs for logging
 	const pluginIds = plugins?.map((p) => p.id) ?? [];
@@ -10375,7 +10513,7 @@ chat.openapi(completions, async (c) => {
 
 	await insertLogEntry({
 		...baseLogEntry,
-		id: routingAttempts.length > 0 ? finalLogId : undefined,
+		id: finalLogId,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests

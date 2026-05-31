@@ -126,6 +126,16 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.project.id,
 			to: r.videoJob.projectId,
 		}),
+		routingConfig: r.one.routingConfig({
+			from: r.project.id,
+			to: r.routingConfig.projectId,
+		}),
+	},
+	routingConfig: {
+		project: r.one.project({
+			from: r.routingConfig.projectId,
+			to: r.project.id,
+		}),
 	},
 	apiKey: {
 		project: r.one.project({
