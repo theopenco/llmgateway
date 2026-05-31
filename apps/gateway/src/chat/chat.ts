@@ -45,6 +45,7 @@ import {
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
+import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
@@ -54,6 +55,7 @@ import {
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
+import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
 	createCombinedSignal,
@@ -84,7 +86,6 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	getProviderMetricsForCombinations,
 	type InferSelectModel,
 	isCachingEnabled,
 	metricsKey,
@@ -119,6 +120,7 @@ import {
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
+import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
 	getContentFilterMethod,
@@ -173,7 +175,6 @@ import {
 	type RoutingAttempt,
 	getErrorType,
 	isRetryableErrorType,
-	MAX_RETRIES,
 	providerRetryKey,
 	selectNextProvider,
 	shouldRetryAlternateKey,
@@ -196,6 +197,7 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -307,6 +309,7 @@ function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
+		routingConfig?: ResolvedRoutingConfig;
 	},
 ): ProviderModelMapping[] {
 	const providersById = new Map<string, ProviderModelMapping[]>();
@@ -585,30 +588,6 @@ function withUsedApiKeyHash(
 	return {
 		...routingMetadata,
 		usedApiKeyHash,
-	};
-}
-
-function buildRoutingAttempt(
-	provider: string,
-	model: string,
-	statusCode: number,
-	errorType: string,
-	succeeded: boolean,
-	options?: {
-		region?: string;
-		apiKeyHash?: string;
-		logId?: string;
-	},
-): RoutingAttempt {
-	return {
-		provider,
-		model,
-		...(options?.region && { region: options.region }),
-		status_code: statusCode,
-		error_type: errorType,
-		succeeded,
-		...(options?.apiKeyHash && { apiKeyHash: options.apiKeyHash }),
-		...(options?.logId && { logId: options.logId }),
 	};
 }
 
@@ -1490,6 +1469,11 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	const routingCfg = await getResolvedRoutingConfig(
+		project.id,
+		organization.plan,
+	);
+
 	const retryProjectContext = {
 		mode: project.mode,
 		organizationId: project.organizationId,
@@ -2049,8 +2033,10 @@ chat.openapi(completions, async (c) => {
 				providerId: p.providerId,
 				region: p.region,
 			}));
-			const metricsMap =
-				await getProviderMetricsForCombinations(metricsCombinations);
+			const metricsMap = await getProviderMetricsForRouting(
+				metricsCombinations,
+				routingCfg,
+			);
 			providerAgnosticSelectedProviders =
 				collapseProvidersToBestRegionPerProvider(
 					selectedProviders,
@@ -2059,6 +2045,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						routingConfig: routingCfg,
 					},
 				);
 
@@ -2069,6 +2056,7 @@ chat.openapi(completions, async (c) => {
 					metricsMap,
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
+					routingConfig: routingCfg,
 				},
 			);
 
@@ -2275,8 +2263,10 @@ chat.openapi(completions, async (c) => {
 						providerId: provider.providerId,
 						region: provider.region,
 					}));
-					const metricsMap =
-						await getProviderMetricsForCombinations(metricsCombinations);
+					const metricsMap = await getProviderMetricsForRouting(
+						metricsCombinations,
+						routingCfg,
+					);
 					const bestRegionResult = getCheapestFromAvailableProviders(
 						eligibleMappings,
 						modelInfo as ModelDefinition & {
@@ -2287,6 +2277,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -2467,8 +2458,10 @@ chat.openapi(completions, async (c) => {
 							providerId: p.providerId,
 							region: p.region,
 						}));
-						const allMetricsMap =
-							await getProviderMetricsForCombinations(metricsCombinations);
+						const allMetricsMap = await getProviderMetricsForRouting(
+							metricsCombinations,
+							routingCfg,
+						);
 
 						const cheapestResult = getCheapestFromAvailableProviders(
 							candidatesForRouting,
@@ -2477,6 +2470,7 @@ chat.openapi(completions, async (c) => {
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
 								promptTokens: routingPromptTokens,
+								routingConfig: routingCfg,
 							},
 						);
 
@@ -2537,20 +2531,27 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 
 		// Fetch uptime metrics for the requested provider
-		const metricsMap = await getProviderMetricsForCombinations([
-			{
-				modelId: baseModelId,
-				providerId: usedProvider,
-				region: usedRegion,
-			},
-		]);
+		const metricsMap = await getProviderMetricsForRouting(
+			[
+				{
+					modelId: baseModelId,
+					providerId: usedProvider,
+					region: usedRegion,
+				},
+			],
+			routingCfg,
+		);
 
 		const metrics = metricsMap.get(
 			metricsKey(baseModelId, usedProvider, usedRegion),
 		);
 
-		// If we have metrics and uptime is below 90%, route to an alternative
-		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
+		// If we have metrics and uptime is below the configured threshold, route to an alternative
+		if (
+			metrics &&
+			metrics.uptime !== undefined &&
+			metrics.uptime < routingCfg.retry.lowUptimeFallbackThreshold
+		) {
 			const currentUptime = metrics.uptime;
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
@@ -2622,8 +2623,10 @@ chat.openapi(completions, async (c) => {
 							providerId: p.providerId,
 							region: p.region,
 						}));
-						const allMetricsMap =
-							await getProviderMetricsForCombinations(metricsCombinations);
+						const allMetricsMap = await getProviderMetricsForRouting(
+							metricsCombinations,
+							routingCfg,
+						);
 						const providerAgnosticCandidates =
 							collapseProvidersToBestRegionPerProvider(
 								uptimeFallbackCandidates,
@@ -2632,6 +2635,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									routingConfig: routingCfg,
 								},
 							);
 
@@ -2661,6 +2665,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									routingConfig: routingCfg,
 								},
 							);
 
@@ -2839,8 +2844,10 @@ chat.openapi(completions, async (c) => {
 					providerId: provider.providerId,
 					region: provider.region,
 				}));
-				const metricsMap =
-					await getProviderMetricsForCombinations(metricsCombinations);
+				const metricsMap = await getProviderMetricsForRouting(
+					metricsCombinations,
+					routingCfg,
+				);
 				const providerAgnosticCandidates =
 					collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
@@ -2849,6 +2856,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -2859,6 +2867,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						routingConfig: routingCfg,
 					},
 				);
 
@@ -2869,7 +2878,10 @@ chat.openapi(completions, async (c) => {
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
 
-					if (hysteresisSelectionReason !== "random-exploration") {
+					if (
+						hysteresisSelectionReason !== "random-exploration" &&
+						routingCfg.sticky.enabled
+					) {
 						const preferred = await getPreferredProvider(
 							project.organizationId,
 							modelWithPricing.id,
@@ -2880,6 +2892,7 @@ chat.openapi(completions, async (c) => {
 								preferred,
 								providerAgnosticCandidates,
 								cheapestResult.metadata.providerScores,
+								routingCfg.sticky,
 							);
 							if (stableCandidate) {
 								selectedProvider = stableCandidate;
@@ -2890,6 +2903,7 @@ chat.openapi(completions, async (c) => {
 									modelWithPricing.id,
 									cheapestResult.provider.providerId,
 									cheapestResult.provider.region,
+									routingCfg.sticky,
 								);
 							}
 						} else {
@@ -2898,6 +2912,7 @@ chat.openapi(completions, async (c) => {
 								modelWithPricing.id,
 								cheapestResult.provider.providerId,
 								cheapestResult.provider.region,
+								routingCfg.sticky,
 							);
 						}
 					}
@@ -3057,7 +3072,10 @@ chat.openapi(completions, async (c) => {
 				providerId: provider.providerId,
 				region: provider.region,
 			}));
-			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
+			metricsMap = await getProviderMetricsForRouting(
+				metricsCombinations,
+				routingCfg,
+			);
 		}
 
 		const weightedScores =
@@ -3074,6 +3092,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -3564,13 +3583,11 @@ chat.openapi(completions, async (c) => {
 	// long-lived credential (kept in usedApiKeyHash above for health tracking)
 	// while the short-lived access token is what travels in the Authorization
 	// header — so swap usedToken here so downstream header builders just work.
-	// Read the env var directly to bypass round-robin comma-splitting (an SA
-	// JSON value contains commas and would otherwise be truncated).
+	// usedToken already holds the selected SA JSON: round-robin no longer
+	// splits a JSON credential on its inner commas, so the selected entry is
+	// used as-is (whether it came from a provider key or the env var).
 	if (usedProvider === "vertex-openai") {
-		const fullSaJson = providerKey
-			? usedToken
-			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
-		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+		usedToken = await getVertexOpenAIAccessToken(usedToken);
 	}
 
 	const contentFilterBlocked =
@@ -5049,7 +5066,7 @@ chat.openapi(completions, async (c) => {
 				let res: Response | undefined;
 				for (
 					let retryAttempt = 0;
-					retryAttempt <= MAX_RETRIES;
+					retryAttempt <= routingCfg.retry.maxRetries;
 					retryAttempt++
 				) {
 					const perAttemptStartTime = Date.now();
@@ -5147,6 +5164,7 @@ chat.openapi(completions, async (c) => {
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
 							requestCanBeCanceled ? controller : undefined,
+							routingCfg,
 						);
 
 						res = await fetch(url, {
@@ -5203,6 +5221,7 @@ chat.openapi(completions, async (c) => {
 									failedProviderIds.size -
 									1,
 								usedProvider,
+								maxRetries: routingCfg.retry.maxRetries,
 							});
 							const willRetrySameProvider = sameProviderRetryContext !== null;
 							const willRetryRequest =
@@ -5536,6 +5555,7 @@ chat.openapi(completions, async (c) => {
 									failedProviderIds.size -
 									1,
 								usedProvider,
+								maxRetries: routingCfg.retry.maxRetries,
 							});
 							const willRetrySameProvider = sameProviderRetryContext !== null;
 							const willRetryRequest = willRetrySameProvider || willRetryFetch;
@@ -5778,6 +5798,7 @@ chat.openapi(completions, async (c) => {
 								failedProviderIds.size -
 								1,
 							usedProvider,
+							maxRetries: routingCfg.retry.maxRetries,
 						});
 						const willRetrySameProvider = sameProviderRetryContext !== null;
 						const willRetryRequest =
@@ -6097,6 +6118,7 @@ chat.openapi(completions, async (c) => {
 								failedProviderIds.size -
 								1,
 							usedProvider,
+							maxRetries: routingCfg.retry.maxRetries,
 						});
 						const willRetrySameProvider = sameProviderRetryContext !== null;
 						const willRetryRequest =
@@ -8744,7 +8766,11 @@ chat.openapi(completions, async (c) => {
 	let isTimeoutFetchError = false;
 	let res: Response | undefined;
 	let duration = 0;
-	for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
+	for (
+		let retryAttempt = 0;
+		retryAttempt <= routingCfg.retry.maxRetries;
+		retryAttempt++
+	) {
 		const perAttemptStartTime = Date.now();
 
 		// Type guard: narrow variables that TypeScript widens due to loop reassignment
@@ -8847,8 +8873,12 @@ chat.openapi(completions, async (c) => {
 			const fetchSignal = forceImageStreamUpstream
 				? createStreamingCombinedSignal(
 						requestCanBeCanceled ? controller : undefined,
+						routingCfg,
 					)
-				: createCombinedSignal(requestCanBeCanceled ? controller : undefined);
+				: createCombinedSignal(
+						requestCanBeCanceled ? controller : undefined,
+						routingCfg,
+					);
 
 			res = await fetch(url, {
 				method: "POST",
@@ -8927,6 +8957,7 @@ chat.openapi(completions, async (c) => {
 					failedProviderIds.size -
 					1,
 				usedProvider,
+				maxRetries: routingCfg.retry.maxRetries,
 			});
 			const willRetrySameProvider = sameProviderRetryContext !== null;
 			const willRetryRequest =
@@ -9420,6 +9451,7 @@ chat.openapi(completions, async (c) => {
 					failedProviderIds.size -
 					1,
 				usedProvider,
+				maxRetries: routingCfg.retry.maxRetries,
 			});
 			const willRetrySameProvider = sameProviderRetryContext !== null;
 			const willRetryRequest =
