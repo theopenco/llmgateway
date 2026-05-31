@@ -292,6 +292,31 @@ export function transformStreamingToOpenai(
 					],
 					usage: normalizeAnthropicUsage(usage),
 				};
+			} else if (
+				data.type === "content_block_start" ||
+				data.type === "content_block_stop"
+			) {
+				// Text/thinking/redacted_thinking blocks open with a
+				// content_block_start that carries no renderable delta (the actual
+				// content arrives in subsequent content_block_delta chunks), and
+				// every block closes with a content_block_stop. Neither has an
+				// OpenAI-chunk equivalent, so emit an empty assistant delta.
+				transformedData = {
+					id: data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
 			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
 				const stopReason = data.delta.stop_reason;
 				transformedData = {
