@@ -292,6 +292,16 @@ export function transformStreamingToOpenai(
 					],
 					usage: normalizeAnthropicUsage(usage),
 				};
+			} else if (
+				data.type === "content_block_start" ||
+				data.type === "content_block_stop"
+			) {
+				// Text/thinking/redacted_thinking blocks open with a
+				// content_block_start and close with a content_block_stop. Neither
+				// carries renderable content or usage (that arrives in the
+				// content_block_delta and message_delta chunks), so drop them
+				// instead of forwarding an empty assistant delta.
+				return null;
 			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
 				const stopReason = data.delta.stop_reason;
 				transformedData = {

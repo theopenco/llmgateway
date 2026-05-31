@@ -438,7 +438,9 @@ function AmountStep({
 											🎉{" "}
 											{feeData.bonusType === "second_topup"
 												? "Second top-up bonus"
-												: "First-time bonus"}
+												: feeData.bonusType === "referral"
+													? "Referral bonus"
+													: "First-time bonus"}
 										</span>
 										<span className="tabular-nums">
 											+${feeData.bonusAmount.toFixed(2)}
@@ -1131,7 +1133,9 @@ function ConfirmPaymentStep({
 										🎉{" "}
 										{feeData.bonusType === "second_topup"
 											? "Second top-up bonus"
-											: "First-time bonus"}
+											: feeData.bonusType === "referral"
+												? "Referral bonus"
+												: "First-time bonus"}
 									</span>
 									<span>+${feeData.bonusAmount.toFixed(2)}</span>
 								</div>

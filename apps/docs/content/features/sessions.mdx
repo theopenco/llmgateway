@@ -1,0 +1,71 @@
+---
+title: Sessions
+description: Group related requests into a session to keep provider routing sticky and to observe a conversation end-to-end in the activity log.
+icon: Fingerprint
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Sessions
+
+A **session** ties together the requests that belong to the same conversation or workflow. By attaching a stable session identifier to your requests, LLMGateway can treat them as a unit — keeping provider routing consistent across turns and letting you trace and filter the whole conversation in the dashboard.
+
+Sessions are the foundation for several features. Today they power **sticky provider routing** and **session-level observability**; more session-scoped capabilities will build on the same identifier over time.
+
+## Setting the session id
+
+For chat completions, the session key is resolved in priority order — the first present value wins:
+
+1. The `x-session-id` header
+2. The `x-session-affinity` header (sent automatically by coding agents such as opencode)
+3. The `prompt_cache_key` body field (OpenAI-compatible)
+4. The `user` body field (OpenAI-compatible)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-session-id: conversation-9f8e7d6c" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+Reuse the same session id for every request in a conversation. If you don't set any of the values above, the request simply has no session and behaves exactly as before.
+
+### Anthropic Messages endpoint
+
+For the [Anthropic Messages endpoint](/features/anthropic-endpoint) (`/v1/messages`), the session key is derived automatically from `metadata.user_id`. Coding agents such as Claude Code send a JSON object there (e.g. `{"session_id":"<uuid>",…}`); the gateway uses its `session_id` field. An explicit `x-session-id` header still takes precedence.
+
+## Sticky provider routing
+
+When a model is served by multiple providers, requests are normally scored independently, so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix reach the **same** provider.
+
+With a session id set, LLMGateway pins all requests for that session to a single provider (and region) using deterministic [rendezvous hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing). The session stays on that provider — bypassing the weighted score and the epsilon-greedy exploration — and only moves when its provider leaves the available pool (health filtering or a failed request dropped by retry/fallback). Rendezvous hashing keeps the reshuffle minimal: only sessions pinned to the departed provider move.
+
+See [Routing → Sticky Session Routing](/features/routing) for the full algorithm, fallback behavior, and the `session-sticky` routing-metadata reason.
+
+Session stickiness is **on by default**. Enterprise projects can turn it off per project under **Settings → Routing → Session Stickiness**; when disabled, every request is scored independently regardless of session id (the id is still recorded for observability).
+
+<Callout type="info">
+	Sticky routing optimizes for cache locality over per-request price. A session
+	stays on its provider even if a cheaper or faster alternative is momentarily
+	available, since the prompt-cache savings typically outweigh the difference.
+</Callout>
+
+## Observing sessions in the activity log
+
+Every request is logged with its resolved session id. In the dashboard **Activity** view you can:
+
+- See the **Session ID** on each request's metadata, alongside the request and trace IDs.
+- **Filter by session id** using the search field next to the custom-metadata search, to pull up every request that belongs to a conversation in one place.
+
+This makes it easy to follow a full conversation end-to-end — inspecting how each turn was routed, what it cost, and which provider served it.
+
+<Callout type="info">
+	The session id is distinct from freeform [metadata](/features/metadata). Use
+	metadata custom headers for arbitrary tags (user, tenant, app version); use
+	the session id for the one value that should keep a conversation pinned and
+	traceable.
+</Callout>

@@ -101,6 +101,8 @@ To solve the "cold start problem" where new or unused providers never get traffi
 - The system adapts to changing provider performance
 - You benefit from improved routing decisions over time
 
+The exploration rate is configurable per project through the routing configuration (`thresholds.explorationRate`), and self-hosted deployments can override it globally with the `EXPLORATION_RATE` environment variable (a number between `0` and `1`).
+
 **Stable Provider Preference**:
 
 To avoid unnecessary churn between providers that score similarly, LLMGateway remembers the best provider chosen for each model and sticks with it across requests — even if another provider edges ahead slightly on the next score calculation.
@@ -111,7 +113,7 @@ On every routing decision, the system checks whether the previously selected pro
 - **Score margin soft switch**: the preferred provider is replaced only when a better option's score is more than **0.15** ahead. Small fluctuations caused by metric noise or minor price differences do not trigger a switch.
 - **Periodic re-evaluation**: the preference expires after **1 hour**, at which point the next request picks the best-scoring provider fresh and stores it as the new preferred.
 
-Requests that are part of the 1% epsilon-greedy exploration bypass this preference entirely so that all providers continue to receive periodic traffic and build up metrics.
+Requests that are part of the epsilon-greedy exploration bypass this preference entirely so that all providers continue to receive periodic traffic and build up metrics.
 
 The selection reason in routing metadata will show `stable-preferred` when a request was served by the stored preference rather than the top-scored provider at that moment.
 
@@ -145,6 +147,58 @@ This transparency allows you to understand and debug routing decisions.
 	Smart routing prioritizes reliability over cost, ensuring your requests are
 	routed to providers with proven uptime and performance, while still
 	considering cost efficiency.
+</Callout>
+
+### Sticky Session Routing
+
+When a model is served by multiple providers, every request is normally scored independently — so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix hit the **same** provider.
+
+Sticky session routing solves this: attach a session identifier and LLMGateway pins all requests for that session to a single provider (and region), keeping the upstream prompt cache warm across the whole conversation.
+
+#### Setting the session id
+
+For chat completions, the session key is resolved in priority order:
+
+1. The `x-session-id` header
+2. The `prompt_cache_key` body field (OpenAI-compatible)
+3. The `user` body field (OpenAI-compatible)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-session-id: conversation-9f8e7d6c" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived automatically from `metadata.user_id` — coding agents such as Claude Code embed the session id there — and forwarded internally. An explicit `x-session-id` header still takes precedence.
+
+#### How pinning works
+
+When a session id is present, the provider (and region) is chosen **deterministically** using [rendezvous hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing) over the available providers, rather than the weighted score. The same session always maps to the same provider as long as that provider remains available.
+
+Because the choice is deterministic per session, sticky requests **bypass both the weighted scoring and the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
+
+#### Falling back when a provider is down
+
+Stickiness yields only when the pinned provider is effectively unavailable. A session is re-pinned to another provider when its provider:
+
+- Is filtered out by health checks (e.g. excluded for low uptime), or
+- Fails the request and is dropped by the [automatic retry & fallback](#automatic-retry--fallback) loop.
+
+Rendezvous hashing guarantees a **minimal-disruption** reshuffle: when one provider drops out, only the sessions pinned to that provider move — every other session keeps its provider. When the provider recovers and re-enters the available pool, affected sessions pin back to it.
+
+The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
+
+<Callout type="info">
+	Sticky routing optimizes for cache locality over per-request price. A session
+	stays on its provider even if a cheaper or faster alternative is momentarily
+	available, since the prompt-cache savings typically outweigh the difference.
+	Requests without a session id are unaffected and continue to use the weighted
+	smart-routing algorithm.
 </Callout>
 
 ### Provider-Specific Routing

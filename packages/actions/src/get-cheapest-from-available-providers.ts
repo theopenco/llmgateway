@@ -140,7 +140,54 @@ export interface ProviderSelectionOptions {
 	 * weighted score.
 	 */
 	promptTokens?: number;
+	/**
+	 * Sticky-routing session identifier. When provided, the provider (and
+	 * region) is chosen deterministically via rendezvous hashing so that all
+	 * requests for the same session pin to the same provider, maximizing
+	 * upstream prompt-cache hits. Price/uptime scoring is bypassed; the session
+	 * only moves to another provider when its pinned provider is no longer in
+	 * the available list (e.g. excluded by health filtering or removed by the
+	 * retry-fallback loop after the provider failed).
+	 */
+	sessionId?: string;
 	routingConfig?: ResolvedRoutingConfig;
+}
+
+/**
+ * FNV-1a 32-bit hash mapped to the unit interval [0, 1). Deterministic across
+ * processes, no crypto needed.
+ */
+function hashToUnitInterval(input: string): number {
+	let hash = 0x811c9dc5;
+	for (let i = 0; i < input.length; i++) {
+		hash ^= input.charCodeAt(i);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0) / 0xffffffff;
+}
+
+/**
+ * Rendezvous (highest-random-weight) hashing: deterministically pick one
+ * provider for a session. Unlike modulo hashing, removing a provider only
+ * reassigns the sessions that were pinned to it — every other session keeps
+ * its provider.
+ */
+function selectStickyProvider<T extends AvailableModelProvider>(
+	providers: T[],
+	sessionId: string,
+): T {
+	let best = providers[0];
+	let bestWeight = -1;
+	for (const provider of providers) {
+		const weight = hashToUnitInterval(
+			`${sessionId}|${provider.providerId}|${provider.region ?? ""}`,
+		);
+		if (weight > bestWeight) {
+			bestWeight = weight;
+			best = provider;
+		}
+	}
+	return best;
 }
 
 function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
@@ -336,6 +383,56 @@ export function getCheapestFromAvailableProviders<
 
 	if (stableProviders.length === 0) {
 		return null;
+	}
+
+	// Sticky routing: when a session id is provided (and session stickiness is
+	// enabled for the project), pin the session to a single provider via
+	// rendezvous hashing. Bypasses scoring and exploration so the upstream
+	// prompt cache stays warm; the session only moves if its provider leaves
+	// the available list (health filtering or retry-fallback exclusion).
+	const sessionId = options?.sessionId?.trim();
+	if (sessionId && cfg.session.enabled) {
+		const stickyProvider = selectStickyProvider(stableProviders, sessionId);
+		return {
+			provider: stickyProvider,
+			metadata: {
+				availableProviders: stableProviders.map((p) => p.providerId),
+				selectedProvider: stickyProvider.providerId,
+				selectionReason: "session-sticky",
+				providerScores: stableProviders.map((provider) => {
+					const providerInfo = findProviderMapping(
+						modelWithPricing.providers,
+						provider,
+					);
+					const providerDef = getProviderDefinition(provider.providerId);
+					const priority = providerDef?.priority ?? 1;
+					const metrics = metricsMap?.get(
+						metricsKey(
+							modelWithPricing.id,
+							provider.providerId,
+							provider.region,
+						),
+					);
+
+					return {
+						providerId: provider.providerId,
+						region: provider.region,
+						score: 0,
+						uptime: metrics?.uptime,
+						latency: metrics?.averageLatency,
+						throughput: metrics?.throughput,
+						price: getProviderSelectionPrice(
+							providerInfo,
+							videoPricing,
+						).toNumber(),
+						priority,
+						cacheSupported: providerSupportsCaching(
+							providerInfo as ProviderModelMapping | undefined,
+						),
+					};
+				}),
+			},
+		};
 	}
 
 	// Epsilon-greedy exploration: randomly select a provider some % of the time

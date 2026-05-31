@@ -1126,6 +1126,11 @@ export const ChatUI = ({
 			filename?: string | null;
 		}>,
 	) => {
+		if (isActive) {
+			stop();
+			return;
+		}
+
 		if (isBusy) {
 			return;
 		}
@@ -1804,11 +1809,6 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{isActive ? (
-								<PromptInputButton onClick={() => stop()} variant="ghost">
-									Stop
-								</PromptInputButton>
-							) : null}
 							<PromptInputSubmit
 								status={
 									status === "streaming"
@@ -1817,7 +1817,7 @@ export const ChatUI = ({
 											? "submitted"
 											: "ready"
 								}
-								disabled={isBusy}
+								disabled={isLoading}
 							/>
 						</div>
 					</PromptInputToolbar>
