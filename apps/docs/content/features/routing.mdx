@@ -65,14 +65,16 @@ Providers with uptime below 95% receive an additional exponential penalty that i
 
 This ensures providers experiencing significant issues are strongly deprioritized while minor fluctuations have minimal impact.
 
-**Epsilon-Greedy Exploration** (1% of requests):
+**Epsilon-Greedy Exploration** (1% of requests by default):
 
-To solve the "cold start problem" where new or unused providers never get traffic to build up metrics, the system randomly explores different providers 1% of the time. This ensures:
+To solve the "cold start problem" where new or unused providers never get traffic to build up metrics, the system randomly explores different providers a small fraction of the time (1% by default). This ensures:
 
 - All providers periodically receive traffic
 - New providers can prove their reliability
 - The system adapts to changing provider performance
 - You benefit from improved routing decisions over time
+
+The exploration rate is configurable per project through the routing configuration (`thresholds.explorationRate`), and self-hosted deployments can override it globally with the `EXPLORATION_RATE` environment variable (a number between `0` and `1`).
 
 **Stable Provider Preference**:
 
@@ -84,7 +86,7 @@ On every routing decision, the system checks whether the previously selected pro
 - **Score margin soft switch**: the preferred provider is replaced only when a better option's score is more than **0.15** ahead. Small fluctuations caused by metric noise or minor price differences do not trigger a switch.
 - **Periodic re-evaluation**: the preference expires after **1 hour**, at which point the next request picks the best-scoring provider fresh and stores it as the new preferred.
 
-Requests that are part of the 1% epsilon-greedy exploration bypass this preference entirely so that all providers continue to receive periodic traffic and build up metrics.
+Requests that are part of the epsilon-greedy exploration bypass this preference entirely so that all providers continue to receive periodic traffic and build up metrics.
 
 The selection reason in routing metadata will show `stable-preferred` when a request was served by the stored preference rather than the top-scored provider at that moment.
 
@@ -149,7 +151,7 @@ For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived
 
 When a session id is present, the provider (and region) is chosen **deterministically** using [rendezvous hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing) over the available providers, rather than the weighted score. The same session always maps to the same provider as long as that provider remains available.
 
-Because the choice is deterministic per session, sticky requests **bypass both the weighted scoring and the 1% epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
+Because the choice is deterministic per session, sticky requests **bypass both the weighted scoring and the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
 #### Falling back when a provider is down
 
