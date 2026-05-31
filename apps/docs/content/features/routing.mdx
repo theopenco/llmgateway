@@ -34,24 +34,42 @@ Choose a specific model ID to route to the **best available provider** for that 
 
 #### Smart Routing Algorithm
 
-When you use a model ID without a provider prefix, LLMGateway's intelligent routing system analyzes multiple factors to select the best provider:
+When you use a model ID without a provider prefix, LLMGateway's intelligent routing system analyzes multiple factors to select the best provider.
 
-**Weighted Scoring System** (based on last 5 minutes of metrics):
+**Weighted Scoring System**:
 
-- **Uptime (50%)** - Prioritizes providers with high reliability and low error rates
-- **Throughput (20%)** - Favors providers with higher tokens per second generation speed
-- **Price (20%)** - Considers cost efficiency while maintaining quality
-- **Latency (10%)** - Considers time to first token (only applied for streaming requests)
+Each factor has a **relative weight**. The factors are scored as ratios against the best provider in the candidate set (e.g. a provider that is twice as expensive as the cheapest scores `1.0` on price), and each ratio is multiplied by its weight divided by the sum of all active weights. The provider with the lowest (best) total score wins.
 
-The algorithm calculates a weighted score for each available provider and selects the one with the lowest (best) score. All metrics are normalized to ensure fair comparison across providers.
+The default weights are:
+
+| Factor          | Default weight | Notes                                                                      |
+| --------------- | -------------- | -------------------------------------------------------------------------- |
+| **Price**       | `0.6`          | Cost efficiency (average of input and output price)                        |
+| **Uptime**      | `0.5`          | Provider reliability / low error rate                                      |
+| **Throughput**  | `0.05`         | Tokens per second generation speed                                         |
+| **Latency**     | `0.025`        | Time to first token — **only applied for streaming requests**              |
+| **Cache**       | `0.2`          | Prompt-cache support — **only applied for large prompts** (≥ 5,000 tokens) |
+| **Image price** | `1.0`          | Replaces the price weight for image-generation models                      |
+
+Because the weights are relative and normalized by the sum of the active weights, price and uptime dominate routing decisions in practice, while throughput and latency act as tie-breakers between otherwise comparable providers.
 
 **Latency Weight for Non-Streaming Requests**:
 
-For non-streaming requests, the latency weight (10%) is redistributed proportionally to the other factors since time-to-first-token is less relevant when waiting for the complete response.
+The latency weight only applies to streaming requests (time-to-first-token is only measured there). For non-streaming requests the latency weight is dropped and its share is redistributed proportionally across the remaining factors.
+
+**Time-Decayed Metrics Window**:
+
+Provider metrics (uptime, throughput, latency) are not a flat "last N minutes" snapshot. They are aggregated over a rolling **60-minute window** with a time-decay weighting so very recent behavior dominates while older data still contributes:
+
+- The most recent **1 minute** is weighted **10×**
+- The most recent **5 minutes** are weighted **3×**
+- The remainder of the 60-minute window is weighted **1×**
+
+This makes routing react quickly to a provider that just started failing or slowing down, without overreacting to a single noisy data point.
 
 **Cache Support for Large Prompts**:
 
-When the estimated prompt is at least 5,000 tokens, an additional 20% weight is added to the score for whether each provider supports prompt caching (advertised via a cached input price). Providers that support caching score better than ones that do not, since caching can substantially reduce the cost of large or repeated prompts. Below the 5k threshold, this weight is dropped entirely — caching has little impact on small prompts, so cache support is ignored. The selected provider's cache support is exposed as `cacheSupported` on the routing metadata.
+When the estimated prompt is at least 5,000 tokens, the **cache weight** (default `0.2`) is factored into the score based on whether each provider supports prompt caching (advertised via a cached input price). Providers that support caching score better than ones that do not, since caching can substantially reduce the cost of large or repeated prompts. Below the 5,000-token threshold, this weight is dropped entirely — caching has little impact on small prompts, so cache support is ignored. The selected provider's cache support is exposed as `cacheSupported` on the routing metadata.
 
 **Exponential Uptime Penalty**:
 
@@ -63,11 +81,20 @@ Providers with uptime below 95% receive an additional exponential penalty that i
 - 70% uptime: ~1.73 penalty
 - 50% uptime: ~5.61 penalty
 
-This ensures providers experiencing significant issues are strongly deprioritized while minor fluctuations have minimal impact.
+This ensures providers experiencing significant issues are strongly deprioritized while minor fluctuations have minimal impact. The penalty threshold (default `95%`) is configurable.
 
-**Epsilon-Greedy Exploration** (1% of requests):
+**Provider Priority**:
 
-To solve the "cold start problem" where new or unused providers never get traffic to build up metrics, the system randomly explores different providers 1% of the time. This ensures:
+Each provider has a **priority** value (default `1`) that nudges routing toward or away from it independently of live metrics:
+
+- A provider's priority is applied as a `(1 - priority)` adjustment to its score — higher priority lowers the score (more preferred), lower priority raises it (less preferred).
+- A priority of **0** disables the provider entirely, removing it from routing for that model.
+
+Provider priorities are surfaced in the routing metadata so you can see how they influenced a decision.
+
+**Epsilon-Greedy Exploration** (1% of requests by default):
+
+To solve the "cold start problem" where new or unused providers never get traffic to build up metrics, the system randomly explores different providers a small fraction of the time (default 1%, configurable). This ensures:
 
 - All providers periodically receive traffic
 - New providers can prove their reliability
@@ -93,7 +120,9 @@ The selection reason in routing metadata will show `stable-preferred` when a req
 	variables: `PREFERRED_PROVIDER_TTL` (preference lifetime in seconds, default
 	`3600`), `PREFERRED_PROVIDER_UPTIME_THRESHOLD` (hard-switch uptime floor,
 	default `85`), and `PREFERRED_PROVIDER_SCORE_MARGIN` (soft-switch score gap,
-	default `0.15`).
+	default `0.15`). On the **Enterprise plan**, these same values can be
+	customized per project from the dashboard — see [Per-Project Routing
+	Configuration](#per-project-routing-configuration-enterprise).
 </Callout>
 
 **Routing Metadata**:
@@ -102,7 +131,7 @@ Every request includes detailed routing metadata in the logs, showing:
 
 - Available providers that were considered
 - Selected provider and selection reason
-- Scores for each provider (including uptime, throughput, latency, and price)
+- Scores for each provider (including uptime, throughput, latency, price, priority, and cache support)
 
 This transparency allows you to understand and debug routing decisions.
 
@@ -185,7 +214,7 @@ Routing metadata reflects this:
 
 #### Low-Uptime Protection
 
-When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (last 5 minutes). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues.
+When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (from the time-decayed metrics window described above). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues. The fallback threshold (default `90%`) is configurable.
 
 <Callout type="info">
 	If the requested provider has low uptime but no alternative providers are
@@ -309,6 +338,29 @@ Failed attempts still count against the provider's uptime score, even when the r
 	Automatic retry and fallback works together with smart routing to provide
 	self-healing behavior. Failing providers are automatically avoided, and your
 	requests are transparently recovered on reliable alternatives.
+</Callout>
+
+## Per-Project Routing Configuration (Enterprise)
+
+The values described above — scoring weights, thresholds, retry behavior, the metrics window, sticky-routing, and per-provider priorities — are the **defaults** that apply to every project. On the **Enterprise plan**, you can override any of them **per project** from the dashboard under **Project Settings → Routing**. Projects on other plans always use the defaults.
+
+Overrides are merged on top of the defaults, so you only set the values you want to change. When a custom configuration is disabled, the project falls back to the defaults.
+
+The following groups can be customized per project:
+
+| Group                   | What it controls                                                                                                                        | Defaults                                                                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Weights**             | Relative importance of each scoring factor                                                                                              | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0.2`                                             |
+| **Thresholds**          | Cache prompt-size threshold, uptime-penalty threshold, exploration rate, and the assumed defaults used when no metrics exist            | `cachePromptTokens 5000`, `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
+| **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                               | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                          |
+| **Timeouts**            | Per-request time limits (end-to-end, streaming, non-streaming). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                        |
+| **History**             | The metrics window and the time-decay tier boundaries and weights                                                                       | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                     |
+| **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                             | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                              |
+| **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                 | `1` for every provider                                                                                                                   |
+
+<Callout type="info">
+	Per-project routing configuration requires the Enterprise plan. If you'd like
+	to tune routing for your workloads, contact us at contact@llmgateway.io.
 </Callout>
 
 ## Optimized Auto Routing
