@@ -188,6 +188,7 @@ export const providers: ProviderDefinition[] = [
 				baseUrl: "LLM_ANTHROPIC_DISCOUNT_BASE_URL",
 			},
 		},
+		priority: 1.5,
 		streaming: true,
 		cancellation: true,
 		color: "#8b5cf6",
