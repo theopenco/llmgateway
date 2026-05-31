@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "042b8e82-754e-44b0-b20f-4d8ad69d00f6",
+  "id": "7e49ee98-3929-4e17-8c48-50abb9ab7ee2",
   "prevId": "8d80d306-dcf4-485f-b49d-a976e199ea0e",
   "ddl": [
     {
@@ -18832,13 +18832,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "chat_support_message"
-    },
-    {
-      "value": "\"referral_bonus_percent\" >= 0 AND \"referral_bonus_percent\" <= 1000",
-      "name": "organization_referral_bonus_percent_range_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "organization"
     }
   ],
   "renames": []
