@@ -7084,6 +7084,7 @@ const modelProviderMappingEntrySchema = z.object({
 	gatewayErrorsCount: z.number(),
 	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
+	cost: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
@@ -7114,6 +7115,7 @@ const getModelProviderMappings = createRoute({
 					"clientErrorsCount",
 					"gatewayErrorsCount",
 					"upstreamErrorsCount",
+					"cost",
 					"avgTimeToFirstToken",
 					"updatedAt",
 				])
@@ -7209,6 +7211,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
+					cost: sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
+						"cost",
+					),
 				})
 				.from(modelProviderMappingHistory)
 				.where(
@@ -7235,6 +7240,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 					upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 					cachedCount: tables.modelProviderMapping.cachedCount,
+					// Cost is only tracked in the history table, so it is only
+					// available when a date range is provided (mirrors the models list).
+					cost: sql<number>`0`.as("cost"),
 				})
 				.from(tables.modelProviderMapping)
 				.as("mapping_stats_sub");
@@ -7286,6 +7294,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		clientErrorsCount: sql`COALESCE(${statsJoin.clientErrorsCount}, 0)`,
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
+		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
 		avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
@@ -7328,6 +7337,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				cachedCount: sql<number>`COALESCE(${statsJoin.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
+				cost: sql<number>`COALESCE(${statsJoin.cost}, 0)`.as("cost"),
 				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
 				inputPrice: tables.modelProviderMapping.inputPrice,
 				outputPrice: tables.modelProviderMapping.outputPrice,
@@ -7364,6 +7374,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			gatewayErrorsCount: Number(r.gatewayErrorsCount ?? 0),
 			upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 			cachedCount: Number(r.cachedCount ?? 0),
+			cost: Number(r.cost ?? 0),
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			inputPrice: r.inputPrice,
 			outputPrice: r.outputPrice,
