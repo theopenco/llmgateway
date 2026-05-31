@@ -9065,7 +9065,7 @@ export interface paths {
                             bonusEligible: boolean;
                             bonusIneligibilityReason?: string;
                             /** @enum {string} */
-                            bonusType?: "first_purchase" | "second_topup";
+                            bonusType?: "first_purchase" | "second_topup" | "referral";
                             secondTopupBonusExpiresInDays?: number;
                         };
                     };

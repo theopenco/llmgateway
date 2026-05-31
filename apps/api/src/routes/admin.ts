@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
 import { maskToken } from "@/lib/maskToken.js";
+import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import { notDevpassFilter } from "@/utils/devpass-filter.js";
@@ -1816,7 +1817,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
 			referralBonusEnabled: org.referralBonusEnabled,
-			referralBonusPercent: Number(org.referralBonusPercent),
+			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
 		},
 		transactions: transactions.map((t) => ({
 			id: t.id,

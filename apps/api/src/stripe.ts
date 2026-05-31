@@ -10,6 +10,7 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
+import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
 import {
@@ -939,43 +940,6 @@ function getBonusLabel(bonusType: BonusType | null): string {
 		default:
 			return "first-time bonus";
 	}
-}
-
-/**
- * Computes the referral signup bonus for an organization's first top-up.
- * The bonus is configured on the referrer organization and only applies when
- * the organization was referred (signed up via a referral link).
- */
-async function computeReferralBonus(
-	organizationId: string,
-	creditAmount: number,
-): Promise<number> {
-	const referralRecord = await db.query.referral.findFirst({
-		where: {
-			referredOrganizationId: { eq: organizationId },
-		},
-	});
-
-	if (!referralRecord) {
-		return 0;
-	}
-
-	const referrerOrg = await db.query.organization.findFirst({
-		where: {
-			id: { eq: referralRecord.referrerOrganizationId },
-		},
-	});
-
-	if (!referrerOrg || !referrerOrg.referralBonusEnabled) {
-		return 0;
-	}
-
-	const percent = Number(referrerOrg.referralBonusPercent);
-	if (!Number.isFinite(percent) || percent <= 0) {
-		return 0;
-	}
-
-	return creditAmount * (percent / 100);
 }
 
 async function applyFirstTimeBonus({

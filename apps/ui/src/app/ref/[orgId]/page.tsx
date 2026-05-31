@@ -1,38 +1,26 @@
 import { ArrowRight, Check, Gift, Sparkles } from "lucide-react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { RefCookieSetter } from "@/components/ref-cookie-setter";
-import { AuthLink } from "@/components/shared/auth-link";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { Card, CardContent } from "@/lib/components/card";
-import { getConfig } from "@/lib/config-server";
+import { createServerApiClient } from "@/lib/server-api";
 
 import type { Metadata } from "next";
+import type { Route } from "next";
 
-interface ReferralInfo {
-	id: string;
-	name: string;
-	referralBonusEnabled: boolean;
-	referralBonusPercent: number;
-}
-
-async function fetchReferralInfo(orgId: string): Promise<ReferralInfo | null> {
-	const { apiUrl } = getConfig();
-	try {
-		const res = await fetch(`${apiUrl}/referral/${encodeURIComponent(orgId)}`, {
-			cache: "no-store",
-		});
-		if (!res.ok) {
-			return null;
-		}
-		return (await res.json()) as ReferralInfo;
-	} catch {
-		return null;
-	}
-}
+const fetchReferralInfo = cache(async (orgId: string) => {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/referral/{orgId}", {
+		params: { path: { orgId } },
+	});
+	return data ?? null;
+});
 
 export async function generateMetadata({
 	params,
@@ -79,6 +67,11 @@ export default async function ReferralLandingPage({
 	}
 
 	const hasBonus = info.referralBonusEnabled && info.referralBonusPercent > 0;
+
+	// Include ?ref= so attribution still works if the cookie POST is blocked or
+	// the user clicks before the RefCookieSetter effect runs; the signup page's
+	// ReferralHandler picks the param up.
+	const signupHref = `/signup?ref=${encodeURIComponent(info.id)}` as Route;
 
 	return (
 		<div className="min-h-screen bg-background text-foreground">
@@ -137,10 +130,10 @@ export default async function ReferralLandingPage({
 								className="group h-12 px-8 text-base font-medium"
 								asChild
 							>
-								<AuthLink href="/signup">
+								<Link href={signupHref}>
 									Accept invite
 									<ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-								</AuthLink>
+								</Link>
 							</Button>
 						</div>
 					</div>
@@ -171,10 +164,10 @@ export default async function ReferralLandingPage({
 								className="group h-12 px-8 text-base font-medium"
 								asChild
 							>
-								<AuthLink href="/signup">
+								<Link href={signupHref}>
 									Get started
 									<ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-								</AuthLink>
+								</Link>
 							</Button>
 						</div>
 					</div>

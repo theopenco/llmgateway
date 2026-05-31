@@ -210,6 +210,10 @@ export const organization = pgTable(
 		index("organization_dev_plan_card_fingerprint_idx").on(
 			table.devPlanCardFingerprint,
 		),
+		check(
+			"organization_referral_bonus_percent_range_check",
+			sql`${table.referralBonusPercent} >= 0 AND ${table.referralBonusPercent} <= 1000`,
+		),
 	],
 );
 

@@ -2,23 +2,16 @@
 
 import { useEffect } from "react";
 
-import { useAppConfig } from "@/lib/config";
+import { useFetchClient } from "@/lib/fetch-client";
 
 export function RefCookieSetter({ orgId }: { orgId: string }) {
-	const { apiUrl } = useAppConfig();
+	const fetchClient = useFetchClient();
 
 	useEffect(() => {
-		fetch(`${apiUrl}/referral`, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			credentials: "include",
-			body: JSON.stringify({ ref: orgId }),
-		}).catch(() => {
+		fetchClient.POST("/referral", { body: { ref: orgId } }).catch(() => {
 			// Silently fail - referral tracking is not critical
 		});
-	}, [apiUrl, orgId]);
+	}, [fetchClient, orgId]);
 
 	return null;
 }

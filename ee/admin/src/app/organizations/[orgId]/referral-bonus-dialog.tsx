@@ -43,7 +43,11 @@ export function ReferralBonusDialog({
 
 	const handleSubmit = async () => {
 		const parsed = parseFloat(percentValue);
-		if (isNaN(parsed) || parsed < 0 || parsed > 1000) {
+		const isValidPercent = !isNaN(parsed) && parsed >= 0 && parsed <= 1000;
+
+		// Only block on an invalid percent when the bonus is being enabled;
+		// disabling should always succeed regardless of the (disabled) input.
+		if (isEnabled && !isValidPercent) {
 			setError("Percent must be a number between 0 and 1000");
 			return;
 		}
@@ -51,7 +55,10 @@ export function ReferralBonusDialog({
 		setLoading(true);
 		setError(null);
 
-		const result = await onSave({ enabled: isEnabled, percent: parsed });
+		const result = await onSave({
+			enabled: isEnabled,
+			percent: isValidPercent ? parsed : percent,
+		});
 
 		setLoading(false);
 

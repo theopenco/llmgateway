@@ -1,6 +1,8 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+
 import { db } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -121,7 +123,7 @@ referral.openapi(referralInfoRoute, async (c) => {
 			id: org.id,
 			name: org.name,
 			referralBonusEnabled: org.referralBonusEnabled,
-			referralBonusPercent: Number(org.referralBonusPercent),
+			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
 		},
 		200,
 	);
