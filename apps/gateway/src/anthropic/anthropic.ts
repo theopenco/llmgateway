@@ -14,7 +14,14 @@ import type { ServerTypes } from "@/vars.js";
 export const anthropic = new OpenAPIHono<ServerTypes>();
 
 const anthropicMessageSchema = z.object({
-	role: z.enum(["user", "assistant", "tool", "function"]),
+	role: z.enum([
+		"system",
+		"developer",
+		"user",
+		"assistant",
+		"tool",
+		"function",
+	]),
 	content: z.union([
 		z.string(),
 		z.array(
