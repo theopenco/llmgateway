@@ -1,8 +1,10 @@
 "use client";
 
 import {
+	Activity,
 	ArrowRight,
 	ExternalLink,
+	Gauge,
 	MapPin,
 	Search,
 	ShieldCheck,
@@ -39,9 +41,13 @@ type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
 const getProviderLogo = (providerId: ProviderId) => {
 	const LogoComponent = providerLogoUrls[providerId];
 	if (LogoComponent) {
-		return <LogoComponent className="h-12 w-12 object-contain" />;
+		return (
+			<div className="flex size-12 shrink-0 items-center justify-center overflow-hidden">
+				<LogoComponent className="max-h-12 max-w-12 object-contain" />
+			</div>
+		);
 	}
-	return <div className="h-12 w-12 bg-muted rounded-lg" />;
+	return <div className="size-12 shrink-0 rounded-lg bg-muted" />;
 };
 
 const getModelsCountByProvider = (): Record<string, number> => {
@@ -90,12 +96,14 @@ function speedBadge(ttft: number | null | undefined) {
 			label: "Blazing",
 			className:
 				"bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/20",
+			dot: "bg-emerald-500",
 		};
 	}
 	if (ttft < 800) {
 		return {
 			label: "Fast",
 			className: "bg-sky-500/10 text-sky-600 dark:text-sky-400 ring-sky-500/20",
+			dot: "bg-sky-500",
 		};
 	}
 	if (ttft < 1800) {
@@ -103,12 +111,14 @@ function speedBadge(ttft: number | null | undefined) {
 			label: "Steady",
 			className:
 				"bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20",
+			dot: "bg-amber-500",
 		};
 	}
 	return {
 		label: "Patient",
 		className:
 			"bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-rose-500/20",
+		dot: "bg-rose-500",
 	};
 }
 
@@ -272,29 +282,37 @@ export function ProvidersGrid() {
 						return (
 							<Card
 								key={provider.id}
-								className="h-full transition-all hover:shadow-md hover:border-primary/50 group cursor-pointer"
+								className="group relative flex h-full cursor-pointer flex-col overflow-hidden border-border/60 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
 								onClick={() => router.push(`/providers/${provider.id}`)}
 							>
-								<CardHeader className="space-y-4">
-									<div className="flex items-start justify-between">
+								<div
+									aria-hidden
+									className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-primary/10 opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100"
+								/>
+								<CardHeader className="flex flex-1 flex-col gap-4">
+									<div className="flex items-start justify-between gap-3">
 										{getProviderLogo(provider.id as ProviderId)}
-										<div className="flex items-center gap-1 text-sm text-muted-foreground group-hover:text-primary transition-colors">
-											<span>View models</span>
-											<ArrowRight className="h-4 w-4" />
-										</div>
+										<span className="inline-flex shrink-0 items-center gap-1 text-sm text-muted-foreground transition-colors group-hover:text-primary">
+											View models
+											<ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
+										</span>
 									</div>
-									<div>
-										<div className="flex items-center gap-2 mb-2">
+
+									<div className="space-y-2">
+										<div className="flex flex-wrap items-center gap-2">
 											<CardTitle className="text-xl">{provider.name}</CardTitle>
 											{badge && (
 												<span
-													className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${badge.className}`}
+													className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${badge.className}`}
 												>
+													<span
+														className={`h-1.5 w-1.5 rounded-full ${badge.dot}`}
+													/>
 													{badge.label}
 												</span>
 											)}
 										</div>
-										<CardDescription className="line-clamp-2">
+										<CardDescription className="line-clamp-2 leading-relaxed">
 											{provider.description}
 										</CardDescription>
 									</div>
@@ -302,57 +320,67 @@ export function ProvidersGrid() {
 									{provider.stats &&
 										(provider.stats.avgTimeToFirstToken !== null ||
 											provider.stats.uptime !== null) && (
-											<div className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/30 p-2.5 text-xs">
-												<div>
-													<div className="text-muted-foreground mb-0.5">
-														TTFT
-													</div>
-													<div className="font-mono font-medium tabular-nums">
-														{formatTtft(provider.stats.avgTimeToFirstToken)}
+											<div className="grid grid-cols-2 divide-x divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-muted/30">
+												<div className="flex items-center gap-2.5 p-3">
+													<Gauge className="h-4 w-4 shrink-0 text-muted-foreground/70" />
+													<div className="min-w-0">
+														<div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+															TTFT
+														</div>
+														<div className="font-mono text-sm font-semibold tabular-nums">
+															{formatTtft(provider.stats.avgTimeToFirstToken)}
+														</div>
 													</div>
 												</div>
-												<div>
-													<div className="text-muted-foreground mb-0.5">
-														Uptime
-													</div>
-													<div className="font-mono font-medium tabular-nums">
-														{formatUptime(provider.stats.uptime)}
+												<div className="flex items-center gap-2.5 p-3">
+													<Activity className="h-4 w-4 shrink-0 text-muted-foreground/70" />
+													<div className="min-w-0">
+														<div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+															Uptime
+														</div>
+														<div className="font-mono text-sm font-semibold tabular-nums">
+															{formatUptime(provider.stats.uptime)}
+														</div>
 													</div>
 												</div>
 											</div>
 										)}
 
-									<div className="flex items-center justify-between pt-2 border-t">
-										<div className="flex items-center gap-2">
-											<span className="text-sm font-medium">
-												{provider.modelsCount} model
-												{provider.modelsCount !== 1 ? "s" : ""}
+									<div className="mt-auto flex items-end justify-between gap-3 border-t border-border/60 pt-4">
+										<div className="flex flex-col">
+											<span className="text-lg font-semibold leading-none tabular-nums">
+												{provider.modelsCount}
 											</span>
+											<span className="mt-1 text-xs text-muted-foreground">
+												{provider.modelsCount === 1 ? "model" : "models"}
+											</span>
+										</div>
+										<div className="flex flex-wrap items-center justify-end gap-1.5">
 											{provider.headquarters && (
-												<span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
 													<MapPin className="h-3 w-3" />
 													{provider.headquarters}
 												</span>
 											)}
 											{provider.dataPolicy?.apiTraining === false && (
-												<span className="inline-flex items-center gap-0.5 rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-600 dark:text-green-400">
+												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
 													<ShieldCheck className="h-3 w-3" />
 													No training
 												</span>
 											)}
+											{provider.website && (
+												<a
+													href={provider.website}
+													target="_blank"
+													rel="noopener noreferrer"
+													onClick={(e) => e.stopPropagation()}
+													className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+												>
+													<ExternalLink className="h-3 w-3" />
+													Website
+												</a>
+											)}
 										</div>
-										{provider.website && (
-											<a
-												href={provider.website}
-												target="_blank"
-												rel="noopener noreferrer"
-												onClick={(e) => e.stopPropagation()}
-												className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
-											>
-												<ExternalLink className="h-3 w-3" />
-												Website
-											</a>
-										)}
 									</div>
 								</CardHeader>
 							</Card>
