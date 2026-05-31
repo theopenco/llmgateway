@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "15ac033a-7d27-40c5-bf77-7bceaab74dd4",
+  "id": "8d80d306-dcf4-485f-b49d-a976e199ea0e",
   "prevId": "3d0a067b-70a1-46d7-9838-4a78ffbca540",
   "ddl": [
     {
@@ -13014,6 +13014,19 @@
       "generated": null,
       "identity": null,
       "name": "sticky",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_config"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "session",
       "entityType": "columns",
       "schema": "public",
       "table": "routing_config"
