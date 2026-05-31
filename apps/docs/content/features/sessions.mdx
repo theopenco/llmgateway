@@ -17,8 +17,9 @@ Sessions are the foundation for several features. Today they power **sticky prov
 For chat completions, the session key is resolved in priority order — the first present value wins:
 
 1. The `x-session-id` header
-2. The `prompt_cache_key` body field (OpenAI-compatible)
-3. The `user` body field (OpenAI-compatible)
+2. The `x-session-affinity` header (sent automatically by coding agents such as opencode)
+3. The `prompt_cache_key` body field (OpenAI-compatible)
+4. The `user` body field (OpenAI-compatible)
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \

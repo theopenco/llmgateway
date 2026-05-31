@@ -1159,11 +1159,14 @@ chat.openapi(completions, async (c) => {
 		user,
 	} = validationResult.data;
 
-	// Sticky-routing session key: explicit header wins, then OpenAI-native body
-	// fields (prompt_cache_key, then user). When present, provider selection
-	// pins this session to a single provider to keep upstream prompt caches warm.
+	// Sticky-routing session key, in priority order: the explicit x-session-id
+	// header, then x-session-affinity (sent by coding agents such as opencode),
+	// then the OpenAI-native body fields (prompt_cache_key, then user). When
+	// present, provider selection pins this session to a single provider to keep
+	// upstream prompt caches warm.
 	const sessionId =
 		c.req.header("x-session-id")?.trim() ||
+		c.req.header("x-session-affinity")?.trim() ||
 		prompt_cache_key ||
 		user ||
 		undefined;
