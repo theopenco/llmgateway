@@ -1715,6 +1715,7 @@ export interface paths {
                     customHeaderKey?: string;
                     customHeaderValue?: string;
                     requestId?: string;
+                    sessionId?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1841,6 +1842,7 @@ export interface paths {
                                 /** @enum {string} */
                                 usedMode: "api-keys" | "credits";
                                 source: string | null;
+                                sessionId?: string | null;
                                 routingMetadata?: {
                                     availableProviders?: string[];
                                     selectedProvider?: string;
@@ -2096,6 +2098,7 @@ export interface paths {
                                 /** @enum {string} */
                                 usedMode: "api-keys" | "credits";
                                 source: string | null;
+                                sessionId?: string | null;
                                 routingMetadata?: {
                                     availableProviders?: string[];
                                     selectedProvider?: string;
@@ -11770,6 +11773,9 @@ export interface paths {
                                 uptimeThreshold?: number;
                                 scoreMargin?: number;
                             } | null;
+                            session: {
+                                enabled?: boolean;
+                            } | null;
                             providerPriorities: {
                                 [key: string]: number;
                             } | null;
@@ -11832,6 +11838,9 @@ export interface paths {
                             uptimeThreshold?: number;
                             scoreMargin?: number;
                         } | null;
+                        session?: {
+                            enabled?: boolean;
+                        } | null;
                         providerPriorities?: {
                             [key: string]: number;
                         } | null;
@@ -11887,6 +11896,9 @@ export interface paths {
                                 ttlSeconds?: number;
                                 uptimeThreshold?: number;
                                 scoreMargin?: number;
+                            } | null;
+                            session: {
+                                enabled?: boolean;
                             } | null;
                             providerPriorities: {
                                 [key: string]: number;
@@ -12008,6 +12020,9 @@ export interface paths {
                                 uptimeThreshold: number;
                                 scoreMargin: number;
                             };
+                            session: {
+                                enabled: boolean;
+                            };
                             providerPriorities: {
                                 [key: string]: number;
                             };
@@ -12087,6 +12102,9 @@ export interface paths {
                                 ttlSeconds: number;
                                 uptimeThreshold: number;
                                 scoreMargin: number;
+                            };
+                            session: {
+                                enabled: boolean;
                             };
                             providerPriorities: {
                                 [key: string]: number;

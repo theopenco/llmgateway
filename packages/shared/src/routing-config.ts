@@ -49,6 +49,15 @@ export interface RoutingStickyConfig {
 	scoreMargin?: number;
 }
 
+export interface RoutingSessionConfig {
+	/**
+	 * When false, the project ignores session ids for provider selection:
+	 * requests are scored normally instead of being pinned to the session's
+	 * provider. Defaults to true.
+	 */
+	enabled?: boolean;
+}
+
 export type ProviderPriorityOverrides = Record<string, number>;
 
 export interface RoutingConfigOverrides {
@@ -59,6 +68,7 @@ export interface RoutingConfigOverrides {
 	timeouts?: RoutingTimeoutsConfig | null;
 	history?: RoutingHistoryConfig | null;
 	sticky?: RoutingStickyConfig | null;
+	session?: RoutingSessionConfig | null;
 	providerPriorities?: ProviderPriorityOverrides | null;
 }
 
@@ -75,6 +85,7 @@ export interface ResolvedRoutingConfig {
 	timeouts: RoutingTimeoutsConfig;
 	history: Required<RoutingHistoryConfig>;
 	sticky: Required<RoutingStickyConfig>;
+	session: Required<RoutingSessionConfig>;
 	providerPriorities: ProviderPriorityOverrides;
 }
 
@@ -117,6 +128,10 @@ export const DEFAULT_ROUTING_STICKY: Required<RoutingStickyConfig> = {
 	ttlSeconds: 3600,
 	uptimeThreshold: 85,
 	scoreMargin: 0.15,
+};
+
+export const DEFAULT_ROUTING_SESSION: Required<RoutingSessionConfig> = {
+	enabled: true,
 };
 
 /**
@@ -270,6 +285,7 @@ export function resolveRoutingConfig(
 		sticky: clampSticky(
 			mergeGroup(DEFAULT_ROUTING_STICKY, effectiveOverrides?.sticky),
 		),
+		session: mergeGroup(DEFAULT_ROUTING_SESSION, effectiveOverrides?.session),
 		providerPriorities,
 	};
 }

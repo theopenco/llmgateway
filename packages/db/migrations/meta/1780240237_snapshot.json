@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2bc86a43-42cc-4b1d-aafe-0edb96123d04",
-  "prevId": "3d0a067b-70a1-46d7-9838-4a78ffbca540",
+  "id": "b1f035db-3374-4b21-b343-d7e8b2f3bfe0",
+  "prevId": "8d80d306-dcf4-485f-b49d-a976e199ea0e",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -6398,6 +6398,19 @@
       "generated": null,
       "identity": null,
       "name": "source",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "session_id",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
@@ -13045,6 +13058,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "session",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_config"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "provider_priorities",
       "entityType": "columns",
       "schema": "public",
@@ -15842,6 +15868,41 @@
       "method": "btree",
       "concurrently": false,
       "name": "log_project_id_used_model_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "session_id IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_project_id_session_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"

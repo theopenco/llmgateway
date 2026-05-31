@@ -109,6 +109,19 @@ describe("resolveRoutingConfig", () => {
 		expect(resolved.sticky).toEqual(DEFAULT_ROUTING_STICKY);
 	});
 
+	it("defaults session stickiness to enabled", () => {
+		const resolved = resolveRoutingConfig(null, providerDefaults);
+		expect(resolved.session.enabled).toBe(true);
+	});
+
+	it("merges a session-stickiness override", () => {
+		const resolved = resolveRoutingConfig(
+			{ session: { enabled: false } },
+			providerDefaults,
+		);
+		expect(resolved.session.enabled).toBe(false);
+	});
+
 	it("clamps timeout overrides down to the infra ceiling", () => {
 		const resolved = resolveRoutingConfig(
 			{
