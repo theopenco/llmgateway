@@ -342,6 +342,7 @@ function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
+		sessionId?: string;
 		routingConfig?: ResolvedRoutingConfig;
 	},
 ): ProviderModelMapping[] {
@@ -1155,7 +1156,20 @@ chat.openapi(completions, async (c) => {
 		effort,
 		web_search,
 		plugins,
+		user,
 	} = validationResult.data;
+
+	// Sticky-routing session key, in priority order: the explicit x-session-id
+	// header, then x-session-affinity (sent by coding agents such as opencode),
+	// then the OpenAI-native body fields (prompt_cache_key, then user). When
+	// present, provider selection pins this session to a single provider to keep
+	// upstream prompt caches warm.
+	const sessionId =
+		c.req.header("x-session-id")?.trim() ||
+		c.req.header("x-session-affinity")?.trim() ||
+		prompt_cache_key ||
+		user ||
+		undefined;
 	let {
 		messages,
 		temperature,
@@ -2132,6 +2146,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						sessionId,
 						routingConfig: routingCfg,
 					},
 				);
@@ -2143,6 +2158,7 @@ chat.openapi(completions, async (c) => {
 					metricsMap,
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
+					sessionId,
 					routingConfig: routingCfg,
 				},
 			);
@@ -2364,6 +2380,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							sessionId,
 							routingConfig: routingCfg,
 						},
 					);
@@ -2560,6 +2577,7 @@ chat.openapi(completions, async (c) => {
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
 								promptTokens: routingPromptTokens,
+								sessionId,
 								routingConfig: routingCfg,
 							},
 						);
@@ -2730,6 +2748,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									sessionId,
 									routingConfig: routingCfg,
 								},
 							);
@@ -2760,6 +2779,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									sessionId,
 									routingConfig: routingCfg,
 								},
 							);
@@ -2942,6 +2962,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							sessionId,
 							routingConfig: routingCfg,
 						},
 					);
@@ -2953,6 +2974,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						sessionId,
 						routingConfig: routingCfg,
 					},
 				);
@@ -3181,6 +3203,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							sessionId,
 							routingConfig: routingCfg,
 						},
 					);
@@ -3714,6 +3737,7 @@ chat.openapi(completions, async (c) => {
 		_insertLog(
 			{
 				...logData,
+				sessionId: logData.sessionId ?? sessionId ?? null,
 				internalContentFilter: shouldTagContentFilter
 					? true
 					: logData.internalContentFilter,

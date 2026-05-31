@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	blockOrganization,
 	giftCreditsToOrganization,
+	updateReferralBonus,
 } from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -37,6 +38,7 @@ import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
 import { ProviderKeysTable } from "./provider-keys-table";
+import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SendEmailDialog } from "./send-email-dialog";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -256,6 +258,15 @@ export default async function OrganizationPage({
 						onGift={async (data) => {
 							"use server";
 							return await giftCreditsToOrganization(orgId, data);
+						}}
+					/>
+					<ReferralBonusDialog
+						orgName={org.name}
+						enabled={org.referralBonusEnabled ?? false}
+						percent={org.referralBonusPercent ?? 50}
+						onSave={async (data) => {
+							"use server";
+							return await updateReferralBonus(orgId, data);
 						}}
 					/>
 					<Button variant="outline" size="sm" asChild>

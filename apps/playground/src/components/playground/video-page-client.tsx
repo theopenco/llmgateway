@@ -543,6 +543,9 @@ export default function VideoPageClient({
 			});
 
 			const itemId = crypto.randomUUID();
+			const modelsToGenerate = comparisonMode
+				? selectedModels
+				: selectedModels.slice(0, 1);
 
 			const placeholderItem: VideoGalleryItem = {
 				id: itemId,
@@ -552,7 +555,7 @@ export default function VideoPageClient({
 					frameInputs.start || frameInputs.end ? { ...frameInputs } : undefined,
 				referenceImages:
 					referenceImages.length > 0 ? [...referenceImages] : undefined,
-				models: selectedModels.map((modelId) => ({
+				models: modelsToGenerate.map((modelId) => ({
 					modelId,
 					modelName: getModelName(modelId),
 					job: null,
@@ -571,9 +574,9 @@ export default function VideoPageClient({
 			});
 			setReferenceImages([]);
 
-			pendingRef.current = selectedModels.length;
+			pendingRef.current = modelsToGenerate.length;
 
-			for (const modelId of selectedModels) {
+			for (const modelId of modelsToGenerate) {
 				const noFallback = shouldDisableFallback(modelId);
 				const controllerKey = `${itemId}-${modelId}`;
 				const controller = new AbortController();
@@ -758,6 +761,7 @@ export default function VideoPageClient({
 		setFrameInputs({ start: null, end: null });
 		setReferenceImages([]);
 		setIsGenerating(false);
+		setComparisonMode(false);
 		pendingRef.current = 0;
 		const params = new URLSearchParams(window.location.search);
 		params.delete("id");
