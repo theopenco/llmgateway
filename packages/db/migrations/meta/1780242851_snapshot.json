@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8d80d306-dcf4-485f-b49d-a976e199ea0e",
+  "id": "c3206790-f26f-452a-a613-bf4dbb86455f",
   "prevId": "3d0a067b-70a1-46d7-9838-4a78ffbca540",
   "ddl": [
     {
@@ -15836,41 +15836,6 @@
       "method": "btree",
       "concurrently": false,
       "name": "log_project_id_used_model_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "project_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "session_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": "session_id IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "log_project_id_session_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"
