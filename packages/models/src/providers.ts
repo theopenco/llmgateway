@@ -67,7 +67,7 @@ export interface ProviderDefinition {
 	dataPolicy?: ProviderDataPolicy | null;
 }
 
-export const providers = [
+export const providers: ProviderDefinition[] = [
 	{
 		id: "llmgateway",
 		name: "LLM Gateway",

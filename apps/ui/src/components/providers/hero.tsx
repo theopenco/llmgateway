@@ -28,10 +28,12 @@ function DataPolicyBadge({
 	value,
 	labelTrue,
 	labelFalse,
+	dangerIfTrue = false,
 }: {
 	value: boolean | null;
 	labelTrue: string;
 	labelFalse: string;
+	dangerIfTrue?: boolean;
 }) {
 	if (value === null) {
 		return (
@@ -40,16 +42,20 @@ function DataPolicyBadge({
 			</span>
 		);
 	}
-	if (value) {
+
+	const isDanger = dangerIfTrue ? value : !value;
+
+	if (isDanger) {
 		return (
 			<span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-xs text-red-600 dark:text-red-400">
-				{labelTrue}
+				{value ? labelTrue : labelFalse}
 			</span>
 		);
 	}
+
 	return (
 		<span className="inline-flex items-center gap-1 rounded-md bg-green-500/10 px-2 py-1 text-xs text-green-600 dark:text-green-400">
-			{labelFalse}
+			{value ? labelTrue : labelFalse}
 		</span>
 	);
 }
@@ -139,6 +145,7 @@ export function Hero({ providerId }: HeroProps) {
 												value={provider.dataPolicy.apiTraining}
 												labelTrue="Yes"
 												labelFalse="No"
+												dangerIfTrue
 											/>
 										</div>
 										<div className="flex items-center gap-2">
@@ -150,6 +157,7 @@ export function Hero({ providerId }: HeroProps) {
 												value={provider.dataPolicy.consumerTraining}
 												labelTrue="Yes"
 												labelFalse="No"
+												dangerIfTrue
 											/>
 										</div>
 										<div className="flex items-center gap-2">
@@ -161,6 +169,7 @@ export function Hero({ providerId }: HeroProps) {
 												value={provider.dataPolicy.promptLogging}
 												labelTrue="Yes"
 												labelFalse="No"
+												dangerIfTrue
 											/>
 										</div>
 										{provider.dataPolicy.retentionPeriod !== undefined && (
@@ -172,6 +181,41 @@ export function Hero({ providerId }: HeroProps) {
 												<span className="font-medium">
 													{provider.dataPolicy.retentionPeriod ?? "Unknown"}
 												</span>
+											</div>
+										)}
+										{provider.dataPolicy.gdpr !== undefined && (
+											<div className="flex items-center gap-2">
+												<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+												<span className="text-muted-foreground">GDPR:</span>
+												<DataPolicyBadge
+													value={provider.dataPolicy.gdpr}
+													labelTrue="Compliant"
+													labelFalse="No"
+												/>
+											</div>
+										)}
+										{provider.dataPolicy.soc2 !== undefined && (
+											<div className="flex items-center gap-2">
+												<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+												<span className="text-muted-foreground">SOC2:</span>
+												<DataPolicyBadge
+													value={provider.dataPolicy.soc2}
+													labelTrue="Certified"
+													labelFalse="No"
+												/>
+											</div>
+										)}
+										{provider.dataPolicy.iso27001 !== undefined && (
+											<div className="flex items-center gap-2">
+												<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+												<span className="text-muted-foreground">
+													ISO 27001:
+												</span>
+												<DataPolicyBadge
+													value={provider.dataPolicy.iso27001}
+													labelTrue="Certified"
+													labelFalse="No"
+												/>
 											</div>
 										)}
 									</>
