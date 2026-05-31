@@ -580,7 +580,20 @@ export const masterKey = pgTable(
 );
 
 export interface ProviderKeyOptions {
-	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+	aws_bedrock_region?:
+		| "global"
+		| "us"
+		| "eu"
+		| "apac"
+		| "us-east-1"
+		| "us-east-2"
+		| "us-west-2"
+		| "eu-central-1"
+		| "eu-west-1"
+		| "ap-northeast-1"
+		| "ap-southeast-1"
+		| "ap-southeast-2";
 	azure_resource?: string;
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";

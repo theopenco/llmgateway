@@ -259,14 +259,20 @@ export function getProviderEndpoint(
 						"https://api.xiaomimimo.com",
 					) ?? "https://api.xiaomimimo.com";
 				break;
-			case "aws-bedrock":
+			case "aws-bedrock": {
+				// Precedence: explicit baseUrl arg (handled above) > env baseUrl >
+				// region-derived endpoint > hardcoded default. An explicitly
+				// configured base URL (e.g. a proxy / private endpoint) must win
+				// over the region endpoint so regional requests don't bypass it.
+				const envBaseUrl = skipEnvVars
+					? undefined
+					: getProviderEnvValue("aws-bedrock", "baseUrl", configIndex);
 				url =
-					envValueOrDefault(
-						"aws-bedrock",
-						"baseUrl",
-						"https://bedrock-runtime.us-east-1.amazonaws.com",
-					) ?? "https://bedrock-runtime.us-east-1.amazonaws.com";
+					envBaseUrl ??
+					regionBaseUrl ??
+					"https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
+			}
 			case "azure": {
 				const resource =
 					providerKeyOptions?.azure_resource ??
@@ -434,9 +440,19 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
+			const awsRegionPrefix = region
+				? (
+						providers.find((p) => p.id === "aws-bedrock") as
+							| ProviderDefinition
+							| undefined
+					)?.regionConfig?.modelPrefixMap?.[region]
+				: undefined;
+			// envValueOrDefault honors skipEnvVars (BYOK), so the server's
+			// LLM_AWS_BEDROCK_REGION can't silently affect provider-key routing.
 			const prefix =
 				providerKeyOptions?.aws_bedrock_region_prefix ??
-				getProviderEnvValue("aws-bedrock", "region", configIndex, "global.") ??
+				awsRegionPrefix ??
+				envValueOrDefault("aws-bedrock", "region", "global.") ??
 				"global.";
 
 			const endpoint = stream ? "converse-stream" : "converse";

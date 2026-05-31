@@ -499,6 +499,7 @@ export const anthropicModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				regions: [{ id: "global" }, { id: "us" }, { id: "eu" }, { id: "apac" }],
 			},
 			{
 				providerId: "vertex-anthropic",
