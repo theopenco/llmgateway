@@ -50,13 +50,19 @@ export function shouldRetryAlternateKey(
 	statusCode?: number,
 	errorText?: string,
 ): boolean {
-	return (
-		isRetryableErrorType(errorType) ||
-		(errorType === "gateway_error" &&
-			((statusCode !== undefined &&
+	// Transient upstream/network failures warrant another attempt regardless of
+	// which key is used. A gateway_error, however, is only worth rotating keys
+	// for when it stems from a bad credential (401/403 or an invalid-key
+	// payload) — other gateway_error causes such as model-mapping gaps would
+	// fail identically with a different key for the same provider.
+	if (errorType === "gateway_error") {
+		return (
+			(statusCode !== undefined &&
 				(statusCode === 401 || statusCode === 403)) ||
-				hasInvalidProviderCredentialError(errorText)))
-	);
+			hasInvalidProviderCredentialError(errorText)
+		);
+	}
+	return isRetryableErrorType(errorType);
 }
 
 /**

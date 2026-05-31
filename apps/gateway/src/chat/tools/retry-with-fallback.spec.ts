@@ -151,6 +151,16 @@ describe("shouldRetryAlternateKey", () => {
 		expect(shouldRetryAlternateKey("client_error", 400)).toBe(false);
 		expect(shouldRetryAlternateKey("content_filter", 403)).toBe(false);
 	});
+
+	it("does not rotate keys for non-credential gateway errors", () => {
+		expect(
+			shouldRetryAlternateKey("gateway_error", 400, "Unknown model: foo"),
+		).toBe(false);
+		expect(shouldRetryAlternateKey("gateway_error", 400, "Not Found")).toBe(
+			false,
+		);
+		expect(shouldRetryAlternateKey("gateway_error", undefined)).toBe(false);
+	});
 });
 
 describe("selectNextProvider", () => {
