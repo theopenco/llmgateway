@@ -1804,6 +1804,10 @@ export interface RoutingStickyConfig {
 	scoreMargin?: number;
 }
 
+export interface RoutingSessionConfig {
+	enabled?: boolean;
+}
+
 export type ProviderPriorityOverrides = Record<string, number>;
 
 export const routingConfig = pgTable(
@@ -1821,6 +1825,7 @@ export const routingConfig = pgTable(
 		timeouts: jsonb().$type<RoutingTimeoutsConfig>(),
 		history: jsonb().$type<RoutingHistoryConfig>(),
 		sticky: jsonb().$type<RoutingStickyConfig>(),
+		session: jsonb().$type<RoutingSessionConfig>(),
 		providerPriorities: jsonb(
 			"provider_priorities",
 		).$type<ProviderPriorityOverrides>(),

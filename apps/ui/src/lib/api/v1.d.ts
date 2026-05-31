@@ -11649,6 +11649,9 @@ export interface paths {
                                 uptimeThreshold?: number;
                                 scoreMargin?: number;
                             } | null;
+                            session: {
+                                enabled?: boolean;
+                            } | null;
                             providerPriorities: {
                                 [key: string]: number;
                             } | null;
@@ -11711,6 +11714,9 @@ export interface paths {
                             uptimeThreshold?: number;
                             scoreMargin?: number;
                         } | null;
+                        session?: {
+                            enabled?: boolean;
+                        } | null;
                         providerPriorities?: {
                             [key: string]: number;
                         } | null;
@@ -11766,6 +11772,9 @@ export interface paths {
                                 ttlSeconds?: number;
                                 uptimeThreshold?: number;
                                 scoreMargin?: number;
+                            } | null;
+                            session: {
+                                enabled?: boolean;
                             } | null;
                             providerPriorities: {
                                 [key: string]: number;
@@ -11887,6 +11896,9 @@ export interface paths {
                                 uptimeThreshold: number;
                                 scoreMargin: number;
                             };
+                            session: {
+                                enabled: boolean;
+                            };
                             providerPriorities: {
                                 [key: string]: number;
                             };
@@ -11966,6 +11978,9 @@ export interface paths {
                                 ttlSeconds: number;
                                 uptimeThreshold: number;
                                 scoreMargin: number;
+                            };
+                            session: {
+                                enabled: boolean;
                             };
                             providerPriorities: {
                                 [key: string]: number;

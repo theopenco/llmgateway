@@ -578,6 +578,30 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(regionOf(second?.provider)).toBe(regionOf(first?.provider));
 		});
 
+		it("does not pin a session when session stickiness is disabled", () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{ session: { enabled: false } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId: "session_abc-123", routingConfig: overrides },
+			);
+
+			expect(result?.metadata.selectionReason).not.toBe("session-sticky");
+		});
+
 		it("keeps unrelated sessions on their provider when one provider is removed", () => {
 			if (!modelWithMultipleProviders) {
 				return;

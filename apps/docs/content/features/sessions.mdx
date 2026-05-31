@@ -45,6 +45,8 @@ With a session id set, LLMGateway pins all requests for that session to a single
 
 See [Routing → Sticky Session Routing](/features/routing) for the full algorithm, fallback behavior, and the `session-sticky` routing-metadata reason.
 
+Session stickiness is **on by default**. Enterprise projects can turn it off per project under **Settings → Routing → Session Stickiness**; when disabled, every request is scored independently regardless of session id (the id is still recorded for observability).
+
 <Callout type="info">
 	Sticky routing optimizes for cache locality over per-request price. A session
 	stays on its provider even if a cheaper or faster alternative is momentarily

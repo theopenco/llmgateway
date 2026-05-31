@@ -31,6 +31,10 @@ interface StickyState {
 	scoreMargin?: number;
 }
 
+interface SessionState {
+	enabled?: boolean;
+}
+
 interface RoutingConfigState {
 	enabled: boolean;
 	weights: NumericFieldGroup;
@@ -39,6 +43,7 @@ interface RoutingConfigState {
 	timeouts: NumericFieldGroup;
 	history: NumericFieldGroup;
 	sticky: StickyState;
+	session: SessionState;
 	providerPriorities: Record<string, number | undefined>;
 }
 
@@ -53,6 +58,9 @@ interface DefaultsResponse {
 		ttlSeconds: number;
 		uptimeThreshold: number;
 		scoreMargin: number;
+	};
+	session: {
+		enabled: boolean;
 	};
 	providerPriorities: Record<string, number>;
 }
@@ -212,6 +220,7 @@ function emptyState(): RoutingConfigState {
 		timeouts: {},
 		history: {},
 		sticky: {},
+		session: {},
 		providerPriorities: {},
 	};
 }
@@ -340,6 +349,7 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 						timeouts: row.timeouts ?? {},
 						history: row.history ?? {},
 						sticky: row.sticky ?? {},
+						session: row.session ?? {},
 						providerPriorities: row.providerPriorities ?? {},
 					});
 				}
@@ -438,6 +448,10 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 				timeouts: compact(state.timeouts),
 				history: compact(state.history),
 				sticky: compactSticky(state.sticky),
+				session:
+					state.session.enabled === undefined
+						? null
+						: { enabled: state.session.enabled },
 				providerPriorities: compact(state.providerPriorities),
 			};
 			await fetchClient.PUT("/routing-config/config/{projectId}", {
@@ -693,6 +707,33 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 								/>
 							))}
 						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader className="flex flex-row items-center justify-between">
+							<div>
+								<CardTitle>Session Stickiness</CardTitle>
+								<CardDescription>
+									Pin all requests that share a session id (the{" "}
+									<code>x-session-id</code> header, or the OpenAI{" "}
+									<code>prompt_cache_key</code>/<code>user</code> fields) to a
+									single provider, so multi-turn conversations keep upstream
+									prompt caches warm. When off, every request is scored
+									independently regardless of session id.
+								</CardDescription>
+							</div>
+							<Switch
+								checked={
+									state.session.enabled ?? defaults?.session.enabled ?? true
+								}
+								onCheckedChange={(v) =>
+									setState((prev) => ({
+										...prev,
+										session: { ...prev.session, enabled: Boolean(v) },
+									}))
+								}
+							/>
+						</CardHeader>
 					</Card>
 
 					<Card>

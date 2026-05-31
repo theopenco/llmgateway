@@ -385,12 +385,13 @@ export function getCheapestFromAvailableProviders<
 		return null;
 	}
 
-	// Sticky routing: when a session id is provided, pin the session to a single
-	// provider via rendezvous hashing. Bypasses scoring and exploration so the
-	// upstream prompt cache stays warm; the session only moves if its provider
-	// leaves the available list (health filtering or retry-fallback exclusion).
+	// Sticky routing: when a session id is provided (and session stickiness is
+	// enabled for the project), pin the session to a single provider via
+	// rendezvous hashing. Bypasses scoring and exploration so the upstream
+	// prompt cache stays warm; the session only moves if its provider leaves
+	// the available list (health filtering or retry-fallback exclusion).
 	const sessionId = options?.sessionId?.trim();
-	if (sessionId) {
+	if (sessionId && cfg.session.enabled) {
 		const stickyProvider = selectStickyProvider(stableProviders, sessionId);
 		return {
 			provider: stickyProvider,
