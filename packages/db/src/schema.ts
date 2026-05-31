@@ -580,7 +580,7 @@ export const masterKey = pgTable(
 );
 
 export interface ProviderKeyOptions {
-	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
 	aws_bedrock_region?:
 		| "global"
 		| "us"

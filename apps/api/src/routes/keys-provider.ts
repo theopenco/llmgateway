@@ -28,7 +28,9 @@ const providerKeySchema = z.object({
 	baseUrl: z.string().nullable(),
 	options: z
 		.object({
-			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
+			aws_bedrock_region_prefix: z
+				.enum(["us.", "global.", "eu.", "apac."])
+				.optional(),
 			aws_bedrock_region: z
 				.enum([
 					"global",
@@ -84,7 +86,9 @@ const createProviderKeySchema = z.object({
 	baseUrl: z.string().url().optional(),
 	options: z
 		.object({
-			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
+			aws_bedrock_region_prefix: z
+				.enum(["us.", "global.", "eu.", "apac."])
+				.optional(),
 			aws_bedrock_region: z
 				.enum([
 					"global",

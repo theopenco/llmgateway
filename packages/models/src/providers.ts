@@ -35,6 +35,15 @@ export interface ProviderRegionConfig {
 	 * this unset so the gateway picks the best available region by price.
 	 */
 	pinDefaultRegion?: boolean;
+	/**
+	 * When true, a single base credential works for every region (e.g. AWS
+	 * Bedrock long-term API keys are IAM-global). The gateway then does not
+	 * require a per-region `{ENV}__{REGION}` key to route to non-default
+	 * regions in credits/hybrid mode. Providers like Alibaba, whose keys are
+	 * region-scoped, leave this unset so non-default regions stay gated behind
+	 * a region-specific env key.
+	 */
+	sharedCredentialAcrossRegions?: boolean;
 }
 
 export interface ProviderDefinition {
@@ -433,6 +442,7 @@ export const providers = [
 			optionsKey: "aws_bedrock_region",
 			defaultRegion: "global",
 			pinDefaultRegion: true,
+			sharedCredentialAcrossRegions: true,
 			regions: [
 				// Cross-region inference profile groups (spread inference across the
 				// pool — AWS picks the actual region per request).

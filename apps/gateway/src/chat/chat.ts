@@ -399,6 +399,48 @@ function resolveExplicitRegionFromProviderKey(
 		: undefined;
 }
 
+/**
+ * Build a provider → locked-region map from DB provider keys. When a user sets
+ * a region on their provider key (e.g. `aws_bedrock_region: "eu"`), only that
+ * region should be a routing candidate for the provider.
+ */
+function buildProviderLockedRegions(
+	providerKeys: InferSelectModel<typeof tables.providerKey>[],
+): Map<string, string> {
+	const locked = new Map<string, string>();
+	for (const key of providerKeys) {
+		const providerDef = providers.find((p) => p.id === key.provider) as
+			| ProviderDefinition
+			| undefined;
+		const regionKey = providerDef?.regionConfig?.optionsKey;
+		if (regionKey && key.options) {
+			const lockedRegion = (key.options as Record<string, string | undefined>)[
+				regionKey
+			];
+			if (lockedRegion) {
+				locked.set(key.provider, lockedRegion);
+			}
+		}
+	}
+	return locked;
+}
+
+/**
+ * Whether the given model exposes any region-specific mapping for the provider.
+ * Used to avoid applying a provider key's default region (e.g. AWS Bedrock's
+ * `global`) to models that have no regional variants — doing so would set a
+ * `usedRegion` that the (providerId, region) capability lookup can't match,
+ * silently dropping capabilities like reasoning support.
+ */
+function modelHasRegionalMappingsForProvider(
+	model: { providers: ProviderModelMapping[] } | undefined,
+	provider: string,
+): boolean {
+	return Boolean(
+		model?.providers.some((p) => p.providerId === provider && p.region),
+	);
+}
+
 function filterEligibleModelProviders(
 	availableModelProviders: ProviderModelMapping[],
 	options: {
@@ -1836,13 +1878,19 @@ chat.openapi(completions, async (c) => {
 
 		// Get available providers based on project mode
 		let availableProviders: string[] = [];
+		// Region locks from DB provider keys, so auto-routing honors an org's
+		// configured region (e.g. aws_bedrock_region: "eu") instead of being
+		// collapsed to the pinned default by applyPinnedDefaultRegions.
+		let autoProviderLockedRegions = new Map<string, string>();
 
 		if (project.mode === "api-keys") {
 			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			availableProviders = providerKeys.map((key) => key.provider);
+			autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
 		} else if (project.mode === "credits" || project.mode === "hybrid") {
 			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			const databaseProviders = providerKeys.map((key) => key.provider);
+			autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
 
 			// Check which providers have environment tokens available
 			const envProviders: string[] = [];
@@ -1928,7 +1976,10 @@ chat.openapi(completions, async (c) => {
 						: expandAllProviderRegions(
 								modelDef.providers as ProviderModelMapping[],
 							),
-					{ requestedRegion },
+					{
+						explicitLocks: autoProviderLockedRegions,
+						requestedRegion,
+					},
 				),
 			);
 			// Check if any of the model's providers are available
@@ -2424,6 +2475,7 @@ chat.openapi(completions, async (c) => {
 
 				const availableModelProviders = preferConcreteRegionalMappings(
 					applyPinnedDefaultRegions(iamFilteredModelProviders, {
+						explicitLocks: buildProviderLockedRegions(providerKeys),
 						requestedRegion,
 					}),
 				).filter((provider) => {
@@ -2618,6 +2670,7 @@ chat.openapi(completions, async (c) => {
 				const availableModelProviders = filterEligibleModelProviders(
 					preferConcreteRegionalMappings(
 						applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+							explicitLocks: buildProviderLockedRegions(providerKeys),
 							requestedRegion,
 						}),
 					),
@@ -2789,21 +2842,7 @@ chat.openapi(completions, async (c) => {
 			// Build a map of provider → locked region from DB provider keys.
 			// When a user sets a region in their provider key (e.g. alibaba_region: "cn-beijing"),
 			// only that region should be a candidate — not all expanded regions.
-			const providerLockedRegions = new Map<string, string>();
-			for (const key of providerKeys) {
-				const providerDef = providers.find((p) => p.id === key.provider) as
-					| ProviderDefinition
-					| undefined;
-				const regionKey = providerDef?.regionConfig?.optionsKey;
-				if (regionKey && key.options) {
-					const lockedRegion = (
-						key.options as Record<string, string | undefined>
-					)[regionKey];
-					if (lockedRegion) {
-						providerLockedRegions.set(key.provider, lockedRegion);
-					}
-				}
-			}
+			const providerLockedRegions = buildProviderLockedRegions(providerKeys);
 
 			// Filter model providers to only those eligible for this request
 			const availableModelProviders = filterEligibleModelProviders(
@@ -3312,7 +3351,14 @@ chat.openapi(completions, async (c) => {
 
 		usedToken = providerKey.token;
 		trackedKeyHealthId = providerKey.id;
-		usedRegion ??= resolveRegionFromProviderKey(providerKey);
+		if (
+			modelHasRegionalMappingsForProvider(
+				finalModelInfo ?? modelInfo,
+				usedProvider,
+			)
+		) {
+			usedRegion ??= resolveRegionFromProviderKey(providerKey);
+		}
 		// Override with region-specific env var if the DB key doesn't match the requested region.
 		// When we do override, route health attribution to the regional env credential.
 		// providerKey stays set so endpoint/options/baseUrl construction keeps the BYOK context;
@@ -3411,7 +3457,14 @@ chat.openapi(completions, async (c) => {
 		if (providerKey) {
 			usedToken = providerKey.token;
 			trackedKeyHealthId = providerKey.id;
-			usedRegion ??= resolveRegionFromProviderKey(providerKey);
+			if (
+				modelHasRegionalMappingsForProvider(
+					finalModelInfo ?? modelInfo,
+					usedProvider,
+				)
+			) {
+				usedRegion ??= resolveRegionFromProviderKey(providerKey);
+			}
 			// Override with region-specific env var if the DB key doesn't match the requested region.
 			// Route health attribution to the env credential while keeping providerKey for
 			// endpoint/options resolution (BYOK base URLs and provider options).
