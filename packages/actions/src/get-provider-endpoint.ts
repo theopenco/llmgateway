@@ -132,6 +132,16 @@ export function getProviderEndpoint(
 			case "anthropic":
 				url = "https://api.anthropic.com";
 				break;
+			case "anthropic-discount":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("anthropic-discount", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Anthropic Discount provider requires LLM_ANTHROPIC_DISCOUNT_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "google-ai-studio":
 				url =
 					envValueOrDefault(
@@ -337,6 +347,7 @@ export function getProviderEndpoint(
 
 	switch (provider) {
 		case "anthropic":
+		case "anthropic-discount":
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";

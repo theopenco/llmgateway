@@ -4561,7 +4561,11 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
+	if (
+		usedProvider === "anthropic" ||
+		usedProvider === "anthropic-discount" ||
+		usedProvider === "vertex-anthropic"
+	) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -5246,7 +5250,11 @@ chat.openapi(completions, async (c) => {
 						headers["Content-Type"] = "application/json";
 
 						// Add effort beta header for Anthropic if effort parameter is specified
-						if (usedProvider === "anthropic" && effort !== undefined) {
+						if (
+							(usedProvider === "anthropic" ||
+								usedProvider === "anthropic-discount") &&
+							effort !== undefined
+						) {
 							const currentBeta = headers["anthropic-beta"];
 							headers["anthropic-beta"] = currentBeta
 								? `${currentBeta},effort-2025-11-24`
@@ -5255,7 +5263,8 @@ chat.openapi(completions, async (c) => {
 
 						// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 						if (
-							usedProvider === "anthropic" &&
+							(usedProvider === "anthropic" ||
+								usedProvider === "anthropic-discount") &&
 							response_format?.type === "json_schema"
 						) {
 							const currentBeta = headers["anthropic-beta"];
@@ -6532,6 +6541,7 @@ chat.openapi(completions, async (c) => {
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
 						((usedProvider === "anthropic" ||
+							usedProvider === "anthropic-discount" ||
 							usedProvider === "vertex-anthropic") &&
 							response_format?.type === "json_object") ||
 						(usedProvider === "aws-bedrock" &&
@@ -7350,6 +7360,7 @@ chat.openapi(completions, async (c) => {
 								// For Anthropic, if we have partial usage data, complete it
 								if (
 									(usedProvider === "anthropic" ||
+										usedProvider === "anthropic-discount" ||
 										usedProvider === "vertex-anthropic") &&
 									transformedData.usage
 								) {
@@ -7424,6 +7435,7 @@ chat.openapi(completions, async (c) => {
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
 								if (
 									usedProvider === "anthropic" ||
+									usedProvider === "anthropic-discount" ||
 									usedProvider === "vertex-anthropic"
 								) {
 									const toolCalls =
@@ -7553,6 +7565,7 @@ chat.openapi(completions, async (c) => {
 								const contentChunk = extractContent(
 									isGoogleCompatibleProvider(usedProvider) ||
 										usedProvider === "anthropic" ||
+										usedProvider === "anthropic-discount" ||
 										usedProvider === "vertex-anthropic"
 										? data
 										: transformedData,
@@ -7586,6 +7599,7 @@ chat.openapi(completions, async (c) => {
 								// Check for web search results based on provider-specific data
 								if (
 									usedProvider === "anthropic" ||
+									usedProvider === "anthropic-discount" ||
 									usedProvider === "vertex-anthropic"
 								) {
 									// For Anthropic, count web_search_tool_result blocks
@@ -7629,6 +7643,7 @@ chat.openapi(completions, async (c) => {
 								const reasoningContentChunk = extractReasoning(
 									isGoogleCompatibleProvider(usedProvider) ||
 										usedProvider === "anthropic" ||
+										usedProvider === "anthropic-discount" ||
 										usedProvider === "vertex-anthropic"
 										? data
 										: transformedData,
@@ -7658,6 +7673,7 @@ chat.openapi(completions, async (c) => {
 										// For Anthropic content_block_delta events, match by content block index
 										if (
 											(usedProvider === "anthropic" ||
+												usedProvider === "anthropic-discount" ||
 												usedProvider === "vertex-anthropic") &&
 											newCall._contentBlockIndex !== undefined
 										) {
@@ -7703,6 +7719,7 @@ chat.openapi(completions, async (c) => {
 										}
 										break;
 									case "anthropic":
+									case "anthropic-discount":
 									case "vertex-anthropic":
 										if (
 											data.type === "message_delta" &&
@@ -8951,7 +8968,11 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Add effort beta header for Anthropic if effort parameter is specified
-			if (usedProvider === "anthropic" && effort !== undefined) {
+			if (
+				(usedProvider === "anthropic" ||
+					usedProvider === "anthropic-discount") &&
+				effort !== undefined
+			) {
 				const currentBeta = headers["anthropic-beta"];
 				headers["anthropic-beta"] = currentBeta
 					? `${currentBeta},effort-2025-11-24`
@@ -8960,7 +8981,8 @@ chat.openapi(completions, async (c) => {
 
 			// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 			if (
-				usedProvider === "anthropic" &&
+				(usedProvider === "anthropic" ||
+					usedProvider === "anthropic-discount") &&
 				response_format?.type === "json_schema"
 			) {
 				const currentBeta = headers["anthropic-beta"];
@@ -10313,7 +10335,9 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
+			((usedProvider === "anthropic" ||
+				usedProvider === "anthropic-discount" ||
+				usedProvider === "vertex-anthropic") &&
 				response_format?.type === "json_object") ||
 			(usedProvider === "aws-bedrock" &&
 				response_format?.type === "json_object") ||
