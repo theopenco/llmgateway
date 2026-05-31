@@ -805,6 +805,10 @@ export const log = pgTable(
 			.where(sql`data_retention_cleaned_up = false`),
 		// Index for distinct usedModel queries by project
 		index("log_project_id_used_model_idx").on(table.projectId, table.usedModel),
+		// Partial index for activity-log filtering by session id within a project
+		index("log_project_id_session_id_idx")
+			.on(table.projectId, table.sessionId, table.createdAt)
+			.where(sql`session_id IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
