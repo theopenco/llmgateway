@@ -21,10 +21,13 @@ export function messageContentToString(
 /**
  * Rough length-based prompt-token estimate for a chat message array.
  *
- * Backed by the shared `estimateChatMessageTokens` helper, which only counts
- * text and ignores multimodal parts (image_url, file, etc.). Image input
- * billing is handled separately in costs.ts.
+ * Backed by the shared `estimateChatMessageTokens` helper. By default this
+ * counts text only and ignores multimodal parts (image_url, file, etc.) —
+ * image input is priced separately in costs.ts, so the billing-fallback
+ * callers must not include it here. Pass `modelId` to additionally count
+ * multimodal parts (using the model's per-image token table); this is used for
+ * routing decisions that should reflect large image payloads. See issue #2112.
  */
-export function encodeChatMessages(messages: any[]): number {
-	return estimateChatMessageTokens(messages);
+export function encodeChatMessages(messages: any[], modelId?: string): number {
+	return estimateChatMessageTokens(messages, modelId);
 }
