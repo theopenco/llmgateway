@@ -8,6 +8,13 @@ import {
 
 import type { MetadataRoute } from "next";
 
+function slugify(label: string) {
+	return label
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/(^-|-$)/g, "");
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
 
@@ -305,6 +312,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.6,
 		}));
 
+	// Blog category pages
+	const blogCategorySlugs = new Set<string>();
+	for (const blog of allBlogs) {
+		if (blog.draft) {
+			continue;
+		}
+		for (const category of blog.categories ?? []) {
+			blogCategorySlugs.add(slugify(category));
+		}
+	}
+	const blogCategoryPages: MetadataRoute.Sitemap = Array.from(
+		blogCategorySlugs,
+	).map((category) => ({
+		url: `${baseUrl}/blog/category/${encodeURIComponent(category)}`,
+		lastModified: new Date(),
+		changeFrequency: "weekly" as const,
+		priority: 0.5,
+	}));
+
 	// Guide pages
 	const guidePages: MetadataRoute.Sitemap = allGuides.map((guide) => ({
 		url: `${baseUrl}/guides/${guide.slug}`,
@@ -348,6 +374,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...featurePages,
 		...enterpriseFeaturePages,
 		...blogPages,
+		...blogCategoryPages,
 		...guidePages,
 		...changelogPages,
 		...legalPages,
