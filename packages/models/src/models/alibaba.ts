@@ -1238,7 +1238,7 @@ export const alibabaModels = [
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.01",
-				jsonOutput: false,
+				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
 				supportedParameters: [
 					"temperature",
@@ -1249,6 +1249,7 @@ export const alibabaModels = [
 					"stop",
 					"stream",
 					"tools",
+					"response_format",
 				],
 			},
 			{
