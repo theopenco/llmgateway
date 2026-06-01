@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
-import { handleSubscriptionUpdated } from "./stripe.js";
+import {
+	handleInvoicePaymentSucceeded,
+	handleSubscriptionUpdated,
+} from "./stripe.js";
 import { deleteAll } from "./testing.js";
 
 import type * as EmailModule from "./utils/email.js";
@@ -156,5 +159,133 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.subscriptionCancelled).toBe(true);
+	});
+});
+
+function makeInvoiceEvent(overrides: {
+	billingReason: Stripe.Invoice["billing_reason"];
+	amountPaid: number;
+	invoiceId: string;
+}): Stripe.InvoicePaymentSucceededEvent {
+	return {
+		id: "evt_test_invoice",
+		type: "invoice.payment_succeeded",
+		data: {
+			object: {
+				id: overrides.invoiceId,
+				customer: "cus_test_invoice",
+				subscription: SUB_ID,
+				billing_reason: overrides.billingReason,
+				amount_paid: overrides.amountPaid,
+				currency: "usd",
+				payment_intent: "pi_test_001",
+				metadata: { organizationId: ORG_ID },
+				lines: { data: [] },
+			},
+		},
+	} as unknown as Stripe.InvoicePaymentSucceededEvent;
+}
+
+describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function seedUsedDevPlanOrg() {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+	}
+
+	test("resets credits and grants a fresh allotment on a true cycle renewal", async () => {
+		await seedUsedDevPlanOrg();
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("0");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].creditAmount).toBe("237");
+	});
+
+	test("does NOT reset credits on a proration invoice from a tier change", async () => {
+		await seedUsedDevPlanOrg();
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_update",
+				amountPaid: 9221,
+				invoiceId: "in_proration_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		// The credit usage must be preserved — otherwise a user could
+		// downgrade then upgrade to repeatedly refresh their full balance.
+		expect(org?.devPlanCreditsUsed).toBe("150");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_upgrade");
+		expect(txns[0].creditAmount).toBeNull();
+		expect(txns[0].amount).toBe("92.21");
+	});
+
+	test("skips processing an invoice that was already recorded", async () => {
+		await seedUsedDevPlanOrg();
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			stripeInvoiceId: "in_dup_001",
+			status: "completed",
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_dup_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("150");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
 	});
 });

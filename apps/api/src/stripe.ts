@@ -1957,7 +1957,7 @@ async function handleSetupIntentSucceeded(
 	});
 }
 
-async function handleInvoicePaymentSucceeded(
+export async function handleInvoicePaymentSucceeded(
 	event: Stripe.InvoicePaymentSucceededEvent,
 ) {
 	const invoice = event.data.object;
@@ -2028,13 +2028,22 @@ async function handleInvoicePaymentSucceeded(
 		}
 	}
 
-	// Check if this is a dev plan subscription renewal
-	const isDevPlanRenewal =
+	const isDevPlanSubscription =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
 
+	// Stripe fires `invoice.payment_succeeded` both for true period renewals
+	// (`subscription_cycle`) and for the proration invoice generated when a
+	// user changes tier mid-cycle (`subscription_update`). Only a real cycle
+	// renewal should reset the credit allotment. Treating a proration invoice
+	// as a renewal lets a user downgrade and then upgrade to repeatedly
+	// refresh a full fresh credit balance — so we gate the credit reset on the
+	// billing reason.
+	const isDevPlanRenewal =
+		isDevPlanSubscription && invoice.billing_reason === "subscription_cycle";
+
 	logger.info(
-		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlanRenewal: ${isDevPlanRenewal}`,
+		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}`,
 	);
 
 	if (isDevPlanRenewal) {
@@ -2095,6 +2104,27 @@ async function handleInvoicePaymentSucceeded(
 				organization.devPlan ?? "unknown",
 			);
 		}
+	} else if (isDevPlanSubscription) {
+		// Proration invoice from a mid-cycle tier change (`subscription_update`).
+		// The change-tier endpoint already adjusts `devPlanCreditsLimit`, so here
+		// we only record the collected amount for revenue reporting. Crucially we
+		// do NOT reset `devPlanCreditsUsed` or grant a fresh credit allotment.
+		if (invoice.amount_paid > 0) {
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "dev_plan_upgrade",
+				amount: (invoice.amount_paid / 100).toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${organization.devPlan?.toUpperCase()} tier change`,
+			});
+		}
+
+		logger.info(
+			`Recorded dev plan proration invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason}); credits left unchanged`,
+		);
 	} else {
 		// Handle regular pro subscription
 		// Create transaction record for subscription start
