@@ -12,9 +12,9 @@ export const minimaxModels = [
 			{
 				providerId: "minimax",
 				externalId: "MiniMax-M3",
-				inputPrice: "0.3e-6",
-				cachedInputPrice: "0.06e-6",
-				outputPrice: "1.2e-6",
+				inputPrice: "0.6e-6",
+				cachedInputPrice: "0.12e-6",
+				outputPrice: "2.4e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,
