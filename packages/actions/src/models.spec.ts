@@ -8,6 +8,10 @@ import {
 	type BaseMessage,
 	type OpenAIRequestBody,
 } from "@llmgateway/models";
+import {
+	buildProviderPriorityDefaults,
+	resolveRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -533,6 +537,107 @@ describe("getCheapestFromAvailableProviders", () => {
 				});
 			}
 		}
+	});
+
+	describe("sticky session routing", () => {
+		const modelWithMultipleProviders = models.find(
+			(model) =>
+				model.providers.length > 1 &&
+				model.providers.some(
+					(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+				),
+		);
+
+		it("pins the same session to the same provider deterministically", () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const first = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId: "session_abc-123" },
+			);
+			const second = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId: "session_abc-123" },
+			);
+
+			const regionOf = (p: unknown) =>
+				(p as { region?: string } | undefined)?.region;
+
+			expect(first?.metadata.selectionReason).toBe("session-sticky");
+			expect(second?.provider.providerId).toBe(first?.provider.providerId);
+			expect(regionOf(second?.provider)).toBe(regionOf(first?.provider));
+		});
+
+		it("does not pin a session when session stickiness is disabled", () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{ session: { enabled: false } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId: "session_abc-123", routingConfig: overrides },
+			);
+
+			expect(result?.metadata.selectionReason).not.toBe("session-sticky");
+		});
+
+		it("keeps unrelated sessions on their provider when one provider is removed", () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 2) {
+				return;
+			}
+
+			// Find a session pinned to a provider, then drop a *different* provider
+			// and confirm the session stays put (rendezvous hashing property).
+			const sessionId = "session_stable";
+			const pinned = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId },
+			);
+			const removable = availableProviders.find(
+				(p) => p.providerId !== pinned?.provider.providerId,
+			);
+			const reduced = availableProviders.filter(
+				(p) => p.providerId !== removable?.providerId,
+			);
+
+			const afterRemoval = getCheapestFromAvailableProviders(
+				reduced,
+				modelWithMultipleProviders,
+				{ sessionId },
+			);
+
+			expect(afterRemoval?.provider.providerId).toBe(
+				pinned?.provider.providerId,
+			);
+		});
 	});
 
 	it("should account for discounts when selecting cheapest provider", () => {
@@ -1097,6 +1202,108 @@ describe("getCheapestFromAvailableProviders", () => {
 			);
 
 			expect(result?.provider.providerId).toBe("deepseek");
+		});
+	});
+
+	describe("routing config overrides", () => {
+		it("excludes providers whose override priority is 0", () => {
+			const model = models.find((m) => m.id === "gpt-4o-mini");
+			if (!model) {
+				throw new Error("Missing gpt-4o-mini fixture");
+			}
+			const providersWithOpenAi = (
+				model.providers as ProviderModelMapping[]
+			).filter((p) => p.providerId === "openai");
+			if (providersWithOpenAi.length === 0) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{ providerPriorities: { openai: 0 } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(
+				providersWithOpenAi,
+				model,
+				{ routingConfig: overrides },
+			);
+
+			expect(result).toBe(null);
+		});
+
+		it("accepts custom thresholds without failing selection", () => {
+			const model = models.find((m) => m.providers.length >= 2);
+			if (!model) {
+				return;
+			}
+			const available = (model.providers as ProviderModelMapping[]).slice(0, 2);
+
+			const overrides = resolveRoutingConfig(
+				{ thresholds: { defaultUptime: 50 } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(available, model, {
+				routingConfig: overrides,
+				metricsMap: new Map(),
+			});
+			expect(result).not.toBeNull();
+		});
+
+		it("falls back to price-only selection when every scoring weight is zero", () => {
+			const model = models.find((m) => m.id === "gpt-4o-mini");
+			if (!model) {
+				throw new Error("Missing gpt-4o-mini fixture");
+			}
+			const available = (model.providers as ProviderModelMapping[]).filter(
+				(p) => p.providerId === "openai",
+			);
+			if (available.length === 0) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{
+					weights: {
+						price: 0,
+						imagePrice: 0,
+						uptime: 0,
+						throughput: 0,
+						latency: 0,
+						cache: 0,
+					},
+				},
+				buildProviderPriorityDefaults(),
+			);
+
+			// Provide a non-empty metrics map so we follow the weighted-score
+			// branch rather than the empty-map shortcut.
+			const metricsMap = new Map([
+				[
+					metricsKey(model.id, available[0].providerId, available[0].region),
+					{
+						providerId: available[0].providerId,
+						modelId: model.id,
+						uptime: 99,
+						averageLatency: 100,
+						throughput: 100,
+						totalRequests: 50,
+					},
+				],
+			]);
+
+			expect(() =>
+				getCheapestFromAvailableProviders(available, model, {
+					routingConfig: overrides,
+					metricsMap,
+				}),
+			).not.toThrow();
+
+			const result = getCheapestFromAvailableProviders(available, model, {
+				routingConfig: overrides,
+				metricsMap,
+			});
+			expect(result).not.toBeNull();
+			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
 		});
 	});
 });

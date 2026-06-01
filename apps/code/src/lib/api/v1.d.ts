@@ -207,6 +207,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/referral/{orgId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Public referral info for an organization */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            referralBonusEnabled: boolean;
+                            referralBonusPercent: number;
+                        };
+                    };
+                };
+                /** @description Organization not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/models": {
         parameters: {
             query?: never;
@@ -640,6 +693,55 @@ export interface paths {
                             totalApps: number;
                             totalTokens: number;
                             totalRequests: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/providers/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "24h" | "7d" | "30d";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregated per-provider performance stats (uptime, latency, throughput) over the requested window. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providers: {
+                                providerId: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTimeToFirstToken: number | null;
+                                throughput: number | null;
+                                uptime: number | null;
+                                updatedAt: string | null;
+                            }[];
+                            window: string;
                         };
                     };
                 };
@@ -1662,6 +1764,7 @@ export interface paths {
                     customHeaderKey?: string;
                     customHeaderValue?: string;
                     requestId?: string;
+                    sessionId?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1788,6 +1891,7 @@ export interface paths {
                                 /** @enum {string} */
                                 usedMode: "api-keys" | "credits";
                                 source: string | null;
+                                sessionId?: string | null;
                                 routingMetadata?: {
                                     availableProviders?: string[];
                                     selectedProvider?: string;
@@ -2043,6 +2147,7 @@ export interface paths {
                                 /** @enum {string} */
                                 usedMode: "api-keys" | "credits";
                                 source: string | null;
+                                sessionId?: string | null;
                                 routingMetadata?: {
                                     availableProviders?: string[];
                                     selectedProvider?: string;
@@ -2134,7 +2239,7 @@ export interface paths {
                     to?: string;
                     projectId?: string;
                     apiKeyId?: string;
-                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
+                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d" | "365d";
                     groupBy?: "model" | "apiKey";
                 };
                 header?: never;
@@ -2503,6 +2608,8 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                referralBonusEnabled?: boolean;
+                                referralBonusPercent?: number;
                                 ownerUserId?: string | null;
                                 ownerName?: string | null;
                                 ownerEmail?: string | null;
@@ -2562,6 +2669,8 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                referralBonusEnabled?: boolean;
+                                referralBonusPercent?: number;
                                 ownerUserId?: string | null;
                                 ownerName?: string | null;
                                 ownerEmail?: string | null;
@@ -2644,6 +2753,8 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                referralBonusEnabled?: boolean;
+                                referralBonusPercent?: number;
                                 ownerUserId?: string | null;
                                 ownerName?: string | null;
                                 ownerEmail?: string | null;
@@ -4121,6 +4232,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations/{orgId}/referral-bonus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        enabled: boolean;
+                        percent: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Referral bonus updated successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            referralBonusEnabled: boolean;
+                            referralBonusPercent: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/admin/organizations/{orgId}/status": {
         parameters: {
             query?: never;
@@ -4848,7 +5018,7 @@ export interface paths {
             parameters: {
                 query?: {
                     search?: string;
-                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "avgTimeToFirstToken" | "updatedAt";
+                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "cost" | "avgTimeToFirstToken" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number | null;
                     offset?: number | null;
@@ -4882,6 +5052,7 @@ export interface paths {
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
                                 cachedCount: number;
+                                cost: number;
                                 avgTimeToFirstToken: number | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;
@@ -6642,7 +6813,9 @@ export interface paths {
                                 baseUrl: string | null;
                                 options: {
                                     /** @enum {string} */
-                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac" | "us-east-1" | "us-east-2" | "us-west-2" | "eu-central-1" | "eu-west-1" | "ap-northeast-1" | "ap-southeast-1" | "ap-southeast-2";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */
@@ -6683,7 +6856,9 @@ export interface paths {
                         baseUrl?: string;
                         options?: {
                             /** @enum {string} */
-                            aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                            aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+                            /** @enum {string} */
+                            aws_bedrock_region?: "global" | "us" | "eu" | "apac" | "us-east-1" | "us-east-2" | "us-west-2" | "eu-central-1" | "eu-west-1" | "ap-northeast-1" | "ap-southeast-1" | "ap-southeast-2";
                             azure_resource?: string;
                             azure_api_version?: string;
                             /** @enum {string} */
@@ -6718,7 +6893,9 @@ export interface paths {
                                 baseUrl: string | null;
                                 options: {
                                     /** @enum {string} */
-                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac" | "us-east-1" | "us-east-2" | "us-west-2" | "eu-central-1" | "eu-west-1" | "ap-northeast-1" | "ap-southeast-1" | "ap-southeast-2";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */
@@ -6881,7 +7058,9 @@ export interface paths {
                                 baseUrl: string | null;
                                 options: {
                                     /** @enum {string} */
-                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac" | "us-east-1" | "us-east-2" | "us-west-2" | "eu-central-1" | "eu-west-1" | "ap-northeast-1" | "ap-southeast-1" | "ap-southeast-2";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */
@@ -7692,6 +7871,7 @@ export interface paths {
                                     modelName: string;
                                     jobId: string | null;
                                     videoUrl: string | null;
+                                    expiresAt?: number | null;
                                     error?: string;
                                 }[];
                             }[];
@@ -7731,6 +7911,7 @@ export interface paths {
                             modelName: string;
                             jobId: string | null;
                             videoUrl: string | null;
+                            expiresAt?: number | null;
                             error?: string;
                         }[];
                     };
@@ -7767,6 +7948,7 @@ export interface paths {
                                     modelName: string;
                                     jobId: string | null;
                                     videoUrl: string | null;
+                                    expiresAt?: number | null;
                                     error?: string;
                                 }[];
                             };
@@ -7864,6 +8046,7 @@ export interface paths {
                                     modelName: string;
                                     jobId: string | null;
                                     videoUrl: string | null;
+                                    expiresAt?: number | null;
                                     error?: string;
                                 }[];
                             };
@@ -7919,6 +8102,8 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                referralBonusEnabled: boolean;
+                                referralBonusPercent: string;
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
@@ -7980,6 +8165,8 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                referralBonusEnabled: boolean;
+                                referralBonusPercent: string;
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
@@ -8170,6 +8357,8 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                referralBonusEnabled: boolean;
+                                referralBonusPercent: string;
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
@@ -8926,7 +9115,7 @@ export interface paths {
                             bonusEligible: boolean;
                             bonusIneligibilityReason?: string;
                             /** @enum {string} */
-                            bonusType?: "first_purchase" | "second_topup";
+                            bonusType?: "first_purchase" | "second_topup" | "referral";
                             secondTopupBonusExpiresInDays?: number;
                         };
                     };
@@ -10748,7 +10937,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "referral_bonus.update" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "master_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
@@ -11567,6 +11756,422 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routing-config/config/{projectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Routing configuration row or null */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            projectId: string;
+                            enabled: boolean;
+                            weights: {
+                                price?: number;
+                                imagePrice?: number;
+                                uptime?: number;
+                                throughput?: number;
+                                latency?: number;
+                                cache?: number;
+                            } | null;
+                            thresholds: {
+                                cachePromptTokens?: number;
+                                uptimePenalty?: number;
+                                defaultUptime?: number;
+                                defaultLatency?: number;
+                                defaultThroughput?: number;
+                                explorationRate?: number;
+                            } | null;
+                            retry: {
+                                maxRetries?: number;
+                                lowUptimeFallbackThreshold?: number;
+                            } | null;
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            } | null;
+                            history: {
+                                windowMinutes?: number;
+                                tier1Minutes?: number;
+                                tier2Minutes?: number;
+                                tier1Weight?: number;
+                                tier2Weight?: number;
+                                tier3Weight?: number;
+                            } | null;
+                            sticky: {
+                                enabled?: boolean;
+                                ttlSeconds?: number;
+                                uptimeThreshold?: number;
+                                scoreMargin?: number;
+                            } | null;
+                            session: {
+                                enabled?: boolean;
+                            } | null;
+                            providerPriorities: {
+                                [key: string]: number;
+                            } | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        enabled?: boolean;
+                        weights?: {
+                            price?: number;
+                            imagePrice?: number;
+                            uptime?: number;
+                            throughput?: number;
+                            latency?: number;
+                            cache?: number;
+                        } | null;
+                        thresholds?: {
+                            cachePromptTokens?: number;
+                            uptimePenalty?: number;
+                            defaultUptime?: number;
+                            defaultLatency?: number;
+                            defaultThroughput?: number;
+                            explorationRate?: number;
+                        } | null;
+                        retry?: {
+                            maxRetries?: number;
+                            lowUptimeFallbackThreshold?: number;
+                        } | null;
+                        timeouts?: {
+                            gatewayMs?: number;
+                            streamingMs?: number;
+                            plainMs?: number;
+                        } | null;
+                        history?: {
+                            windowMinutes?: number;
+                            tier1Minutes?: number;
+                            tier2Minutes?: number;
+                            tier1Weight?: number;
+                            tier2Weight?: number;
+                            tier3Weight?: number;
+                        } | null;
+                        sticky?: {
+                            enabled?: boolean;
+                            ttlSeconds?: number;
+                            uptimeThreshold?: number;
+                            scoreMargin?: number;
+                        } | null;
+                        session?: {
+                            enabled?: boolean;
+                        } | null;
+                        providerPriorities?: {
+                            [key: string]: number;
+                        } | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated routing configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            projectId: string;
+                            enabled: boolean;
+                            weights: {
+                                price?: number;
+                                imagePrice?: number;
+                                uptime?: number;
+                                throughput?: number;
+                                latency?: number;
+                                cache?: number;
+                            } | null;
+                            thresholds: {
+                                cachePromptTokens?: number;
+                                uptimePenalty?: number;
+                                defaultUptime?: number;
+                                defaultLatency?: number;
+                                defaultThroughput?: number;
+                                explorationRate?: number;
+                            } | null;
+                            retry: {
+                                maxRetries?: number;
+                                lowUptimeFallbackThreshold?: number;
+                            } | null;
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            } | null;
+                            history: {
+                                windowMinutes?: number;
+                                tier1Minutes?: number;
+                                tier2Minutes?: number;
+                                tier1Weight?: number;
+                                tier2Weight?: number;
+                                tier3Weight?: number;
+                            } | null;
+                            sticky: {
+                                enabled?: boolean;
+                                ttlSeconds?: number;
+                                uptimeThreshold?: number;
+                                scoreMargin?: number;
+                            } | null;
+                            session: {
+                                enabled?: boolean;
+                            } | null;
+                            providerPriorities: {
+                                [key: string]: number;
+                            } | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/config/{projectId}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Reset to defaults */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/config/{projectId}/resolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Resolved routing configuration with defaults applied */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            weights: {
+                                price: number;
+                                imagePrice: number;
+                                uptime: number;
+                                throughput: number;
+                                latency: number;
+                                cache: number;
+                            };
+                            thresholds: {
+                                cachePromptTokens: number;
+                                uptimePenalty: number;
+                                defaultUptime: number;
+                                defaultLatency: number;
+                                defaultThroughput: number;
+                                explorationRate: number;
+                            };
+                            retry: {
+                                maxRetries: number;
+                                lowUptimeFallbackThreshold: number;
+                            };
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            };
+                            history: {
+                                windowMinutes: number;
+                                tier1Minutes: number;
+                                tier2Minutes: number;
+                                tier1Weight: number;
+                                tier2Weight: number;
+                                tier3Weight: number;
+                            };
+                            sticky: {
+                                enabled: boolean;
+                                ttlSeconds: number;
+                                uptimeThreshold: number;
+                                scoreMargin: number;
+                            };
+                            session: {
+                                enabled: boolean;
+                            };
+                            providerPriorities: {
+                                [key: string]: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/config/{projectId}/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default routing configuration values */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            weights: {
+                                price: number;
+                                imagePrice: number;
+                                uptime: number;
+                                throughput: number;
+                                latency: number;
+                                cache: number;
+                            };
+                            thresholds: {
+                                cachePromptTokens: number;
+                                uptimePenalty: number;
+                                defaultUptime: number;
+                                defaultLatency: number;
+                                defaultThroughput: number;
+                                explorationRate: number;
+                            };
+                            retry: {
+                                maxRetries: number;
+                                lowUptimeFallbackThreshold: number;
+                            };
+                            timeouts: {
+                                gatewayMs: number;
+                                streamingMs: number;
+                                plainMs: number;
+                            };
+                            history: {
+                                windowMinutes: number;
+                                tier1Minutes: number;
+                                tier2Minutes: number;
+                                tier1Weight: number;
+                                tier2Weight: number;
+                                tier3Weight: number;
+                            };
+                            sticky: {
+                                enabled: boolean;
+                                ttlSeconds: number;
+                                uptimeThreshold: number;
+                                scoreMargin: number;
+                            };
+                            session: {
+                                enabled: boolean;
+                            };
+                            providerPriorities: {
+                                [key: string]: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/video/{videoId}": {
         parameters: {
             query?: never;
@@ -11703,6 +12308,7 @@ export interface operations {
                                 supportedParameters: string[] | null;
                                 supportedVideoSizes: string[] | null;
                                 supportedVideoDurationsSeconds: number[] | null;
+                                supportedVideoDurationsSecondsImageToVideo: number[] | null;
                                 supportsVideoAudio: boolean | null;
                                 supportsVideoWithoutAudio: boolean | null;
                                 perSecondPrice: {

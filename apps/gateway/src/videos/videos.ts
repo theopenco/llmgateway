@@ -18,6 +18,8 @@ import {
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { validateModelAccess } from "@/lib/iam.js";
+import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
+import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 
 import {
@@ -33,7 +35,6 @@ import {
 	and,
 	db,
 	eq,
-	getProviderMetricsForCombinations,
 	metricsKey,
 	sql,
 	shortid,
@@ -70,6 +71,7 @@ import {
 } from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 import type { Context } from "hono";
 
 const TERMINAL_VIDEO_STATUSES = new Set([
@@ -453,6 +455,7 @@ interface RequestContext {
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
 	requestId: string;
+	routingCfg: ResolvedRoutingConfig;
 }
 
 interface ProviderContext {
@@ -595,12 +598,17 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 	}
 
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+	const routingCfg = await getResolvedRoutingConfig(
+		project.id,
+		organization.plan,
+	);
 
 	return {
 		apiKey,
 		project,
 		organization,
 		requestId,
+		routingCfg,
 	};
 }
 
@@ -1368,6 +1376,7 @@ async function resolveVideoExecution(
 	requestId: string,
 	noFallback: boolean,
 	xNoFallbackHeaderSet: boolean,
+	routingCfg: ResolvedRoutingConfig,
 ): Promise<ResolvedVideoExecution> {
 	const videoPricing: VideoPricingContext = {
 		durationSeconds: videoDurationSeconds,
@@ -1459,8 +1468,10 @@ async function resolveVideoExecution(
 			providerId: provider.providerId,
 			region: provider.region,
 		}));
-		const metricsMap =
-			await getProviderMetricsForCombinations(metricsCombinations);
+		const metricsMap = await getProviderMetricsForRouting(
+			metricsCombinations,
+			routingCfg,
+		);
 
 		const requestedMapping = requestedProvider
 			? configuredEligibleMappings.find(
@@ -1484,7 +1495,10 @@ async function resolveVideoExecution(
 			const requestedMetrics = metricsMap.get(requestedKey);
 			const requestedUptime = requestedMetrics?.uptime;
 
-			if (requestedUptime !== undefined && requestedUptime < 90) {
+			if (
+				requestedUptime !== undefined &&
+				requestedUptime < routingCfg.retry.lowUptimeFallbackThreshold
+			) {
 				const betterMappings = configuredEligibleMappings.filter((provider) => {
 					if (provider.providerId === requestedProvider) {
 						return false;
@@ -1503,7 +1517,12 @@ async function resolveVideoExecution(
 					const betterResult = getCheapestFromAvailableProviders(
 						betterMappings,
 						modelInfo,
-						{ metricsMap, isStreaming: false, videoPricing },
+						{
+							metricsMap,
+							isStreaming: false,
+							videoPricing,
+							routingConfig: routingCfg,
+						},
 					);
 
 					if (betterResult) {
@@ -1563,7 +1582,12 @@ async function resolveVideoExecution(
 			const cheapestResult = getCheapestFromAvailableProviders(
 				configuredEligibleMappings,
 				modelInfo,
-				{ metricsMap, isStreaming: false, videoPricing },
+				{
+					metricsMap,
+					isStreaming: false,
+					videoPricing,
+					routingConfig: routingCfg,
+				},
 			);
 			if (cheapestResult) {
 				routingMetadata = {
@@ -3161,7 +3185,7 @@ async function getAvalancheImageUrl(
 
 videos.openapi(createVideo, async (c) => {
 	const { rawBody, request } = await parseJsonBody(c);
-	const { apiKey, project, organization, requestId } =
+	const { apiKey, project, organization, requestId, routingCfg } =
 		await requireRequestContext(c);
 
 	if (organization.isPersonal && organization.devPlan !== "none") {
@@ -3233,6 +3257,7 @@ videos.openapi(createVideo, async (c) => {
 		requestId,
 		noFallback,
 		xNoFallbackHeaderSet,
+		routingCfg,
 	);
 
 	const videoId = shortid();
@@ -3418,6 +3443,7 @@ videos.openapi(createVideo, async (c) => {
 					retryCount,
 					remainingProviders,
 					usedProvider: selectedProviderContext.providerId,
+					maxRetries: routingCfg.retry.maxRetries,
 				})
 			) {
 				throw error;

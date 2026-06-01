@@ -153,6 +153,7 @@ const logSchema = z.object({
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	usedMode: z.enum(["api-keys", "credits"]),
 	source: z.string().nullable(),
+	sessionId: z.string().nullable().optional(),
 	routingMetadata: z
 		.object({
 			availableProviders: z.array(z.string()).optional(),
@@ -294,6 +295,10 @@ const querySchema = z.object({
 	requestId: z.string().optional().openapi({
 		description: "Filter logs by request ID",
 	}),
+	sessionId: z.string().optional().openapi({
+		description: "Filter logs by session ID",
+		example: "conversation-9f8e7d6c",
+	}),
 });
 
 const get = createRoute({
@@ -370,6 +375,7 @@ logs.openapi(get, async (c) => {
 		customHeaderKey,
 		customHeaderValue,
 		requestId,
+		sessionId,
 	} = {
 		...query,
 		apiKeyId: sanitize(query.apiKeyId),
@@ -386,6 +392,7 @@ logs.openapi(get, async (c) => {
 		customHeaderKey: sanitize(query.customHeaderKey),
 		customHeaderValue: sanitize(query.customHeaderValue),
 		requestId: sanitize(query.requestId),
+		sessionId: sanitize(query.sessionId),
 	};
 
 	// Set default limit if not provided or enforce max limit
@@ -577,6 +584,11 @@ logs.openapi(get, async (c) => {
 	// Add requestId filter
 	if (requestId) {
 		whereConditions.push(eq(tables.log.requestId, requestId));
+	}
+
+	// Add sessionId filter
+	if (sessionId) {
+		whereConditions.push(eq(tables.log.sessionId, sessionId));
 	}
 
 	// Add cursor-based pagination conditions

@@ -1,15 +1,18 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import {
+	getErrorType,
 	isRetryableErrorType,
 	shouldRetryAlternateKey,
 } from "@/chat/tools/retry-with-fallback.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
+import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	reportKeyError,
 	reportKeySuccess,
@@ -38,7 +41,9 @@ import {
 	models as modelDefinitions,
 } from "@llmgateway/models";
 
+import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
+import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
@@ -196,6 +201,7 @@ function findEmbeddingMapping(modelId: string): {
 	mapping: ProviderModelMapping;
 	modelDef: ModelDefinition;
 	modelDefId: string;
+	explicitProvider: boolean;
 } | null {
 	// Split an optional "<provider>/<model>" prefix. When present, only
 	// mappings on that provider are considered — this lets callers pick
@@ -218,7 +224,12 @@ function findEmbeddingMapping(modelId: string): {
 				continue;
 			}
 			if (model.id === modelKey || candidate.externalId === modelKey) {
-				return { mapping: candidate, modelDef: model, modelDefId: model.id };
+				return {
+					mapping: candidate,
+					modelDef: model,
+					modelDefId: model.id,
+					explicitProvider: requestedProvider !== undefined,
+				};
 			}
 		}
 	}
@@ -448,7 +459,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		);
 	}
 
-	const { mapping, modelDef, modelDefId } = match;
+	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
 
@@ -552,6 +563,25 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
+
+	// Routing metadata mirrors the chat path so the activity log UI can render
+	// the selected provider, key fingerprint, and per-key request attempts.
+	// Embeddings resolve to a single provider/model mapping, so there is no
+	// cross-provider scoring — only the key-rotation retries are tracked.
+	const selectionReason = explicitProvider
+		? "direct-provider-specified"
+		: "single-provider-available";
+	const routingAttempts: RoutingAttempt[] = [];
+	const buildEmbeddingRoutingMetadata = (
+		usedApiKeyHash: string | undefined,
+	): RoutingMetadata => ({
+		availableProviders: [providerId],
+		selectedProvider: providerId,
+		selectionReason,
+		...(usedApiKeyHash ? { usedApiKeyHash } : {}),
+		providerScores: [],
+		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
+	});
 
 	// Snapshot narrowed fields so the resolveAttempt closure keeps them non-null.
 	const retryProject = {
@@ -857,6 +887,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	try {
 		while (true) {
 			const attemptLogId = shortid();
+			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -907,10 +938,21 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 				const duration = Date.now() - startedAt;
 				if (attempt.envVarName !== undefined) {
-					reportKeyError(attempt.envVarName, attempt.configIndex, 0);
+					reportKeyError(
+						attempt.envVarName,
+						attempt.configIndex,
+						0,
+						undefined,
+						upstreamModel,
+					);
 				}
 				if (attempt.providerKey?.id) {
-					reportTrackedKeyError(attempt.providerKey.id, 0);
+					reportTrackedKeyError(
+						attempt.providerKey.id,
+						0,
+						undefined,
+						upstreamModel,
+					);
 				}
 
 				const networkErrorType = isTimeout
@@ -922,9 +964,26 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						: null;
 				const willRetry = nextAttempt !== null;
 
+				if (!isCanceled) {
+					routingAttempts.push(
+						buildRoutingAttempt(
+							providerId,
+							modelDefId,
+							0,
+							networkErrorType,
+							false,
+							{
+								apiKeyHash: usedApiKeyHash,
+								logId: willRetry ? attemptLogId : finalLogId,
+							},
+						),
+					);
+				}
+
 				await insertLog({
 					...baseLogEntry,
 					id: willRetry ? attemptLogId : finalLogId,
+					routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -1028,10 +1087,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						attempt.configIndex,
 						status,
 						upstreamText,
+						upstreamModel,
 					);
 				}
 				if (attempt.providerKey?.id) {
-					reportTrackedKeyError(attempt.providerKey.id, status, upstreamText);
+					reportTrackedKeyError(
+						attempt.providerKey.id,
+						status,
+						upstreamText,
+						upstreamModel,
+					);
 				}
 
 				const finishReason = getFinishReasonFromError(status, upstreamText);
@@ -1044,9 +1109,24 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					: null;
 				const willRetry = nextAttempt !== null;
 
+				routingAttempts.push(
+					buildRoutingAttempt(
+						providerId,
+						modelDefId,
+						status,
+						getErrorType(status),
+						false,
+						{
+							apiKeyHash: usedApiKeyHash,
+							logId: willRetry ? attemptLogId : finalLogId,
+						},
+					),
+				);
+
 				await insertLog({
 					...baseLogEntry,
 					id: willRetry ? attemptLogId : finalLogId,
+					routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -1119,10 +1199,14 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 
 			if (attempt.envVarName !== undefined) {
-				reportKeySuccess(attempt.envVarName, attempt.configIndex);
+				reportKeySuccess(
+					attempt.envVarName,
+					attempt.configIndex,
+					upstreamModel,
+				);
 			}
 			if (attempt.providerKey?.id) {
-				reportTrackedKeySuccess(attempt.providerKey.id);
+				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
 			}
 
 			let normalizedResponse: Record<string, unknown> = (upstreamJson ??
@@ -1270,9 +1354,24 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			const requestCost = Number(mapping.requestPrice ?? "0");
 			const cost = inputCost + requestCost;
 
+			routingAttempts.push(
+				buildRoutingAttempt(
+					providerId,
+					modelDefId,
+					upstreamResponse.status,
+					"none",
+					true,
+					{
+						apiKeyHash: usedApiKeyHash,
+						logId: finalLogId,
+					},
+				),
+			);
+
 			await insertLog({
 				...baseLogEntry,
 				id: finalLogId,
+				routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
 				duration,
 				timeToFirstToken: null,
 				timeToFirstReasoningToken: null,

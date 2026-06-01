@@ -1,37 +1,48 @@
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import {
+	DEFAULT_ROUTING_STICKY,
+	type RoutingStickyConfig,
+} from "@llmgateway/shared/routing-config";
 
-const DEFAULT_TTL_SECONDS = 3600;
-const DEFAULT_UPTIME_THRESHOLD = 85;
-const DEFAULT_SCORE_MARGIN = 0.15;
+type StickyCfg = Required<RoutingStickyConfig>;
 
-function getTtl(): number {
+function getTtl(cfg?: StickyCfg): number {
+	if (cfg) {
+		return cfg.ttlSeconds;
+	}
 	const raw = process.env.PREFERRED_PROVIDER_TTL;
 	if (!raw) {
-		return DEFAULT_TTL_SECONDS;
+		return DEFAULT_ROUTING_STICKY.ttlSeconds;
 	}
 	const v = parseInt(raw, 10);
-	return Number.isFinite(v) && v > 0 ? v : DEFAULT_TTL_SECONDS;
+	return Number.isFinite(v) && v > 0 ? v : DEFAULT_ROUTING_STICKY.ttlSeconds;
 }
 
-function getUptimeThreshold(): number {
+function getUptimeThreshold(cfg?: StickyCfg): number {
+	if (cfg) {
+		return cfg.uptimeThreshold;
+	}
 	const raw = process.env.PREFERRED_PROVIDER_UPTIME_THRESHOLD;
 	if (!raw) {
-		return DEFAULT_UPTIME_THRESHOLD;
+		return DEFAULT_ROUTING_STICKY.uptimeThreshold;
 	}
 	const v = parseFloat(raw);
 	return Number.isFinite(v) && v >= 0 && v <= 100
 		? v
-		: DEFAULT_UPTIME_THRESHOLD;
+		: DEFAULT_ROUTING_STICKY.uptimeThreshold;
 }
 
-function getScoreMargin(): number {
+function getScoreMargin(cfg?: StickyCfg): number {
+	if (cfg) {
+		return cfg.scoreMargin;
+	}
 	const raw = process.env.PREFERRED_PROVIDER_SCORE_MARGIN;
 	if (!raw) {
-		return DEFAULT_SCORE_MARGIN;
+		return DEFAULT_ROUTING_STICKY.scoreMargin;
 	}
 	const v = parseFloat(raw);
-	return Number.isFinite(v) && v >= 0 ? v : DEFAULT_SCORE_MARGIN;
+	return Number.isFinite(v) && v >= 0 ? v : DEFAULT_ROUTING_STICKY.scoreMargin;
 }
 
 function redisKey(orgId: string, modelId: string): string {
@@ -67,13 +78,14 @@ export async function setPreferredProvider(
 	modelId: string,
 	providerId: string,
 	region?: string,
+	cfg?: StickyCfg,
 ): Promise<void> {
 	try {
 		await redisClient.set(
 			redisKey(orgId, modelId),
 			JSON.stringify({ providerId, region }),
 			"EX",
-			getTtl(),
+			getTtl(cfg),
 		);
 	} catch (error) {
 		logger.error("Error setting preferred provider in Redis:", error as Error);
@@ -98,6 +110,7 @@ export function resolvePreferredProvider<
 	preferred: PreferredProviderEntry,
 	candidates: T[],
 	providerScores: ProviderScoreForHysteresis[],
+	cfg?: StickyCfg,
 ): T | null {
 	const preferredCandidate = candidates.find(
 		(c) =>
@@ -120,14 +133,14 @@ export function resolvePreferredProvider<
 	// Hard switch when uptime drops below threshold regardless of score
 	if (
 		preferredScore.uptime !== undefined &&
-		preferredScore.uptime < getUptimeThreshold()
+		preferredScore.uptime < getUptimeThreshold(cfg)
 	) {
 		return null;
 	}
 
 	// Soft switch: only move away when a meaningfully better provider exists
 	const bestScore = Math.min(...providerScores.map((s) => s.score));
-	if (preferredScore.score - bestScore > getScoreMargin()) {
+	if (preferredScore.score - bestScore > getScoreMargin(cfg)) {
 		return null;
 	}
 

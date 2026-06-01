@@ -37,6 +37,7 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 	const formatPrice = (
 		price: string | null | undefined,
 		discount?: string | null,
+		align: "center" | "end" = "center",
 	) => {
 		if (price === null || price === undefined) {
 			return "—";
@@ -49,7 +50,9 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 				(priceNum * 1e6 * (1 - discountNum)).toFixed(4),
 			);
 			return (
-				<div className="flex flex-col items-center gap-0.5">
+				<div
+					className={`flex flex-col gap-0.5 ${align === "end" ? "items-end" : "items-center"}`}
+				>
 					<div className="flex items-center gap-1">
 						<span className="line-through text-muted-foreground text-xs">
 							${originalPrice}

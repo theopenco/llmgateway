@@ -29,6 +29,7 @@ export const providerLogoUrls: Partial<
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
+	canopywave: ProviderIcons.canopywave,
 	cerebras: ProviderIcons.cerebras,
 	minimax: ProviderIcons.minimax,
 	bytedance: ProviderIcons.bytedance,

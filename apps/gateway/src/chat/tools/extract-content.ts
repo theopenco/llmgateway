@@ -14,6 +14,7 @@ export function extractContent(data: any, provider: Provider): string {
 			return contentParts.map((part: any) => part.text).join("") ?? "";
 		}
 		case "anthropic":
+		case "anthropic-discount":
 		case "vertex-anthropic":
 			if (data.type === "content_block_delta" && data.delta?.text) {
 				return data.delta.text;

@@ -502,6 +502,7 @@ export function ProviderSection({
 	formatPrice: (
 		price: string | null | undefined,
 		discount?: string | null,
+		align?: "center" | "end",
 	) => string | React.JSX.Element;
 	copyToClipboard: (text: string) => void;
 	copiedModel: string | null;
@@ -793,50 +794,70 @@ export function ProviderSection({
 						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
 							Tiered Pricing
 						</div>
-						<div className="space-y-1">
-							{activeMapping.pricingTiers!.map((tier, index) => {
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
-								const prevTokens =
-									activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
-								const label =
-									tier.upToTokens === null
-										? `>${(prevTokens / 1000).toLocaleString()}K tokens`
-										: `≤${(tier.upToTokens / 1000).toLocaleString()}K tokens`;
-								return (
-									<div
-										key={index}
-										className="flex justify-between items-center text-xs"
-									>
-										<span className="text-muted-foreground">{label}</span>
-										<span className="font-mono tabular-nums">
-											{formatPrice(
-												tier.inputPrice,
-												discountNum > 0 ? String(discountNum) : null,
-											)}{" "}
-											in
-											{tier.cachedInputPrice && (
-												<>
-													{" "}
-													/{" "}
-													{formatPrice(
-														tier.cachedInputPrice,
-														discountNum > 0 ? String(discountNum) : null,
-													)}{" "}
-													cached
-												</>
-											)}{" "}
-											/{" "}
-											{formatPrice(
-												tier.outputPrice,
-												discountNum > 0 ? String(discountNum) : null,
-											)}{" "}
-											out
-										</span>
-									</div>
+						<div className="space-y-2">
+							{(() => {
+								const hasCached = activeMapping.pricingTiers!.some(
+									(t) => t.cachedInputPrice,
 								);
-							})}
+								return (
+									<>
+										<div
+											className={`grid ${hasCached ? "grid-cols-[1fr_1fr_1fr_1fr]" : "grid-cols-[1fr_1fr_1fr]"} gap-x-2 text-[10px] text-muted-foreground/60 text-right`}
+										>
+											<div />
+											<div>IN</div>
+											{hasCached && <div>CACHED</div>}
+											<div>OUT</div>
+										</div>
+										{activeMapping.pricingTiers!.map((tier, index) => {
+											const discountNum = activeMapping.discount
+												? parseFloat(activeMapping.discount)
+												: 0;
+											const prevTokens =
+												activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
+											const label =
+												tier.upToTokens === null
+													? `>${(prevTokens / 1000).toLocaleString()}K tokens`
+													: `≤${(tier.upToTokens / 1000).toLocaleString()}K tokens`;
+											return (
+												<div
+													key={index}
+													className={`grid ${hasCached ? "grid-cols-[1fr_1fr_1fr_1fr]" : "grid-cols-[1fr_1fr_1fr]"} gap-x-2 items-center text-xs`}
+												>
+													<span className="text-muted-foreground">{label}</span>
+													<div className="font-mono tabular-nums flex justify-end">
+														{formatPrice(
+															tier.inputPrice,
+															discountNum > 0 ? String(discountNum) : null,
+															"end",
+														)}
+													</div>
+													{hasCached && (
+														<div className="font-mono tabular-nums flex justify-end">
+															{tier.cachedInputPrice
+																? formatPrice(
+																		tier.cachedInputPrice,
+																		discountNum > 0
+																			? String(discountNum)
+																			: null,
+																		"end",
+																	)
+																: "—"}
+														</div>
+													)}
+													<div className="font-mono tabular-nums flex justify-end">
+														{formatPrice(
+															tier.outputPrice,
+															discountNum > 0 ? String(discountNum) : null,
+															"end",
+														)}
+													</div>
+												</div>
+											);
+										})}
+									</>
+								);
+							})()}
 						</div>
 					</div>
 				)}

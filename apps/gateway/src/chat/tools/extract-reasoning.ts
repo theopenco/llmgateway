@@ -34,6 +34,7 @@ export function extractReasoning(
 ): string {
 	switch (provider) {
 		case "anthropic":
+		case "anthropic-discount":
 		case "vertex-anthropic": {
 			const chunk = data as AnthropicStreamChunk;
 			if (

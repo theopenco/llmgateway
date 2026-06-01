@@ -9,7 +9,7 @@
 	"scripts": {
 		"build": "TURBO_TOKEN=turbotokenoss turbo run build 2>&1",
 		"build:ci": "TURBO_TOKEN=turbotokenoss turbo run build --concurrency=1 2>&1",
-		"build:core": "turbo run build --filter=!ui --filter=!docs --filter=!playground --filter=!admin --filter=!code",
+		"build:core": "TURBO_TOKEN=turbotokenoss turbo run build --filter=!ui --filter=!docs --filter=!playground --filter=!admin --filter=!code",
 		"clean": "find . -path \"./node_modules\" -prune -o \\( -type d -name \"dist\" -o -name \".turbo\" -o -name \".source\" -o -name \".vercel\" -o -name \".out\" -o -name \".next-dev\" -o -name \".next\" \\) -exec rm -rf {} +",
 		"clean:node_modules": "find . -type d -name \"node_modules\" -exec rm -rf {} +",
 		"dev": "turbo run dev",
@@ -44,7 +44,7 @@
 		"@types/node": "25.3.0",
 		"commitlint": "21.0.1",
 		"concurrently": "^9.2.1",
-		"dotenv": "16.5.0",
+		"dotenv": "17.4.2",
 		"esbuild-fix-imports-plugin": "1.0.23",
 		"eslint": "^9.34.0",
 		"eslint-import-resolver-typescript": "4.4.4",
