@@ -4,11 +4,12 @@ import {
 	BarChart3,
 	Check,
 	Gauge,
+	Gift,
 	Layers,
 	LineChart,
 	Lock,
+	Plug,
 	ShieldCheck,
-	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -17,10 +18,10 @@ import { Button } from "@/lib/components/button";
 import type { Metadata } from "next";
 import type { Route } from "next";
 
-const TITLE =
-	"Northern Lights × LLM Gateway — build on the AI that powers our trading desk";
-const DESCRIPTION =
-	"Northern Lights runs its trading intelligence on LLM Gateway: one API for 210+ models, automatic failover, and real-time cost analytics. Create your account to build on the same infrastructure.";
+const BONUS_PERCENT = 50;
+
+const TITLE = `Connect your AI to Northern Lights — get a ${BONUS_PERCENT}% top-up bonus`;
+const DESCRIPTION = `Power your Northern Lights trading with LLM Gateway: one API for 210+ models, automatic failover, and real-time cost analytics. Sign up through this invite to connect your AI and claim a ${BONUS_PERCENT}% bonus on your first top-up.`;
 
 // Carry the partner source so signups from this page are attributable; the
 // standard LLM Gateway signup/onboarding flow ignores params it doesn't use.
@@ -47,6 +48,11 @@ const stats = [
 
 const features = [
 	{
+		icon: Plug,
+		title: "Plugs straight into Northern Lights",
+		body: "Your LLM Gateway key is the bridge — drop it into Northern Lights and your trading app is instantly powered by the AI you control.",
+	},
+	{
 		icon: Layers,
 		title: "Every model, one endpoint",
 		body: "Access 210+ models from OpenAI, Anthropic, Google and 25+ providers through a single OpenAI-compatible API — the exact stack behind the Northern Lights desk.",
@@ -67,14 +73,14 @@ const features = [
 		body: "Sub-50ms routing overhead and prompt caching keep time-sensitive strategies fast where every millisecond is edge.",
 	},
 	{
-		icon: Lock,
-		title: "Bring your own keys",
-		body: "Use your own provider keys and pay zero markup, or top up credits and pay just a 5% platform fee. No lock-in.",
-	},
-	{
 		icon: Activity,
 		title: "Guardrails & observability",
 		body: "Request-level logging, guardrails and analytics give you the audit trail a trading operation needs.",
+	},
+	{
+		icon: Lock,
+		title: "Your keys, your control",
+		body: "Credits never expire and your API key stays yours. Disconnect from Northern Lights or point it elsewhere any time.",
 	},
 ];
 
@@ -84,12 +90,12 @@ const steps = [
 		body: "Sign up in seconds with email or GitHub — no credit card required.",
 	},
 	{
-		title: "Add a key or top up",
-		body: "Bring your own provider keys or add credits to start routing immediately.",
+		title: `Top up & claim ${BONUS_PERCENT}%`,
+		body: `Add credits and we'll match ${BONUS_PERCENT}% on your first top-up — instantly, through this invite.`,
 	},
 	{
-		title: "Ship on the same stack",
-		body: "Point your app at one endpoint and build on the infrastructure that powers Northern Lights.",
+		title: "Connect to Northern Lights",
+		body: "Paste your LLM Gateway key into Northern Lights and your trading app is live on your own AI.",
 	},
 ];
 
@@ -126,7 +132,7 @@ export default function NorthernLightsInvitePage() {
 							size="sm"
 							className="bg-emerald-400 font-semibold text-[#03100c] shadow-[0_0_24px_-6px] shadow-emerald-400/50 hover:bg-emerald-300"
 						>
-							<Link href={SIGNUP_HREF}>Get started</Link>
+							<Link href={SIGNUP_HREF}>Claim {BONUS_PERCENT}% bonus</Link>
 						</Button>
 					</div>
 				</div>
@@ -151,23 +157,40 @@ export default function NorthernLightsInvitePage() {
 				<div className="container relative mx-auto px-4 py-20 md:py-28 lg:py-32">
 					<div className="mx-auto max-w-3xl space-y-8 text-center">
 						<span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-1.5 text-sm font-medium text-emerald-200">
-							<Sparkles className="h-3.5 w-3.5 text-emerald-300" />
-							Exclusive invite from Northern Lights
+							<Gift className="h-3.5 w-3.5 text-emerald-300" />
+							{BONUS_PERCENT}% bonus on your first top-up
 						</span>
 
 						<h1 className="font-display text-balance text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl">
-							The AI infrastructure behind{" "}
+							Connect your AI to{" "}
 							<span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent">
 								Northern Lights
 							</span>
 						</h1>
 
 						<p className="text-pretty text-base text-emerald-100/70 sm:text-lg md:text-xl">
-							Our trading desk runs on LLM Gateway — one API for 210+ models,
-							automatic failover, and real-time cost analytics. Create your
-							account and build on the same infrastructure that powers Northern
-							Lights.
+							LLM Gateway is how you plug your own AI into the Northern Lights
+							trading app — one API for 210+ models with automatic failover and
+							real-time cost analytics. Sign up through this invite and claim a{" "}
+							{BONUS_PERCENT}% bonus on your first top-up.
 						</p>
+
+						{/* Bonus highlight */}
+						<div className="mx-auto flex max-w-xl items-center gap-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/[0.07] p-5 text-left shadow-[0_0_60px_-20px] shadow-emerald-400/40">
+							<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-400/15 ring-1 ring-emerald-400/30">
+								<Gift className="h-6 w-6 text-emerald-300" />
+							</div>
+							<div>
+								<p className="font-display text-lg font-bold text-white">
+									Get {BONUS_PERCENT}% extra credits
+								</p>
+								<p className="text-sm text-emerald-100/60">
+									Sign up with this invite and we&apos;ll add {BONUS_PERCENT}%
+									on top of your first top-up — yours to spend across every
+									model.
+								</p>
+							</div>
+						</div>
 
 						<div className="flex flex-col items-center justify-center gap-4 pt-2 sm:flex-row">
 							<Button
@@ -176,7 +199,7 @@ export default function NorthernLightsInvitePage() {
 								className="group h-12 bg-emerald-400 px-8 text-base font-semibold text-[#03100c] shadow-[0_0_32px_-6px] shadow-emerald-400/60 hover:bg-emerald-300"
 							>
 								<Link href={SIGNUP_HREF}>
-									Create your free account
+									Claim your {BONUS_PERCENT}% bonus
 									<ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
 								</Link>
 							</Button>
@@ -245,11 +268,11 @@ export default function NorthernLightsInvitePage() {
 				<div className="container mx-auto px-4 py-20 md:py-28">
 					<div className="mx-auto max-w-2xl text-center">
 						<h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
-							Live in three steps
+							Connected in three steps
 						</h2>
 						<p className="mt-4 text-emerald-100/60">
-							From invite to production on the standard LLM Gateway onboarding
-							flow.
+							Claim your {BONUS_PERCENT}% bonus and connect your AI to Northern
+							Lights — on the standard LLM Gateway onboarding flow.
 						</p>
 					</div>
 
@@ -283,13 +306,13 @@ export default function NorthernLightsInvitePage() {
 					<div className="mx-auto max-w-2xl space-y-8 text-center">
 						<div className="space-y-4">
 							<h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
-								Build on the same edge as Northern Lights
+								Power Northern Lights with your own AI
 							</h2>
 							<ul className="mx-auto inline-flex flex-col gap-3 text-left">
 								{[
-									"210+ models through one OpenAI-compatible API",
-									"Automatic failover and prompt caching",
-									"Just a 5% platform fee — or bring your own keys",
+									`${BONUS_PERCENT}% bonus credits on your first top-up`,
+									"One API key connects 210+ models to Northern Lights",
+									"Automatic failover and real-time cost analytics",
 								].map((item) => (
 									<li key={item} className="flex items-start gap-3">
 										<span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400/15">
@@ -308,7 +331,7 @@ export default function NorthernLightsInvitePage() {
 								className="group h-12 bg-emerald-400 px-8 text-base font-semibold text-[#03100c] shadow-[0_0_32px_-6px] shadow-emerald-400/60 hover:bg-emerald-300"
 							>
 								<Link href={SIGNUP_HREF}>
-									Get started free
+									Claim your {BONUS_PERCENT}% bonus
 									<ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
 								</Link>
 							</Button>
