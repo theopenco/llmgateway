@@ -39,7 +39,7 @@ export const minimaxModels = [
 				splitTaggedReasoning: true,
 				vision: true,
 				tools: true,
-				jsonOutput: false,
+				jsonOutput: true,
 			},
 		],
 	},
