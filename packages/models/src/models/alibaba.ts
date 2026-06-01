@@ -1283,6 +1283,57 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen3.7-plus",
+		name: "Qwen3.7 Plus",
+		description:
+			"Mid-tier model in the Qwen3.7 series balancing speed, cost, and capability with strong coding and agentic performance.",
+		family: "alibaba",
+		releasedAt: new Date("2026-05-20"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "qwen3.7-plus",
+				inputPrice: "0.5e-6",
+				outputPrice: "3e-6",
+				cachedInputPrice: "0.1e-6",
+				cacheReadInputPrice: "0.05e-6",
+				cacheWriteInputPrice: "0.625e-6",
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "cn-beijing",
+						inputPrice: "0.34464e-6",
+						outputPrice: "2.06784e-6",
+						cachedInputPrice: "0.068928e-6",
+						cacheReadInputPrice: "0.034464e-6",
+						cacheWriteInputPrice: "0.4308e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 65536,
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
+				],
+			},
+		],
+	},
+	{
 		id: "qwen3-coder-next",
 		name: "Qwen3 Coder Next",
 		description:
