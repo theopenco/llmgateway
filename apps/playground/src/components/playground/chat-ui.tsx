@@ -1111,6 +1111,42 @@ export const ChatUI = ({
 		}
 		return () => observer.disconnect();
 	}, [updateInputHeight]);
+
+	useEffect(() => {
+		if (!floatingInput) {
+			return;
+		}
+		const handleSelectionChange = () => {
+			const input = inputRef.current;
+			if (!input) {
+				return;
+			}
+			const selection = window.getSelection();
+			if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+				return;
+			}
+			const range = selection.getRangeAt(0);
+			if (!range.intersectsNode(input)) {
+				return;
+			}
+			if (input.contains(range.startContainer)) {
+				return;
+			}
+			try {
+				const trimmed = range.cloneRange();
+				trimmed.setEndBefore(input);
+				selection.removeAllRanges();
+				if (!trimmed.collapsed) {
+					selection.addRange(trimmed);
+				}
+			} catch {
+				selection.removeAllRanges();
+			}
+		};
+		document.addEventListener("selectionchange", handleSelectionChange);
+		return () =>
+			document.removeEventListener("selectionchange", handleSelectionChange);
+	}, [floatingInput]);
 	// Centralized busy/active gates: isBusy blocks new submissions; isActive
 	// governs the Stop button which should only show while a request is in flight.
 	const isActive = status === "streaming" || status === "submitted";
@@ -1507,8 +1543,8 @@ export const ChatUI = ({
 			ref={floatingInput ? inputRef : undefined}
 			className={
 				floatingInput
-					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4 pointer-events-none"
-					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
+					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4 pointer-events-none select-none"
+					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t select-none"
 			}
 		>
 			<motion.div
