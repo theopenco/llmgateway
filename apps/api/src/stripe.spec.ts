@@ -197,21 +197,23 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		await deleteAll();
 	});
 
-	async function seedUsedDevPlanOrg() {
+	async function seedUsedDevPlanOrg(opts?: { devPlanCreditsLimit?: string }) {
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
 			name: "Acme Co",
 			billingEmail: "billing@acme.test",
 			devPlan: "pro",
-			devPlanCreditsLimit: "237",
+			devPlanCreditsLimit: opts?.devPlanCreditsLimit ?? "237",
 			devPlanCreditsUsed: "150",
 			devPlanStripeSubscriptionId: SUB_ID,
 			devPlanCancelled: false,
 		});
 	}
 
-	test("resets credits and grants a fresh allotment on a true cycle renewal", async () => {
-		await seedUsedDevPlanOrg();
+	test("resets credits and grants a full fresh allotment on a true cycle renewal", async () => {
+		// Seed a prorated limit left over from a mid-cycle upgrade to verify the
+		// renewal restores the tier's full allotment.
+		await seedUsedDevPlanOrg({ devPlanCreditsLimit: "312" });
 
 		await handleInvoicePaymentSucceeded(
 			makeInvoiceEvent({
@@ -225,6 +227,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("237");
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },

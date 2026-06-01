@@ -30,3 +30,23 @@ export function getDevPlanCreditsLimit(tier: DevPlanTier): number {
 	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER ?? "3");
 	return DEV_PLAN_PRICES[tier] * multiplier;
 }
+
+/**
+ * Prorated credit delta for a mid-cycle tier change.
+ *
+ * Credits track prorated dollars: changing tier part-way through a billing
+ * period grants (upgrade) or removes (downgrade) only the difference in the
+ * tiers' credit allotments scaled by the fraction of the period that remains —
+ * mirroring the prorated amount Stripe charges or credits back. Returns a
+ * positive number for upgrades and a negative number for downgrades.
+ */
+export function getProratedCreditDelta(
+	fromTier: DevPlanTier,
+	toTier: DevPlanTier,
+	remainingFraction: number,
+): number {
+	const clamped = Math.min(1, Math.max(0, remainingFraction));
+	const delta =
+		getDevPlanCreditsLimit(toTier) - getDevPlanCreditsLimit(fromTier);
+	return delta * clamped;
+}

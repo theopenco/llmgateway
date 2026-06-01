@@ -9,7 +9,7 @@ import { db, tables, eq, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
-	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -744,7 +744,29 @@ devPlans.openapi(changeTier, async (c) => {
 		}
 
 		// Only update local DB after Stripe confirms the upgrade is paid/active.
-		const newCreditsLimit = getDevPlanCreditsLimit(newTier);
+		//
+		// Credits track prorated dollars: a mid-cycle tier change adjusts the
+		// limit by only the prorated difference between the two tiers'
+		// allotments for the remaining part of the billing period — mirroring
+		// the prorated amount Stripe charges (upgrade) or credits back
+		// (downgrade). Granting the full new-tier allotment on every upgrade
+		// would let a user upgrade cheaply near the end of a cycle to receive a
+		// near-full fresh allotment.
+		const subscriptionItem = updated.items.data[0];
+		const periodStart = subscriptionItem.current_period_start;
+		const periodEnd = subscriptionItem.current_period_end;
+		const nowSeconds = Math.floor(Date.now() / 1000);
+		const periodLength = periodEnd - periodStart;
+		const remainingFraction =
+			periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
+
+		const creditDelta = getProratedCreditDelta(
+			personalOrg.devPlan as DevPlanTier,
+			newTier,
+			remainingFraction,
+		);
+		const currentLimit = parseFloat(personalOrg.devPlanCreditsLimit ?? "0");
+		const newCreditsLimit = Math.max(0, currentLimit + creditDelta);
 
 		await db
 			.update(tables.organization)

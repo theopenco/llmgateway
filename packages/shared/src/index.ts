@@ -18,6 +18,7 @@ export {
 	getDevPlanAnnualMonthlyPrice,
 	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 } from "./dev-plans.js";
 
 export {

@@ -2065,10 +2065,14 @@ export async function handleInvoicePaymentSucceeded(
 			description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
 		});
 
-		// Reset credits used and update billing cycle start
+		// Reset credits used and update billing cycle start. Also reset the
+		// limit to the full tier allotment: mid-cycle tier changes leave the
+		// limit at a prorated value, and a fresh cycle should grant the tier's
+		// full credits.
 		await db
 			.update(tables.organization)
 			.set({
+				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
 				devPlanBillingCycleStart: new Date(),
 				devPlanCancelled: false,
