@@ -47,26 +47,41 @@ export function estimateTokensFromText(
  * `imageInputTokensByResolution` tables used for billing in costs.ts. We don't
  * know the provider/region that will ultimately serve the request at estimate
  * time, so we take the first provider mapping that declares a table and prefer
- * its `default` resolution entry. Falls back to `DEFAULT_TOKENS_PER_IMAGE`.
+ * its `default` resolution entry. When the model has no table we fall back to
+ * `DEFAULT_TOKENS_PER_IMAGE` and report `isDefault` so callers can surface the
+ * unknown case.
  */
-function tokensPerImageForModel(modelId: string): number {
+function resolveTokensPerImage(modelId: string): {
+	tokens: number;
+	isDefault: boolean;
+} {
 	const model = models.find((m) => m.id === modelId) as
 		| ModelDefinition
 		| undefined;
-	if (!model) {
-		return DEFAULT_TOKENS_PER_IMAGE;
-	}
-	for (const provider of model.providers) {
-		const byResolution = provider.imageInputTokensByResolution;
-		if (byResolution) {
-			return (
-				byResolution.default ??
-				Object.values(byResolution)[0] ??
-				DEFAULT_TOKENS_PER_IMAGE
-			);
+	if (model) {
+		for (const provider of model.providers) {
+			const byResolution = provider.imageInputTokensByResolution;
+			if (byResolution) {
+				const tokens =
+					byResolution.default ??
+					Object.values(byResolution)[0] ??
+					DEFAULT_TOKENS_PER_IMAGE;
+				return { tokens, isDefault: false };
+			}
 		}
 	}
-	return DEFAULT_TOKENS_PER_IMAGE;
+	return { tokens: DEFAULT_TOKENS_PER_IMAGE, isDefault: true };
+}
+
+/**
+ * Reported when {@link estimateChatMessageTokens} had to fall back to a rough
+ * default because the model has no per-image table (`imageParts`) or because
+ * file/audio/video parts have no per-model token data yet (`otherParts`).
+ */
+export interface TokenEstimateFallback {
+	modelId: string;
+	imageParts: number;
+	otherParts: number;
 }
 
 function isImagePart(part: ContentPart): boolean {
@@ -107,15 +122,24 @@ function isOtherNonTextPart(part: ContentPart): boolean {
 export function estimateChatMessageTokens(
 	messages: MessageLike[],
 	modelId?: string,
+	onFallback?: (fallback: TokenEstimateFallback) => void,
 ): number {
 	if (!messages || messages.length === 0) {
 		return 0;
 	}
 	const countMultimodal = modelId !== undefined;
-	const tokensPerImage = countMultimodal ? tokensPerImageForModel(modelId) : 0;
+	let tokensPerImage = 0;
+	let imageRateIsDefault = false;
+	if (countMultimodal) {
+		const resolved = resolveTokensPerImage(modelId);
+		tokensPerImage = resolved.tokens;
+		imageRateIsDefault = resolved.isDefault;
+	}
 
 	let totalLength = 0;
 	let nonTextTokens = 0;
+	let fallbackImageParts = 0;
+	let fallbackOtherParts = 0;
 	for (const message of messages) {
 		const content = message.content;
 		if (typeof content === "string") {
@@ -136,11 +160,27 @@ export function estimateChatMessageTokens(
 				}
 				if (isImagePart(part)) {
 					nonTextTokens += tokensPerImage;
+					if (imageRateIsDefault) {
+						fallbackImageParts++;
+					}
 				} else if (isOtherNonTextPart(part)) {
 					nonTextTokens += DEFAULT_TOKENS_PER_NON_TEXT_PART;
+					fallbackOtherParts++;
 				}
 			}
 		}
+	}
+
+	if (
+		countMultimodal &&
+		onFallback &&
+		(fallbackImageParts > 0 || fallbackOtherParts > 0)
+	) {
+		onFallback({
+			modelId: modelId as string,
+			imageParts: fallbackImageParts,
+			otherParts: fallbackOtherParts,
+		});
 	}
 
 	const textTokens =

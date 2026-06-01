@@ -1,4 +1,8 @@
-import { estimateChatMessageTokens } from "@llmgateway/shared";
+import { logger } from "@llmgateway/logger";
+import {
+	estimateChatMessageTokens,
+	type TokenEstimateFallback,
+} from "@llmgateway/shared";
 
 /**
  * Converts a message content value (string, array of content parts, null, or
@@ -28,6 +32,19 @@ export function messageContentToString(
  * multimodal parts (using the model's per-image token table); this is used for
  * routing decisions that should reflect large image payloads. See issue #2112.
  */
+/**
+ * Logs when the multimodal estimate had to use a rough default, so unknown
+ * models/part types can be collected and the per-model token data improved
+ * over time (issue #2112).
+ */
+function warnOnFallbackEstimate(fallback: TokenEstimateFallback): void {
+	logger.warn("Multimodal token estimate fell back to a default", {
+		modelId: fallback.modelId,
+		imageParts: fallback.imageParts,
+		otherParts: fallback.otherParts,
+	});
+}
+
 export function encodeChatMessages(messages: any[], modelId?: string): number {
-	return estimateChatMessageTokens(messages, modelId);
+	return estimateChatMessageTokens(messages, modelId, warnOnFallbackEstimate);
 }

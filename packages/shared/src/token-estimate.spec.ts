@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	type TokenEstimateFallback,
 } from "./token-estimate.js";
 
 describe("estimateTokensFromText", () => {
@@ -162,5 +163,49 @@ describe("estimateChatMessageTokens (multimodal-aware, with modelId)", () => {
 		const messages = [{ content: "Hello" }, { content: ", world!" }];
 		// same as the no-modelId path: (5 + 8) / 4 = 3
 		expect(estimateChatMessageTokens(messages, IMAGE_MODEL)).toBe(3);
+	});
+});
+
+describe("estimateChatMessageTokens (fallback reporting)", () => {
+	const IMAGE_MODEL = "gemini-3.1-flash-image-preview"; // has a per-image table
+
+	it("reports image parts when the model has no per-image data", () => {
+		const messages = [
+			{ content: [{ type: "image_url", image_url: { url: "x" } }] },
+		];
+		const calls: TokenEstimateFallback[] = [];
+		estimateChatMessageTokens(messages, "no-such-model-xyz", (f) =>
+			calls.push(f),
+		);
+		expect(calls).toEqual([
+			{ modelId: "no-such-model-xyz", imageParts: 1, otherParts: 0 },
+		]);
+	});
+
+	it("reports file/audio/video parts as fallbacks", () => {
+		const messages = [{ content: [{ type: "input_audio" }] }];
+		const calls: TokenEstimateFallback[] = [];
+		estimateChatMessageTokens(messages, IMAGE_MODEL, (f) => calls.push(f));
+		expect(calls).toEqual([
+			{ modelId: IMAGE_MODEL, imageParts: 0, otherParts: 1 },
+		]);
+	});
+
+	it("does not report when the model has per-image data", () => {
+		const messages = [
+			{ content: [{ type: "image_url", image_url: { url: "x" } }] },
+		];
+		const calls: TokenEstimateFallback[] = [];
+		estimateChatMessageTokens(messages, IMAGE_MODEL, (f) => calls.push(f));
+		expect(calls).toHaveLength(0);
+	});
+
+	it("does not report on the text-only path (no modelId)", () => {
+		const messages = [
+			{ content: [{ type: "image_url", image_url: { url: "x" } }] },
+		];
+		const calls: TokenEstimateFallback[] = [];
+		estimateChatMessageTokens(messages, undefined, (f) => calls.push(f));
+		expect(calls).toHaveLength(0);
 	});
 });
