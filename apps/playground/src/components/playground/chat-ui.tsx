@@ -1129,6 +1129,9 @@ export const ChatUI = ({
 			if (!range.intersectsNode(input)) {
 				return;
 			}
+			if (input.contains(range.startContainer)) {
+				return;
+			}
 			try {
 				const trimmed = range.cloneRange();
 				trimmed.setEndBefore(input);
