@@ -2,6 +2,47 @@ import type { ModelDefinition } from "@/models.js";
 
 export const minimaxModels = [
 	{
+		id: "minimax-m3",
+		name: "MiniMax M3",
+		description:
+			"MiniMax M3 is a multimodal foundation model with 1M token context, native multimodal understanding, and MiniMax Sparse Attention (MSA) for efficient long-context inference.",
+		family: "minimax",
+		releasedAt: new Date("2026-05-31"),
+		providers: [
+			{
+				providerId: "minimax",
+				externalId: "MiniMax-M3",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				splitTaggedReasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: false,
+			},
+			{
+				providerId: "openrouter",
+				externalId: "minimax/minimax-m3-20260531",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "minimax-m2.7",
 		name: "MiniMax M2.7",
 		description:
