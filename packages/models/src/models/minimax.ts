@@ -356,4 +356,38 @@ export const minimaxModels = [
 			},
 		],
 	},
+	{
+		id: "minimax-hailuo-2-3",
+		name: "MiniMax Hailuo 2.3",
+		description:
+			"MiniMax's video generation model supporting text-to-video and image-to-video up to 10 seconds at 768p or 1080p resolution.",
+		family: "minimax",
+		output: ["video"],
+		releasedAt: new Date("2025-11-07"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "minimax",
+				externalId: "MiniMax-Hailuo-2.3",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					"768p": "0.0467",
+					"1080p": "0.0817",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1366x768", "768x1366", "1920x1080", "1080x1920"],
+				supportedVideoDurationsSeconds: [6, 10],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: false,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

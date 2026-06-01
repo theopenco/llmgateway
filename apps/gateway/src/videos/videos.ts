@@ -97,6 +97,20 @@ const SUPPORTED_VIDEO_SIZES = {
 		resolution: "720p",
 		orientation: "portrait",
 	},
+	"1366x768": {
+		size: "1366x768",
+		width: 1366,
+		height: 768,
+		resolution: "768p",
+		orientation: "landscape",
+	},
+	"768x1366": {
+		size: "768x1366",
+		width: 768,
+		height: 1366,
+		resolution: "768p",
+		orientation: "portrait",
+	},
 	"1920x1080": {
 		size: "1920x1080",
 		width: 1920,
@@ -930,6 +944,7 @@ function getVideoUpstreamModelName(
 			return getAvalancheVideoModelName(baseModelName);
 		case "bytedance":
 		case "google-vertex":
+		case "minimax":
 		default:
 			return baseModelName;
 	}
@@ -981,6 +996,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "minimax":
+			return "https://api.minimax.chat/v1";
 		default:
 			return null;
 	}
@@ -2148,7 +2165,7 @@ async function streamVideoFromUrl(
 }
 
 function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
-	return job.usedProvider === "openai";
+	return job.usedProvider === "openai" || job.usedProvider === "minimax";
 }
 
 async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
@@ -2217,10 +2234,35 @@ async function streamDirectUpstreamVideoContent(
 	job: VideoJobRecord,
 ): Promise<Response> {
 	const providerContext = await resolveVideoJobProviderContext(job);
-	const contentUrl = joinUrl(
-		providerContext.baseUrl,
-		`/v1/videos/${job.upstreamId}/content`,
-	);
+
+	let contentUrl: string;
+	if (providerContext.providerId === "minimax") {
+		const statusResponse =
+			job.upstreamStatusResponse &&
+			typeof job.upstreamStatusResponse === "object" &&
+			!Array.isArray(job.upstreamStatusResponse)
+				? (job.upstreamStatusResponse as Record<string, unknown>)
+				: {};
+		const fileId =
+			typeof statusResponse.file_id === "string"
+				? statusResponse.file_id
+				: null;
+		if (!fileId) {
+			throw new HTTPException(502, {
+				message: "MiniMax video response did not include a file_id for content",
+			});
+		}
+		contentUrl = joinUrl(
+			providerContext.baseUrl,
+			`/v1/files/${fileId}/content`,
+		);
+	} else {
+		contentUrl = joinUrl(
+			providerContext.baseUrl,
+			`/v1/videos/${job.upstreamId}/content`,
+		);
+	}
+
 	const upstreamResponse = await fetch(contentUrl, {
 		headers: getProviderHeaders(
 			providerContext.providerId,
@@ -2923,6 +2965,70 @@ async function createBytedanceVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+function getMinimaxResolution(videoSize: VideoSizeConfig): string {
+	if (videoSize.resolution === "1080p") {
+		return "1080P";
+	}
+	if (videoSize.resolution === "768p") {
+		return "768P";
+	}
+	if (videoSize.resolution === "4k") {
+		return "1080P";
+	}
+	return "768P";
+}
+
+async function createMinimaxVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		prompt,
+		duration: durationSeconds,
+		resolution: getMinimaxResolution(videoSize),
+	};
+
+	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/video_generation");
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("minimax", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "MiniMax video response did not include a task id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3001,6 +3107,14 @@ async function createUpstreamVideoJob(
 				videoJobId,
 				organizationId,
 				projectId,
+			);
+		case "minimax":
+			return await createMinimaxVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
 			);
 		default:
 			throw new HTTPException(500, {

@@ -140,6 +140,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "minimax":
+			return "https://api.minimax.chat/v1";
 		default:
 			return null;
 	}
@@ -1803,6 +1805,77 @@ function isBytedanceVideoProvider(providerId: string): boolean {
 	return providerId === "bytedance";
 }
 
+function isMinimaxVideoProvider(providerId: string): boolean {
+	return providerId === "minimax";
+}
+
+async function fetchMinimaxStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/v1/video_generation/query?task_id=${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.error === "object" &&
+			body.error &&
+			"message" in body.error &&
+			typeof body.error.message === "string"
+				? body.error.message
+				: `MiniMax status request failed with status ${response.status}`,
+		);
+	}
+
+	const rawStatus =
+		typeof body.status === "string" ? body.status : "Processing";
+	const normalizedStatus =
+		rawStatus === "Success"
+			? "completed"
+			: rawStatus === "Failed"
+				? "failed"
+				: "in_progress";
+	const fileId = typeof body.file_id === "string" ? body.file_id : null;
+	const videoUrl = fileId
+		? joinUrl(providerContext.baseUrl, `/v1/files/${fileId}/content`)
+		: null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status: normalizedStatus,
+		progress:
+			normalizedStatus === "completed"
+				? 100
+				: normalizedStatus === "failed"
+					? 100
+					: rawStatus === "Processing"
+						? 50
+						: 0,
+		url: videoUrl,
+		video_url: videoUrl,
+		output_url: videoUrl,
+		mime_type: videoUrl ? "video/mp4" : undefined,
+		file_id: fileId,
+		error:
+			normalizedStatus === "failed"
+				? {
+						message:
+							typeof body.base_resp === "object" &&
+							body.base_resp &&
+							"status_msg" in (body.base_resp as Record<string, unknown>)
+								? String((body.base_resp as Record<string, unknown>).status_msg)
+								: "MiniMax video generation failed",
+					}
+				: null,
+	});
+}
+
 async function fetchBytedanceStatus(
 	job: VideoJobRecord,
 	providerContext: ResolvedVideoProviderContext,
@@ -1884,6 +1957,10 @@ async function fetchUpstreamStatus(
 		return await fetchBytedanceStatus(job, providerContext);
 	}
 
+	if (isMinimaxVideoProvider(job.usedProvider)) {
+		return await fetchMinimaxStatus(job, providerContext);
+	}
+
 	return await fetchGenericVideoStatus(job, providerContext);
 }
 
@@ -1916,7 +1993,8 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "avalanche" ||
-		isGoogleVertexVideoProvider(job.usedProvider)
+		isGoogleVertexVideoProvider(job.usedProvider) ||
+		isMinimaxVideoProvider(job.usedProvider)
 	) {
 		return null;
 	}
