@@ -7,7 +7,7 @@ export const minimaxModels = [
 		description:
 			"MiniMax M3 is a multimodal foundation model with 1M token context, native multimodal understanding, and MiniMax Sparse Attention (MSA) for efficient long-context inference.",
 		family: "minimax",
-		releasedAt: new Date("2026-05-31"),
+		releasedAt: new Date("2026-06-01"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -15,22 +15,6 @@ export const minimaxModels = [
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
-				pricingTiers: [
-					{
-						name: "Up to 512K",
-						upToTokens: 512000,
-						inputPrice: "0.3e-6",
-						outputPrice: "1.2e-6",
-						cachedInputPrice: "0.06e-6",
-					},
-					{
-						name: "Over 512K",
-						upToTokens: Infinity,
-						inputPrice: "1.2e-6",
-						outputPrice: "4.8e-6",
-						cachedInputPrice: "0.24e-6",
-					},
-				],
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,
