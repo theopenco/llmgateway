@@ -684,7 +684,9 @@ export function GlobalStatsClient() {
 										size="sm"
 										className="h-7 px-3"
 										disabled={breakdownCurrentPage <= 1}
-										onClick={() => setBreakdownPage((p) => Math.max(1, p - 1))}
+										onClick={() =>
+											setBreakdownPage(Math.max(1, breakdownCurrentPage - 1))
+										}
 									>
 										Previous
 									</Button>
@@ -697,8 +699,8 @@ export function GlobalStatsClient() {
 										className="h-7 px-3"
 										disabled={breakdownCurrentPage >= breakdownTotalPages}
 										onClick={() =>
-											setBreakdownPage((p) =>
-												Math.min(breakdownTotalPages, p + 1),
+											setBreakdownPage(
+												Math.min(breakdownTotalPages, breakdownCurrentPage + 1),
 											)
 										}
 									>
