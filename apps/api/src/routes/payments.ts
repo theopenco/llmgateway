@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -899,7 +900,9 @@ const calculateFeesRoute = createRoute({
 						bonusEnabled: z.boolean(),
 						bonusEligible: z.boolean(),
 						bonusIneligibilityReason: z.string().optional(),
-						bonusType: z.enum(["first_purchase", "second_topup"]).optional(),
+						bonusType: z
+							.enum(["first_purchase", "second_topup", "referral"])
+							.optional(),
 						secondTopupBonusExpiresInDays: z.number().optional(),
 					}),
 				},
@@ -965,7 +968,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 	let finalCreditAmount = amount;
 	let bonusEligible = false;
 	let bonusIneligibilityReason: string | undefined;
-	let bonusType: "first_purchase" | "second_topup" | undefined;
+	let bonusType: "first_purchase" | "second_topup" | "referral" | undefined;
 	let secondTopupBonusExpiresInDays: number | undefined;
 
 	const firstBonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
@@ -977,7 +980,18 @@ payments.openapi(calculateFeesRoute, async (c) => {
 
 	const firstBonusEnabled = firstBonusMultiplier > 1;
 	const secondBonusEnabled = secondBonusMultiplier > 1;
-	const bonusEnabled = firstBonusEnabled || secondBonusEnabled;
+
+	// Referral signup bonus applies to the referred org's first top-up and takes
+	// precedence over the env-driven first-time bonus. Mirrors stripe.ts so the
+	// estimate matches the credits actually granted by the webhook.
+	const referralBonusAmount = await computeReferralBonus(
+		userOrganization.organization.id,
+		amount,
+	);
+	const referralBonusPossible = referralBonusAmount > 0;
+
+	const bonusEnabled =
+		firstBonusEnabled || secondBonusEnabled || referralBonusPossible;
 
 	if (bonusEnabled) {
 		if (!userOrganization.user || !userOrganization.user.emailVerified) {
@@ -993,7 +1007,12 @@ payments.openapi(calculateFeesRoute, async (c) => {
 				limit: 2,
 			});
 
-			if (previousPurchases.length === 0 && firstBonusEnabled) {
+			if (previousPurchases.length === 0 && referralBonusPossible) {
+				bonusEligible = true;
+				bonusType = "referral";
+				bonusAmount = referralBonusAmount;
+				finalCreditAmount = amount + bonusAmount;
+			} else if (previousPurchases.length === 0 && firstBonusEnabled) {
 				bonusEligible = true;
 				bonusType = "first_purchase";
 				const potentialBonus = amount * (firstBonusMultiplier - 1);

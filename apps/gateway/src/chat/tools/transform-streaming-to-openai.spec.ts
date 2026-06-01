@@ -70,6 +70,27 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		{ type: "content_block_start", content_block: { type: "text", text: "" } },
+		{
+			type: "content_block_start",
+			content_block: { type: "thinking", thinking: "" },
+		},
+		{ type: "content_block_stop" },
+	])("drops Anthropic %s without warning", (chunk) => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"anthropic",
+			"claude-opus-4-8",
+			{ index: 0, ...chunk },
+			[],
+		);
+
+		expect(result).toBeNull();
+		expect(warn).not.toHaveBeenCalled();
+	});
+
 	it("ignores OpenAI keepalive events without warning", () => {
 		warn.mockClear();
 

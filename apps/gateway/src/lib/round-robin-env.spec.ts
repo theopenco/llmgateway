@@ -39,6 +39,44 @@ describe("round-robin-env", () => {
 			const result = parseCommaSeparatedEnv("value1,,value2,");
 			expect(result).toEqual(["value1", "value2"]);
 		});
+
+		it("should not split a JSON service-account value on its commas", () => {
+			const saJson =
+				'{"type":"service_account","project_id":"my-proj","private_key":"-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----\\n","client_email":"sa@my-proj.iam.gserviceaccount.com"}';
+			const result = parseCommaSeparatedEnv(saJson);
+			expect(result).toEqual([saJson]);
+		});
+
+		it("should treat a whitespace-padded JSON value as a single entry", () => {
+			const saJson = '  {"type":"service_account","a":1,"b":2}  ';
+			const result = parseCommaSeparatedEnv(saJson);
+			expect(result).toEqual(['{"type":"service_account","a":1,"b":2}']);
+		});
+
+		it("should split multiple JSON credentials on top-level commas", () => {
+			const sa1 = '{"type":"service_account","project_id":"proj-a"}';
+			const sa2 = '{"type":"service_account","project_id":"proj-b"}';
+			const result = parseCommaSeparatedEnv(`${sa1},${sa2}`);
+			expect(result).toEqual([sa1, sa2]);
+		});
+
+		it("should split a mix of plain keys and JSON credentials", () => {
+			const saJson = '{"type":"service_account","a":1,"b":2}';
+			const result = parseCommaSeparatedEnv(`key1,${saJson},key2`);
+			expect(result).toEqual(["key1", saJson, "key2"]);
+		});
+
+		it("should preserve commas and braces inside JSON string values", () => {
+			const saJson = '{"client_email":"a,b@x.com","note":"has } and , inside"}';
+			const result = parseCommaSeparatedEnv(`${saJson},plainkey`);
+			expect(result).toEqual([saJson, "plainkey"]);
+		});
+
+		it("should preserve nested arrays/objects inside JSON", () => {
+			const saJson = '{"scopes":["a","b"],"meta":{"x":1,"y":2}}';
+			const result = parseCommaSeparatedEnv(saJson);
+			expect(result).toEqual([saJson]);
+		});
 	});
 
 	describe("getRoundRobinValue", () => {

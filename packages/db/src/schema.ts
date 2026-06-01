@@ -174,6 +174,11 @@ export const organization = pgTable(
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
 		referralEarnings: decimal().notNull().default("0"),
+		// When enabled, organizations referred by this org receive a bonus on
+		// their first credit top-up. Configurable only via the admin dashboard.
+		referralBonusEnabled: boolean().notNull().default(false),
+		// Percentage bonus applied to the referred org's first top-up (e.g. 50 = 50%).
+		referralBonusPercent: decimal().notNull().default("50"),
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
@@ -450,6 +455,7 @@ export const project = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		cachingEnabled: boolean().notNull().default(false),
 		cacheDurationSeconds: integer().notNull().default(60),
+		providerCacheControlEnabled: boolean().notNull().default(true),
 		mode: text({
 			enum: ["api-keys", "credits", "hybrid"],
 		})
@@ -579,7 +585,20 @@ export const masterKey = pgTable(
 );
 
 export interface ProviderKeyOptions {
-	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+	aws_bedrock_region?:
+		| "global"
+		| "us"
+		| "eu"
+		| "apac"
+		| "us-east-1"
+		| "us-east-2"
+		| "us-west-2"
+		| "eu-central-1"
+		| "eu-west-1"
+		| "ap-northeast-1"
+		| "ap-southeast-1"
+		| "ap-southeast-2";
 	azure_resource?: string;
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
@@ -697,6 +716,7 @@ export const log = pgTable(
 			enum: ["api-keys", "credits"],
 		}).notNull(),
 		source: text(),
+		sessionId: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
 		routingMetadata: json().$type<{
 			availableProviders?: string[];
@@ -785,6 +805,10 @@ export const log = pgTable(
 			.where(sql`data_retention_cleaned_up = false`),
 		// Index for distinct usedModel queries by project
 		index("log_project_id_used_model_idx").on(table.projectId, table.usedModel),
+		// Partial index for activity-log filtering by session id within a project
+		index("log_project_id_session_id_idx")
+			.on(table.projectId, table.sessionId, table.createdAt)
+			.where(sql`session_id IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
@@ -1309,11 +1333,6 @@ export const modelProviderMapping = pgTable(
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
 		externalId: text().notNull(),
-		// Legacy column kept around so in-flight pre-rename code keeps working
-		// during the deploy window between migration and the new code taking
-		// over. Not read or written by current code — a follow-up PR will drop
-		// it once all callers have been upgraded.
-		modelName: text(),
 		region: text(),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
@@ -1359,10 +1378,6 @@ export const modelProviderMapping = pgTable(
 		cachedCount: integer().notNull().default(0),
 		avgTimeToFirstToken: real(),
 		avgTimeToFirstReasoningToken: real(),
-		routingUptime: real(),
-		routingLatency: real(),
-		routingThroughput: real(),
-		routingTotalRequests: integer(),
 		statsUpdatedAt: timestamp(),
 	},
 	(table) => [
@@ -1530,6 +1545,8 @@ export const auditLogActions = [
 	"payment.auto_topup.disable",
 	// Credits
 	"credits.gift",
+	// Referral
+	"referral_bonus.update",
 	// Dev Plan
 	"dev_plan.subscribe",
 	"dev_plan.cancel",
@@ -1747,6 +1764,85 @@ export const guardrailViolation = pgTable(
 			table.createdAt,
 		),
 	],
+);
+
+export interface RoutingWeightsConfig {
+	price?: number;
+	imagePrice?: number;
+	uptime?: number;
+	throughput?: number;
+	latency?: number;
+	cache?: number;
+}
+
+export interface RoutingThresholdsConfig {
+	cachePromptTokens?: number;
+	uptimePenalty?: number;
+	defaultUptime?: number;
+	defaultLatency?: number;
+	defaultThroughput?: number;
+	explorationRate?: number;
+}
+
+export interface RoutingRetryConfig {
+	maxRetries?: number;
+	lowUptimeFallbackThreshold?: number;
+}
+
+export interface RoutingTimeoutsConfig {
+	gatewayMs?: number;
+	streamingMs?: number;
+	plainMs?: number;
+}
+
+export interface RoutingHistoryConfig {
+	windowMinutes?: number;
+	tier1Minutes?: number;
+	tier2Minutes?: number;
+	tier1Weight?: number;
+	tier2Weight?: number;
+	tier3Weight?: number;
+}
+
+export interface RoutingStickyConfig {
+	enabled?: boolean;
+	ttlSeconds?: number;
+	uptimeThreshold?: number;
+	scoreMargin?: number;
+}
+
+export interface RoutingSessionConfig {
+	enabled?: boolean;
+}
+
+export type ProviderPriorityOverrides = Record<string, number>;
+
+export const routingConfig = pgTable(
+	"routing_config",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" })
+			.unique(),
+		enabled: boolean().default(false).notNull(),
+		weights: jsonb().$type<RoutingWeightsConfig>(),
+		thresholds: jsonb().$type<RoutingThresholdsConfig>(),
+		retry: jsonb().$type<RoutingRetryConfig>(),
+		timeouts: jsonb().$type<RoutingTimeoutsConfig>(),
+		history: jsonb().$type<RoutingHistoryConfig>(),
+		sticky: jsonb().$type<RoutingStickyConfig>(),
+		session: jsonb().$type<RoutingSessionConfig>(),
+		providerPriorities: jsonb(
+			"provider_priorities",
+		).$type<ProviderPriorityOverrides>(),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [index("routing_config_project_id_idx").on(table.projectId)],
 );
 
 // Discount - Admin-configurable discounts for providers/models
@@ -2456,6 +2552,7 @@ export const playgroundVideoHistory = pgTable(
 				modelName: string;
 				jobId: string | null;
 				videoUrl: string | null;
+				expiresAt?: number | null;
 				error?: string;
 			}[]
 		>(),

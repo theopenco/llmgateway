@@ -12,6 +12,7 @@ export * from "./types.js";
 export * from "./migrate.js";
 export * from "./relations.js";
 export * from "./provider-metrics.js";
+export * from "./provider-metrics-history.js";
 
 export * from "drizzle-orm";
 

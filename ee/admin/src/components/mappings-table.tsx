@@ -49,6 +49,7 @@ type MappingSortBy =
 	| "clientErrorsCount"
 	| "gatewayErrorsCount"
 	| "upstreamErrorsCount"
+	| "cost"
 	| "avgTimeToFirstToken"
 	| "updatedAt";
 
@@ -99,6 +100,10 @@ function SortableHeader({
 
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);
+}
+
+function formatCost(n: number) {
+	return `$${n.toFixed(4)}`;
 }
 
 function formatPrice(price: string | null) {
@@ -199,6 +204,9 @@ function MappingRow({
 					{formatNumber(mapping.logsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
+					{formatCost(mapping.cost)}
+				</TableCell>
+				<TableCell className="tabular-nums">
 					{formatNumber(mapping.errorsCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
@@ -246,7 +254,7 @@ function MappingRow({
 			{expanded && (
 				<TableRow>
 					<TableCell
-						colSpan={15}
+						colSpan={16}
 						className="p-4"
 						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 					>
@@ -300,6 +308,7 @@ export function MappingsTable({
 					<TableHead>Region</TableHead>
 					<TableHead>Status</TableHead>
 					{sh("Requests", "logsCount")}
+					{sh("Cost", "cost")}
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
 					{sh("Gateway", "gatewayErrorsCount")}
@@ -316,7 +325,7 @@ export function MappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={15}
+							colSpan={16}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No mappings found

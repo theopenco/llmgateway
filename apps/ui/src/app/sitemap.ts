@@ -1,3 +1,4 @@
+import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
 
 import {
@@ -284,6 +285,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		priority: 0.7,
 	}));
 
+	// Enterprise feature subpages
+	const enterpriseFeaturePages: MetadataRoute.Sitemap = enterpriseFeatures.map(
+		(feature) => ({
+			url: `${baseUrl}/enterprise/${feature.slug}`,
+			lastModified: new Date(),
+			changeFrequency: "monthly" as const,
+			priority: 0.8,
+		}),
+	);
+
 	// Blog pages
 	const blogPages: MetadataRoute.Sitemap = allBlogs
 		.filter((blog) => !blog.draft)
@@ -335,6 +346,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...modelPages,
 		...providerPages,
 		...featurePages,
+		...enterpriseFeaturePages,
 		...blogPages,
 		...guidePages,
 		...changelogPages,

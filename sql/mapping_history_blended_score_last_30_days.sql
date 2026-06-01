@@ -38,7 +38,7 @@ with mapping_breakdown as (
 		mph.model_provider_mapping_id,
 		mph.model_id,
 		mph.provider_id,
-		mpm.model_name,
+		mpm.external_id,
 		sum(mph.logs_count) as requests,
 		sum(mph.errors_count) as errors_count,
 		sum(mph.cached_count) as cached_count,
@@ -56,7 +56,7 @@ with mapping_breakdown as (
 		mph.model_provider_mapping_id,
 		mph.model_id,
 		mph.provider_id,
-		mpm.model_name
+		mpm.external_id
 	having sum(mph.logs_count) >= 10
 ),
 metrics as (
@@ -64,7 +64,7 @@ metrics as (
 		model_provider_mapping_id,
 		model_id,
 		provider_id,
-		model_name,
+		external_id,
 		requests,
 		errors_count,
 		cached_count,
@@ -102,7 +102,7 @@ select
 	m.model_provider_mapping_id,
 	m.model_id,
 	m.provider_id,
-	m.model_name,
+	m.external_id,
 	m.requests,
 	m.errors_count,
 	m.cached_count,

@@ -5,6 +5,7 @@ export interface CachingSettingsData {
 		preferences: {
 			cachingEnabled: boolean;
 			cacheDurationSeconds: number;
+			providerCacheControlEnabled: boolean;
 		};
 	};
 }

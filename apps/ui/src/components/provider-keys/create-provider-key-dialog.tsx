@@ -50,9 +50,6 @@ export function CreateProviderKeyDialog({
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
 	const [token, setToken] = useState("");
-	const [awsBedrockRegionPrefix, setAwsBedrockRegionPrefix] = useState<
-		"us." | "global." | "eu."
-	>("global.");
 	const [azureResource, setAzureResource] = useState("");
 	const [azureApiVersion, setAzureApiVersion] = useState("2024-10-21");
 	const [azureDeploymentType, setAzureDeploymentType] = useState<
@@ -148,11 +145,6 @@ export function CreateProviderKeyDialog({
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
 		}
-		if (selectedProvider === "aws-bedrock") {
-			payload.options = {
-				aws_bedrock_region_prefix: awsBedrockRegionPrefix,
-			};
-		}
 		// Include region in options for providers that support it
 		if (selectedProviderDef?.regionConfig && effectiveRegion) {
 			payload.options = {
@@ -237,7 +229,6 @@ export function CreateProviderKeyDialog({
 			setBaseUrl("");
 			setCustomName("");
 			setToken("");
-			setAwsBedrockRegionPrefix("global.");
 			setAzureResource("");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
@@ -333,32 +324,6 @@ export function CreateProviderKeyDialog({
 								onChange={(e) => setBaseUrl(e.target.value)}
 								required
 							/>
-						</div>
-					)}
-
-					{selectedProvider === "aws-bedrock" && (
-						<div className="space-y-2">
-							<Label htmlFor="region-prefix">Region Prefix</Label>
-							<Select
-								value={awsBedrockRegionPrefix}
-								onValueChange={(value) =>
-									setAwsBedrockRegionPrefix(value as "us." | "global." | "eu.")
-								}
-							>
-								<SelectTrigger id="region-prefix">
-									<SelectValue placeholder="Select region prefix" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="us.">us. (US regions)</SelectItem>
-									<SelectItem value="global.">
-										global. (Global regions)
-									</SelectItem>
-									<SelectItem value="eu.">eu. (EU regions)</SelectItem>
-								</SelectContent>
-							</Select>
-							<p className="text-sm text-muted-foreground">
-								Region prefix for AWS Bedrock model endpoints
-							</p>
 						</div>
 					)}
 

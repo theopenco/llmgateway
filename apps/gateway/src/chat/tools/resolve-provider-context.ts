@@ -121,6 +121,7 @@ export interface ProviderContextOptions {
 	webSearchEnabled: boolean;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	providerCacheControlEnabled: boolean;
 }
 
 interface ProjectInfo {
@@ -420,7 +421,11 @@ export async function resolveProviderContext(
 	}
 
 	// Anthropic does not allow temperature and top_p simultaneously
-	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
+	if (
+		usedProvider === "anthropic" ||
+		usedProvider === "anthropic-discount" ||
+		usedProvider === "vertex-anthropic"
+	) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -472,6 +477,7 @@ export async function resolveProviderContext(
 		useResponsesApi,
 		options.prompt_cache_key,
 		options.prompt_cache_retention,
+		options.providerCacheControlEnabled,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -514,7 +520,10 @@ export async function resolveProviderContext(
 	});
 	headers["Content-Type"] = "application/json";
 
-	if (usedProvider === "anthropic" && options.effort !== undefined) {
+	if (
+		(usedProvider === "anthropic" || usedProvider === "anthropic-discount") &&
+		options.effort !== undefined
+	) {
 		const currentBeta = headers["anthropic-beta"];
 		headers["anthropic-beta"] = currentBeta
 			? `${currentBeta},effort-2025-11-24`
@@ -522,7 +531,7 @@ export async function resolveProviderContext(
 	}
 
 	if (
-		usedProvider === "anthropic" &&
+		(usedProvider === "anthropic" || usedProvider === "anthropic-discount") &&
 		options.response_format?.type === "json_schema"
 	) {
 		const currentBeta = headers["anthropic-beta"];

@@ -145,6 +145,7 @@ const videoModelResultSchema = z.object({
 	modelName: z.string(),
 	jobId: z.string().nullable(),
 	videoUrl: z.string().nullable(),
+	expiresAt: z.number().nullable().optional(),
 	error: z.string().optional(),
 });
 

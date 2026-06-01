@@ -66,6 +66,7 @@ export function getUnifiedFinishReason(
 
 	switch (provider) {
 		case "anthropic":
+		case "anthropic-discount":
 		case "vertex-anthropic":
 			if (finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;
@@ -143,6 +144,7 @@ export function getUnifiedFinishReason(
 			}
 			break;
 		case "zai":
+		case "novita":
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
 			}
