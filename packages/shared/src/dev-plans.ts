@@ -45,7 +45,8 @@ export function getProratedCreditDelta(
 	toTier: DevPlanTier,
 	remainingFraction: number,
 ): number {
-	const clamped = Math.min(1, Math.max(0, remainingFraction));
+	const normalized = Number.isFinite(remainingFraction) ? remainingFraction : 0;
+	const clamped = Math.min(1, Math.max(0, normalized));
 	const delta =
 		getDevPlanCreditsLimit(toTier) - getDevPlanCreditsLimit(fromTier);
 	return delta * clamped;

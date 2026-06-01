@@ -9,6 +9,7 @@ import { db, tables, eq, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
+	getDevPlanCreditsLimit,
 	getProratedCreditDelta,
 	type DevPlanCycle,
 	type DevPlanTier,
@@ -685,6 +686,14 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const currentTier: DevPlanTier = personalOrg.devPlan;
+
 	// Preserve the subscriber's existing billing cadence so an annual
 	// subscriber doesn't silently get switched to monthly when changing tier.
 	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
@@ -697,20 +706,19 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	const isUpgrade =
-		DEV_PLAN_PRICES[newTier] >
-		DEV_PLAN_PRICES[personalOrg.devPlan as DevPlanTier];
+	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
 
 	try {
 		const subscription = await getStripe().subscriptions.retrieve(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
-		// For upgrades, charge the prorated amount synchronously and reject the
-		// upgrade if the customer's payment method can't cover it. Without this,
-		// Stripe leaves the subscription on the new (higher) price even when the
-		// proration invoice fails — letting the user spend at the upgraded tier
-		// while we never collect.
+		// Upgrades are charged a prorated amount synchronously (and rejected if
+		// the payment method can't cover it — otherwise Stripe would leave the
+		// subscription on the higher price while we never collect). Downgrades
+		// use `none`: the subscriber keeps the current (higher) tier's credits
+		// for the rest of the billing cycle and there is no refund — the lower
+		// price simply takes effect at the next renewal.
 		const updated = await getStripe().subscriptions.update(
 			personalOrg.devPlanStripeSubscriptionId,
 			{
@@ -720,7 +728,7 @@ devPlans.openapi(changeTier, async (c) => {
 						price: newPriceId,
 					},
 				],
-				proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
+				proration_behavior: isUpgrade ? "always_invoice" : "none",
 				payment_behavior: isUpgrade
 					? "error_if_incomplete"
 					: "allow_incomplete",
@@ -743,46 +751,65 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Only update local DB after Stripe confirms the upgrade is paid/active.
-		//
-		// Credits track prorated dollars: a mid-cycle tier change adjusts the
-		// limit by only the prorated difference between the two tiers'
-		// allotments for the remaining part of the billing period — mirroring
-		// the prorated amount Stripe charges (upgrade) or credits back
-		// (downgrade). Granting the full new-tier allotment on every upgrade
-		// would let a user upgrade cheaply near the end of a cycle to receive a
-		// near-full fresh allotment.
-		const subscriptionItem = updated.items.data[0];
-		const periodStart = subscriptionItem.current_period_start;
-		const periodEnd = subscriptionItem.current_period_end;
-		const nowSeconds = Math.floor(Date.now() / 1000);
-		const periodLength = periodEnd - periodStart;
-		const remainingFraction =
-			periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
+		if (isUpgrade) {
+			// Only update local DB after Stripe confirms the upgrade is paid/active.
+			//
+			// Credits track prorated dollars: a mid-cycle upgrade grants only the
+			// prorated difference between the two tiers' allotments for the
+			// remaining part of the billing period, mirroring the prorated amount
+			// Stripe charges. Granting the full new-tier allotment on every
+			// upgrade would let a user upgrade cheaply near the end of a cycle to
+			// receive a near-full fresh allotment. Clamp to the new tier's full
+			// allotment so a carried-over higher limit (e.g. credits kept from a
+			// prior downgrade) can never push the balance above the tier cap.
+			const subscriptionItem = updated.items.data[0];
+			const periodStart = subscriptionItem.current_period_start;
+			const periodEnd = subscriptionItem.current_period_end;
+			const nowSeconds = Math.floor(Date.now() / 1000);
+			const periodLength = periodEnd - periodStart;
+			const remainingFraction =
+				periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
 
-		const creditDelta = getProratedCreditDelta(
-			personalOrg.devPlan as DevPlanTier,
-			newTier,
-			remainingFraction,
-		);
-		const currentLimit = parseFloat(personalOrg.devPlanCreditsLimit ?? "0");
-		const newCreditsLimit = Math.max(0, currentLimit + creditDelta);
+			const creditDelta = getProratedCreditDelta(
+				currentTier,
+				newTier,
+				remainingFraction,
+			);
+			const currentLimit = parseFloat(personalOrg.devPlanCreditsLimit ?? "0");
+			const newCreditsLimit = Math.min(
+				getDevPlanCreditsLimit(newTier),
+				Math.max(0, currentLimit + creditDelta),
+			);
 
-		await db
-			.update(tables.organization)
-			.set({
-				devPlan: newTier,
-				devPlanCreditsLimit: newCreditsLimit.toString(),
-			})
-			.where(eq(tables.organization.id, personalOrg.id));
+			// The upgrade's proration invoice fires `invoice.payment_succeeded`,
+			// which records the `dev_plan_upgrade` transaction (with the amount
+			// collected) — so we don't record one here to avoid double-counting.
+			await db
+				.update(tables.organization)
+				.set({
+					devPlan: newTier,
+					devPlanCreditsLimit: newCreditsLimit.toString(),
+				})
+				.where(eq(tables.organization.id, personalOrg.id));
+		} else {
+			// Downgrade: keep the current cycle's credits (limit and used) intact;
+			// the lower tier — and its smaller allotment — takes effect at the
+			// next renewal. No proration invoice is generated, so record the
+			// tier-change transaction here.
+			await db
+				.update(tables.organization)
+				.set({
+					devPlan: newTier,
+				})
+				.where(eq(tables.organization.id, personalOrg.id));
 
-		// Record transaction
-		await db.insert(tables.transaction).values({
-			organizationId: personalOrg.id,
-			type: isUpgrade ? "dev_plan_upgrade" : "dev_plan_downgrade",
-			description: `Changed from ${personalOrg.devPlan} to ${newTier} plan`,
-			status: "completed",
-		});
+			await db.insert(tables.transaction).values({
+				organizationId: personalOrg.id,
+				type: "dev_plan_downgrade",
+				description: `Changed from ${currentTier} to ${newTier} plan`,
+				status: "completed",
+			});
+		}
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -792,7 +819,7 @@ devPlans.openapi(changeTier, async (c) => {
 			resourceId: personalOrg.devPlanStripeSubscriptionId,
 			metadata: {
 				changes: {
-					tier: { old: personalOrg.devPlan, new: newTier },
+					tier: { old: currentTier, new: newTier },
 				},
 			},
 		});

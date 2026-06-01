@@ -292,3 +292,93 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns).toHaveLength(1);
 	});
 });
+
+describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("does NOT raise a prorated limit on a routine active update (tier change)", async () => {
+		// Mirrors the subscription.updated event Stripe emits right after a
+		// mid-cycle upgrade: the org is active and not frozen, with a prorated
+		// limit below the tier cap. The limit must stay put.
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "max",
+			devPlanCreditsLimit: "312",
+			devPlanCreditsUsed: "0",
+			devPlanCreditsFrozen: false,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false, status: "active" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsLimit).toBe("312");
+		expect(org?.devPlanCreditsFrozen).toBe(false);
+	});
+
+	test("restores the exact pre-freeze limit when a frozen subscription recovers", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "max",
+			devPlanCreditsLimit: "150",
+			devPlanCreditsUsed: "150",
+			devPlanCreditsFrozen: true,
+			devPlanCreditsLimitBeforeFreeze: "312",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false, status: "active" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsLimit).toBe("312");
+		expect(org?.devPlanCreditsFrozen).toBe(false);
+		expect(org?.devPlanCreditsLimitBeforeFreeze).toBeNull();
+	});
+
+	test("freezes credits and preserves the pre-freeze limit on a past_due update", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "max",
+			devPlanCreditsLimit: "312",
+			devPlanCreditsUsed: "90",
+			devPlanCreditsFrozen: false,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false, status: "past_due" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsLimit).toBe("90");
+		expect(org?.devPlanCreditsFrozen).toBe(true);
+		expect(org?.devPlanCreditsLimitBeforeFreeze).toBe("312");
+	});
+});

@@ -191,6 +191,11 @@ export const organization = pgTable(
 			.default("none"),
 		devPlanCreditsUsed: decimal().notNull().default("0"),
 		devPlanCreditsLimit: decimal().notNull().default("0"),
+		// Set when dunning freezes dev-plan spend (limit capped to used). The
+		// pre-freeze limit is preserved so recovery restores the exact value
+		// (which may be a prorated mid-cycle amount), not a full tier cap.
+		devPlanCreditsFrozen: boolean().notNull().default(false),
+		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
