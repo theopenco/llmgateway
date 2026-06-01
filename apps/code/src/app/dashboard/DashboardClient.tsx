@@ -5,6 +5,7 @@ import {
 	ArrowRight,
 	Code,
 	Copy,
+	CreditCard,
 	Eye,
 	EyeOff,
 	Key,
@@ -207,6 +208,7 @@ export default function DashboardClient() {
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
+	const [isUpdatingPayment, setIsUpdatingPayment] = useState(false);
 
 	const { user, isLoading: userLoading } = useUser({
 		redirectTo: "/login?returnUrl=/dashboard",
@@ -228,6 +230,14 @@ export default function DashboardClient() {
 	const cancelMutation = api.useMutation("post", "/dev-plans/cancel");
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
 	const changeTierMutation = api.useMutation("post", "/dev-plans/change-tier");
+	const updatePaymentMethodMutation = api.useMutation(
+		"post",
+		"/dev-plans/update-payment-method",
+	);
+	const finalizePaymentUpdateMutation = api.useMutation(
+		"post",
+		"/dev-plans/finalize-payment-update",
+	);
 	const rotateApiKeyMutation = api.useMutation(
 		"post",
 		"/dev-plans/rotate-api-key",
@@ -296,6 +306,65 @@ export default function DashboardClient() {
 				clearParam();
 			});
 	}, [searchParams, finalizeMutation, queryClient, router]);
+
+	useEffect(() => {
+		const sessionId = searchParams.get("payment_update_session_id");
+		if (!sessionId || finalizedSessions.current.has(sessionId)) {
+			return;
+		}
+		finalizedSessions.current.add(sessionId);
+
+		const clearParam = () => {
+			const params = new URLSearchParams(searchParams.toString());
+			params.delete("payment_update_session_id");
+			const query = params.toString();
+			router.replace(query ? `/dashboard?${query}` : "/dashboard");
+		};
+
+		finalizePaymentUpdateMutation
+			.mutateAsync({ body: { sessionId } })
+			.then((result) => {
+				if (result?.status === "ok") {
+					toast.success("Payment method updated");
+					void queryClient.invalidateQueries({
+						predicate: (query) => {
+							const key = query.queryKey;
+							return Array.isArray(key) && key[1] === "/dev-plans/status";
+						},
+					});
+				}
+			})
+			.catch((error: unknown) => {
+				const errCode =
+					error && typeof error === "object" && "error" in error
+						? (error as { error?: unknown }).error
+						: undefined;
+				if (errCode === "duplicate_card") {
+					const msg =
+						error && typeof error === "object" && "message" in error
+							? (error as { message?: unknown }).message
+							: undefined;
+					setDuplicateCardError(
+						typeof msg === "string" && msg.length > 0
+							? msg
+							: "This card is already associated with another DevPass account. Please use a different payment method.",
+					);
+				} else {
+					const apiMessage =
+						error && typeof error === "object" && "message" in error
+							? (error as { message?: unknown }).message
+							: undefined;
+					toast.error(
+						typeof apiMessage === "string" && apiMessage.length > 0
+							? apiMessage
+							: "Failed to update payment method",
+					);
+				}
+			})
+			.finally(() => {
+				clearParam();
+			});
+	}, [searchParams, finalizePaymentUpdateMutation, queryClient, router]);
 
 	const handleSubscribe = async (
 		tier: PlanTier,
@@ -381,6 +450,35 @@ export default function DashboardClient() {
 			toast.error("Failed to change plan");
 		} finally {
 			setSubscribingTier(null);
+		}
+	};
+
+	const handleUpdatePaymentMethod = async (): Promise<void> => {
+		setIsUpdatingPayment(true);
+		try {
+			const result = await updatePaymentMethodMutation.mutateAsync({});
+
+			if (!result?.checkoutUrl) {
+				toast.error("Failed to start payment method update");
+				return;
+			}
+
+			if (posthogKey) {
+				posthog.capture("dev_plan_update_payment_started");
+			}
+			window.location.href = result.checkoutUrl;
+		} catch (error: unknown) {
+			const apiMessage =
+				error && typeof error === "object" && "message" in error
+					? (error as { message?: unknown }).message
+					: undefined;
+			toast.error(
+				typeof apiMessage === "string" && apiMessage.length > 0
+					? apiMessage
+					: "Failed to start payment method update",
+			);
+		} finally {
+			setIsUpdatingPayment(false);
 		}
 	};
 
@@ -565,8 +663,22 @@ export default function DashboardClient() {
 							onChangeTier={handleChangeTier}
 						/>
 
-						{/* Subscription controls (cancel/resume) */}
-						<div className="flex justify-end">
+						{/* Subscription controls (update payment, cancel/resume) */}
+						<div className="flex flex-wrap items-center justify-between gap-3">
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleUpdatePaymentMethod}
+								disabled={isUpdatingPayment}
+								className="gap-1.5"
+							>
+								{isUpdatingPayment ? (
+									<Loader2 className="h-3.5 w-3.5 animate-spin" />
+								) : (
+									<CreditCard className="h-3.5 w-3.5" />
+								)}
+								Update payment method
+							</Button>
 							{devPlanStatus?.devPlanCancelled ? (
 								<Button
 									variant="outline"

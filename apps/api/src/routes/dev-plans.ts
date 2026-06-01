@@ -2,7 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
+import {
+	ensureStripeCustomer,
+	finalizeDevPlanPaymentUpdate,
+	finalizeDevPlanSetupSession,
+} from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq, shortid } from "@llmgateway/db";
@@ -414,6 +418,223 @@ devPlans.openapi(finalize, async (c) => {
 		case "no_payment_method":
 			throw new HTTPException(400, {
 				message: "No payment method found on the checkout session",
+			});
+		case "invalid_session":
+			throw new HTTPException(400, {
+				message: `Invalid checkout session: ${result.reason}`,
+			});
+	}
+});
+
+// Start updating the payment method for an active dev plan. Uses a setup-mode
+// Stripe Checkout session (no charge) to collect the new card; the resulting
+// session is finalized via /finalize-payment-update after the redirect.
+const updatePaymentMethod = createRoute({
+	method: "post",
+	path: "/update-payment-method",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						checkoutUrl: z.string(),
+					}),
+				},
+			},
+			description: "Stripe Checkout session created successfully",
+		},
+	},
+});
+
+devPlans.openapi(updatePaymentMethod, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId: user.id },
+		with: { organization: true },
+	});
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (!personalOrg.devPlanStripeSubscriptionId) {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	try {
+		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+
+		// Setup-mode collects the new card without charging. The fingerprint is
+		// validated against other DevPass orgs during finalize before the card
+		// becomes the subscription's default payment method.
+		const session = await getStripe().checkout.sessions.create({
+			customer: stripeCustomerId,
+			mode: "setup",
+			payment_method_types: ["card"],
+			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?payment_update_session_id={CHECKOUT_SESSION_ID}`,
+			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?payment_update_canceled=true`,
+			metadata: {
+				organizationId: personalOrg.id,
+				subscriptionType: "dev_plan_payment_update",
+				userEmail: user.email,
+			},
+			setup_intent_data: {
+				metadata: {
+					organizationId: personalOrg.id,
+					subscriptionType: "dev_plan_payment_update",
+					userEmail: user.email,
+				},
+			},
+		});
+
+		if (!session.url) {
+			throw new HTTPException(500, {
+				message: "Failed to generate checkout URL",
+			});
+		}
+
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.update_payment_method",
+			resourceType: "dev_plan",
+			resourceId: personalOrg.devPlanStripeSubscriptionId,
+			metadata: {
+				tier: personalOrg.devPlan,
+			},
+		});
+
+		return c.json({
+			checkoutUrl: session.url,
+		});
+	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
+		logger.error(
+			"Stripe checkout session error for dev plan payment update",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw new HTTPException(500, {
+			message: `Failed to create checkout session: ${error}`,
+		});
+	}
+});
+
+// Finalize a dev plan payment-method update — called by the dashboard after the
+// user returns from Stripe Checkout. Verifies the new card fingerprint and
+// points the existing subscription at the new card, or rejects with 409 if the
+// card is already used by another DevPass org.
+const finalizePaymentUpdate = createRoute({
+	method: "post",
+	path: "/finalize-payment-update",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						sessionId: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.literal("ok"),
+					}),
+				},
+			},
+			description: "Dev plan payment method updated",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("duplicate_card"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Card already in use by another DevPass account",
+		},
+	},
+});
+
+devPlans.openapi(finalizePaymentUpdate, async (c) => {
+	const user = c.get("user");
+	const { sessionId } = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId: user.id },
+		with: { organization: true },
+	});
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	let result;
+	try {
+		result = await finalizeDevPlanPaymentUpdate(sessionId);
+	} catch (error) {
+		logger.error(
+			`Failed to finalize dev plan payment update session ${sessionId}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw new HTTPException(500, {
+			message: "Failed to update payment method",
+		});
+	}
+
+	switch (result.status) {
+		case "ok":
+			return c.json({ status: "ok" as const }, 200);
+		case "duplicate_card":
+			return c.json(
+				{
+					error: "duplicate_card" as const,
+					message:
+						"This card is already associated with another DevPass account. Please use a different payment method.",
+				},
+				409,
+			);
+		case "no_payment_method":
+			throw new HTTPException(400, {
+				message: "No payment method found on the checkout session",
+			});
+		case "no_subscription":
+			throw new HTTPException(400, {
+				message: "No active dev plan subscription found",
 			});
 		case "invalid_session":
 			throw new HTTPException(400, {

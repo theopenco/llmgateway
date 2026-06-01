@@ -626,6 +626,136 @@ export async function finalizeDevPlanSetupSession(
 	return { status: "ok", subscriptionId: subscription.id };
 }
 
+export type FinalizeDevPlanPaymentUpdateResult =
+	| { status: "ok" }
+	| { status: "duplicate_card"; conflictingOrgId: string }
+	| { status: "no_payment_method" }
+	| { status: "no_subscription" }
+	| { status: "invalid_session"; reason: string };
+
+/**
+ * Finalize a DevPass payment-method-update setup session: verify the new card
+ * is not already in use by another organization, then point the existing dev
+ * plan subscription (and the customer's default payment method) at the new
+ * card so future renewals are charged to it. Idempotent: safe to call from both
+ * the /dev-plans/finalize-payment-update endpoint and the
+ * checkout.session.completed webhook fallback.
+ */
+export async function finalizeDevPlanPaymentUpdate(
+	sessionId: string,
+): Promise<FinalizeDevPlanPaymentUpdateResult> {
+	const session = await getStripe().checkout.sessions.retrieve(sessionId);
+
+	if (session.mode !== "setup") {
+		return { status: "invalid_session", reason: "not_setup_mode" };
+	}
+
+	const metadata = session.metadata ?? {};
+	if (metadata.subscriptionType !== "dev_plan_payment_update") {
+		return { status: "invalid_session", reason: "not_payment_update" };
+	}
+
+	const organizationId = metadata.organizationId;
+	if (!organizationId) {
+		return { status: "invalid_session", reason: "missing_metadata" };
+	}
+
+	const organization = await db.query.organization.findFirst({
+		where: { id: organizationId },
+	});
+	if (!organization) {
+		return { status: "invalid_session", reason: "org_not_found" };
+	}
+
+	if (!organization.devPlanStripeSubscriptionId) {
+		return { status: "no_subscription" };
+	}
+
+	const paymentMethod = await resolvePaymentMethodFromSetupSession(session);
+	if (!paymentMethod) {
+		return { status: "no_payment_method" };
+	}
+
+	const fingerprint =
+		paymentMethod.type === "card"
+			? (paymentMethod.card?.fingerprint ?? null)
+			: null;
+
+	if (fingerprint) {
+		const conflictingOrg = await db.query.organization.findFirst({
+			where: {
+				devPlanCardFingerprint: { eq: fingerprint },
+				id: { ne: organizationId },
+			},
+		});
+		if (conflictingOrg) {
+			try {
+				await getStripe().paymentMethods.detach(paymentMethod.id);
+			} catch (err) {
+				logger.warn(
+					`Failed to detach duplicate dev plan card ${paymentMethod.id}`,
+					{
+						error: err instanceof Error ? err.message : String(err),
+					},
+				);
+			}
+
+			logger.warn(
+				`Rejecting dev plan payment update ${sessionId} for org ${organizationId}: card fingerprint already used by org ${conflictingOrg.id}`,
+			);
+
+			posthog.capture({
+				distinctId: "organization",
+				event: "dev_plan_blocked_duplicate_card",
+				groups: { organization: organizationId },
+				properties: {
+					organization: organizationId,
+					conflictingOrganization: conflictingOrg.id,
+					sessionId,
+					source: "payment_update",
+				},
+			});
+
+			return {
+				status: "duplicate_card",
+				conflictingOrgId: conflictingOrg.id,
+			};
+		}
+	}
+
+	const stripeCustomerId = await ensureStripeCustomer(organizationId);
+
+	await getStripe().customers.update(stripeCustomerId, {
+		invoice_settings: { default_payment_method: paymentMethod.id },
+	});
+
+	await getStripe().subscriptions.update(
+		organization.devPlanStripeSubscriptionId,
+		{ default_payment_method: paymentMethod.id },
+	);
+
+	await db
+		.update(tables.organization)
+		.set({ devPlanCardFingerprint: fingerprint })
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.info(
+		`Updated dev plan payment method for organization ${organizationId} via setup-mode checkout`,
+	);
+
+	posthog.capture({
+		distinctId: "organization",
+		event: "dev_plan_payment_method_updated",
+		groups: { organization: organizationId },
+		properties: {
+			organization: organizationId,
+			subscriptionId: organization.devPlanStripeSubscriptionId,
+		},
+	});
+
+	return { status: "ok" };
+}
+
 async function handleCheckoutSessionCompleted(
 	event: Stripe.CheckoutSessionCompletedEvent,
 ) {
@@ -650,6 +780,29 @@ async function handleCheckoutSessionCompleted(
 		} catch (error) {
 			logger.error(
 				`Error finalizing dev plan setup session ${session.id}`,
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+		return;
+	}
+
+	// DevPass payment-method updates also use setup-mode checkout. We point the
+	// existing subscription at the new card via finalizeDevPlanPaymentUpdate.
+	// The /dev-plans/finalize-payment-update endpoint calls the same helper when
+	// the user lands back on the dashboard; this webhook is the fallback if the
+	// user closes the tab.
+	if (
+		session.mode === "setup" &&
+		metadata?.subscriptionType === "dev_plan_payment_update"
+	) {
+		try {
+			const result = await finalizeDevPlanPaymentUpdate(session.id);
+			logger.info(
+				`Dev plan payment update finalize result for session ${session.id}: ${result.status}`,
+			);
+		} catch (error) {
+			logger.error(
+				`Error finalizing dev plan payment update session ${session.id}`,
 				error instanceof Error ? error : new Error(String(error)),
 			);
 		}
