@@ -722,34 +722,6 @@ export const providers = [
 		termsUrl: "https://deepinfra.com/terms",
 		privacyPolicyUrl: "https://deepinfra.com/privacy",
 	},
-	{
-		id: "openrouter",
-		name: "OpenRouter",
-		description:
-			"OpenRouter is a unified API for accessing multiple LLM providers through a single OpenAI-compatible endpoint.",
-		env: {
-			required: {
-				apiKey: "LLM_OPENROUTER_API_KEY",
-			},
-			optional: {
-				baseUrl: "LLM_OPENROUTER_BASE_URL",
-			},
-		},
-		streaming: true,
-		cancellation: true,
-		color: "#7C3AED",
-		website: "https://openrouter.ai",
-		announcement: null,
-		termsUrl: "https://openrouter.ai/terms",
-		privacyPolicyUrl: "https://openrouter.ai/privacy",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			consumerTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
