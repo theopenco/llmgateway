@@ -141,7 +141,7 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
 		case "minimax":
-			return "https://api.minimax.chat/v1";
+			return "https://api.minimax.chat";
 		default:
 			return null;
 	}
@@ -1842,9 +1842,6 @@ async function fetchMinimaxStatus(
 				? "failed"
 				: "in_progress";
 	const fileId = typeof body.file_id === "string" ? body.file_id : null;
-	const videoUrl = fileId
-		? joinUrl(providerContext.baseUrl, `/v1/files/${fileId}/content`)
-		: null;
 
 	return addRequestedVideoMetadata(job, {
 		...body,
@@ -1857,10 +1854,6 @@ async function fetchMinimaxStatus(
 					: rawStatus === "Processing"
 						? 50
 						: 0,
-		url: videoUrl,
-		video_url: videoUrl,
-		output_url: videoUrl,
-		mime_type: videoUrl ? "video/mp4" : undefined,
 		file_id: fileId,
 		error:
 			normalizedStatus === "failed"

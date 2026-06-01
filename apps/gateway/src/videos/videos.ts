@@ -263,7 +263,7 @@ const createVideoRequestSchema = z
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
 				message:
-					"size must be one of 1280x720, 720x1280, 1920x1080, 1080x1920, 3840x2160, 2160x3840, 1792x1024, or 1024x1792",
+					"size must be one of 1280x720, 720x1280, 1366x768, 768x1366, 1920x1080, 1080x1920, 3840x2160, 2160x3840, 1792x1024, or 1024x1792",
 				path: ["size"],
 			});
 		}
@@ -997,7 +997,7 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
 		case "minimax":
-			return "https://api.minimax.chat/v1";
+			return "https://api.minimax.chat";
 		default:
 			return null;
 	}
@@ -1403,9 +1403,11 @@ async function resolveVideoExecution(
 				? "4k"
 				: videoSize.resolution === "1080p"
 					? "1080p"
-					: videoSize.resolution === "hd"
-						? "hd"
-						: "default",
+					: videoSize.resolution === "768p"
+						? "768p"
+						: videoSize.resolution === "hd"
+							? "hd"
+							: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
