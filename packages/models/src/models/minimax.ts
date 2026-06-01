@@ -15,6 +15,22 @@ export const minimaxModels = [
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
+				pricingTiers: [
+					{
+						name: "Up to 512K",
+						upToTokens: 512000,
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.06e-6",
+					},
+					{
+						name: "Over 512K",
+						upToTokens: Infinity,
+						inputPrice: "1.2e-6",
+						outputPrice: "4.8e-6",
+						cachedInputPrice: "0.24e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,
