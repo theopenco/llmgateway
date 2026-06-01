@@ -616,12 +616,18 @@ export function GuardrailsClient() {
 											<Label>Rule Type</Label>
 											<Select
 												value={newRule.type}
-												onValueChange={(value) =>
+												onValueChange={(value) => {
+													const type = value as typeof newRule.type;
 													setNewRule({
 														...newRule,
-														type: value as typeof newRule.type,
-													})
-												}
+														type,
+														action:
+															type === "topic_restriction" &&
+															newRule.action === "redact"
+																? "block"
+																: newRule.action,
+													});
+												}}
 											>
 												<SelectTrigger>
 													<SelectValue />
@@ -656,6 +662,10 @@ export function GuardrailsClient() {
 											</SelectTrigger>
 											<SelectContent>
 												<SelectItem value="block">Block</SelectItem>
+												{(newRule.type === "blocked_terms" ||
+													newRule.type === "custom_regex") && (
+													<SelectItem value="redact">Redact</SelectItem>
+												)}
 												<SelectItem value="warn">Warn</SelectItem>
 												<SelectItem value="allow">Allow (Log Only)</SelectItem>
 											</SelectContent>

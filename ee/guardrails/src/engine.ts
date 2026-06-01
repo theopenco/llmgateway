@@ -113,13 +113,13 @@ export async function checkGuardrails(
 					ruleConfig.action === "redact"
 				) {
 					const { patterns } = redactPii(content);
-					for (const pattern of patterns) {
+					if (patterns.length > 0) {
 						redactions.push({
 							ruleId: rule.id,
-							pattern,
-							replacement: `[${pattern.toUpperCase()}_REDACTED]`,
 							messageIndex,
-							originalContent: content,
+							kind: "pii",
+							matches: [],
+							pattern: patterns.join(", "),
 						});
 					}
 					// Also add as violation for logging
@@ -164,7 +164,7 @@ export async function checkGuardrails(
 
 		rulesChecked++;
 
-		for (const { content } of textContents) {
+		for (const { content, messageIndex } of textContents) {
 			let result: {
 				passed: boolean;
 				matches: string[];
@@ -206,6 +206,16 @@ export async function checkGuardrails(
 					matchedPattern: result.matches.join(", "),
 					matchedContent: content.substring(0, 100),
 				});
+
+				if (result.action === "redact" && result.matches.length > 0) {
+					redactions.push({
+						ruleId: rule.id,
+						messageIndex,
+						kind: "mask",
+						matches: result.matches,
+						pattern: result.matches.join(", "),
+					});
+				}
 			}
 		}
 	}
@@ -268,25 +278,48 @@ export function applyRedactions(
 			return message;
 		}
 
+		const hasPii = messageRedactions.some((r) => r.kind === "pii");
+		const maskMatches = messageRedactions
+			.filter((r) => r.kind === "mask")
+			.flatMap((r) => r.matches);
+
+		const redactText = (text: string): string => {
+			let result = text;
+			if (hasPii) {
+				result = redactPii(result).redacted;
+			}
+			for (const match of maskMatches) {
+				result = maskMatch(result, match);
+			}
+			return result;
+		};
+
 		if (typeof message.content === "string") {
-			let content = message.content;
-			// Apply PII redaction
-			const { redacted } = redactPii(content);
-			content = redacted;
-			return { ...message, content };
+			return { ...message, content: redactText(message.content) };
 		}
 
 		// Handle array content (multimodal)
 		const content = message.content.map((part) => {
 			if (part.type === "text" && part.text) {
-				const { redacted } = redactPii(part.text);
-				return { ...part, text: redacted };
+				return { ...part, text: redactText(part.text) };
 			}
 			return part;
 		});
 
 		return { ...message, content };
 	});
+}
+
+function escapeRegex(str: string): string {
+	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function maskMatch(content: string, match: string): string {
+	if (!match || !match.trim()) {
+		return content;
+	}
+	const regex = new RegExp(escapeRegex(match), "gi");
+	return content.replace(regex, (m) => "*".repeat(m.length));
 }
 
 function extractTextContent(
