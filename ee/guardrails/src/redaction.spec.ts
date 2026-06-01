@@ -130,4 +130,26 @@ describe("applyRedactions", () => {
 		const result = applyRedactions(messages, redactions);
 		expect(result[0].content).toBe("value is ***** and axbxc");
 	});
+
+	it("applies built-in secrets redaction for secrets redactions", () => {
+		const messages: Message[] = [
+			{
+				role: "user",
+				content:
+					"use key sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL now",
+			},
+		];
+		const redactions: RedactionInfo[] = [
+			{
+				ruleId: "system:secrets",
+				messageIndex: 0,
+				kind: "secrets",
+				matches: [],
+				pattern: "Secret",
+			},
+		];
+
+		const result = applyRedactions(messages, redactions);
+		expect(result[0].content).toBe("use key [SECRET_REDACTED] now");
+	});
 });

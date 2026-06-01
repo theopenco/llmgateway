@@ -32,8 +32,8 @@ export interface RuleViolation {
 export interface RedactionInfo {
 	ruleId: string;
 	messageIndex: number;
-	// "pii" applies the built-in PII redaction; "mask" replaces literal matches with asterisks
-	kind: "pii" | "mask";
+	// "pii"/"secrets" apply the built-in detectors' redaction; "mask" replaces literal matches with asterisks
+	kind: "pii" | "secrets" | "mask";
 	// Literal substrings to mask out (used when kind is "mask")
 	matches: string[];
 	// Matched patterns, for reference/logging

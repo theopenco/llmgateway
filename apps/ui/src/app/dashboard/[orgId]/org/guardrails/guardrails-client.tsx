@@ -478,7 +478,8 @@ export function GuardrailsClient() {
 												</SelectTrigger>
 												<SelectContent>
 													<SelectItem value="block">Block</SelectItem>
-													{rule.id === "pii_detection" && (
+													{(rule.id === "pii_detection" ||
+														rule.id === "secrets") && (
 														<SelectItem value="redact">Redact</SelectItem>
 													)}
 													<SelectItem value="warn">Warn</SelectItem>

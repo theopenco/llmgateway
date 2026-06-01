@@ -15,6 +15,7 @@ import {
 import {
 	systemRules,
 	redactPii,
+	redactSecrets,
 	checkBlockedTerms,
 	checkCustomRegex,
 	checkTopicRestriction,
@@ -107,40 +108,44 @@ export async function checkGuardrails(
 			const result = rule.check(content, ruleConfig);
 
 			if (!result.passed) {
-				// Handle PII redaction specially
-				if (
-					rule.id === "system:pii_detection" &&
-					ruleConfig.action === "redact"
-				) {
-					const { patterns } = redactPii(content);
-					if (patterns.length > 0) {
-						redactions.push({
-							ruleId: rule.id,
-							messageIndex,
-							kind: "pii",
-							matches: [],
-							pattern: patterns.join(", "),
-						});
+				let matchedPattern = result.matches.join(", ");
+
+				if (ruleConfig.action === "redact") {
+					if (rule.id === "system:pii_detection") {
+						const { patterns } = redactPii(content);
+						if (patterns.length > 0) {
+							redactions.push({
+								ruleId: rule.id,
+								messageIndex,
+								kind: "pii",
+								matches: [],
+								pattern: patterns.join(", "),
+							});
+						}
+						// Avoid logging the raw PII; log the detected types instead
+						matchedPattern = patterns.join(", ");
+					} else if (rule.id === "system:secrets") {
+						const { patterns } = redactSecrets(content);
+						if (patterns.length > 0) {
+							redactions.push({
+								ruleId: rule.id,
+								messageIndex,
+								kind: "secrets",
+								matches: [],
+								pattern: patterns.join(", "),
+							});
+						}
 					}
-					// Also add as violation for logging
-					violations.push({
-						ruleId: rule.id,
-						ruleName: rule.name,
-						category: rule.category,
-						action: ruleConfig.action,
-						matchedPattern: patterns.join(", "),
-						matchedContent: content.substring(0, 100),
-					});
-				} else {
-					violations.push({
-						ruleId: rule.id,
-						ruleName: rule.name,
-						category: rule.category,
-						action: ruleConfig.action,
-						matchedPattern: result.matches.join(", "),
-						matchedContent: content.substring(0, 100),
-					});
 				}
+
+				violations.push({
+					ruleId: rule.id,
+					ruleName: rule.name,
+					category: rule.category,
+					action: ruleConfig.action,
+					matchedPattern,
+					matchedContent: content.substring(0, 100),
+				});
 			}
 		}
 	}
@@ -279,6 +284,7 @@ export function applyRedactions(
 		}
 
 		const hasPii = messageRedactions.some((r) => r.kind === "pii");
+		const hasSecrets = messageRedactions.some((r) => r.kind === "secrets");
 		const maskMatches = messageRedactions
 			.filter((r) => r.kind === "mask")
 			.flatMap((r) => r.matches);
@@ -287,6 +293,9 @@ export function applyRedactions(
 			let result = text;
 			if (hasPii) {
 				result = redactPii(result).redacted;
+			}
+			if (hasSecrets) {
+				result = redactSecrets(result).redacted;
 			}
 			for (const match of maskMatches) {
 				result = maskMatch(result, match);
