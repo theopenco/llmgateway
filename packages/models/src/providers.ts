@@ -1125,7 +1125,7 @@ export const providers: ProviderDefinition[] = [
 		id: "deapi",
 		name: "deAPI",
 		description:
-			"deAPI is an OpenAI-compatible inference platform for open-source models operated by GamerHash. This integration currently exposes deAPI's embedding models.",
+			"deAPI is an OpenAI-compatible inference platform for open-source models, operated by CoinAxe Ltd (Malta). This integration currently exposes deAPI's embedding models.",
 		env: {
 			required: {
 				apiKey: "LLM_DEAPI_API_KEY",
@@ -1141,7 +1141,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://deapi.ai/terms-of-service",
 		privacyPolicyUrl: "https://deapi.ai/privacy-policy",
-		headquarters: "PL",
+		headquarters: "MT",
 		dataPolicy: {
 			apiTraining: null,
 			consumerTraining: null,
