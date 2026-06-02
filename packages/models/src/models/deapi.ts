@@ -13,7 +13,7 @@ export const deapiModels = [
 			{
 				providerId: "deapi",
 				externalId: "Bge_M3_FP16",
-				inputPrice: "0.13e-6",
+				inputPrice: "0.068e-6",
 				outputPrice: "0",
 				requestPrice: "0",
 				contextSize: 8192,

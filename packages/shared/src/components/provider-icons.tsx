@@ -1292,7 +1292,6 @@ export const DeAPIIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		xmlns="http://www.w3.org/2000/svg"
 		fill="none"
 		viewBox="0 0 29.095 32"
-		className={props.className}
 	>
 		<path
 			fill="currentColor"

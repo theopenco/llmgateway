@@ -1139,8 +1139,8 @@ export const providers: ProviderDefinition[] = [
 		color: "#FFBA00",
 		website: "https://deapi.ai",
 		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
+		termsUrl: "https://deapi.ai/terms-of-service",
+		privacyPolicyUrl: "https://deapi.ai/privacy-policy",
 		headquarters: "PL",
 	},
 ] as const satisfies ProviderDefinition[];
