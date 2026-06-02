@@ -1142,6 +1142,13 @@ export const providers: ProviderDefinition[] = [
 		termsUrl: "https://deapi.ai/terms-of-service",
 		privacyPolicyUrl: "https://deapi.ai/privacy-policy",
 		headquarters: "PL",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: true,
+			retentionPeriod: "90 days",
+			gdpr: true,
+		},
 	},
 ] as const satisfies ProviderDefinition[];
 
