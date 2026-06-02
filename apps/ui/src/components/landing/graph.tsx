@@ -41,8 +41,8 @@ const Circle = ({
 Circle.displayName = "Circle";
 
 const stats = [
-	{ value: "25+", label: "Providers" },
-	{ value: "210+", label: "Models" },
+	{ value: "40+", label: "Providers" },
+	{ value: "400+", label: "Models" },
 	{ value: "100B+", label: "Tokens routed" },
 ];
 
@@ -93,14 +93,14 @@ export function Graph() {
 							</h2>
 							<p className="mt-4 text-muted-foreground max-w-xl">
 								Your app sends one request. We route it to OpenAI, Anthropic,
-								Google, or any of 25+ providers—automatically picking the best
+								Google, or any of 40+ providers—automatically picking the best
 								path.
 							</p>
 						</div>
 						<div className="flex gap-8 lg:gap-12">
 							{stats.map((stat) => (
 								<div key={stat.label}>
-									<div className="font-display text-3xl md:text-4xl font-bold text-foreground">
+									<div className="font-display text-3xl md:text-4xl font-bold tabular-nums bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
 										{stat.value}
 									</div>
 									<div className="text-sm text-muted-foreground">

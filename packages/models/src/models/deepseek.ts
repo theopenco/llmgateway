@@ -119,6 +119,7 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				deactivatedAt: new Date("2026-05-01"),
 			},
 			{
 				providerId: "novita",
