@@ -27,9 +27,13 @@ function AutoTopUpSettings() {
 	const api = useApi();
 
 	const { selectedOrganization } = useDashboardState();
+	const organizationId = selectedOrganization?.id;
 	const { data: paymentMethods } = api.useQuery(
 		"get",
 		"/payments/payment-methods",
+		{
+			params: { query: { organizationId } },
+		},
 	);
 
 	const [enabled, setEnabled] = useState(false);
@@ -51,6 +55,7 @@ function AutoTopUpSettings() {
 			body: {
 				amount,
 				paymentMethodId: defaultPaymentMethod?.id,
+				organizationId,
 			},
 		},
 		{
