@@ -4,6 +4,8 @@ import Link from "next/link";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
+import { allUseCases } from "content-collections";
+
 import type { UseCase } from "content-collections";
 import type { Metadata } from "next";
 
@@ -22,14 +24,12 @@ export const metadata: Metadata = {
 	},
 };
 
-export default async function UseCasesIndexPage() {
-	const { allUseCases } = await import("content-collections");
-
+export default function UseCasesIndexPage() {
 	const entries = allUseCases
 		.filter((entry: UseCase) => !entry.draft)
 		.sort(
 			(a: UseCase, b: UseCase) =>
-				new Date(a.date).getTime() - new Date(b.date).getTime(),
+				new Date(b.date).getTime() - new Date(a.date).getTime(),
 		);
 
 	return (

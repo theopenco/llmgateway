@@ -10,6 +10,8 @@ import { CodeCTATracker } from "@/components/LandingTracker";
 import { Button } from "@/components/ui/button";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
+import { allComparisons } from "content-collections";
+
 import type { Comparison } from "content-collections";
 import type { Metadata } from "next";
 
@@ -27,9 +29,7 @@ function formatDate(date: string): string {
 	});
 }
 
-export async function generateStaticParams() {
-	const { allComparisons } = await import("content-collections");
-
+export function generateStaticParams() {
 	return allComparisons
 		.filter((entry: Comparison) => !entry.draft)
 		.map((entry: Comparison) => ({ slug: entry.slug }));
@@ -38,7 +38,6 @@ export async function generateStaticParams() {
 export async function generateMetadata({
 	params,
 }: ComparePageProps): Promise<Metadata> {
-	const { allComparisons } = await import("content-collections");
 	const { slug } = await params;
 
 	const entry = allComparisons.find((entry: Comparison) => entry.slug === slug);
@@ -66,7 +65,6 @@ export async function generateMetadata({
 }
 
 export default async function ComparePage({ params }: ComparePageProps) {
-	const { allComparisons } = await import("content-collections");
 	const { slug } = await params;
 
 	const entry = allComparisons.find((entry: Comparison) => entry.slug === slug);

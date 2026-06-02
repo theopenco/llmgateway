@@ -46,7 +46,7 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-  model: "anthropic/claude-opus-4-7", // swap for openai/gpt-5.5 or google/gemini-3.1-pro
+  model: "anthropic/claude-opus-4-7", // swap for openai/gpt-5.1 or google-ai-studio/gemini-3.1-pro-preview
   messages: [
     { role: "user", content: "Refactor this module for testability." },
   ],

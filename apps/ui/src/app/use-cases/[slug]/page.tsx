@@ -9,6 +9,8 @@ import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
+import { allUseCases } from "content-collections";
+
 import type { UseCase } from "content-collections";
 import type { Metadata } from "next";
 
@@ -18,9 +20,7 @@ interface UseCasePageProps {
 	params: Promise<{ slug: string }>;
 }
 
-export async function generateStaticParams() {
-	const { allUseCases } = await import("content-collections");
-
+export function generateStaticParams() {
 	return allUseCases
 		.filter((entry: UseCase) => !entry.draft)
 		.map((entry: UseCase) => ({ slug: entry.slug }));
@@ -29,7 +29,6 @@ export async function generateStaticParams() {
 export async function generateMetadata({
 	params,
 }: UseCasePageProps): Promise<Metadata> {
-	const { allUseCases } = await import("content-collections");
 	const { slug } = await params;
 
 	const entry = allUseCases.find((entry: UseCase) => entry.slug === slug);
@@ -58,7 +57,6 @@ export async function generateMetadata({
 }
 
 export default async function UseCasePage({ params }: UseCasePageProps) {
-	const { allUseCases } = await import("content-collections");
 	const { slug } = await params;
 
 	const entry = allUseCases.find((entry: UseCase) => entry.slug === slug);

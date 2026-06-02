@@ -47,7 +47,7 @@ const client = new OpenAI({
 
 // The gateway routes to a fallback model if the primary is unavailable.
 const reply = await client.chat.completions.create({
-  model: "openai/gpt-5.5",
+  model: "openai/gpt-5.1",
   messages: conversation,
 });
 ```

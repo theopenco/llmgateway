@@ -1,9 +1,9 @@
+import { allComparisons } from "content-collections";
+
 import type { MetadataRoute } from "next";
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+export default function sitemap(): MetadataRoute.Sitemap {
 	const baseUrl = "https://devpass.llmgateway.io";
-
-	const { allComparisons } = await import("content-collections");
 
 	const staticPages: MetadataRoute.Sitemap = [
 		{

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 
+import { allComparisons } from "content-collections";
+
 import type { Comparison } from "content-collections";
 import type { Metadata } from "next";
 
@@ -21,9 +23,7 @@ export const metadata: Metadata = {
 	},
 };
 
-export default async function CompareIndexPage() {
-	const { allComparisons } = await import("content-collections");
-
+export default function CompareIndexPage() {
 	const entries = allComparisons
 		.filter((entry: Comparison) => !entry.draft)
 		.sort((a: Comparison, b: Comparison) =>

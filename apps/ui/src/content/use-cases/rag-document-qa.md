@@ -51,7 +51,7 @@ const embedding = await client.embeddings.create({
 
 // 2. Generate the answer with a strong model, given retrieved context
 const answer = await client.chat.completions.create({
-  model: "google/gemini-3.1-pro", // long-context when retrieval is large
+  model: "google-ai-studio/gemini-3.1-pro-preview", // long-context when retrieval is large
   messages: [
     { role: "system", content: systemPrompt },
     { role: "user", content: `${retrievedContext}\n\nQuestion: ${userQuery}` },

@@ -48,7 +48,7 @@ const client = new OpenAI({
 // Every call below is logged with model, tokens, latency and cost —
 // across every provider, in one dashboard.
 const response = await client.chat.completions.create({
-  model: "openai/gpt-5.5",
+  model: "openai/gpt-5.1",
   messages,
 });
 ```
