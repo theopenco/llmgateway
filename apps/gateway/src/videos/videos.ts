@@ -788,10 +788,11 @@ function getVideoProviderConstraintReasons(
 		!isSoraVideoModelName(provider.externalId) &&
 		inputMode === "frames" &&
 		!isGoogleVertexVideoProvider(provider.providerId) &&
-		provider.providerId !== "avalanche"
+		provider.providerId !== "avalanche" &&
+		provider.providerId !== "minimax"
 	) {
 		reasons.push(
-			"frame inputs are currently only supported through google-vertex or avalanche",
+			"frame inputs are currently only supported through google-vertex, avalanche, or minimax",
 		);
 	}
 
@@ -997,7 +998,7 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
 		case "minimax":
-			return "https://api.minimax.chat";
+			return "https://api.minimax.io";
 		default:
 			return null;
 	}
@@ -2248,16 +2249,39 @@ async function streamDirectUpstreamVideoContent(
 		const fileId =
 			typeof statusResponse.file_id === "string"
 				? statusResponse.file_id
-				: null;
+				: typeof statusResponse.file_id === "number"
+					? String(statusResponse.file_id)
+					: null;
 		if (!fileId) {
 			throw new HTTPException(502, {
 				message: "MiniMax video response did not include a file_id for content",
 			});
 		}
-		contentUrl = joinUrl(
+		const retrieveUrl = joinUrl(
 			providerContext.baseUrl,
-			`/v1/files/${fileId}/content`,
+			`/v1/files/retrieve?file_id=${fileId}`,
 		);
+		const retrieveResponse = await fetch(retrieveUrl, {
+			headers: getProviderHeaders(
+				providerContext.providerId,
+				providerContext.token,
+				{ requestId: providerContext.requestId },
+			),
+		});
+		if (!retrieveResponse.ok) {
+			throw new HTTPException(502, {
+				message: "Failed to retrieve MiniMax video download URL",
+			});
+		}
+		const retrieveBody = (await retrieveResponse.json()) as {
+			file?: { download_url?: string };
+		};
+		contentUrl = retrieveBody.file?.download_url ?? "";
+		if (!contentUrl) {
+			throw new HTTPException(502, {
+				message: "MiniMax file retrieve response did not include a download_url",
+			});
+		}
 	} else {
 		contentUrl = joinUrl(
 			providerContext.baseUrl,
@@ -2971,9 +2995,6 @@ function getMinimaxResolution(videoSize: VideoSizeConfig): string {
 	if (videoSize.resolution === "1080p") {
 		return "1080P";
 	}
-	if (videoSize.resolution === "768p") {
-		return "768P";
-	}
 	if (videoSize.resolution === "4k") {
 		return "1080P";
 	}
@@ -2986,18 +3007,26 @@ async function createMinimaxVideoJob(
 	videoSize: VideoSizeConfig,
 	prompt: string,
 	durationSeconds: number,
+	processedFirstFrame: ProcessedVideoImageInput | null,
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
 	const upstreamModelName = providerMapping.externalId;
+	const resolution = getMinimaxResolution(videoSize);
+	const effectiveDuration =
+		resolution === "1080P" && durationSeconds > 6 ? 6 : durationSeconds;
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
 		prompt,
-		duration: durationSeconds,
-		resolution: getMinimaxResolution(videoSize),
+		duration: effectiveDuration,
+		resolution,
 	};
+
+	if (processedFirstFrame) {
+		upstreamRequest.first_frame_image = `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`;
+	}
 
 	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/video_generation");
 	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
@@ -3010,6 +3039,15 @@ async function createMinimaxVideoJob(
 		},
 		body: JSON.stringify(upstreamRequest),
 	});
+
+	const baseResp = rawResponse.base_resp as
+		| { status_code?: number; status_msg?: string }
+		| undefined;
+	if (baseResp && baseResp.status_code !== 0) {
+		throw new HTTPException(502, {
+			message: `MiniMax video API error: ${baseResp.status_msg ?? "unknown error"} (code ${baseResp.status_code})`,
+		});
+	}
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3117,6 +3155,7 @@ async function createUpstreamVideoJob(
 				videoSize,
 				prompt,
 				durationSeconds,
+				processedFirstFrame,
 			);
 		default:
 			throw new HTTPException(500, {

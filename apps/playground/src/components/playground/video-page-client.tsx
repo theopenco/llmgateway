@@ -260,13 +260,28 @@ export default function VideoPageClient({
 			),
 		[selectedModels],
 	);
-	const effectiveAudioEnabled = requiresAudioSelection ? true : audioEnabled;
+	const allModelsLackAudio = useMemo(
+		() =>
+			selectedModels.length > 0 &&
+			selectedModels.every((modelId) => {
+				const model = availableModelsById.get(modelId);
+				return model?.supportsVideoAudio === false;
+			}),
+		[selectedModels, availableModelsById],
+	);
+	const effectiveAudioEnabled = allModelsLackAudio
+		? false
+		: requiresAudioSelection
+			? true
+			: audioEnabled;
 
 	useEffect(() => {
-		if (requiresAudioSelection && !audioEnabled) {
+		if (allModelsLackAudio && audioEnabled) {
+			setAudioEnabled(false);
+		} else if (requiresAudioSelection && !audioEnabled && !allModelsLackAudio) {
 			setAudioEnabled(true);
 		}
-	}, [audioEnabled, requiresAudioSelection]);
+	}, [audioEnabled, requiresAudioSelection, allModelsLackAudio]);
 
 	const supportsSelectedAudioMode = useCallback(
 		(modelId: string, withAudio: boolean) => {

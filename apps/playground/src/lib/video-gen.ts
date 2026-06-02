@@ -90,6 +90,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
+	if (rootModelId === "minimax-hailuo-2-3") {
+		return providerId === undefined || providerId === "minimax";
+	}
+
 	if (
 		rootModelId !== "veo-3.1-generate-preview" &&
 		rootModelId !== "veo-3.1-fast-generate-preview"
@@ -172,9 +176,18 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (
+		mapping.providerId === "minimax" &&
+		(size === "1920x1080" || size === "1080x1920") &&
+		duration > 6
+	) {
+		return false;
+	}
+
+	if (
 		inputMode === "frames" &&
 		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche"
+		mapping.providerId !== "avalanche" &&
+		mapping.providerId !== "minimax"
 	) {
 		return false;
 	}
