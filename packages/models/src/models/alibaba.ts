@@ -1325,7 +1325,7 @@ export const alibabaModels = [
 				reasoning: true,
 				reasoningOutput: "omit",
 				streaming: true,
-				vision: false,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
