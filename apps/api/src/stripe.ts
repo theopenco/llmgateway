@@ -13,6 +13,7 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
+import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
 import {
@@ -1109,6 +1110,19 @@ async function handleCheckoutSessionCompleted(
 	}
 }
 
+type BonusType = "first_purchase" | "second_topup" | "referral";
+
+function getBonusLabel(bonusType: BonusType | null): string {
+	switch (bonusType) {
+		case "second_topup":
+			return "second top-up bonus";
+		case "referral":
+			return "referral bonus";
+		default:
+			return "first-time bonus";
+	}
+}
+
 async function applyFirstTimeBonus({
 	organizationId,
 	creditAmount,
@@ -1120,14 +1134,44 @@ async function applyFirstTimeBonus({
 }): Promise<{
 	finalCreditAmount: number;
 	bonusAmount: number;
-	bonusType: "first_purchase" | "second_topup" | null;
+	bonusType: BonusType | null;
 }> {
 	let bonusAmount = 0;
 	let finalCreditAmount = creditAmount;
-	let bonusType: "first_purchase" | "second_topup" | null = null;
+	let bonusType: BonusType | null = null;
 
 	if (!isEmailVerified) {
 		return { finalCreditAmount, bonusAmount, bonusType };
+	}
+
+	const previousPurchases = await db.query.transaction.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			type: { eq: "credit_topup" },
+			status: { eq: "completed" },
+		},
+		orderBy: { createdAt: "asc" },
+		limit: 2,
+	});
+
+	// On the first top-up, a referral signup bonus takes precedence over the
+	// generic first-time bonus (they do not stack).
+	if (previousPurchases.length === 0) {
+		const referralBonus = await computeReferralBonus(
+			organizationId,
+			creditAmount,
+		);
+		if (referralBonus > 0) {
+			bonusAmount = referralBonus;
+			finalCreditAmount = creditAmount + bonusAmount;
+			bonusType = "referral";
+
+			logger.info(
+				`Applied referral signup bonus of $${bonusAmount} to organization ${organizationId}`,
+			);
+
+			return { finalCreditAmount, bonusAmount, bonusType };
+		}
 	}
 
 	const firstBonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
@@ -1143,16 +1187,6 @@ async function applyFirstTimeBonus({
 	if (!eitherBonusEnabled) {
 		return { finalCreditAmount, bonusAmount, bonusType };
 	}
-
-	const previousPurchases = await db.query.transaction.findMany({
-		where: {
-			organizationId: { eq: organizationId },
-			type: { eq: "credit_topup" },
-			status: { eq: "completed" },
-		},
-		orderBy: { createdAt: "asc" },
-		limit: 2,
-	});
 
 	if (previousPurchases.length === 0 && firstBonusMultiplier > 1) {
 		const potentialBonus = creditAmount * (firstBonusMultiplier - 1);
@@ -1218,7 +1252,7 @@ async function recordCreditTopUp({
 		billingNotes: string | null;
 	};
 	source: string;
-	bonusType?: "first_purchase" | "second_topup" | null;
+	bonusType?: BonusType | null;
 }) {
 	await db
 		.update(tables.organization)
@@ -1266,8 +1300,8 @@ async function recordCreditTopUp({
 	];
 
 	if (bonusAmount > 0) {
-		const bonusLabel =
-			bonusType === "second_topup" ? "Second top-up bonus" : "First-time bonus";
+		const label = getBonusLabel(bonusType ?? null);
+		const bonusLabel = label.charAt(0).toUpperCase() + label.slice(1);
 		lineItems.push({
 			description: `${bonusLabel} (+$${bonusAmount.toFixed(2)})`,
 			amount: 0,
@@ -1406,8 +1440,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 			isEmailVerified: resolvedUser?.emailVerified ?? false,
 		});
 
-	const bonusLabel =
-		bonusType === "second_topup" ? "second top-up bonus" : "first-time bonus";
+	const bonusLabel = getBonusLabel(bonusType);
 
 	await recordCreditTopUp({
 		organizationId,
@@ -1503,8 +1536,7 @@ async function handlePaymentIntentSucceeded(
 	// Check if this is an auto top-up with an existing pending transaction
 	const transactionId = metadata?.transactionId;
 
-	const bonusLabel =
-		bonusType === "second_topup" ? "second top-up bonus" : "first-time bonus";
+	const bonusLabel = getBonusLabel(bonusType);
 	const transactionDescription =
 		bonusAmount > 0
 			? `Credit top-up via Stripe (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
@@ -1542,7 +1574,7 @@ async function handlePaymentIntentSucceeded(
 				stripePaymentIntentId: paymentIntent.id,
 				description:
 					bonusAmount > 0
-						? `Auto top-up completed via Stripe webhook (+$${bonusAmount.toFixed(2)} first-time bonus)`
+						? `Auto top-up completed via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
 						: "Auto top-up completed via Stripe webhook",
 				creditAmount: finalCreditAmount.toString(),
 				amount: totalAmountInDollars.toString(),
@@ -1584,9 +1616,7 @@ async function handlePaymentIntentSucceeded(
 
 		if (bonusAmount > 0) {
 			const autoBonusLabel =
-				bonusType === "second_topup"
-					? "Second top-up bonus"
-					: "First-time bonus";
+				bonusLabel.charAt(0).toUpperCase() + bonusLabel.slice(1);
 			lineItems.push({
 				description: `${autoBonusLabel} (+$${bonusAmount.toFixed(2)})`,
 				amount: 0,
@@ -2024,10 +2054,11 @@ async function handleSetupIntentSucceeded(
 	const { metadata, payment_method } = setupIntent;
 	const organizationId = metadata?.organizationId;
 
-	// DevPass setup intents are finalized via finalizeDevPlanSetupSession and
-	// must NOT be saved into the org's payment_method table (which is for the
-	// regular billing UI flow). Skip them here.
-	if (metadata?.subscriptionType === "dev_plan") {
+	// DevPass setup intents are finalized via finalizeDevPlanSetupSession (initial
+	// activation) or /dev-plans/update-payment-method (card change) and must NOT
+	// be saved into the org's payment_method table (which is for the regular
+	// billing UI flow). Skip both ("dev_plan" and "dev_plan_update") here.
+	if (metadata?.subscriptionType?.startsWith("dev_plan")) {
 		return;
 	}
 

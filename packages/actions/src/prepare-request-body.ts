@@ -1040,6 +1040,7 @@ export async function prepareRequestBody(
 	// Anthropic-style `ttl: "1h"` must be normalized away before forwarding.
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
+		usedProvider === "anthropic-discount" ||
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
@@ -1506,6 +1507,7 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "anthropic":
+		case "anthropic-discount":
 		case "vertex-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;

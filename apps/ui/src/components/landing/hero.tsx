@@ -53,6 +53,7 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Nebius", providerId: "nebius" },
 	{ name: "Zai", providerId: "zai" },
 	{ name: "NanoGPT", providerId: "nanogpt" },
+	{ name: "Canopywave", providerId: "canopywave" },
 	{ name: "AWS Bedrock", providerId: "aws-bedrock" },
 	{ name: "Azure", providerId: "azure" },
 	{ name: "Inference.net", providerId: "inference.net" },
@@ -197,11 +198,11 @@ export function Hero({
 									<AnimatedGroup variants={transitionVariants}>
 										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
 											LLM Gateway — One API for OpenAI, Anthropic, Google, and
-											30+ providers
+											40+ providers
 										</h1>
 										<p className="mt-4 md:mt-6 max-w-2xl mx-auto text-balance text-base md:text-lg text-muted-foreground">
 											Stop juggling API keys and provider dashboards. Route
-											requests across 200+ models, track costs in real-time, and
+											requests across 400+ models, track costs in real-time, and
 											switch providers without changing your code.
 										</p>
 									</AnimatedGroup>

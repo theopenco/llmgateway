@@ -151,10 +151,13 @@ export default function ImagePageClient({
 			.filter((m): m is NonNullable<typeof m> => m !== null);
 	}, [selectedModels, imageGenModels]);
 
-	// Detect if any selected model supports image input (editing)
+	// Detect if all selected models support image input (editing)
 	const isEditModel = useMemo(() => {
-		return selectedModelDefs.some((m) =>
-			m.mappings.some((mapping) => mapping.vision === true),
+		return (
+			selectedModelDefs.length > 0 &&
+			selectedModelDefs.every((m) =>
+				m.mappings.some((mapping) => mapping.vision === true),
+			)
 		);
 	}, [selectedModelDefs]);
 
@@ -425,6 +428,9 @@ export default function ImagePageClient({
 			});
 
 			const itemId = crypto.randomUUID();
+			const modelsToGenerate = comparisonMode
+				? selectedModels
+				: selectedModels.slice(0, 1);
 
 			// Create placeholder gallery item
 			const placeholderItem: GalleryItem = {
@@ -438,7 +444,7 @@ export default function ImagePageClient({
 								mediaType: img.mediaType,
 							}))
 						: undefined,
-				models: selectedModels.map((modelId) => ({
+				models: modelsToGenerate.map((modelId) => ({
 					modelId,
 					modelName: getModelName(modelId),
 					images: [],
@@ -479,9 +485,9 @@ export default function ImagePageClient({
 					};
 
 			// Fire requests independently — each updates gallery as images stream in
-			pendingRef.current = selectedModels.length;
+			pendingRef.current = modelsToGenerate.length;
 
-			for (const modelId of selectedModels) {
+			for (const modelId of modelsToGenerate) {
 				const noFallback = shouldDisableFallback(modelId);
 				void (async () => {
 					try {
@@ -648,6 +654,7 @@ export default function ImagePageClient({
 		setPrompt("");
 		setInputImages([]);
 		setIsGenerating(false);
+		setComparisonMode(false);
 		pendingRef.current = 0;
 		const params = new URLSearchParams(window.location.search);
 		params.delete("id");
@@ -769,7 +776,9 @@ export default function ImagePageClient({
 								items={displayItems}
 								comparisonMode={comparisonMode}
 								onSuggestionClick={handleSuggestionClick}
-								onUseAsReference={handleUseAsReference}
+								onUseAsReference={
+									isEditModel ? handleUseAsReference : undefined
+								}
 								onInsertPrompt={handleInsertPrompt}
 							/>
 						</div>

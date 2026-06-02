@@ -1104,6 +1104,17 @@ mockOpenAIServer.post("/v1/embeddings", async (c) => {
 		return c.json(sampleErrorResponse);
 	}
 
+	// Any request authenticated with a key whose token contains EMBED_FAIL_KEY
+	// fails with 500 on every call. Unlike the global TRIGGER_FAIL_ONCE counter,
+	// this is keyed on the credential, so tests can mark one specific provider
+	// key as persistently unhealthy and verify health-aware key selection routes
+	// subsequent requests onto the other key.
+	const embeddingsAuthHeader = c.req.header("authorization") ?? "";
+	if (embeddingsAuthHeader.includes("EMBED_FAIL_KEY")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
 	// First call with TRIGGER_FAIL_ONCE fails with 500, subsequent calls fall
 	// through to the success path. Lets embedding key-rotation tests verify
 	// that the gateway retries with another key after an upstream failure.

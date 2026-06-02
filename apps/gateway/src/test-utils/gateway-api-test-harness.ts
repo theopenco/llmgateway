@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 
-import { and, db, eq, pool, tables } from "@llmgateway/db";
+import { db, eq, pool, tables } from "@llmgateway/db";
 import { getProviderDefinition, models } from "@llmgateway/models";
 import { verifyVideoContentAccessToken } from "@llmgateway/shared/video-access";
 
@@ -202,21 +202,59 @@ export function createGatewayApiTestHarness() {
 		) {
 			await ensureRoutingMetricMapping(modelId, providerId);
 
+			// Routing now reads metrics on-demand from
+			// model_provider_mapping_history (see packages/db/src/provider-metrics-history.ts).
+			// Seed a single recent history row whose unweighted aggregates
+			// produce the requested uptime/latency/throughput.
+			const totalRequests = metrics.totalRequests ?? 100;
+			const latency = metrics.latency ?? 100;
+			const throughput = metrics.throughput ?? 100;
+			const uptimeFraction = metrics.uptime / 100;
+			const errorRate = 1 - uptimeFraction;
+			const errorsCount = Math.round(totalRequests * errorRate);
+			const totalDurationMs = 1000; // arbitrary
+			const totalOutputTokens = Math.round(
+				(throughput * totalDurationMs) / 1000,
+			);
+			const totalTimeToFirstToken = latency * totalRequests;
+			const minuteTimestamp = new Date(Math.floor(Date.now() / 60000) * 60000);
+
 			await db
-				.update(tables.modelProviderMapping)
-				.set({
-					status: "active",
-					routingUptime: metrics.uptime,
-					routingLatency: metrics.latency ?? 100,
-					routingThroughput: metrics.throughput ?? 100,
-					routingTotalRequests: metrics.totalRequests ?? 100,
+				.insert(tables.modelProviderMappingHistory)
+				.values({
+					modelId,
+					providerId,
+					modelProviderMappingId: `${modelId}::${providerId}`,
+					minuteTimestamp,
+					logsCount: totalRequests,
+					errorsCount,
+					clientErrorsCount: 0,
+					gatewayErrorsCount: 0,
+					upstreamErrorsCount: errorsCount,
+					cachedCount: 0,
+					totalOutputTokens,
+					totalDuration: totalDurationMs,
+					totalTimeToFirstToken,
+					totalTimeToFirstReasoningToken: 0,
 				})
-				.where(
-					and(
-						eq(tables.modelProviderMapping.modelId, modelId),
-						eq(tables.modelProviderMapping.providerId, providerId),
-					),
-				);
+				.onConflictDoUpdate({
+					target: [
+						tables.modelProviderMappingHistory.modelProviderMappingId,
+						tables.modelProviderMappingHistory.minuteTimestamp,
+					],
+					set: {
+						logsCount: totalRequests,
+						errorsCount,
+						clientErrorsCount: 0,
+						gatewayErrorsCount: 0,
+						upstreamErrorsCount: errorsCount,
+						cachedCount: 0,
+						totalOutputTokens,
+						totalDuration: totalDurationMs,
+						totalTimeToFirstToken,
+						totalTimeToFirstReasoningToken: 0,
+					},
+				});
 		},
 		expectSignedVideoLogContentUrl(url: string, logId: string) {
 			const validAfterSixDays = 6 * 24 * 60 * 60 * 1000;

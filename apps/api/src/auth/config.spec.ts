@@ -2,7 +2,52 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
-import { apiAuth, redisClient } from "./config.js";
+import { apiAuth, isClientJsonError, redisClient } from "./config.js";
+
+describe("isClientJsonError", () => {
+	test("matches the real Better Auth malformed-JSON messages from production", () => {
+		const messages = [
+			"Expected ',' or '}' after property value in JSON at position 59 (line 1 column 60)",
+			"Expected ',' or '}' after property value in JSON at position 54 (line 1 column 55)",
+			"# SERVER_ERROR:  SyntaxError: Expected ',' or '}' after property value in JSON at position 49 (line 1 column 50)",
+		];
+		for (const message of messages) {
+			expect(isClientJsonError(message, [])).toBe(true);
+		}
+	});
+
+	test("matches other JSON.parse SyntaxError variants", () => {
+		expect(
+			isClientJsonError("Unexpected token o in JSON at position 1", []),
+		).toBe(true);
+		expect(isClientJsonError("Unexpected end of JSON input", [])).toBe(true);
+		expect(
+			isClientJsonError("Unexpected non-whitespace character after JSON", []),
+		).toBe(true);
+		expect(isClientJsonError('"[object Object]" is not valid JSON', [])).toBe(
+			true,
+		);
+	});
+
+	test("inspects Error args, not just the message string", () => {
+		const err = new SyntaxError(
+			"Expected ',' or '}' after property value in JSON at position 61",
+		);
+		expect(isClientJsonError("# SERVER_ERROR:", [err])).toBe(true);
+	});
+
+	test("does not match genuine server errors", () => {
+		expect(isClientJsonError("Database connection failed", [])).toBe(false);
+		expect(
+			isClientJsonError("Failed to send verification email", [
+				new Error("SMTP timeout"),
+			]),
+		).toBe(false);
+		expect(isClientJsonError("Redis pipeline execution failed", [])).toBe(
+			false,
+		);
+	});
+});
 
 describe("API auth configuration", () => {
 	test("should inherit basic auth configuration", () => {

@@ -1,7 +1,14 @@
+import { buttonVariants } from "fumadocs-ui/components/ui/button";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
+import { MessageCircleIcon } from "lucide-react";
 
 import { baseOptions } from "@/app/layout.config";
-import { GithubInfo } from "@/components/github-info";
+import {
+	AISearch,
+	AISearchPanel,
+	AISearchTrigger,
+} from "@/components/ai/search";
+import { cn } from "@/lib/cn";
 import { source } from "@/lib/source";
 
 import type { DocsLayoutProps } from "fumadocs-ui/layouts/docs";
@@ -15,14 +22,6 @@ const docsOptions: DocsLayoutProps = {
 	links: [],
 
 	sidebar: {
-		banner: (
-			<GithubInfo
-				owner="theopenco"
-				repo="llmgateway"
-				token={process.env.GITHUB_TOKEN}
-				className="lg:-mx-2"
-			/>
-		),
 		footer: (
 			<a
 				href="https://status.llmgateway.io/"
@@ -41,5 +40,24 @@ const docsOptions: DocsLayoutProps = {
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
-	return <DocsLayout {...docsOptions}>{children}</DocsLayout>;
+	return (
+		<DocsLayout {...docsOptions}>
+			<AISearch>
+				<AISearchPanel />
+				<AISearchTrigger
+					position="float"
+					className={cn(
+						buttonVariants({
+							color: "secondary",
+							className: "text-fd-muted-foreground rounded-2xl",
+						}),
+					)}
+				>
+					<MessageCircleIcon className="size-4.5" />
+					Ask AI
+				</AISearchTrigger>
+			</AISearch>
+			{children}
+		</DocsLayout>
+	);
 }

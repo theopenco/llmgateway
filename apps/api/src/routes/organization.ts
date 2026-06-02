@@ -43,6 +43,8 @@ const organizationSchema = z.object({
 	autoTopUpThreshold: z.string().nullable(),
 	autoTopUpAmount: z.string().nullable(),
 	referralEarnings: z.string(),
+	referralBonusEnabled: z.boolean(),
+	referralBonusPercent: z.string(),
 	// Dev Plans fields
 	isPersonal: z.boolean(),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
