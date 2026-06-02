@@ -386,11 +386,8 @@ export const minimaxModels = [
 				videoGenerations: true,
 				supportedVideoSizes: [
 					"1280x720",
-					"720x1280",
 					"1366x768",
-					"768x1366",
 					"1920x1080",
-					"1080x1920",
 				],
 				supportedVideoDurationsSeconds: [6, 10],
 				supportedVideoDurationsSecondsImageToVideo: [6, 10],
