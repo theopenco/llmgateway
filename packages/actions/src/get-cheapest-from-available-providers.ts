@@ -241,7 +241,7 @@ function providerSupportsCaching(
 export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
-	resolution: "default" | "hd" | "1080p" | "4k" | "768p";
+	resolution: "default" | "hd" | "1080p" | "4k" | "768p" | "720p";
 }
 
 function getPerSecondBillingKeys(
@@ -269,6 +269,12 @@ function getPerSecondBillingKeys(
 		return videoPricing.includeAudio
 			? ["768p_audio", "default_audio", "768p", "default"]
 			: ["768p_video", "default_video", "768p", "default"];
+	}
+
+	if (videoPricing.resolution === "720p") {
+		return videoPricing.includeAudio
+			? ["720p_audio", "768p_audio", "default_audio", "720p", "768p", "default"]
+			: ["720p_video", "768p_video", "default_video", "720p", "768p", "default"];
 	}
 
 	return videoPricing.includeAudio

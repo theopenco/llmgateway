@@ -1406,9 +1406,11 @@ async function resolveVideoExecution(
 					? "1080p"
 					: videoSize.resolution === "768p"
 						? "768p"
-						: videoSize.resolution === "hd"
-							? "hd"
-							: "default",
+						: videoSize.resolution === "720p"
+							? "720p"
+							: videoSize.resolution === "hd"
+								? "hd"
+								: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
