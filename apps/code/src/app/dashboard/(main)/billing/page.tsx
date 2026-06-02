@@ -30,6 +30,10 @@ const ActivePlanChangeTier = dynamic(
 	() => import("@/app/dashboard/components/ActivePlanChangeTier"),
 );
 
+const DevPassPaymentMethod = dynamic(
+	() => import("@/app/dashboard/components/DevPassPaymentMethod"),
+);
+
 export default function BillingPage() {
 	const config = useAppConfig();
 	const { posthogKey } = config;
@@ -216,6 +220,9 @@ export default function BillingPage() {
 					</p>
 				</div>
 			</div>
+
+			{/* Payment method */}
+			<DevPassPaymentMethod />
 
 			{/* Change plan */}
 			<ActivePlanChangeTier
