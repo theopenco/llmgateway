@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import {
@@ -19,7 +19,11 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
-import type { CostByModelTimeseriesResponse, TokenWindow } from "@/lib/types";
+import type {
+	CostByModelTimeseriesResponse,
+	ModelView,
+	TokenWindow,
+} from "@/lib/types";
 
 type ActiveMetric = "cost" | "requestCount" | "totalTokens";
 
@@ -27,6 +31,11 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "cost", label: "Cost" },
 	{ key: "requestCount", label: "Requests" },
 	{ key: "totalTokens", label: "Tokens" },
+];
+
+const modelViewTabs: { key: ModelView; label: string }[] = [
+	{ key: "mapping", label: "Mappings" },
+	{ key: "canonical", label: "Canonical" },
 ];
 
 const seriesColors = [
@@ -62,25 +71,37 @@ export function CostByModelTimeseriesChart({
 	description?: string;
 	fetchData: (
 		window: TokenWindow,
+		modelView: ModelView,
 	) => Promise<CostByModelTimeseriesResponse | null>;
 	externalWindow: TokenWindow;
 }) {
 	const [data, setData] = useState<CostByModelTimeseriesResponse | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("cost");
+	const [modelView, setModelView] = useState<ModelView>("mapping");
+	const latestRequestRef = useRef(0);
 
 	const loadData = useCallback(async () => {
+		const requestId = ++latestRequestRef.current;
 		setLoading(true);
 		try {
-			const result = await fetchData(externalWindow);
+			const result = await fetchData(externalWindow, modelView);
+			if (requestId !== latestRequestRef.current) {
+				return;
+			}
 			setData(result);
 		} catch (error) {
+			if (requestId !== latestRequestRef.current) {
+				return;
+			}
 			console.error("Failed to load cost by model timeseries:", error);
 			setData(null);
 		} finally {
-			setLoading(false);
+			if (requestId === latestRequestRef.current) {
+				setLoading(false);
+			}
 		}
-	}, [fetchData, externalWindow]);
+	}, [fetchData, externalWindow, modelView]);
 
 	useEffect(() => {
 		void loadData();
@@ -142,21 +163,39 @@ export function CostByModelTimeseriesChart({
 						{description && <CardDescription>{description}</CardDescription>}
 					</div>
 				</div>
-				<div className="flex items-center gap-1 border-b pb-2">
-					{metricTabs.map((tab) => (
-						<button
-							key={tab.key}
-							className={cn(
-								"rounded-md px-3 py-1 text-xs font-medium transition-colors",
-								activeMetric === tab.key
-									? "bg-primary text-primary-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-							onClick={() => setActiveMetric(tab.key)}
-						>
-							{tab.label}
-						</button>
-					))}
+				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+					<div className="flex items-center gap-1">
+						{metricTabs.map((tab) => (
+							<button
+								key={tab.key}
+								className={cn(
+									"rounded-md px-3 py-1 text-xs font-medium transition-colors",
+									activeMetric === tab.key
+										? "bg-primary text-primary-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								onClick={() => setActiveMetric(tab.key)}
+							>
+								{tab.label}
+							</button>
+						))}
+					</div>
+					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5">
+						{modelViewTabs.map((tab) => (
+							<button
+								key={tab.key}
+								className={cn(
+									"rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+									modelView === tab.key
+										? "bg-primary text-primary-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								onClick={() => setModelView(tab.key)}
+							>
+								{tab.label}
+							</button>
+						))}
+					</div>
 				</div>
 			</CardHeader>
 			<CardContent className="px-2 pb-4 sm:px-6">

@@ -71,6 +71,29 @@ export async function giftCreditsToOrganization(
 	return { success: true };
 }
 
+export async function updateReferralBonus(
+	orgId: string,
+	body: { enabled: boolean; percent: number },
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/referral-bonus",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update referral bonus";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
 export async function setOrganizationStatus(
 	orgId: string,
 	status: "active" | "deleted",

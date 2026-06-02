@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { ensureStripeCustomer } from "@/stripe.js";
+import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq, shortid } from "@llmgateway/db";
@@ -255,31 +255,33 @@ devPlans.openapi(subscribe, async (c) => {
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
+		// We use `mode: "setup"` (not "subscription") so the card is collected
+		// but the customer is NOT charged at checkout. After redirect we check
+		// the card fingerprint against existing DevPass orgs; if it conflicts
+		// we reject the activation without ever creating a Stripe subscription
+		// or charging the user. The shared metadata carries everything the
+		// finalize step needs to create the subscription server-side.
 		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
-			mode: "subscription",
-			line_items: [
-				{
-					price: priceId,
-					quantity: 1,
-				},
-			],
-			allow_promotion_codes: true,
-			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?success=true`,
+			mode: "setup",
+			payment_method_types: ["card"],
+			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
 				devPlan: tier,
 				devPlanCycle: cycle,
+				priceId,
 				userEmail: user.email,
 			},
-			subscription_data: {
+			setup_intent_data: {
 				metadata: {
 					organizationId: personalOrg.id,
 					subscriptionType: "dev_plan",
 					devPlan: tier,
 					devPlanCycle: cycle,
+					priceId,
 					userEmail: user.email,
 				},
 			},
@@ -313,6 +315,110 @@ devPlans.openapi(subscribe, async (c) => {
 		throw new HTTPException(500, {
 			message: `Failed to create checkout session: ${error}`,
 		});
+	}
+});
+
+// Finalize a dev plan setup session — called by the dashboard after the user
+// returns from Stripe Checkout. Verifies the card fingerprint and creates the
+// subscription server-side, or rejects with 409 if the card is already used
+// by another DevPass org (no charge is made in that case).
+const finalize = createRoute({
+	method: "post",
+	path: "/finalize",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						sessionId: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.enum(["ok", "already_processed"]),
+					}),
+				},
+			},
+			description: "Dev plan subscription finalized",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("duplicate_card"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Card already in use by another DevPass account",
+		},
+	},
+});
+
+devPlans.openapi(finalize, async (c) => {
+	const user = c.get("user");
+	const { sessionId } = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId: user.id },
+		with: { organization: true },
+	});
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	let result;
+	try {
+		result = await finalizeDevPlanSetupSession(sessionId);
+	} catch (error) {
+		logger.error(
+			`Failed to finalize dev plan session ${sessionId}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw new HTTPException(500, {
+			message: "Failed to finalize subscription",
+		});
+	}
+
+	switch (result.status) {
+		case "ok":
+		case "already_processed":
+			return c.json({ status: result.status }, 200);
+		case "duplicate_card":
+			return c.json(
+				{
+					error: "duplicate_card" as const,
+					message:
+						"This card is already associated with another DevPass account. Please use a different payment method.",
+				},
+				409,
+			);
+		case "no_payment_method":
+			throw new HTTPException(400, {
+				message: "No payment method found on the checkout session",
+			});
+		case "invalid_session":
+			throw new HTTPException(400, {
+				message: `Invalid checkout session: ${result.reason}`,
+			});
 	}
 });
 
@@ -614,7 +720,10 @@ devPlans.openapi(changeTier, async (c) => {
 						price: newPriceId,
 					},
 				],
-				proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
+				// Downgrades use "none" so the user is not refunded or credited for
+				// the current period (no refund) — the lower price applies from the
+				// next invoice onward.
+				proration_behavior: isUpgrade ? "always_invoice" : "none",
 				payment_behavior: isUpgrade
 					? "error_if_incomplete"
 					: "allow_incomplete",
@@ -642,9 +751,15 @@ devPlans.openapi(changeTier, async (c) => {
 
 		await db
 			.update(tables.organization)
+			// On upgrade, raise the allowance now (the user paid the prorated
+			// difference). On downgrade, keep the current higher allowance for the
+			// rest of the paid period — the renewal webhook resets it to the lower
+			// tier, so a downgrade never claws back already-paid credits.
 			.set({
 				devPlan: newTier,
-				devPlanCreditsLimit: newCreditsLimit.toString(),
+				...(isUpgrade
+					? { devPlanCreditsLimit: newCreditsLimit.toString() }
+					: {}),
 			})
 			.where(eq(tables.organization.id, personalOrg.id));
 
@@ -724,8 +839,6 @@ const getStatus = createRoute({
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanAllowAllModels: z.boolean(),
-						cachingEnabled: z.boolean(),
-						cacheDurationSeconds: z.number(),
 						retentionLevel: z.enum(["retain", "none"]),
 					}),
 				},
@@ -773,8 +886,6 @@ devPlans.openapi(getStatus, async (c) => {
 			projectId: null,
 			apiKey: null,
 			devPlanAllowAllModels: false,
-			cachingEnabled: false,
-			cacheDurationSeconds: 60,
 			retentionLevel: "none" as const,
 		});
 	}
@@ -786,8 +897,6 @@ devPlans.openapi(getStatus, async (c) => {
 	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
 	let projectId: string | null = null;
-	let cachingEnabled = false;
-	let cacheDurationSeconds = 60;
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -805,8 +914,6 @@ devPlans.openapi(getStatus, async (c) => {
 
 		if (project) {
 			projectId = project.id;
-			cachingEnabled = project.cachingEnabled;
-			cacheDurationSeconds = project.cacheDurationSeconds;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -831,8 +938,6 @@ devPlans.openapi(getStatus, async (c) => {
 		projectId,
 		apiKey,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
-		cachingEnabled,
-		cacheDurationSeconds,
 		retentionLevel: personalOrg.retentionLevel,
 	});
 });
@@ -847,8 +952,6 @@ const updateSettings = createRoute({
 				"application/json": {
 					schema: z.object({
 						devPlanAllowAllModels: z.boolean().optional(),
-						cachingEnabled: z.boolean().optional(),
-						cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
 						retentionLevel: z.enum(["retain", "none"]).optional(),
 					}),
 				},
@@ -862,8 +965,6 @@ const updateSettings = createRoute({
 					schema: z.object({
 						success: z.boolean(),
 						devPlanAllowAllModels: z.boolean(),
-						cachingEnabled: z.boolean(),
-						cacheDurationSeconds: z.number(),
 						retentionLevel: z.enum(["retain", "none"]),
 					}),
 				},
@@ -875,12 +976,7 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const {
-		devPlanAllowAllModels,
-		cachingEnabled,
-		cacheDurationSeconds,
-		retentionLevel,
-	} = c.req.valid("json");
+	const { devPlanAllowAllModels, retentionLevel } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -954,54 +1050,6 @@ devPlans.openapi(updateSettings, async (c) => {
 		}
 	}
 
-	const project = await db.query.project.findFirst({
-		where: {
-			organizationId: {
-				eq: personalOrg.id,
-			},
-		},
-		orderBy: {
-			createdAt: "asc",
-		},
-	});
-
-	const projectUpdate: {
-		cachingEnabled?: boolean;
-		cacheDurationSeconds?: number;
-	} = {};
-	if (cachingEnabled !== undefined) {
-		projectUpdate.cachingEnabled = cachingEnabled;
-	}
-	if (cacheDurationSeconds !== undefined) {
-		projectUpdate.cacheDurationSeconds = cacheDurationSeconds;
-	}
-
-	if (project && Object.keys(projectUpdate).length > 0) {
-		await db
-			.update(tables.project)
-			.set(projectUpdate)
-			.where(eq(tables.project.id, project.id));
-
-		if (
-			cachingEnabled !== undefined &&
-			cachingEnabled !== project.cachingEnabled
-		) {
-			changes.cachingEnabled = {
-				old: project.cachingEnabled,
-				new: cachingEnabled,
-			};
-		}
-		if (
-			cacheDurationSeconds !== undefined &&
-			cacheDurationSeconds !== project.cacheDurationSeconds
-		) {
-			changes.cacheDurationSeconds = {
-				old: project.cacheDurationSeconds,
-				new: cacheDurationSeconds,
-			};
-		}
-	}
-
 	if (Object.keys(changes).length > 0) {
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -1016,9 +1064,6 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanAllowAllModels:
 			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
-		cachingEnabled: cachingEnabled ?? project?.cachingEnabled ?? false,
-		cacheDurationSeconds:
-			cacheDurationSeconds ?? project?.cacheDurationSeconds ?? 60,
 		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 	});
 });

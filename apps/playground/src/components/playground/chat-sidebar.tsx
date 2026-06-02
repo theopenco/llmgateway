@@ -91,7 +91,6 @@ interface ChatSidebarProps {
 	currentChatId?: string;
 	onChatSelect?: (chatId: string) => void;
 	onNewChat?: () => void;
-	clearMessages: () => void;
 	className?: string;
 	isLoading?: boolean;
 	organizations: Organization[];
@@ -424,7 +423,6 @@ export const ChatSidebar = function ChatSidebar({
 	currentChatId,
 	onChatSelect,
 	onNewChat,
-	clearMessages,
 	className,
 	isLoading: isPageLoading = false,
 	organizations,
@@ -563,11 +561,10 @@ export const ChatSidebar = function ChatSidebar({
 				},
 			});
 			if (currentChatId === chatId) {
-				clearMessages();
-				onChatSelect?.("");
+				onNewChat?.();
 			}
 		},
-		[deleteChat, currentChatId, clearMessages, onChatSelect],
+		[deleteChat, currentChatId, onNewChat],
 	);
 
 	const handleChatSelect = useCallback(

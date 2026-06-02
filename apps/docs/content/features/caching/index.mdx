@@ -1,0 +1,45 @@
+---
+title: Caching
+description: Overview of the two types of caching available in LLM Gateway.
+icon: Zap
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Caching
+
+LLM Gateway supports **two distinct kinds of caching**, and they solve different problems. Pick the one that matches your workload — they can also be used together.
+
+## Provider / Model Caching
+
+The provider performs the caching. When your request reuses a long prefix from a previous call (a system prompt, conversation history, tool definitions, a long document), the model serves that prefix from its prompt cache and bills it at a reduced rate. New input tokens and **all output tokens are still billed at the normal rate** — only the cached portion is discounted.
+
+This is the type of caching that powers efficient chat-based and assistant-based interactions, including chat apps and coding tools (Cursor, Cline, Claude Code, etc.) where the same context is reused turn after turn.
+
+You see it in your usage as `prompt_tokens_details.cached_tokens`. For most providers it works automatically; some (notably Anthropic) also let you mark blocks explicitly with `cache_control` and choose a longer TTL.
+
+→ **[Read the Provider Cache Control docs](/features/caching/provider-cache-control)**
+
+## Gateway Caching
+
+LLM Gateway performs the caching. When a request is **byte-identical** to a previous one (same model, same messages, same parameters), the response is served from the gateway's cache without any provider call. Repeated identical calls cost **$0**.
+
+This is most useful for deterministic API workloads — classification, batch jobs, FAQ lookups, retries — rather than free-form chat, because chat prompts almost always differ on the latest turn.
+
+→ **[Read the Gateway Caching docs](/features/caching/gateway-caching)**
+
+## Which one do I want?
+
+| If you…                                                         | Use                                                                                           |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Build a chat app, assistant, or coding tool                     | [Provider Cache Control](/features/caching/provider-cache-control)                            |
+| Send long system prompts or growing conversation history        | [Provider Cache Control](/features/caching/provider-cache-control)                            |
+| Want longer cache lifetimes than the provider default           | [Provider Cache Control](/features/caching/provider-cache-control) (explicit `cache_control`) |
+| Send the exact same request many times (batches, retries, FAQs) | [Gateway Caching](/features/caching/gateway-caching)                                          |
+| Want $0 on repeated calls instead of a discount                 | [Gateway Caching](/features/caching/gateway-caching)                                          |
+
+<Callout type="info">
+	The two are not mutually exclusive. A coding tool can rely on provider caching
+	for its long system prompt **and** enable gateway caching so that
+	deterministic tool calls (e.g., file lookups) cost nothing on retry.
+</Callout>

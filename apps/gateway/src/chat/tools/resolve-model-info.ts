@@ -38,7 +38,7 @@ export function resolveModelInfo(
 			providers: [
 				{
 					providerId: "custom" as const,
-					modelName: requestedModel,
+					externalId: requestedModel,
 					inputPrice: "0",
 					outputPrice: "0",
 					contextSize: 8192,
@@ -50,10 +50,15 @@ export function resolveModelInfo(
 			],
 		};
 	} else {
-		// Strip :region suffix for model lookup (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
-		const baseRequestedModel = requestedModel.includes(":")
-			? requestedModel.split(":")[0]
-			: requestedModel;
+		// Strip only the trailing :region suffix for model lookup
+		// (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2"). Use lastIndexOf
+		// because some upstream model names already contain a colon
+		// (e.g., "anthropic.claude-haiku-4-5-20251001-v1:0").
+		const lastColonIdx = requestedModel.lastIndexOf(":");
+		const baseRequestedModel =
+			lastColonIdx > -1
+				? requestedModel.slice(0, lastColonIdx)
+				: requestedModel;
 
 		// First try to find by model ID
 		// When a specific provider is requested, prefer the definition that includes that provider
@@ -66,15 +71,15 @@ export function resolveModelInfo(
 			: undefined;
 		foundModel ??= models.find((m) => m.id === baseRequestedModel);
 
-		// If not found, search by provider model name
-		// If a specific provider is requested, match both modelName and providerId
+		// If not found, search by provider external id
+		// If a specific provider is requested, match both externalId and providerId
 		if (!foundModel) {
 			if (requestedProvider) {
 				foundModel = models.find((m) =>
 					m.providers.find(
 						(p) =>
-							(p.modelName === requestedModel ||
-								p.modelName === baseRequestedModel) &&
+							(p.externalId === requestedModel ||
+								p.externalId === baseRequestedModel) &&
 							p.providerId === requestedProvider,
 					),
 				);
@@ -82,8 +87,8 @@ export function resolveModelInfo(
 				foundModel = models.find((m) =>
 					m.providers.find(
 						(p) =>
-							p.modelName === requestedModel ||
-							p.modelName === baseRequestedModel,
+							p.externalId === requestedModel ||
+							p.externalId === baseRequestedModel,
 					),
 				);
 			}

@@ -43,6 +43,8 @@ const organizationSchema = z.object({
 	autoTopUpThreshold: z.string().nullable(),
 	autoTopUpAmount: z.string().nullable(),
 	referralEarnings: z.string(),
+	referralBonusEnabled: z.boolean(),
+	referralBonusPercent: z.string(),
 	// Dev Plans fields
 	isPersonal: z.boolean(),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
@@ -64,6 +66,7 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 });

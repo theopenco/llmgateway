@@ -4,6 +4,13 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
+function getCacheControl(block: unknown): unknown {
+	if (block && typeof block === "object" && "cache_control" in block) {
+		return (block as { cache_control: unknown }).cache_control;
+	}
+	return undefined;
+}
+
 async function prepareOpenAIImageRequest(imageConfig: {
 	aspect_ratio?: string;
 	image_size?: string;
@@ -12,6 +19,8 @@ async function prepareOpenAIImageRequest(imageConfig: {
 }) {
 	return await prepareRequestBody(
 		"openai",
+		"gpt-image-2",
+		null,
 		"gpt-image-2",
 		[{ role: "user", content: "Generate a cinematic landscape" }],
 		false,
@@ -42,9 +51,12 @@ async function prepareOpenAITextRequest(options: {
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
 }) {
+	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
 		options.provider ?? "openai",
-		options.model ?? "gpt-5.5",
+		model,
+		null,
+		model,
 		[{ role: "user", content: "Hello!" }],
 		false,
 		undefined,
@@ -76,6 +88,8 @@ describe("prepareRequestBody - Anthropic", () => {
 	test("should extract system messages to system field for caching", async () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
 			"claude-3-5-sonnet-20241022",
 			[
 				{ role: "system", content: "You are a helpful assistant." },
@@ -117,6 +131,8 @@ describe("prepareRequestBody - Anthropic", () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
 			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
 			[
 				{ role: "system", content: longSystemPrompt },
 				{ role: "user", content: "Hello!" },
@@ -145,6 +161,8 @@ describe("prepareRequestBody - Anthropic", () => {
 	test("should handle array content in system messages", async () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
 			"claude-3-5-sonnet-20241022",
 			[
 				{
@@ -180,6 +198,8 @@ describe("prepareRequestBody - Anthropic", () => {
 		const longContent = "A".repeat(5000);
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
 			"claude-3-5-sonnet-20241022",
 			[
 				{ role: "system", content: longContent }, // Would be cache block 1
@@ -227,6 +247,78 @@ describe("prepareRequestBody - Anthropic", () => {
 
 		// Should be exactly 4 (the limit)
 		expect(totalCacheControlBlocks).toBe(4);
+	});
+
+	test("strips caller-supplied cache_control when providerCacheControlEnabled is false", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: longContent,
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: longContent,
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			false, // providerCacheControlEnabled
+		)) as AnthropicRequestBody;
+
+		// System: no caller marker preserved, no heuristic-added marker.
+		if (requestBody.system && Array.isArray(requestBody.system)) {
+			for (const block of requestBody.system) {
+				expect(getCacheControl(block)).toBeUndefined();
+			}
+		}
+
+		// User content: no caller marker preserved, no heuristic-added marker.
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					expect(getCacheControl(block)).toBeUndefined();
+				}
+			}
+		}
 	});
 });
 
@@ -338,10 +430,84 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 	});
 });
 
+describe("prepareRequestBody - reasoning_effort none", () => {
+	async function prepare(options: {
+		provider: Parameters<typeof prepareRequestBody>[0];
+		model: string;
+		useResponsesApi?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			options.provider,
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"none", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			options.useResponsesApi ?? false,
+		)) as any;
+	}
+
+	test("forwards none to OpenAI chat completions", async () => {
+		const requestBody = await prepare({ provider: "openai", model: "gpt-5.5" });
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
+	test("forwards none to OpenAI Responses API", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.5",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("none");
+	});
+
+	test("disables thinking for Google on none", async () => {
+		const requestBody = await prepare({
+			provider: "google-ai-studio",
+			model: "gemini-2.5-pro",
+		});
+		expect(requestBody.generationConfig.thinkingConfig.includeThoughts).toBe(
+			false,
+		);
+		expect(
+			requestBody.generationConfig.thinkingConfig.thinkingBudget,
+		).toBeUndefined();
+	});
+
+	test("normalizes none to off for Anthropic (thinking not enabled)", async () => {
+		const requestBody = (await prepare({
+			provider: "anthropic",
+			model: "claude-sonnet-4-20250514",
+		})) as AnthropicRequestBody;
+		expect(requestBody.thinking).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - Google AI Studio", () => {
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-3.1-flash-image-preview",
+			null,
 			"gemini-3.1-flash-image-preview",
 			[
 				{
@@ -384,6 +550,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		const requestBody = (await prepareRequestBody(
 			"google-vertex",
 			"gemini-3.1-flash-image-preview",
+			null,
+			"gemini-3.1-flash-image-preview",
 			[
 				{
 					role: "user",
@@ -420,6 +588,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 	test("should set thinkingBudget when reasoning_effort is provided", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-2.5-pro",
+			null,
 			"gemini-2.5-pro",
 			[{ role: "user", content: "What is 2+2?" }],
 			false, // stream
@@ -458,6 +628,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			const requestBody = (await prepareRequestBody(
 				"google-ai-studio",
 				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
 				[{ role: "user", content: "test" }],
 				false,
 				undefined,
@@ -482,6 +654,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 	test("should not set thinkingBudget when reasoning_effort is not provided", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-2.5-pro",
+			null,
 			"gemini-2.5-pro",
 			[{ role: "user", content: "test" }],
 			false,
@@ -509,6 +683,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 	test("should not set thinkingConfig when supportsReasoning is false", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-1.5-pro",
+			null,
 			"gemini-1.5-pro",
 			[{ role: "user", content: "test" }],
 			false,
@@ -562,6 +738,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
 			"gemini-2.0-flash",
 			[{ role: "user", content: "test" }],
 			false,
@@ -617,6 +795,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
 			"gemini-2.0-flash",
 			[{ role: "user", content: "test" }],
 			false,
@@ -686,6 +866,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
 			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -729,6 +911,155 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.items.items.type).toBe("string");
 	});
 
+	test("should strip $id, examples, enumTitles, prefill from Google tool parameters", async () => {
+		const toolsWithMetaSchema = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						$id: "https://example.com/schema.json",
+						$comment: "internal note",
+						type: "object",
+						properties: {
+							field_a: {
+								type: "string",
+								prefill: "hello",
+								examples: ["a", "b"],
+							},
+							field_b: {
+								type: "string",
+								examples: ["x"],
+							},
+							field_c: {
+								type: "array",
+								items: {
+									type: "string",
+									enum: ["one", "two"],
+									enumTitles: ["One", "Two"],
+								},
+								examples: [["one"]],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithMetaSchema,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.$id).toBeUndefined();
+		expect(params.$comment).toBeUndefined();
+		expect(params.properties.field_a.prefill).toBeUndefined();
+		expect(params.properties.field_a.examples).toBeUndefined();
+		expect(params.properties.field_b.examples).toBeUndefined();
+		expect(params.properties.field_c.examples).toBeUndefined();
+		expect(params.properties.field_c.items.enumTitles).toBeUndefined();
+		expect(params.properties.field_a.type).toBe("string");
+		expect(params.properties.field_c.items.enum).toEqual(["one", "two"]);
+	});
+
+	test("should preserve user-named fields that collide with stripped schema keywords", async () => {
+		const toolsWithCollidingNames = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							examples: {
+								type: "array",
+								items: { type: "string" },
+								description: "User-provided examples list",
+							},
+							prefill: {
+								type: "string",
+								description: "User-provided prefill text",
+							},
+							const: {
+								type: "string",
+								description: "A field literally named const",
+							},
+							nested: {
+								type: "object",
+								properties: {
+									examples: { type: "string" },
+								},
+								required: ["examples"],
+							},
+						},
+						required: ["examples", "prefill"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithCollidingNames,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		// User-named fields must survive, even though they collide with stripped keywords
+		expect(params.properties.examples).toBeDefined();
+		expect(params.properties.examples.type).toBe("array");
+		expect(params.properties.examples.description).toBe(
+			"User-provided examples list",
+		);
+		expect(params.properties.prefill).toBeDefined();
+		expect(params.properties.prefill.type).toBe("string");
+		expect(params.properties.const).toBeDefined();
+		expect(params.properties.const.type).toBe("string");
+
+		// Nested properties map should also preserve user field names
+		expect(params.properties.nested.properties.examples).toBeDefined();
+		expect(params.properties.nested.properties.examples.type).toBe("string");
+		expect(params.properties.nested.required).toContain("examples");
+
+		// And `required` should still mention these user fields
+		expect(params.required).toContain("examples");
+		expect(params.required).toContain("prefill");
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{
@@ -754,6 +1085,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"cerebras",
+			"llama-4-scout-17b-16e-instruct",
+			null,
 			"llama-4-scout-17b-16e-instruct",
 			[{ role: "user", content: "test" }],
 			false,
@@ -804,6 +1137,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		const requestBody = (await prepareRequestBody(
 			"cerebras",
 			"llama-4-scout-17b-16e-instruct",
+			null,
+			"llama-4-scout-17b-16e-instruct",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -843,6 +1178,8 @@ describe("prepareRequestBody - MiniMax", () => {
 		const requestBody = (await prepareRequestBody(
 			"minimax",
 			"MiniMax-M2",
+			null,
+			"MiniMax-M2",
 			[{ role: "user", content: "What is 2+2?" }],
 			true,
 			undefined,
@@ -867,6 +1204,8 @@ describe("prepareRequestBody - MiniMax", () => {
 		const requestBody = (await prepareRequestBody(
 			"minimax",
 			"MiniMax-M2",
+			null,
+			"MiniMax-M2",
 			[{ role: "user", content: "What is 2+2?" }],
 			true,
 			undefined,
@@ -890,6 +1229,8 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
+			"deepseek-chat",
+			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
 			false,
@@ -924,6 +1265,8 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should rewrite parameters with type: null to type: object", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
+			"deepseek-chat",
+			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
 			false,
@@ -964,6 +1307,8 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
 			"deepseek-chat",
+			null,
+			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
 			false,
 			undefined,
@@ -996,6 +1341,8 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
 			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{
@@ -1046,6 +1393,8 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should drop ttl:1h on bedrock models that do not support 1h TTL", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
+			"claude-3-7-sonnet",
+			null,
 			"anthropic.claude-3-7-sonnet-20250219-v1:0",
 			[
 				{
@@ -1096,6 +1445,8 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
 			"anthropic.claude-sonnet-4-6",
 			[{ role: "user", content: "Run a tool" }],
 			false,
@@ -1182,6 +1533,8 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should group consecutive tool results into a single user message", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
 			"anthropic.claude-sonnet-4-6",
 			[
 				{ role: "user", content: "What is the weather and time in Berlin?" },
@@ -1286,6 +1639,8 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
 			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false, // stream
 			undefined, // temperature
@@ -1318,6 +1673,8 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
 			"anthropic.claude-sonnet-4-6",
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false,
@@ -1352,6 +1709,8 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
 			"gemini-2.5-pro",
+			null,
+			"gemini-2.5-pro",
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false,
 			undefined,
@@ -1383,6 +1742,8 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 	test("google-vertex forwards budget into generationConfig.thinkingConfig.thinkingBudget", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-vertex",
+			"gemini-2.5-pro",
+			null,
 			"gemini-2.5-pro",
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false,
@@ -1418,6 +1779,8 @@ describe("prepareRequestBody - Alibaba cache_control", () => {
 		const requestBody = (await prepareRequestBody(
 			"alibaba",
 			"qwen-plus",
+			null,
+			"qwen-plus",
 			[
 				{
 					role: "user",
@@ -1452,6 +1815,8 @@ describe("prepareRequestBody - Alibaba cache_control", () => {
 	test("strips ttl from cache_control because Alibaba only supports 5m", async () => {
 		const requestBody = (await prepareRequestBody(
 			"alibaba",
+			"qwen-plus",
+			null,
 			"qwen-plus",
 			[
 				{
@@ -1501,6 +1866,8 @@ describe("prepareRequestBody - Alibaba cache_control", () => {
 		const requestBody = (await prepareRequestBody(
 			"alibaba",
 			"qwen-plus",
+			null,
+			"qwen-plus",
 			[
 				{
 					role: "user",
@@ -1542,6 +1909,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("forwards caller-supplied max_tokens verbatim", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
 				"anthropic.claude-sonnet-4-6",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1567,6 +1936,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// upstream pick.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
 				"anthropic.claude-sonnet-4-6",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1589,6 +1960,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
 				"anthropic.claude-sonnet-4-6",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1614,6 +1987,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("preserves caller max_tokens even when reasoning is enabled", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
 				"anthropic.claude-sonnet-4-6",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1640,6 +2015,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// floored by the reasoning check on the way out.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
 				"anthropic.claude-sonnet-4-6",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1668,6 +2045,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"openai",
 				"gpt-4o-mini",
+				null,
+				"gpt-4o-mini",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -1689,6 +2068,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"openai",
+				"gpt-4o-mini",
+				null,
 				"gpt-4o-mini",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1715,6 +2096,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// for callers who explicitly bypass the Responses API.
 			const requestBody = (await prepareRequestBody(
 				"openai",
+				"gpt-5",
+				null,
 				"gpt-5",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1750,6 +2133,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"openai",
 				"gpt-5",
+				null,
+				"gpt-5",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -1780,6 +2165,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_output_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"openai",
+				"gpt-5",
+				null,
 				"gpt-5",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1814,6 +2201,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"google-ai-studio",
 				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -1839,6 +2228,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"google-ai-studio",
 				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -1860,6 +2251,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("preserves caller max_tokens when reasoning is enabled (Gemini 2.x)", async () => {
 			const requestBody = (await prepareRequestBody(
 				"google-ai-studio",
+				"gemini-2.5-pro",
+				null,
 				"gemini-2.5-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1885,6 +2278,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"google-vertex",
 				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -1909,6 +2304,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"groq",
 				"moonshotai/kimi-k2-instruct",
+				null,
+				"moonshotai/kimi-k2-instruct",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -1930,6 +2327,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"groq",
+				"moonshotai/kimi-k2-instruct",
+				null,
 				"moonshotai/kimi-k2-instruct",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -1955,6 +2354,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"mistral",
 				"mistral-large-latest",
+				null,
+				"mistral-large-latest",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -1976,6 +2377,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"mistral",
+				"mistral-large-latest",
+				null,
 				"mistral-large-latest",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -2001,6 +2404,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"together-ai",
 				"meta-llama/llama-3.3-70b-instruct",
+				null,
+				"meta-llama/llama-3.3-70b-instruct",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -2022,6 +2427,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"together-ai",
+				"meta-llama/llama-3.3-70b-instruct",
+				null,
 				"meta-llama/llama-3.3-70b-instruct",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -2047,6 +2454,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"inference.net",
 				"meta-llama/llama-3.1-8b-instruct/fp-8",
+				null,
+				"meta-llama/llama-3.1-8b-instruct/fp-8",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -2068,6 +2477,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"inference.net",
+				"meta-llama/llama-3.1-8b-instruct/fp-8",
+				null,
 				"meta-llama/llama-3.1-8b-instruct/fp-8",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -2093,6 +2504,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"cerebras",
 				"llama-3.3-70b",
+				null,
+				"llama-3.3-70b",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -2114,6 +2527,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"cerebras",
+				"llama-3.3-70b",
+				null,
 				"llama-3.3-70b",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -2139,6 +2554,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",
 				"sonar",
+				null,
+				"sonar",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -2160,6 +2577,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",
+				"sonar",
+				null,
 				"sonar",
 				[{ role: "user", content: "Hello!" }],
 				false,
@@ -2185,6 +2604,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			const requestBody = (await prepareRequestBody(
 				"zai",
 				"glm-4.6",
+				null,
+				"glm-4.6",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -2206,6 +2627,8 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"zai",
+				"glm-4.6",
+				null,
 				"glm-4.6",
 				[{ role: "user", content: "Hello!" }],
 				false,

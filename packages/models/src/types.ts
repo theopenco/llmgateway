@@ -51,6 +51,15 @@ export interface InputAudioContent {
 	};
 }
 
+export interface FileContent {
+	type: "file";
+	file: {
+		filename?: string;
+		file_data?: string;
+		file_id?: string;
+	};
+}
+
 export interface ToolUseContent {
 	type: "tool_use";
 	id: string;
@@ -69,6 +78,7 @@ export type MessageContent =
 	| ImageUrlContent
 	| ImageContent
 	| InputAudioContent
+	| FileContent
 	| ToolUseContent
 	| ToolResultContent;
 
@@ -236,7 +246,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	stream_options?: {
 		include_usage: boolean;
 	};
-	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 	extra_body?: Record<string, unknown>;
 }
 
@@ -264,7 +274,7 @@ export interface OpenAIResponsesRequestBody {
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	reasoning: {
-		effort: "minimal" | "low" | "medium" | "high" | "xhigh";
+		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 		summary: "detailed";
 	};
 	tools?: Array<{
@@ -364,7 +374,7 @@ export interface ModelWithPricing {
 		outputPrice?: string;
 		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
-		modelName: string;
+		externalId: string;
 		discount?: string;
 		region?: string;
 		stability?: string;
@@ -374,7 +384,7 @@ export interface ModelWithPricing {
 // Available model provider structure
 export interface AvailableModelProvider {
 	providerId: string;
-	modelName: string;
+	externalId: string;
 	region?: string;
 }
 
@@ -397,7 +407,7 @@ export type RequestBodyPreparer = (
 	response_format?: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,
@@ -440,6 +450,10 @@ export function isInputAudioContent(
 	content: MessageContent,
 ): content is InputAudioContent {
 	return content.type === "input_audio";
+}
+
+export function isFileContent(content: MessageContent): content is FileContent {
+	return content.type === "file";
 }
 
 export function isToolUseContent(

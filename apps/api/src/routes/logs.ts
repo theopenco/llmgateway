@@ -153,6 +153,7 @@ const logSchema = z.object({
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	usedMode: z.enum(["api-keys", "credits"]),
 	source: z.string().nullable(),
+	sessionId: z.string().nullable().optional(),
 	routingMetadata: z
 		.object({
 			availableProviders: z.array(z.string()).optional(),
@@ -200,6 +201,7 @@ const logSchema = z.object({
 		})
 		.nullable()
 		.optional(),
+	discount: z.number().nullable().optional(),
 	retried: z.boolean().nullable().optional(),
 	retriedByLogId: z.string().nullable().optional(),
 	gatewayContentFilterResponse: gatewayContentFilterResponseSchema
@@ -290,6 +292,13 @@ const querySchema = z.object({
 		description: "Filter logs by custom header value",
 		example: "12345",
 	}),
+	requestId: z.string().optional().openapi({
+		description: "Filter logs by request ID",
+	}),
+	sessionId: z.string().optional().openapi({
+		description: "Filter logs by session ID",
+		example: "conversation-9f8e7d6c",
+	}),
 });
 
 const get = createRoute({
@@ -365,6 +374,8 @@ logs.openapi(get, async (c) => {
 		limit: queryLimit,
 		customHeaderKey,
 		customHeaderValue,
+		requestId,
+		sessionId,
 	} = {
 		...query,
 		apiKeyId: sanitize(query.apiKeyId),
@@ -380,6 +391,8 @@ logs.openapi(get, async (c) => {
 		source: sanitize(query.source),
 		customHeaderKey: sanitize(query.customHeaderKey),
 		customHeaderValue: sanitize(query.customHeaderValue),
+		requestId: sanitize(query.requestId),
+		sessionId: sanitize(query.sessionId),
 	};
 
 	// Set default limit if not provided or enforce max limit
@@ -566,6 +579,16 @@ logs.openapi(get, async (c) => {
 		} else {
 			whereConditions.push(inArray(tables.log.source, sources));
 		}
+	}
+
+	// Add requestId filter
+	if (requestId) {
+		whereConditions.push(eq(tables.log.requestId, requestId));
+	}
+
+	// Add sessionId filter
+	if (sessionId) {
+		whereConditions.push(eq(tables.log.sessionId, sessionId));
 	}
 
 	// Add cursor-based pagination conditions
@@ -834,17 +857,22 @@ logs.openapi(getById, async (c) => {
 
 	const { id } = c.req.valid("param");
 
-	const [log] = await db
-		.select(logSelection)
-		.from(tables.log)
-		.leftJoin(
-			tables.organization,
-			eq(tables.log.organizationId, tables.organization.id),
-		)
-		.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
-		.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id))
-		.where(eq(tables.log.id, id))
-		.limit(1);
+	const baseQuery = () =>
+		db
+			.select(logSelection)
+			.from(tables.log)
+			.leftJoin(
+				tables.organization,
+				eq(tables.log.organizationId, tables.organization.id),
+			)
+			.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
+			.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id));
+
+	let [log] = await baseQuery().where(eq(tables.log.id, id)).limit(1);
+
+	if (!log) {
+		[log] = await baseQuery().where(eq(tables.log.requestId, id)).limit(1);
+	}
 
 	if (!log) {
 		throw new HTTPException(404, { message: "Log not found" });

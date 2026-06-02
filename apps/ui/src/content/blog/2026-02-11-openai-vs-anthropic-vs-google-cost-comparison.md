@@ -52,7 +52,7 @@ GPT-4.1 Nano and Gemini 2.5 Flash Lite are priced identically and are 10x cheape
 
 ## Real-World Cost: 10,000 Requests Per Day
 
-Let's calculate what you'd actually pay. We'll assume an average request of 1,000 input tokens and 500 output tokens — typical for a chatbot or content generation app.
+Let's calculate what you'd actually pay. We'll assume an average request of 1,000 input tokens and 500 output tokens — typical for a chatbot or content generation app. Want to run your own numbers? Plug your token volume into the free [Token Cost Calculator](/token-cost-calculator) to compare any of these models instantly.
 
 **Daily token volume:** 10M input tokens + 5M output tokens
 
@@ -96,4 +96,4 @@ With intelligent routing through an LLM gateway, you can achieve flagship-qualit
 
 Want to explore pricing for all 300+ models we support? Use our [model comparison tool](/models) to filter by provider, price, context window, and capabilities — then test any model in the [Playground](https://chat.llmgateway.io).
 
-**[Browse all models](/models)** | **[Try the Playground](https://chat.llmgateway.io)** | **[Get started](/signup)**
+**[Browse all models](/models)** | **[Run the Token Cost Calculator](/token-cost-calculator)** | **[Try the Playground](https://chat.llmgateway.io)** | **[Get started](/signup)**

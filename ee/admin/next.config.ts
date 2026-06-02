@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
 	experimental: {
+		serverSourceMaps: true,
 		// turbopackFileSystemCacheForDev: true,
 		// turbopackFileSystemCacheForBuild: true,
 	},

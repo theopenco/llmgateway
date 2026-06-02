@@ -967,6 +967,69 @@
       "when": 1779487931463,
       "tag": "1779487931_furry_nocturne",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "8",
+      "when": 1779595029456,
+      "tag": "1779595029_hesitant_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "8",
+      "when": 1779979820886,
+      "tag": "1779979820_melodic_shocker",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "8",
+      "when": 1779984279360,
+      "tag": "1779984279_shiny_firebrand",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "8",
+      "when": 1779986807829,
+      "tag": "1779986807_quick_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "8",
+      "when": 1779997778929,
+      "tag": "1779997778_hesitant_juggernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "8",
+      "when": 1780175720128,
+      "tag": "1780175720_wise_groot",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "8",
+      "when": 1780242851465,
+      "tag": "1780242851_flashy_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "8",
+      "when": 1780242974381,
+      "tag": "1780242974_lovely_invaders",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "8",
+      "when": 1780244469003,
+      "tag": "1780244469_brown_lord_hawal",
+      "breakpoints": true
     }
   ]
 }

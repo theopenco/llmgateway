@@ -207,6 +207,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/referral/{orgId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Public referral info for an organization */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            name: string;
+                            referralBonusEnabled: boolean;
+                            referralBonusPercent: number;
+                        };
+                    };
+                };
+                /** @description Organization not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/models": {
         parameters: {
             query?: never;
@@ -571,6 +624,7 @@ export interface paths {
                                     content: string | null;
                                     images: string | null;
                                     audios?: string | null;
+                                    documents?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
@@ -652,6 +706,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/providers/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    window?: "24h" | "7d" | "30d";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aggregated per-provider performance stats (uptime, latency, throughput) over the requested window. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            providers: {
+                                providerId: string;
+                                logsCount: number;
+                                errorsCount: number;
+                                cachedCount: number;
+                                avgTimeToFirstToken: number | null;
+                                throughput: number | null;
+                                uptime: number | null;
+                                updatedAt: string | null;
+                            }[];
+                            window: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/master/projects": {
         parameters: {
             query?: never;
@@ -683,6 +786,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -707,6 +811,7 @@ export interface paths {
                         name: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -728,6 +833,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -854,6 +960,7 @@ export interface paths {
                         name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                         /** @enum {string} */
@@ -877,6 +984,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -1655,6 +1763,8 @@ export interface paths {
                     limit?: string;
                     customHeaderKey?: string;
                     customHeaderValue?: string;
+                    requestId?: string;
+                    sessionId?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1781,6 +1891,7 @@ export interface paths {
                                 /** @enum {string} */
                                 usedMode: "api-keys" | "credits";
                                 source: string | null;
+                                sessionId?: string | null;
                                 routingMetadata?: {
                                     availableProviders?: string[];
                                     selectedProvider?: string;
@@ -1817,6 +1928,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2035,6 +2147,7 @@ export interface paths {
                                 /** @enum {string} */
                                 usedMode: "api-keys" | "credits";
                                 source: string | null;
+                                sessionId?: string | null;
                                 routingMetadata?: {
                                     availableProviders?: string[];
                                     selectedProvider?: string;
@@ -2071,6 +2184,7 @@ export interface paths {
                                         logId?: string;
                                     }[];
                                 } | null;
+                                discount?: number | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -2125,7 +2239,7 @@ export interface paths {
                     to?: string;
                     projectId?: string;
                     apiKeyId?: string;
-                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d";
+                    timeRange?: "1h" | "4h" | "24h" | "7d" | "30d" | "365d";
                     groupBy?: "model" | "apiKey";
                 };
                 header?: never;
@@ -2341,11 +2455,17 @@ export interface paths {
                                 signups: number;
                                 paidCustomers: number;
                                 revenue: number;
+                                processed: number;
+                                refunds: number;
+                                net: number;
                             }[];
                             totals: {
                                 signups: number;
                                 paidCustomers: number;
                                 revenue: number;
+                                processed: number;
+                                refunds: number;
+                                net: number;
                             };
                         };
                     };
@@ -2372,6 +2492,7 @@ export interface paths {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d";
                     groupBy?: "model" | "source";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path?: never;
@@ -2390,6 +2511,8 @@ export interface paths {
                             range: "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             groupBy: "model" | "source";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             totals: {
                                 requestCount: number;
                                 errorCount: number;
@@ -2485,6 +2608,8 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                referralBonusEnabled?: boolean;
+                                referralBonusPercent?: number;
                                 ownerUserId?: string | null;
                                 ownerName?: string | null;
                                 ownerEmail?: string | null;
@@ -2544,6 +2669,8 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                referralBonusEnabled?: boolean;
+                                referralBonusPercent?: number;
                                 ownerUserId?: string | null;
                                 ownerName?: string | null;
                                 ownerEmail?: string | null;
@@ -2626,6 +2753,8 @@ export interface paths {
                                 totalSpent?: string;
                                 createdAt: string;
                                 status: string | null;
+                                referralBonusEnabled?: boolean;
+                                referralBonusPercent?: number;
                                 ownerUserId?: string | null;
                                 ownerName?: string | null;
                                 ownerEmail?: string | null;
@@ -3460,8 +3589,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };
@@ -3828,8 +3955,6 @@ export interface paths {
                                 providerName: string;
                                 modelId: string;
                                 modelName: string;
-                                rootModelId: string;
-                                rootModelName: string;
                                 family: string;
                             }[];
                         };
@@ -4105,6 +4230,65 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{orgId}/referral-bonus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orgId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        enabled: boolean;
+                        percent: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Referral bonus updated successfully. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                            referralBonusEnabled: boolean;
+                            referralBonusPercent: number;
+                        };
+                    };
+                };
+                /** @description Organization not found. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/admin/organizations/{orgId}/status": {
@@ -4425,7 +4609,7 @@ export interface paths {
                             };
                             models: {
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 mappingId: string;
                                 region: string | null;
                                 status: string;
@@ -4483,7 +4667,7 @@ export interface paths {
                             mapping: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 providerId: string;
                                 providerName: string;
                                 region: string | null;
@@ -4644,6 +4828,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path: {
@@ -4664,6 +4849,8 @@ export interface paths {
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             bucket: "hour" | "day";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             models: string[];
                             data: {
                                 timestamp: string;
@@ -4705,6 +4892,7 @@ export interface paths {
             parameters: {
                 query?: {
                     window?: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
+                    modelView?: "mapping" | "canonical";
                 };
                 header?: never;
                 path: {
@@ -4726,6 +4914,8 @@ export interface paths {
                             window: "1h" | "4h" | "12h" | "1d" | "7d" | "30d" | "90d" | "365d";
                             /** @enum {string} */
                             bucket: "hour" | "day";
+                            /** @enum {string} */
+                            modelView: "mapping" | "canonical";
                             models: string[];
                             data: {
                                 timestamp: string;
@@ -4828,7 +5018,7 @@ export interface paths {
             parameters: {
                 query?: {
                     search?: string;
-                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "avgTimeToFirstToken" | "updatedAt";
+                    sortBy?: "modelId" | "providerId" | "logsCount" | "errorsCount" | "clientErrorsCount" | "gatewayErrorsCount" | "upstreamErrorsCount" | "cost" | "avgTimeToFirstToken" | "updatedAt";
                     sortOrder?: "asc" | "desc";
                     limit?: number | null;
                     offset?: number | null;
@@ -4851,7 +5041,7 @@ export interface paths {
                             mappings: {
                                 id: string;
                                 modelId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 providerId: string;
                                 providerName: string;
@@ -4862,6 +5052,7 @@ export interface paths {
                                 gatewayErrorsCount: number;
                                 upstreamErrorsCount: number;
                                 cachedCount: number;
+                                cost: number;
                                 avgTimeToFirstToken: number | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;
@@ -5700,6 +5891,7 @@ export interface paths {
                                 cancelledPending: number;
                                 churned: number;
                                 grossMrr: number;
+                                committedMrr: number;
                                 startsThisMonth: number;
                                 endsThisMonth: number;
                                 netNewThisMonth: number;
@@ -6627,7 +6819,9 @@ export interface paths {
                                 baseUrl: string | null;
                                 options: {
                                     /** @enum {string} */
-                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac" | "us-east-1" | "us-east-2" | "us-west-2" | "eu-central-1" | "eu-west-1" | "ap-northeast-1" | "ap-southeast-1" | "ap-southeast-2";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */
@@ -6668,7 +6862,9 @@ export interface paths {
                         baseUrl?: string;
                         options?: {
                             /** @enum {string} */
-                            aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                            aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+                            /** @enum {string} */
+                            aws_bedrock_region?: "global" | "us" | "eu" | "apac" | "us-east-1" | "us-east-2" | "us-west-2" | "eu-central-1" | "eu-west-1" | "ap-northeast-1" | "ap-southeast-1" | "ap-southeast-2";
                             azure_resource?: string;
                             azure_api_version?: string;
                             /** @enum {string} */
@@ -6703,7 +6899,9 @@ export interface paths {
                                 baseUrl: string | null;
                                 options: {
                                     /** @enum {string} */
-                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac" | "us-east-1" | "us-east-2" | "us-west-2" | "eu-central-1" | "eu-west-1" | "ap-northeast-1" | "ap-southeast-1" | "ap-southeast-2";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */
@@ -6866,7 +7064,9 @@ export interface paths {
                                 baseUrl: string | null;
                                 options: {
                                     /** @enum {string} */
-                                    aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+                                    aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+                                    /** @enum {string} */
+                                    aws_bedrock_region?: "global" | "us" | "eu" | "apac" | "us-east-1" | "us-east-2" | "us-west-2" | "eu-central-1" | "eu-west-1" | "ap-northeast-1" | "ap-southeast-1" | "ap-southeast-2";
                                     azure_resource?: string;
                                     azure_api_version?: string;
                                     /** @enum {string} */
@@ -7136,6 +7336,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7211,6 +7412,7 @@ export interface paths {
                         name?: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -7233,6 +7435,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7290,6 +7493,7 @@ export interface paths {
                         organizationId: string;
                         cachingEnabled?: boolean;
                         cacheDurationSeconds?: number;
+                        providerCacheControlEnabled?: boolean;
                         /** @enum {string} */
                         mode?: "api-keys" | "credits" | "hybrid";
                     };
@@ -7311,6 +7515,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -7672,6 +7877,7 @@ export interface paths {
                                     modelName: string;
                                     jobId: string | null;
                                     videoUrl: string | null;
+                                    expiresAt?: number | null;
                                     error?: string;
                                 }[];
                             }[];
@@ -7711,6 +7917,7 @@ export interface paths {
                             modelName: string;
                             jobId: string | null;
                             videoUrl: string | null;
+                            expiresAt?: number | null;
                             error?: string;
                         }[];
                     };
@@ -7747,6 +7954,7 @@ export interface paths {
                                     modelName: string;
                                     jobId: string | null;
                                     videoUrl: string | null;
+                                    expiresAt?: number | null;
                                     error?: string;
                                 }[];
                             };
@@ -7844,6 +8052,7 @@ export interface paths {
                                     modelName: string;
                                     jobId: string | null;
                                     videoUrl: string | null;
+                                    expiresAt?: number | null;
                                     error?: string;
                                 }[];
                             };
@@ -7899,6 +8108,8 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                referralBonusEnabled: boolean;
+                                referralBonusPercent: string;
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
@@ -7962,6 +8173,8 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                referralBonusEnabled: boolean;
+                                referralBonusPercent: string;
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
@@ -8019,6 +8232,7 @@ export interface paths {
                                 organizationId: string;
                                 cachingEnabled: boolean;
                                 cacheDurationSeconds: number;
+                                providerCacheControlEnabled: boolean;
                                 /** @enum {string} */
                                 mode: "api-keys" | "credits" | "hybrid";
                                 /** @enum {string|null} */
@@ -8153,6 +8367,8 @@ export interface paths {
                                 autoTopUpThreshold: string | null;
                                 autoTopUpAmount: string | null;
                                 referralEarnings: string;
+                                referralBonusEnabled: boolean;
+                                referralBonusPercent: string;
                                 isPersonal: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
@@ -8589,6 +8805,7 @@ export interface paths {
                     "application/json": {
                         amount: number;
                         stripePaymentMethodId?: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -8630,7 +8847,13 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        organizationId?: string;
+                    };
+                };
+            };
             responses: {
                 /** @description Setup intent created successfully */
                 200: {
@@ -8660,7 +8883,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    organizationId?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -8717,6 +8942,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         paymentMethodId: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -8752,7 +8978,9 @@ export interface paths {
         post?: never;
         delete: {
             parameters: {
-                query?: never;
+                query?: {
+                    organizationId?: string;
+                };
                 header?: never;
                 path: {
                     id: string;
@@ -8800,6 +9028,7 @@ export interface paths {
                     "application/json": {
                         amount: number;
                         paymentMethodId: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -8845,6 +9074,7 @@ export interface paths {
                         amount: number;
                         /** Format: uri */
                         returnUrl?: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -8889,6 +9119,7 @@ export interface paths {
                     "application/json": {
                         amount: number;
                         paymentMethodId?: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -8911,7 +9142,7 @@ export interface paths {
                             bonusEligible: boolean;
                             bonusIneligibilityReason?: string;
                             /** @enum {string} */
-                            bonusType?: "first_purchase" | "second_topup";
+                            bonusType?: "first_purchase" | "second_topup" | "referral";
                             secondTopupBonusExpiresInDays?: number;
                         };
                     };
@@ -9002,6 +9233,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9035,6 +9267,9 @@ export interface paths {
                         model: string;
                         /** @default false */
                         webSearch?: boolean;
+                        /** @default false */
+                        comparisonEnabled?: boolean;
+                        parentChatId?: string;
                     };
                 };
             };
@@ -9054,6 +9289,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9124,6 +9360,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9184,6 +9421,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9204,6 +9442,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9213,6 +9452,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
+                            comparisonChatIds: string[];
                         };
                     };
                 };
@@ -9292,6 +9532,7 @@ export interface paths {
                                 status: "active" | "archived" | "deleted";
                                 webSearch: boolean;
                                 pinned: boolean;
+                                comparisonEnabled: boolean;
                                 shareId: string | null;
                                 /** Format: date-time */
                                 sharedAt: string | null;
@@ -9471,6 +9712,7 @@ export interface paths {
                                     content: string | null;
                                     images: string | null;
                                     audios?: string | null;
+                                    documents?: string | null;
                                     reasoning: string | null;
                                     tools: string | null;
                                     metadata?: {
@@ -9669,6 +9911,7 @@ export interface paths {
                         content?: string;
                         images?: string;
                         audios?: string;
+                        documents?: string;
                         reasoning?: string;
                         tools?: string;
                         metadata?: {
@@ -9692,6 +9935,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -9759,6 +10003,7 @@ export interface paths {
                                 content: string | null;
                                 images: string | null;
                                 audios: string | null;
+                                documents?: string | null;
                                 reasoning: string | null;
                                 tools: string | null;
                                 metadata: {
@@ -10274,6 +10519,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dev-plans/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        sessionId: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Dev plan subscription finalized */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "ok" | "already_processed";
+                        };
+                    };
+                };
+                /** @description Card already in use by another DevPass account */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "duplicate_card";
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dev-plans/cancel": {
         parameters: {
             query?: never;
@@ -10431,8 +10733,6 @@ export interface paths {
                             projectId: string | null;
                             apiKey: string | null;
                             devPlanAllowAllModels: boolean;
-                            cachingEnabled: boolean;
-                            cacheDurationSeconds: number;
                             /** @enum {string} */
                             retentionLevel: "retain" | "none";
                         };
@@ -10472,8 +10772,6 @@ export interface paths {
                 content: {
                     "application/json": {
                         devPlanAllowAllModels?: boolean;
-                        cachingEnabled?: boolean;
-                        cacheDurationSeconds?: number;
                         /** @enum {string} */
                         retentionLevel?: "retain" | "none";
                     };
@@ -10489,8 +10787,6 @@ export interface paths {
                         "application/json": {
                             success: boolean;
                             devPlanAllowAllModels: boolean;
-                            cachingEnabled: boolean;
-                            cacheDurationSeconds: number;
                             /** @enum {string} */
                             retentionLevel: "retain" | "none";
                         };
@@ -10668,7 +10964,7 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "referral_bonus.update" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key";
                                 /** @enum {string} */
                                 resourceType: "organization" | "project" | "team_member" | "api_key" | "master_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
                                 resourceId: string | null;
@@ -11487,6 +11783,422 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routing-config/config/{projectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Routing configuration row or null */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            projectId: string;
+                            enabled: boolean;
+                            weights: {
+                                price?: number;
+                                imagePrice?: number;
+                                uptime?: number;
+                                throughput?: number;
+                                latency?: number;
+                                cache?: number;
+                            } | null;
+                            thresholds: {
+                                cachePromptTokens?: number;
+                                uptimePenalty?: number;
+                                defaultUptime?: number;
+                                defaultLatency?: number;
+                                defaultThroughput?: number;
+                                explorationRate?: number;
+                            } | null;
+                            retry: {
+                                maxRetries?: number;
+                                lowUptimeFallbackThreshold?: number;
+                            } | null;
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            } | null;
+                            history: {
+                                windowMinutes?: number;
+                                tier1Minutes?: number;
+                                tier2Minutes?: number;
+                                tier1Weight?: number;
+                                tier2Weight?: number;
+                                tier3Weight?: number;
+                            } | null;
+                            sticky: {
+                                enabled?: boolean;
+                                ttlSeconds?: number;
+                                uptimeThreshold?: number;
+                                scoreMargin?: number;
+                            } | null;
+                            session: {
+                                enabled?: boolean;
+                            } | null;
+                            providerPriorities: {
+                                [key: string]: number;
+                            } | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        enabled?: boolean;
+                        weights?: {
+                            price?: number;
+                            imagePrice?: number;
+                            uptime?: number;
+                            throughput?: number;
+                            latency?: number;
+                            cache?: number;
+                        } | null;
+                        thresholds?: {
+                            cachePromptTokens?: number;
+                            uptimePenalty?: number;
+                            defaultUptime?: number;
+                            defaultLatency?: number;
+                            defaultThroughput?: number;
+                            explorationRate?: number;
+                        } | null;
+                        retry?: {
+                            maxRetries?: number;
+                            lowUptimeFallbackThreshold?: number;
+                        } | null;
+                        timeouts?: {
+                            gatewayMs?: number;
+                            streamingMs?: number;
+                            plainMs?: number;
+                        } | null;
+                        history?: {
+                            windowMinutes?: number;
+                            tier1Minutes?: number;
+                            tier2Minutes?: number;
+                            tier1Weight?: number;
+                            tier2Weight?: number;
+                            tier3Weight?: number;
+                        } | null;
+                        sticky?: {
+                            enabled?: boolean;
+                            ttlSeconds?: number;
+                            uptimeThreshold?: number;
+                            scoreMargin?: number;
+                        } | null;
+                        session?: {
+                            enabled?: boolean;
+                        } | null;
+                        providerPriorities?: {
+                            [key: string]: number;
+                        } | null;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated routing configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: string;
+                            projectId: string;
+                            enabled: boolean;
+                            weights: {
+                                price?: number;
+                                imagePrice?: number;
+                                uptime?: number;
+                                throughput?: number;
+                                latency?: number;
+                                cache?: number;
+                            } | null;
+                            thresholds: {
+                                cachePromptTokens?: number;
+                                uptimePenalty?: number;
+                                defaultUptime?: number;
+                                defaultLatency?: number;
+                                defaultThroughput?: number;
+                                explorationRate?: number;
+                            } | null;
+                            retry: {
+                                maxRetries?: number;
+                                lowUptimeFallbackThreshold?: number;
+                            } | null;
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            } | null;
+                            history: {
+                                windowMinutes?: number;
+                                tier1Minutes?: number;
+                                tier2Minutes?: number;
+                                tier1Weight?: number;
+                                tier2Weight?: number;
+                                tier3Weight?: number;
+                            } | null;
+                            sticky: {
+                                enabled?: boolean;
+                                ttlSeconds?: number;
+                                uptimeThreshold?: number;
+                                scoreMargin?: number;
+                            } | null;
+                            session: {
+                                enabled?: boolean;
+                            } | null;
+                            providerPriorities: {
+                                [key: string]: number;
+                            } | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/config/{projectId}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Reset to defaults */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/config/{projectId}/resolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Resolved routing configuration with defaults applied */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            weights: {
+                                price: number;
+                                imagePrice: number;
+                                uptime: number;
+                                throughput: number;
+                                latency: number;
+                                cache: number;
+                            };
+                            thresholds: {
+                                cachePromptTokens: number;
+                                uptimePenalty: number;
+                                defaultUptime: number;
+                                defaultLatency: number;
+                                defaultThroughput: number;
+                                explorationRate: number;
+                            };
+                            retry: {
+                                maxRetries: number;
+                                lowUptimeFallbackThreshold: number;
+                            };
+                            timeouts: {
+                                gatewayMs?: number;
+                                streamingMs?: number;
+                                plainMs?: number;
+                            };
+                            history: {
+                                windowMinutes: number;
+                                tier1Minutes: number;
+                                tier2Minutes: number;
+                                tier1Weight: number;
+                                tier2Weight: number;
+                                tier3Weight: number;
+                            };
+                            sticky: {
+                                enabled: boolean;
+                                ttlSeconds: number;
+                                uptimeThreshold: number;
+                                scoreMargin: number;
+                            };
+                            session: {
+                                enabled: boolean;
+                            };
+                            providerPriorities: {
+                                [key: string]: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/routing-config/config/{projectId}/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    projectId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default routing configuration values */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            weights: {
+                                price: number;
+                                imagePrice: number;
+                                uptime: number;
+                                throughput: number;
+                                latency: number;
+                                cache: number;
+                            };
+                            thresholds: {
+                                cachePromptTokens: number;
+                                uptimePenalty: number;
+                                defaultUptime: number;
+                                defaultLatency: number;
+                                defaultThroughput: number;
+                                explorationRate: number;
+                            };
+                            retry: {
+                                maxRetries: number;
+                                lowUptimeFallbackThreshold: number;
+                            };
+                            timeouts: {
+                                gatewayMs: number;
+                                streamingMs: number;
+                                plainMs: number;
+                            };
+                            history: {
+                                windowMinutes: number;
+                                tier1Minutes: number;
+                                tier2Minutes: number;
+                                tier1Weight: number;
+                                tier2Weight: number;
+                                tier3Weight: number;
+                            };
+                            sticky: {
+                                enabled: boolean;
+                                ttlSeconds: number;
+                                uptimeThreshold: number;
+                                scoreMargin: number;
+                            };
+                            session: {
+                                enabled: boolean;
+                            };
+                            providerPriorities: {
+                                [key: string]: number;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/video/{videoId}": {
         parameters: {
             query?: never;
@@ -11588,7 +12300,7 @@ export interface operations {
                                 createdAt: string | null;
                                 modelId: string;
                                 providerId: string;
-                                modelName: string;
+                                externalId: string;
                                 region: string | null;
                                 inputPrice: string | null;
                                 outputPrice: string | null;
@@ -11609,6 +12321,7 @@ export interface operations {
                                 streaming: boolean;
                                 vision: boolean | null;
                                 audio: boolean | null;
+                                document: boolean | null;
                                 reasoning: boolean | null;
                                 reasoningOutput: string | null;
                                 tools: boolean | null;
@@ -11622,11 +12335,22 @@ export interface operations {
                                 supportedParameters: string[] | null;
                                 supportedVideoSizes: string[] | null;
                                 supportedVideoDurationsSeconds: number[] | null;
+                                supportedVideoDurationsSecondsImageToVideo: number[] | null;
                                 supportsVideoAudio: boolean | null;
                                 supportsVideoWithoutAudio: boolean | null;
                                 perSecondPrice: {
                                     [key: string]: string;
                                 } | null;
+                                pricingTiers: {
+                                    name: string;
+                                    upToTokens: number | null;
+                                    inputPrice: string;
+                                    outputPrice: string;
+                                    cachedInputPrice: string | null;
+                                    cacheReadInputPrice: string | null;
+                                    cacheWriteInputPrice: string | null;
+                                    cacheWriteInputPrice1h: string | null;
+                                }[] | null;
                                 deprecatedAt: string | null;
                                 deactivatedAt: string | null;
                                 /** @enum {string} */

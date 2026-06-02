@@ -169,7 +169,9 @@ export const responsesRequestSchema = z.object({
 		.optional(),
 	reasoning: z
 		.object({
-			effort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+			effort: z
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh"])
+				.optional(),
 			summary: z.enum(["detailed", "auto"]).optional(),
 		})
 		.nullable()

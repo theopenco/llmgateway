@@ -53,6 +53,25 @@ export const completionsRequestSchema = z.object({
 									]),
 								}),
 							}),
+							z.object({
+								type: z.literal("file"),
+								file: z
+									.object({
+										filename: z.string().optional(),
+										file_data: z.string().optional().openapi({
+											description:
+												"Base64-encoded data URL with MIME prefix, e.g. 'data:application/pdf;base64,<data>'.",
+										}),
+										file_id: z.string().optional().openapi({
+											description:
+												"Reference to a file uploaded via the provider's Files API.",
+										}),
+									})
+									.refine((file) => Boolean(file.file_data || file.file_id), {
+										message:
+											"file.file_data or file.file_id is required for file content",
+									}),
+							}),
 						]),
 					),
 				])
@@ -179,6 +198,16 @@ export const completionsRequestSchema = z.object({
 				"OpenAI prompt cache retention policy. OpenAI supports in_memory and 24h for eligible models.",
 			example: "24h",
 		}),
+	user: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI end-user identifier. Used as a fallback sticky-routing session key when no x-session-id header or prompt_cache_key is provided.",
+			example: "user-123",
+		}),
 	tools: z
 		.array(
 			z.union([
@@ -220,12 +249,13 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	reasoning_effort: z
-		.enum(["minimal", "low", "medium", "high", "xhigh"])
+		.enum(["none", "minimal", "low", "medium", "high", "xhigh"])
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
-			description: "Controls the reasoning effort for reasoning-capable models",
+			description:
+				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning.",
 			example: "medium",
 		}),
 	reasoning: z

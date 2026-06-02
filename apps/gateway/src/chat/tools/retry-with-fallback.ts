@@ -1,6 +1,8 @@
 import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
 
-export const MAX_RETRIES = 2;
+import { DEFAULT_ROUTING_RETRY } from "@llmgateway/shared/routing-config";
+
+export const MAX_RETRIES = DEFAULT_ROUTING_RETRY.maxRetries;
 
 export type RetryableErrorType =
 	| "network_error"
@@ -69,6 +71,7 @@ export function shouldRetryRequest(opts: {
 	retryCount: number;
 	remainingProviders: number;
 	usedProvider: string;
+	maxRetries?: number;
 }): boolean {
 	if (opts.requestedProvider) {
 		return false;
@@ -79,7 +82,7 @@ export function shouldRetryRequest(opts: {
 	if (!isRetryableErrorType(opts.errorType)) {
 		return false;
 	}
-	if (opts.retryCount >= MAX_RETRIES) {
+	if (opts.retryCount >= (opts.maxRetries ?? MAX_RETRIES)) {
 		return false;
 	}
 	if (opts.remainingProviders <= 0) {
@@ -102,7 +105,7 @@ export function providerRetryKey(providerId: string, region?: string): string {
 /**
  * Selects the next-best provider from the scored provider list,
  * excluding any providers that have already been tried and failed.
- * Returns the provider mapping with providerId and modelName, or null if none available.
+ * Returns the provider mapping with providerId and externalId, or null if none available.
  * When region is present on scores, uses composite providerId:region keys for deduplication.
  */
 export function selectNextProvider(
@@ -115,10 +118,10 @@ export function selectNextProvider(
 	failedProviders: Set<string>,
 	modelProviders: Array<{
 		providerId: string;
-		modelName: string;
+		externalId: string;
 		region?: string;
 	}>,
-): { providerId: string; modelName: string; region?: string } | null {
+): { providerId: string; externalId: string; region?: string } | null {
 	const sorted = [...providerScores].sort((a, b) => a.score - b.score);
 	for (const score of sorted) {
 		if (score.excludedByContentFilter) {

@@ -1,10 +1,13 @@
 import { redirect } from "next/navigation";
 
+import DashboardShell from "@/app/dashboard/DashboardShell";
 import { fetchServerData } from "@/lib/server-api";
 
-import DashboardClient from "./DashboardClient";
-
-export default async function Dashboard() {
+export default async function DashboardLayout({
+	children,
+}: {
+	children: React.ReactNode;
+}) {
 	const userData = await fetchServerData<{ user: { id: string } } | null>(
 		"GET",
 		"/user/me",
@@ -14,5 +17,5 @@ export default async function Dashboard() {
 		redirect("/login?returnUrl=/dashboard");
 	}
 
-	return <DashboardClient />;
+	return <DashboardShell>{children}</DashboardShell>;
 }

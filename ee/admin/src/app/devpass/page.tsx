@@ -5,6 +5,7 @@ import {
 	ArrowUpDown,
 	ChevronLeft,
 	ChevronRight,
+	Info,
 	Search,
 	TrendingDown,
 	TrendingUp,
@@ -28,6 +29,11 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -482,8 +488,30 @@ export default async function DevpassPage({
 						<Wallet className="h-3.5 w-3.5" />
 						Gross MRR
 					</div>
-					<div className="mt-2 text-2xl font-semibold tabular-nums">
-						{currencyFormatter.format(kpis.grossMrr)}
+					<div className="mt-2 flex items-baseline gap-2">
+						<span className="text-2xl font-semibold tabular-nums">
+							{currencyFormatter.format(kpis.grossMrr)}
+						</span>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<span
+									className={cn(
+										"inline-flex cursor-help items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+										kpis.committedMrr !== kpis.grossMrr
+											? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+											: "border-border/60 bg-muted/40 text-muted-foreground",
+									)}
+								>
+									<Info className="h-3 w-3" />
+									{currencyFormatter.format(kpis.committedMrr)} committed
+								</span>
+							</TooltipTrigger>
+							<TooltipContent className="max-w-xs">
+								Forward-looking MRR after pending churn. Excludes subs flagged
+								to cancel at period end (still billed by Stripe this cycle, but
+								gone next cycle).
+							</TooltipContent>
+						</Tooltip>
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
 						Net new this month:{" "}

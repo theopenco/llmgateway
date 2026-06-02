@@ -11,7 +11,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-max",
+				externalId: "qwen-max",
 				discount: "0.2",
 				inputPrice: "1.6e-6",
 				outputPrice: "6.4e-6",
@@ -43,7 +43,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-max-latest",
+				externalId: "qwen-max-latest",
 				discount: "0.2",
 				inputPrice: "1.6e-6",
 				outputPrice: "6.4e-6",
@@ -75,7 +75,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen-plus",
+				externalId: "qwen-plus",
 				discount: "0.2",
 				inputPrice: "0.4e-6",
 				outputPrice: "1.2e-6",
@@ -189,7 +189,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen-plus-latest",
+				externalId: "qwen-plus-latest",
 				discount: "0.2",
 				inputPrice: "0.4e-6",
 				outputPrice: "1.2e-6",
@@ -275,7 +275,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen-flash",
+				externalId: "qwen-flash",
 				discount: "0.2",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
@@ -363,7 +363,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen-omni-turbo",
+				externalId: "qwen-omni-turbo",
 				discount: "0.2",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.8e-6",
@@ -386,7 +386,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen-turbo",
+				externalId: "qwen-turbo",
 				discount: "0.2",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.2e-6",
@@ -418,7 +418,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen3-coder-plus",
+				externalId: "qwen3-coder-plus",
 				discount: "0.2",
 				inputPrice: "6e-6",
 				outputPrice: "60e-6",
@@ -444,7 +444,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/QwQ-32B",
+				externalId: "Qwen/QwQ-32B",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.45e-6",
 				requestPrice: "0",
@@ -468,7 +468,7 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				stability: "unstable",
-				modelName: "Qwen/Qwen3-235B-A22B-Instruct-2507",
+				externalId: "Qwen/Qwen3-235B-A22B-Instruct-2507",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -484,7 +484,7 @@ export const alibabaModels = [
 				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
-				modelName: "qwen-3-235b-a22b-instruct-2507",
+				externalId: "qwen-3-235b-a22b-instruct-2507",
 				inputPrice: "0.6e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -506,7 +506,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-235b-a22b-instruct-2507",
+				externalId: "qwen/qwen3-235b-a22b-instruct-2507",
 				inputPrice: "0.09e-6",
 				outputPrice: "0.58e-6",
 				requestPrice: "0",
@@ -529,7 +529,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3-235B-A22B-Thinking-2507",
+				externalId: "Qwen/Qwen3-235B-A22B-Thinking-2507",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -556,7 +556,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-235b-a22b-thinking-2507",
+				externalId: "qwen/qwen3-235b-a22b-thinking-2507",
 				inputPrice: "0.3e-6",
 				outputPrice: "3e-6",
 				requestPrice: "0",
@@ -592,7 +592,7 @@ export const alibabaModels = [
 			{
 				stability: "unstable",
 				providerId: "novita",
-				modelName: "qwen/qwen3-235b-a22b-fp8",
+				externalId: "qwen/qwen3-235b-a22b-fp8",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.8e-6",
 				requestPrice: "0",
@@ -615,7 +615,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3-14B",
+				externalId: "Qwen/Qwen3-14B",
 				inputPrice: "0.08e-6",
 				outputPrice: "0.24e-6",
 				requestPrice: "0",
@@ -638,7 +638,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3-32B",
+				externalId: "Qwen/Qwen3-32B",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -652,7 +652,7 @@ export const alibabaModels = [
 			{
 				// Cerebras: FP16
 				providerId: "cerebras",
-				modelName: "qwen-3-32b",
+				externalId: "qwen-3-32b",
 				inputPrice: "0.4e-6",
 				outputPrice: "0.8e-6",
 				requestPrice: "0",
@@ -683,7 +683,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3-30B-A3B",
+				externalId: "Qwen/Qwen3-30B-A3B",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -706,7 +706,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen2.5-Coder-7B-fast",
+				externalId: "Qwen/Qwen2.5-Coder-7B-fast",
 				inputPrice: "0.01e-6",
 				outputPrice: "0.03e-6",
 				requestPrice: "0",
@@ -729,7 +729,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen2.5-32B-Instruct",
+				externalId: "Qwen/Qwen2.5-32B-Instruct",
 				inputPrice: "0.06e-6",
 				outputPrice: "0.2e-6",
 				requestPrice: "0",
@@ -752,7 +752,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen2.5-72B-Instruct",
+				externalId: "Qwen/Qwen2.5-72B-Instruct",
 				inputPrice: "0.13e-6",
 				outputPrice: "0.4e-6",
 				requestPrice: "0",
@@ -775,7 +775,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen2-VL-72B-Instruct",
+				externalId: "Qwen/Qwen2-VL-72B-Instruct",
 				inputPrice: "0.13e-6",
 				outputPrice: "0.4e-6",
 				requestPrice: "0",
@@ -798,7 +798,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen2.5-VL-72B-Instruct",
+				externalId: "Qwen/Qwen2.5-VL-72B-Instruct",
 				inputPrice: "0.13e-6",
 				outputPrice: "0.4e-6",
 				requestPrice: "0",
@@ -820,7 +820,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-vl-8b-instruct",
+				externalId: "qwen/qwen3-vl-8b-instruct",
 				inputPrice: "0.08e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -843,7 +843,7 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				stability: "unstable",
-				modelName: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+				externalId: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
 				inputPrice: "0.4e-6",
 				outputPrice: "1.8e-6",
 				requestPrice: "0",
@@ -869,7 +869,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				stability: "unstable",
-				modelName: "qwen/qwen3-coder-480b-a35b-instruct",
+				externalId: "qwen/qwen3-coder-480b-a35b-instruct",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.3e-6",
 				requestPrice: "0",
@@ -891,7 +891,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+				externalId: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -905,7 +905,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-coder-30b-a3b-instruct",
+				externalId: "qwen/qwen3-coder-30b-a3b-instruct",
 				inputPrice: "0.07e-6",
 				outputPrice: "0.27e-6",
 				requestPrice: "0",
@@ -927,7 +927,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3-30B-A3B-Instruct-2507",
+				externalId: "Qwen/Qwen3-30B-A3B-Instruct-2507",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -961,7 +961,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3-30B-A3B-Thinking-2507",
+				externalId: "Qwen/Qwen3-30B-A3B-Thinking-2507",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -997,7 +997,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen-vl-max",
+				externalId: "qwen-vl-max",
 				discount: "0.2",
 				inputPrice: "0.8e-6",
 				outputPrice: "3.2e-6",
@@ -1020,7 +1020,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen-vl-plus",
+				externalId: "qwen-vl-plus",
 				discount: "0.2",
 				inputPrice: "0.21e-6",
 				outputPrice: "0.64e-6",
@@ -1044,7 +1044,7 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				stability: "unstable",
-				modelName: "qwen3-next-80b-a3b-thinking",
+				externalId: "qwen3-next-80b-a3b-thinking",
 				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "6e-6",
@@ -1072,7 +1072,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-next-80b-a3b-thinking",
+				externalId: "qwen/qwen3-next-80b-a3b-thinking",
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1098,7 +1098,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3-Next-80B-A3B-Thinking",
+				externalId: "Qwen/Qwen3-Next-80B-A3B-Thinking",
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -1132,7 +1132,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3-next-80b-a3b-instruct",
+				externalId: "qwen3-next-80b-a3b-instruct",
 				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "2e-6",
@@ -1146,7 +1146,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-next-80b-a3b-instruct",
+				externalId: "qwen/qwen3-next-80b-a3b-instruct",
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1169,7 +1169,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen3-max-preview",
+				externalId: "qwen3-max-preview",
 				discount: "0.2",
 				inputPrice: "3e-6",
 				outputPrice: "15e-6",
@@ -1188,7 +1188,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-max",
+				externalId: "qwen/qwen3-max",
 				inputPrice: "0.845e-6",
 				outputPrice: "3.38e-6",
 				requestPrice: "0",
@@ -1202,7 +1202,7 @@ export const alibabaModels = [
 		],
 	},
 	{
-		id: "qwen37-max",
+		id: "qwen3.7-max",
 		name: "Qwen3.7 Max",
 		description:
 			"Largest and most capable model in the Qwen3.7 series, a next-generation agent-centric flagship excelling at programming and long-horizon autonomous execution.",
@@ -1210,14 +1210,24 @@ export const alibabaModels = [
 		releasedAt: new Date("2026-05-20"),
 		providers: [
 			{
-				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen3.7-max",
+				externalId: "qwen3.7-max",
 				inputPrice: "2.5e-6",
 				outputPrice: "7.5e-6",
 				cachedInputPrice: "0.5e-6",
 				cacheReadInputPrice: "0.25e-6",
 				cacheWriteInputPrice: "3.125e-6",
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "cn-beijing",
+						inputPrice: "1.7232e-6",
+						outputPrice: "5.169e-6",
+						cachedInputPrice: "0.3446e-6",
+						cacheReadInputPrice: "0.17232e-6",
+						cacheWriteInputPrice: "2.154e-6",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 65536,
@@ -1228,7 +1238,7 @@ export const alibabaModels = [
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.01",
-				jsonOutput: false,
+				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
 				supportedParameters: [
 					"temperature",
@@ -1239,6 +1249,96 @@ export const alibabaModels = [
 					"stop",
 					"stream",
 					"tools",
+					"response_format",
+				],
+			},
+			{
+				providerId: "novita",
+				externalId: "qwen/qwen3.7-max",
+				inputPrice: "1.25e-6",
+				cachedInputPrice: "0.125e-6",
+				outputPrice: "3.75e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 65536,
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
+				],
+			},
+		],
+	},
+	{
+		id: "qwen3.7-plus",
+		name: "Qwen3.7 Plus",
+		description:
+			"Mid-tier model in the Qwen3.7 series balancing speed, cost, and capability with strong coding and agentic performance.",
+		family: "alibaba",
+		releasedAt: new Date("2026-05-20"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "qwen3.7-plus",
+				inputPrice: "0.4e-6",
+				outputPrice: "1.6e-6",
+				cachedInputPrice: "0.08e-6",
+				cacheReadInputPrice: "0.04e-6",
+				cacheWriteInputPrice: "0.5e-6",
+				pricingTiers: [
+					{
+						name: "Up to 256K",
+						upToTokens: 256000,
+						inputPrice: "0.4e-6",
+						outputPrice: "1.6e-6",
+						cachedInputPrice: "0.08e-6",
+						cacheReadInputPrice: "0.04e-6",
+						cacheWriteInputPrice: "0.5e-6",
+					},
+					{
+						name: "Over 256K",
+						upToTokens: Infinity,
+						inputPrice: "1.2e-6",
+						outputPrice: "4.8e-6",
+						cachedInputPrice: "0.24e-6",
+						cacheReadInputPrice: "0.12e-6",
+						cacheWriteInputPrice: "1.5e-6",
+					},
+				],
+				regions: [{ id: "singapore" }],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 65536,
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
 				],
 			},
 		],
@@ -1252,7 +1352,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "embercloud",
-				modelName: "qwen3-coder-next",
+				externalId: "qwen3-coder-next",
 				inputPrice: "0.108e-6",
 				outputPrice: "0.675e-6",
 				cachedInputPrice: "0.06e-6",
@@ -1292,7 +1392,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-vl-30b-a3b-instruct",
+				externalId: "qwen/qwen3-vl-30b-a3b-instruct",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.7e-6",
 				requestPrice: "0",
@@ -1323,7 +1423,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-vl-30b-a3b-thinking",
+				externalId: "qwen/qwen3-vl-30b-a3b-thinking",
 				inputPrice: "0.2e-6",
 				outputPrice: "1e-6",
 				requestPrice: "0",
@@ -1346,7 +1446,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-32b-fp8",
+				externalId: "qwen/qwen3-32b-fp8",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.45e-6",
 				requestPrice: "0",
@@ -1357,6 +1457,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-06-05"),
 			},
 		],
 	},
@@ -1369,7 +1470,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-30b-a3b-fp8",
+				externalId: "qwen/qwen3-30b-a3b-fp8",
 				inputPrice: "0.09e-6",
 				outputPrice: "0.45e-6",
 				requestPrice: "0",
@@ -1380,6 +1481,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-06-05"),
 			},
 		],
 	},
@@ -1392,7 +1494,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-4b-fp8",
+				externalId: "qwen/qwen3-4b-fp8",
 				inputPrice: "0.03e-6",
 				outputPrice: "0.03e-6",
 				requestPrice: "0",
@@ -1416,7 +1518,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3.5-397b-a17b",
+				externalId: "qwen3.5-397b-a17b",
 				discount: "0.2",
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
@@ -1467,7 +1569,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3.5-397b-a17b",
+				externalId: "qwen/qwen3.5-397b-a17b",
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
 				requestPrice: "0",
@@ -1493,7 +1595,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "nebius",
-				modelName: "Qwen/Qwen3.5-397B-A17B",
+				externalId: "Qwen/Qwen3.5-397B-A17B",
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
 				requestPrice: "0",
@@ -1530,7 +1632,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-image-plus",
+				externalId: "qwen-image-plus",
 				discount: "0.2",
 				inputPrice: "0",
 				outputPrice: "0",
@@ -1557,7 +1659,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-image-max",
+				externalId: "qwen-image-max",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.075",
@@ -1583,7 +1685,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-image",
+				externalId: "qwen-image",
 				discount: "0.2",
 				inputPrice: "0",
 				outputPrice: "0",
@@ -1610,7 +1712,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-image-max-2025-12-30",
+				externalId: "qwen-image-max-2025-12-30",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.075",
@@ -1634,7 +1736,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwq-plus",
+				externalId: "qwq-plus",
 				discount: "0.2",
 				inputPrice: "0.8e-6",
 				outputPrice: "2.4e-6",
@@ -1673,7 +1775,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-coder-plus",
+				externalId: "qwen-coder-plus",
 				discount: "0.2",
 				inputPrice: "0.502e-6",
 				outputPrice: "1.004e-6",
@@ -1697,7 +1799,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3-coder-flash",
+				externalId: "qwen3-coder-flash",
 				discount: "0.2",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.5e-6",
@@ -1858,7 +1960,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3-vl-plus",
+				externalId: "qwen3-vl-plus",
 				discount: "0.2",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.6e-6",
@@ -1992,7 +2094,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3-vl-flash",
+				externalId: "qwen3-vl-flash",
 				discount: "0.2",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
@@ -2102,7 +2204,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3-vl-235b-a22b-instruct",
+				externalId: "qwen3-vl-235b-a22b-instruct",
 				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.0e-6",
@@ -2116,7 +2218,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-vl-235b-a22b-instruct",
+				externalId: "qwen/qwen3-vl-235b-a22b-instruct",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -2139,7 +2241,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3-vl-235b-a22b-thinking",
+				externalId: "qwen3-vl-235b-a22b-thinking",
 				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.0e-6",
@@ -2155,7 +2257,7 @@ export const alibabaModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "qwen/qwen3-vl-235b-a22b-thinking",
+				externalId: "qwen/qwen3-vl-235b-a22b-thinking",
 				inputPrice: "0.98e-6",
 				outputPrice: "3.95e-6",
 				requestPrice: "0",
@@ -2179,7 +2281,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen2.5-vl-32b-instruct",
+				externalId: "qwen2.5-vl-32b-instruct",
 				discount: "0.2",
 				inputPrice: "1.4e-6",
 				outputPrice: "4.2e-6",
@@ -2204,7 +2306,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen3-max-2026-01-23",
+				externalId: "qwen3-max-2026-01-23",
 				discount: "0.2",
 				inputPrice: "1.2e-6",
 				outputPrice: "6.0e-6",
@@ -2343,7 +2445,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-image-edit-plus",
+				externalId: "qwen-image-edit-plus",
 				discount: "0.2",
 				inputPrice: "0",
 				outputPrice: "0",
@@ -2371,7 +2473,7 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "qwen-image-edit-max",
+				externalId: "qwen-image-edit-max",
 				discount: "0.2",
 				inputPrice: "0",
 				outputPrice: "0",
@@ -2396,7 +2498,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3.6-max-preview",
+				externalId: "qwen3.6-max-preview",
 				discount: "0.2",
 				inputPrice: "1.3e-6",
 				outputPrice: "7.8e-6",
@@ -2435,7 +2537,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3.6-plus",
+				externalId: "qwen3.6-plus",
 				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
@@ -2476,7 +2578,7 @@ export const alibabaModels = [
 		providers: [
 			{
 				providerId: "alibaba",
-				modelName: "qwen3.6-35b-a3b",
+				externalId: "qwen3.6-35b-a3b",
 				discount: "0.2",
 				inputPrice: "0.248e-6",
 				outputPrice: "1.485e-6",
@@ -2490,6 +2592,32 @@ export const alibabaModels = [
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.01",
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
+			},
+			{
+				providerId: "novita",
+				externalId: "qwen/qwen3.6-35b-a3b",
+				inputPrice: "0.248e-6",
+				outputPrice: "1.485e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 64000,
+				reasoning: true,
+				streaming: true,
+				vision: true,
+				tools: true,
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object
 				supportedParameters: [

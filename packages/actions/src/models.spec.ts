@@ -8,6 +8,10 @@ import {
 	type BaseMessage,
 	type OpenAIRequestBody,
 } from "@llmgateway/models";
+import {
+	buildProviderPriorityDefaults,
+	resolveRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -96,7 +100,7 @@ describe("Models", () => {
 						!hasImagePricing(p as ProviderModelMapping) &&
 						!isEmbeddingProvider(p as ProviderModelMapping),
 				);
-				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.modelName} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
+				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.externalId} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
 			});
 			throw new Error(
 				`Models with zero pricing must have free: true:\n${errorDetails.join("\n")}`,
@@ -116,6 +120,8 @@ describe("System Role Handling", () => {
 
 		const requestBody = await prepareRequestBody(
 			"openai",
+			"o1-mini",
+			null,
 			"o1-mini",
 			messages,
 			false, // stream
@@ -148,6 +154,8 @@ describe("System Role Handling", () => {
 
 		const requestBody = await prepareRequestBody(
 			"openai",
+			"gpt-4o-mini",
+			null,
 			"gpt-4o-mini",
 			messages,
 			false, // stream
@@ -189,6 +197,8 @@ describe("System Role Handling", () => {
 		const requestBody = await prepareRequestBody(
 			"openai",
 			"o1-mini",
+			null,
+			"o1-mini",
 			messages,
 			false, // stream
 			undefined, // temperature
@@ -222,6 +232,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-5",
+				null,
+				"gpt-5",
 				messages,
 				false, // stream
 				0.7, // temperature - should be overridden to 1
@@ -243,6 +255,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5-mini models", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5-mini",
+				null,
 				"gpt-5-mini",
 				messages,
 				false, // stream
@@ -266,6 +280,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-5-nano",
+				null,
+				"gpt-5-nano",
 				messages,
 				false, // stream
 				0.9, // temperature - should be overridden to 1
@@ -287,6 +303,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5-chat-latest models", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5-chat-latest",
+				null,
 				"gpt-5-chat-latest",
 				messages,
 				false, // stream
@@ -310,6 +328,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-4o-mini",
+				null,
+				"gpt-4o-mini",
 				messages,
 				false, // stream
 				0.7, // temperature - should remain as-is
@@ -331,6 +351,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5 models with reasoning enabled", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5",
+				null,
 				"gpt-5",
 				messages,
 				false, // stream
@@ -381,7 +403,7 @@ describe("getCheapestModelForProvider", () => {
 				model.providers.some(
 					(p) =>
 						p.providerId === "openai" &&
-						p.modelName === cheapestModel &&
+						p.externalId === cheapestModel &&
 						p.inputPrice !== undefined &&
 						p.outputPrice !== undefined,
 				),
@@ -397,14 +419,14 @@ describe("getCheapestModelForProvider", () => {
 		if (cheapestModel) {
 			const modelWithProvider = models.find((model) =>
 				model.providers.some(
-					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+					(p) => p.providerId === "openai" && p.externalId === cheapestModel,
 				),
 			);
 
 			if (modelWithProvider) {
 				// Check if any provider mapping has a deprecatedAt date
 				const providerMapping = modelWithProvider.providers.find(
-					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+					(p) => p.providerId === "openai" && p.externalId === cheapestModel,
 				) as ProviderModelMapping | undefined;
 				if (providerMapping?.deprecatedAt) {
 					// If the provider mapping has a deprecatedAt date, it should be in the future
@@ -511,10 +533,111 @@ describe("getCheapestFromAvailableProviders", () => {
 				expect(cheapestProvider).toBeDefined();
 				expect(cheapestProvider?.provider).toMatchObject({
 					providerId: expect.any(String),
-					modelName: expect.any(String),
+					externalId: expect.any(String),
 				});
 			}
 		}
+	});
+
+	describe("sticky session routing", () => {
+		const modelWithMultipleProviders = models.find(
+			(model) =>
+				model.providers.length > 1 &&
+				model.providers.some(
+					(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+				),
+		);
+
+		it("pins the same session to the same provider deterministically", () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const first = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId: "session_abc-123" },
+			);
+			const second = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId: "session_abc-123" },
+			);
+
+			const regionOf = (p: unknown) =>
+				(p as { region?: string } | undefined)?.region;
+
+			expect(first?.metadata.selectionReason).toBe("session-sticky");
+			expect(second?.provider.providerId).toBe(first?.provider.providerId);
+			expect(regionOf(second?.provider)).toBe(regionOf(first?.provider));
+		});
+
+		it("does not pin a session when session stickiness is disabled", () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{ session: { enabled: false } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId: "session_abc-123", routingConfig: overrides },
+			);
+
+			expect(result?.metadata.selectionReason).not.toBe("session-sticky");
+		});
+
+		it("keeps unrelated sessions on their provider when one provider is removed", () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 2) {
+				return;
+			}
+
+			// Find a session pinned to a provider, then drop a *different* provider
+			// and confirm the session stays put (rendezvous hashing property).
+			const sessionId = "session_stable";
+			const pinned = getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionId },
+			);
+			const removable = availableProviders.find(
+				(p) => p.providerId !== pinned?.provider.providerId,
+			);
+			const reduced = availableProviders.filter(
+				(p) => p.providerId !== removable?.providerId,
+			);
+
+			const afterRemoval = getCheapestFromAvailableProviders(
+				reduced,
+				modelWithMultipleProviders,
+				{ sessionId },
+			);
+
+			expect(afterRemoval?.provider.providerId).toBe(
+				pinned?.provider.providerId,
+			);
+		});
 	});
 
 	it("should account for discounts when selecting cheapest provider", () => {
@@ -859,7 +982,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[
 						{
 							providerId: "openai",
-							modelName: "gpt-4o-mini",
+							externalId: "gpt-4o-mini",
 						},
 					],
 					testModel,
@@ -895,7 +1018,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					[
 						{
 							providerId: "openai",
-							modelName: "gpt-4o-mini",
+							externalId: "gpt-4o-mini",
 						},
 					],
 					testModel,
@@ -971,7 +1094,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			providers: [
 				{
 					providerId: "openai" as const,
-					modelName: "cache-test",
+					externalId: "cache-test",
 					inputPrice: "1.0e-6",
 					outputPrice: "2.0e-6",
 					cachedInputPrice: "0.1e-6",
@@ -979,7 +1102,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				},
 				{
 					providerId: "deepseek" as const,
-					modelName: "cache-test",
+					externalId: "cache-test",
 					inputPrice: "1.0e-6",
 					outputPrice: "2.0e-6",
 					streaming: true as const,
@@ -1056,7 +1179,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				providers: [
 					{
 						providerId: "openai" as const,
-						modelName: "cache-test",
+						externalId: "cache-test",
 						inputPrice: "10.0e-6",
 						outputPrice: "20.0e-6",
 						cachedInputPrice: "1.0e-6",
@@ -1064,7 +1187,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					},
 					{
 						providerId: "deepseek" as const,
-						modelName: "cache-test",
+						externalId: "cache-test",
 						inputPrice: "1.0e-6",
 						outputPrice: "2.0e-6",
 						streaming: true as const,
@@ -1079,6 +1202,108 @@ describe("getCheapestFromAvailableProviders", () => {
 			);
 
 			expect(result?.provider.providerId).toBe("deepseek");
+		});
+	});
+
+	describe("routing config overrides", () => {
+		it("excludes providers whose override priority is 0", () => {
+			const model = models.find((m) => m.id === "gpt-4o-mini");
+			if (!model) {
+				throw new Error("Missing gpt-4o-mini fixture");
+			}
+			const providersWithOpenAi = (
+				model.providers as ProviderModelMapping[]
+			).filter((p) => p.providerId === "openai");
+			if (providersWithOpenAi.length === 0) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{ providerPriorities: { openai: 0 } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(
+				providersWithOpenAi,
+				model,
+				{ routingConfig: overrides },
+			);
+
+			expect(result).toBe(null);
+		});
+
+		it("accepts custom thresholds without failing selection", () => {
+			const model = models.find((m) => m.providers.length >= 2);
+			if (!model) {
+				return;
+			}
+			const available = (model.providers as ProviderModelMapping[]).slice(0, 2);
+
+			const overrides = resolveRoutingConfig(
+				{ thresholds: { defaultUptime: 50 } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = getCheapestFromAvailableProviders(available, model, {
+				routingConfig: overrides,
+				metricsMap: new Map(),
+			});
+			expect(result).not.toBeNull();
+		});
+
+		it("falls back to price-only selection when every scoring weight is zero", () => {
+			const model = models.find((m) => m.id === "gpt-4o-mini");
+			if (!model) {
+				throw new Error("Missing gpt-4o-mini fixture");
+			}
+			const available = (model.providers as ProviderModelMapping[]).filter(
+				(p) => p.providerId === "openai",
+			);
+			if (available.length === 0) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{
+					weights: {
+						price: 0,
+						imagePrice: 0,
+						uptime: 0,
+						throughput: 0,
+						latency: 0,
+						cache: 0,
+					},
+				},
+				buildProviderPriorityDefaults(),
+			);
+
+			// Provide a non-empty metrics map so we follow the weighted-score
+			// branch rather than the empty-map shortcut.
+			const metricsMap = new Map([
+				[
+					metricsKey(model.id, available[0].providerId, available[0].region),
+					{
+						providerId: available[0].providerId,
+						modelId: model.id,
+						uptime: 99,
+						averageLatency: 100,
+						throughput: 100,
+						totalRequests: 50,
+					},
+				],
+			]);
+
+			expect(() =>
+				getCheapestFromAvailableProviders(available, model, {
+					routingConfig: overrides,
+					metricsMap,
+				}),
+			).not.toThrow();
+
+			const result = getCheapestFromAvailableProviders(available, model, {
+				routingConfig: overrides,
+				metricsMap,
+			});
+			expect(result).not.toBeNull();
+			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
 		});
 	});
 });
