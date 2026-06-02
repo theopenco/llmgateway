@@ -373,6 +373,7 @@ export const minimaxModels = [
 				outputPrice: "0",
 				requestPrice: "0",
 				perSecondPrice: {
+					"720p": "0.0467",
 					"768p": "0.0467",
 					"1080p": "0.0817",
 				},
