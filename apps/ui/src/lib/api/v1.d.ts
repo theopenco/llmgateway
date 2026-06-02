@@ -8793,6 +8793,7 @@ export interface paths {
                     "application/json": {
                         amount: number;
                         stripePaymentMethodId?: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -8834,7 +8835,13 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        organizationId?: string;
+                    };
+                };
+            };
             responses: {
                 /** @description Setup intent created successfully */
                 200: {
@@ -8864,7 +8871,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    organizationId?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -8921,6 +8930,7 @@ export interface paths {
                 content: {
                     "application/json": {
                         paymentMethodId: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -8956,7 +8966,9 @@ export interface paths {
         post?: never;
         delete: {
             parameters: {
-                query?: never;
+                query?: {
+                    organizationId?: string;
+                };
                 header?: never;
                 path: {
                     id: string;
@@ -9004,6 +9016,7 @@ export interface paths {
                     "application/json": {
                         amount: number;
                         paymentMethodId: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -9049,6 +9062,7 @@ export interface paths {
                         amount: number;
                         /** Format: uri */
                         returnUrl?: string;
+                        organizationId?: string;
                     };
                 };
             };
@@ -9093,6 +9107,7 @@ export interface paths {
                     "application/json": {
                         amount: number;
                         paymentMethodId?: string;
+                        organizationId?: string;
                     };
                 };
             };
