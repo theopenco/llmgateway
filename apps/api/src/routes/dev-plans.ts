@@ -111,6 +111,19 @@ async function getOrCreatePersonalOrgApiKey(
 	return token;
 }
 
+// Find the user's personal org without creating one. Used by the billing
+// payment-method routes, which only apply to users that already have a DevPass.
+async function findPersonalOrg(userId: string) {
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId },
+		with: { organization: true },
+	});
+	return (
+		userOrgs.find((uo) => uo.organization?.isPersonal === true)?.organization ??
+		null
+	);
+}
+
 function getDevPlanPriceId(
 	tier: DevPlanTier,
 	cycle: DevPlanCycle = "monthly",
@@ -1167,4 +1180,317 @@ devPlans.openapi(rotateApiKey, async (c) => {
 	return c.json({
 		apiKey: newToken,
 	});
+});
+
+// Get the card currently backing the DevPass subscription
+const getPaymentMethod = createRoute({
+	method: "get",
+	path: "/payment-method",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						card: z
+							.object({
+								brand: z.string(),
+								last4: z.string(),
+								expiryMonth: z.number(),
+								expiryYear: z.number(),
+							})
+							.nullable(),
+					}),
+				},
+			},
+			description: "Current DevPass payment method retrieved",
+		},
+	},
+});
+
+devPlans.openapi(getPaymentMethod, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg?.devPlanStripeSubscriptionId) {
+		return c.json({ card: null });
+	}
+
+	const subscription = await getStripe().subscriptions.retrieve(
+		personalOrg.devPlanStripeSubscriptionId,
+		{ expand: ["default_payment_method"] },
+	);
+
+	const defaultPaymentMethod = subscription.default_payment_method;
+	if (!defaultPaymentMethod) {
+		return c.json({ card: null });
+	}
+
+	const paymentMethod =
+		typeof defaultPaymentMethod === "string"
+			? await getStripe().paymentMethods.retrieve(defaultPaymentMethod)
+			: defaultPaymentMethod;
+
+	if (paymentMethod.type !== "card" || !paymentMethod.card) {
+		return c.json({ card: null });
+	}
+
+	return c.json({
+		card: {
+			brand: paymentMethod.card.brand,
+			last4: paymentMethod.card.last4,
+			expiryMonth: paymentMethod.card.exp_month,
+			expiryYear: paymentMethod.card.exp_year,
+		},
+	});
+});
+
+// Create a SetupIntent to collect a new card for the DevPass subscription. The
+// card is confirmed client-side via Stripe Elements, then attached to the
+// subscription through /dev-plans/update-payment-method.
+const createSetupIntent = createRoute({
+	method: "post",
+	path: "/create-setup-intent",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						clientSecret: z.string(),
+					}),
+				},
+			},
+			description: "SetupIntent created successfully",
+		},
+	},
+});
+
+devPlans.openapi(createSetupIntent, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+
+	const setupIntent = await getStripe().setupIntents.create({
+		customer: stripeCustomerId,
+		payment_method_types: ["card"],
+		usage: "off_session",
+		metadata: {
+			organizationId: personalOrg.id,
+			subscriptionType: "dev_plan_update",
+		},
+	});
+
+	if (!setupIntent.client_secret) {
+		throw new HTTPException(500, {
+			message: "Failed to create setup intent",
+		});
+	}
+
+	return c.json({
+		clientSecret: setupIntent.client_secret,
+	});
+});
+
+// Attach a newly confirmed card as the DevPass subscription's payment method.
+// Rejects with 409 if the card is already used by another DevPass account, to
+// preserve the one-card-per-account guarantee enforced at signup.
+const updatePaymentMethod = createRoute({
+	method: "post",
+	path: "/update-payment-method",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						paymentMethodId: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+					}),
+				},
+			},
+			description: "Payment method updated successfully",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("duplicate_card"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Card already in use by another DevPass account",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("invalid_payment_method"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Payment method is not a card with a fingerprint",
+		},
+	},
+});
+
+devPlans.openapi(updatePaymentMethod, async (c) => {
+	const user = c.get("user");
+	const { paymentMethodId } = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (!personalOrg.devPlanStripeSubscriptionId) {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+
+	const paymentMethod =
+		await getStripe().paymentMethods.retrieve(paymentMethodId);
+
+	// Only card payment methods carry the fingerprint we rely on to enforce the
+	// one-card-per-account rule. Reject anything else up front so we never store
+	// a null fingerprint or point the subscription at an unverifiable method.
+	const fingerprint =
+		paymentMethod.type === "card"
+			? (paymentMethod.card?.fingerprint ?? null)
+			: null;
+
+	if (!fingerprint) {
+		return c.json(
+			{
+				error: "invalid_payment_method" as const,
+				message: "Payment method must be a card with a fingerprint.",
+			},
+			400,
+		);
+	}
+
+	// Enforce one card per DevPass account: reject a card already linked to a
+	// different org and detach it so it isn't silently left on this customer.
+	const conflictingOrg = await db.query.organization.findFirst({
+		where: {
+			devPlanCardFingerprint: { eq: fingerprint },
+			id: { ne: personalOrg.id },
+		},
+	});
+	if (conflictingOrg) {
+		try {
+			await getStripe().paymentMethods.detach(paymentMethodId);
+		} catch (err) {
+			logger.warn(
+				`Failed to detach duplicate dev plan card ${paymentMethodId}`,
+				{ error: err instanceof Error ? err.message : String(err) },
+			);
+		}
+		return c.json(
+			{
+				error: "duplicate_card" as const,
+				message:
+					"This card is already associated with another DevPass account. Please use a different payment method.",
+			},
+			409,
+		);
+	}
+
+	// confirmCardSetup already attaches the card to the customer; attach again
+	// defensively in case it isn't, ignoring the already-attached error.
+	try {
+		await getStripe().paymentMethods.attach(paymentMethodId, {
+			customer: stripeCustomerId,
+		});
+	} catch (err) {
+		logger.warn(
+			`Attach dev plan card ${paymentMethodId} (likely already attached)`,
+			{
+				error: err instanceof Error ? err.message : String(err),
+			},
+		);
+	}
+
+	await getStripe().customers.update(stripeCustomerId, {
+		invoice_settings: { default_payment_method: paymentMethodId },
+	});
+
+	await getStripe().subscriptions.update(
+		personalOrg.devPlanStripeSubscriptionId,
+		{ default_payment_method: paymentMethodId },
+	);
+
+	await db
+		.update(tables.organization)
+		.set({ devPlanCardFingerprint: fingerprint })
+		.where(eq(tables.organization.id, personalOrg.id));
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.update_payment_method",
+		resourceType: "dev_plan",
+		resourceId: personalOrg.devPlanStripeSubscriptionId,
+		metadata: {
+			cardLast4:
+				paymentMethod.type === "card" ? paymentMethod.card?.last4 : undefined,
+		},
+	});
+
+	return c.json(
+		{
+			success: true,
+		},
+		200,
+	);
 });
