@@ -1,6 +1,7 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { bytedanceModels } from "./models/bytedance.js";
+import { deapiModels } from "./models/deapi.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
@@ -529,6 +530,7 @@ export const models = [
 	...moonshotModels,
 	...alibabaModels,
 	...bytedanceModels,
+	...deapiModels,
 	...nousresearchModels,
 	...zaiModels,
 ] as const satisfies ModelDefinition[];

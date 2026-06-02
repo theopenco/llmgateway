@@ -36,6 +36,7 @@ export const providerLogoUrls: Partial<
 	xiaomi: ProviderIcons.xiaomi,
 	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
+	deapi: ProviderIcons.deapi,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

@@ -1121,6 +1121,28 @@ export const providers: ProviderDefinition[] = [
 			gdpr: true,
 		},
 	},
+	{
+		id: "deapi",
+		name: "deAPI",
+		description:
+			"deAPI is an OpenAI-compatible inference platform for open-source models operated by GamerHash. This integration currently exposes deAPI's embedding models.",
+		env: {
+			required: {
+				apiKey: "LLM_DEAPI_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_DEAPI_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#FFBA00",
+		website: "https://deapi.ai",
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: "PL",
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

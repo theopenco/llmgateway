@@ -330,6 +330,12 @@ export function getProviderEndpoint(
 			case "deepinfra":
 				url = "https://api.deepinfra.com/v1/openai";
 				break;
+			// deAPI is currently wired for embeddings only (the embeddings route
+			// resolves its own URL). This base-URL case keeps the provider
+			// resolvable for forward-compatibility with image/audio endpoints.
+			case "deapi":
+				url = "https://oai.deapi.ai";
+				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);

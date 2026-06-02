@@ -133,6 +133,22 @@ export async function validateProviderKey(
 		validationModel =
 			getValidationModel(provider, providerKeyOptions) ?? undefined;
 		if (!validationModel) {
+			// Embeddings-only providers (e.g. deAPI) expose no chat/completions
+			// model, and getValidationModel deliberately excludes embeddings
+			// models. There is nothing to validate via a chat request, so skip
+			// live validation for them (mirroring the `custom` provider) instead
+			// of failing key creation. This only fires when EVERY model for the
+			// provider is embeddings-only, so chat-capable providers are never
+			// affected even if their chat models are temporarily unavailable.
+			const providerMappings = models.flatMap((model) =>
+				model.providers.filter((p) => p.providerId === provider),
+			) as ProviderModelMapping[];
+			const isEmbeddingsOnlyProvider =
+				providerMappings.length > 0 &&
+				providerMappings.every((p) => p.embeddings === true);
+			if (isEmbeddingsOnlyProvider) {
+				return { valid: true };
+			}
 			throw new Error(
 				`No suitable validation model found for provider ${provider}`,
 			);

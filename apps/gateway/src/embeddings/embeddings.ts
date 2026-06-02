@@ -603,6 +603,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		openai: "https://api.openai.com",
 		"google-ai-studio": "https://generativelanguage.googleapis.com",
 		"google-vertex": "https://aiplatform.googleapis.com",
+		deapi: "https://oai.deapi.ai",
 	};
 
 	interface EmbeddingAttempt {

@@ -77,6 +77,7 @@ export function getProviderHeaders(
 		case "canopywave":
 		case "embercloud":
 		case "deepinfra":
+		case "deapi":
 		case "custom":
 		default:
 			return {
