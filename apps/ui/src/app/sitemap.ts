@@ -18,8 +18,14 @@ function slugify(label: string) {
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
 
-	const { allBlogs, allGuides, allChangelogs, allLegals, allMigrations } =
-		await import("content-collections");
+	const {
+		allBlogs,
+		allGuides,
+		allChangelogs,
+		allLegals,
+		allMigrations,
+		allUseCases,
+	} = await import("content-collections");
 
 	// Static pages
 	const staticPages: MetadataRoute.Sitemap = [
@@ -239,6 +245,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
+		{
+			url: `${baseUrl}/use-cases`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
 	];
 
 	// Model pages
@@ -367,6 +379,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		}),
 	);
 
+	// Use case pages
+	const useCasePages: MetadataRoute.Sitemap = allUseCases
+		.filter((useCase) => !useCase.draft)
+		.map((useCase) => ({
+			url: `${baseUrl}/use-cases/${useCase.slug}`,
+			lastModified: new Date(useCase.date),
+			changeFrequency: "monthly" as const,
+			priority: 0.7,
+		}));
+
 	return [
 		...staticPages,
 		...modelPages,
@@ -379,5 +401,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...changelogPages,
 		...legalPages,
 		...migrationPages,
+		...useCasePages,
 	];
 }

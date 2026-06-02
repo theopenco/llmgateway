@@ -18,6 +18,9 @@
 /.next-dev/
 /out/
 
+# content-collections
+.content-collections
+
 # production
 /build
 
