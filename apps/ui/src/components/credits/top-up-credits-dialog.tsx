@@ -68,6 +68,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	>(null);
 	const [autoTopUpIntent, setAutoTopUpIntent] = useState(false);
 	const { selectedOrganization } = useDashboardState();
+	const organizationId = selectedOrganization?.id;
 	const alreadyHasAutoTopUp = selectedOrganization?.autoTopUpEnabled ?? false;
 	const { stripe, isLoading: stripeLoading } = useStripe();
 	const api = useApi();
@@ -77,7 +78,9 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 		api.useQuery(
 			"get",
 			"/payments/payment-methods",
-			{},
+			{
+				params: { query: { organizationId } },
+			},
 			{
 				enabled: open, // Only fetch when dialog is open
 			},
@@ -126,6 +129,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 					<AmountStep
 						amount={amount}
 						setAmount={setAmount}
+						organizationId={organizationId}
 						autoTopUpIntent={autoTopUpIntent}
 						setAutoTopUpIntent={setAutoTopUpIntent}
 						alreadyHasAutoTopUp={alreadyHasAutoTopUp}
@@ -156,6 +160,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 					<ConfirmPaymentStep
 						amount={amount}
 						paymentMethodId={selectedPaymentMethod!}
+						organizationId={organizationId}
 						onSuccess={() => setStep("success")}
 						onBack={() => setStep("select-payment")}
 						onCancel={handleClose}
@@ -169,6 +174,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 						<Elements stripe={stripe}>
 							<PaymentStep
 								amount={amount}
+								organizationId={organizationId}
 								onBack={() => setStep("amount")}
 								onSuccess={() => setStep("success")}
 								onCancel={handleClose}
@@ -195,6 +201,7 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 function AmountStep({
 	amount,
 	setAmount,
+	organizationId,
 	autoTopUpIntent,
 	setAutoTopUpIntent,
 	alreadyHasAutoTopUp,
@@ -202,6 +209,7 @@ function AmountStep({
 }: {
 	amount: number;
 	setAmount: (amount: number) => void;
+	organizationId: string | undefined;
 	autoTopUpIntent: boolean;
 	setAutoTopUpIntent: (v: boolean) => void;
 	alreadyHasAutoTopUp: boolean;
@@ -239,7 +247,7 @@ function AmountStep({
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount },
+			body: { amount, organizationId },
 		},
 		{
 			enabled: isAmountValid,
@@ -262,7 +270,11 @@ function AmountStep({
 		setCheckoutLoading(true);
 		try {
 			const { checkoutUrl } = await createCheckoutSession({
-				body: { amount, returnUrl: window.location.href.split("?")[0] },
+				body: {
+					amount,
+					returnUrl: window.location.href.split("?")[0],
+					organizationId,
+				},
 			});
 			window.location.href = checkoutUrl;
 		} catch (error: unknown) {
@@ -513,6 +525,7 @@ function AmountStep({
 
 function PaymentStep({
 	amount,
+	organizationId,
 	onBack,
 	onSuccess,
 	onCancel,
@@ -520,6 +533,7 @@ function PaymentStep({
 	setLoading,
 }: {
 	amount: number;
+	organizationId: string | undefined;
 	onBack: () => void;
 	onSuccess: () => void;
 	onCancel: () => void;
@@ -544,6 +558,7 @@ function PaymentStep({
 	const paymentMethodsQueryKey = api.queryOptions(
 		"get",
 		"/payments/payment-methods",
+		{ params: { query: { organizationId } } },
 	).queryKey;
 
 	const [saveCard, setSaveCard] = useState(true);
@@ -561,7 +576,9 @@ function PaymentStep({
 			let stripePaymentMethodId: string | undefined;
 
 			if (saveCard) {
-				const { clientSecret: setupSecret } = await setupIntentMutation({});
+				const { clientSecret: setupSecret } = await setupIntentMutation({
+					body: { organizationId },
+				});
 
 				const setupResult = await stripe.confirmCardSetup(setupSecret, {
 					payment_method: {
@@ -610,6 +627,7 @@ function PaymentStep({
 				body: {
 					amount,
 					stripePaymentMethodId,
+					organizationId,
 				},
 			});
 
@@ -629,16 +647,21 @@ function PaymentStep({
 				// so the UI reflects the change immediately, then invalidate
 				// in the background to sync with the server.
 				queryClient.setQueryData<{
-					organizations: { credits: string }[];
+					organizations: { id: string; credits: string }[];
 				}>(orgsQueryKey, (old) => {
-					if (!old?.organizations?.[0]) {
+					if (!old?.organizations?.length) {
 						return old;
 					}
-					const current = Number(old.organizations[0].credits ?? 0);
+					const targetId = organizationId ?? old.organizations[0]?.id;
 					return {
 						...old,
-						organizations: old.organizations.map((org, i) =>
-							i === 0 ? { ...org, credits: String(current + amount) } : org,
+						organizations: old.organizations.map((org) =>
+							org.id === targetId
+								? {
+										...org,
+										credits: String(Number(org.credits ?? 0) + amount),
+									}
+								: org,
 						),
 					};
 				});
@@ -988,6 +1011,7 @@ function SelectPaymentStep({
 function ConfirmPaymentStep({
 	amount,
 	paymentMethodId,
+	organizationId,
 	onSuccess,
 	onBack,
 	onCancel,
@@ -996,6 +1020,7 @@ function ConfirmPaymentStep({
 }: {
 	amount: number;
 	paymentMethodId: string;
+	organizationId: string | undefined;
 	onSuccess: () => void;
 	onBack: () => void;
 	onCancel: () => void;
@@ -1016,7 +1041,7 @@ function ConfirmPaymentStep({
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount, paymentMethodId },
+			body: { amount, paymentMethodId, organizationId },
 		},
 	);
 
@@ -1047,23 +1072,28 @@ function ConfirmPaymentStep({
 
 		try {
 			await topUpMutation({
-				body: { amount, paymentMethodId },
+				body: { amount, paymentMethodId, organizationId },
 			});
 
 			// Payment succeeded — optimistically update cached credits
 			// so the UI reflects the change immediately, then invalidate
 			// in the background to sync with the server.
 			queryClient.setQueryData<{
-				organizations: { credits: string }[];
+				organizations: { id: string; credits: string }[];
 			}>(orgsQueryKey, (old) => {
-				if (!old?.organizations?.[0]) {
+				if (!old?.organizations?.length) {
 					return old;
 				}
-				const current = Number(old.organizations[0].credits ?? 0);
+				const targetId = organizationId ?? old.organizations[0]?.id;
 				return {
 					...old,
-					organizations: old.organizations.map((org, i) =>
-						i === 0 ? { ...org, credits: String(current + amount) } : org,
+					organizations: old.organizations.map((org) =>
+						org.id === targetId
+							? {
+									...org,
+									credits: String(Number(org.credits ?? 0) + amount),
+								}
+							: org,
 					),
 				};
 			});
