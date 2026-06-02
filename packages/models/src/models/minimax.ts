@@ -384,11 +384,7 @@ export const minimaxModels = [
 				tools: false,
 				jsonOutput: false,
 				videoGenerations: true,
-				supportedVideoSizes: [
-					"1280x720",
-					"1366x768",
-					"1920x1080",
-				],
+				supportedVideoSizes: ["1280x720", "1366x768", "1920x1080"],
 				supportedVideoDurationsSeconds: [6, 10],
 				supportedVideoDurationsSecondsImageToVideo: [6, 10],
 				supportsVideoAudio: false,

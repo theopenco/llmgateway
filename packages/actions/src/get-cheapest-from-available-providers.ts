@@ -274,7 +274,14 @@ function getPerSecondBillingKeys(
 	if (videoPricing.resolution === "720p") {
 		return videoPricing.includeAudio
 			? ["720p_audio", "768p_audio", "default_audio", "720p", "768p", "default"]
-			: ["720p_video", "768p_video", "default_video", "720p", "768p", "default"];
+			: [
+					"720p_video",
+					"768p_video",
+					"default_video",
+					"720p",
+					"768p",
+					"default",
+				];
 	}
 
 	return videoPricing.includeAudio

@@ -2281,7 +2281,8 @@ async function streamDirectUpstreamVideoContent(
 		contentUrl = retrieveBody.file?.download_url ?? "";
 		if (!contentUrl) {
 			throw new HTTPException(502, {
-				message: "MiniMax file retrieve response did not include a download_url",
+				message:
+					"MiniMax file retrieve response did not include a download_url",
 			});
 		}
 	} else {
