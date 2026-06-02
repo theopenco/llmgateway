@@ -89,26 +89,34 @@ export function ModelSelector({
 	});
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
-	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing" or
+	// "aws-bedrock/claude-haiku-4-5:global". The region is the substring after
+	// the last ":" (model.id never contains ":"; upstream modelNames may).
 	const raw = value ?? "";
 	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
-	const selectedRegion = selectedModelIdRaw.includes(":")
-		? selectedModelIdRaw.split(":")[1]
-		: undefined;
-	const selectedModelId = selectedModelIdRaw.includes(":")
-		? selectedModelIdRaw.split(":")[0]
-		: selectedModelIdRaw;
+	const lastColonIdx = selectedModelIdRaw.lastIndexOf(":");
+	const selectedRegion =
+		lastColonIdx > -1 ? selectedModelIdRaw.slice(lastColonIdx + 1) : undefined;
+	const selectedModelId =
+		lastColonIdx > -1
+			? selectedModelIdRaw.slice(0, lastColonIdx)
+			: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping =
-		selectedModel?.providers.find(
-			(p) => p.providerId === selectedProviderId && p.region === selectedRegion,
-		) ??
-		selectedModel?.providers.find((p) => p.providerId === selectedProviderId);
+	// Strict (providerId, region) match — no loose fallbacks that would pick
+	// the first regional variant when no region was requested.
+	const selectedMapping = selectedRegion
+		? selectedModel?.providers.find(
+				(p) =>
+					p.providerId === selectedProviderId && p.region === selectedRegion,
+			)
+		: selectedModel?.providers.find(
+				(p) => p.providerId === selectedProviderId && !p.region,
+			);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.region ?? ""}`

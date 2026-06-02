@@ -720,7 +720,10 @@ devPlans.openapi(changeTier, async (c) => {
 						price: newPriceId,
 					},
 				],
-				proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
+				// Downgrades use "none" so the user is not refunded or credited for
+				// the current period (no refund) — the lower price applies from the
+				// next invoice onward.
+				proration_behavior: isUpgrade ? "always_invoice" : "none",
 				payment_behavior: isUpgrade
 					? "error_if_incomplete"
 					: "allow_incomplete",
@@ -748,9 +751,15 @@ devPlans.openapi(changeTier, async (c) => {
 
 		await db
 			.update(tables.organization)
+			// On upgrade, raise the allowance now (the user paid the prorated
+			// difference). On downgrade, keep the current higher allowance for the
+			// rest of the paid period — the renewal webhook resets it to the lower
+			// tier, so a downgrade never claws back already-paid credits.
 			.set({
 				devPlan: newTier,
-				devPlanCreditsLimit: newCreditsLimit.toString(),
+				...(isUpgrade
+					? { devPlanCreditsLimit: newCreditsLimit.toString() }
+					: {}),
 			})
 			.where(eq(tables.organization.id, personalOrg.id));
 

@@ -22,7 +22,8 @@ export function getProviderHeaders(
 	}
 
 	switch (provider) {
-		case "anthropic": {
+		case "anthropic":
+		case "anthropic-discount": {
 			const betaFeatures = ["tools-2024-04-04", "prompt-caching-2024-07-31"];
 			if (options?.webSearchEnabled) {
 				betaFeatures.push("web-search-2025-03-05");

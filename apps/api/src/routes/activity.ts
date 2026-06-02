@@ -196,7 +196,7 @@ const getActivity = createRoute({
 			to: z.string().optional(),
 			projectId: z.string().optional(),
 			apiKeyId: z.string().optional(),
-			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d"]).optional(),
+			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
 			groupBy: z.enum(["model", "apiKey"]).optional(),
 		}),
 	},
@@ -256,6 +256,10 @@ activity.openapi(getActivity, async (c) => {
 				break;
 			case "30d":
 				startDate.setDate(startDate.getDate() - 30);
+				granularity = "daily";
+				break;
+			case "365d":
+				startDate.setDate(startDate.getDate() - 365);
 				granularity = "daily";
 				break;
 		}

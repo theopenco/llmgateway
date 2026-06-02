@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Gift, Check, AlertCircle } from "lucide-react";
+import { Copy, Gift, Check, AlertCircle, Mail } from "lucide-react";
 import { useState, useEffect } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -37,7 +37,7 @@ export function ReferralsClient({
 	referredCount,
 }: ReferralsClientProps) {
 	const { selectedOrganization } = useDashboardContext();
-	const [copied, setCopied] = useState(false);
+	const [copiedKey, setCopiedKey] = useState<string | null>(null);
 	const [origin, setOrigin] = useState("https://llmgateway.io");
 
 	useEffect(() => {
@@ -53,18 +53,22 @@ export function ReferralsClient({
 
 	const isEligible = totalTopUps >= 100;
 
-	const referralLink = selectedOrganization
+	const rootLink = selectedOrganization
 		? `${origin}/?ref=${selectedOrganization.id}`
+		: "";
+
+	const invitationLink = selectedOrganization
+		? `${origin}/ref/${selectedOrganization.id}`
 		: "";
 
 	const referralEarnings = selectedOrganization
 		? Number(selectedOrganization.referralEarnings).toFixed(8)
 		: "0.00";
 
-	const copyToClipboard = async () => {
-		await navigator.clipboard.writeText(referralLink);
-		setCopied(true);
-		setTimeout(() => setCopied(false), 2000);
+	const copyToClipboard = async (key: string, value: string) => {
+		await navigator.clipboard.writeText(value);
+		setCopiedKey(key);
+		setTimeout(() => setCopiedKey(null), 2000);
 	};
 
 	return (
@@ -127,27 +131,87 @@ export function ReferralsClient({
 										Your Referral Link
 									</CardTitle>
 									<CardDescription>
-										Share this link with others to earn referral credits
+										Choose how you want to share your referral. Both options
+										track your referral the same way.
 									</CardDescription>
 								</CardHeader>
 								<CardContent>
-									<div className="space-y-4">
-										<div className="flex gap-2">
-											<div className="flex-1 rounded-md border bg-muted px-3 py-2 text-sm font-mono break-all">
-												{referralLink}
+									<div className="space-y-6">
+										<div className="space-y-2">
+											<div className="flex items-baseline justify-between gap-2">
+												<h4 className="text-sm font-semibold">Direct link</h4>
+												<span className="text-xs text-muted-foreground">
+													Sends people to the homepage
+												</span>
 											</div>
-											<Button
-												variant="outline"
-												size="icon"
-												onClick={copyToClipboard}
-												className="shrink-0"
-											>
-												{copied ? (
-													<Check className="h-4 w-4 text-green-500" />
-												) : (
-													<Copy className="h-4 w-4" />
-												)}
-											</Button>
+											<div className="flex gap-2">
+												<div className="flex-1 rounded-md border bg-muted px-3 py-2 text-sm font-mono break-all">
+													{rootLink}
+												</div>
+												<Button
+													variant="outline"
+													size="icon"
+													onClick={() => copyToClipboard("root", rootLink)}
+													className="shrink-0"
+												>
+													{copiedKey === "root" ? (
+														<Check className="h-4 w-4 text-green-500" />
+													) : (
+														<Copy className="h-4 w-4" />
+													)}
+												</Button>
+											</div>
+										</div>
+
+										<div className="space-y-2">
+											<div className="flex items-baseline justify-between gap-2">
+												<h4 className="text-sm font-semibold">
+													Invitation page
+												</h4>
+												<span className="text-xs text-muted-foreground">
+													Personalized landing page with your org&apos;s name
+												</span>
+											</div>
+											<div className="flex gap-2">
+												<div className="flex-1 rounded-md border bg-muted px-3 py-2 text-sm font-mono break-all">
+													{invitationLink}
+												</div>
+												<Button
+													variant="outline"
+													size="icon"
+													onClick={() =>
+														copyToClipboard("invitation", invitationLink)
+													}
+													className="shrink-0"
+												>
+													{copiedKey === "invitation" ? (
+														<Check className="h-4 w-4 text-green-500" />
+													) : (
+														<Copy className="h-4 w-4" />
+													)}
+												</Button>
+											</div>
+										</div>
+
+										<div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+											<Mail className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+											<div className="space-y-1 text-sm">
+												<p className="font-medium">
+													Want to give referred users a top-up bonus?
+												</p>
+												<p className="text-muted-foreground">
+													Contact us at{" "}
+													<a
+														href="mailto:contact@llmgateway.io"
+														className="font-medium text-primary underline-offset-4 hover:underline"
+													>
+														contact@llmgateway.io
+													</a>{" "}
+													to enable a bonus on your invitation page, so referred
+													users get up to 50% bonus credits on their first
+													top-up.
+												</p>
+											</div>
 										</div>
 									</div>
 								</CardContent>

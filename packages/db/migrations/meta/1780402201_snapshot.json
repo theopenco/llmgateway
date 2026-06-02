@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "0f315429-822c-4ed0-b48d-8feec7c2e5df",
-  "prevId": "3d0a067b-70a1-46d7-9838-4a78ffbca540",
+  "id": "d5e71959-32cb-4667-91c1-b3e8e36d1efe",
+  "prevId": "d7d2eead-4d4e-49d5-bc6c-64cfca0cc41e",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -6403,6 +6403,19 @@
       "table": "log"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
       "type": "json",
       "typeSchema": null,
       "notNull": false,
@@ -9100,6 +9113,38 @@
       "generated": null,
       "identity": null,
       "name": "referral_earnings",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "referral_bonus_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'50'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "referral_bonus_percent",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -13013,6 +13058,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "session",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_config"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "provider_priorities",
       "entityType": "columns",
       "schema": "public",
@@ -15823,6 +15881,41 @@
       "method": "btree",
       "concurrently": false,
       "name": "log_project_id_used_model_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "session_id IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_project_id_session_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"

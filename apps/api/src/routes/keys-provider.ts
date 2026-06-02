@@ -28,7 +28,25 @@ const providerKeySchema = z.object({
 	baseUrl: z.string().nullable(),
 	options: z
 		.object({
-			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
+			aws_bedrock_region_prefix: z
+				.enum(["us.", "global.", "eu.", "apac."])
+				.optional(),
+			aws_bedrock_region: z
+				.enum([
+					"global",
+					"us",
+					"eu",
+					"apac",
+					"us-east-1",
+					"us-east-2",
+					"us-west-2",
+					"eu-central-1",
+					"eu-west-1",
+					"ap-northeast-1",
+					"ap-southeast-1",
+					"ap-southeast-2",
+				])
+				.optional(),
 			azure_resource: z.string().optional(),
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
@@ -68,7 +86,25 @@ const createProviderKeySchema = z.object({
 	baseUrl: z.string().url().optional(),
 	options: z
 		.object({
-			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
+			aws_bedrock_region_prefix: z
+				.enum(["us.", "global.", "eu.", "apac."])
+				.optional(),
+			aws_bedrock_region: z
+				.enum([
+					"global",
+					"us",
+					"eu",
+					"apac",
+					"us-east-1",
+					"us-east-2",
+					"us-west-2",
+					"eu-central-1",
+					"eu-west-1",
+					"ap-northeast-1",
+					"ap-southeast-1",
+					"ap-southeast-2",
+				])
+				.optional(),
 			azure_resource: z.string().optional(),
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),

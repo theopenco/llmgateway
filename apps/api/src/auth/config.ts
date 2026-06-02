@@ -507,9 +507,63 @@ export async function updateResendContact(
 	}
 }
 
+/**
+ * Malformed JSON request bodies (almost always bot/scanner traffic hitting the
+ * auth endpoints) make Better Auth throw a SyntaxError while parsing the body.
+ * These are client errors, not server faults, so they should not be logged at
+ * error severity where they trip production error alerting.
+ */
+export function isClientJsonError(message: string, args: unknown[]): boolean {
+	const haystack = [
+		message,
+		...args.map((arg) =>
+			arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg),
+		),
+	].join(" ");
+	return /in JSON at position|after property value|Unexpected (?:token|end of JSON|non-whitespace)|is not valid JSON/i.test(
+		haystack,
+	);
+}
+
+function extractLogExtra(args: unknown[]): object | undefined {
+	const errArg = args.find((arg) => arg instanceof Error);
+	if (errArg) {
+		return errArg as Error;
+	}
+	return args.find((arg) => arg && typeof arg === "object") as
+		| object
+		| undefined;
+}
+
 export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 	instrumentBetterAuth(
 		betterAuth({
+			logger: {
+				log: (
+					level: "info" | "success" | "warn" | "error" | "debug",
+					message: string,
+					...args: unknown[]
+				) => {
+					const text = `[Better Auth] ${message}`;
+					const effectiveLevel =
+						level === "error" && isClientJsonError(message, args)
+							? "warn"
+							: level;
+					switch (effectiveLevel) {
+						case "error":
+							logger.error(text, ...args);
+							break;
+						case "warn":
+							logger.warn(text, extractLogExtra(args));
+							break;
+						case "debug":
+							logger.debug(text, extractLogExtra(args));
+							break;
+						default:
+							logger.info(text, extractLogExtra(args));
+					}
+				},
+			},
 			advanced: {
 				crossSubDomainCookies: {
 					enabled: true,

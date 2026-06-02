@@ -11,6 +11,8 @@ const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 const originalAzureFoundryApiVersion =
 	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
 const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
+const originalBedrockBaseUrl = process.env.LLM_AWS_BEDROCK_BASE_URL;
+const originalBedrockRegion = process.env.LLM_AWS_BEDROCK_REGION;
 
 afterEach(() => {
 	if (originalAiStudioBaseUrl === undefined) {
@@ -60,6 +62,18 @@ afterEach(() => {
 		delete process.env.LLM_XIAOMI_BASE_URL;
 	} else {
 		process.env.LLM_XIAOMI_BASE_URL = originalXiaomiBaseUrl;
+	}
+
+	if (originalBedrockBaseUrl === undefined) {
+		delete process.env.LLM_AWS_BEDROCK_BASE_URL;
+	} else {
+		process.env.LLM_AWS_BEDROCK_BASE_URL = originalBedrockBaseUrl;
+	}
+
+	if (originalBedrockRegion === undefined) {
+		delete process.env.LLM_AWS_BEDROCK_REGION;
+	} else {
+		process.env.LLM_AWS_BEDROCK_REGION = originalBedrockRegion;
 	}
 });
 
@@ -404,6 +418,204 @@ describe("getProviderEndpoint", () => {
 
 			expect(endpoint).toBe(
 				"https://my-custom-base.example/v1beta/models/gemini-2.5-flash:generateContent",
+			);
+		});
+	});
+
+	describe("aws-bedrock regions", () => {
+		it("defaults to us-east-1 endpoint with global. prefix when no region is set", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it("routes to eu-central-1 with eu. prefix when region is 'eu'", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"eu",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.eu-central-1.amazonaws.com/model/eu.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it("routes to ap-northeast-1 with apac. prefix when region is 'apac'", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				true,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"apac",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.ap-northeast-1.amazonaws.com/model/apac.anthropic.claude-haiku-4-5-20251001-v1:0/converse-stream",
+			);
+		});
+
+		it("uses us-east-1 endpoint with us. prefix when region is 'us'", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it("routes to a specific AWS region with no inference profile prefix (data residency)", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-3-5-sonnet-20241022-v2:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us-east-2",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-2.amazonaws.com/model/anthropic.claude-3-5-sonnet-20241022-v2:0/converse",
+			);
+		});
+
+		it("routes to eu-west-1 with no prefix for EU data residency", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-3-5-sonnet-20241022-v2:0",
+				undefined,
+				true,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"eu-west-1",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.eu-west-1.amazonaws.com/model/anthropic.claude-3-5-sonnet-20241022-v2:0/converse-stream",
+			);
+		});
+
+		it("lets aws_bedrock_region_prefix provider-key option override the region-derived prefix", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				{ aws_bedrock_region_prefix: "global." },
+				undefined,
+				undefined,
+				"eu",
+				true,
+			);
+
+			// Endpoint URL still follows the region, but the prefix is overridden
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.eu-central-1.amazonaws.com/model/global.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it("keeps an explicit env base URL over the region-derived endpoint", () => {
+			process.env.LLM_AWS_BEDROCK_BASE_URL = "https://bedrock.proxy.internal";
+
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"eu",
+				false, // not BYOK — env vars apply
+			);
+
+			// Proxy/private base URL wins; the region only drives the model prefix.
+			expect(endpoint).toBe(
+				"https://bedrock.proxy.internal/model/eu.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it("does not read LLM_AWS_BEDROCK_REGION for the prefix in BYOK mode", () => {
+			process.env.LLM_AWS_BEDROCK_REGION = "us.";
+
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				undefined,
+				"anthropic.claude-haiku-4-5-20251001-v1:0",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars (BYOK) — env region must be ignored
+			);
+
+			// Falls back to the hardcoded "global." prefix, not the env "us."
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
 			);
 		});
 	});

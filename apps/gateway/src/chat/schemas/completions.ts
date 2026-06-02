@@ -198,6 +198,16 @@ export const completionsRequestSchema = z.object({
 				"OpenAI prompt cache retention policy. OpenAI supports in_memory and 24h for eligible models.",
 			example: "24h",
 		}),
+	user: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI end-user identifier. Used as a fallback sticky-routing session key when no x-session-id header or prompt_cache_key is provided.",
+			example: "user-123",
+		}),
 	tools: z
 		.array(
 			z.union([

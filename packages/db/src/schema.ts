@@ -174,6 +174,11 @@ export const organization = pgTable(
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
 		referralEarnings: decimal().notNull().default("0"),
+		// When enabled, organizations referred by this org receive a bonus on
+		// their first credit top-up. Configurable only via the admin dashboard.
+		referralBonusEnabled: boolean().notNull().default(false),
+		// Percentage bonus applied to the referred org's first top-up (e.g. 50 = 50%).
+		referralBonusPercent: decimal().notNull().default("50"),
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
@@ -584,7 +589,20 @@ export const masterKey = pgTable(
 );
 
 export interface ProviderKeyOptions {
-	aws_bedrock_region_prefix?: "us." | "global." | "eu.";
+	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
+	aws_bedrock_region?:
+		| "global"
+		| "us"
+		| "eu"
+		| "apac"
+		| "us-east-1"
+		| "us-east-2"
+		| "us-west-2"
+		| "eu-central-1"
+		| "eu-west-1"
+		| "ap-northeast-1"
+		| "ap-southeast-1"
+		| "ap-southeast-2";
 	azure_resource?: string;
 	azure_api_version?: string;
 	azure_deployment_type?: "openai" | "ai-foundry";
@@ -702,6 +720,7 @@ export const log = pgTable(
 			enum: ["api-keys", "credits"],
 		}).notNull(),
 		source: text(),
+		sessionId: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
 		routingMetadata: json().$type<{
 			availableProviders?: string[];
@@ -790,6 +809,10 @@ export const log = pgTable(
 			.where(sql`data_retention_cleaned_up = false`),
 		// Index for distinct usedModel queries by project
 		index("log_project_id_used_model_idx").on(table.projectId, table.usedModel),
+		// Partial index for activity-log filtering by session id within a project
+		index("log_project_id_session_id_idx")
+			.on(table.projectId, table.sessionId, table.createdAt)
+			.where(sql`session_id IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
@@ -1526,6 +1549,8 @@ export const auditLogActions = [
 	"payment.auto_topup.disable",
 	// Credits
 	"credits.gift",
+	// Referral
+	"referral_bonus.update",
 	// Dev Plan
 	"dev_plan.subscribe",
 	"dev_plan.cancel",
@@ -1790,6 +1815,10 @@ export interface RoutingStickyConfig {
 	scoreMargin?: number;
 }
 
+export interface RoutingSessionConfig {
+	enabled?: boolean;
+}
+
 export type ProviderPriorityOverrides = Record<string, number>;
 
 export const routingConfig = pgTable(
@@ -1807,6 +1836,7 @@ export const routingConfig = pgTable(
 		timeouts: jsonb().$type<RoutingTimeoutsConfig>(),
 		history: jsonb().$type<RoutingHistoryConfig>(),
 		sticky: jsonb().$type<RoutingStickyConfig>(),
+		session: jsonb().$type<RoutingSessionConfig>(),
 		providerPriorities: jsonb(
 			"provider_priorities",
 		).$type<ProviderPriorityOverrides>(),
