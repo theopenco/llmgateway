@@ -5,9 +5,9 @@ date: "2026-06-01"
 title: "Smarter Routing: Sticky Sessions, Bedrock Regions & More"
 summary: "Pin conversations to one provider for warm caches with x-session-id, route Bedrock by region, and reach Gemini via Google AI Studio plus Vertex embeddings."
 image:
-  src: "/changelog/retry-fallback.png"
+  src: "/changelog/smarter-routing-sticky-sessions.png"
   alt: "Smarter routing on LLM Gateway: sticky sessions, Bedrock regions and more"
-  width: 1024
+  width: 1536
   height: 1024
 ---
 

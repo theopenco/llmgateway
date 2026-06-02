@@ -5,9 +5,9 @@ date: "2026-06-01"
 title: "Claude Opus 4.8 + a Wave of New Models"
 summary: "Claude Opus 4.8 lands with a 1M context window, Sonnet 4.6 gets 1M context too, and Qwen3.7 Max, Grok Build 0.1, Kimi K2.6, and GLM-5.1 join the gateway."
 image:
-  src: "/changelog/multimodel.png"
+  src: "/changelog/claude-opus-4-8-and-new-models.png"
   alt: "Claude Opus 4.8 and a wave of new models on LLM Gateway"
-  width: 1024
+  width: 1536
   height: 1024
 ---
 
