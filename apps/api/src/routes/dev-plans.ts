@@ -1358,6 +1358,17 @@ const updatePaymentMethod = createRoute({
 			},
 			description: "Card already in use by another DevPass account",
 		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("invalid_payment_method"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Payment method is not a card with a fingerprint",
+		},
 	},
 });
 
@@ -1390,38 +1401,49 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	const paymentMethod =
 		await getStripe().paymentMethods.retrieve(paymentMethodId);
 
+	// Only card payment methods carry the fingerprint we rely on to enforce the
+	// one-card-per-account rule. Reject anything else up front so we never store
+	// a null fingerprint or point the subscription at an unverifiable method.
 	const fingerprint =
 		paymentMethod.type === "card"
 			? (paymentMethod.card?.fingerprint ?? null)
 			: null;
 
+	if (!fingerprint) {
+		return c.json(
+			{
+				error: "invalid_payment_method" as const,
+				message: "Payment method must be a card with a fingerprint.",
+			},
+			400,
+		);
+	}
+
 	// Enforce one card per DevPass account: reject a card already linked to a
 	// different org and detach it so it isn't silently left on this customer.
-	if (fingerprint) {
-		const conflictingOrg = await db.query.organization.findFirst({
-			where: {
-				devPlanCardFingerprint: { eq: fingerprint },
-				id: { ne: personalOrg.id },
-			},
-		});
-		if (conflictingOrg) {
-			try {
-				await getStripe().paymentMethods.detach(paymentMethodId);
-			} catch (err) {
-				logger.warn(
-					`Failed to detach duplicate dev plan card ${paymentMethodId}`,
-					{ error: err instanceof Error ? err.message : String(err) },
-				);
-			}
-			return c.json(
-				{
-					error: "duplicate_card" as const,
-					message:
-						"This card is already associated with another DevPass account. Please use a different payment method.",
-				},
-				409,
+	const conflictingOrg = await db.query.organization.findFirst({
+		where: {
+			devPlanCardFingerprint: { eq: fingerprint },
+			id: { ne: personalOrg.id },
+		},
+	});
+	if (conflictingOrg) {
+		try {
+			await getStripe().paymentMethods.detach(paymentMethodId);
+		} catch (err) {
+			logger.warn(
+				`Failed to detach duplicate dev plan card ${paymentMethodId}`,
+				{ error: err instanceof Error ? err.message : String(err) },
 			);
 		}
+		return c.json(
+			{
+				error: "duplicate_card" as const,
+				message:
+					"This card is already associated with another DevPass account. Please use a different payment method.",
+			},
+			409,
+		);
 	}
 
 	// confirmCardSetup already attaches the card to the customer; attach again

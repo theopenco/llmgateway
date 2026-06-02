@@ -10935,6 +10935,19 @@ export interface paths {
                         };
                     };
                 };
+                /** @description Payment method is not a card with a fingerprint */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_payment_method";
+                            message: string;
+                        };
+                    };
+                };
                 /** @description Card already in use by another DevPass account */
                 409: {
                     headers: {
