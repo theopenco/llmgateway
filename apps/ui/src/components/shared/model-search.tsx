@@ -236,39 +236,41 @@ export function ModelSearch({
 						<CommandEmpty>No results found.</CommandEmpty>
 						{search.trim().length > 0 && providers.length > 0 && (
 							<CommandGroup heading="Providers">
-								{providers.map((p) => {
-									const ProviderIcon = getProviderIcon(p.id);
-									return (
-										<CommandItem
-											key={`provider-${p.id}`}
-											value={`${p.name ?? p.id} ${p.id} provider`}
-											onSelect={() => {
-												router.push(`/providers/${encodeURIComponent(p.id)}`);
-												setOpen(false);
-											}}
-										>
-											<div className="flex items-center gap-3">
-												<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
-													{ProviderIcon ? (
-														<ProviderIcon className="h-5 w-5" />
-													) : (
-														<span className="text-xs font-medium uppercase text-muted-foreground">
-															{(p.name ?? p.id).charAt(0)}
+								{providers
+									.filter((p) => p.name !== "LLM Gateway")
+									.map((p) => {
+										const ProviderIcon = getProviderIcon(p.id);
+										return (
+											<CommandItem
+												key={`provider-${p.id}`}
+												value={`${p.name ?? p.id} ${p.id} provider`}
+												onSelect={() => {
+													router.push(`/providers/${encodeURIComponent(p.id)}`);
+													setOpen(false);
+												}}
+											>
+												<div className="flex items-center gap-3">
+													<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+														{ProviderIcon ? (
+															<ProviderIcon className="h-5 w-5" />
+														) : (
+															<span className="text-xs font-medium uppercase text-muted-foreground">
+																{(p.name ?? p.id).charAt(0)}
+															</span>
+														)}
+													</div>
+													<div className="flex flex-col items-start">
+														<span className="text-sm font-medium">
+															{p.name ?? p.id}
 														</span>
-													)}
+														<span className="text-xs text-muted-foreground">
+															{p.id}
+														</span>
+													</div>
 												</div>
-												<div className="flex flex-col items-start">
-													<span className="text-sm font-medium">
-														{p.name ?? p.id}
-													</span>
-													<span className="text-xs text-muted-foreground">
-														{p.id}
-													</span>
-												</div>
-											</div>
-										</CommandItem>
-									);
-								})}
+											</CommandItem>
+										);
+									})}
 							</CommandGroup>
 						)}
 						{groups.map(([label, items]) => (
