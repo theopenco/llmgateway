@@ -2860,6 +2860,85 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	// gateway response cache hits make no upstream call, so they must be free
+	test("/v1/chat/completions cached responses are free", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-cache",
+			token: "real-token-cache",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-cache",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		// Enable gateway-level response caching for the project.
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		const body = JSON.stringify({
+			model: "openai/gpt-4o-mini",
+			messages: [{ role: "user", content: "Cache me!" }],
+		});
+
+		const makeRequest = () =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-cache",
+				},
+				body,
+			});
+
+		// First request: cache miss, served from the provider and billed.
+		// setCache is a no-op under NODE_ENV=test, so briefly flip it to prime
+		// the gateway response cache the way production would.
+		const originalNodeEnv = process.env.NODE_ENV;
+		let firstRes: Response;
+		try {
+			process.env.NODE_ENV = "development";
+			firstRes = await makeRequest();
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+		expect(firstRes.status).toBe(200);
+
+		const afterFirst = await waitForLogs(1);
+		expect(afterFirst.length).toBe(1);
+		const missLog = afterFirst[0];
+		expect(missLog.cached).toBe(false);
+		expect(Number(missLog.cost)).toBeGreaterThan(0);
+
+		// Second identical request: served entirely from the gateway cache.
+		const secondRes = await makeRequest();
+		expect(secondRes.status).toBe(200);
+
+		const afterSecond = await waitForLogs(2);
+		expect(afterSecond.length).toBe(2);
+		const cachedLog = afterSecond.find((log) => log.cached);
+		expect(cachedLog).toBeTruthy();
+
+		// Cache hit: zero cost across every billed dimension.
+		expect(Number(cachedLog?.cost)).toBe(0);
+		expect(Number(cachedLog?.inputCost)).toBe(0);
+		expect(Number(cachedLog?.outputCost)).toBe(0);
+		expect(Number(cachedLog?.cachedInputCost)).toBe(0);
+		expect(Number(cachedLog?.requestCost)).toBe(0);
+		expect(Number(cachedLog?.dataStorageCost)).toBe(0);
+
+		// Token counts are still recorded for analytics.
+		expect(Number(cachedLog?.promptTokens)).toBeGreaterThan(0);
+	});
+
 	// test for model with multiple providers (llama-3.3-70b-instruct)
 	test.skip("/v1/chat/completions with model that has multiple providers", async () => {
 		await db.insert(tables.apiKey).values({
