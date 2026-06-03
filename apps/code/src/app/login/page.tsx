@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	Loader2,
@@ -154,6 +155,9 @@ function LoginForm() {
 	async function handlePasskeySignIn() {
 		setIsLoading(true);
 		try {
+			// Cancel the pending conditional (autofill) ceremony started on mount so
+			// it doesn't collide with this modal request and abort it as "cancelled".
+			WebAuthnAbortService.cancelCeremony();
 			const res = await signIn.passkey();
 			if (res?.error) {
 				toast.error(res.error.message ?? "Failed to sign in with passkey", {

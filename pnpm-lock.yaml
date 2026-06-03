@@ -307,6 +307,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@simplewebauthn/browser':
+        specifier: 13.3.0
+        version: 13.3.0
       '@stripe/react-stripe-js':
         specifier: 5.2.0
         version: 5.2.0(@stripe/stripe-js@8.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)

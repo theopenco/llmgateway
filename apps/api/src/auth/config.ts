@@ -587,7 +587,9 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				passkey({
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
-					origin: uiUrl,
+					// Accept passkey ceremonies from both the main dashboard and the
+					// DevPass (code) app, which share the same registrable rpID.
+					origin: [uiUrl, codeUrl],
 				}),
 			],
 			emailAndPassword: {
