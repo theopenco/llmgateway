@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Terminal, Code2, Cpu } from "lucide-react";
+import { Loader2, Terminal, Code2, Cpu, KeySquare } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -12,6 +12,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod/v3";
 
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Button } from "@/components/ui/button";
 import {
 	Form,
@@ -51,7 +52,7 @@ function SignupForm() {
 	const posthog = usePostHog();
 	const { posthogKey } = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
-	const { signUp } = useAuth();
+	const { signIn, signUp } = useAuth();
 	const baseReturnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
 	const selectedPlan = searchParams.get("plan");
 	const selectedCycle = searchParams.get("cycle");
@@ -133,6 +134,40 @@ function SignupForm() {
 		}
 
 		setIsLoading(false);
+	}
+
+	async function handlePasskeySignIn() {
+		setIsLoading(true);
+		try {
+			const res = await signIn.passkey();
+			if (res?.error) {
+				toast.error(res.error.message ?? "Failed to sign in with passkey", {
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
+				});
+				return;
+			}
+			queryClient.clear();
+			if (posthogKey) {
+				posthog.capture("user_logged_in", { method: "passkey" });
+			}
+			toast.success("Login successful");
+			router.push(returnUrl);
+		} catch (error: unknown) {
+			toast.error(
+				(error as Error)?.message || "Failed to sign in with passkey",
+				{
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
+				},
+			);
+		} finally {
+			setIsLoading(false);
+		}
 	}
 
 	return (
@@ -322,6 +357,40 @@ function SignupForm() {
 								</Button>
 							</form>
 						</Form>
+
+						<div className="mt-4 space-y-4">
+							<div className="relative">
+								<div className="absolute inset-0 flex items-center">
+									<span className="w-full border-t" />
+								</div>
+								<div className="relative flex justify-center text-xs uppercase">
+									<span className="bg-background px-2 text-muted-foreground">
+										Or
+									</span>
+								</div>
+							</div>
+
+							<SocialAuthButtons
+								isLoading={isLoading}
+								setIsLoading={setIsLoading}
+								callbackPath={returnUrl}
+								errorCallbackPath="/signup"
+							/>
+
+							<Button
+								onClick={handlePasskeySignIn}
+								variant="outline"
+								className="w-full"
+								disabled={isLoading}
+							>
+								{isLoading ? (
+									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+								) : (
+									<KeySquare className="mr-2 h-4 w-4" />
+								)}
+								Sign in with passkey
+							</Button>
+						</div>
 					</div>
 
 					<p className="mt-6 text-center text-sm text-muted-foreground">

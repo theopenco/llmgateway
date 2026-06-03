@@ -9,6 +9,7 @@ import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
+import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { db, eq, tables, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -23,21 +24,21 @@ const originUrls =
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
 const isHosted = process.env.HOSTED === "true";
 
+function isCodeAppOrigin(url: string | null | undefined): boolean {
+	if (!url) {
+		return false;
+	}
+	try {
+		return new URL(url).origin === new URL(codeUrl).origin;
+	} catch {
+		return false;
+	}
+}
+
 function resolveCallbackBaseUrl(request?: Request): string {
 	const originHeader =
 		request?.headers.get("origin") ?? request?.headers.get("referer");
-	if (!originHeader) {
-		return uiUrl;
-	}
-	try {
-		const requestOrigin = new URL(originHeader).origin;
-		if (requestOrigin === new URL(codeUrl).origin) {
-			return codeUrl;
-		}
-	} catch {
-		// fall through to default
-	}
-	return uiUrl;
+	return isCodeAppOrigin(originHeader) ? codeUrl : uiUrl;
 }
 
 export const redisClient = new Redis({
@@ -936,88 +937,106 @@ The LLM Gateway Team`.trim();
 						return;
 					}
 
-					// Perform all DB operations in a single transaction for atomicity
-					await db.transaction(async (tx) => {
-						// For self-hosted installations, automatically verify the user's email
-						if (!isHosted) {
-							await tx
-								.update(tables.user)
-								.set({ emailVerified: true })
-								.where(eq(tables.user.id, userId));
+					// For self-hosted installations, automatically verify the user's email
+					if (!isHosted) {
+						await db
+							.update(tables.user)
+							.set({ emailVerified: true })
+							.where(eq(tables.user.id, userId));
 
-							logger.info("Automatically verified email for self-hosted user", {
-								userId,
-							});
-						}
-
-						// Create a default organization
-						const [organization] = await tx
-							.insert(tables.organization)
-							.values({
-								name: "Default Organization",
-								billingEmail: newSession.user.email,
-							})
-							.returning();
-
-						// Link user to organization
-						await tx.insert(tables.userOrganization).values({
+						logger.info("Automatically verified email for self-hosted user", {
 							userId,
-							organizationId: organization.id,
 						});
+					}
 
-						// Create a default project with hybrid mode
-						const [project] = await tx
-							.insert(tables.project)
-							.values({
-								name: "Default Project",
+					// DevPass (code app) signups get a personal organization instead of
+					// the shared "Default Organization" used by the main LLM Gateway
+					// dashboard. For social sign-in the request hits the OAuth callback
+					// (no app origin header), so fall back to the redirect target.
+					const isCodeAppSignup =
+						isCodeAppOrigin(ctx.headers?.get("origin")) ||
+						isCodeAppOrigin(ctx.headers?.get("referer")) ||
+						isCodeAppOrigin(ctx.context.responseHeaders?.get("location"));
+
+					if (isCodeAppSignup) {
+						await getOrCreatePersonalOrg({
+							id: userId,
+							email: newSession.user.email,
+						});
+					} else {
+						// Perform all DB operations in a single transaction for atomicity
+						await db.transaction(async (tx) => {
+							// Create a default organization
+							const [organization] = await tx
+								.insert(tables.organization)
+								.values({
+									name: "Default Organization",
+									billingEmail: newSession.user.email,
+								})
+								.returning();
+
+							// Link user to organization
+							await tx.insert(tables.userOrganization).values({
+								userId,
 								organizationId: organization.id,
-								mode: "hybrid",
-							})
-							.returning();
-
-						// Auto-create an API key for the playground to use
-						// Generate a token with a prefix for better identification
-						const prefix =
-							process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-						const token = prefix + shortid(40);
-
-						await tx.insert(tables.apiKey).values({
-							projectId: project.id,
-							token: token,
-							description: "Auto-generated playground key",
-							usageLimit: null, // No limit for playground key
-							createdBy: userId,
-						});
-
-						// Handle referral if cookie is present
-						const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
-						const referralMatch = cookieHeader.match(
-							/llmgateway_referral=([^;]+)/,
-						);
-						if (referralMatch) {
-							const referrerOrgId = decodeURIComponent(referralMatch[1]);
-							// Verify the referrer organization exists and is active
-							const referrerOrg = await tx.query.organization.findFirst({
-								where: {
-									id: { eq: referrerOrgId },
-									status: { eq: "active" },
-								},
 							});
 
-							if (referrerOrg) {
-								// Create the referral record
-								await tx.insert(tables.referral).values({
-									referrerOrganizationId: referrerOrgId,
-									referredOrganizationId: organization.id,
+							// Create a default project with hybrid mode
+							const [project] = await tx
+								.insert(tables.project)
+								.values({
+									name: "Default Project",
+									organizationId: organization.id,
+									mode: "hybrid",
+								})
+								.returning();
+
+							// Auto-create an API key for the playground to use
+							// Generate a token with a prefix for better identification
+							const prefix =
+								process.env.NODE_ENV === "development"
+									? `llmgdev_`
+									: "llmgtwy_";
+							const token = prefix + shortid(40);
+
+							await tx.insert(tables.apiKey).values({
+								projectId: project.id,
+								token: token,
+								description: "Auto-generated playground key",
+								usageLimit: null, // No limit for playground key
+								createdBy: userId,
+							});
+
+							// Handle referral if cookie is present
+							const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
+							const referralMatch = cookieHeader.match(
+								/llmgateway_referral=([^;]+)/,
+							);
+							if (referralMatch) {
+								const referrerOrgId = decodeURIComponent(referralMatch[1]);
+								// Verify the referrer organization exists and is active
+								const referrerOrg = await tx.query.organization.findFirst({
+									where: {
+										id: { eq: referrerOrgId },
+										status: { eq: "active" },
+									},
 								});
 
-								logger.info("Created referral record", {
-									referrerOrgId,
-									referredOrgId: organization.id,
-								});
+								if (referrerOrg) {
+									// Create the referral record
+									await tx.insert(tables.referral).values({
+										referrerOrganizationId: referrerOrgId,
+										referredOrganizationId: organization.id,
+									});
+
+									logger.info("Created referral record", {
+										referrerOrgId,
+										referredOrgId: organization.id,
+									});
+								}
 							}
-						}
-					});
+						});
+					}
 
 					// Check if this is a social login by querying the account table
 					// For OAuth signups, we need to send notifications and create Resend contacts
