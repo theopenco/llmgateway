@@ -19,7 +19,6 @@ export const AnthropicIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 		fillRule="evenodd"
 		clipRule="evenodd"
 		viewBox="0 0 512 509.64"
-		className={props.className}
 	>
 		<path
 			fill="#D77655"
@@ -41,7 +40,6 @@ export const DeepseekIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 		{...props}
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 57.86 43.38"
-		className={props.className}
 		fill="rgb(77, 107, 254)"
 	>
 		<path
@@ -330,12 +328,7 @@ export const GoogleVertexIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 
 // Groq Icon
 export const GroqIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg
-		{...props}
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 200.18 69.76"
-		className={props.className}
-	>
+	<svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200.18 69.76">
 		<defs />
 		<g>
 			<path
@@ -350,12 +343,7 @@ export const GroqIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 export const InferenceNetIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
-	<svg
-		{...props}
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 256 235.039"
-		className={props.className}
-	>
+	<svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 235.039">
 		<g
 			fill="#e61673"
 			strokeMiterlimit="10"
@@ -1171,12 +1159,7 @@ export const CerebrasIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 export const MinimaxIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
-	<svg
-		{...props}
-		viewBox="0 0 24 24"
-		xmlns="http://www.w3.org/2000/svg"
-		className={props.className}
-	>
+	<svg {...props} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
 		<defs>
 			<linearGradient
 				id="minimax-og-gradient"
@@ -1201,12 +1184,7 @@ export const MinimaxIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 export const MinimaxIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => {
 	const gradientId = React.useId();
 	return (
-		<svg
-			{...props}
-			viewBox="0 0 24 24"
-			xmlns="http://www.w3.org/2000/svg"
-			className={props.className}
-		>
+		<svg {...props} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
 			<defs>
 				<linearGradient
 					id={gradientId}
@@ -1230,12 +1208,7 @@ export const MinimaxIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => {
 
 // Xiaomi Icon
 export const XiaomiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg
-		{...props}
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 512 512"
-		className={props.className}
-	>
+	<svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
 		<rect width="512" height="512" rx="96" fill="#FF6900" />
 		<path
 			fill="#FFF"
@@ -1272,7 +1245,6 @@ export const DeepInfraIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 		xmlns="http://www.w3.org/2000/svg"
 		fill="none"
 		viewBox="0 9 28 32"
-		className={props.className}
 	>
 		<path
 			fill="currentColor"

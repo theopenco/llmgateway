@@ -1135,11 +1135,22 @@ describe("getCheapestFromAvailableProviders", () => {
 			],
 		]);
 
+		// Neutralize provider priority defaults so these tests isolate cache
+		// support weighting from any per-provider priority bias.
+		const equalPriorityConfig = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, deepseek: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
 		it("does not factor cache support when prompt is below the threshold", () => {
 			const result = getCheapestFromAvailableProviders(
 				cacheTestModel.providers,
 				cacheTestModel,
-				{ metricsMap: equalMetrics, promptTokens: 1000 },
+				{
+					metricsMap: equalMetrics,
+					promptTokens: 1000,
+					routingConfig: equalPriorityConfig,
+				},
 			);
 
 			const openai = result?.metadata.providerScores.find(
@@ -1156,7 +1167,11 @@ describe("getCheapestFromAvailableProviders", () => {
 			const result = getCheapestFromAvailableProviders(
 				cacheTestModel.providers,
 				cacheTestModel,
-				{ metricsMap: equalMetrics, promptTokens: 8000 },
+				{
+					metricsMap: equalMetrics,
+					promptTokens: 8000,
+					routingConfig: equalPriorityConfig,
+				},
 			);
 
 			expect(result?.provider.providerId).toBe("openai");
@@ -1198,7 +1213,11 @@ describe("getCheapestFromAvailableProviders", () => {
 			const result = getCheapestFromAvailableProviders(
 				cheapNoCacheModel.providers,
 				cheapNoCacheModel,
-				{ metricsMap: equalMetrics, promptTokens: 10_000 },
+				{
+					metricsMap: equalMetrics,
+					promptTokens: 10_000,
+					routingConfig: equalPriorityConfig,
+				},
 			);
 
 			expect(result?.provider.providerId).toBe("deepseek");

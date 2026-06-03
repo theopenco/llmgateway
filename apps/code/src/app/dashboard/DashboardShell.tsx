@@ -1,14 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import {
-	BarChart3,
-	Code,
-	CreditCard,
-	Loader2,
-	LogOut,
-	Settings,
-} from "lucide-react";
+import { BarChart3, Code, CreditCard, LogOut, Settings } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -27,6 +20,7 @@ import {
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
@@ -37,6 +31,8 @@ import { plans } from "./plans";
 import { useDevPlanStatus } from "./useDevPlanStatus";
 
 import type { PlanTier } from "./types";
+import type { DevPlanStatus } from "./useDevPlanStatus";
+import type { UserMe } from "@/hooks/useUser";
 import type { DevPlanCycle } from "@llmgateway/shared";
 import type { Route } from "next";
 
@@ -53,8 +49,12 @@ const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 
 export default function DashboardShell({
 	children,
+	initialUser,
+	initialDevPlanStatus,
 }: {
 	children: React.ReactNode;
+	initialUser?: UserMe | null;
+	initialDevPlanStatus?: DevPlanStatus | null;
 }) {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -69,9 +69,11 @@ export default function DashboardShell({
 	const { user } = useUser({
 		redirectTo: "/login?returnUrl=/dashboard",
 		redirectWhen: "unauthenticated",
+		initialData: initialUser,
 	});
 
-	const { data: devPlanStatus, isLoading: statusLoading } = useDevPlanStatus();
+	const { data: devPlanStatus, isLoading: statusLoading } =
+		useDevPlanStatus(initialDevPlanStatus);
 
 	const subscribeMutation = api.useMutation("post", "/dev-plans/subscribe");
 	const finalizeMutation = api.useMutation("post", "/dev-plans/finalize");
@@ -248,8 +250,22 @@ export default function DashboardShell({
 			<EmailVerificationBanner />
 
 			{statusLoading ? (
-				<div className="flex min-h-[60vh] items-center justify-center">
-					<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+				<div className="container mx-auto flex flex-col gap-8 px-4 py-8 lg:flex-row">
+					<aside className="lg:w-56 lg:shrink-0">
+						<div className="flex gap-1 lg:flex-col">
+							{navItems.map((item) => (
+								<Skeleton key={item.href} className="h-9 w-full lg:w-full" />
+							))}
+						</div>
+					</aside>
+					<main className="min-w-0 flex-1 space-y-10">
+						<div className="space-y-2">
+							<Skeleton className="h-6 w-32" />
+							<Skeleton className="h-4 w-64" />
+						</div>
+						<Skeleton className="h-40 w-full rounded-xl" />
+						<Skeleton className="h-32 w-full rounded-xl" />
+					</main>
 				</div>
 			) : hasActivePlan ? (
 				<div className="container mx-auto flex flex-col gap-8 px-4 py-8 lg:flex-row">
