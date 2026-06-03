@@ -2628,9 +2628,9 @@ export async function prepareRequestBody(
 				};
 			}
 			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
-			// Novita) need an explicit `enable_thinking` flag and ignore
-			// `reasoning_effort`. Only turn it on when the caller asked for reasoning
-			// so plain requests stay non-thinking.
+			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
+			// flag to turn reasoning on. Only set it when the caller asked for
+			// reasoning so plain requests stay non-thinking.
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
 				const thinkingMapping = modelDef?.providers.find(
 					(p) =>
@@ -2638,7 +2638,10 @@ export async function prepareRequestBody(
 						((p as ProviderModelMapping).region ?? null) === usedRegion,
 				) as ProviderModelMapping | undefined;
 				if (thinkingMapping?.requiresEnableThinking) {
-					requestBody.enable_thinking = true;
+					requestBody.chat_template_kwargs = {
+						...(requestBody.chat_template_kwargs ?? {}),
+						thinking: true,
+					};
 				}
 			}
 			break;

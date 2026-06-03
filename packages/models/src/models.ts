@@ -316,10 +316,11 @@ export interface ProviderModelMapping {
 	 */
 	splitTaggedReasoning?: boolean;
 	/**
-	 * Whether this provider mapping requires the `enable_thinking: true` request
-	 * flag to produce reasoning. Hybrid models like DeepSeek V3.2 on Novita keep
-	 * thinking off by default and ignore `reasoning_effort`, so the gateway must
-	 * send `enable_thinking` when the caller requests reasoning.
+	 * Whether this provider mapping requires an explicit chat-template flag to
+	 * produce reasoning. Hybrid models like DeepSeek V3.2 on Novita keep thinking
+	 * off by default and ignore `reasoning_effort`, so the gateway sends
+	 * `chat_template_kwargs: { thinking: true }` (the documented vLLM/Novita
+	 * parameter) when the caller requests reasoning.
 	 */
 	requiresEnableThinking?: boolean;
 	/**
