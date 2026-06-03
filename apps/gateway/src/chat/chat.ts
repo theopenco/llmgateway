@@ -8237,8 +8237,15 @@ chat.openapi(completions, async (c) => {
 								usedProvider,
 							),
 						});
+						// Some providers (e.g. Embercloud) signal an upstream failure by
+						// terminating the stream with finish_reason "error" and a null
+						// content delta, rather than an HTTP error or error event. Surface
+						// that explicitly instead of the misleading "finished successfully"
+						// message, since the stream did not complete successfully.
 						const errorMessage =
-							"Response finished successfully but returned no content or tool calls";
+							finishReason === "error"
+								? 'Upstream provider terminated the stream with finish_reason "error" and returned no content'
+								: "Response finished successfully but returned no content or tool calls";
 						streamingError = errorMessage;
 						finishReason = "upstream_error";
 
