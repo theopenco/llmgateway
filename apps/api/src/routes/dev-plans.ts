@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
+import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq, shortid } from "@llmgateway/db";
@@ -19,63 +20,6 @@ import { getStripe } from "./payments.js";
 import type { ServerTypes } from "@/vars.js";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
-
-interface User {
-	id: string;
-	email: string;
-	emailVerified?: boolean;
-}
-
-// Helper to get or create personal organization for a user
-// Uses a transaction to ensure atomicity when creating org, membership, and project
-async function getOrCreatePersonalOrg(user: User) {
-	// Find existing personal org for user
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const existingPersonalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
-	);
-
-	if (existingPersonalOrg?.organization) {
-		return existingPersonalOrg.organization;
-	}
-
-	// Create new personal org with transaction for atomicity
-	return await db.transaction(async (tx) => {
-		const [newOrg] = await tx
-			.insert(tables.organization)
-			.values({
-				name: "Personal",
-				isPersonal: true,
-				billingEmail: user.email,
-				// DevPass orgs retain request/response data by default; users can
-				// disable this from the data retention settings.
-				retentionLevel: "retain",
-			})
-			.returning();
-
-		await tx.insert(tables.userOrganization).values({
-			userId: user.id,
-			organizationId: newOrg.id,
-			role: "owner",
-		});
-
-		await tx.insert(tables.project).values({
-			name: "Default Project",
-			organizationId: newOrg.id,
-			mode: "credits",
-		});
-
-		return newOrg;
-	});
-}
 
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
