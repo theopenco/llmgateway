@@ -2627,6 +2627,15 @@ export async function prepareRequestBody(
 					reasoning_split: true,
 				};
 			}
+			// DeepSeek V3.2 on Novita is a hybrid model whose thinking mode is off
+			// unless explicitly enabled, unlike the thinking-by-default Novita models.
+			if (
+				usedProvider === "novita" &&
+				usedInternalModel === "deepseek-v3.2" &&
+				supportsReasoning
+			) {
+				requestBody.enable_thinking = true;
+			}
 			break;
 		}
 	}

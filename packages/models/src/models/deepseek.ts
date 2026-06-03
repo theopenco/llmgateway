@@ -130,7 +130,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 163840,
 				maxOutput: 65536,
-				reasoning: false,
+				reasoning: true,
 				streaming: true,
 				vision: false,
 				tools: true,
