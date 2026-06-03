@@ -21,7 +21,8 @@
 			}
 		],
 		"paths": {
-			"@/*": ["./src/*"]
+			"@/*": ["./src/*"],
+			"content-collections": ["./.content-collections/generated"]
 		}
 	},
 	"include": [
@@ -30,6 +31,7 @@
 		"*.tsx",
 		"src/**/*.ts",
 		"src/**/*.tsx",
+		"./.content-collections/generated/index.d.ts",
 		".next/types/**/*.ts"
 	],
 	"exclude": ["node_modules", ".next", ".next-dev"]

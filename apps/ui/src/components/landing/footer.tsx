@@ -191,6 +191,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/use-cases"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Use Cases
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/blog"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
