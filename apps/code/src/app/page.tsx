@@ -4,6 +4,7 @@ import Link from "next/link";
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { Faq } from "@/components/Faq";
 import { Footer } from "@/components/Footer";
+import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import {
 	CodeCTATracker,
@@ -96,14 +97,12 @@ export default function LandingPage() {
 								every OpenAI-compatible tool — no SDK changes.
 							</p>
 							<div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-								<CodeCTATracker cta="start_coding" location="hero">
-									<Button size="lg" className="gap-2 px-8" asChild>
-										<Link href="/signup">
-											Get your DevPass
-											<ArrowRight className="h-4 w-4" />
-										</Link>
-									</Button>
-								</CodeCTATracker>
+								<GetDevPassButton
+									cta="start_coding"
+									location="hero"
+									showArrow
+									className="gap-2 px-8"
+								/>
 								<CodeCTATracker cta="view_plans" location="hero">
 									<Button size="lg" variant="outline" asChild>
 										<Link href="/pricing">See pricing</Link>
@@ -279,14 +278,12 @@ export default function LandingPage() {
 							Pick a plan, set two env vars, get back to building.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-							<CodeCTATracker cta="get_started" location="bottom_cta">
-								<Button size="lg" className="gap-2 px-8" asChild>
-									<Link href="/signup">
-										Get your DevPass
-										<ArrowRight className="h-4 w-4" />
-									</Link>
-								</Button>
-							</CodeCTATracker>
+							<GetDevPassButton
+								cta="get_started"
+								location="bottom_cta"
+								showArrow
+								className="gap-2 px-8"
+							/>
 							<CodeCTATracker cta="browse_models" location="bottom_cta">
 								<Button size="lg" variant="ghost" asChild>
 									<Link href="/coding-models">Browse all models</Link>

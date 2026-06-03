@@ -48,6 +48,25 @@ const creditTopUpAmountSchema = z
 	)
 	.max(CREDIT_TOP_UP_MAX_AMOUNT, "Maximum top-up amount is $5000.");
 
+/**
+ * Resolves the organization a payment operation should target.
+ *
+ * When an `organizationId` is provided (e.g. the user is acting within a
+ * non-default organization they switched to in the dashboard), it is looked up
+ * scoped to the user's memberships so a user can only ever target an org they
+ * belong to. When omitted, it falls back to the user's first organization for
+ * backward compatibility.
+ */
+async function findUserOrganization(userId: string, organizationId?: string) {
+	return await db.query.userOrganization.findFirst({
+		where: organizationId ? { userId, organizationId } : { userId },
+		with: {
+			organization: true,
+			user: true,
+		},
+	});
+}
+
 export async function isInternationalPaymentMethod(
 	stripePaymentMethodId: string,
 ): Promise<boolean> {
@@ -68,6 +87,7 @@ const createPaymentIntent = createRoute({
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
 						stripePaymentMethodId: z.string().optional(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -106,16 +126,16 @@ payments.openapi(createPaymentIntent, async (c) => {
 		});
 	}
 
-	const { amount, stripePaymentMethodId } = c.req.valid("json");
+	const {
+		amount,
+		stripePaymentMethodId,
+		organizationId: requestedOrganizationId,
+	} = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -183,7 +203,18 @@ payments.openapi(createPaymentIntent, async (c) => {
 const createSetupIntent = createRoute({
 	method: "post",
 	path: "/create-setup-intent",
-	request: {},
+	request: {
+		body: {
+			required: false,
+			content: {
+				"application/json": {
+					schema: z.object({
+						organizationId: z.string().optional(),
+					}),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -215,14 +246,12 @@ payments.openapi(createSetupIntent, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const { organizationId: requestedOrganizationId } = c.req.valid("json") ?? {};
+
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -247,7 +276,11 @@ payments.openapi(createSetupIntent, async (c) => {
 const getPaymentMethods = createRoute({
 	method: "get",
 	path: "/payment-methods",
-	request: {},
+	request: {
+		query: z.object({
+			organizationId: z.string().optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -282,14 +315,12 @@ payments.openapi(getPaymentMethods, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const { organizationId: requestedOrganizationId } = c.req.valid("query");
+
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -342,6 +373,7 @@ const setDefaultPaymentMethod = createRoute({
 				"application/json": {
 					schema: z.object({
 						paymentMethodId: z.string(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -370,16 +402,13 @@ payments.openapi(setDefaultPaymentMethod, async (c) => {
 		});
 	}
 
-	const { paymentMethodId } = c.req.valid("json");
+	const { paymentMethodId, organizationId: requestedOrganizationId } =
+		c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -436,6 +465,9 @@ const deletePaymentMethod = createRoute({
 		params: z.object({
 			id: z.string(),
 		}),
+		query: z.object({
+			organizationId: z.string().optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -460,16 +492,13 @@ payments.openapi(deletePaymentMethod, async (c) => {
 		});
 	}
 
-	const { id } = c.req.param();
+	const { id } = c.req.valid("param");
+	const { organizationId: requestedOrganizationId } = c.req.valid("query");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -543,6 +572,7 @@ const topUpWithSavedMethod = createRoute({
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
 						paymentMethodId: z.string(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -582,7 +612,12 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 	const {
 		amount,
 		paymentMethodId,
-	}: { amount: number; paymentMethodId: string } = c.req.valid("json");
+		organizationId: requestedOrganizationId,
+	}: {
+		amount: number;
+		paymentMethodId: string;
+		organizationId?: string;
+	} = c.req.valid("json");
 
 	const paymentMethod = await db.query.paymentMethod.findFirst({
 		where: {
@@ -596,14 +631,10 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (
 		!userOrganization ||
@@ -738,6 +769,7 @@ const createCheckoutSession = createRoute({
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
 						returnUrl: z.string().url().optional(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -773,16 +805,16 @@ payments.openapi(createCheckoutSession, async (c) => {
 		});
 	}
 
-	const { amount, returnUrl } = c.req.valid("json");
+	const {
+		amount,
+		returnUrl,
+		organizationId: requestedOrganizationId,
+	} = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -880,6 +912,7 @@ const calculateFeesRoute = createRoute({
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
 						paymentMethodId: z.string().optional(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -924,17 +957,17 @@ payments.openapi(calculateFeesRoute, async (c) => {
 	const {
 		amount,
 		paymentMethodId,
-	}: { amount: number; paymentMethodId?: string } = c.req.valid("json");
+		organizationId: requestedOrganizationId,
+	}: {
+		amount: number;
+		paymentMethodId?: string;
+		organizationId?: string;
+	} = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-			user: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {

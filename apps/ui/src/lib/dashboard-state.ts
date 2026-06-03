@@ -45,13 +45,29 @@ export function useDashboardState({
 		[organizationsData?.organizations],
 	);
 
-	// Derive selected organization from props or default to first
-	const selectedOrganization = useMemo(() => {
+	// Resolve the active org id: prefer the explicit prop, otherwise fall back
+	// to the org segment in the URL (/dashboard/[orgId]/...). The URL is the
+	// source of truth for which org the user switched to, so components that
+	// call useDashboardState() without a prop (e.g. the top-up dialog) still
+	// target the org currently being viewed rather than the first/default one.
+	const resolvedOrgId = useMemo(() => {
 		if (selectedOrgId) {
-			return organizations.find((org) => org.id === selectedOrgId) ?? null;
+			return selectedOrgId;
+		}
+		const parts = pathname.split("/");
+		if (parts[1] === "dashboard" && parts[2]) {
+			return parts[2];
+		}
+		return undefined;
+	}, [selectedOrgId, pathname]);
+
+	// Derive selected organization from the resolved id or default to first
+	const selectedOrganization = useMemo(() => {
+		if (resolvedOrgId) {
+			return organizations.find((org) => org.id === resolvedOrgId) ?? null;
 		}
 		return organizations[0] ?? null;
-	}, [selectedOrgId, organizations]);
+	}, [resolvedOrgId, organizations]);
 
 	// Fetch projects for selected organization
 	const { data: projectsData } = api.useQuery(

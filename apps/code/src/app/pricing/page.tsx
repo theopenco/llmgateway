@@ -6,10 +6,10 @@ import {
 	Minus,
 	Sparkles,
 } from "lucide-react";
-import Link from "next/link";
 
 import { Faq } from "@/components/Faq";
 import { Footer } from "@/components/Footer";
+import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { CodeCTATracker } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
@@ -481,14 +481,13 @@ export default function PricingPage() {
 							time, prorated.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-							<CodeCTATracker cta="get_started" location="pricing_bottom_cta">
-								<Button size="lg" className="gap-2 px-8" asChild>
-									<Link href="/signup?plan=pro">
-										Get your DevPass
-										<ArrowRight className="h-4 w-4" />
-									</Link>
-								</Button>
-							</CodeCTATracker>
+							<GetDevPassButton
+								cta="get_started"
+								location="pricing_bottom_cta"
+								signupHref="/signup?plan=pro"
+								showArrow
+								className="gap-2 px-8"
+							/>
 							<Button size="lg" variant="ghost" asChild>
 								<a href="mailto:contact@llmgateway.io">Talk to us</a>
 							</Button>

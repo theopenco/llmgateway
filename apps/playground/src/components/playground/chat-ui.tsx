@@ -524,8 +524,12 @@ const AssistantMessage = memo(
 				{reasoningContent ? (
 					<Reasoning
 						className="w-full"
-						defaultOpen={false}
-						isStreaming={status === "streaming" && isLastMessage}
+						defaultOpen={
+							status === "streaming" && isLastMessage && textContent === ""
+						}
+						isStreaming={
+							status === "streaming" && isLastMessage && textContent === ""
+						}
 					>
 						<ReasoningTrigger />
 						<ReasoningContent>{reasoningContent}</ReasoningContent>
@@ -598,10 +602,10 @@ const AssistantMessage = memo(
 					</div>
 				)}
 
-				{(metadata || isLastMessage) && (
+				{(metadata || (isLastMessage && status !== "streaming")) && (
 					<Actions className="mt-2">
 						{metadata ? <MessageMetadataPopover metadata={metadata} /> : null}
-						{isLastMessage ? (
+						{isLastMessage && status !== "streaming" ? (
 							<>
 								<Action
 									onClick={() => regenerate()}
@@ -816,14 +820,30 @@ const UserMessage = memo(
 							</div>
 						)}
 					</MessageContent>
-					{canEdit && !isEditing ? (
+					{!isEditing ? (
 						<Actions className="mt-2 opacity-0 transition-opacity group-hover/user-message:opacity-100 focus-within:opacity-100">
+							{canEdit ? (
+								<Action
+									onClick={onEditStart}
+									label="Edit and retry"
+									tooltip="Edit and retry from here"
+								>
+									<Undo2 className="size-3" />
+								</Action>
+							) : null}
 							<Action
-								onClick={onEditStart}
-								label="Edit and retry"
-								tooltip="Edit and retry from here"
+								onClick={async () => {
+									try {
+										await navigator.clipboard.writeText(initialText);
+										toast.success("Copied to clipboard");
+									} catch {
+										toast.error("Failed to copy to clipboard");
+									}
+								}}
+								label="Copy"
+								tooltip="Copy to clipboard"
 							>
-								<Undo2 className="size-3" />
+								<Copy className="size-3" />
 							</Action>
 						</Actions>
 					) : null}

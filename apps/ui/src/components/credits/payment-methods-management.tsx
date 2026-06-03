@@ -21,6 +21,7 @@ import {
 	DialogTrigger,
 } from "@/lib/components/dialog";
 import { toast } from "@/lib/components/use-toast";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
 
@@ -29,17 +30,23 @@ import type React from "react";
 export function PaymentMethodsManagement() {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const { selectedOrganization } = useDashboardState();
+	const organizationId = selectedOrganization?.id;
 
 	// Use regular query instead of suspense query to prevent infinite re-rendering
 	const { data, isLoading, error } = api.useQuery(
 		"get",
 		"/payments/payment-methods",
+		{
+			params: { query: { organizationId } },
+		},
 	);
 
 	// Generate query key once and reuse it
 	const paymentMethodsQueryKey = api.queryOptions(
 		"get",
 		"/payments/payment-methods",
+		{ params: { query: { organizationId } } },
 	).queryKey;
 
 	const { mutate: setDefaultMutation, isPending: isDefaultMethodPending } =
@@ -73,7 +80,7 @@ export function PaymentMethodsManagement() {
 
 	const handleSetDefault = async (paymentMethodId: string) => {
 		setDefaultMutation(
-			{ body: { paymentMethodId } },
+			{ body: { paymentMethodId, organizationId } },
 			{
 				onSuccess: () => {
 					void queryClient.invalidateQueries({
@@ -100,6 +107,7 @@ export function PaymentMethodsManagement() {
 					path: {
 						id: paymentMethodId,
 					},
+					query: { organizationId },
 				},
 			},
 			{
@@ -174,12 +182,16 @@ export function PaymentMethodsManagement() {
 					))}
 				</div>
 			)}
-			<AddPaymentMethodDialog />
+			<AddPaymentMethodDialog organizationId={organizationId} />
 		</div>
 	);
 }
 
-function AddPaymentMethodDialog() {
+function AddPaymentMethodDialog({
+	organizationId,
+}: {
+	organizationId: string | undefined;
+}) {
 	const [open, setOpen] = useState(false);
 	const { stripe, isLoading: stripeLoading } = useStripe();
 
@@ -196,7 +208,10 @@ function AddPaymentMethodDialog() {
 					<div className="p-6 text-center">Loading payment form...</div>
 				) : (
 					<Elements stripe={stripe}>
-						<AddPaymentMethodForm onSuccess={() => setOpen(false)} />
+						<AddPaymentMethodForm
+							organizationId={organizationId}
+							onSuccess={() => setOpen(false)}
+						/>
 					</Elements>
 				)}
 			</DialogContent>
@@ -204,7 +219,13 @@ function AddPaymentMethodDialog() {
 	);
 }
 
-function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
+function AddPaymentMethodForm({
+	organizationId,
+	onSuccess,
+}: {
+	organizationId: string | undefined;
+	onSuccess: () => void;
+}) {
 	const queryClient = useQueryClient();
 	const stripe = useStripeElements();
 	const elements = useElements();
@@ -214,6 +235,7 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 	const paymentMethodsQueryOptions = api.queryOptions(
 		"get",
 		"/payments/payment-methods",
+		{ params: { query: { organizationId } } },
 	);
 
 	const { mutateAsync: setupIntentMutation } = api.useMutation(
@@ -231,7 +253,9 @@ function AddPaymentMethodForm({ onSuccess }: { onSuccess: () => void }) {
 		setLoading(true);
 
 		try {
-			const { clientSecret } = await setupIntentMutation({});
+			const { clientSecret } = await setupIntentMutation({
+				body: { organizationId },
+			});
 
 			const result = await stripe.confirmCardSetup(clientSecret, {
 				payment_method: {
