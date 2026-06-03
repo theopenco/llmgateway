@@ -3,7 +3,7 @@
 import { format, parseISO } from "date-fns";
 import { BarChart3, Coins, Cpu, Layers } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
 	CartesianGrid,
 	Cell,
@@ -116,6 +116,8 @@ const VALID_METRICS: TimeseriesMetric[] = [
 ];
 const VALID_MODEL_VIEWS: ModelView[] = ["mapping", "canonical"];
 
+const BREAKDOWN_PAGE_SIZE = 25;
+
 function parseRange(value: string | null): Range {
 	return VALID_RANGES.includes(value as Range) ? (value as Range) : "30d";
 }
@@ -227,20 +229,34 @@ export function GlobalStatsClient() {
 		[router, pathname, searchParams],
 	);
 
+	const [breakdownPage, setBreakdownPage] = useState(1);
+
 	const setRange = useCallback(
-		(value: Range) => updateParam("range", value),
+		(value: Range) => {
+			setBreakdownPage(1);
+			updateParam("range", value);
+		},
 		[updateParam],
 	);
 	const setGroupBy = useCallback(
-		(value: GroupBy) => updateParam("groupBy", value),
+		(value: GroupBy) => {
+			setBreakdownPage(1);
+			updateParam("groupBy", value);
+		},
 		[updateParam],
 	);
 	const setChartMetric = useCallback(
-		(value: TimeseriesMetric) => updateParam("metric", value),
+		(value: TimeseriesMetric) => {
+			setBreakdownPage(1);
+			updateParam("metric", value);
+		},
 		[updateParam],
 	);
 	const setModelView = useCallback(
-		(value: ModelView) => updateParam("modelView", value),
+		(value: ModelView) => {
+			setBreakdownPage(1);
+			updateParam("modelView", value);
+		},
 		[updateParam],
 	);
 
@@ -297,6 +313,22 @@ export function GlobalStatsClient() {
 	}, [pieData]);
 
 	const totalPieValue = pieData.reduce((sum, p) => sum + p.value, 0);
+
+	const sortedBreakdown = useMemo(
+		() => [...breakdown].sort((a, b) => b[chartMetric] - a[chartMetric]),
+		[breakdown, chartMetric],
+	);
+
+	const breakdownTotalPages = Math.max(
+		1,
+		Math.ceil(sortedBreakdown.length / BREAKDOWN_PAGE_SIZE),
+	);
+	const breakdownCurrentPage = Math.min(breakdownPage, breakdownTotalPages);
+	const breakdownStart = (breakdownCurrentPage - 1) * BREAKDOWN_PAGE_SIZE;
+	const pagedBreakdown = sortedBreakdown.slice(
+		breakdownStart,
+		breakdownStart + BREAKDOWN_PAGE_SIZE,
+	);
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -602,33 +634,31 @@ export function GlobalStatsClient() {
 							</ChartContainer>
 						)}
 					</div>
-					<div className="overflow-hidden rounded-md border border-border/60">
-						<table className="w-full text-sm">
-							<thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-								<tr>
-									<th className="px-3 py-2 text-left">
-										{groupBy === "model" ? "Model" : "Source"}
-									</th>
-									<th className="px-3 py-2 text-right">
-										{timeseriesChartConfig[chartMetric].label as string}
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-								{breakdown.length === 0 ? (
+					<div className="flex flex-col">
+						<div className="overflow-hidden rounded-md border border-border/60">
+							<table className="w-full text-sm">
+								<thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
 									<tr>
-										<td
-											colSpan={2}
-											className="px-3 py-6 text-center text-muted-foreground"
-										>
-											{isLoading ? "Loading…" : "No data."}
-										</td>
+										<th className="px-3 py-2 text-left">
+											{groupBy === "model" ? "Model" : "Source"}
+										</th>
+										<th className="px-3 py-2 text-right">
+											{timeseriesChartConfig[chartMetric].label as string}
+										</th>
 									</tr>
-								) : (
-									[...breakdown]
-										.sort((a, b) => b[chartMetric] - a[chartMetric])
-										.slice(0, 25)
-										.map((b) => (
+								</thead>
+								<tbody>
+									{sortedBreakdown.length === 0 ? (
+										<tr>
+											<td
+												colSpan={2}
+												className="px-3 py-6 text-center text-muted-foreground"
+											>
+												{isLoading ? "Loading…" : "No data."}
+											</td>
+										</tr>
+									) : (
+										pagedBreakdown.map((b) => (
 											<tr key={b.key} className="border-t border-border/40">
 												<td className="px-3 py-2 font-mono text-xs">
 													{b.label}
@@ -638,9 +668,47 @@ export function GlobalStatsClient() {
 												</td>
 											</tr>
 										))
-								)}
-							</tbody>
-						</table>
+									)}
+								</tbody>
+							</table>
+						</div>
+						{sortedBreakdown.length > 0 ? (
+							<div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+								<span className="tabular-nums">
+									{breakdownStart + 1}–{breakdownStart + pagedBreakdown.length}{" "}
+									of {sortedBreakdown.length}
+								</span>
+								<div className="flex items-center gap-2">
+									<Button
+										variant="outline"
+										size="sm"
+										className="h-7 px-3"
+										disabled={breakdownCurrentPage <= 1}
+										onClick={() =>
+											setBreakdownPage(Math.max(1, breakdownCurrentPage - 1))
+										}
+									>
+										Previous
+									</Button>
+									<span className="tabular-nums">
+										Page {breakdownCurrentPage} / {breakdownTotalPages}
+									</span>
+									<Button
+										variant="outline"
+										size="sm"
+										className="h-7 px-3"
+										disabled={breakdownCurrentPage >= breakdownTotalPages}
+										onClick={() =>
+											setBreakdownPage(
+												Math.min(breakdownTotalPages, breakdownCurrentPage + 1),
+											)
+										}
+									>
+										Next
+									</Button>
+								</div>
+							</div>
+						) : null}
 					</div>
 				</CardContent>
 			</Card>

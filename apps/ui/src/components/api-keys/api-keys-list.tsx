@@ -471,7 +471,7 @@ export function ApiKeysList({
 							<TableHead>Current Period</TableHead>
 							<TableHead>Limits</TableHead>
 							<TableHead>IAM Rules</TableHead>
-							<TableHead className="text-right">Actions</TableHead>
+							<TableHead className="sticky right-0 bg-card w-12" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -580,7 +580,7 @@ export function ApiKeysList({
 										</Button>
 									)}
 								</TableCell>
-								<TableCell className="text-right">
+								<TableCell className="sticky right-0 bg-card group-hover:bg-muted/30 text-center">
 									<DropdownMenu>
 										<DropdownMenuTrigger asChild>
 											<Button variant="ghost" size="icon" className="h-8 w-8">

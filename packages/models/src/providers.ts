@@ -507,6 +507,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+		priority: 1.5,
 	},
 	{
 		id: "alibaba",
@@ -766,6 +767,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
+		priority: 1.5,
 	},
 	{
 		id: "moonshot",
@@ -791,6 +793,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
+		priority: 1.5,
 	},
 	{
 		id: "perplexity",
@@ -1035,6 +1038,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+		priority: 1.5,
 	},
 	{
 		id: "embercloud",

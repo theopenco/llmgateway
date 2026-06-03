@@ -1873,10 +1873,11 @@ async function handleSetupIntentSucceeded(
 	const { metadata, payment_method } = setupIntent;
 	const organizationId = metadata?.organizationId;
 
-	// DevPass setup intents are finalized via finalizeDevPlanSetupSession and
-	// must NOT be saved into the org's payment_method table (which is for the
-	// regular billing UI flow). Skip them here.
-	if (metadata?.subscriptionType === "dev_plan") {
+	// DevPass setup intents are finalized via finalizeDevPlanSetupSession (initial
+	// activation) or /dev-plans/update-payment-method (card change) and must NOT
+	// be saved into the org's payment_method table (which is for the regular
+	// billing UI flow). Skip both ("dev_plan" and "dev_plan_update") here.
+	if (metadata?.subscriptionType?.startsWith("dev_plan")) {
 		return;
 	}
 

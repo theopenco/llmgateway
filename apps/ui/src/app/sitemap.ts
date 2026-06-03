@@ -8,11 +8,24 @@ import {
 
 import type { MetadataRoute } from "next";
 
+function slugify(label: string) {
+	return label
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/(^-|-$)/g, "");
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
 
-	const { allBlogs, allGuides, allChangelogs, allLegals, allMigrations } =
-		await import("content-collections");
+	const {
+		allBlogs,
+		allGuides,
+		allChangelogs,
+		allLegals,
+		allMigrations,
+		allUseCases,
+	} = await import("content-collections");
 
 	// Static pages
 	const staticPages: MetadataRoute.Sitemap = [
@@ -232,6 +245,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
+		{
+			url: `${baseUrl}/use-cases`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
 	];
 
 	// Model pages
@@ -305,6 +324,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.6,
 		}));
 
+	// Blog category pages
+	const blogCategorySlugs = new Set<string>();
+	for (const blog of allBlogs) {
+		if (blog.draft) {
+			continue;
+		}
+		for (const category of blog.categories ?? []) {
+			blogCategorySlugs.add(slugify(category));
+		}
+	}
+	const blogCategoryPages: MetadataRoute.Sitemap = Array.from(
+		blogCategorySlugs,
+	).map((category) => ({
+		url: `${baseUrl}/blog/category/${encodeURIComponent(category)}`,
+		lastModified: new Date(),
+		changeFrequency: "weekly" as const,
+		priority: 0.5,
+	}));
+
 	// Guide pages
 	const guidePages: MetadataRoute.Sitemap = allGuides.map((guide) => ({
 		url: `${baseUrl}/guides/${guide.slug}`,
@@ -341,6 +379,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		}),
 	);
 
+	// Use case pages
+	const useCasePages: MetadataRoute.Sitemap = allUseCases
+		.filter((useCase) => !useCase.draft)
+		.map((useCase) => ({
+			url: `${baseUrl}/use-cases/${useCase.slug}`,
+			lastModified: new Date(useCase.date),
+			changeFrequency: "monthly" as const,
+			priority: 0.7,
+		}));
+
 	return [
 		...staticPages,
 		...modelPages,
@@ -348,9 +396,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...featurePages,
 		...enterpriseFeaturePages,
 		...blogPages,
+		...blogCategoryPages,
 		...guidePages,
 		...changelogPages,
 		...legalPages,
 		...migrationPages,
+		...useCasePages,
 	];
 }
