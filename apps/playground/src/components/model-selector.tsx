@@ -1034,9 +1034,11 @@ export function ModelSelector({
 				.toLowerCase()
 				.split(/[-_\s]+/)
 				.filter(Boolean);
-			list = list.filter((entry) =>
-				tokens.every((t) => entry.searchText.includes(t)),
-			);
+			if (tokens.length > 0) {
+				list = list.filter((entry) =>
+					tokens.every((t) => entry.searchText.includes(t)),
+				);
+			}
 		}
 		if (filters.providers.length > 0) {
 			list = list.filter(
@@ -1103,12 +1105,18 @@ export function ModelSelector({
 			});
 		}
 		if (deferredSearch) {
-			list = [...list].sort((a, b) => {
-				if (a.isRoot === b.isRoot) {
-					return 0;
-				}
-				return a.isRoot ? -1 : 1;
-			});
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = [...list].sort((a, b) => {
+					if (a.isRoot === b.isRoot) {
+						return 0;
+					}
+					return a.isRoot ? -1 : 1;
+				});
+			}
 		}
 		return list;
 	}, [allEntries, deferredSearch, filters, isFavorite, providersWithKeys]);
