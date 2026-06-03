@@ -41,6 +41,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.insert(organization)
 			.values({
 				name: "Personal",
+				status: "active",
 				isPersonal: true,
 				devPlan: "lite",
 				billingEmail: devpassUser.email,
@@ -53,6 +54,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.insert(organization)
 			.values({
 				name: "Regular",
+				status: "active",
 				devPlan: "none",
 				billingEmail: devpassUser.email,
 				createdAt: TWO_DAYS_AGO,
@@ -87,6 +89,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.insert(organization)
 			.values({
 				name: "Regular",
+				status: "active",
 				devPlan: "none",
 				billingEmail: freeUser.email,
 				createdAt: TWO_DAYS_AGO,
