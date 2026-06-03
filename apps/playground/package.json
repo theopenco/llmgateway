@@ -49,7 +49,7 @@
 		"@streamdown/cjk": "1.0.1",
 		"@streamdown/code": "1.0.1",
 		"@streamdown/math": "1.0.1",
-		"@streamdown/mermaid": "1.0.1",
+		"@streamdown/mermaid": "1.0.2",
 		"@stripe/react-stripe-js": "5.2.0",
 		"@stripe/stripe-js": "8.1.0",
 		"@tailwindcss/typography": "0.5.19",
