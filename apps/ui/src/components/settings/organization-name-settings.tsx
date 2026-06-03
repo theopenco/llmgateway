@@ -1,6 +1,5 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy } from "lucide-react";
 import * as React from "react";
 import { useState } from "react";
 
@@ -27,20 +26,6 @@ export function OrganizationNameSettings() {
 	const [name, setName] = useState<string>(selectedOrganization?.name ?? "");
 
 	const [nameError, setNameError] = useState<string>("");
-	const [copied, setCopied] = useState<boolean>(false);
-
-	const copyOrganizationId = async () => {
-		if (!selectedOrganization) {
-			return;
-		}
-		try {
-			await navigator.clipboard.writeText(selectedOrganization.id);
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
-		} catch (err) {
-			console.error("Failed to copy:", err);
-		}
-	};
 
 	React.useEffect(() => {
 		setName(selectedOrganization?.name ?? "");
@@ -119,32 +104,6 @@ export function OrganizationNameSettings() {
 					<p className="text-sm text-muted-foreground">
 						This name will be displayed throughout the platform.
 					</p>
-				</div>
-
-				<div className="space-y-2">
-					<Label htmlFor="orgId">Organization ID</Label>
-					<div className="flex items-center gap-2">
-						<Input
-							id="orgId"
-							type="text"
-							value={selectedOrganization.id}
-							readOnly
-							className="font-mono"
-						/>
-						<Button
-							type="button"
-							variant="outline"
-							size="icon"
-							onClick={copyOrganizationId}
-							aria-label="Copy organization ID"
-						>
-							{copied ? (
-								<Check className="h-4 w-4 text-green-600" />
-							) : (
-								<Copy className="h-4 w-4" />
-							)}
-						</Button>
-					</div>
 				</div>
 			</div>
 

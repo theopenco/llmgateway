@@ -1,7 +1,6 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -26,17 +25,6 @@ export function ProjectNameSettings({
 
 	const [name, setName] = useState(initialName);
 	const [nameError, setNameError] = useState("");
-	const [copied, setCopied] = useState(false);
-
-	const copyProjectId = async () => {
-		try {
-			await navigator.clipboard.writeText(projectId);
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
-		} catch (err) {
-			console.error("Failed to copy:", err);
-		}
-	};
 
 	const updateProject = api.useMutation("patch", "/projects/{id}", {
 		onSuccess: async () => {
@@ -98,31 +86,6 @@ export function ProjectNameSettings({
 				<p className="text-sm text-muted-foreground">
 					This name will be displayed throughout the platform.
 				</p>
-			</div>
-			<div className="space-y-2">
-				<Label htmlFor="projectId">Project ID</Label>
-				<div className="flex items-center gap-2 max-w-md">
-					<Input
-						id="projectId"
-						type="text"
-						value={projectId}
-						readOnly
-						className="font-mono"
-					/>
-					<Button
-						type="button"
-						variant="outline"
-						size="icon"
-						onClick={copyProjectId}
-						aria-label="Copy project ID"
-					>
-						{copied ? (
-							<Check className="h-4 w-4 text-green-600" />
-						) : (
-							<Copy className="h-4 w-4" />
-						)}
-					</Button>
-				</div>
 			</div>
 			<div className="flex justify-end">
 				<Button onClick={handleSave} disabled={updateProject.isPending}>
