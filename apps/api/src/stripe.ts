@@ -510,6 +510,9 @@ export async function finalizeDevPlanSetupSession(
 			devPlanCancelled: false,
 			devPlanCycle,
 			devPlanCardFingerprint: fingerprint,
+			// DevPass orgs retain request/response data by default once active;
+			// users can disable this from the DevPass data retention settings.
+			retentionLevel: "retain",
 		})
 		.where(
 			and(
@@ -717,6 +720,9 @@ async function handleCheckoutSessionCompleted(
 					devPlanCancelled: false,
 					devPlanCycle,
 					devPlanCardFingerprint: fingerprint,
+					// DevPass orgs retain request/response data by default once
+					// active; users can disable this from the DevPass settings.
+					retentionLevel: "retain",
 				})
 				.where(eq(tables.organization.id, organizationId));
 
