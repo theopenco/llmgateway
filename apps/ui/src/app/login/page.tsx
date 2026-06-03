@@ -15,7 +15,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -85,25 +85,35 @@ export default function Login() {
 		},
 	});
 
+	const passkeyAutofillStarted = useRef(false);
 	useEffect(() => {
-		if (window.PublicKeyCredential) {
-			void signIn.passkey({ autoFill: true }).then((res) => {
-				if (res?.data) {
-					queryClient.clear();
-					posthog.capture("user_logged_in", { method: "passkey" });
-					router.push("/dashboard");
-				} else if (res?.error) {
-					if (res.error.message?.toLowerCase().includes("cancelled")) {
-						return;
-					}
-					toast({
-						title: res.error.message ?? "Failed to sign in with passkey",
-						variant: "destructive",
-					});
-				}
-			});
+		// Start the conditional (autofill) passkey ceremony exactly once. Re-running
+		// it restarts the WebAuthn request, which flickers the browser/password
+		// manager prompt and aborts an in-progress manual passkey button click.
+		if (passkeyAutofillStarted.current) {
+			return;
 		}
-	}, [signIn, queryClient, posthog, router]);
+		if (typeof window === "undefined" || !window.PublicKeyCredential) {
+			return;
+		}
+		passkeyAutofillStarted.current = true;
+		void signIn.passkey({ autoFill: true }).then((res) => {
+			if (res?.data) {
+				queryClient.clear();
+				posthog.capture("user_logged_in", { method: "passkey" });
+				router.push("/dashboard");
+			} else if (res?.error) {
+				if (res.error.message?.toLowerCase().includes("cancelled")) {
+					return;
+				}
+				toast({
+					title: res.error.message ?? "Failed to sign in with passkey",
+					variant: "destructive",
+				});
+			}
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);

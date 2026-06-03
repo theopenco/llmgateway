@@ -15,7 +15,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod/v3";
@@ -82,29 +82,39 @@ function LoginForm() {
 		},
 	});
 
+	const passkeyAutofillStarted = useRef(false);
 	useEffect(() => {
-		if (window.PublicKeyCredential) {
-			void signIn.passkey({ autoFill: true }).then((res) => {
-				if (res?.data) {
-					queryClient.clear();
-					if (posthogKey) {
-						posthog.capture("user_logged_in", { method: "passkey" });
-					}
-					router.push(returnUrl);
-				} else if (res?.error) {
-					if (res.error.message?.toLowerCase().includes("cancelled")) {
-						return;
-					}
-					toast.error(res.error.message ?? "Failed to sign in with passkey", {
-						style: {
-							backgroundColor: "var(--destructive)",
-							color: "var(--destructive-foreground)",
-						},
-					});
-				}
-			});
+		// Start the conditional (autofill) passkey ceremony exactly once. Re-running
+		// it restarts the WebAuthn request, which flickers the browser/password
+		// manager prompt and aborts an in-progress manual passkey button click.
+		if (passkeyAutofillStarted.current) {
+			return;
 		}
-	}, [signIn, queryClient, posthogKey, posthog, router, returnUrl]);
+		if (typeof window === "undefined" || !window.PublicKeyCredential) {
+			return;
+		}
+		passkeyAutofillStarted.current = true;
+		void signIn.passkey({ autoFill: true }).then((res) => {
+			if (res?.data) {
+				queryClient.clear();
+				if (posthogKey) {
+					posthog.capture("user_logged_in", { method: "passkey" });
+				}
+				router.push(returnUrl);
+			} else if (res?.error) {
+				if (res.error.message?.toLowerCase().includes("cancelled")) {
+					return;
+				}
+				toast.error(res.error.message ?? "Failed to sign in with passkey", {
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
+				});
+			}
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
