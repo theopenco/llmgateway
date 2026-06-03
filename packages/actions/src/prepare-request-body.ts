@@ -2627,16 +2627,19 @@ export async function prepareRequestBody(
 					reasoning_split: true,
 				};
 			}
-			// DeepSeek V3.2 on Novita is a hybrid model whose thinking mode is off
-			// unless explicitly enabled. Only turn it on when the caller actually
-			// requested reasoning, so plain requests stay non-thinking.
-			if (
-				usedProvider === "novita" &&
-				usedInternalModel === "deepseek-v3.2" &&
-				supportsReasoning &&
-				(reasoning_effort || reasoning_max_tokens)
-			) {
-				requestBody.enable_thinking = true;
+			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
+			// Novita) need an explicit `enable_thinking` flag and ignore
+			// `reasoning_effort`. Only turn it on when the caller asked for reasoning
+			// so plain requests stay non-thinking.
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+				const thinkingMapping = modelDef?.providers.find(
+					(p) =>
+						p.providerId === usedProvider &&
+						((p as ProviderModelMapping).region ?? null) === usedRegion,
+				) as ProviderModelMapping | undefined;
+				if (thinkingMapping?.requiresEnableThinking) {
+					requestBody.enable_thinking = true;
+				}
 			}
 			break;
 		}
