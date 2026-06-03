@@ -56,6 +56,9 @@ async function getOrCreatePersonalOrg(user: User) {
 				name: "Personal",
 				isPersonal: true,
 				billingEmail: user.email,
+				// DevPass orgs retain request/response data by default; users can
+				// disable this from the data retention settings.
+				retentionLevel: "retain",
 			})
 			.returning();
 
