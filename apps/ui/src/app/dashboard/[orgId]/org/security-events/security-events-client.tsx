@@ -148,7 +148,7 @@ export function SecurityEventsClient() {
 					queryParams.cursor = cursor;
 				}
 				if (actionFilter !== "all") {
-					queryParams.action = actionFilter;
+					queryParams.actionTaken = actionFilter;
 				}
 				if (categoryFilter !== "all") {
 					queryParams.category = categoryFilter;

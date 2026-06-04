@@ -11802,10 +11802,17 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            blocked: number;
-                            redacted: number;
-                            warned: number;
-                            total: number;
+                            totalViolations: number;
+                            last24Hours: number;
+                            last7Days: number;
+                            byAction: {
+                                blocked: number;
+                                redacted: number;
+                                warned: number;
+                            };
+                            byCategory: {
+                                [key: string]: number;
+                            };
                         };
                     };
                 };
