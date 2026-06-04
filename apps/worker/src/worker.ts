@@ -859,26 +859,26 @@ export async function batchProcessLogs(): Promise<void> {
 				pool: PlanPool,
 				amount: Decimal,
 			) => {
-				const num = amount.toNumber();
+				const amountStr = amount.toString();
 				if (pool.kind === "chat") {
 					await tx
 						.update(organization)
 						.set({
-							chatPlanCreditsUsed: sql`${organization.chatPlanCreditsUsed} + ${num}`,
+							chatPlanCreditsUsed: sql`${organization.chatPlanCreditsUsed} + ${amountStr}`,
 						})
 						.where(eq(organization.id, orgId));
 					logger.debug(
-						`Deducted ${num} chat plan credits from organization ${orgId}`,
+						`Deducted ${amountStr} chat plan credits from organization ${orgId}`,
 					);
 				} else {
 					await tx
 						.update(organization)
 						.set({
-							devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${num}`,
+							devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
 						})
 						.where(eq(organization.id, orgId));
 					logger.debug(
-						`Deducted ${num} dev plan credits from organization ${orgId}`,
+						`Deducted ${amountStr} dev plan credits from organization ${orgId}`,
 					);
 				}
 				pool.remaining = pool.remaining.minus(amount);
@@ -945,18 +945,18 @@ export async function batchProcessLogs(): Promise<void> {
 				const remainingCost = remainingFromChat.plus(remainingFromOther);
 
 				if (remainingCost.greaterThan(0)) {
-					const costNumber = remainingCost.toNumber();
+					const costStr = remainingCost.toString();
 					await tx
 						.update(organization)
 						.set({
-							credits: sql`${organization.credits} - ${costNumber}`,
+							credits: sql`${organization.credits} - ${costStr}`,
 						})
 						.where(eq(organization.id, orgId));
 
 					deductedOrgIds.push(orgId);
 
 					logger.debug(
-						`Deducted ${costNumber} regular credits from organization ${orgId}`,
+						`Deducted ${costStr} regular credits from organization ${orgId}`,
 					);
 				}
 
@@ -985,17 +985,17 @@ export async function batchProcessLogs(): Promise<void> {
 			// Apply referral earnings to referrer organizations
 			for (const [referrerOrgId, earnings] of referralEarnings.entries()) {
 				if (earnings.greaterThan(0)) {
-					const earningsNumber = earnings.toNumber();
+					const earningsStr = earnings.toString();
 					await tx
 						.update(organization)
 						.set({
-							credits: sql`${organization.credits} + ${earningsNumber}`,
-							referralEarnings: sql`${organization.referralEarnings} + ${earningsNumber}`,
+							credits: sql`${organization.credits} + ${earningsStr}`,
+							referralEarnings: sql`${organization.referralEarnings} + ${earningsStr}`,
 						})
 						.where(eq(organization.id, referrerOrgId));
 
 					logger.info(
-						`Added ${earningsNumber} referral credits to organization ${referrerOrgId}`,
+						`Added ${earningsStr} referral credits to organization ${referrerOrgId}`,
 					);
 				}
 			}
