@@ -3,7 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
-import { buildAnthropicErrorBody } from "@/lib/error-response.js";
+import {
+	buildAnthropicErrorBody,
+	getAnthropicErrorType,
+} from "@/lib/error-response.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
 import { logger, toError } from "@llmgateway/logger";
@@ -558,14 +561,27 @@ anthropic.openapi(messages, async (c) => {
 			} catch {
 				parsedError = null;
 			}
-			const errorEvent = buildAnthropicErrorEvent(
-				parsedError ?? {
-					error: {
-						message: errorData || response.statusText,
-						type: "api_error",
-					},
+			// Derive the Anthropic error type from the HTTP status so streamed
+			// errors match the non-streaming path. The upstream here is our own
+			// /v1/chat/completions, which returns an OpenAI envelope whose `type`
+			// (e.g. invalid_request_error) would otherwise pass through verbatim.
+			const innerMessage =
+				parsedError &&
+				typeof parsedError === "object" &&
+				"error" in parsedError &&
+				parsedError.error &&
+				typeof parsedError.error === "object" &&
+				"message" in parsedError.error &&
+				typeof parsedError.error.message === "string"
+					? parsedError.error.message
+					: errorData || response.statusText;
+			const errorEvent = buildAnthropicErrorEvent({
+				type: "error",
+				error: {
+					type: getAnthropicErrorType(response.status),
+					message: innerMessage,
 				},
-			);
+			});
 			return streamSSE(c, async (stream) => {
 				await stream.writeSSE({
 					data: JSON.stringify(errorEvent),

@@ -40,6 +40,7 @@ import { videosRoute } from "./videos/route.js";
 
 import type { ServerTypes } from "./vars.js";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const config = {
 	servers: [
@@ -131,10 +132,11 @@ function renderGatewayError(
 	status: number,
 	message: string,
 ) {
+	const jsonStatus = status as ContentfulStatusCode;
 	if (c.req.path.startsWith("/v1/messages")) {
-		return c.json(buildAnthropicErrorBody({ message, status }), status as any);
+		return c.json(buildAnthropicErrorBody({ message, status }), jsonStatus);
 	}
-	return c.json(buildOpenAIErrorBody({ message, status }), status as any);
+	return c.json(buildOpenAIErrorBody({ message, status }), jsonStatus);
 }
 
 app.onError((error, c) => {
