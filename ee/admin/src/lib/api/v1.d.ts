@@ -8066,7 +8066,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    includePersonal?: "true" | "false";
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
