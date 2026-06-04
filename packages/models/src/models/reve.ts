@@ -8,7 +8,7 @@ export const reveModels = [
 			"Reve's image generation model with native 4K resolution and code-based controllable image creation. Generates high-quality images from text prompts.",
 		family: "reve",
 		output: ["image"],
-		releasedAt: new Date("2025-09-15"),
+		releasedAt: new Date("2026-06-03"),
 		providers: [
 			{
 				test: "skip",
