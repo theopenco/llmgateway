@@ -835,7 +835,7 @@ export const xaiModels = [
 				supportedVideoSizes: ["848x480", "1280x720", "1696x960", "1920x1080"],
 				supportedVideoDurationsSeconds: [6, 8, 10, 12, 15],
 				supportsVideoAudio: true,
-				supportsVideoWithoutAudio: true,
+				supportsVideoWithoutAudio: false,
 			},
 		],
 	},
