@@ -1915,9 +1915,22 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedInternalModel === "auto") ||
 		usedInternalModel === "auto"
 	) {
-		// Reuse the prompt-token estimate computed earlier so auto-routing can
-		// react to large prompts when picking a model.
-		const estimatedInputTokens = routingPromptTokens;
+		// Auto-routing and the context-window check below should react to image
+		// payloads, not just text (issue #2112). Recompute the estimate with an
+		// image-aware count instead of reusing the text-only routingPromptTokens.
+		// requestedModel may be "auto" here, in which case no per-model image
+		// table is found and the shared default per-image token count is used.
+		// This is kept separate from routingPromptTokens, which stays text-only:
+		// that value backs the billing-fallback usage numbers and image input is
+		// priced separately via imageInputCost in costs.ts (counting images
+		// there would double count).
+		let estimatedInputTokens = 0;
+		if (messages && messages.length > 0) {
+			estimatedInputTokens = encodeChatMessages(messages, requestedModel);
+		}
+		if (tools && tools.length > 0) {
+			estimatedInputTokens += Math.round(JSON.stringify(tools).length / 4);
+		}
 
 		// Estimate the full context needed based on the request
 		let requiredContextSize = estimatedInputTokens;
