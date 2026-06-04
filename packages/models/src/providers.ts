@@ -178,28 +178,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "anthropic-discount",
-		name: "Anthropic (Discount)",
-		description:
-			"Anthropic-compatible provider routed through a discounted endpoint configured via environment variables.",
-		env: {
-			required: {
-				apiKey: "LLM_ANTHROPIC_DISCOUNT_API_KEY",
-				baseUrl: "LLM_ANTHROPIC_DISCOUNT_BASE_URL",
-			},
-		},
-		priority: 1.5,
-		streaming: true,
-		cancellation: true,
-		color: "#8b5cf6",
-		website: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		headquarters: null,
-		dataPolicy: null,
-	},
-	{
 		id: "google-ai-studio",
 		name: "Google AI Studio",
 		description:
@@ -507,6 +485,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+		priority: 1.5,
 	},
 	{
 		id: "alibaba",
@@ -766,6 +745,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
+		priority: 1.5,
 	},
 	{
 		id: "moonshot",
@@ -791,6 +771,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
+		priority: 1.5,
 	},
 	{
 		id: "perplexity",
@@ -1035,6 +1016,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+		priority: 1.5,
 	},
 	{
 		id: "embercloud",

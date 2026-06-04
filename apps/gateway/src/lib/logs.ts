@@ -66,7 +66,6 @@ export function getUnifiedFinishReason(
 
 	switch (provider) {
 		case "anthropic":
-		case "anthropic-discount":
 		case "vertex-anthropic":
 			if (finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;

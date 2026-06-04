@@ -1138,6 +1138,20 @@ describe("fallback and error status code handling", () => {
 		test("auto routing ignores synthetic root region mappings", async () => {
 			await ensureProviders(["zai", "alibaba", "novita"]);
 
+			// zai carries a default provider-priority bonus that would otherwise win
+			// auto-routing outright. Neutralize provider priorities via an enterprise
+			// routing config so this test exercises pure metric-based selection of
+			// the regional mapping.
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "org-id"));
+			await db.insert(tables.routingConfig).values({
+				projectId: "project-id",
+				enabled: true,
+				providerPriorities: { zai: 1, alibaba: 1, novita: 1 },
+			});
+
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",

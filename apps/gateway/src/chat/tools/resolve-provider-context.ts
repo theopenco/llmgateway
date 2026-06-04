@@ -121,6 +121,7 @@ export interface ProviderContextOptions {
 	webSearchEnabled: boolean;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	n?: number;
 	providerCacheControlEnabled: boolean;
 }
 
@@ -421,11 +422,7 @@ export async function resolveProviderContext(
 	}
 
 	// Anthropic does not allow temperature and top_p simultaneously
-	if (
-		usedProvider === "anthropic" ||
-		usedProvider === "anthropic-discount" ||
-		usedProvider === "vertex-anthropic"
-	) {
+	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -441,6 +438,20 @@ export async function resolveProviderContext(
 				});
 			}
 		}
+	}
+
+	// --- n parameter validation ---
+	// Mirror the initial-path supportsN check (chat.ts) so retry fallbacks
+	// don't silently drop n by routing to a mapping that doesn't natively
+	// accept multiple choices.
+	if (
+		options.n !== undefined &&
+		options.n > 1 &&
+		!providerMappingForSelected?.supportsN
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+		});
 	}
 
 	// --- requestCanBeCanceled ---
@@ -478,6 +489,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_key,
 		options.prompt_cache_retention,
 		options.providerCacheControlEnabled,
+		options.n,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -520,10 +532,7 @@ export async function resolveProviderContext(
 	});
 	headers["Content-Type"] = "application/json";
 
-	if (
-		(usedProvider === "anthropic" || usedProvider === "anthropic-discount") &&
-		options.effort !== undefined
-	) {
+	if (usedProvider === "anthropic" && options.effort !== undefined) {
 		const currentBeta = headers["anthropic-beta"];
 		headers["anthropic-beta"] = currentBeta
 			? `${currentBeta},effort-2025-11-24`
@@ -531,7 +540,7 @@ export async function resolveProviderContext(
 	}
 
 	if (
-		(usedProvider === "anthropic" || usedProvider === "anthropic-discount") &&
+		usedProvider === "anthropic" &&
 		options.response_format?.type === "json_schema"
 	) {
 		const currentBeta = headers["anthropic-beta"];

@@ -456,6 +456,7 @@ function filterEligibleModelProviders(
 		hasDocuments: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
+		n?: number;
 	},
 ): ProviderModelMapping[] {
 	return availableModelProviders.filter((provider) => {
@@ -474,6 +475,17 @@ function filterEligibleModelProviders(
 		}
 
 		if (options.webSearchTool && provider.webSearch !== true) {
+			return false;
+		}
+
+		// Exclude mappings that can't natively serve n > 1 so routing skips
+		// over them instead of selecting one and failing the post-selection
+		// supportsN guard. The post-guard stays as a safety net.
+		if (
+			options.n !== undefined &&
+			options.n > 1 &&
+			provider.supportsN !== true
+		) {
 			return false;
 		}
 
@@ -1156,6 +1168,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		web_search,
 		plugins,
+		n,
 		user,
 	} = validationResult.data;
 
@@ -1249,6 +1262,32 @@ chat.openapi(completions, async (c) => {
 	// prepareRequestBody.
 	let reasoning_effort =
 		reasoning_object_effort ?? validationResult.data.reasoning_effort;
+
+	// Reject n > 1 with streaming + function tools: the streaming tool-call
+	// aggregator keys deltas only by tc.index (the tool position within a
+	// choice), so concurrent function calls across choices would collide.
+	// Native web_search tools (and the web_search: true flag) don't flow
+	// through that aggregator — they're handled upstream — so they're
+	// exempt. n > 1 with streaming text-only output is fully supported.
+	if (n !== undefined && n > 1 && stream && tools) {
+		const functionToolsCount = tools.filter(
+			(t: { type: string }) => t.type !== "web_search",
+		).length;
+		if (functionToolsCount > 0) {
+			return c.json(
+				{
+					error: {
+						message:
+							"The `n` parameter with values greater than 1 is not supported in combination with `stream: true` and function tools. Use streaming without function tools, send a non-streaming request, or call the API multiple times.",
+						type: "invalid_request_error",
+						param: "n",
+						code: "unsupported_parameter_combination",
+					},
+				},
+				400,
+			);
+		}
+	}
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -2056,6 +2095,13 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				// Skip mappings that don't advertise supportsN when n > 1 so
+				// auto-routing doesn't pick one and trip the post-selection
+				// 400 guard. The post-guard stays as a safety net.
+				if (n !== undefined && n > 1 && provider.supportsN !== true) {
+					return false;
+				}
+
 				// Check JSON output capability if json_object or json_schema response format is requested
 				if (
 					response_format?.type === "json_object" ||
@@ -2354,6 +2400,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -2703,6 +2750,7 @@ chat.openapi(completions, async (c) => {
 						hasDocuments,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
+						n,
 					},
 				).filter(
 					(provider) =>
@@ -2884,6 +2932,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -3150,6 +3199,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -3975,6 +4025,7 @@ chat.openapi(completions, async (c) => {
 			reasoning_max_tokens,
 			prompt_cache_key,
 			prompt_cache_retention,
+			n,
 		};
 
 		if (stream) {
@@ -4013,14 +4064,18 @@ chat.openapi(completions, async (c) => {
 
 						const chunkData = JSON.parse(chunk.data);
 
-						// Extract content from chunk
-						if (chunkData.choices?.[0]?.delta?.content) {
-							fullContent += chunkData.choices[0].delta.content;
-						}
-
-						// Extract reasoning content from chunk
-						if (chunkData.choices?.[0]?.delta?.reasoning) {
-							fullReasoningContent += chunkData.choices[0].delta.reasoning;
+						// Extract content and reasoning from every choice so a cached
+						// n > 1 stream replay reconstructs the full logging buffer
+						// rather than only choice 0.
+						if (Array.isArray(chunkData.choices)) {
+							for (const choice of chunkData.choices) {
+								if (typeof choice?.delta?.content === "string") {
+									fullContent += choice.delta.content;
+								}
+								if (typeof choice?.delta?.reasoning === "string") {
+									fullReasoningContent += choice.delta.reasoning;
+								}
+							}
 						}
 
 						// Extract usage information (usually in the last chunks)
@@ -4163,29 +4218,27 @@ chat.openapi(completions, async (c) => {
 					streamed: true,
 					canceled: false,
 					errorDetails: null,
-					inputCost: costs.inputCost ?? 0,
-					outputCost: costs.outputCost ?? 0,
-					cachedInputCost: costs.cachedInputCost ?? 0,
-					cacheWriteInputCost: costs.cacheWriteInputCost ?? 0,
-					requestCost: costs.requestCost ?? 0,
-					webSearchCost: costs.webSearchCost ?? 0,
+					// Gateway response cache hits are served entirely from Redis with no
+					// upstream provider call, so they are free. Keep token counts for
+					// analytics but record zero cost (matches the worker's `!cached`
+					// billing skip and the documented `cost: 0` dashboard behavior).
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					cacheWriteInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
 					imageInputTokens: costs.imageInputTokens?.toString() ?? null,
 					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
-					imageInputCost: costs.imageInputCost ?? null,
-					imageOutputCost: costs.imageOutputCost ?? null,
+					imageInputCost: 0,
+					imageOutputCost: 0,
 					audioInputTokens: costs.audioInputTokens?.toString() ?? null,
-					audioInputCost: costs.audioInputCost ?? null,
-					cost: costs.totalCost ?? 0,
+					audioInputCost: 0,
+					cost: 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
-					dataStorageCost: calculateDataStorageCost(
-						costs.promptTokens ?? promptTokens,
-						cachedTokens,
-						completionTokens,
-						reasoningTokens,
-						retentionLevel,
-					),
+					dataStorageCost: "0",
 					cached: true,
 					toolResults:
 						(cachedStreamingResponse.metadata as { toolResults?: any })
@@ -4442,29 +4495,27 @@ chat.openapi(completions, async (c) => {
 					streamed: false,
 					canceled: false,
 					errorDetails: null,
-					inputCost: cachedCosts.inputCost ?? 0,
-					outputCost: cachedCosts.outputCost ?? 0,
-					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
-					cacheWriteInputCost: cachedCosts.cacheWriteInputCost ?? 0,
-					requestCost: cachedCosts.requestCost ?? 0,
-					webSearchCost: cachedCosts.webSearchCost ?? 0,
+					// Gateway response cache hits are served entirely from Redis with no
+					// upstream provider call, so they are free. Keep token counts for
+					// analytics but record zero cost (matches the worker's `!cached`
+					// billing skip and the documented `cost: 0` dashboard behavior).
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					cacheWriteInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
 					imageInputTokens: cachedCosts.imageInputTokens?.toString() ?? null,
 					imageOutputTokens: cachedCosts.imageOutputTokens?.toString() ?? null,
-					imageInputCost: cachedCosts.imageInputCost ?? null,
-					imageOutputCost: cachedCosts.imageOutputCost ?? null,
+					imageInputCost: 0,
+					imageOutputCost: 0,
 					audioInputTokens: cachedCosts.audioInputTokens?.toString() ?? null,
-					audioInputCost: cachedCosts.audioInputCost ?? null,
-					cost: cachedCosts.totalCost ?? 0,
+					audioInputCost: 0,
+					cost: 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
-					dataStorageCost: calculateDataStorageCost(
-						cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens,
-						cachedResponse.usage?.prompt_tokens_details?.cached_tokens,
-						cachedResponse.usage?.completion_tokens,
-						cachedResponse.usage?.reasoning_tokens,
-						retentionLevel,
-					),
+					dataStorageCost: "0",
 					cached: true,
 					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls ?? null,
 				});
@@ -4544,6 +4595,21 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Reject n > 1 when the resolved provider mapping does not advertise
+	// supportsN. We only forward n upstream for providers/models that bill
+	// input tokens once and accumulate output across choices natively
+	// (currently OpenAI Chat Completions models).
+	if (n !== undefined && n > 1 && finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.region === usedRegion,
+		);
+		if (!providerMapping?.supportsN) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+			});
+		}
+	}
+
 	// Save original parameters before provider-specific stripping for retry fallback
 	const originalRequestParams: OriginalRequestParams = {
 		temperature,
@@ -4585,11 +4651,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (
-		usedProvider === "anthropic" ||
-		usedProvider === "anthropic-discount" ||
-		usedProvider === "vertex-anthropic"
-	) {
+	if (usedProvider === "anthropic" || usedProvider === "vertex-anthropic") {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -4668,6 +4730,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_key,
 			prompt_cache_retention,
 			providerCacheControlEnabled,
+			n,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -4870,6 +4933,7 @@ chat.openapi(completions, async (c) => {
 					providerMapping.providerId,
 					providerMapping.region,
 				),
+				n,
 				providerCacheControlEnabled,
 			},
 		);
@@ -5274,11 +5338,7 @@ chat.openapi(completions, async (c) => {
 						headers["Content-Type"] = "application/json";
 
 						// Add effort beta header for Anthropic if effort parameter is specified
-						if (
-							(usedProvider === "anthropic" ||
-								usedProvider === "anthropic-discount") &&
-							effort !== undefined
-						) {
+						if (usedProvider === "anthropic" && effort !== undefined) {
 							const currentBeta = headers["anthropic-beta"];
 							headers["anthropic-beta"] = currentBeta
 								? `${currentBeta},effort-2025-11-24`
@@ -5287,8 +5347,7 @@ chat.openapi(completions, async (c) => {
 
 						// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 						if (
-							(usedProvider === "anthropic" ||
-								usedProvider === "anthropic-discount") &&
+							usedProvider === "anthropic" &&
 							response_format?.type === "json_schema"
 						) {
 							const currentBeta = headers["anthropic-beta"];
@@ -6561,11 +6620,17 @@ chat.openapi(completions, async (c) => {
 				const streamingIsJsonResponseFormat =
 					response_format?.type === "json_object" ||
 					response_format?.type === "json_schema";
+				// Healing buffers a single content stream and replays it after
+				// repair. With n > 1 each choice has its own content stream, so
+				// the single buffer would corrupt multi-choice output. Skip
+				// healing in that case — JSON healing for multi-choice streams
+				// is deferred to a follow-up.
+				const healingDisabledByN = n !== undefined && n > 1;
 				const shouldBufferForHealing =
+					!healingDisabledByN &&
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
 						((usedProvider === "anthropic" ||
-							usedProvider === "anthropic-discount" ||
 							usedProvider === "vertex-anthropic") &&
 							response_format?.type === "json_object") ||
 						(usedProvider === "aws-bedrock" &&
@@ -7384,7 +7449,6 @@ chat.openapi(completions, async (c) => {
 								// For Anthropic, if we have partial usage data, complete it
 								if (
 									(usedProvider === "anthropic" ||
-										usedProvider === "anthropic-discount" ||
 										usedProvider === "vertex-anthropic") &&
 									transformedData.usage
 								) {
@@ -7459,7 +7523,6 @@ chat.openapi(completions, async (c) => {
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
 								if (
 									usedProvider === "anthropic" ||
-									usedProvider === "anthropic-discount" ||
 									usedProvider === "vertex-anthropic"
 								) {
 									const toolCalls =
@@ -7576,11 +7639,17 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								// Extract finishReason from transformedData to update tracking variable
-								if (transformedData.choices?.[0]?.finish_reason) {
-									finishReason = transformedData.choices[0].finish_reason;
-									sawProviderTerminalEvent = true;
-									sentDownstreamFinishReasonChunk = true;
+								// Extract finishReason from transformedData. Iterate every
+								// choice so that n > 1 streams update tracking from whichever
+								// choice has terminated, not just index 0.
+								if (Array.isArray(transformedData.choices)) {
+									for (const choice of transformedData.choices) {
+										if (choice?.finish_reason) {
+											finishReason = choice.finish_reason;
+											sawProviderTerminalEvent = true;
+											sentDownstreamFinishReasonChunk = true;
+										}
+									}
 								}
 
 								// Extract content for logging using helper function
@@ -7589,7 +7658,6 @@ chat.openapi(completions, async (c) => {
 								const contentChunk = extractContent(
 									isGoogleCompatibleProvider(usedProvider) ||
 										usedProvider === "anthropic" ||
-										usedProvider === "anthropic-discount" ||
 										usedProvider === "vertex-anthropic"
 										? data
 										: transformedData,
@@ -7623,7 +7691,6 @@ chat.openapi(completions, async (c) => {
 								// Check for web search results based on provider-specific data
 								if (
 									usedProvider === "anthropic" ||
-									usedProvider === "anthropic-discount" ||
 									usedProvider === "vertex-anthropic"
 								) {
 									// For Anthropic, count web_search_tool_result blocks
@@ -7667,7 +7734,6 @@ chat.openapi(completions, async (c) => {
 								const reasoningContentChunk = extractReasoning(
 									isGoogleCompatibleProvider(usedProvider) ||
 										usedProvider === "anthropic" ||
-										usedProvider === "anthropic-discount" ||
 										usedProvider === "vertex-anthropic"
 										? data
 										: transformedData,
@@ -7697,7 +7763,6 @@ chat.openapi(completions, async (c) => {
 										// For Anthropic content_block_delta events, match by content block index
 										if (
 											(usedProvider === "anthropic" ||
-												usedProvider === "anthropic-discount" ||
 												usedProvider === "vertex-anthropic") &&
 											newCall._contentBlockIndex !== undefined
 										) {
@@ -7743,7 +7808,6 @@ chat.openapi(completions, async (c) => {
 										}
 										break;
 									case "anthropic":
-									case "anthropic-discount":
 									case "vertex-anthropic":
 										if (
 											data.type === "message_delta" &&
@@ -7763,8 +7827,14 @@ chat.openapi(completions, async (c) => {
 										}
 										break;
 									default: // OpenAI format
-										if (data.choices && data.choices[0]?.finish_reason) {
-											finishReason = data.choices[0].finish_reason;
+										// Iterate every choice so n > 1 streams capture the
+										// terminal reason from whichever index ended last.
+										if (Array.isArray(data.choices)) {
+											for (const choice of data.choices) {
+												if (choice?.finish_reason) {
+													finishReason = choice.finish_reason;
+												}
+											}
 										}
 										break;
 								}
@@ -8992,11 +9062,7 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Add effort beta header for Anthropic if effort parameter is specified
-			if (
-				(usedProvider === "anthropic" ||
-					usedProvider === "anthropic-discount") &&
-				effort !== undefined
-			) {
+			if (usedProvider === "anthropic" && effort !== undefined) {
 				const currentBeta = headers["anthropic-beta"];
 				headers["anthropic-beta"] = currentBeta
 					? `${currentBeta},effort-2025-11-24`
@@ -9005,8 +9071,7 @@ chat.openapi(completions, async (c) => {
 
 			// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 			if (
-				(usedProvider === "anthropic" ||
-					usedProvider === "anthropic-discount") &&
+				usedProvider === "anthropic" &&
 				response_format?.type === "json_schema"
 			) {
 				const currentBeta = headers["anthropic-beta"];
@@ -10359,9 +10424,7 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			((usedProvider === "anthropic" ||
-				usedProvider === "anthropic-discount" ||
-				usedProvider === "vertex-anthropic") &&
+			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
 				response_format?.type === "json_object") ||
 			(usedProvider === "aws-bedrock" &&
 				response_format?.type === "json_object") ||

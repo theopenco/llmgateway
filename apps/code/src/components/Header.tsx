@@ -39,6 +39,9 @@ export function Header() {
 						<Link href="/pricing">Pricing</Link>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
+						<Link href="/compare">Compare</Link>
+					</Button>
+					<Button variant="ghost" size="sm" asChild>
 						<a href={config.docsUrl} target="_blank" rel="noopener noreferrer">
 							Docs
 						</a>
@@ -93,6 +96,13 @@ export function Header() {
 						onClick={() => setMenuOpen(false)}
 					>
 						Pricing
+					</Link>
+					<Link
+						href="/compare"
+						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+						onClick={() => setMenuOpen(false)}
+					>
+						Compare
 					</Link>
 					<a
 						href={config.docsUrl}

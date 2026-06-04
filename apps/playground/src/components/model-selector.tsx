@@ -1030,8 +1030,15 @@ export function ModelSelector({
 			});
 		}
 		if (deferredSearch) {
-			const q = normalize(deferredSearch);
-			list = list.filter((entry) => entry.searchText.includes(q));
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = list.filter((entry) =>
+					tokens.every((t) => entry.searchText.includes(t)),
+				);
+			}
 		}
 		if (filters.providers.length > 0) {
 			list = list.filter(
@@ -1096,6 +1103,20 @@ export function ModelSelector({
 				}
 				return e.mapping ? providersWithKeys.has(e.mapping.providerId) : false;
 			});
+		}
+		if (deferredSearch) {
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = [...list].sort((a, b) => {
+					if (a.isRoot === b.isRoot) {
+						return 0;
+					}
+					return a.isRoot ? -1 : 1;
+				});
+			}
 		}
 		return list;
 	}, [allEntries, deferredSearch, filters, isFavorite, providersWithKeys]);
