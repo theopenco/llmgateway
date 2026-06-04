@@ -1920,6 +1920,7 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "avalanche" ||
+		job.usedProvider === "xai" ||
 		isGoogleVertexVideoProvider(job.usedProvider)
 	) {
 		return null;
