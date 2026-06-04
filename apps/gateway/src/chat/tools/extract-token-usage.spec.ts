@@ -222,6 +222,41 @@ describe("extractTokenUsage", () => {
 			expect(result.totalTokens).toBe(150);
 		});
 
+		it("extracts thinking tokens from output_tokens_details.thinking_tokens", () => {
+			// Current Anthropic API shape: thinking tokens live under
+			// output_tokens_details.thinking_tokens (adaptive thinking returns an
+			// encrypted thinking block with no text, so this count is the only
+			// signal reasoning happened).
+			const data = {
+				usage: {
+					input_tokens: 60,
+					output_tokens: 2928,
+					output_tokens_details: { thinking_tokens: 1502 },
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.completionTokens).toBe(2928);
+			expect(result.reasoningTokens).toBe(1502);
+			expect(result.totalTokens).toBe(2988); // 60 + 2928, not double-counted
+		});
+
+		it("prefers output_tokens_details.thinking_tokens over legacy field", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					output_tokens: 100,
+					output_tokens_details: { thinking_tokens: 40 },
+					reasoning_output_tokens: 31,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.reasoningTokens).toBe(40);
+		});
+
 		it("extracts 1h cache creation tokens from cache_creation breakdown", () => {
 			const data = {
 				usage: {
