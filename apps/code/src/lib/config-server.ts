@@ -11,6 +11,8 @@ export interface AppConfig {
 	posthogKey?: string;
 	posthogHost?: string;
 	stripePublishableKey?: string;
+	githubAuth: boolean;
+	googleAuth: boolean;
 }
 
 export function getConfig(): AppConfig {
@@ -29,5 +31,7 @@ export function getConfig(): AppConfig {
 		posthogKey: process.env.POSTHOG_KEY,
 		posthogHost: process.env.POSTHOG_HOST,
 		stripePublishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+		githubAuth: !!process.env.GITHUB_CLIENT_ID,
+		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
 	};
 }

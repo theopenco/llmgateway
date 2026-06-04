@@ -741,6 +741,7 @@ export async function prepareRequestBody(
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
 	providerCacheControlEnabled = true,
+	n?: number,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 
@@ -1040,7 +1041,6 @@ export async function prepareRequestBody(
 	// Anthropic-style `ttl: "1h"` must be normalized away before forwarding.
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
-		usedProvider === "anthropic-discount" ||
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
@@ -1448,6 +1448,9 @@ export async function prepareRequestBody(
 				if (reasoning_effort !== undefined) {
 					requestBody.reasoning_effort = reasoning_effort;
 				}
+				if (n !== undefined && n > 1) {
+					requestBody.n = n;
+				}
 			}
 			break;
 		}
@@ -1507,7 +1510,6 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "anthropic":
-		case "anthropic-discount":
 		case "vertex-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
@@ -2626,6 +2628,23 @@ export async function prepareRequestBody(
 					...(requestBody.extra_body ?? {}),
 					reasoning_split: true,
 				};
+			}
+			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
+			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
+			// flag to turn reasoning on. Only set it when the caller asked for
+			// reasoning so plain requests stay non-thinking.
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+				const thinkingMapping = modelDef?.providers.find(
+					(p) =>
+						p.providerId === usedProvider &&
+						((p as ProviderModelMapping).region ?? null) === usedRegion,
+				) as ProviderModelMapping | undefined;
+				if (thinkingMapping?.requiresEnableThinking) {
+					requestBody.chat_template_kwargs = {
+						...(requestBody.chat_template_kwargs ?? {}),
+						thinking: true,
+					};
+				}
 			}
 			break;
 		}

@@ -184,6 +184,14 @@ export function Footer() {
 									</Link>
 								</li>
 								<li>
+									<Link
+										href="/compare"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Compare Plans
+									</Link>
+								</li>
+								<li>
 									<a
 										href={`${config.uiUrl}/models`}
 										rel="noopener"

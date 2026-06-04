@@ -62,7 +62,6 @@ export function mapFinishReasonToOpenai(
 					return "stop";
 			}
 		case "anthropic":
-		case "anthropic-discount":
 		case "vertex-anthropic":
 			if (!finishReason) {
 				return hasToolCalls ? "tool_calls" : "stop";
