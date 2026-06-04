@@ -721,8 +721,8 @@ async function handleCheckoutSessionCompleted(
 	// Check if this is a chat plan subscription
 	const isChatPlan = metadata?.subscriptionType === "chat_plan";
 	const chatPlanTier = metadata?.chatPlan as ChatPlanTier | undefined;
-	const chatPlanCycle: ChatPlanCycle =
-		metadata?.chatPlanCycle === "annual" ? "annual" : "monthly";
+	// Chat plans are monthly only.
+	const chatPlanCycle: ChatPlanCycle = "monthly";
 
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlan: ${isDevPlan}, isChatPlan: ${isChatPlan}`,

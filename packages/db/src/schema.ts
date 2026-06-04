@@ -215,7 +215,7 @@ export const organization = pgTable(
 		chatPlanStripeSubscriptionId: text().unique(),
 		chatPlanCancelled: boolean().notNull().default(false),
 		chatPlanExpiresAt: timestamp(),
-		chatPlanCycle: text({ enum: ["monthly", "annual"] })
+		chatPlanCycle: text({ enum: ["monthly"] })
 			.notNull()
 			.default("monthly"),
 		// Same one-card-one-org policy as dev plans.

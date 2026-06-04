@@ -10,7 +10,6 @@ import { logger } from "@llmgateway/logger";
 import {
 	CHAT_PLAN_PRICES,
 	getChatPlanCreditsLimit,
-	type ChatPlanCycle,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
 
@@ -72,22 +71,13 @@ async function getOrCreatePersonalOrg(user: User) {
 	});
 }
 
-function getChatPlanPriceId(
-	tier: ChatPlanTier,
-	cycle: ChatPlanCycle = "monthly",
-): string | undefined {
+function getChatPlanPriceId(tier: ChatPlanTier): string | undefined {
 	const monthlyKeys: Record<ChatPlanTier, string> = {
 		starter: "STRIPE_CHAT_PLAN_STARTER_PRICE_ID",
 		plus: "STRIPE_CHAT_PLAN_PLUS_PRICE_ID",
 		pro: "STRIPE_CHAT_PLAN_PRO_PRICE_ID",
 	};
-	const annualKeys: Record<ChatPlanTier, string> = {
-		starter: "STRIPE_CHAT_PLAN_STARTER_ANNUAL_PRICE_ID",
-		plus: "STRIPE_CHAT_PLAN_PLUS_ANNUAL_PRICE_ID",
-		pro: "STRIPE_CHAT_PLAN_PRO_ANNUAL_PRICE_ID",
-	};
-	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
-	return process.env[key];
+	return process.env[monthlyKeys[tier]];
 }
 
 const subscribe = createRoute({
@@ -99,7 +89,6 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["starter", "plus", "pro"]),
-						cycle: z.enum(["monthly", "annual"]).optional().default("monthly"),
 					}),
 				},
 			},
@@ -121,7 +110,7 @@ const subscribe = createRoute({
 
 chatPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier, cycle } = c.req.valid("json");
+	const { tier } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -147,11 +136,10 @@ chatPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	const priceId = getChatPlanPriceId(tier, cycle);
+	const priceId = getChatPlanPriceId(tier);
 	if (!priceId) {
-		const envSuffix = cycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_CHAT_PLAN_${tier.toUpperCase()}${envSuffix} environment variable is not set`,
+			message: `STRIPE_CHAT_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
 		});
 	}
 
@@ -175,7 +163,7 @@ chatPlans.openapi(subscribe, async (c) => {
 				organizationId: personalOrg.id,
 				subscriptionType: "chat_plan",
 				chatPlan: tier,
-				chatPlanCycle: cycle,
+				chatPlanCycle: "monthly",
 				userEmail: user.email,
 			},
 			subscription_data: {
@@ -183,7 +171,7 @@ chatPlans.openapi(subscribe, async (c) => {
 					organizationId: personalOrg.id,
 					subscriptionType: "chat_plan",
 					chatPlan: tier,
-					chatPlanCycle: cycle,
+					chatPlanCycle: "monthly",
 					userEmail: user.email,
 				},
 			},
@@ -214,7 +202,6 @@ chatPlans.openapi(subscribe, async (c) => {
 		resourceType: "chat_plan",
 		metadata: {
 			tier,
-			cycle,
 		},
 	});
 
@@ -480,15 +467,10 @@ chatPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	// Preserve cadence — an annual subscriber should not be silently moved to
-	// monthly when changing tier.
-	const existingCycle: ChatPlanCycle = personalOrg.chatPlanCycle;
-	const newPriceId = getChatPlanPriceId(newTier, existingCycle);
+	const newPriceId = getChatPlanPriceId(newTier);
 	if (!newPriceId) {
-		const envSuffix =
-			existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_CHAT_PLAN_${newTier.toUpperCase()}${envSuffix} environment variable is not set`,
+			message: `STRIPE_CHAT_PLAN_${newTier.toUpperCase()}_PRICE_ID environment variable is not set`,
 		});
 	}
 
@@ -520,7 +502,7 @@ chatPlans.openapi(changeTier, async (c) => {
 				metadata: {
 					...subscription.metadata,
 					chatPlan: newTier,
-					chatPlanCycle: existingCycle,
+					chatPlanCycle: "monthly",
 				},
 			},
 		);
@@ -604,7 +586,7 @@ const getStatus = createRoute({
 					schema: z.object({
 						hasPersonalOrg: z.boolean(),
 						chatPlan: z.enum(["none", "starter", "plus", "pro"]),
-						chatPlanCycle: z.enum(["monthly", "annual"]),
+						chatPlanCycle: z.enum(["monthly"]),
 						chatPlanCreditsUsed: z.string(),
 						chatPlanCreditsLimit: z.string(),
 						chatPlanCreditsRemaining: z.string(),

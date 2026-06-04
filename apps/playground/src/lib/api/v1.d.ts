@@ -11107,11 +11107,6 @@ export interface paths {
                     "application/json": {
                         /** @enum {string} */
                         tier: "starter" | "plus" | "pro";
-                        /**
-                         * @default monthly
-                         * @enum {string}
-                         */
-                        cycle?: "monthly" | "annual";
                     };
                 };
             };
@@ -11280,7 +11275,7 @@ export interface paths {
                             /** @enum {string} */
                             chatPlan: "none" | "starter" | "plus" | "pro";
                             /** @enum {string} */
-                            chatPlanCycle: "monthly" | "annual";
+                            chatPlanCycle: "monthly";
                             chatPlanCreditsUsed: string;
                             chatPlanCreditsLimit: string;
                             chatPlanCreditsRemaining: string;

@@ -1,5 +1,6 @@
 "use client";
 
+import { Film, ImagePlus, MessageSquare, PenTool, Users } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +9,8 @@ import { Logo } from "@/components/ui/logo";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
+
+import type { LucideIcon } from "lucide-react";
 
 interface AuthDialogProps {
 	open: boolean;
@@ -25,17 +28,50 @@ const PROVIDER_LOGOS = [
 	"deepseek",
 ] as const;
 
+interface Feature {
+	icon: LucideIcon;
+	title: string;
+	description: string;
+}
+
+const FEATURES: Feature[] = [
+	{
+		icon: MessageSquare,
+		title: "Chat",
+		description: "GPT, Claude, Gemini & 210+ models — switch mid-conversation",
+	},
+	{
+		icon: ImagePlus,
+		title: "Image Studio",
+		description: "Generate and edit images from a prompt",
+	},
+	{
+		icon: Film,
+		title: "Video Studio",
+		description: "Turn a prompt into short videos",
+	},
+	{
+		icon: PenTool,
+		title: "Canvas",
+		description: "Build and preview UIs with live output",
+	},
+	{
+		icon: Users,
+		title: "Group Chat",
+		description: "Run several models side by side and compare",
+	},
+];
+
 const HIGHLIGHTS = [
 	"Save & search your full chat history",
-	"Switch between models mid-conversation",
 	"Pay-as-you-go credits or a flat monthly plan — your call",
 ] as const;
 
 export function AuthDialog({
 	open,
 	returnUrl,
-	title = "Chat with GPT, Claude, Gemini & 100+ models — in one place",
-	description = "One account. Every model. Free to start — no credit card required.",
+	title = "Every model and studio — in one place",
+	description = "Chat, images, video, canvas and group chat across 210+ models. Free to start — no credit card required.",
 }: AuthDialogProps) {
 	if (!open) {
 		return null;
@@ -50,7 +86,7 @@ export function AuthDialog({
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/95 p-4 backdrop-blur-sm">
-			<div className="w-full max-w-md rounded-2xl border bg-card p-8 shadow-2xl">
+			<div className="my-8 w-full max-w-lg rounded-2xl border bg-card p-8 shadow-2xl">
 				<div className="flex items-center gap-2">
 					<Logo className="size-6" />
 					<span className="text-base font-semibold">LLM Gateway</span>
@@ -75,7 +111,31 @@ export function AuthDialog({
 					})}
 				</div>
 
-				<ul className="mt-6 space-y-2.5">
+				<div className="mt-6 grid gap-2.5 sm:grid-cols-2">
+					{FEATURES.map((feature) => {
+						const Icon = feature.icon;
+						return (
+							<div
+								key={feature.title}
+								className="flex items-start gap-3 rounded-xl border bg-background/40 p-3"
+							>
+								<span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+									<Icon className="size-4" aria-hidden />
+								</span>
+								<div className="min-w-0">
+									<div className="text-sm font-medium leading-tight">
+										{feature.title}
+									</div>
+									<p className="mt-0.5 text-xs text-muted-foreground">
+										{feature.description}
+									</p>
+								</div>
+							</div>
+						);
+					})}
+				</div>
+
+				<ul className="mt-5 space-y-2.5">
 					{HIGHLIGHTS.map((highlight) => (
 						<li
 							key={highlight}

@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Pricing — LLMGateway Chat",
 	description:
-		"Subscribe to a chat plan and get up to 3× the credits for your dollar. All frontier models in one place, billed monthly or annually.",
+		"Subscribe to a chat plan and get up to 3× the credits for your dollar. All frontier models in one place, billed monthly.",
 	alternates: {
 		canonical: "/pricing",
 	},

@@ -6,25 +6,9 @@ export const CHAT_PLAN_PRICES = {
 
 export type ChatPlanTier = keyof typeof CHAT_PLAN_PRICES;
 
-export type ChatPlanCycle = "monthly" | "annual";
-
-// Two months free when paying annually (effectively 16.7% off)
-export const CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS = 2;
-
-/**
- * Annual price for a tier — 12 months minus the discount months.
- * Returns the total billed once per year.
- */
-export function getChatPlanAnnualPrice(tier: ChatPlanTier): number {
-	return CHAT_PLAN_PRICES[tier] * (12 - CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS);
-}
-
-/**
- * Effective monthly price when billed annually (used to display "$X/mo billed yearly").
- */
-export function getChatPlanAnnualMonthlyPrice(tier: ChatPlanTier): number {
-	return Math.round((getChatPlanAnnualPrice(tier) / 12) * 100) / 100;
-}
+// Chat plans are billed monthly only. The cycle type is retained for the
+// persisted column and Stripe metadata, which always resolve to "monthly".
+export type ChatPlanCycle = "monthly";
 
 /**
  * Tapered credit multipliers. The entry tier stays margin-positive even when

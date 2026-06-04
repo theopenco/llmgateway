@@ -11,12 +11,8 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { formatCredits } from "@/lib/format-credits";
 
 import {
-	CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS,
 	CHAT_PLAN_CREDITS_MULTIPLIERS,
 	CHAT_PLAN_PRICES,
-	getChatPlanAnnualMonthlyPrice,
-	getChatPlanAnnualPrice,
-	type ChatPlanCycle,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
 
@@ -69,60 +65,6 @@ const plans: PlanContent[] = [
 	},
 ];
 
-interface CycleToggleProps {
-	cycle: ChatPlanCycle;
-	onChange: (cycle: ChatPlanCycle) => void;
-	disabled?: boolean;
-}
-
-function CycleToggle({ cycle, onChange, disabled }: CycleToggleProps) {
-	return (
-		<div
-			role="radiogroup"
-			aria-label="Billing cycle"
-			className="inline-flex items-center rounded-full border bg-card p-1 text-sm shadow-sm"
-		>
-			<button
-				role="radio"
-				aria-checked={cycle === "monthly"}
-				type="button"
-				disabled={disabled}
-				onClick={() => onChange("monthly")}
-				className={`relative rounded-full px-4 py-1.5 font-medium transition-colors disabled:opacity-50 ${
-					cycle === "monthly"
-						? "bg-foreground text-background"
-						: "text-muted-foreground hover:text-foreground"
-				}`}
-			>
-				Monthly
-			</button>
-			<button
-				role="radio"
-				aria-checked={cycle === "annual"}
-				type="button"
-				disabled={disabled}
-				onClick={() => onChange("annual")}
-				className={`relative rounded-full px-4 py-1.5 font-medium transition-colors disabled:opacity-50 ${
-					cycle === "annual"
-						? "bg-foreground text-background"
-						: "text-muted-foreground hover:text-foreground"
-				}`}
-			>
-				Annual
-				<span
-					className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-						cycle === "annual"
-							? "bg-background/20 text-background"
-							: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-					}`}
-				>
-					−{CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS} mo
-				</span>
-			</button>
-		</div>
-	);
-}
-
 function formatUsd(amount: number): string {
 	return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(0)}`;
 }
@@ -148,10 +90,6 @@ export function ChatPricingPlans({
 	const status = statusQuery.data;
 	const activeTier =
 		status && status.chatPlan !== "none" ? status.chatPlan : null;
-	const subscribedCycle: ChatPlanCycle = status?.chatPlanCycle ?? "monthly";
-
-	const [cycle, setCycle] = useState<ChatPlanCycle>("monthly");
-	const effectiveCycle: ChatPlanCycle = activeTier ? subscribedCycle : cycle;
 
 	const [pendingTier, setPendingTier] = useState<ChatPlanTier | null>(null);
 	const [pendingAction, setPendingAction] = useState<
@@ -166,15 +104,13 @@ export function ChatPricingPlans({
 
 	async function handleSubscribe(tier: ChatPlanTier) {
 		if (!isAuthenticated) {
-			router.push(
-				`/login?next=${encodeURIComponent(`/pricing?plan=${tier}&cycle=${cycle}`)}`,
-			);
+			router.push(`/login?next=${encodeURIComponent(`/pricing?plan=${tier}`)}`);
 			return;
 		}
 		setPendingTier(tier);
 		try {
 			const { data, error } = await fetchClient.POST("/chat-plans/subscribe", {
-				body: { tier, cycle },
+				body: { tier },
 			});
 			if (error || !data) {
 				toast.error(
@@ -262,10 +198,7 @@ export function ChatPricingPlans({
 								Current plan
 							</div>
 							<div className="mt-1 text-lg font-semibold">
-								{activeTier[0].toUpperCase() + activeTier.slice(1)}{" "}
-								<span className="text-sm font-normal text-muted-foreground">
-									({subscribedCycle})
-								</span>
+								{activeTier[0].toUpperCase() + activeTier.slice(1)}
 							</div>
 							<div className="mt-1 text-xs text-muted-foreground tabular-nums">
 								${formatCredits(Number(status.chatPlanCreditsUsed))} of $
@@ -310,20 +243,9 @@ export function ChatPricingPlans({
 				</div>
 			)}
 
-			<div className="mb-10 flex justify-center">
-				<CycleToggle
-					cycle={effectiveCycle}
-					onChange={setCycle}
-					disabled={Boolean(activeTier)}
-				/>
-			</div>
 			<div className="grid gap-6 md:grid-cols-3">
 				{plans.map((plan) => {
 					const monthlyPrice = CHAT_PLAN_PRICES[plan.tier];
-					const annualPerMonth = getChatPlanAnnualMonthlyPrice(plan.tier);
-					const annualTotal = getChatPlanAnnualPrice(plan.tier);
-					const displayPrice =
-						effectiveCycle === "annual" ? annualPerMonth : monthlyPrice;
 					const creditsMultiplier = creditsMultipliers[plan.tier];
 					const usageValue = monthlyPrice * creditsMultiplier;
 					const isPending = pendingTier === plan.tier;
@@ -363,22 +285,12 @@ export function ChatPricingPlans({
 
 							<div className="mb-1 flex items-baseline gap-1.5">
 								<span className="text-5xl font-bold tracking-tight tabular-nums">
-									${displayPrice}
+									${monthlyPrice}
 								</span>
 								<span className="text-muted-foreground">/mo</span>
 							</div>
 							<div className="mb-6 min-h-[20px] text-xs text-muted-foreground">
-								{effectiveCycle === "annual" ? (
-									<>
-										Billed{" "}
-										<span className="font-medium text-foreground tabular-nums">
-											${annualTotal}
-										</span>{" "}
-										yearly
-									</>
-								) : (
-									plan.tagline
-								)}
+								{plan.tagline}
 							</div>
 
 							<div className="mb-5 rounded-xl border border-dashed bg-muted/40 p-4">
@@ -435,15 +347,6 @@ export function ChatPricingPlans({
 										</span>
 									</li>
 								))}
-								{effectiveCycle === "annual" && (
-									<li className="flex items-start gap-2.5">
-										<Check className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
-										<span className="text-sm text-muted-foreground">
-											Save {CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS} months vs monthly
-											billing
-										</span>
-									</li>
-								)}
 							</ul>
 
 							<Button
