@@ -8196,6 +8196,14 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
+					// A finish_reason that itself signals an upstream failure (e.g.
+					// Embercloud emits finish_reason "error" with a null content delta and
+					// no error event/HTTP error) is a hard error in its own right. Treat it
+					// as an upstream error regardless of whether any partial content
+					// arrived, instead of inferring failure from an empty response.
+					const hasUpstreamErrorFinishReason =
+						!streamingError && finishReason === "error";
+
 					// Check if the response finished successfully but has no content, tokens, or tool calls
 					// This indicates an empty response which should be marked as an error
 					// Do this check BEFORE sending usage chunks to ensure proper event ordering
@@ -8206,6 +8214,7 @@ chat.openapi(completions, async (c) => {
 					);
 					const hasEmptyResponse =
 						!streamingError &&
+						!hasUpstreamErrorFinishReason &&
 						finishReason &&
 						finishReason !== "incomplete" &&
 						!isContentFilterStreamingResponse &&
@@ -8218,34 +8227,33 @@ chat.openapi(completions, async (c) => {
 						| Awaited<ReturnType<typeof calculateCosts>>
 						| undefined;
 
-					if (hasEmptyResponse) {
-						logger.warn("[streaming] Empty response detected", {
-							provider: usedProvider,
-							model: usedInternalModel,
-							finishReason,
-							calculatedCompletionTokens,
-							calculatedReasoningTokens,
-							fullContentLength: fullContent?.length ?? 0,
-							fullContentTrimmed: fullContent?.trim()?.length ?? 0,
-							streamingToolCallsCount: streamingToolCalls?.length ?? 0,
-							promptTokens,
-							completionTokens,
-							totalTokens,
-							reasoningTokens,
-							unifiedFinishReason: getUnifiedFinishReason(
-								"upstream_error",
-								usedProvider,
-							),
-						});
-						// Some providers (e.g. Embercloud) signal an upstream failure by
-						// terminating the stream with finish_reason "error" and a null
-						// content delta, rather than an HTTP error or error event. Surface
-						// that explicitly instead of the misleading "finished successfully"
-						// message, since the stream did not complete successfully.
-						const errorMessage =
-							finishReason === "error"
-								? 'Upstream provider terminated the stream with finish_reason "error" and returned no content'
-								: "Response finished successfully but returned no content or tool calls";
+					if (hasUpstreamErrorFinishReason || hasEmptyResponse) {
+						const errorMessage = hasUpstreamErrorFinishReason
+							? `Upstream provider terminated the stream with finish_reason "${finishReason}"`
+							: "Response finished successfully but returned no content or tool calls";
+						logger.warn(
+							hasUpstreamErrorFinishReason
+								? "[streaming] Upstream error finish_reason"
+								: "[streaming] Empty response detected",
+							{
+								provider: usedProvider,
+								model: usedInternalModel,
+								finishReason,
+								calculatedCompletionTokens,
+								calculatedReasoningTokens,
+								fullContentLength: fullContent?.length ?? 0,
+								fullContentTrimmed: fullContent?.trim()?.length ?? 0,
+								streamingToolCallsCount: streamingToolCalls?.length ?? 0,
+								promptTokens,
+								completionTokens,
+								totalTokens,
+								reasoningTokens,
+								unifiedFinishReason: getUnifiedFinishReason(
+									"upstream_error",
+									usedProvider,
+								),
+							},
+						);
 						streamingError = errorMessage;
 						finishReason = "upstream_error";
 
