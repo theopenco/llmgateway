@@ -27,7 +27,13 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees, isCreditTopUpAmountInRange } from "@llmgateway/shared";
+import {
+	calculateFees,
+	type DevPlanTier,
+	getDevPlanCreditsLimit,
+	isCreditTopUpAmountInRange,
+	monthlyBucketWindow,
+} from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import {
@@ -84,6 +90,7 @@ function getStripe(): Stripe {
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
+const DEV_PLAN_REFRESH_LOCK_KEY = "dev_plan_monthly_refresh";
 const LOCK_DURATION_MINUTES = 5;
 const AUTO_TOPUP_DISABLE_AFTER_DAYS = 7;
 const AUTO_TOPUP_DISABLE_AFTER_MS =
@@ -672,6 +679,75 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		);
 	} finally {
 		await releaseLock(DATA_RETENTION_LOCK_KEY);
+	}
+}
+
+/**
+ * Refresh monthly credit buckets for annual dev plan subscribers.
+ *
+ * Monthly subscribers get a fresh allowance from Stripe's monthly
+ * `invoice.payment_succeeded` (handled in the API). Annual subscribers pay once
+ * a year, so Stripe only fires that once — they'd otherwise be stuck with a
+ * single month's credits for the whole term. This job resets `devPlanCreditsUsed`
+ * to 0 and re-grants the tier's monthly allotment once each monthly boundary
+ * (anchored to `devPlanBillingCycleStart`) passes. The anchor advances to the
+ * boundary (not `now`) so buckets stay aligned and a downtime gap catches up in
+ * a single refresh. Frozen (dunning) orgs are skipped.
+ */
+export async function refreshAnnualDevPlanCredits(): Promise<void> {
+	const lockAcquired = await acquireLock(DEV_PLAN_REFRESH_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		const now = new Date();
+		const annualOrgs = await db.query.organization.findMany({
+			where: {
+				devPlanCycle: { eq: "annual" },
+				devPlan: { ne: "none" },
+				devPlanCreditsFrozen: { eq: false },
+			},
+		});
+
+		for (const org of annualOrgs) {
+			if (!org.devPlanStripeSubscriptionId || !org.devPlanBillingCycleStart) {
+				continue;
+			}
+
+			const { periodsElapsed, windowStart } = monthlyBucketWindow(
+				org.devPlanBillingCycleStart,
+				now,
+			);
+			if (periodsElapsed < 1) {
+				continue;
+			}
+
+			const creditsLimit = getDevPlanCreditsLimit(org.devPlan as DevPlanTier);
+
+			await db
+				.update(organization)
+				.set({
+					devPlanCreditsUsed: "0",
+					devPlanCreditsLimit: creditsLimit.toString(),
+					devPlanBillingCycleStart: windowStart,
+				})
+				.where(eq(organization.id, org.id));
+
+			await db.insert(tables.transaction).values({
+				organizationId: org.id,
+				type: "dev_plan_renewal",
+				creditAmount: creditsLimit.toString(),
+				status: "completed",
+				description: `Dev Plan ${org.devPlan?.toUpperCase()} monthly credits refreshed`,
+			});
+
+			logger.info(
+				`Refreshed monthly dev plan credits for annual org ${org.id} (${periodsElapsed} period(s) elapsed); credits reset to 0/${creditsLimit}`,
+			);
+		}
+	} finally {
+		await releaseLock(DEV_PLAN_REFRESH_LOCK_KEY);
 	}
 }
 
@@ -1615,6 +1691,33 @@ async function runDataRetentionLoop() {
 	}
 }
 
+async function runAnnualDevPlanRefreshLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 3600 : 60) * 1000; // hourly in prod, 1 minute in dev
+	logger.info(
+		`Starting annual dev plan credit refresh loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await refreshAnnualDevPlanCredits();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in annual dev plan credit refresh loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Annual dev plan credit refresh loop stopped");
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -1691,6 +1794,9 @@ export async function startWorker() {
 	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",
 	);
+	logger.info(
+		"- Annual dev plan refresh: runs hourly to grant annual subscribers their monthly credit bucket",
+	);
 
 	void runMinutelyHistoryLoop();
 	void runCurrentMinuteHistoryLoop();
@@ -1703,6 +1809,7 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
+	void runAnnualDevPlanRefreshLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,
 		acquireLock,

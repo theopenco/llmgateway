@@ -51,3 +51,53 @@ export function getProratedCreditDelta(
 		getDevPlanCreditsLimit(toTier) - getDevPlanCreditsLimit(fromTier);
 	return delta * clamped;
 }
+
+/**
+ * Add `months` calendar months to a date in UTC, clamping the day-of-month to
+ * the target month's length (e.g. Jan 31 + 1 month → Feb 28). Time-of-day is
+ * preserved so monthly boundaries stay aligned to the original anchor.
+ */
+export function addUtcMonths(date: Date, months: number): Date {
+	const target = new Date(
+		Date.UTC(
+			date.getUTCFullYear(),
+			date.getUTCMonth() + months,
+			1,
+			date.getUTCHours(),
+			date.getUTCMinutes(),
+			date.getUTCSeconds(),
+			date.getUTCMilliseconds(),
+		),
+	);
+	const daysInTargetMonth = new Date(
+		Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+	).getUTCDate();
+	target.setUTCDate(Math.min(date.getUTCDate(), daysInTargetMonth));
+	return target;
+}
+
+/**
+ * Monthly credit bucket window for an annual dev plan.
+ *
+ * Annual subscribers pay yearly but receive a fresh MONTHLY credit allowance.
+ * Given the cycle anchor (`devPlanBillingCycleStart`) and the current time,
+ * this returns the window [start, end) of the monthly bucket containing `now`
+ * and how many whole monthly buckets have elapsed since the anchor. A worker
+ * uses `periodsElapsed >= 1` to know a refresh is due and `windowStart` as the
+ * new anchor; tier-change proration uses the window to scale credits over the
+ * current month rather than the full Stripe year.
+ */
+export function monthlyBucketWindow(
+	anchor: Date,
+	now: Date,
+): { windowStart: Date; windowEnd: Date; periodsElapsed: number } {
+	let periodsElapsed = 0;
+	while (addUtcMonths(anchor, periodsElapsed + 1).getTime() <= now.getTime()) {
+		periodsElapsed++;
+	}
+	return {
+		windowStart: addUtcMonths(anchor, periodsElapsed),
+		windowEnd: addUtcMonths(anchor, periodsElapsed + 1),
+		periodsElapsed,
+	};
+}
