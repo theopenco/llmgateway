@@ -1343,6 +1343,7 @@ export const googleModels = [
 				tools: false,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				deactivatedAt: new Date("2026-10-02"),
 			},
 			{
 				test: "skip",
@@ -1359,6 +1360,7 @@ export const googleModels = [
 				tools: false,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				deactivatedAt: new Date("2026-10-02"),
 			},
 			{
 				test: "skip",
