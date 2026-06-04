@@ -6623,6 +6623,10 @@ chat.openapi(completions, async (c) => {
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
+				// Raw upstream chunk that carried a finish_reason signalling an upstream
+				// failure (e.g. "error"), preserved so the log shows the actual provider
+				// payload rather than only our synthesized error message.
+				let upstreamErrorChunkRaw: string | null = null;
 				const isAwsBedrock = usedProvider === "aws-bedrock";
 				const taggedReasoningStreamState = {
 					inReasoning: false,
@@ -7435,6 +7439,27 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								// A chunk whose finish_reason signals an upstream failure (e.g.
+								// Embercloud's "error") is not a valid OpenAI completion chunk —
+								// "error" is not a valid OpenAI finish_reason. Capture the
+								// terminal finish reason and raw payload for the error event and
+								// logging, but skip this chunk entirely otherwise: it is not
+								// forwarded to the client and must not feed content/token/cost
+								// accumulation, since the client never receives it.
+								const isUpstreamErrorChunk =
+									transformedData.choices?.some(
+										(choice: { finish_reason?: string | null }) =>
+											choice?.finish_reason === "error",
+									) ?? false;
+								if (isUpstreamErrorChunk) {
+									finishReason = "error";
+									sawProviderTerminalEvent = true;
+									upstreamErrorChunkRaw = JSON.stringify(data);
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									continue;
+								}
+
 								if (splitTaggedReasoning) {
 									const deltaContent =
 										transformedData.choices?.[0]?.delta?.content;
@@ -8209,6 +8234,14 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
+					// A finish_reason that itself signals an upstream failure (e.g.
+					// Embercloud emits finish_reason "error" with a null content delta and
+					// no error event/HTTP error) is a hard error in its own right. Treat it
+					// as an upstream error regardless of whether any partial content
+					// arrived, instead of inferring failure from an empty response.
+					const hasUpstreamErrorFinishReason =
+						!streamingError && finishReason === "error";
+
 					// Check if the response finished successfully but has no content, tokens, or tool calls
 					// This indicates an empty response which should be marked as an error
 					// Do this check BEFORE sending usage chunks to ensure proper event ordering
@@ -8219,6 +8252,7 @@ chat.openapi(completions, async (c) => {
 					);
 					const hasEmptyResponse =
 						!streamingError &&
+						!hasUpstreamErrorFinishReason &&
 						finishReason &&
 						finishReason !== "incomplete" &&
 						!isContentFilterStreamingResponse &&
@@ -8231,28 +8265,51 @@ chat.openapi(completions, async (c) => {
 						| Awaited<ReturnType<typeof calculateCosts>>
 						| undefined;
 
-					if (hasEmptyResponse) {
-						logger.warn("[streaming] Empty response detected", {
-							provider: usedProvider,
-							model: usedInternalModel,
-							finishReason,
-							calculatedCompletionTokens,
-							calculatedReasoningTokens,
-							fullContentLength: fullContent?.length ?? 0,
-							fullContentTrimmed: fullContent?.trim()?.length ?? 0,
-							streamingToolCallsCount: streamingToolCalls?.length ?? 0,
-							promptTokens,
-							completionTokens,
-							totalTokens,
-							reasoningTokens,
-							unifiedFinishReason: getUnifiedFinishReason(
-								"upstream_error",
-								usedProvider,
-							),
-						});
-						const errorMessage =
-							"Response finished successfully but returned no content or tool calls";
-						streamingError = errorMessage;
+					if (hasUpstreamErrorFinishReason || hasEmptyResponse) {
+						const errorMessage = hasUpstreamErrorFinishReason
+							? `Upstream provider terminated the stream with finish_reason "${finishReason}"`
+							: "Response finished successfully but returned no content or tool calls";
+						logger.warn(
+							hasUpstreamErrorFinishReason
+								? "[streaming] Upstream error finish_reason"
+								: "[streaming] Empty response detected",
+							{
+								provider: usedProvider,
+								model: usedInternalModel,
+								finishReason,
+								calculatedCompletionTokens,
+								calculatedReasoningTokens,
+								fullContentLength: fullContent?.length ?? 0,
+								fullContentTrimmed: fullContent?.trim()?.length ?? 0,
+								streamingToolCallsCount: streamingToolCalls?.length ?? 0,
+								promptTokens,
+								completionTokens,
+								totalTokens,
+								reasoningTokens,
+								unifiedFinishReason: getUnifiedFinishReason(
+									"upstream_error",
+									usedProvider,
+								),
+							},
+						);
+						// For an explicit upstream error finish_reason, preserve the raw
+						// provider chunk as responseText so the log reflects what the
+						// upstream actually sent, not just our synthesized message.
+						streamingError = hasUpstreamErrorFinishReason
+							? {
+									message: errorMessage,
+									type: "upstream_error",
+									code: "upstream_finish_reason_error",
+									details: {
+										statusCode: 502,
+										statusText: "Upstream Stream Error",
+										responseText: upstreamErrorChunkRaw ?? errorMessage,
+										timestamp: new Date().toISOString(),
+										provider: usedProvider,
+										model: usedInternalModel,
+									},
+								}
+							: errorMessage;
 						finishReason = "upstream_error";
 
 						// Send error event to client using writeSSEAndCache to cache the error
