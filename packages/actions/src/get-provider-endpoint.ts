@@ -261,6 +261,9 @@ export function getProviderEndpoint(
 			case "minimax":
 				url = "https://api.minimax.io";
 				break;
+			case "reve":
+				url = "https://api.reve.com";
+				break;
 			case "xiaomi":
 				url =
 					envValueOrDefault(
@@ -578,6 +581,11 @@ export function getProviderEndpoint(
 				return `${url}/v1/images/generations`;
 			}
 			return `${url}/v1/chat/completions`;
+		case "reve":
+			if (imageGenerations) {
+				return `${url}/v1/image/create`;
+			}
+			return `${url}/v1/image/create`;
 		case "deepinfra":
 			return `${url}/chat/completions`;
 		case "inference.net":

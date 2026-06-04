@@ -14,6 +14,7 @@ import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
+import { reveModels } from "./models/reve.js";
 import { zaiModels } from "./models/zai.js";
 
 import type { providers } from "./providers.js";
@@ -530,5 +531,6 @@ export const models = [
 	...alibabaModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...reveModels,
 	...zaiModels,
 ] as const satisfies ModelDefinition[];

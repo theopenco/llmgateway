@@ -982,6 +982,50 @@ export async function prepareRequestBody(
 		return alibabaImageRequest;
 	}
 
+	// Handle Reve image generation
+	if (imageGenerations && usedProvider === "reve") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		const imageUrls: string[] = [];
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
+			}
+		}
+
+		const reveRequest: any = {
+			prompt,
+			version: "latest",
+			...(image_config?.aspect_ratio && {
+				aspect_ratio: image_config.aspect_ratio,
+			}),
+		};
+
+		if (imageUrls.length === 1) {
+			reveRequest.reference_image = imageUrls[0];
+		} else if (imageUrls.length > 1) {
+			reveRequest.reference_images = imageUrls;
+		}
+
+		return reveRequest;
+	}
+
 	// Handle ByteDance Seedream image generation
 	if (imageGenerations && usedProvider === "bytedance") {
 		// Extract prompt from last user message
