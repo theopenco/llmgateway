@@ -83,6 +83,13 @@ const TERMINAL_VIDEO_STATUSES = new Set([
 const MIN_VIDEO_GENERATION_BALANCE = 1;
 const DEFAULT_VIDEO_SIZE = "1280x720";
 const SUPPORTED_VIDEO_SIZES = {
+	"848x480": {
+		size: "848x480",
+		width: 848,
+		height: 480,
+		resolution: "480p",
+		orientation: "landscape",
+	},
 	"854x480": {
 		size: "854x480",
 		width: 854,
@@ -102,6 +109,13 @@ const SUPPORTED_VIDEO_SIZES = {
 		width: 1280,
 		height: 720,
 		resolution: "720p",
+		orientation: "landscape",
+	},
+	"1696x960": {
+		size: "1696x960",
+		width: 1696,
+		height: 960,
+		resolution: "960p",
 		orientation: "landscape",
 	},
 	"720x1280": {
@@ -262,8 +276,7 @@ const createVideoRequestSchema = z
 		if (value.size !== undefined && !(value.size in SUPPORTED_VIDEO_SIZES)) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
-				message:
-					"size must be one of 1280x720, 720x1280, 1920x1080, 1080x1920, 3840x2160, 2160x3840, 1792x1024, or 1024x1792",
+				message: `size must be one of ${Object.keys(SUPPORTED_VIDEO_SIZES).join(", ")}`,
 				path: ["size"],
 			});
 		}
@@ -2965,7 +2978,9 @@ async function createXaiVideoJob(
 	};
 
 	if (processedFirstFrame) {
-		upstreamRequest.image = `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`;
+		upstreamRequest.image = {
+			url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
+		};
 	}
 
 	const upstreamUrl = joinUrl(

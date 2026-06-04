@@ -254,13 +254,32 @@ export default function VideoPageClient({
 	);
 	const requiresAudioSelection = useMemo(
 		() =>
-			selectedModels.some(
-				(modelId) =>
-					modelId.includes("/") && !modelId.startsWith("google-vertex/"),
-			),
-		[selectedModels],
+			selectedModels.some((modelId) => {
+				if (!modelId.includes("/") || modelId.startsWith("google-vertex/")) {
+					return false;
+				}
+				const model = availableModelsById.get(modelId);
+				if (model && model.supportsVideoAudio === false) {
+					return false;
+				}
+				return true;
+			}),
+		[selectedModels, availableModelsById],
 	);
-	const effectiveAudioEnabled = requiresAudioSelection ? true : audioEnabled;
+	const allModelsRequireNoAudio = useMemo(
+		() =>
+			selectedModels.length > 0 &&
+			selectedModels.every((modelId) => {
+				const model = availableModelsById.get(modelId);
+				return model?.supportsVideoAudio === false;
+			}),
+		[selectedModels, availableModelsById],
+	);
+	const effectiveAudioEnabled = allModelsRequireNoAudio
+		? false
+		: requiresAudioSelection
+			? true
+			: audioEnabled;
 
 	useEffect(() => {
 		if (requiresAudioSelection && !audioEnabled) {

@@ -821,8 +821,7 @@ export const xaiModels = [
 				requestPrice: "0",
 				imageInputPrice: "0.01",
 				perSecondPrice: {
-					"480p": "0.08",
-					"720p": "0.14",
+					default: "0.08",
 				},
 				contextSize: 2000,
 				maxOutput: 1,
@@ -831,7 +830,7 @@ export const xaiModels = [
 				tools: false,
 				jsonOutput: false,
 				videoGenerations: true,
-				supportedVideoSizes: ["854x480", "1280x720"],
+				supportedVideoSizes: ["848x480", "1280x720", "1696x960", "1920x1080"],
 				supportedVideoDurationsSeconds: [6, 8, 10, 12, 15],
 				supportsVideoAudio: false,
 				supportsVideoWithoutAudio: true,
