@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import { ReadonlyIdField } from "@/components/settings/readonly-id-field";
 import {
 	Card,
 	CardContent,
@@ -30,6 +31,23 @@ export default async function PreferencesPage({
 					<div className="flex items-center justify-between">
 						<h2 className="text-3xl font-bold tracking-tight">Preferences</h2>
 					</div>
+					<Card>
+						<CardHeader>
+							<CardTitle>Project ID</CardTitle>
+							<CardDescription>
+								Use this ID when referencing your project in the API or with
+								support.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<ReadonlyIdField
+								id="projectId"
+								value={projectId}
+								copyAriaLabel="Copy project ID"
+							/>
+						</CardContent>
+					</Card>
+
 					<Card>
 						<CardHeader>
 							<CardTitle>Project Name</CardTitle>

@@ -162,7 +162,6 @@ export function extractTokenUsage(
 			}
 			break;
 		case "anthropic":
-		case "anthropic-discount":
 			{
 				const usage = data.message?.usage ?? data.usage;
 				if (!usage) {

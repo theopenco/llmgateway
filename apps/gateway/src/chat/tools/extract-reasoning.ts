@@ -34,7 +34,6 @@ export function extractReasoning(
 ): string {
 	switch (provider) {
 		case "anthropic":
-		case "anthropic-discount":
 		case "vertex-anthropic": {
 			const chunk = data as AnthropicStreamChunk;
 			if (
@@ -56,15 +55,24 @@ export function extractReasoning(
 			return reasoningParts.map((part) => part.text).join("") ?? "";
 		}
 		default: {
+			// OpenAI format. Sum reasoning across every choice so multi-choice
+			// streams (n > 1) accumulate into the logging buffer instead of
+			// silently dropping indices > 0.
 			const chunk = data as OpenAIStreamChunk;
-			return (
-				chunk.choices?.[0]?.delta?.reasoning ??
-				chunk.choices?.[0]?.delta?.reasoning_content ??
-				extractReasoningDetailsText(
-					chunk.choices?.[0]?.delta?.reasoning_details,
-				) ??
-				""
-			);
+			const choices = Array.isArray(chunk.choices) ? chunk.choices : [];
+			let combined = "";
+			for (const choice of choices) {
+				const delta = choice?.delta;
+				const reasoning =
+					delta?.reasoning ??
+					delta?.reasoning_content ??
+					extractReasoningDetailsText(delta?.reasoning_details) ??
+					"";
+				if (typeof reasoning === "string") {
+					combined += reasoning;
+				}
+			}
+			return combined;
 		}
 	}
 }

@@ -221,10 +221,10 @@ export async function calculateCosts(
 			// Include tool results if available
 			if (fullOutput.toolResults && Array.isArray(fullOutput.toolResults)) {
 				for (const toolResult of fullOutput.toolResults) {
-					if (toolResult.function?.name) {
+					if (toolResult?.function?.name) {
 						completionText += toolResult.function.name;
 					}
-					if (toolResult.function?.arguments) {
+					if (toolResult?.function?.arguments) {
 						completionText += JSON.stringify(toolResult.function.arguments);
 					}
 				}

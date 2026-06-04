@@ -1,6 +1,7 @@
 "use client";
 
 import { OrganizationBillingEmailSettings } from "@/components/settings/organization-billing-email-settings";
+import { OrganizationIdSettings } from "@/components/settings/organization-id-settings";
 import { OrganizationNameSettings } from "@/components/settings/organization-name-settings";
 import {
 	Card,
@@ -18,6 +19,18 @@ export default function PreferencesPage() {
 					<div className="flex items-center justify-between">
 						<h2 className="text-3xl font-bold tracking-tight">Preferences</h2>
 					</div>
+					<Card>
+						<CardHeader>
+							<CardTitle>Organization ID</CardTitle>
+							<CardDescription>
+								Use this ID when referencing your organization in the API or
+								with support.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<OrganizationIdSettings />
+						</CardContent>
+					</Card>
 					<Card>
 						<CardHeader>
 							<CardTitle>Organization Name</CardTitle>
