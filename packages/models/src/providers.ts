@@ -1118,8 +1118,10 @@ export const providers: ProviderDefinition[] = [
 		color: "#1a1a2e",
 		website: "https://reve.com",
 		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
+		termsUrl:
+			"https://help.reve.com/hc/en-us/articles/46731550696468-Terms-of-service",
+		privacyPolicyUrl:
+			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
 		headquarters: "US",
 		dataPolicy: null,
 	},
