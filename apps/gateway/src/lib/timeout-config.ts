@@ -4,83 +4,78 @@
  * The AI request timeout should be shorter than the gateway timeout to ensure
  * we can catch and handle upstream timeouts before the overall request times out.
  *
- * All timeout values are read dynamically at call time to support testing.
+ * Precedence per project: routing config override -> env var -> built-in default.
  */
+import {
+	DEFAULT_ROUTING_TIMEOUTS,
+	type ResolvedRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
-/**
- * Gets the gateway request budget used to derive the default streaming timeout cap.
- * The streaming default is capped at 80% of this value so we still have headroom
- * to surface upstream timeouts as proper errors before the overall budget elapses.
- * Default: 25 minutes (1500000ms)
- */
-export function getGatewayTimeoutMs(): number {
+type RoutingCfg = Pick<ResolvedRoutingConfig, "timeouts">;
+
+function override(value: number | undefined): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? value
+		: undefined;
+}
+
+export function getGatewayTimeoutMs(cfg?: RoutingCfg): number {
+	const ovr = override(cfg?.timeouts.gatewayMs);
+	if (ovr !== undefined) {
+		return ovr;
+	}
 	const envValue = Number(process.env.GATEWAY_TIMEOUT_MS);
 	if (envValue > 0) {
 		return envValue;
 	}
-	return 1500000;
+	return DEFAULT_ROUTING_TIMEOUTS.gatewayMs;
 }
 
-/**
- * Gets the AI API request timeout for streaming requests - the maximum time for upstream provider calls.
- * Should be shorter than gateway timeout to allow for error handling.
- * Default: 20 minutes (1200000ms) or 80% of gateway timeout, whichever is smaller
- */
-export function getStreamingTimeoutMs(): number {
+export function getStreamingTimeoutMs(cfg?: RoutingCfg): number {
+	const ovr = override(cfg?.timeouts.streamingMs);
+	if (ovr !== undefined) {
+		return ovr;
+	}
 	const envValue = Number(process.env.AI_STREAMING_TIMEOUT_MS);
 	if (envValue > 0) {
 		return envValue;
 	}
-	// Default: 20 minutes or 80% of gateway timeout, whichever is smaller
-	return Math.min(1200000, getGatewayTimeoutMs() * 0.8);
+	return Math.min(
+		DEFAULT_ROUTING_TIMEOUTS.streamingMs,
+		getGatewayTimeoutMs(cfg) * 0.8,
+	);
 }
 
-/**
- * Gets the AI API request timeout for non-streaming (plain) requests.
- * Non-streaming requests have a shorter default timeout since they don't benefit
- * from incremental responses and long waits are usually indicative of issues.
- * Default: 10 minutes (600000ms)
- */
-export function getTimeoutMs(): number {
+export function getTimeoutMs(cfg?: RoutingCfg): number {
+	const ovr = override(cfg?.timeouts.plainMs);
+	if (ovr !== undefined) {
+		return ovr;
+	}
 	const envValue = Number(process.env.AI_TIMEOUT_MS);
 	if (envValue > 0) {
 		return envValue;
 	}
-	// Default: 10 minutes for non-streaming requests
-	return 600000;
+	return DEFAULT_ROUTING_TIMEOUTS.plainMs;
 }
 
 // Legacy exports for backwards compatibility (read at module load time)
-// These should be avoided in new code - use the getter functions instead
 export const GATEWAY_TIMEOUT_MS = getGatewayTimeoutMs();
 export const AI_STREAMING_TIMEOUT_MS = getStreamingTimeoutMs();
 export const AI_TIMEOUT_MS = getTimeoutMs();
 
-/**
- * Creates an AbortSignal that will abort after the streaming request timeout.
- * Can be combined with other signals (e.g., client cancellation) using AbortSignal.any().
- */
-export function createStreamingTimeoutSignal(): AbortSignal {
-	return AbortSignal.timeout(getStreamingTimeoutMs());
+export function createStreamingTimeoutSignal(cfg?: RoutingCfg): AbortSignal {
+	return AbortSignal.timeout(getStreamingTimeoutMs(cfg));
 }
 
-/**
- * Creates an AbortSignal that will abort after the plain (non-streaming) request timeout.
- * Can be combined with other signals (e.g., client cancellation) using AbortSignal.any().
- */
-export function createTimeoutSignal(): AbortSignal {
-	return AbortSignal.timeout(getTimeoutMs());
+export function createTimeoutSignal(cfg?: RoutingCfg): AbortSignal {
+	return AbortSignal.timeout(getTimeoutMs(cfg));
 }
 
-/**
- * Combines a streaming timeout signal with an optional cancellation signal.
- * If the cancellation signal is provided, the request will abort on either timeout or cancellation.
- * If no cancellation signal is provided, only the timeout will cause an abort.
- */
 export function createStreamingCombinedSignal(
 	cancellationController?: AbortController,
+	cfg?: RoutingCfg,
 ): AbortSignal {
-	const timeoutSignal = createStreamingTimeoutSignal();
+	const timeoutSignal = createStreamingTimeoutSignal(cfg);
 
 	if (cancellationController) {
 		return AbortSignal.any([timeoutSignal, cancellationController.signal]);
@@ -89,14 +84,11 @@ export function createStreamingCombinedSignal(
 	return timeoutSignal;
 }
 
-/**
- * Combines a plain (non-streaming) timeout signal with an optional cancellation signal.
- * Uses the shorter timeout (default 10min) for non-streaming requests.
- */
 export function createCombinedSignal(
 	cancellationController?: AbortController,
+	cfg?: RoutingCfg,
 ): AbortSignal {
-	const timeoutSignal = createTimeoutSignal();
+	const timeoutSignal = createTimeoutSignal(cfg);
 
 	if (cancellationController) {
 		return AbortSignal.any([timeoutSignal, cancellationController.signal]);
@@ -105,22 +97,13 @@ export function createCombinedSignal(
 	return timeoutSignal;
 }
 
-/**
- * Checks if an error is a timeout error.
- * AbortSignal.timeout() throws a DOMException with name "TimeoutError".
- */
 export function isTimeoutError(error: unknown): boolean {
 	if (error instanceof Error) {
-		// AbortSignal.timeout() throws a DOMException with name "TimeoutError"
 		return error.name === "TimeoutError";
 	}
 	return false;
 }
 
-/**
- * Checks if an error is a cancellation error (user-initiated abort).
- * AbortController.abort() throws a DOMException with name "AbortError".
- */
 export function isCancellationError(error: unknown): boolean {
 	if (error instanceof Error) {
 		return error.name === "AbortError";

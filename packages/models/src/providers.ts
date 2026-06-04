@@ -19,6 +19,41 @@ export interface ProviderRegionConfig {
 	regions: { id: string; label: string }[];
 	/** Maps region id to its base URL */
 	endpointMap: Record<string, string>;
+	/**
+	 * Maps region id to a model-id prefix for providers where the upstream model
+	 * identifier varies per region (e.g. AWS Bedrock cross-region inference
+	 * profiles: `global.`, `us.`, `eu.`, `apac.`). When unset, no prefix is
+	 * applied.
+	 */
+	modelPrefixMap?: Record<string, string>;
+	/**
+	 * When true, requests without an explicit `:region` suffix and without a
+	 * region locked on the provider key are pinned to `defaultRegion` instead
+	 * of being routed to the cheapest candidate. Used by AWS Bedrock, where
+	 * `global` is the canonical cross-region default. Providers like Alibaba
+	 * (which have only specific regional endpoints and no true global) leave
+	 * this unset so the gateway picks the best available region by price.
+	 */
+	pinDefaultRegion?: boolean;
+	/**
+	 * When true, a single base credential works for every region (e.g. AWS
+	 * Bedrock long-term API keys are IAM-global). The gateway then does not
+	 * require a per-region `{ENV}__{REGION}` key to route to non-default
+	 * regions in credits/hybrid mode. Providers like Alibaba, whose keys are
+	 * region-scoped, leave this unset so non-default regions stay gated behind
+	 * a region-specific env key.
+	 */
+	sharedCredentialAcrossRegions?: boolean;
+}
+
+export interface ProviderDataPolicy {
+	apiTraining: boolean | null;
+	consumerTraining: boolean | null;
+	promptLogging: boolean | null;
+	retentionPeriod?: string | null;
+	soc2?: boolean | null;
+	iso27001?: boolean | null;
+	gdpr?: boolean | null;
 }
 
 export interface ProviderDefinition {
@@ -51,9 +86,13 @@ export interface ProviderDefinition {
 	regionConfig?: ProviderRegionConfig;
 	termsUrl?: string | null;
 	privacyPolicyUrl?: string | null;
+	/** ISO 3166-1 alpha-2 country code for provider headquarters */
+	headquarters?: string | null;
+	/** Data usage and privacy policy details */
+	dataPolicy?: ProviderDataPolicy | null;
 }
 
-export const providers = [
+export const providers: ProviderDefinition[] = [
 	{
 		id: "llmgateway",
 		name: "LLM Gateway",
@@ -71,6 +110,16 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://llmgateway.io/terms",
 		privacyPolicyUrl: "https://llmgateway.io/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: false,
+			iso27001: false,
+			gdpr: false,
+		},
 	},
 	{
 		id: "openai",
@@ -89,6 +138,16 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://openai.com/policies/terms-of-use",
 		privacyPolicyUrl: "https://openai.com/policies/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "anthropic",
@@ -107,6 +166,16 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.anthropic.com/terms",
 		privacyPolicyUrl: "https://www.anthropic.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "google-ai-studio",
@@ -128,6 +197,16 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: "55 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "glacier",
@@ -147,6 +226,8 @@ export const providers = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "google-vertex",
@@ -171,6 +252,16 @@ export const providers = [
 		priority: 0.8,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://policies.google.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "vertex-openai",
@@ -195,6 +286,16 @@ export const providers = [
 		priority: 0.9,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "vertex-anthropic",
@@ -218,6 +319,16 @@ export const providers = [
 		priority: 0.9,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "quartz",
@@ -242,6 +353,8 @@ export const providers = [
 		priority: 0.9,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "avalanche",
@@ -263,6 +376,8 @@ export const providers = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "groq",
@@ -280,6 +395,15 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://groq.com/terms-of-use",
 		privacyPolicyUrl: "https://groq.com/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "cerebras",
@@ -298,6 +422,15 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://cerebras.ai/terms-of-service",
 		privacyPolicyUrl: "https://cerebras.ai/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "xai",
@@ -316,6 +449,15 @@ export const providers = [
 		priority: 0.1,
 		termsUrl: "https://x.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://x.ai/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+			soc2: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "deepseek",
@@ -336,6 +478,14 @@ export const providers = [
 			"https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
 		privacyPolicyUrl:
 			"https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: true,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+		},
+		priority: 1.5,
 	},
 	{
 		id: "alibaba",
@@ -373,6 +523,14 @@ export const providers = [
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service-v-3-8-0",
 		privacyPolicyUrl:
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: true,
+			retentionPeriod: null,
+			iso27001: true,
+		},
 	},
 	{
 		id: "novita",
@@ -390,6 +548,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://novita.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://novita.ai/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
 	},
 	{
 		id: "aws-bedrock",
@@ -413,8 +578,77 @@ export const providers = [
 		apiKeyInstructions:
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
 		learnMore: "https://docs.llmgateway.io/integrations/aws-bedrock",
+		regionConfig: {
+			optionsKey: "aws_bedrock_region",
+			defaultRegion: "global",
+			pinDefaultRegion: true,
+			sharedCredentialAcrossRegions: true,
+			regions: [
+				// Cross-region inference profile groups (spread inference across the
+				// pool — AWS picks the actual region per request).
+				{ id: "global", label: "Global (default)" },
+				{ id: "us", label: "US" },
+				{ id: "eu", label: "EU" },
+				{ id: "apac", label: "Asia Pacific" },
+				// Specific AWS regions for data-residency requirements. Only models
+				// that support direct invocation in the chosen region will work —
+				// Claude 4+ requires an inference profile and will reject these.
+				{ id: "us-east-1", label: "US East (N. Virginia)" },
+				{ id: "us-east-2", label: "US East (Ohio)" },
+				{ id: "us-west-2", label: "US West (Oregon)" },
+				{ id: "eu-central-1", label: "EU (Frankfurt)" },
+				{ id: "eu-west-1", label: "EU (Ireland)" },
+				{ id: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
+				{ id: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
+				{ id: "ap-southeast-2", label: "Asia Pacific (Sydney)" },
+			],
+			endpointMap: {
+				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
+				us: "https://bedrock-runtime.us-east-1.amazonaws.com",
+				eu: "https://bedrock-runtime.eu-central-1.amazonaws.com",
+				apac: "https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+				"us-east-1": "https://bedrock-runtime.us-east-1.amazonaws.com",
+				"us-east-2": "https://bedrock-runtime.us-east-2.amazonaws.com",
+				"us-west-2": "https://bedrock-runtime.us-west-2.amazonaws.com",
+				"eu-central-1": "https://bedrock-runtime.eu-central-1.amazonaws.com",
+				"eu-west-1": "https://bedrock-runtime.eu-west-1.amazonaws.com",
+				"ap-northeast-1":
+					"https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+				"ap-southeast-1":
+					"https://bedrock-runtime.ap-southeast-1.amazonaws.com",
+				"ap-southeast-2":
+					"https://bedrock-runtime.ap-southeast-2.amazonaws.com",
+			},
+			modelPrefixMap: {
+				global: "global.",
+				us: "us.",
+				eu: "eu.",
+				apac: "apac.",
+				// Specific AWS regions invoke the bare model ID for true single-region
+				// residency. Empty string (not undefined) so it short-circuits the
+				// `aws_bedrock_region_prefix` env-var default of "global.".
+				"us-east-1": "",
+				"us-east-2": "",
+				"us-west-2": "",
+				"eu-central-1": "",
+				"eu-west-1": "",
+				"ap-northeast-1": "",
+				"ap-southeast-1": "",
+				"ap-southeast-2": "",
+			},
+		},
 		termsUrl: "https://aws.amazon.com/service-terms",
 		privacyPolicyUrl: "https://aws.amazon.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "azure",
@@ -442,6 +676,16 @@ export const providers = [
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "azure-ai-foundry",
@@ -467,6 +711,16 @@ export const providers = [
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "zai",
@@ -484,6 +738,14 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://docs.z.ai/legal-agreement/terms-of-use",
 		privacyPolicyUrl: "https://docs.z.ai/legal-agreement/privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+		priority: 1.5,
 	},
 	{
 		id: "moonshot",
@@ -502,6 +764,14 @@ export const providers = [
 		termsUrl: "https://www.kimi.com/user/agreement/modelUse?version=v2",
 		privacyPolicyUrl:
 			"https://www.kimi.com/user/agreement/userPrivacy?version=v2",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+		priority: 1.5,
 	},
 	{
 		id: "perplexity",
@@ -520,6 +790,15 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.perplexity.ai/hub/legal/terms-of-service",
 		privacyPolicyUrl: "https://www.perplexity.ai/hub/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			gdpr: true,
+		},
 	},
 	{
 		id: "nebius",
@@ -538,6 +817,15 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://docs.nebius.com/legal/terms-of-use",
 		privacyPolicyUrl: "https://docs.nebius.com/legal/privacy",
+		headquarters: "NL",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+		},
 	},
 	{
 		id: "mistral",
@@ -555,6 +843,34 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://legal.mistral.ai/terms/commercial-terms-of-service",
 		privacyPolicyUrl: "https://mistral.ai/terms/#privacy-policy",
+		headquarters: "FR",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
+		id: "canopywave",
+		name: "CanopyWave",
+		description:
+			"CanopyWave is a platform for running large language models with OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_CANOPY_WAVE_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#10b981",
+		website: "https://canopywave.io",
+		announcement: null,
+		termsUrl: "https://canopywave.io/terms",
+		privacyPolicyUrl: "https://canopywave.io/privacy",
 	},
 	{
 		id: "inference.net",
@@ -573,6 +889,14 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://inference.net/terms-of-service",
 		privacyPolicyUrl: "https://inference.net/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+			soc2: true,
+		},
 	},
 	{
 		id: "together-ai",
@@ -591,6 +915,14 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.together.ai/terms-of-service",
 		privacyPolicyUrl: "https://www.together.ai/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+		},
 	},
 	{
 		id: "custom",
@@ -606,6 +938,8 @@ export const providers = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
 	},
 	{
 		id: "nanogpt",
@@ -623,6 +957,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
 		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "bytedance",
@@ -642,6 +983,14 @@ export const providers = [
 		termsUrl: "https://docs.byteplus.com/en/docs/legal/docs-terms-of-service",
 		privacyPolicyUrl:
 			"https://docs.byteplus.com/en/docs/legal/docs-privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+		},
 	},
 	{
 		id: "minimax",
@@ -660,6 +1009,14 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://intl.minimaxi.com/protocol/terms-of-service",
 		privacyPolicyUrl: "https://intl.minimaxi.com/protocol/privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: true,
+			retentionPeriod: null,
+		},
+		priority: 1.5,
 	},
 	{
 		id: "embercloud",
@@ -678,6 +1035,13 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://www.embercloud.ai/terms",
 		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+		},
 	},
 	{
 		id: "xiaomi",
@@ -700,6 +1064,13 @@ export const providers = [
 		termsUrl: "https://platform.xiaomimimo.com/docs/terms/user-agreement",
 		privacyPolicyUrl:
 			"https://platform.xiaomimimo.com/docs/terms/privacy-policy",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: null,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
 	},
 	{
 		id: "deepinfra",
@@ -721,6 +1092,16 @@ export const providers = [
 		announcement: null,
 		termsUrl: "https://deepinfra.com/terms",
 		privacyPolicyUrl: "https://deepinfra.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: true,
+			iso27001: true,
+			gdpr: true,
+		},
 	},
 ] as const satisfies ProviderDefinition[];
 

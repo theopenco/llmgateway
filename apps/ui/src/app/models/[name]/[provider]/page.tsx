@@ -272,7 +272,10 @@ export default async function ModelProviderPage({ params }: PageProps) {
 							</p>
 						)}
 						<div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
-							<CopyModelName modelName={decodedName} />
+							<CopyModelName
+								modelName={decodedName}
+								providerId={decodedProvider}
+							/>
 							{(() => {
 								const stabilityProps = getStabilityBadgeProps(
 									modelDef.stability,

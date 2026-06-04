@@ -28,6 +28,7 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
@@ -44,6 +45,7 @@ import {
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
+import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
 	filterRateLimitedProviders,
@@ -53,6 +55,7 @@ import {
 	providerRateLimitWindows,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
+import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
 	createCombinedSignal,
@@ -83,7 +86,6 @@ import {
 	setStreamingCache,
 } from "@llmgateway/cache";
 import {
-	getProviderMetricsForCombinations,
 	type InferSelectModel,
 	isCachingEnabled,
 	metricsKey,
@@ -118,6 +120,7 @@ import {
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
+import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
 	getContentFilterMethod,
@@ -172,7 +175,6 @@ import {
 	type RoutingAttempt,
 	getErrorType,
 	isRetryableErrorType,
-	MAX_RETRIES,
 	providerRetryKey,
 	selectNextProvider,
 	shouldRetryAlternateKey,
@@ -185,6 +187,7 @@ import {
 import {
 	applyExtendedUsageFields,
 	stripRequestScopedMetadataFromOpenAiResponse,
+	toResponseMetadataExtras,
 	transformResponseToOpenai,
 	withCurrentRequestMetadataOnOpenAiResponse,
 } from "./tools/transform-response-to-openai.js";
@@ -194,6 +197,7 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -280,6 +284,39 @@ function filterRegionsByAvailableKeys(
 	});
 }
 
+/**
+ * For providers with `regionConfig.pinDefaultRegion: true`, drop all regional
+ * candidates except the defaultRegion (and the synthetic root) when no
+ * explicit choice was made. This makes AWS Bedrock default to `:global`
+ * unless the caller opts in via the `:region` URL suffix or via the
+ * provider-key region option. Providers without `pinDefaultRegion`
+ * (e.g. Alibaba) pass through unchanged so the gateway can route to the
+ * cheapest region.
+ */
+function applyPinnedDefaultRegions(
+	mappings: ProviderModelMapping[],
+	options: {
+		explicitLocks?: Map<string, string>;
+		requestedRegion?: string;
+	} = {},
+): ProviderModelMapping[] {
+	if (options.requestedRegion) {
+		return mappings;
+	}
+	return mappings.filter((m) => {
+		const def = providers.find((p) => p.id === m.providerId) as
+			| ProviderDefinition
+			| undefined;
+		if (!def?.regionConfig?.pinDefaultRegion) {
+			return true;
+		}
+		if (options.explicitLocks?.has(m.providerId)) {
+			return true;
+		}
+		return !m.region || m.region === def.regionConfig.defaultRegion;
+	});
+}
+
 function preferConcreteRegionalMappings(
 	providers: ProviderModelMapping[],
 ): ProviderModelMapping[] {
@@ -305,6 +342,8 @@ function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
+		sessionId?: string;
+		routingConfig?: ResolvedRoutingConfig;
 	},
 ): ProviderModelMapping[] {
 	const providersById = new Map<string, ProviderModelMapping[]>();
@@ -361,6 +400,48 @@ function resolveExplicitRegionFromProviderKey(
 		: undefined;
 }
 
+/**
+ * Build a provider → locked-region map from DB provider keys. When a user sets
+ * a region on their provider key (e.g. `aws_bedrock_region: "eu"`), only that
+ * region should be a routing candidate for the provider.
+ */
+function buildProviderLockedRegions(
+	providerKeys: InferSelectModel<typeof tables.providerKey>[],
+): Map<string, string> {
+	const locked = new Map<string, string>();
+	for (const key of providerKeys) {
+		const providerDef = providers.find((p) => p.id === key.provider) as
+			| ProviderDefinition
+			| undefined;
+		const regionKey = providerDef?.regionConfig?.optionsKey;
+		if (regionKey && key.options) {
+			const lockedRegion = (key.options as Record<string, string | undefined>)[
+				regionKey
+			];
+			if (lockedRegion) {
+				locked.set(key.provider, lockedRegion);
+			}
+		}
+	}
+	return locked;
+}
+
+/**
+ * Whether the given model exposes any region-specific mapping for the provider.
+ * Used to avoid applying a provider key's default region (e.g. AWS Bedrock's
+ * `global`) to models that have no regional variants — doing so would set a
+ * `usedRegion` that the (providerId, region) capability lookup can't match,
+ * silently dropping capabilities like reasoning support.
+ */
+function modelHasRegionalMappingsForProvider(
+	model: { providers: ProviderModelMapping[] } | undefined,
+	provider: string,
+): boolean {
+	return Boolean(
+		model?.providers.some((p) => p.providerId === provider && p.region),
+	);
+}
+
 function filterEligibleModelProviders(
 	availableModelProviders: ProviderModelMapping[],
 	options: {
@@ -375,6 +456,7 @@ function filterEligibleModelProviders(
 		hasDocuments: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
+		n?: number;
 	},
 ): ProviderModelMapping[] {
 	return availableModelProviders.filter((provider) => {
@@ -393,6 +475,17 @@ function filterEligibleModelProviders(
 		}
 
 		if (options.webSearchTool && provider.webSearch !== true) {
+			return false;
+		}
+
+		// Exclude mappings that can't natively serve n > 1 so routing skips
+		// over them instead of selecting one and failing the post-selection
+		// supportsN guard. The post-guard stays as a safety net.
+		if (
+			options.n !== undefined &&
+			options.n > 1 &&
+			provider.supportsN !== true
+		) {
 			return false;
 		}
 
@@ -583,30 +676,6 @@ function withUsedApiKeyHash(
 	return {
 		...routingMetadata,
 		usedApiKeyHash,
-	};
-}
-
-function buildRoutingAttempt(
-	provider: string,
-	model: string,
-	statusCode: number,
-	errorType: string,
-	succeeded: boolean,
-	options?: {
-		region?: string;
-		apiKeyHash?: string;
-		logId?: string;
-	},
-): RoutingAttempt {
-	return {
-		provider,
-		model,
-		...(options?.region && { region: options.region }),
-		status_code: statusCode,
-		error_type: errorType,
-		succeeded,
-		...(options?.apiKeyHash && { apiKeyHash: options.apiKeyHash }),
-		...(options?.logId && { logId: options.logId }),
 	};
 }
 
@@ -998,6 +1067,10 @@ const completions = createRoute({
 							used_provider: z.string(),
 							used_region: z.string().nullable().optional(),
 							underlying_used_model: z.string(),
+							log_id: z.string().optional(),
+							organization_id: z.string().optional(),
+							project_id: z.string().optional(),
+							discount: z.number().nullable().optional(),
 							routing: z
 								.array(
 									z.object({
@@ -1095,7 +1168,21 @@ chat.openapi(completions, async (c) => {
 		effort,
 		web_search,
 		plugins,
+		n,
+		user,
 	} = validationResult.data;
+
+	// Sticky-routing session key, in priority order: the explicit x-session-id
+	// header, then x-session-affinity (sent by coding agents such as opencode),
+	// then the OpenAI-native body fields (prompt_cache_key, then user). When
+	// present, provider selection pins this session to a single provider to keep
+	// upstream prompt caches warm.
+	const sessionId =
+		c.req.header("x-session-id")?.trim() ||
+		c.req.header("x-session-affinity")?.trim() ||
+		prompt_cache_key ||
+		user ||
+		undefined;
 	let {
 		messages,
 		temperature,
@@ -1175,6 +1262,32 @@ chat.openapi(completions, async (c) => {
 	// prepareRequestBody.
 	let reasoning_effort =
 		reasoning_object_effort ?? validationResult.data.reasoning_effort;
+
+	// Reject n > 1 with streaming + function tools: the streaming tool-call
+	// aggregator keys deltas only by tc.index (the tool position within a
+	// choice), so concurrent function calls across choices would collide.
+	// Native web_search tools (and the web_search: true flag) don't flow
+	// through that aggregator — they're handled upstream — so they're
+	// exempt. n > 1 with streaming text-only output is fully supported.
+	if (n !== undefined && n > 1 && stream && tools) {
+		const functionToolsCount = tools.filter(
+			(t: { type: string }) => t.type !== "web_search",
+		).length;
+		if (functionToolsCount > 0) {
+			return c.json(
+				{
+					error: {
+						message:
+							"The `n` parameter with values greater than 1 is not supported in combination with `stream: true` and function tools. Use streaming without function tools, send a non-streaming request, or call the API multiple times.",
+						type: "invalid_request_error",
+						param: "n",
+						code: "unsupported_parameter_combination",
+					},
+				},
+				400,
+			);
+		}
+	}
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -1258,6 +1371,7 @@ chat.openapi(completions, async (c) => {
 		: undefined;
 	const syncLogInsert = responsesContext?.syncInsert ?? false;
 	const logIdOverride = responsesContext?.logId;
+	const finalLogId = logIdOverride ?? shortid();
 	const responsesApiData: unknown = responsesContext?.responsesApiData ?? null;
 
 	// Wrapper that injects Responses API fields into every log entry.
@@ -1407,6 +1521,14 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	const buildFinalResponseMetadata = (discount?: number | null) =>
+		toResponseMetadataExtras({
+			logId: finalLogId,
+			organizationId: project.organizationId,
+			projectId: apiKey.projectId,
+			discount: discount ?? null,
+		});
+
 	// Filter region candidates based on available keys.
 	// - credits mode: only keep regions with env keys (base key → default region only)
 	// - hybrid mode: providers with a DB key keep all regions (user chose their region);
@@ -1474,6 +1596,11 @@ chat.openapi(completions, async (c) => {
 			message: "Organization has been disabled and is no longer accessible",
 		});
 	}
+
+	const routingCfg = await getResolvedRoutingConfig(
+		project.id,
+		organization.plan,
+	);
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -1817,13 +1944,19 @@ chat.openapi(completions, async (c) => {
 
 		// Get available providers based on project mode
 		let availableProviders: string[] = [];
+		// Region locks from DB provider keys, so auto-routing honors an org's
+		// configured region (e.g. aws_bedrock_region: "eu") instead of being
+		// collapsed to the pinned default by applyPinnedDefaultRegions.
+		let autoProviderLockedRegions = new Map<string, string>();
 
 		if (project.mode === "api-keys") {
 			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			availableProviders = providerKeys.map((key) => key.provider);
+			autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
 		} else if (project.mode === "credits" || project.mode === "hybrid") {
 			const providerKeys = await findActiveProviderKeys(project.organizationId);
 			const databaseProviders = providerKeys.map((key) => key.provider);
+			autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
 
 			// Check which providers have environment tokens available
 			const envProviders: string[] = [];
@@ -1899,15 +2032,21 @@ chat.openapi(completions, async (c) => {
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
 			const candidateProviders = preferConcreteRegionalMappings(
-				project.mode === "credits"
-					? filterRegionsByAvailableKeys(
-							expandAllProviderRegions(
+				applyPinnedDefaultRegions(
+					project.mode === "credits"
+						? filterRegionsByAvailableKeys(
+								expandAllProviderRegions(
+									modelDef.providers as ProviderModelMapping[],
+								),
+							)
+						: expandAllProviderRegions(
 								modelDef.providers as ProviderModelMapping[],
 							),
-						)
-					: expandAllProviderRegions(
-							modelDef.providers as ProviderModelMapping[],
-						),
+					{
+						explicitLocks: autoProviderLockedRegions,
+						requestedRegion,
+					},
+				),
 			);
 			// Check if any of the model's providers are available
 			const availableModelProviders = candidateProviders.filter(
@@ -1966,6 +2105,13 @@ chat.openapi(completions, async (c) => {
 
 				// Check web search capability if web search tool is requested
 				if (webSearchTool && provider.webSearch !== true) {
+					return false;
+				}
+
+				// Skip mappings that don't advertise supportsN when n > 1 so
+				// auto-routing doesn't pick one and trip the post-selection
+				// 400 guard. The post-guard stays as a safety net.
+				if (n !== undefined && n > 1 && provider.supportsN !== true) {
 					return false;
 				}
 
@@ -2047,8 +2193,10 @@ chat.openapi(completions, async (c) => {
 				providerId: p.providerId,
 				region: p.region,
 			}));
-			const metricsMap =
-				await getProviderMetricsForCombinations(metricsCombinations);
+			const metricsMap = await getProviderMetricsForRouting(
+				metricsCombinations,
+				routingCfg,
+			);
 			providerAgnosticSelectedProviders =
 				collapseProvidersToBestRegionPerProvider(
 					selectedProviders,
@@ -2057,6 +2205,8 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						sessionId,
+						routingConfig: routingCfg,
 					},
 				);
 
@@ -2067,6 +2217,8 @@ chat.openapi(completions, async (c) => {
 					metricsMap,
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
+					sessionId,
+					routingConfig: routingCfg,
 				},
 			);
 
@@ -2261,6 +2413,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -2273,8 +2426,10 @@ chat.openapi(completions, async (c) => {
 						providerId: provider.providerId,
 						region: provider.region,
 					}));
-					const metricsMap =
-						await getProviderMetricsForCombinations(metricsCombinations);
+					const metricsMap = await getProviderMetricsForRouting(
+						metricsCombinations,
+						routingCfg,
+					);
 					const bestRegionResult = getCheapestFromAvailableProviders(
 						eligibleMappings,
 						modelInfo as ModelDefinition & {
@@ -2285,6 +2440,8 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							sessionId,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -2394,7 +2551,10 @@ chat.openapi(completions, async (c) => {
 								.map((p) => p.id);
 
 				const availableModelProviders = preferConcreteRegionalMappings(
-					iamFilteredModelProviders,
+					applyPinnedDefaultRegions(iamFilteredModelProviders, {
+						explicitLocks: buildProviderLockedRegions(providerKeys),
+						requestedRegion,
+					}),
 				).filter((provider) => {
 					if (!availableProviders.includes(provider.providerId)) {
 						return false;
@@ -2465,8 +2625,10 @@ chat.openapi(completions, async (c) => {
 							providerId: p.providerId,
 							region: p.region,
 						}));
-						const allMetricsMap =
-							await getProviderMetricsForCombinations(metricsCombinations);
+						const allMetricsMap = await getProviderMetricsForRouting(
+							metricsCombinations,
+							routingCfg,
+						);
 
 						const cheapestResult = getCheapestFromAvailableProviders(
 							candidatesForRouting,
@@ -2475,6 +2637,8 @@ chat.openapi(completions, async (c) => {
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
 								promptTokens: routingPromptTokens,
+								sessionId,
+								routingConfig: routingCfg,
 							},
 						);
 
@@ -2535,20 +2699,27 @@ chat.openapi(completions, async (c) => {
 		const baseModelId = (modelInfo as ModelDefinition).id;
 
 		// Fetch uptime metrics for the requested provider
-		const metricsMap = await getProviderMetricsForCombinations([
-			{
-				modelId: baseModelId,
-				providerId: usedProvider,
-				region: usedRegion,
-			},
-		]);
+		const metricsMap = await getProviderMetricsForRouting(
+			[
+				{
+					modelId: baseModelId,
+					providerId: usedProvider,
+					region: usedRegion,
+				},
+			],
+			routingCfg,
+		);
 
 		const metrics = metricsMap.get(
 			metricsKey(baseModelId, usedProvider, usedRegion),
 		);
 
-		// If we have metrics and uptime is below 90%, route to an alternative
-		if (metrics && metrics.uptime !== undefined && metrics.uptime < 90) {
+		// If we have metrics and uptime is below the configured threshold, route to an alternative
+		if (
+			metrics &&
+			metrics.uptime !== undefined &&
+			metrics.uptime < routingCfg.retry.lowUptimeFallbackThreshold
+		) {
 			const currentUptime = metrics.uptime;
 			// Get available providers for routing
 			const providerIds = modelInfo.providers
@@ -2575,7 +2746,12 @@ chat.openapi(completions, async (c) => {
 				// If web search is requested, also filter to providers that support it
 				// If JSON output is requested, also filter to providers that support it
 				const availableModelProviders = filterEligibleModelProviders(
-					preferConcreteRegionalMappings(expandedIamFilteredModelProviders),
+					preferConcreteRegionalMappings(
+						applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+							explicitLocks: buildProviderLockedRegions(providerKeys),
+							requestedRegion,
+						}),
+					),
 					{
 						allProviderVariants: modelInfo.providers,
 						availableProviders,
@@ -2587,6 +2763,7 @@ chat.openapi(completions, async (c) => {
 						hasDocuments,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
+						n,
 					},
 				).filter(
 					(provider) =>
@@ -2620,8 +2797,10 @@ chat.openapi(completions, async (c) => {
 							providerId: p.providerId,
 							region: p.region,
 						}));
-						const allMetricsMap =
-							await getProviderMetricsForCombinations(metricsCombinations);
+						const allMetricsMap = await getProviderMetricsForRouting(
+							metricsCombinations,
+							routingCfg,
+						);
 						const providerAgnosticCandidates =
 							collapseProvidersToBestRegionPerProvider(
 								uptimeFallbackCandidates,
@@ -2630,6 +2809,8 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									sessionId,
+									routingConfig: routingCfg,
 								},
 							);
 
@@ -2659,6 +2840,8 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									sessionId,
+									routingConfig: routingCfg,
 								},
 							);
 
@@ -2740,25 +2923,16 @@ chat.openapi(completions, async (c) => {
 			// Build a map of provider → locked region from DB provider keys.
 			// When a user sets a region in their provider key (e.g. alibaba_region: "cn-beijing"),
 			// only that region should be a candidate — not all expanded regions.
-			const providerLockedRegions = new Map<string, string>();
-			for (const key of providerKeys) {
-				const providerDef = providers.find((p) => p.id === key.provider) as
-					| ProviderDefinition
-					| undefined;
-				const regionKey = providerDef?.regionConfig?.optionsKey;
-				if (regionKey && key.options) {
-					const lockedRegion = (
-						key.options as Record<string, string | undefined>
-					)[regionKey];
-					if (lockedRegion) {
-						providerLockedRegions.set(key.provider, lockedRegion);
-					}
-				}
-			}
+			const providerLockedRegions = buildProviderLockedRegions(providerKeys);
 
 			// Filter model providers to only those eligible for this request
 			const availableModelProviders = filterEligibleModelProviders(
-				preferConcreteRegionalMappings(expandedIamFilteredModelProviders),
+				preferConcreteRegionalMappings(
+					applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+						explicitLocks: providerLockedRegions,
+						requestedRegion,
+					}),
+				),
 				{
 					allProviderVariants: modelInfo.providers,
 					availableProviders,
@@ -2771,6 +2945,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -2837,8 +3012,10 @@ chat.openapi(completions, async (c) => {
 					providerId: provider.providerId,
 					region: provider.region,
 				}));
-				const metricsMap =
-					await getProviderMetricsForCombinations(metricsCombinations);
+				const metricsMap = await getProviderMetricsForRouting(
+					metricsCombinations,
+					routingCfg,
+				);
 				const providerAgnosticCandidates =
 					collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
@@ -2847,6 +3024,8 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							sessionId,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -2857,6 +3036,8 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						sessionId,
+						routingConfig: routingCfg,
 					},
 				);
 
@@ -2867,7 +3048,10 @@ chat.openapi(completions, async (c) => {
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
 
-					if (hysteresisSelectionReason !== "random-exploration") {
+					if (
+						hysteresisSelectionReason !== "random-exploration" &&
+						routingCfg.sticky.enabled
+					) {
 						const preferred = await getPreferredProvider(
 							project.organizationId,
 							modelWithPricing.id,
@@ -2878,6 +3062,7 @@ chat.openapi(completions, async (c) => {
 								preferred,
 								providerAgnosticCandidates,
 								cheapestResult.metadata.providerScores,
+								routingCfg.sticky,
 							);
 							if (stableCandidate) {
 								selectedProvider = stableCandidate;
@@ -2888,6 +3073,7 @@ chat.openapi(completions, async (c) => {
 									modelWithPricing.id,
 									cheapestResult.provider.providerId,
 									cheapestResult.provider.region,
+									routingCfg.sticky,
 								);
 							}
 						} else {
@@ -2896,6 +3082,7 @@ chat.openapi(completions, async (c) => {
 								modelWithPricing.id,
 								cheapestResult.provider.providerId,
 								cheapestResult.provider.region,
+								routingCfg.sticky,
 							);
 						}
 					}
@@ -3001,8 +3188,11 @@ chat.openapi(completions, async (c) => {
 			const providerLockedRegions = explicitDirectRegion
 				? new Map([[requestedProvider, explicitDirectRegion]])
 				: undefined;
-			const directProviderMappings = allModelProviders.filter(
-				(provider) => provider.providerId === requestedProvider,
+			const directProviderMappings = applyPinnedDefaultRegions(
+				allModelProviders.filter(
+					(provider) => provider.providerId === requestedProvider,
+				),
+				{ explicitLocks: providerLockedRegions, requestedRegion },
 			);
 			const directProviderRegionalMappings = directProviderMappings.filter(
 				(provider) => provider.region,
@@ -3022,6 +3212,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -3055,7 +3246,10 @@ chat.openapi(completions, async (c) => {
 				providerId: provider.providerId,
 				region: provider.region,
 			}));
-			metricsMap = await getProviderMetricsForCombinations(metricsCombinations);
+			metricsMap = await getProviderMetricsForRouting(
+				metricsCombinations,
+				routingCfg,
+			);
 		}
 
 		const weightedScores =
@@ -3072,6 +3266,8 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							sessionId,
+							routingConfig: routingCfg,
 						},
 					);
 
@@ -3241,7 +3437,14 @@ chat.openapi(completions, async (c) => {
 
 		usedToken = providerKey.token;
 		trackedKeyHealthId = providerKey.id;
-		usedRegion ??= resolveRegionFromProviderKey(providerKey);
+		if (
+			modelHasRegionalMappingsForProvider(
+				finalModelInfo ?? modelInfo,
+				usedProvider,
+			)
+		) {
+			usedRegion ??= resolveRegionFromProviderKey(providerKey);
+		}
 		// Override with region-specific env var if the DB key doesn't match the requested region.
 		// When we do override, route health attribution to the regional env credential.
 		// providerKey stays set so endpoint/options/baseUrl construction keeps the BYOK context;
@@ -3340,7 +3543,14 @@ chat.openapi(completions, async (c) => {
 		if (providerKey) {
 			usedToken = providerKey.token;
 			trackedKeyHealthId = providerKey.id;
-			usedRegion ??= resolveRegionFromProviderKey(providerKey);
+			if (
+				modelHasRegionalMappingsForProvider(
+					finalModelInfo ?? modelInfo,
+					usedProvider,
+				)
+			) {
+				usedRegion ??= resolveRegionFromProviderKey(providerKey);
+			}
 			// Override with region-specific env var if the DB key doesn't match the requested region.
 			// Route health attribution to the env credential while keeping providerKey for
 			// endpoint/options resolution (BYOK base URLs and provider options).
@@ -3562,13 +3772,11 @@ chat.openapi(completions, async (c) => {
 	// long-lived credential (kept in usedApiKeyHash above for health tracking)
 	// while the short-lived access token is what travels in the Authorization
 	// header — so swap usedToken here so downstream header builders just work.
-	// Read the env var directly to bypass round-robin comma-splitting (an SA
-	// JSON value contains commas and would otherwise be truncated).
+	// usedToken already holds the selected SA JSON: round-robin no longer
+	// splits a JSON credential on its inner commas, so the selected entry is
+	// used as-is (whether it came from a provider key or the env var).
 	if (usedProvider === "vertex-openai") {
-		const fullSaJson = providerKey
-			? usedToken
-			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
-		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+		usedToken = await getVertexOpenAIAccessToken(usedToken);
 	}
 
 	const contentFilterBlocked =
@@ -3592,6 +3800,7 @@ chat.openapi(completions, async (c) => {
 		_insertLog(
 			{
 				...logData,
+				sessionId: logData.sessionId ?? sessionId ?? null,
 				internalContentFilter: shouldTagContentFilter
 					? true
 					: logData.internalContentFilter,
@@ -3829,6 +4038,7 @@ chat.openapi(completions, async (c) => {
 			reasoning_max_tokens,
 			prompt_cache_key,
 			prompt_cache_retention,
+			n,
 		};
 
 		if (stream) {
@@ -3867,14 +4077,18 @@ chat.openapi(completions, async (c) => {
 
 						const chunkData = JSON.parse(chunk.data);
 
-						// Extract content from chunk
-						if (chunkData.choices?.[0]?.delta?.content) {
-							fullContent += chunkData.choices[0].delta.content;
-						}
-
-						// Extract reasoning content from chunk
-						if (chunkData.choices?.[0]?.delta?.reasoning) {
-							fullReasoningContent += chunkData.choices[0].delta.reasoning;
+						// Extract content and reasoning from every choice so a cached
+						// n > 1 stream replay reconstructs the full logging buffer
+						// rather than only choice 0.
+						if (Array.isArray(chunkData.choices)) {
+							for (const choice of chunkData.choices) {
+								if (typeof choice?.delta?.content === "string") {
+									fullContent += choice.delta.content;
+								}
+								if (typeof choice?.delta?.reasoning === "string") {
+									fullReasoningContent += choice.delta.reasoning;
+								}
+							}
 						}
 
 						// Extract usage information (usually in the last chunks)
@@ -3992,6 +4206,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					id: finalLogId,
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
@@ -4016,34 +4231,67 @@ chat.openapi(completions, async (c) => {
 					streamed: true,
 					canceled: false,
 					errorDetails: null,
-					inputCost: costs.inputCost ?? 0,
-					outputCost: costs.outputCost ?? 0,
-					cachedInputCost: costs.cachedInputCost ?? 0,
-					cacheWriteInputCost: costs.cacheWriteInputCost ?? 0,
-					requestCost: costs.requestCost ?? 0,
-					webSearchCost: costs.webSearchCost ?? 0,
+					// Gateway response cache hits are served entirely from Redis with no
+					// upstream provider call, so they are free. Keep token counts for
+					// analytics but record zero cost (matches the worker's `!cached`
+					// billing skip and the documented `cost: 0` dashboard behavior).
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					cacheWriteInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
 					imageInputTokens: costs.imageInputTokens?.toString() ?? null,
 					imageOutputTokens: costs.imageOutputTokens?.toString() ?? null,
-					imageInputCost: costs.imageInputCost ?? null,
-					imageOutputCost: costs.imageOutputCost ?? null,
+					imageInputCost: 0,
+					imageOutputCost: 0,
 					audioInputTokens: costs.audioInputTokens?.toString() ?? null,
-					audioInputCost: costs.audioInputCost ?? null,
-					cost: costs.totalCost ?? 0,
+					audioInputCost: 0,
+					cost: 0,
 					estimatedCost: costs.estimatedCost,
 					discount: costs.discount ?? null,
 					pricingTier: costs.pricingTier ?? null,
-					dataStorageCost: calculateDataStorageCost(
-						costs.promptTokens ?? promptTokens,
-						cachedTokens,
-						completionTokens,
-						reasoningTokens,
-						retentionLevel,
-					),
+					dataStorageCost: "0",
 					cached: true,
 					toolResults:
 						(cachedStreamingResponse.metadata as { toolResults?: any })
 							?.toolResults ?? null,
 				});
+
+				const cachedResponseMetadata = buildFinalResponseMetadata(
+					costs.discount ?? null,
+				);
+				let hasMetadataChunk = false;
+				for (
+					let chunkIndex = cachedStreamingResponse.chunks.length - 1;
+					chunkIndex >= 0;
+					chunkIndex--
+				) {
+					const chunk = cachedStreamingResponse.chunks[chunkIndex];
+					if (!chunk) {
+						continue;
+					}
+					const isMetadataChunk = (() => {
+						if (chunk.data === "[DONE]") {
+							return false;
+						}
+						try {
+							const parsed: unknown = JSON.parse(chunk.data);
+							return (
+								typeof parsed === "object" &&
+								parsed !== null &&
+								!Array.isArray(parsed) &&
+								("usage" in parsed || "metadata" in parsed)
+							);
+						} catch {
+							return false;
+						}
+					})();
+					if (isMetadataChunk) {
+						hasMetadataChunk = true;
+						break;
+					}
+				}
 
 				// Return cached streaming response by replaying chunks with original timing
 				return streamSSE(
@@ -4063,8 +4311,49 @@ chat.openapi(completions, async (c) => {
 								});
 							}
 
+							let data = chunk.data;
+							if (hasMetadataChunk && chunk.data !== "[DONE]") {
+								let parsed: Record<string, unknown> | undefined;
+								try {
+									const parsedValue: unknown = JSON.parse(chunk.data);
+									if (
+										typeof parsedValue === "object" &&
+										parsedValue !== null &&
+										!Array.isArray(parsedValue) &&
+										("usage" in parsedValue || "metadata" in parsedValue)
+									) {
+										parsed = parsedValue;
+									}
+								} catch {
+									parsed = undefined;
+								}
+								if (parsed) {
+									const metadata =
+										typeof parsed.metadata === "object" &&
+										parsed.metadata !== null &&
+										!Array.isArray(parsed.metadata)
+											? parsed.metadata
+											: {};
+									data = JSON.stringify({
+										...parsed,
+										metadata: {
+											...metadata,
+											...cachedResponseMetadata,
+										},
+									});
+								}
+							} else if (!hasMetadataChunk && chunk.data === "[DONE]") {
+								// No usage/metadata chunk in the cached stream — emit a
+								// synthetic metadata chunk before [DONE] so consumers always
+								// receive logId, organizationId, projectId, and discount.
+								await stream.writeSSE({
+									data: JSON.stringify({ metadata: cachedResponseMetadata }),
+									id: `${chunk.eventId}-metadata`,
+								});
+							}
+
 							await stream.writeSSE({
-								data: chunk.data,
+								data,
 								id: String(chunk.eventId),
 								event: chunk.event,
 							});
@@ -4087,11 +4376,54 @@ chat.openapi(completions, async (c) => {
 			cacheKey = generateCacheKey(cachePayload);
 			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
 			if (cachedResponse) {
-				const responseForCurrentRequest =
-					withCurrentRequestMetadataOnOpenAiResponse(cachedResponse, requestId);
-
 				// Log the cached request
 				const duration = 0; // No processing time needed
+
+				// Calculate costs for cached response
+				const cachedCosts = await calculateCosts(
+					usedInternalModel,
+					usedProvider,
+					usedRegion ?? null,
+					cachedResponse.usage?.prompt_tokens ?? null,
+					cachedResponse.usage?.completion_tokens ?? null,
+					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
+					undefined,
+					cachedResponse.usage?.reasoning_tokens ?? null,
+					0, // outputImageCount
+					undefined, // imageSize
+					inputImageCount,
+					null, // webSearchCount
+					project.organizationId,
+					undefined,
+					null,
+					null,
+					{
+						cacheWriteTokens:
+							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
+							cachedResponse.usage?.prompt_tokens_details
+								?.cache_creation_tokens ??
+							null,
+						cacheWrite1hTokens:
+							cachedResponse.usage?.prompt_tokens_details?.cache_creation
+								?.ephemeral_1h_input_tokens ?? null,
+						audioInputTokens:
+							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
+						explicitCacheUsed,
+					},
+				);
+
+				const responseForCurrentRequest =
+					withCurrentRequestMetadataOnOpenAiResponse(
+						cachedResponse,
+						requestId,
+						{
+							logId: finalLogId,
+							organizationId: project.organizationId,
+							projectId: apiKey.projectId,
+							discount: cachedCosts.discount ?? null,
+						},
+					);
+
 				// Extract plugin IDs for logging (cached non-streaming)
 				const cachedPluginIds = plugins?.map((p) => p.id) ?? [];
 
@@ -4131,39 +4463,6 @@ chat.openapi(completions, async (c) => {
 					undefined, // No plugin results for cached response
 				);
 
-				// Calculate costs for cached response
-				const cachedCosts = await calculateCosts(
-					usedInternalModel,
-					usedProvider,
-					usedRegion ?? null,
-					cachedResponse.usage?.prompt_tokens ?? null,
-					cachedResponse.usage?.completion_tokens ?? null,
-					cachedResponse.usage?.prompt_tokens_details?.cached_tokens ?? null,
-					undefined,
-					cachedResponse.usage?.reasoning_tokens ?? null,
-					0, // outputImageCount
-					undefined, // imageSize
-					inputImageCount,
-					null, // webSearchCount
-					project.organizationId,
-					undefined,
-					null,
-					null,
-					{
-						cacheWriteTokens:
-							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
-							cachedResponse.usage?.prompt_tokens_details
-								?.cache_creation_tokens ??
-							null,
-						cacheWrite1hTokens:
-							cachedResponse.usage?.prompt_tokens_details?.cache_creation
-								?.ephemeral_1h_input_tokens ?? null,
-						audioInputTokens:
-							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
-						explicitCacheUsed,
-					},
-				);
-
 				// Estimate cached response size based on content to avoid expensive stringify
 				const cachedContent = cachedResponse.choices?.[0]?.message?.content;
 				const cachedReasoningContent =
@@ -4175,6 +4474,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					id: finalLogId,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
 					timeToFirstReasoningToken: null, // Not applicable for cached response
@@ -4208,29 +4508,27 @@ chat.openapi(completions, async (c) => {
 					streamed: false,
 					canceled: false,
 					errorDetails: null,
-					inputCost: cachedCosts.inputCost ?? 0,
-					outputCost: cachedCosts.outputCost ?? 0,
-					cachedInputCost: cachedCosts.cachedInputCost ?? 0,
-					cacheWriteInputCost: cachedCosts.cacheWriteInputCost ?? 0,
-					requestCost: cachedCosts.requestCost ?? 0,
-					webSearchCost: cachedCosts.webSearchCost ?? 0,
+					// Gateway response cache hits are served entirely from Redis with no
+					// upstream provider call, so they are free. Keep token counts for
+					// analytics but record zero cost (matches the worker's `!cached`
+					// billing skip and the documented `cost: 0` dashboard behavior).
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					cacheWriteInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
 					imageInputTokens: cachedCosts.imageInputTokens?.toString() ?? null,
 					imageOutputTokens: cachedCosts.imageOutputTokens?.toString() ?? null,
-					imageInputCost: cachedCosts.imageInputCost ?? null,
-					imageOutputCost: cachedCosts.imageOutputCost ?? null,
+					imageInputCost: 0,
+					imageOutputCost: 0,
 					audioInputTokens: cachedCosts.audioInputTokens?.toString() ?? null,
-					audioInputCost: cachedCosts.audioInputCost ?? null,
-					cost: cachedCosts.totalCost ?? 0,
+					audioInputCost: 0,
+					cost: 0,
 					estimatedCost: cachedCosts.estimatedCost,
 					discount: cachedCosts.discount ?? null,
 					pricingTier: cachedCosts.pricingTier ?? null,
-					dataStorageCost: calculateDataStorageCost(
-						cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens,
-						cachedResponse.usage?.prompt_tokens_details?.cached_tokens,
-						cachedResponse.usage?.completion_tokens,
-						cachedResponse.usage?.reasoning_tokens,
-						retentionLevel,
-					),
+					dataStorageCost: "0",
 					cached: true,
 					toolResults: cachedResponse.choices?.[0]?.message?.tool_calls ?? null,
 				});
@@ -4307,6 +4605,21 @@ chat.openapi(completions, async (c) => {
 					message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the effort parameter. Try using provider 'anthropic' instead.`,
 				});
 			}
+		}
+	}
+
+	// Reject n > 1 when the resolved provider mapping does not advertise
+	// supportsN. We only forward n upstream for providers/models that bill
+	// input tokens once and accumulate output across choices natively
+	// (currently OpenAI Chat Completions models).
+	if (n !== undefined && n > 1 && finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.region === usedRegion,
+		);
+		if (!providerMapping?.supportsN) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+			});
 		}
 	}
 
@@ -4430,6 +4743,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_key,
 			prompt_cache_retention,
 			providerCacheControlEnabled,
+			n,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -4575,8 +4889,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	const startTime = Date.now();
-	const failedEnvKeyIndicesByProvider = new Map<string, Set<number>>();
-	const failedTrackedKeyIdsByProvider = new Map<string, Set<string>>();
+	const failedKeys = createFailedKeyTracker();
 
 	function rememberFailedKey(
 		providerId: string,
@@ -4587,21 +4900,7 @@ chat.openapi(completions, async (c) => {
 			providerKeyId?: string;
 		},
 	): void {
-		const retryKey = providerRetryKey(providerId, region);
-
-		if (options.envVarName !== undefined && options.configIndex !== undefined) {
-			const failedIndices =
-				failedEnvKeyIndicesByProvider.get(retryKey) ?? new Set<number>();
-			failedIndices.add(options.configIndex);
-			failedEnvKeyIndicesByProvider.set(retryKey, failedIndices);
-		}
-
-		if (options.providerKeyId) {
-			const failedKeyIds =
-				failedTrackedKeyIdsByProvider.get(retryKey) ?? new Set<string>();
-			failedKeyIds.add(options.providerKeyId);
-			failedTrackedKeyIdsByProvider.set(retryKey, failedKeyIds);
-		}
+		failedKeys.remember(providerId, region, options);
 	}
 
 	async function resolveProviderContextForRetry(
@@ -4612,10 +4911,6 @@ chat.openapi(completions, async (c) => {
 		},
 		streamValue: boolean,
 	) {
-		const retryKey = providerRetryKey(
-			providerMapping.providerId,
-			providerMapping.region,
-		);
 		return await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
@@ -4643,8 +4938,15 @@ chat.openapi(completions, async (c) => {
 				hasExistingToolCalls,
 				customProviderName,
 				webSearchEnabled: !!webSearchTool,
-				excludedEnvKeyIndices: failedEnvKeyIndicesByProvider.get(retryKey),
-				excludedProviderKeyIds: failedTrackedKeyIdsByProvider.get(retryKey),
+				excludedEnvKeyIndices: failedKeys.envKeyIndicesFor(
+					providerMapping.providerId,
+					providerMapping.region,
+				),
+				excludedProviderKeyIds: failedKeys.providerKeyIdsFor(
+					providerMapping.providerId,
+					providerMapping.region,
+				),
+				n,
 				providerCacheControlEnabled,
 			},
 		);
@@ -4970,10 +5272,9 @@ chat.openapi(completions, async (c) => {
 				const routingAttempts: RoutingAttempt[] = [];
 				const failedProviderIds = new Set<string>();
 				let res: Response | undefined;
-				const finalLogId = logIdOverride ?? shortid();
 				for (
 					let retryAttempt = 0;
-					retryAttempt <= MAX_RETRIES;
+					retryAttempt <= routingCfg.retry.maxRetries;
 					retryAttempt++
 				) {
 					const perAttemptStartTime = Date.now();
@@ -5071,6 +5372,7 @@ chat.openapi(completions, async (c) => {
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
 							requestCanBeCanceled ? controller : undefined,
+							routingCfg,
 						);
 
 						res = await fetch(url, {
@@ -5127,6 +5429,7 @@ chat.openapi(completions, async (c) => {
 									failedProviderIds.size -
 									1,
 								usedProvider,
+								maxRetries: routingCfg.retry.maxRetries,
 							});
 							const willRetrySameProvider = sameProviderRetryContext !== null;
 							const willRetryRequest =
@@ -5460,6 +5763,7 @@ chat.openapi(completions, async (c) => {
 									failedProviderIds.size -
 									1,
 								usedProvider,
+								maxRetries: routingCfg.retry.maxRetries,
 							});
 							const willRetrySameProvider = sameProviderRetryContext !== null;
 							const willRetryRequest = willRetrySameProvider || willRetryFetch;
@@ -5702,6 +6006,7 @@ chat.openapi(completions, async (c) => {
 								failedProviderIds.size -
 								1,
 							usedProvider,
+							maxRetries: routingCfg.retry.maxRetries,
 						});
 						const willRetrySameProvider = sameProviderRetryContext !== null;
 						const willRetryRequest =
@@ -6021,6 +6326,7 @@ chat.openapi(completions, async (c) => {
 								failedProviderIds.size -
 								1,
 							usedProvider,
+							maxRetries: routingCfg.retry.maxRetries,
 						});
 						const willRetrySameProvider = sameProviderRetryContext !== null;
 						const willRetryRequest =
@@ -6327,7 +6633,14 @@ chat.openapi(completions, async (c) => {
 				const streamingIsJsonResponseFormat =
 					response_format?.type === "json_object" ||
 					response_format?.type === "json_schema";
+				// Healing buffers a single content stream and replays it after
+				// repair. With n > 1 each choice has its own content stream, so
+				// the single buffer would corrupt multi-choice output. Skip
+				// healing in that case — JSON healing for multi-choice streams
+				// is deferred to a follow-up.
+				const healingDisabledByN = n !== undefined && n > 1;
 				const shouldBufferForHealing =
+					!healingDisabledByN &&
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
 						((usedProvider === "anthropic" ||
@@ -6828,6 +7141,9 @@ chat.openapi(completions, async (c) => {
 											},
 										],
 										usage: finalStreamUsage,
+										metadata: buildFinalResponseMetadata(
+											streamingCosts.discount ?? null,
+										),
 									};
 
 									await writeSSEAndCache({
@@ -7336,11 +7652,17 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								// Extract finishReason from transformedData to update tracking variable
-								if (transformedData.choices?.[0]?.finish_reason) {
-									finishReason = transformedData.choices[0].finish_reason;
-									sawProviderTerminalEvent = true;
-									sentDownstreamFinishReasonChunk = true;
+								// Extract finishReason from transformedData. Iterate every
+								// choice so that n > 1 streams update tracking from whichever
+								// choice has terminated, not just index 0.
+								if (Array.isArray(transformedData.choices)) {
+									for (const choice of transformedData.choices) {
+										if (choice?.finish_reason) {
+											finishReason = choice.finish_reason;
+											sawProviderTerminalEvent = true;
+											sentDownstreamFinishReasonChunk = true;
+										}
+									}
 								}
 
 								// Extract content for logging using helper function
@@ -7518,8 +7840,14 @@ chat.openapi(completions, async (c) => {
 										}
 										break;
 									default: // OpenAI format
-										if (data.choices && data.choices[0]?.finish_reason) {
-											finishReason = data.choices[0].finish_reason;
+										// Iterate every choice so n > 1 streams capture the
+										// terminal reason from whichever index ended last.
+										if (Array.isArray(data.choices)) {
+											for (const choice of data.choices) {
+												if (choice?.finish_reason) {
+													finishReason = choice.finish_reason;
+												}
+											}
 										}
 										break;
 								}
@@ -8156,6 +8484,9 @@ chat.openapi(completions, async (c) => {
 									});
 									return earlyUsage;
 								})(),
+								metadata: buildFinalResponseMetadata(
+									streamingCostsEarly.discount ?? null,
+								),
 							};
 
 							await writeSSEAndCache({
@@ -8274,6 +8605,9 @@ chat.openapi(completions, async (c) => {
 										...(usedRegion && { used_region: usedRegion }),
 										underlying_used_model: usedInternalModel,
 										routing: routingAttempts,
+										...buildFinalResponseMetadata(
+											streamingCostsEarly.discount ?? null,
+										),
 									},
 								};
 								await writeSSEAndCache({
@@ -8470,7 +8804,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
-						id: routingAttempts.length > 0 ? finalLogId : undefined,
+						id: finalLogId,
 						duration,
 						timeToFirstToken,
 						timeToFirstReasoningToken,
@@ -8659,8 +8993,11 @@ chat.openapi(completions, async (c) => {
 	let isTimeoutFetchError = false;
 	let res: Response | undefined;
 	let duration = 0;
-	const finalLogId = logIdOverride ?? shortid();
-	for (let retryAttempt = 0; retryAttempt <= MAX_RETRIES; retryAttempt++) {
+	for (
+		let retryAttempt = 0;
+		retryAttempt <= routingCfg.retry.maxRetries;
+		retryAttempt++
+	) {
 		const perAttemptStartTime = Date.now();
 
 		// Type guard: narrow variables that TypeScript widens due to loop reassignment
@@ -8763,8 +9100,12 @@ chat.openapi(completions, async (c) => {
 			const fetchSignal = forceImageStreamUpstream
 				? createStreamingCombinedSignal(
 						requestCanBeCanceled ? controller : undefined,
+						routingCfg,
 					)
-				: createCombinedSignal(requestCanBeCanceled ? controller : undefined);
+				: createCombinedSignal(
+						requestCanBeCanceled ? controller : undefined,
+						routingCfg,
+					);
 
 			res = await fetch(url, {
 				method: "POST",
@@ -8843,6 +9184,7 @@ chat.openapi(completions, async (c) => {
 					failedProviderIds.size -
 					1,
 				usedProvider,
+				maxRetries: routingCfg.retry.maxRetries,
 			});
 			const willRetrySameProvider = sameProviderRetryContext !== null;
 			const willRetryRequest =
@@ -9336,6 +9678,7 @@ chat.openapi(completions, async (c) => {
 					failedProviderIds.size -
 					1,
 				usedProvider,
+				maxRetries: routingCfg.retry.maxRetries,
 			});
 			const willRetrySameProvider = sameProviderRetryContext !== null;
 			const willRetryRequest =
@@ -10272,6 +10615,15 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		audioInputTokens,
 	);
+	const transformedMetadata =
+		transformedResponse.metadata &&
+		typeof transformedResponse.metadata === "object"
+			? transformedResponse.metadata
+			: {};
+	transformedResponse.metadata = {
+		...transformedMetadata,
+		...buildFinalResponseMetadata(costs.discount ?? null),
+	};
 
 	// Extract plugin IDs for logging
 	const pluginIds = plugins?.map((p) => p.id) ?? [];
@@ -10368,7 +10720,7 @@ chat.openapi(completions, async (c) => {
 
 	await insertLogEntry({
 		...baseLogEntry,
-		id: routingAttempts.length > 0 ? finalLogId : undefined,
+		id: finalLogId,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests
 		timeToFirstReasoningToken: null, // Not applicable for non-streaming requests

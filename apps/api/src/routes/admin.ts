@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
 import { maskToken } from "@/lib/maskToken.js";
+import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import { notDevpassFilter } from "@/utils/devpass-filter.js";
@@ -123,6 +124,8 @@ const organizationSchema = z.object({
 	totalSpent: z.string().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
+	referralBonusEnabled: z.boolean().optional(),
+	referralBonusPercent: z.number().optional(),
 	ownerUserId: z.string().nullable().optional(),
 	ownerName: z.string().nullable().optional(),
 	ownerEmail: z.string().nullable().optional(),
@@ -1813,6 +1816,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
+			referralBonusEnabled: org.referralBonusEnabled,
+			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
 		},
 		transactions: transactions.map((t) => ({
 			id: t.id,
@@ -4879,6 +4884,95 @@ admin.openapi(giftCreditsRoute, async (c) => {
 	});
 });
 
+// Configure the referral signup bonus for an organization
+const updateReferralBonusRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/referral-bonus",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						enabled: z.boolean(),
+						percent: z.number().min(0).max(1000),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						referralBonusEnabled: z.boolean(),
+						referralBonusPercent: z.number(),
+					}),
+				},
+			},
+			description: "Referral bonus updated successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(updateReferralBonusRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { enabled, percent } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			referralBonusEnabled: enabled,
+			referralBonusPercent: percent.toString(),
+		})
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "referral_bonus.update",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			enabled,
+			percent,
+		},
+	});
+
+	return c.json({
+		message: "Referral bonus updated successfully",
+		referralBonusEnabled: enabled,
+		referralBonusPercent: percent,
+	});
+});
+
 // --- Set Organization Status ---
 
 const orgStatusSchema = z.enum(["active", "deleted"]);
@@ -6990,6 +7084,7 @@ const modelProviderMappingEntrySchema = z.object({
 	gatewayErrorsCount: z.number(),
 	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
+	cost: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
@@ -7020,6 +7115,7 @@ const getModelProviderMappings = createRoute({
 					"clientErrorsCount",
 					"gatewayErrorsCount",
 					"upstreamErrorsCount",
+					"cost",
 					"avgTimeToFirstToken",
 					"updatedAt",
 				])
@@ -7115,6 +7211,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
+					cost: sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
+						"cost",
+					),
 				})
 				.from(modelProviderMappingHistory)
 				.where(
@@ -7141,6 +7240,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 					upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 					cachedCount: tables.modelProviderMapping.cachedCount,
+					// Cost is only tracked in the history table, so it is only
+					// available when a date range is provided (mirrors the models list).
+					cost: sql<number>`0`.as("cost"),
 				})
 				.from(tables.modelProviderMapping)
 				.as("mapping_stats_sub");
@@ -7192,6 +7294,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		clientErrorsCount: sql`COALESCE(${statsJoin.clientErrorsCount}, 0)`,
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
+		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
 		avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
@@ -7234,6 +7337,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				cachedCount: sql<number>`COALESCE(${statsJoin.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
+				cost: sql<number>`COALESCE(${statsJoin.cost}, 0)`.as("cost"),
 				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
 				inputPrice: tables.modelProviderMapping.inputPrice,
 				outputPrice: tables.modelProviderMapping.outputPrice,
@@ -7270,6 +7374,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			gatewayErrorsCount: Number(r.gatewayErrorsCount ?? 0),
 			upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 			cachedCount: Number(r.cachedCount ?? 0),
+			cost: Number(r.cost ?? 0),
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			inputPrice: r.inputPrice,
 			outputPrice: r.outputPrice,

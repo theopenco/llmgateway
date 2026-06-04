@@ -720,6 +720,73 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/embeddings google-ai-studio honors LLM_*_BASE_URL env override in credits mode", async () => {
+		// Credits mode with no provider key forces the env-var token path. The
+		// only thing pointing the request at the mock server is the base-url
+		// env override — if it weren't applied, the request would go to the
+		// real generativelanguage.googleapis.com default and fail.
+		const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+		const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+		process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = "google-env-key";
+		process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = mockServerUrl;
+		try {
+			await harness.setProjectMode("credits");
+			await harness.setOrganizationCredits("100");
+			await db
+				.update(tables.organization)
+				.set({ retentionLevel: "none" })
+				.where(eq(tables.organization.id, "org-id"));
+
+			await db.insert(tables.apiKey).values({
+				id: "token-id-embeddings-google-env",
+				token: "real-token-embeddings-google-env",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const requestId = "embeddings-google-env-request-id";
+			const res = await app.request("/v1/embeddings", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-embeddings-google-env",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					input: "env base url routing",
+					model: "gemini-embedding-001",
+					dimensions: 768,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json).toHaveProperty("object", "list");
+			expect(json).toHaveProperty("model", "gemini-embedding-001");
+			expect(json.data).toHaveLength(1);
+			expect(json.data[0].embedding).toHaveLength(768);
+
+			const logs = await waitForLogs(1);
+			const embeddingLog = logs.find((log) => log.requestId === requestId);
+			expect(embeddingLog).toBeTruthy();
+			expect(embeddingLog?.usedProvider).toBe("google-ai-studio");
+			expect(embeddingLog?.finishReason).toBe("stop");
+			expect(embeddingLog?.hasError).toBe(false);
+		} finally {
+			if (originalApiKey !== undefined) {
+				process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = originalApiKey;
+			} else {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			}
+			if (originalBaseUrl !== undefined) {
+				process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
+			} else {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			}
+		}
+	});
+
 	test("/v1/embeddings google-ai-studio uses upstream usageMetadata when present", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-google-v2",
@@ -2793,6 +2860,85 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	// gateway response cache hits make no upstream call, so they must be free
+	test("/v1/chat/completions cached responses are free", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-cache",
+			token: "real-token-cache",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-cache",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		// Enable gateway-level response caching for the project.
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		const body = JSON.stringify({
+			model: "openai/gpt-4o-mini",
+			messages: [{ role: "user", content: "Cache me!" }],
+		});
+
+		const makeRequest = () =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-cache",
+				},
+				body,
+			});
+
+		// First request: cache miss, served from the provider and billed.
+		// setCache is a no-op under NODE_ENV=test, so briefly flip it to prime
+		// the gateway response cache the way production would.
+		const originalNodeEnv = process.env.NODE_ENV;
+		let firstRes: Response;
+		try {
+			process.env.NODE_ENV = "development";
+			firstRes = await makeRequest();
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+		expect(firstRes.status).toBe(200);
+
+		const afterFirst = await waitForLogs(1);
+		expect(afterFirst.length).toBe(1);
+		const missLog = afterFirst[0];
+		expect(missLog.cached).toBe(false);
+		expect(Number(missLog.cost)).toBeGreaterThan(0);
+
+		// Second identical request: served entirely from the gateway cache.
+		const secondRes = await makeRequest();
+		expect(secondRes.status).toBe(200);
+
+		const afterSecond = await waitForLogs(2);
+		expect(afterSecond.length).toBe(2);
+		const cachedLog = afterSecond.find((log) => log.cached);
+		expect(cachedLog).toBeTruthy();
+
+		// Cache hit: zero cost across every billed dimension.
+		expect(Number(cachedLog?.cost)).toBe(0);
+		expect(Number(cachedLog?.inputCost)).toBe(0);
+		expect(Number(cachedLog?.outputCost)).toBe(0);
+		expect(Number(cachedLog?.cachedInputCost)).toBe(0);
+		expect(Number(cachedLog?.requestCost)).toBe(0);
+		expect(Number(cachedLog?.dataStorageCost)).toBe(0);
+
+		// Token counts are still recorded for analytics.
+		expect(Number(cachedLog?.promptTokens)).toBeGreaterThan(0);
+	});
+
 	// test for model with multiple providers (llama-3.3-70b-instruct)
 	test.skip("/v1/chat/completions with model that has multiple providers", async () => {
 		await db.insert(tables.apiKey).values({
@@ -3870,6 +4016,470 @@ describe("api", () => {
 			} finally {
 				restoreEnv();
 			}
+		});
+	});
+
+	describe("n parameter (multiple completions)", () => {
+		test("forwards n to OpenAI and returns multiple choices", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n",
+				token: "real-token-n",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 3,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			// The mock OpenAI server echoes the requested `n` back as that many
+			// choices — so receiving 3 choices proves the gateway forwarded n=3
+			// upstream rather than stripping it.
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(Array.isArray(json.choices)).toBe(true);
+			expect(json.choices).toHaveLength(3);
+			expect(json.choices[0].index).toBe(0);
+			expect(json.choices[1].index).toBe(1);
+			expect(json.choices[2].index).toBe(2);
+			for (const choice of json.choices) {
+				expect(typeof choice.message.content).toBe("string");
+				expect(choice.message.content.length).toBeGreaterThan(0);
+			}
+
+			// Input tokens counted once; output × n — mirrors real OpenAI billing.
+			expect(json.usage.prompt_tokens).toBe(10);
+			expect(json.usage.completion_tokens).toBe(60);
+			expect(json.usage.total_tokens).toBe(70);
+
+			// Log row content column should aggregate every choice's content,
+			// not just choice 0 — otherwise indices > 0 disappear from logs.
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].streamed).toBe(false);
+			expect(logs[0].content).toContain("variant 1");
+			expect(logs[0].content).toContain("variant 2");
+			expect(logs[0].content).toContain("variant 3");
+		});
+
+		test("rejects n > 1 with 400 when the model does not advertise supportsN", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-unsupported",
+				token: "real-token-n-unsupported",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-unsupported",
+				token: "sk-test-key",
+				provider: "llmgateway",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-unsupported",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					n: 3,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain(
+				"does not support the n parameter",
+			);
+		});
+
+		test("streams n choices end-to-end with one shared usage chunk", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-stream",
+				token: "real-token-n-stream",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-stream",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-stream",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 3,
+					stream: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.hasError).toBe(false);
+
+			// Walk every forwarded chunk, group deltas by their choice index,
+			// and assert each variant streamed independently.
+			const seenIndices = new Set<number>();
+			const contentByIndex = new Map<number, string>();
+			const finishByIndex = new Map<number, string>();
+			let usageChunks = 0;
+			let usagePromptTokens: number | undefined;
+			let usageCompletionTokens: number | undefined;
+
+			for (const chunk of streamResult.chunks) {
+				if (Array.isArray(chunk.choices)) {
+					for (const choice of chunk.choices) {
+						if (typeof choice.index !== "number") {
+							continue;
+						}
+						seenIndices.add(choice.index);
+						if (typeof choice.delta?.content === "string") {
+							contentByIndex.set(
+								choice.index,
+								(contentByIndex.get(choice.index) ?? "") + choice.delta.content,
+							);
+						}
+						if (typeof choice.finish_reason === "string") {
+							finishByIndex.set(choice.index, choice.finish_reason);
+						}
+					}
+				}
+				if (chunk.usage) {
+					usageChunks++;
+					usagePromptTokens = chunk.usage.prompt_tokens;
+					usageCompletionTokens = chunk.usage.completion_tokens;
+				}
+			}
+
+			expect(Array.from(seenIndices).sort()).toEqual([0, 1, 2]);
+			expect(contentByIndex.size).toBe(3);
+			expect(contentByIndex.get(0)).toContain("variant 1");
+			expect(contentByIndex.get(1)).toContain("variant 2");
+			expect(contentByIndex.get(2)).toContain("variant 3");
+			expect(finishByIndex.get(0)).toBe("stop");
+			expect(finishByIndex.get(1)).toBe("stop");
+			expect(finishByIndex.get(2)).toBe("stop");
+
+			// OpenAI streams one shared usage object on the final chunk; the
+			// gateway then appends its own synthesized usage chunk with cost
+			// metadata, so we expect at least one usage chunk containing the
+			// upstream values.
+			expect(usageChunks).toBeGreaterThanOrEqual(1);
+			expect(usagePromptTokens).toBe(10);
+			expect(usageCompletionTokens).toBe(60);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].streamed).toBe(true);
+			expect(logs[0].finishReason).toBe("stop");
+			// The log content column aggregates across all choices.
+			expect(logs[0].content).toContain("variant 1");
+			expect(logs[0].content).toContain("variant 2");
+			expect(logs[0].content).toContain("variant 3");
+		});
+
+		test("rejects n > 1 with stream + tools (tool aggregation unsupported)", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-stream-tools",
+				token: "real-token-n-stream-tools",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-stream-tools",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-stream-tools",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 3,
+					stream: true,
+					tools: [
+						{
+							type: "function",
+							function: {
+								name: "get_weather",
+								description: "Get the current weather",
+								parameters: {
+									type: "object",
+									properties: { location: { type: "string" } },
+								},
+							},
+						},
+					],
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("n");
+		});
+
+		test("does not reject n > 1 + stream when the only tool entry is native web_search", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-stream-websearch-tool",
+				token: "real-token-n-stream-websearch-tool",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-stream-websearch-tool",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// gpt-4o supports web_search natively AND has supportsN: true. The
+			// native web_search tool is handled upstream and does not flow
+			// through the per-choice streaming tool-call aggregator, so n > 1 +
+			// stream must NOT trip the function-tool collision guard when it's
+			// the only tool present.
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-stream-websearch-tool",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					n: 3,
+					stream: true,
+					tools: [{ type: "web_search" }],
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			// With the fix the gateway forwards the request and the mock
+			// streams back a valid response. Asserting 200 fails fast on any
+			// regression — whether that's the guard re-tripping (400) or some
+			// other unexpected upstream issue (500/502/etc.).
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			expect(body).not.toContain("unsupported_parameter_combination");
+		});
+
+		test("does not reject n > 1 + stream with web_search: true flag", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-stream-websearch-flag",
+				token: "real-token-n-stream-websearch-flag",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-stream-websearch-flag",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// `web_search: true` auto-injects a web_search tool entry before the
+			// guard runs. That entry must not trip the function-tool collision
+			// check.
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-stream-websearch-flag",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					n: 3,
+					stream: true,
+					web_search: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			// See sibling test above — fail fast on any non-200 so a regression
+			// in the guard or upstream surfaces directly instead of being
+			// masked by a soft body check.
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			expect(body).not.toContain("unsupported_parameter_combination");
+		});
+
+		test("n=1 is accepted and forwarded without altering choice count", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-one",
+				token: "real-token-n-one",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-one",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-one",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 1,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.choices).toHaveLength(1);
+		});
+
+		test("routing excludes mappings without supportsN at selection time", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-route-exclude",
+				token: "real-token-n-route-exclude",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-route-exclude-azure",
+				token: "sk-test-key-azure",
+				provider: "azure",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-route-exclude",
+				},
+				body: JSON.stringify({
+					model: "gpt-4.1",
+					n: 3,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const text = await res.text();
+			expect(text).not.toContain(
+				"does not support the n parameter for multiple choices",
+			);
+		});
+
+		test("retry path forwards n to fallback provider key (TRIGGER_FAIL_ONCE)", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-retry",
+				token: "real-token-n-retry",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			// Two openai keys for the same org so the first 500 triggers a key
+			// rotation, which goes through resolveProviderContextForRetry → the
+			// regression path that used to drop `n`.
+			await db.insert(tables.providerKey).values([
+				{
+					id: "provider-key-id-n-retry-a",
+					token: "sk-test-key-a",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+				{
+					id: "provider-key-id-n-retry-b",
+					token: "sk-test-key-b",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				},
+			]);
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-retry",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini",
+					n: 3,
+					messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE please" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			// The retry path must rebuild the request body with n preserved; a
+			// regression here returns a single choice instead of three.
+			expect(json.choices).toHaveLength(3);
+			expect(json.metadata?.routing?.length ?? 0).toBeGreaterThanOrEqual(2);
+			expect(json.metadata.routing[0]).toMatchObject({
+				succeeded: false,
+				status_code: 500,
+			});
+			expect(
+				json.metadata.routing[json.metadata.routing.length - 1].succeeded,
+			).toBe(true);
 		});
 	});
 });

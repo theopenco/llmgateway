@@ -17,9 +17,32 @@ import { downloadVideo } from "@/lib/video-gen";
 import type { VideoGalleryItem } from "@/lib/video-gen";
 
 const VIDEO_EXPIRY_MS = 24 * 60 * 60 * 1000;
+const EXPIRY_WARN_THRESHOLD_S = 60 * 60;
 
-function isVideoExpired(timestamp: number): boolean {
+function isExpiredByTime(expiresAt: number | null, timestamp: number): boolean {
+	if (expiresAt !== null) {
+		return Math.floor(Date.now() / 1000) > expiresAt;
+	}
 	return Date.now() - timestamp > VIDEO_EXPIRY_MS;
+}
+
+function isExpiringSoon(expiresAt: number | null): boolean {
+	if (expiresAt === null) {
+		return false;
+	}
+	const secondsLeft = expiresAt - Math.floor(Date.now() / 1000);
+	return secondsLeft > 0 && secondsLeft < EXPIRY_WARN_THRESHOLD_S;
+}
+
+function formatTimeUntilExpiry(expiresAt: number): string {
+	const secondsLeft = expiresAt - Math.floor(Date.now() / 1000);
+	if (secondsLeft < 60) {
+		return "less than a minute";
+	}
+	if (secondsLeft < 3600) {
+		return `${Math.floor(secondsLeft / 60)} min`;
+	}
+	return `${Math.floor(secondsLeft / 3600)} h`;
 }
 
 interface VideoGalleryProps {
@@ -32,15 +55,19 @@ const VideoPlayer = memo(
 	({
 		url,
 		modelName,
-		onExpired,
+		expiresAt,
+		onLoadError,
 	}: {
 		url: string;
 		modelName?: string;
-		onExpired: () => void;
+		expiresAt?: number | null;
+		onLoadError: () => void;
 	}) => {
 		const handleError = useCallback(() => {
-			onExpired();
-		}, [onExpired]);
+			onLoadError();
+		}, [onLoadError]);
+
+		const expiringSoon = isExpiringSoon(expiresAt ?? null);
 
 		return (
 			<div className="group relative overflow-hidden rounded-lg border">
@@ -70,6 +97,16 @@ const VideoPlayer = memo(
 							className="bg-background/80 backdrop-blur-sm text-xs"
 						>
 							{modelName}
+						</Badge>
+					</div>
+				)}
+				{expiringSoon && expiresAt && (
+					<div className="absolute top-2 left-2">
+						<Badge
+							variant="secondary"
+							className="bg-amber-500/90 text-white text-xs backdrop-blur-sm"
+						>
+							Expires in {formatTimeUntilExpiry(expiresAt)}
 						</Badge>
 					</div>
 				)}
@@ -192,13 +229,14 @@ function VideoInputThumbnails({ item }: { item: VideoGalleryItem }) {
 
 function SingleModeItem({ item }: { item: VideoGalleryItem }) {
 	const model = item.models[0];
-	const [urlExpired, setUrlExpired] = useState(false);
+	const [loadError, setLoadError] = useState(false);
 
 	if (!model) {
 		return null;
 	}
 
-	const expired = urlExpired || isVideoExpired(item.timestamp);
+	const expired = isExpiredByTime(model.expiresAt, item.timestamp);
+	const unavailable = loadError && !expired;
 
 	return (
 		<div className="space-y-2">
@@ -231,10 +269,18 @@ function SingleModeItem({ item }: { item: VideoGalleryItem }) {
 						<div className="flex items-center justify-center h-32 rounded-lg border bg-muted/30 text-sm text-muted-foreground">
 							Video expired
 						</div>
+					) : unavailable ? (
+						<div className="flex flex-col items-center justify-center h-32 rounded-lg border bg-muted/30 gap-1">
+							<p className="text-sm text-muted-foreground">Video unavailable</p>
+							<p className="text-xs text-muted-foreground/70">
+								The video may no longer be available from the provider
+							</p>
+						</div>
 					) : (
 						<VideoPlayer
 							url={model.videoUrl}
-							onExpired={() => setUrlExpired(true)}
+							expiresAt={model.expiresAt}
+							onLoadError={() => setLoadError(true)}
 						/>
 					)}
 				</div>
@@ -244,13 +290,13 @@ function SingleModeItem({ item }: { item: VideoGalleryItem }) {
 }
 
 function ComparisonModeItem({ item }: { item: VideoGalleryItem }) {
-	const [expiredUrls, setExpiredUrls] = useState<Set<string>>(new Set());
+	const [loadErrorModels, setLoadErrorModels] = useState<Set<string>>(
+		new Set(),
+	);
 
-	const handleExpired = useCallback((modelId: string) => {
-		setExpiredUrls((prev) => new Set(Array.from(prev).concat(modelId)));
+	const handleLoadError = useCallback((modelId: string) => {
+		setLoadErrorModels((prev) => new Set(Array.from(prev).concat(modelId)));
 	}, []);
-
-	const timestampExpired = isVideoExpired(item.timestamp);
 
 	return (
 		<div className="space-y-2">
@@ -273,7 +319,8 @@ function ComparisonModeItem({ item }: { item: VideoGalleryItem }) {
 				}`}
 			>
 				{item.models.map((model) => {
-					const expired = timestampExpired || expiredUrls.has(model.modelId);
+					const expired = isExpiredByTime(model.expiresAt, item.timestamp);
+					const unavailable = loadErrorModels.has(model.modelId) && !expired;
 					return (
 						<div key={model.modelId} className="space-y-2">
 							<Badge variant="outline" className="text-xs">
@@ -296,11 +343,21 @@ function ComparisonModeItem({ item }: { item: VideoGalleryItem }) {
 									<div className="flex items-center justify-center h-32 rounded-lg border bg-muted/30 text-sm text-muted-foreground">
 										Video expired
 									</div>
+								) : unavailable ? (
+									<div className="flex flex-col items-center justify-center h-32 rounded-lg border bg-muted/30 gap-1">
+										<p className="text-sm text-muted-foreground">
+											Video unavailable
+										</p>
+										<p className="text-xs text-muted-foreground/70">
+											The video may no longer be available from the provider
+										</p>
+									</div>
 								) : (
 									<VideoPlayer
 										url={model.videoUrl}
 										modelName={model.modelName}
-										onExpired={() => handleExpired(model.modelId)}
+										expiresAt={model.expiresAt}
+										onLoadError={() => handleLoadError(model.modelId)}
 									/>
 								)
 							) : null}

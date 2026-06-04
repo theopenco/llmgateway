@@ -82,7 +82,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
@@ -90,7 +89,6 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSkills, type Skill } from "@/hooks/useSkills";
-import { useApi } from "@/lib/fetch-client";
 import {
 	heroSuggestionGroups,
 	sampleSuggestions,
@@ -253,8 +251,6 @@ interface ChatUIProps {
 	activeSkills?: Skill[];
 	onSelectSkill?: (skill: Skill) => void;
 	onRemoveSkill?: (skillId: string) => void;
-	organizationId?: string;
-	projectId?: string;
 }
 
 function getRandomHeroSuggestionGroups(): Record<
@@ -410,98 +406,14 @@ function getMessageImageClass(
 
 function MessageMetadataPopover({
 	metadata,
-	createdAt,
-	organizationId: currentOrgId,
-	projectId: currentProjectId,
 }: {
 	metadata: PlaygroundMessageMetadata;
-	createdAt?: Date;
-	organizationId?: string;
-	projectId?: string;
 }) {
 	const [open, setOpen] = useState(false);
-	const api = useApi();
-
-	// Fallback A: message has requestId but enrichment didn't persist logId yet.
-	const needsRequestIdFallback =
-		open && !!metadata.requestId && !metadata.logId;
-
-	// Fallback B: truly old message — no requestId was ever captured. Match by
-	// model + tight time window, then disambiguate client-side by token counts + cost.
-	const needsOldMessageFallback =
-		open &&
-		!metadata.logId &&
-		!metadata.requestId &&
-		!!metadata.usedModel &&
-		!!createdAt;
-
-	const modelName = metadata.usedModel?.includes("/")
-		? metadata.usedModel.split("/").slice(1).join("/")
-		: metadata.usedModel;
-
-	const fifteenMinutesMs = 15 * 60 * 1000;
-	const oneMinuteMs = 60 * 1000;
-	const startDate = createdAt
-		? new Date(createdAt.getTime() - fifteenMinutesMs).toISOString()
-		: undefined;
-	const endDate = createdAt
-		? new Date(createdAt.getTime() + oneMinuteMs).toISOString()
-		: undefined;
-
-	const { data: requestIdLogData, isLoading: isRequestIdLoading } =
-		api.useQuery(
-			"get",
-			"/logs",
-			{
-				params: {
-					query: { requestId: metadata.requestId, limit: "1" },
-				},
-			},
-			{ enabled: needsRequestIdFallback },
-		);
-
-	const { data: oldLogData, isLoading: isOldLoading } = api.useQuery(
-		"get",
-		"/logs",
-		{
-			params: {
-				query: {
-					model: modelName,
-					startDate,
-					endDate,
-					...(currentOrgId ? { orgId: currentOrgId } : {}),
-					...(currentProjectId ? { projectId: currentProjectId } : {}),
-					limit: "10",
-				},
-			},
-		},
-		{ enabled: needsOldMessageFallback },
-	);
-
-	const matchedOldLog = needsOldMessageFallback
-		? oldLogData?.logs?.find((log) => {
-				const tokensMatch =
-					Math.round(Number(log.promptTokens)) ===
-						(metadata.usage?.inputTokens ?? -1) &&
-					Math.round(Number(log.completionTokens)) ===
-						(metadata.usage?.outputTokens ?? -1);
-				const costMatch =
-					metadata.usage?.totalCost === undefined ||
-					Math.abs((log.cost ?? 0) - metadata.usage.totalCost) < 0.0001;
-				return tokensMatch && costMatch;
-			})
-		: undefined;
-
-	const fallbackLog = requestIdLogData?.logs?.[0] ?? matchedOldLog;
-
-	const isLogLoading =
-		(needsRequestIdFallback && isRequestIdLoading) ||
-		(needsOldMessageFallback && isOldLoading);
-
-	const discount = metadata.discount ?? fallbackLog?.discount;
-	const logId = metadata.logId ?? fallbackLog?.id;
-	const organizationId = metadata.organizationId ?? fallbackLog?.organizationId;
-	const projectId = metadata.projectId ?? fallbackLog?.projectId;
+	const discount = metadata.discount;
+	const logId = metadata.logId;
+	const organizationId = metadata.organizationId;
+	const projectId = metadata.projectId;
 	const usage = metadata.usage;
 	const rows = [
 		["Total cost", formatCost(usage?.totalCost)],
@@ -546,13 +458,6 @@ function MessageMetadataPopover({
 								</span>
 							</div>
 						))}
-						{(needsRequestIdFallback || needsOldMessageFallback) &&
-							isLogLoading && (
-								<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
-									<Skeleton className="h-3 w-12" />
-									<Skeleton className="ml-auto h-3 w-16" />
-								</div>
-							)}
 						{discount !== null && discount !== undefined && discount > 0 && (
 							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
 								<span className="text-muted-foreground">Discount</span>
@@ -594,8 +499,6 @@ const AssistantMessage = memo(
 		finishReason,
 		forkChat,
 		isForkingChat,
-		organizationId,
-		projectId,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
@@ -604,8 +507,6 @@ const AssistantMessage = memo(
 		finishReason?: string | null;
 		forkChat?: () => void | Promise<void>;
 		isForkingChat?: boolean;
-		organizationId?: string;
-		projectId?: string;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -623,8 +524,12 @@ const AssistantMessage = memo(
 				{reasoningContent ? (
 					<Reasoning
 						className="w-full"
-						defaultOpen={false}
-						isStreaming={status === "streaming" && isLastMessage}
+						defaultOpen={
+							status === "streaming" && isLastMessage && textContent === ""
+						}
+						isStreaming={
+							status === "streaming" && isLastMessage && textContent === ""
+						}
 					>
 						<ReasoningTrigger />
 						<ReasoningContent>{reasoningContent}</ReasoningContent>
@@ -697,19 +602,10 @@ const AssistantMessage = memo(
 					</div>
 				)}
 
-				{(metadata || isLastMessage) && (
+				{(metadata || (isLastMessage && status !== "streaming")) && (
 					<Actions className="mt-2">
-						{metadata ? (
-							<MessageMetadataPopover
-								metadata={metadata}
-								createdAt={
-									(message as UIMessage & { createdAt?: Date }).createdAt
-								}
-								organizationId={organizationId}
-								projectId={projectId}
-							/>
-						) : null}
-						{isLastMessage ? (
+						{metadata ? <MessageMetadataPopover metadata={metadata} /> : null}
+						{isLastMessage && status !== "streaming" ? (
 							<>
 								<Action
 									onClick={() => regenerate()}
@@ -924,14 +820,30 @@ const UserMessage = memo(
 							</div>
 						)}
 					</MessageContent>
-					{canEdit && !isEditing ? (
+					{!isEditing ? (
 						<Actions className="mt-2 opacity-0 transition-opacity group-hover/user-message:opacity-100 focus-within:opacity-100">
+							{canEdit ? (
+								<Action
+									onClick={onEditStart}
+									label="Edit and retry"
+									tooltip="Edit and retry from here"
+								>
+									<Undo2 className="size-3" />
+								</Action>
+							) : null}
 							<Action
-								onClick={onEditStart}
-								label="Edit and retry"
-								tooltip="Edit and retry from here"
+								onClick={async () => {
+									try {
+										await navigator.clipboard.writeText(initialText);
+										toast.success("Copied to clipboard");
+									} catch {
+										toast.error("Failed to copy to clipboard");
+									}
+								}}
+								label="Copy"
+								tooltip="Copy to clipboard"
 							>
-								<Undo2 className="size-3" />
+								<Copy className="size-3" />
 							</Action>
 						</Actions>
 					) : null}
@@ -1101,8 +1013,6 @@ export const ChatUI = ({
 	activeSkills = [],
 	onSelectSkill,
 	onRemoveSkill,
-	organizationId,
-	projectId,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -1221,6 +1131,42 @@ export const ChatUI = ({
 		}
 		return () => observer.disconnect();
 	}, [updateInputHeight]);
+
+	useEffect(() => {
+		if (!floatingInput) {
+			return;
+		}
+		const handleSelectionChange = () => {
+			const input = inputRef.current;
+			if (!input) {
+				return;
+			}
+			const selection = window.getSelection();
+			if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+				return;
+			}
+			const range = selection.getRangeAt(0);
+			if (!range.intersectsNode(input)) {
+				return;
+			}
+			if (input.contains(range.startContainer)) {
+				return;
+			}
+			try {
+				const trimmed = range.cloneRange();
+				trimmed.setEndBefore(input);
+				selection.removeAllRanges();
+				if (!trimmed.collapsed) {
+					selection.addRange(trimmed);
+				}
+			} catch {
+				selection.removeAllRanges();
+			}
+		};
+		document.addEventListener("selectionchange", handleSelectionChange);
+		return () =>
+			document.removeEventListener("selectionchange", handleSelectionChange);
+	}, [floatingInput]);
 	// Centralized busy/active gates: isBusy blocks new submissions; isActive
 	// governs the Stop button which should only show while a request is in flight.
 	const isActive = status === "streaming" || status === "submitted";
@@ -1236,6 +1182,11 @@ export const ChatUI = ({
 			filename?: string | null;
 		}>,
 	) => {
+		if (isActive) {
+			stop();
+			return;
+		}
+
 		if (isBusy) {
 			return;
 		}
@@ -1558,8 +1509,6 @@ export const ChatUI = ({
 										isLastMessage && status === "ready" ? forkChat : undefined
 									}
 									isForkingChat={isForkingChat}
-									organizationId={organizationId}
-									projectId={projectId}
 								/>
 							) : (
 								<VirtualUserMessageItem
@@ -1614,8 +1563,8 @@ export const ChatUI = ({
 			ref={floatingInput ? inputRef : undefined}
 			className={
 				floatingInput
-					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4 pointer-events-none"
-					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
+					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4 pointer-events-none select-none"
+					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t select-none"
 			}
 		>
 			<motion.div
@@ -1916,11 +1865,6 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{isActive ? (
-								<PromptInputButton onClick={() => stop()} variant="ghost">
-									Stop
-								</PromptInputButton>
-							) : null}
 							<PromptInputSubmit
 								status={
 									status === "streaming"
@@ -1929,7 +1873,7 @@ export const ChatUI = ({
 											? "submitted"
 											: "ready"
 								}
-								disabled={isBusy}
+								disabled={isLoading}
 							/>
 						</div>
 					</PromptInputToolbar>

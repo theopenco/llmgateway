@@ -121,6 +121,7 @@ export interface ProviderContextOptions {
 	webSearchEnabled: boolean;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	n?: number;
 	providerCacheControlEnabled: boolean;
 }
 
@@ -439,6 +440,20 @@ export async function resolveProviderContext(
 		}
 	}
 
+	// --- n parameter validation ---
+	// Mirror the initial-path supportsN check (chat.ts) so retry fallbacks
+	// don't silently drop n by routing to a mapping that doesn't natively
+	// accept multiple choices.
+	if (
+		options.n !== undefined &&
+		options.n > 1 &&
+		!providerMappingForSelected?.supportsN
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+		});
+	}
+
 	// --- requestCanBeCanceled ---
 	const requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
@@ -474,6 +489,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_key,
 		options.prompt_cache_retention,
 		options.providerCacheControlEnabled,
+		options.n,
 	);
 
 	// Post-validation of max_tokens in request body

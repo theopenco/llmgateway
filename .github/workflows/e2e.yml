@@ -24,7 +24,7 @@ jobs:
         shard: [1, 2, 3, 4, 5]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
         with:
           persist-credentials: false
 
@@ -81,6 +81,7 @@ jobs:
           LLM_AZURE_RESOURCE: ${{ secrets.AZURE_RESOURCE }}
           LLM_AZURE_AI_FOUNDRY_API_KEY: ${{ secrets.LLM_AZURE_AI_FOUNDRY_API_KEY }}
           LLM_AZURE_AI_FOUNDRY_RESOURCE: ${{ secrets.LLM_AZURE_AI_FOUNDRY_RESOURCE }}
+          LLM_CANOPY_WAVE_API_KEY: ${{ secrets.CANOPY_WAVE_API_KEY }}
           LLM_CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           LLM_BYTEDANCE_API_KEY: ${{ secrets.LLM_BYTEDANCE_API_KEY }}
           LLM_MINIMAX_API_KEY: ${{ secrets.LLM_MINIMAX_API_KEY }}
@@ -105,7 +106,7 @@ jobs:
     if: always() && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
         with:
           persist-credentials: false
 

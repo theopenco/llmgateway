@@ -2,7 +2,52 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
 
-import { apiAuth, redisClient } from "./config.js";
+import { apiAuth, isClientJsonError, redisClient } from "./config.js";
+
+describe("isClientJsonError", () => {
+	test("matches the real Better Auth malformed-JSON messages from production", () => {
+		const messages = [
+			"Expected ',' or '}' after property value in JSON at position 59 (line 1 column 60)",
+			"Expected ',' or '}' after property value in JSON at position 54 (line 1 column 55)",
+			"# SERVER_ERROR:  SyntaxError: Expected ',' or '}' after property value in JSON at position 49 (line 1 column 50)",
+		];
+		for (const message of messages) {
+			expect(isClientJsonError(message, [])).toBe(true);
+		}
+	});
+
+	test("matches other JSON.parse SyntaxError variants", () => {
+		expect(
+			isClientJsonError("Unexpected token o in JSON at position 1", []),
+		).toBe(true);
+		expect(isClientJsonError("Unexpected end of JSON input", [])).toBe(true);
+		expect(
+			isClientJsonError("Unexpected non-whitespace character after JSON", []),
+		).toBe(true);
+		expect(isClientJsonError('"[object Object]" is not valid JSON', [])).toBe(
+			true,
+		);
+	});
+
+	test("inspects Error args, not just the message string", () => {
+		const err = new SyntaxError(
+			"Expected ',' or '}' after property value in JSON at position 61",
+		);
+		expect(isClientJsonError("# SERVER_ERROR:", [err])).toBe(true);
+	});
+
+	test("does not match genuine server errors", () => {
+		expect(isClientJsonError("Database connection failed", [])).toBe(false);
+		expect(
+			isClientJsonError("Failed to send verification email", [
+				new Error("SMTP timeout"),
+			]),
+		).toBe(false);
+		expect(isClientJsonError("Redis pipeline execution failed", [])).toBe(
+			false,
+		);
+	});
+});
 
 describe("API auth configuration", () => {
 	test("should inherit basic auth configuration", () => {
@@ -127,6 +172,64 @@ describe("API auth hooks functionality", () => {
 
 		expect(project).not.toBeNull();
 		expect(project?.name).toBe("Default Project");
+	});
+
+	test("should create personal organization for DevPass (code app) signup", async () => {
+		const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
+		const email = `test-devpass-${Date.now()}@example.com`;
+		const password = "Password123!";
+
+		// Sign up a new user with the code app as the request origin
+		const signUpResponse = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Origin: codeUrl,
+					"CF-Connecting-IP": `192.168.30.${Math.floor(Math.random() * 255)}`,
+				},
+				body: JSON.stringify({ email, password, name: "Dev User" }),
+			}),
+		);
+
+		expect(signUpResponse.status).toBe(200);
+
+		const user = await db.query.user.findFirst({
+			where: {
+				email: {
+					eq: email,
+				},
+			},
+		});
+
+		expect(user).not.toBeNull();
+
+		const userOrganization = await db.query.userOrganization.findFirst({
+			where: {
+				userId: {
+					eq: user!.id,
+				},
+			},
+			with: {
+				organization: true,
+			},
+		});
+
+		expect(userOrganization).not.toBeNull();
+		// DevPass signups get a "Personal" org, not the shared "Default Organization"
+		expect(userOrganization?.organization?.name).toBe("Personal");
+		expect(userOrganization?.organization?.isPersonal).toBe(true);
+
+		const project = await db.query.project.findFirst({
+			where: {
+				organizationId: {
+					eq: userOrganization!.organization?.id,
+				},
+			},
+		});
+
+		expect(project).not.toBeNull();
+		expect(project?.mode).toBe("credits");
 	});
 
 	test("should automatically verify email for self-hosted installations", async () => {

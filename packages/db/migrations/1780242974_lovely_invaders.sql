@@ -1,0 +1,2 @@
+ALTER TABLE "organization" ADD COLUMN "referral_bonus_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "organization" ADD COLUMN "referral_bonus_percent" numeric DEFAULT '50' NOT NULL;

@@ -153,6 +153,7 @@ export interface LogCardData {
 	createdAt: string | Date;
 	requestId?: string | null;
 	traceId?: string | null;
+	sessionId?: string | null;
 	projectId?: string | null;
 	projectName?: string | null;
 	organizationId?: string | null;
@@ -1081,6 +1082,16 @@ export function LogCard({
 										<CopyMetadataButton
 											value={log.traceId}
 											label="Copy trace ID"
+										/>
+									)}
+								</div>
+								<div className="text-muted-foreground">Session ID</div>
+								<div className="flex items-center gap-1 font-mono text-xs break-all">
+									<span>{log.sessionId ?? "—"}</span>
+									{showCopyButtons && log.sessionId && (
+										<CopyMetadataButton
+											value={log.sessionId}
+											label="Copy session ID"
 										/>
 									)}
 								</div>

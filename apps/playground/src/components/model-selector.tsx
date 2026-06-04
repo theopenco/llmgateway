@@ -859,36 +859,36 @@ export function ModelSelector({
 	}, [selectedDetails?.model]);
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
-	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing" or
+	// "aws-bedrock/claude-haiku-4-5:global". The region is the substring after
+	// the last ":" (model.id never contains ":"; upstream modelNames may).
 	const raw = value ?? "";
 	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
-	// Strip :region suffix for root model lookup, keep raw for mapping match
-	const selectedModelId = selectedModelIdRaw.includes(":")
-		? selectedModelIdRaw.split(":")[0]
-		: selectedModelIdRaw;
-	// Look up the model definition by its canonical (root) id only.
+	// model.id never contains ":", so split on ":" is safe for the URL form
+	// (provider/model.id[:region]). Look up by canonical (root) id only.
+	const lastColonIdx = selectedModelIdRaw.lastIndexOf(":");
+	const selectedRegion =
+		lastColonIdx > -1 ? selectedModelIdRaw.slice(lastColonIdx + 1) : undefined;
+	const selectedModelId =
+		lastColonIdx > -1
+			? selectedModelIdRaw.slice(0, lastColonIdx)
+			: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	// Identify the specific provider mapping by (providerId, region). When no
-	// region is in the URL, prefer the mapping without a region so we don't
-	// pick up a regional variant that happens to be first in the array.
-	const selectedRegion = selectedModelIdRaw.includes(":")
-		? selectedModelIdRaw.split(":")[1]
-		: undefined;
-	const selectedMapping =
-		selectedModel?.mappings.find(
-			(p) => p.providerId === selectedProviderId && p.region === selectedRegion,
-		) ??
-		(!selectedRegion
-			? selectedModel?.mappings.find(
-					(p) => p.providerId === selectedProviderId && !p.region,
-				)
-			: undefined) ??
-		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
+	// Strict (providerId, region) match — no loose fallbacks that would pick
+	// the first regional variant when no region was requested.
+	const selectedMapping = selectedRegion
+		? selectedModel?.mappings.find(
+				(p) =>
+					p.providerId === selectedProviderId && p.region === selectedRegion,
+			)
+		: selectedModel?.mappings.find(
+				(p) => p.providerId === selectedProviderId && !p.region,
+			);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
 			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.region ?? ""}`
@@ -1030,8 +1030,15 @@ export function ModelSelector({
 			});
 		}
 		if (deferredSearch) {
-			const q = normalize(deferredSearch);
-			list = list.filter((entry) => entry.searchText.includes(q));
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = list.filter((entry) =>
+					tokens.every((t) => entry.searchText.includes(t)),
+				);
+			}
 		}
 		if (filters.providers.length > 0) {
 			list = list.filter(
@@ -1096,6 +1103,20 @@ export function ModelSelector({
 				}
 				return e.mapping ? providersWithKeys.has(e.mapping.providerId) : false;
 			});
+		}
+		if (deferredSearch) {
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = [...list].sort((a, b) => {
+					if (a.isRoot === b.isRoot) {
+						return 0;
+					}
+					return a.isRoot ? -1 : 1;
+				});
+			}
 		}
 		return list;
 	}, [allEntries, deferredSearch, filters, isFavorite, providersWithKeys]);

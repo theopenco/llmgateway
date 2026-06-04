@@ -316,9 +316,26 @@ export interface ProviderModelMapping {
 	 */
 	splitTaggedReasoning?: boolean;
 	/**
+	 * Whether this provider mapping requires an explicit chat-template flag to
+	 * produce reasoning. Hybrid models like DeepSeek V3.2 on Novita keep thinking
+	 * off by default and ignore `reasoning_effort`, so the gateway sends
+	 * `chat_template_kwargs: { thinking: true }` (the documented vLLM/Novita
+	 * parameter) when the caller requests reasoning.
+	 */
+	requiresEnableThinking?: boolean;
+	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;
+	/**
+	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
+	 * (multiple completion choices per request) natively. When true, the gateway
+	 * forwards `n` to the upstream provider; when false/unset, requests with
+	 * `n > 1` are rejected with a 400 error. Only set this for providers that
+	 * actually accumulate input tokens once and bill output tokens across all
+	 * choices upstream (e.g. OpenAI Chat Completions).
+	 */
+	supportsN?: boolean;
 	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
@@ -430,6 +447,11 @@ export interface ProviderModelMapping {
 	 * Supported output durations in seconds for this provider.
 	 */
 	supportedVideoDurationsSeconds?: number[];
+	/**
+	 * Supported output durations in seconds when using image-to-video (frame inputs).
+	 * Overrides supportedVideoDurationsSeconds for that input mode when set.
+	 */
+	supportedVideoDurationsSecondsImageToVideo?: number[];
 	/**
 	 * Whether this provider mapping supports generating video with audio.
 	 */

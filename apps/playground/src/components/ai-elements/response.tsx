@@ -29,7 +29,7 @@ export const Response = memo(
 	({ className, isStreaming = false, ...props }: ResponseProps) => (
 		<Streamdown
 			className={cn(
-				"size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+				"size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_ul]:pl-5 [&_ol]:pl-5",
 				className,
 			)}
 			isAnimating={isStreaming}
