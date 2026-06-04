@@ -14,20 +14,16 @@ models.
 
 ## Available Models
 
-| Model                          | Provider | Pricing                                                |
-| ------------------------------ | -------- | ------------------------------------------------------ |
-| `gemini-2.5-flash-preview-tts` | Gemini   | $0.50/1M input text tokens, $10/1M output audio tokens |
-| `gemini-2.5-pro-preview-tts`   | Gemini   | $1.00/1M input text tokens, $20/1M output audio tokens |
-| `tts-1`                        | OpenAI   | $15/1M input characters                                |
-| `tts-1-hd`                     | OpenAI   | $30/1M input characters                                |
-| `gpt-4o-mini-tts`              | OpenAI   | $0.60/1M input text tokens, $12/1M output audio tokens |
+Browse all speech generation models, with up-to-date pricing, on the
+[models page](https://llmgateway.io/models?filters=1&audioGeneration=true).
 
 <Callout type="info">
-	Billing varies by model family. Gemini and `gpt-4o-mini-tts` are billed on
-	token usage reported by the provider; `tts-1` and `tts-1-hd` are billed on
-	input character count (those models return audio bytes without usage data).
-	For `gpt-4o-mini-tts` the gateway requests SSE streaming internally so the
-	exact input/output token counts are captured for billing.
+	Billing varies by model family. Some models are billed on token usage reported
+	by the provider (input text tokens and output audio tokens), while others are
+	billed on input character count (those return audio bytes without usage data).
+	See the [models
+	page](https://llmgateway.io/models?filters=1&audioGeneration=true) for each
+	model's exact pricing.
 </Callout>
 
 ## Parameters
