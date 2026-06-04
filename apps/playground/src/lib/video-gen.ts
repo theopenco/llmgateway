@@ -90,6 +90,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
+	if (rootModelId === "grok-imagine-video-1-5-preview") {
+		return providerId === undefined || providerId === "xai";
+	}
+
 	if (
 		rootModelId !== "veo-3.1-generate-preview" &&
 		rootModelId !== "veo-3.1-fast-generate-preview"
@@ -174,7 +178,8 @@ function mappingSupportsVideoRequest(
 	if (
 		inputMode === "frames" &&
 		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche"
+		mapping.providerId !== "avalanche" &&
+		mapping.providerId !== "xai"
 	) {
 		return false;
 	}
