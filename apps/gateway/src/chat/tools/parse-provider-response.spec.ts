@@ -376,6 +376,57 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("anthropic reasoning tokens", () => {
+		it("extracts thinking tokens from output_tokens_details.thinking_tokens", () => {
+			// Adaptive thinking (Opus 4.7+) returns an encrypted thinking block with
+			// empty text but reports the thinking token count under
+			// output_tokens_details.thinking_tokens.
+			const json = {
+				content: [
+					{ type: "thinking", thinking: "", signature: "abc" },
+					{ type: "text", text: "answer" },
+				],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 60,
+					output_tokens: 2928,
+					output_tokens_details: { thinking_tokens: 1502 },
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-opus-4-7",
+				json,
+			);
+
+			expect(result.content).toBe("answer");
+			expect(result.reasoningContent).toBe("");
+			expect(result.completionTokens).toBe(2928);
+			expect(result.reasoningTokens).toBe(1502);
+		});
+
+		it("falls back to legacy reasoning_output_tokens field", () => {
+			const json = {
+				content: [{ type: "text", text: "answer" }],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 10,
+					output_tokens: 100,
+					reasoning_output_tokens: 31,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-opus-4-6",
+				json,
+			);
+
+			expect(result.reasoningTokens).toBe(31);
+		});
+	});
+
 	describe("alibaba cache creation tokens", () => {
 		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
 			const json = {

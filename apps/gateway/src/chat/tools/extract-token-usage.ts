@@ -153,6 +153,10 @@ export function extractTokenUsage(
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 				completionTokens = data.usage.outputTokens ?? null;
+				// The Bedrock Converse API does not break out reasoning tokens; they
+				// are bundled into outputTokens (unlike the direct Anthropic API,
+				// which reports output_tokens_details.thinking_tokens). So there is
+				// no reasoningTokens source to read here.
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheWriteTokens;
@@ -195,7 +199,14 @@ export function extractTokenUsage(
 					cacheCreation1hTokens = cacheCreation1h > 0 ? cacheCreation1h : null;
 				}
 				completionTokens = usage.output_tokens ?? null;
-				reasoningTokens = usage.reasoning_output_tokens ?? null;
+				// Anthropic reports thinking tokens under
+				// `output_tokens_details.thinking_tokens` (adaptive thinking returns
+				// an encrypted thinking block with no text, so this is the only
+				// signal that reasoning happened). Keep the legacy field as a fallback.
+				reasoningTokens =
+					usage.output_tokens_details?.thinking_tokens ??
+					usage.reasoning_output_tokens ??
+					null;
 				if (promptTokens !== null && completionTokens !== null) {
 					totalTokens = promptTokens + completionTokens;
 				}
