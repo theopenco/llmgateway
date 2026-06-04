@@ -7574,9 +7574,23 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
+								// A chunk whose finish_reason signals an upstream failure (e.g.
+								// Embercloud's "error") is not a valid OpenAI completion chunk —
+								// "error" is not a valid OpenAI finish_reason. Don't forward it to
+								// the client; the terminal error event emitted later is the only
+								// signal the client should see. We still fall through below so the
+								// finish reason / raw chunk is captured for logging.
+								const isUpstreamErrorChunk =
+									transformedData.choices?.some(
+										(choice: { finish_reason?: string | null }) =>
+											choice?.finish_reason === "error",
+									) ?? false;
+
 								// When buffering for healing, strip content from chunks and buffer it
 								// We still send metadata (usage, finish_reason, tool_calls) but buffer text content
-								if (shouldBufferForHealing) {
+								if (isUpstreamErrorChunk) {
+									// Intentionally not forwarded — see comment above.
+								} else if (shouldBufferForHealing) {
 									const deltaContent =
 										transformedData.choices?.[0]?.delta?.content;
 									if (deltaContent) {
