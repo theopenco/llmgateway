@@ -120,6 +120,7 @@ import {
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
+import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
@@ -5337,8 +5338,11 @@ chat.openapi(completions, async (c) => {
 						});
 						headers["Content-Type"] = "application/json";
 
-						// Add effort beta header for Anthropic if effort parameter is specified
-						if (usedProvider === "anthropic" && effort !== undefined) {
+						// Add the effort beta header whenever the outgoing body uses
+						// Anthropic's effort-based reasoning fields — triggered by the
+						// explicit `effort` param or by a `reasoning_effort` mapped onto an
+						// adaptive model (Opus 4.7+).
+						if (anthropicRequestNeedsEffortBeta(usedProvider, requestBody)) {
 							const currentBeta = headers["anthropic-beta"];
 							headers["anthropic-beta"] = currentBeta
 								? `${currentBeta},effort-2025-11-24`
@@ -9061,8 +9065,10 @@ chat.openapi(completions, async (c) => {
 				headers["Content-Type"] = "application/json";
 			}
 
-			// Add effort beta header for Anthropic if effort parameter is specified
-			if (usedProvider === "anthropic" && effort !== undefined) {
+			// Add the effort beta header whenever the outgoing body uses Anthropic's
+			// effort-based reasoning fields — triggered by the explicit `effort` param
+			// or by a `reasoning_effort` mapped onto an adaptive model (Opus 4.7+).
+			if (anthropicRequestNeedsEffortBeta(usedProvider, requestBody)) {
 				const currentBeta = headers["anthropic-beta"];
 				headers["anthropic-beta"] = currentBeta
 					? `${currentBeta},effort-2025-11-24`
