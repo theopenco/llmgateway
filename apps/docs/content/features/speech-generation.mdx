@@ -87,6 +87,14 @@ const buffer = Buffer.from(await response.arrayBuffer());
 writeFileSync("speech.wav", buffer);
 ```
 
+## Streaming
+
+<Callout type="info">
+	Streaming speech responses (chunked audio or `stream_format: "sse"`) are not
+	supported yet. The endpoint always returns the complete audio file in a single
+	response, so there is no low-latency, play-as-you-go output for now.
+</Callout>
+
 ## Voices
 
 Gemini exposes 30 prebuilt voices. A few common ones:
