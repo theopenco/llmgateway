@@ -195,7 +195,14 @@ export function extractTokenUsage(
 					cacheCreation1hTokens = cacheCreation1h > 0 ? cacheCreation1h : null;
 				}
 				completionTokens = usage.output_tokens ?? null;
-				reasoningTokens = usage.reasoning_output_tokens ?? null;
+				// Anthropic reports thinking tokens under
+				// `output_tokens_details.thinking_tokens` (adaptive thinking returns
+				// an encrypted thinking block with no text, so this is the only
+				// signal that reasoning happened). Keep the legacy field as a fallback.
+				reasoningTokens =
+					usage.output_tokens_details?.thinking_tokens ??
+					usage.reasoning_output_tokens ??
+					null;
 				if (promptTokens !== null && completionTokens !== null) {
 					totalTokens = promptTokens + completionTokens;
 				}
