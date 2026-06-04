@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
+import { buildAnthropicErrorBody } from "@/lib/error-response.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
 import { logger, toError } from "@llmgateway/logger";
@@ -578,11 +579,10 @@ anthropic.openapi(messages, async (c) => {
 		}
 
 		return c.json(
-			{
-				error: true,
-				status: response.status,
+			buildAnthropicErrorBody({
 				message: `Request failed: ${errorData}`,
-			},
+				status: response.status,
+			}),
 			response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
 		);
 	}
