@@ -23,6 +23,7 @@ export const openaiModels = [
 				tools: true,
 				jsonOutputSchema: true,
 				jsonOutput: true,
+				supportsN: true,
 			},
 			{
 				providerId: "azure",
@@ -164,6 +165,7 @@ export const openaiModels = [
 				webSearch: true, // Supports web_search tool via Responses API
 				jsonOutputSchema: true,
 				jsonOutput: true,
+				supportsN: true,
 			},
 			{
 				test: "skip",
@@ -203,6 +205,7 @@ export const openaiModels = [
 				tools: true,
 				jsonOutputSchema: false,
 				jsonOutput: true,
+				supportsN: true,
 			},
 			{
 				test: "skip",
@@ -279,6 +282,7 @@ export const openaiModels = [
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
 				jsonOutput: true,
+				supportsN: true,
 			},
 			{
 				test: "skip",
@@ -412,6 +416,7 @@ export const openaiModels = [
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
 				jsonOutput: true,
+				supportsN: true,
 			},
 			{
 				test: "skip",
@@ -455,6 +460,7 @@ export const openaiModels = [
 				parallelToolCalls: true,
 				jsonOutputSchema: true,
 				jsonOutput: true,
+				supportsN: true,
 			},
 			{
 				test: "skip",

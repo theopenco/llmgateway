@@ -178,6 +178,19 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	stream: z.boolean().optional().default(false),
+	n: z
+		.number()
+		.int()
+		.min(1)
+		.max(128)
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models); requests for unsupported models are rejected with 400. Streaming is supported: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. The one exception is `n > 1` with `stream: true` **and** function `tools` — that combination is rejected with 400 because the streaming tool-call aggregator can't disambiguate concurrent calls across choices. Native `web_search` tools (and the `web_search: true` flag) are exempt.",
+			example: 1,
+		}),
 	prompt_cache_key: z
 		.string()
 		.nullable()

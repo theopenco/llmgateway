@@ -247,6 +247,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 		include_usage: boolean;
 	};
 	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	n?: number;
 	extra_body?: Record<string, unknown>;
 }
 
@@ -427,6 +428,7 @@ export type RequestBodyPreparer = (
 	useResponsesApi?: boolean,
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
+	n?: number,
 ) => Promise<ProviderRequestBody | FormData>;
 
 // Type guards

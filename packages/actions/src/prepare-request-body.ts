@@ -17,6 +17,7 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 
+import { parseDataUrl } from "./parse-data-url.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
@@ -61,11 +62,11 @@ async function fetchImageAsBlob(
 	url: string,
 	index: number,
 ): Promise<{ blob: Blob; filename: string }> {
-	const dataUrlMatch = url.match(/^data:([^;,]+)(?:;[^,]*)?,(.*)$/);
-	if (dataUrlMatch) {
-		const mimeType = dataUrlMatch[1] || "image/png";
-		const payload = dataUrlMatch[2] ?? "";
-		const isBase64 = /;base64,/i.test(url.slice(0, url.indexOf(",") + 1));
+	const parsed = parseDataUrl(url);
+	if (parsed) {
+		const mimeType = parsed.mediaType || "image/png";
+		const payload = parsed.data;
+		const isBase64 = parsed.isBase64;
 		const raw = isBase64
 			? Buffer.from(payload, "base64")
 			: Buffer.from(decodeURIComponent(payload), "utf-8");
@@ -578,23 +579,11 @@ function transformContentForResponsesApi(content: any, role: string): any {
 				return { type: "input_text", text: part.text };
 			}
 			if (part.type === "image_url") {
-				// Transform "image_url" to "input_image"
-				// The Responses API expects the image URL directly or base64 data
+				// Transform "image_url" to "input_image". The Responses API accepts
+				// both base64 data URLs and regular URLs as-is, so pass the value
+				// through directly — no need to scan/validate the (possibly huge)
+				// data-URL payload here.
 				const imageUrl = part.image_url?.url ?? part.image_url;
-
-				// Check if it's a base64 data URL
-				if (typeof imageUrl === "string" && imageUrl.startsWith("data:")) {
-					// Parse data URL: data:image/jpeg;base64,/9j/4AAQ...
-					const matches = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
-					if (matches) {
-						return {
-							type: "input_image",
-							image_url: imageUrl,
-						};
-					}
-				}
-
-				// For regular URLs, pass directly
 				return {
 					type: "input_image",
 					image_url: imageUrl,
@@ -741,6 +730,7 @@ export async function prepareRequestBody(
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
 	providerCacheControlEnabled = true,
+	n?: number,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 
@@ -1040,7 +1030,6 @@ export async function prepareRequestBody(
 	// Anthropic-style `ttl: "1h"` must be normalized away before forwarding.
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
-		usedProvider === "anthropic-discount" ||
 		usedProvider === "vertex-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
@@ -1448,6 +1437,9 @@ export async function prepareRequestBody(
 				if (reasoning_effort !== undefined) {
 					requestBody.reasoning_effort = reasoning_effort;
 				}
+				if (n !== undefined && n > 1) {
+					requestBody.n = n;
+				}
 			}
 			break;
 		}
@@ -1507,7 +1499,6 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "anthropic":
-		case "anthropic-discount":
 		case "vertex-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
@@ -2626,6 +2617,23 @@ export async function prepareRequestBody(
 					...(requestBody.extra_body ?? {}),
 					reasoning_split: true,
 				};
+			}
+			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
+			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
+			// flag to turn reasoning on. Only set it when the caller asked for
+			// reasoning so plain requests stay non-thinking.
+			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+				const thinkingMapping = modelDef?.providers.find(
+					(p) =>
+						p.providerId === usedProvider &&
+						((p as ProviderModelMapping).region ?? null) === usedRegion,
+				) as ProviderModelMapping | undefined;
+				if (thinkingMapping?.requiresEnableThinking) {
+					requestBody.chat_template_kwargs = {
+						...(requestBody.chat_template_kwargs ?? {}),
+						thinking: true,
+					};
+				}
 			}
 			break;
 		}
