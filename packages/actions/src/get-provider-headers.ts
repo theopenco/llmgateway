@@ -10,6 +10,12 @@ export interface ProviderHeaderOptions {
 	requestId?: string;
 	providerKeyOptions?: ProviderKeyOptions;
 	configIndex?: number;
+	/**
+	 * Skip env-var fallback when resolving the Vertex/Quartz token type, so
+	 * header auth matches the endpoint in BYOK contexts. Must mirror the
+	 * `skipEnvVars` passed to {@link getProviderEndpoint} for the same request.
+	 */
+	skipEnvVars?: boolean;
 }
 
 /**
@@ -47,6 +53,7 @@ export function getProviderHeaders(
 				provider,
 				options?.providerKeyOptions,
 				options?.configIndex,
+				options?.skipEnvVars,
 			);
 			if (tokenType === "oauth") {
 				return {

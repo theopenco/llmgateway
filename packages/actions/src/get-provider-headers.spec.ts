@@ -50,6 +50,26 @@ describe("getProviderHeaders", () => {
 				Authorization: "Bearer ya29.example",
 			});
 		});
+
+		it("ignores the env var when skipEnvVars is true (BYOK), matching the endpoint", () => {
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			expect(
+				getProviderHeaders("google-vertex", "AIzaSyExample", {
+					providerKeyOptions: { google_vertex_project_id: "project-a" },
+					skipEnvVars: true,
+				}),
+			).toEqual({});
+		});
+
+		it("still honors an explicit oauth key option when skipEnvVars is true", () => {
+			expect(
+				getProviderHeaders("google-vertex", "ya29.example", {
+					providerKeyOptions: { google_vertex_token_type: "oauth" },
+					skipEnvVars: true,
+				}),
+			).toEqual({ Authorization: "Bearer ya29.example" });
+		});
 	});
 
 	describe("quartz", () => {

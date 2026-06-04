@@ -5340,6 +5340,9 @@ chat.openapi(completions, async (c) => {
 									? (providerKey?.options ?? undefined)
 									: undefined,
 							configIndex,
+							// Mirror the skipEnvVars used for the endpoint above so
+							// header auth and the `?key=` query param agree on token type.
+							skipEnvVars: providerKey !== undefined,
 						});
 						headers["Content-Type"] = "application/json";
 
@@ -9070,6 +9073,9 @@ chat.openapi(completions, async (c) => {
 						? (providerKey?.options ?? undefined)
 						: undefined,
 				configIndex,
+				// Mirror the skipEnvVars used for the endpoint above so header
+				// auth and the `?key=` query param agree on token type.
+				skipEnvVars: providerKey !== undefined,
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";
