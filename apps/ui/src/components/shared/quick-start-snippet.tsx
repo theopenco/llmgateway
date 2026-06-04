@@ -14,9 +14,9 @@ export function QuickStartSection({
 	apiKey?: string;
 	onCopy?: () => void;
 }) {
-	const [activeTab, setActiveTab] = useState<"curl" | "typescript" | "ai-sdk">(
-		"curl",
-	);
+	const [activeTab, setActiveTab] = useState<
+		"curl" | "typescript" | "python" | "ai-sdk"
+	>("curl");
 
 	const keyPlaceholder = apiKey ?? "YOUR_API_KEY";
 
@@ -45,6 +45,19 @@ const response = await client.chat.completions.create({
   free_models_only: true,
 });`;
 
+	const pythonExample = `from openai import OpenAI
+
+client = OpenAI(
+    api_key="${keyPlaceholder}",
+    base_url="https://api.llmgateway.io/v1/",
+)
+
+response = client.chat.completions.create(
+    model="auto",
+    messages=[{"role": "user", "content": "Hello!"}],
+    extra_body={"free_models_only": True},
+)`;
+
 	const aiSdkExample = `import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { generateText } from "ai";
 
@@ -62,7 +75,9 @@ const { text } = await generateText({
 			? curlExample
 			: activeTab === "typescript"
 				? tsExample
-				: aiSdkExample;
+				: activeTab === "python"
+					? pythonExample
+					: aiSdkExample;
 
 	function copyCode() {
 		void navigator.clipboard.writeText(code);
@@ -102,6 +117,14 @@ const { text } = await generateText({
 							type="button"
 						>
 							TypeScript
+						</Button>
+						<Button
+							variant={activeTab === "python" ? "default" : "outline"}
+							size="sm"
+							onClick={() => setActiveTab("python")}
+							type="button"
+						>
+							Python
 						</Button>
 						<Button
 							variant={activeTab === "ai-sdk" ? "default" : "outline"}
