@@ -168,7 +168,7 @@ describe("speech", () => {
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 15e-6, 12);
 	});
 
-	test("/v1/audio/speech passes OpenAI response_format through", async () => {
+	test("/v1/audio/speech bills gpt-4o-mini-tts on SSE token usage", async () => {
 		await seedKeys(
 			"real-token-speech-openai-wav",
 			"token-id-speech-openai-wav",
@@ -191,5 +191,19 @@ describe("speech", () => {
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		// The SSE audio deltas are reassembled into the full payload.
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_OPENAI_AUDIO");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/gpt-4o-mini-tts");
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		// Usage comes from the speech.audio.done event (input 7, output 42).
+		expect(log?.promptTokens).toBe("7");
+		expect(log?.completionTokens).toBe("42");
+		// $0.60/1M input text tokens + $12/1M output audio tokens.
+		expect(Number(log?.inputCost)).toBeCloseTo(7 * 0.6e-6, 12);
+		expect(Number(log?.outputCost)).toBeCloseTo(42 * 12e-6, 12);
 	});
 });

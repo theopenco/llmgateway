@@ -1150,6 +1150,21 @@ mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 	};
 	// Deterministic mock audio payload (not a real encoded stream).
 	const audio = Buffer.from("MOCK_OPENAI_AUDIO");
+
+	// gpt-4o-mini-tts requests stream_format=sse: emit audio deltas followed by a
+	// done event carrying token usage, mirroring OpenAI's SSE schema.
+	if (body.stream_format === "sse") {
+		const half = Math.ceil(audio.length / 2);
+		const delta1 = audio.subarray(0, half).toString("base64");
+		const delta2 = audio.subarray(half).toString("base64");
+		const usage = { input_tokens: 7, output_tokens: 42, total_tokens: 49 };
+		const sse =
+			`data: ${JSON.stringify({ type: "speech.audio.delta", audio: delta1 })}\n\n` +
+			`data: ${JSON.stringify({ type: "speech.audio.delta", audio: delta2 })}\n\n` +
+			`data: ${JSON.stringify({ type: "speech.audio.done", usage })}\n\n`;
+		return c.body(sse, 200, { "Content-Type": "text/event-stream" });
+	}
+
 	return c.body(audio, 200, {
 		"Content-Type": contentTypes[format] ?? "audio/mpeg",
 	});

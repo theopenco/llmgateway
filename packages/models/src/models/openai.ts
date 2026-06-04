@@ -16,6 +16,8 @@ const OPENAI_TTS_VOICES = [
 	"sage",
 	"shimmer",
 	"verse",
+	"marin",
+	"cedar",
 ];
 
 export const openaiModels = [
@@ -2155,14 +2157,15 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-4o-mini-tts",
-				inputPrice: "0",
-				outputPrice: "0",
-				// OpenAI bills this per token (~$0.015/min). Approximated per input
-				// character (~$0.0135/min at typical speaking rates) since the speech
-				// endpoint returns audio bytes without token usage.
-				inputCharacterPrice: "15e-6",
+				// Token-billed: $0.60/1M input text tokens, $12.00/1M output audio
+				// tokens. The gateway requests stream_format=sse for this model so the
+				// speech.audio.done event reports input_tokens/output_tokens for exact
+				// billing (the plain binary response carries no usage).
+				inputPrice: "0.6e-6",
+				outputPrice: "12.0e-6",
+				outputAudioPrice: "12.0e-6",
 				requestPrice: "0",
-				contextSize: 4096,
+				contextSize: 2000,
 				streaming: false,
 				tools: false,
 				jsonOutput: false,

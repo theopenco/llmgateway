@@ -304,6 +304,13 @@ speech.post("/", async (c): Promise<Response> => {
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
 	const isOpenAI = providerId === "openai";
+	// OpenAI models split into two billing/transport modes:
+	//   - character-billed (tts-1, tts-1-hd): plain binary response, no usage.
+	//   - token-billed (gpt-4o-mini-tts): request stream_format=sse so the
+	//     speech.audio.done event reports input/output token usage exactly.
+	const billByCharacters =
+		isOpenAI && mapping.inputCharacterPrice !== undefined;
+	const useSse = isOpenAI && !billByCharacters;
 
 	if (!SUPPORTED_PROVIDERS.has(providerId)) {
 		return c.json(
@@ -438,7 +445,12 @@ speech.post("/", async (c): Promise<Response> => {
 				voice,
 				response_format: responseFormat,
 				...(request.speed !== undefined ? { speed: request.speed } : {}),
-				...(request.instructions ? { instructions: request.instructions } : {}),
+				// `instructions` and SSE streaming only apply to gpt-4o-mini-tts;
+				// tts-1/tts-1-hd reject both.
+				...(useSse && request.instructions
+					? { instructions: request.instructions }
+					: {}),
+				...(useSse ? { stream_format: "sse" } : {}),
 			}
 		: {
 				contents: [{ parts: [{ text: promptText }] }],
@@ -921,20 +933,85 @@ speech.post("/", async (c): Promise<Response> => {
 				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
 			}
 
-			// OpenAI returns the audio already encoded in the requested format, so
-			// the bytes pass straight through and billing is by input characters.
+			// OpenAI returns the audio already encoded in the requested format.
 			if (isOpenAI) {
-				const out = Buffer.from(await upstreamResponse.arrayBuffer());
-				const contentType =
-					upstreamResponse.headers.get("content-type") ??
-					OPENAI_CONTENT_TYPES[responseFormat] ??
-					"audio/mpeg";
-
-				const characters = request.input.length;
-				const inputCharacterPrice = Number(mapping.inputCharacterPrice ?? "0");
-				const inputCost = characters * inputCharacterPrice;
+				let out: Buffer;
+				let contentType: string;
+				let inputCost: number;
+				let outputCost = 0;
+				let promptTokens: number | null = null;
+				let completionTokens: number | null = null;
 				const requestCost = Number(mapping.requestPrice ?? "0");
-				const cost = inputCost + requestCost;
+
+				if (useSse) {
+					// gpt-4o-mini-tts: parse the SSE stream, concatenating the base64
+					// audio deltas and reading exact token usage from the done event.
+					const sseText = await upstreamResponse.text();
+					const chunks: Buffer[] = [];
+					let inputTokens: number | null = null;
+					let outputTokens: number | null = null;
+					for (const line of sseText.split("\n")) {
+						const trimmed = line.trim();
+						if (!trimmed.startsWith("data:")) {
+							continue;
+						}
+						const payload = trimmed.slice(5).trim();
+						if (!payload || payload === "[DONE]") {
+							continue;
+						}
+						let event: any;
+						try {
+							event = JSON.parse(payload);
+						} catch {
+							continue;
+						}
+						if (event.type === "speech.audio.delta" && event.audio) {
+							chunks.push(Buffer.from(event.audio, "base64"));
+						} else if (event.type === "speech.audio.done" && event.usage) {
+							inputTokens =
+								typeof event.usage.input_tokens === "number"
+									? event.usage.input_tokens
+									: null;
+							outputTokens =
+								typeof event.usage.output_tokens === "number"
+									? event.usage.output_tokens
+									: null;
+						}
+					}
+					out = Buffer.concat(chunks);
+					contentType = OPENAI_CONTENT_TYPES[responseFormat] ?? "audio/mpeg";
+					promptTokens = inputTokens;
+					completionTokens = outputTokens;
+					const inputPrice = Number(mapping.inputPrice ?? "0");
+					const outputAudioPrice = Number(
+						mapping.outputAudioPrice ?? mapping.outputPrice ?? "0",
+					);
+					inputCost = inputTokens !== null ? inputTokens * inputPrice : 0;
+					outputCost =
+						outputTokens !== null ? outputTokens * outputAudioPrice : 0;
+				} else {
+					// tts-1 / tts-1-hd: binary passthrough billed by input characters.
+					out = Buffer.from(await upstreamResponse.arrayBuffer());
+					contentType =
+						upstreamResponse.headers.get("content-type") ??
+						OPENAI_CONTENT_TYPES[responseFormat] ??
+						"audio/mpeg";
+					const characters = request.input.length;
+					const inputCharacterPrice = Number(
+						mapping.inputCharacterPrice ?? "0",
+					);
+					inputCost = characters * inputCharacterPrice;
+				}
+
+				const cost = inputCost + outputCost + requestCost;
+				const totalTokens =
+					promptTokens !== null || completionTokens !== null
+						? (promptTokens ?? 0) + (completionTokens ?? 0)
+						: null;
+				// SSE bills on reported usage; flag estimated if the done event is
+				// missing usage (character-billed models are always exact).
+				const estimatedCost =
+					useSse && (promptTokens === null || completionTokens === null);
 
 				routingAttempts.push(
 					buildRoutingAttempt(
@@ -961,9 +1038,10 @@ speech.post("/", async (c): Promise<Response> => {
 					content: `[audio: ${out.length} bytes, ${contentType}]`,
 					reasoningContent: null,
 					finishReason: "stop",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
+					promptTokens: promptTokens !== null ? promptTokens.toString() : null,
+					completionTokens:
+						completionTokens !== null ? completionTokens.toString() : null,
+					totalTokens: totalTokens !== null ? totalTokens.toString() : null,
 					reasoningTokens: null,
 					cachedTokens: null,
 					hasError: false,
@@ -971,7 +1049,7 @@ speech.post("/", async (c): Promise<Response> => {
 					canceled: false,
 					errorDetails: null,
 					inputCost,
-					outputCost: 0,
+					outputCost,
 					cachedInputCost: 0,
 					requestCost,
 					webSearchCost: 0,
@@ -980,13 +1058,13 @@ speech.post("/", async (c): Promise<Response> => {
 					imageInputCost: null,
 					imageOutputCost: null,
 					cost,
-					estimatedCost: false,
+					estimatedCost,
 					discount: null,
 					pricingTier: null,
 					dataStorageCost: calculateDataStorageCost(
+						promptTokens,
 						null,
-						null,
-						null,
+						completionTokens,
 						null,
 						retentionLevel,
 					),
