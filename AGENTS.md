@@ -47,7 +47,7 @@ When running curl commands against the local API, you can use `test-token` as au
 
 To test a specific provider in isolation (e.g. to reproduce a provider-specific failure without the gateway silently falling back to a healthy provider), pin the provider with the `provider/model` model string and disable fallback with the `x-no-fallback: true` header:
 
-```
+```bash
 curl -N http://localhost:4001/v1/chat/completions \
   -H "Authorization: Bearer test-token" -H "x-no-fallback: true" \
   -d '{"model":"embercloud/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'

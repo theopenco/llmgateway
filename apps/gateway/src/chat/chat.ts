@@ -7426,6 +7426,27 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								// A chunk whose finish_reason signals an upstream failure (e.g.
+								// Embercloud's "error") is not a valid OpenAI completion chunk —
+								// "error" is not a valid OpenAI finish_reason. Capture the
+								// terminal finish reason and raw payload for the error event and
+								// logging, but skip this chunk entirely otherwise: it is not
+								// forwarded to the client and must not feed content/token/cost
+								// accumulation, since the client never receives it.
+								const isUpstreamErrorChunk =
+									transformedData.choices?.some(
+										(choice: { finish_reason?: string | null }) =>
+											choice?.finish_reason === "error",
+									) ?? false;
+								if (isUpstreamErrorChunk) {
+									finishReason = "error";
+									sawProviderTerminalEvent = true;
+									upstreamErrorChunkRaw = JSON.stringify(data);
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									continue;
+								}
+
 								if (splitTaggedReasoning) {
 									const deltaContent =
 										transformedData.choices?.[0]?.delta?.content;
@@ -7574,23 +7595,9 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								// A chunk whose finish_reason signals an upstream failure (e.g.
-								// Embercloud's "error") is not a valid OpenAI completion chunk —
-								// "error" is not a valid OpenAI finish_reason. Don't forward it to
-								// the client; the terminal error event emitted later is the only
-								// signal the client should see. We still fall through below so the
-								// finish reason / raw chunk is captured for logging.
-								const isUpstreamErrorChunk =
-									transformedData.choices?.some(
-										(choice: { finish_reason?: string | null }) =>
-											choice?.finish_reason === "error",
-									) ?? false;
-
 								// When buffering for healing, strip content from chunks and buffer it
 								// We still send metadata (usage, finish_reason, tool_calls) but buffer text content
-								if (isUpstreamErrorChunk) {
-									// Intentionally not forwarded — see comment above.
-								} else if (shouldBufferForHealing) {
+								if (shouldBufferForHealing) {
 									const deltaContent =
 										transformedData.choices?.[0]?.delta?.content;
 									if (deltaContent) {
@@ -7670,12 +7677,6 @@ chat.openapi(completions, async (c) => {
 											finishReason = choice.finish_reason;
 											sawProviderTerminalEvent = true;
 											sentDownstreamFinishReasonChunk = true;
-											// Preserve the raw upstream chunk when it signals a
-											// hard error, so the logged error reflects the actual
-											// provider payload (which may carry no message at all).
-											if (choice.finish_reason === "error") {
-												upstreamErrorChunkRaw = JSON.stringify(data);
-											}
 										}
 									}
 								}
