@@ -337,6 +337,7 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 		case "generating":
 			return "in_progress";
 		case "completed":
+		case "done":
 		case "success":
 		case "succeeded":
 			return "completed";
@@ -433,6 +434,7 @@ function extractContentUrl(body: Record<string, unknown>): string | null {
 		body.url,
 		body.video_url,
 		body.output_url,
+		body.video,
 		body.content,
 		body.output,
 	];
