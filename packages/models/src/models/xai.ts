@@ -810,7 +810,7 @@ export const xaiModels = [
 		imageInputRequired: true,
 		family: "xai",
 		output: ["video"],
-		releasedAt: new Date("2026-05-01"),
+		releasedAt: new Date("2026-05-30"),
 		providers: [
 			{
 				test: "skip",
