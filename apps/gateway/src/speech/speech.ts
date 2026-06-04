@@ -1,4 +1,4 @@
-import { OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
@@ -90,6 +90,61 @@ interface SpeechErrorBody {
 		param: string | null;
 		code: string;
 	};
+}
+
+const speechErrorSchema = z.object({
+	error: z.object({
+		message: z.string(),
+		type: z.string(),
+		param: z.string().nullable(),
+		code: z.string(),
+	}),
+});
+
+/** Minimal shape of a Gemini `generateContent` response part. */
+interface GeminiPart {
+	text?: string;
+	inlineData?: { mimeType?: string; data?: string };
+}
+
+/** Minimal shape of the Gemini `generateContent` response we consume. */
+interface GeminiResponse {
+	candidates?: Array<{
+		content?: { parts?: GeminiPart[] };
+		finishReason?: string;
+	}>;
+	usageMetadata?: {
+		promptTokenCount?: number;
+		candidatesTokenCount?: number;
+	};
+	error?: { message?: string };
+}
+
+/** Minimal shape of an OpenAI `/v1/audio/speech` SSE event. */
+interface SpeechSseEvent {
+	type?: string;
+	audio?: string;
+	usage?: { input_tokens?: number; output_tokens?: number };
+	error?: { message?: string };
+}
+
+function hasInlineAudio(
+	part: GeminiPart,
+): part is GeminiPart & { inlineData: { data: string; mimeType?: string } } {
+	return typeof part.inlineData?.data === "string";
+}
+
+function extractUpstreamErrorMessage(value: unknown, fallback: string): string {
+	if (typeof value === "string" && value) {
+		return value;
+	}
+	if (value && typeof value === "object") {
+		const message = (value as { error?: { message?: unknown } }).error?.message;
+		if (typeof message === "string" && message) {
+			return message;
+		}
+	}
+	return fallback;
 }
 
 const PROVIDER_BASE_URL_DEFAULTS: Partial<Record<string, string>> = {
@@ -244,7 +299,68 @@ function assertCreditsAvailable(
 
 export const speech = new OpenAPIHono<ServerTypes>();
 
-speech.post("/", async (c): Promise<Response> => {
+const createSpeech = createRoute({
+	operationId: "v1_audio_speech",
+	summary: "Create speech",
+	description:
+		"Generates audio from input text (text-to-speech). Returns the audio file as binary data.",
+	method: "post",
+	path: "/",
+	security: [
+		{
+			bearerAuth: [],
+		},
+	],
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: speechRequestSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"audio/wav": { schema: z.any() },
+				"audio/mpeg": { schema: z.any() },
+				"application/octet-stream": { schema: z.any() },
+			},
+			description: "Generated audio.",
+		},
+		400: {
+			content: { "application/json": { schema: speechErrorSchema } },
+			description: "Invalid request body or parameters.",
+		},
+		401: {
+			content: { "application/json": { schema: speechErrorSchema } },
+			description: "Unauthorized request.",
+		},
+		402: {
+			content: { "application/json": { schema: speechErrorSchema } },
+			description: "Payment required / insufficient credits.",
+		},
+		403: {
+			content: { "application/json": { schema: speechErrorSchema } },
+			description: "Forbidden.",
+		},
+		500: {
+			content: { "application/json": { schema: speechErrorSchema } },
+			description: "Internal server error.",
+		},
+		502: {
+			content: { "application/json": { schema: speechErrorSchema } },
+			description: "Failed to connect to the upstream provider.",
+		},
+		504: {
+			content: { "application/json": { schema: speechErrorSchema } },
+			description: "Upstream provider timeout.",
+		},
+	},
+});
+
+speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	c.header("x-request-id", requestId);
 
@@ -346,10 +462,26 @@ speech.post("/", async (c): Promise<Response> => {
 		);
 	}
 
+	const supportedVoices = mapping.supportedVoices ?? [];
+	if (
+		request.voice !== undefined &&
+		supportedVoices.length > 0 &&
+		!supportedVoices.includes(request.voice)
+	) {
+		return c.json(
+			{
+				error: {
+					message: `Unsupported voice '${request.voice}' for model ${modelDefId}. Supported voices: ${supportedVoices.join(", ")}.`,
+					type: "invalid_request_error",
+					param: "voice",
+					code: "unsupported_voice",
+				},
+			} satisfies SpeechErrorBody,
+			400,
+		);
+	}
 	const voice =
-		request.voice ??
-		mapping.supportedVoices?.[0] ??
-		(isOpenAI ? "alloy" : "Kore");
+		request.voice ?? supportedVoices[0] ?? (isOpenAI ? "alloy" : "Kore");
 
 	const startedAt = Date.now();
 	const source = validateSource(
@@ -395,6 +527,13 @@ speech.post("/", async (c): Promise<Response> => {
 	if (organization.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
+		});
+	}
+
+	if (organization.isPersonal && organization.devPlan !== "none") {
+		throw new HTTPException(403, {
+			message:
+				"Speech generation is not available for coding plans. Coding plans only include text-based inference.",
 		});
 	}
 
@@ -453,7 +592,7 @@ speech.post("/", async (c): Promise<Response> => {
 				...(useSse ? { stream_format: "sse" } : {}),
 			}
 		: {
-				contents: [{ parts: [{ text: promptText }] }],
+				contents: [{ role: "user", parts: [{ text: promptText }] }],
 				generationConfig: {
 					responseModalities: ["AUDIO"],
 					speechConfig: {
@@ -661,22 +800,26 @@ speech.post("/", async (c): Promise<Response> => {
 				const isTimeout = isTimeoutError(fetchError);
 				const duration = Date.now() - startedAt;
 
-				if (attempt.envVarName !== undefined) {
-					reportKeyError(
-						attempt.envVarName,
-						attempt.configIndex,
-						0,
-						undefined,
-						upstreamModel,
-					);
-				}
-				if (attempt.providerKey?.id) {
-					reportTrackedKeyError(
-						attempt.providerKey.id,
-						0,
-						undefined,
-						upstreamModel,
-					);
+				// A client-initiated abort is not the provider key's fault, so don't
+				// penalize key health for it.
+				if (!isCanceled) {
+					if (attempt.envVarName !== undefined) {
+						reportKeyError(
+							attempt.envVarName,
+							attempt.configIndex,
+							0,
+							undefined,
+							upstreamModel,
+						);
+					}
+					if (attempt.providerKey?.id) {
+						reportTrackedKeyError(
+							attempt.providerKey.id,
+							0,
+							undefined,
+							upstreamModel,
+						);
+					}
 				}
 
 				const networkErrorType = isTimeout
@@ -795,7 +938,7 @@ speech.post("/", async (c): Promise<Response> => {
 			if (!upstreamResponse.ok) {
 				const upstreamText = await upstreamResponse.text();
 				const responseSize = upstreamText.length;
-				let upstreamJson: any = null;
+				let upstreamJson: unknown = null;
 				if (upstreamText) {
 					try {
 						upstreamJson = JSON.parse(upstreamText);
@@ -903,12 +1046,10 @@ speech.post("/", async (c): Promise<Response> => {
 
 				const normalizedUpstreamError: SpeechErrorBody = {
 					error: {
-						message:
-							typeof upstreamJson === "string"
-								? upstreamJson
-								: (upstreamJson?.error?.message ??
-									upstreamResponse.statusText ??
-									"Upstream error"),
+						message: extractUpstreamErrorMessage(
+							upstreamJson,
+							upstreamResponse.statusText || "Upstream error",
+						),
 						type: "upstream_error",
 						param: null,
 						code: "upstream_error",
@@ -950,6 +1091,7 @@ speech.post("/", async (c): Promise<Response> => {
 					const chunks: Buffer[] = [];
 					let inputTokens: number | null = null;
 					let outputTokens: number | null = null;
+					let sseErrorMessage: string | null = null;
 					for (const line of sseText.split("\n")) {
 						const trimmed = line.trim();
 						if (!trimmed.startsWith("data:")) {
@@ -959,9 +1101,9 @@ speech.post("/", async (c): Promise<Response> => {
 						if (!payload || payload === "[DONE]") {
 							continue;
 						}
-						let event: any;
+						let event: SpeechSseEvent;
 						try {
-							event = JSON.parse(payload);
+							event = JSON.parse(payload) as SpeechSseEvent;
 						} catch {
 							continue;
 						}
@@ -976,8 +1118,91 @@ speech.post("/", async (c): Promise<Response> => {
 								typeof event.usage.output_tokens === "number"
 									? event.usage.output_tokens
 									: null;
+						} else if (event.type === "error") {
+							sseErrorMessage = event.error?.message ?? "Speech stream error";
 						}
 					}
+
+					// A 200 SSE stream can still carry an error frame or yield no audio;
+					// surface that as a failure instead of returning an empty 200.
+					if (sseErrorMessage !== null || chunks.length === 0) {
+						logger.warn("Speech API - no audio in SSE stream", {
+							requestId,
+							model: upstreamModel,
+							sseError: sseErrorMessage,
+						});
+						routingAttempts.push(
+							buildRoutingAttempt(
+								providerId,
+								modelDefId,
+								upstreamResponse.status,
+								"upstream_error",
+								false,
+								{ apiKeyHash: usedApiKeyHash, logId: finalLogId },
+							),
+						);
+						await insertLog({
+							...baseLogEntry,
+							id: finalLogId,
+							routingMetadata: buildSpeechRoutingMetadata(usedApiKeyHash),
+							duration,
+							timeToFirstToken: null,
+							timeToFirstReasoningToken: null,
+							responseSize: sseText.length,
+							content: null,
+							reasoningContent: null,
+							finishReason: "upstream_error",
+							promptTokens: null,
+							completionTokens: null,
+							totalTokens: null,
+							reasoningTokens: null,
+							cachedTokens: null,
+							hasError: true,
+							streamed: false,
+							canceled: false,
+							errorDetails: {
+								statusCode: upstreamResponse.status,
+								statusText: "no_audio",
+								responseText: (sseErrorMessage ?? sseText).slice(0, 2000),
+							},
+							inputCost: 0,
+							outputCost: 0,
+							cachedInputCost: 0,
+							requestCost: 0,
+							webSearchCost: 0,
+							imageInputTokens: null,
+							imageOutputTokens: null,
+							imageInputCost: null,
+							imageOutputCost: null,
+							cost: 0,
+							estimatedCost: false,
+							discount: null,
+							pricingTier: null,
+							dataStorageCost: calculateDataStorageCost(
+								null,
+								null,
+								null,
+								null,
+								retentionLevel,
+							),
+							cached: false,
+							toolResults: null,
+						});
+						return c.json(
+							{
+								error: {
+									message:
+										sseErrorMessage ??
+										"The model did not return any audio. The content may have been filtered.",
+									type: "upstream_error",
+									param: null,
+									code: "no_audio",
+								},
+							} satisfies SpeechErrorBody,
+							502,
+						);
+					}
+
 					out = Buffer.concat(chunks);
 					contentType = OPENAI_CONTENT_TYPES[responseFormat] ?? "audio/mpeg";
 					promptTokens = inputTokens;
@@ -1082,26 +1307,24 @@ speech.post("/", async (c): Promise<Response> => {
 			// Google AI Studio: parse the inline PCM audio from the JSON response.
 			const upstreamText = await upstreamResponse.text();
 			const responseSize = upstreamText.length;
-			let upstreamJson: any = null;
+			let upstreamJson: GeminiResponse = {};
 			if (upstreamText) {
 				try {
-					upstreamJson = JSON.parse(upstreamText);
+					upstreamJson = JSON.parse(upstreamText) as GeminiResponse;
 				} catch {
-					upstreamJson = upstreamText;
+					upstreamJson = {};
 				}
 			}
 
 			// Extract the audio payload from the Gemini response.
-			const parts = upstreamJson?.candidates?.[0]?.content?.parts ?? [];
-			const audioPart = Array.isArray(parts)
-				? parts.find((p: any) => p?.inlineData?.data)
-				: undefined;
-			const base64Audio: string | undefined = audioPart?.inlineData?.data;
-			const audioMimeType: string | undefined = audioPart?.inlineData?.mimeType;
+			const parts = upstreamJson.candidates?.[0]?.content?.parts ?? [];
+			const audioPart = parts.find(hasInlineAudio);
+			const base64Audio: string | undefined = audioPart?.inlineData.data;
+			const audioMimeType: string | undefined = audioPart?.inlineData.mimeType;
 
 			if (!base64Audio) {
 				const finishReason =
-					upstreamJson?.candidates?.[0]?.finishReason ?? "error";
+					upstreamJson.candidates?.[0]?.finishReason ?? "error";
 				logger.warn("Speech API - no audio in response", {
 					requestId,
 					model: upstreamModel,
@@ -1189,7 +1412,7 @@ speech.post("/", async (c): Promise<Response> => {
 			const out = responseFormat === "pcm" ? pcm : pcmToWav(pcm, sampleRate);
 			const contentType = responseFormat === "pcm" ? "audio/pcm" : "audio/wav";
 
-			const usage = upstreamJson?.usageMetadata ?? {};
+			const usage = upstreamJson.usageMetadata ?? {};
 			const promptTokens =
 				typeof usage.promptTokenCount === "number"
 					? usage.promptTokenCount

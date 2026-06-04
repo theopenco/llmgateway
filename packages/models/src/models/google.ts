@@ -2110,7 +2110,6 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-flash-preview-tts",
-				// $0.50 per 1M input text tokens, $10.00 per 1M output audio tokens.
 				inputPrice: "0.5e-6",
 				outputPrice: "10.0e-6",
 				outputAudioPrice: "10.0e-6",
@@ -2137,7 +2136,6 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-pro-preview-tts",
-				// $1.00 per 1M input text tokens, $20.00 per 1M output audio tokens.
 				inputPrice: "1.0e-6",
 				outputPrice: "20.0e-6",
 				outputAudioPrice: "20.0e-6",

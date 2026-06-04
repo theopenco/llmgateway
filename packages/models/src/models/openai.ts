@@ -1,13 +1,12 @@
 import type { ModelDefinition } from "@/models.js";
 
 /**
- * Prebuilt voices supported by the OpenAI text-to-speech models. The first
- * entry ("alloy") is used as the default when the caller omits `voice`.
+ * Built-in voices for the legacy tts-1 / tts-1-hd models. The first entry
+ * ("alloy") is the default when the caller omits `voice`.
  */
 const OPENAI_TTS_VOICES = [
 	"alloy",
 	"ash",
-	"ballad",
 	"coral",
 	"echo",
 	"fable",
@@ -15,9 +14,26 @@ const OPENAI_TTS_VOICES = [
 	"onyx",
 	"sage",
 	"shimmer",
-	"verse",
-	"marin",
+];
+
+/**
+ * Built-in voices for gpt-4o-mini-tts, which supports a broader catalog than
+ * the legacy tts-1 models.
+ */
+const OPENAI_GPT4O_MINI_TTS_VOICES = [
+	"alloy",
+	"ash",
+	"ballad",
 	"cedar",
+	"coral",
+	"echo",
+	"fable",
+	"marin",
+	"nova",
+	"onyx",
+	"sage",
+	"shimmer",
+	"verse",
 ];
 
 export const openaiModels = [
@@ -2107,7 +2123,6 @@ export const openaiModels = [
 				externalId: "tts-1",
 				inputPrice: "0",
 				outputPrice: "0",
-				// $15.00 per 1M input characters.
 				inputCharacterPrice: "15e-6",
 				requestPrice: "0",
 				contextSize: 4096,
@@ -2133,7 +2148,6 @@ export const openaiModels = [
 				externalId: "tts-1-hd",
 				inputPrice: "0",
 				outputPrice: "0",
-				// $30.00 per 1M input characters.
 				inputCharacterPrice: "30e-6",
 				requestPrice: "0",
 				contextSize: 4096,
@@ -2157,10 +2171,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-4o-mini-tts",
-				// Token-billed: $0.60/1M input text tokens, $12.00/1M output audio
-				// tokens. The gateway requests stream_format=sse for this model so the
-				// speech.audio.done event reports input_tokens/output_tokens for exact
-				// billing (the plain binary response carries no usage).
+				// Token-billed; the gateway requests stream_format=sse so the
+				// speech.audio.done event reports usage (the binary response has none).
 				inputPrice: "0.6e-6",
 				outputPrice: "12.0e-6",
 				outputAudioPrice: "12.0e-6",
@@ -2170,7 +2182,7 @@ export const openaiModels = [
 				tools: false,
 				jsonOutput: false,
 				speechGenerations: true,
-				supportedVoices: OPENAI_TTS_VOICES,
+				supportedVoices: OPENAI_GPT4O_MINI_TTS_VOICES,
 			},
 		],
 	},

@@ -132,6 +132,50 @@ describe("speech", () => {
 		expect(JSON.stringify(json)).toContain("Speech generation model not found");
 	});
 
+	test("/v1/audio/speech rejects unsupported voice with 400", async () => {
+		await seedKeys("real-token-speech-voice", "token-id-speech-voice");
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-voice",
+			},
+			body: JSON.stringify({
+				model: "gemini-2.5-flash-preview-tts",
+				input: "Hello there",
+				voice: "not-a-real-voice",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Unsupported voice");
+	});
+
+	test("/v1/audio/speech rejects coding-plan personal orgs with 403", async () => {
+		await seedKeys("real-token-speech-coding", "token-id-speech-coding");
+		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-coding",
+			},
+			body: JSON.stringify({
+				model: "gemini-2.5-flash-preview-tts",
+				input: "Hello there",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Speech generation is not available for coding plans",
+		);
+	});
+
 	test("/v1/audio/speech proxies OpenAI tts-1 and bills by characters", async () => {
 		await seedKeys(
 			"real-token-speech-openai",
