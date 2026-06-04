@@ -114,6 +114,10 @@ export function parseProviderResponse(
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 				completionTokens = json.usage.outputTokens ?? null;
+				// The Bedrock Converse API does not break out reasoning tokens; they
+				// are bundled into outputTokens (unlike the direct Anthropic API,
+				// which reports output_tokens_details.thinking_tokens). Reasoning
+				// *content* is still surfaced via the reasoningContent blocks above.
 				totalTokens = json.usage.totalTokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;

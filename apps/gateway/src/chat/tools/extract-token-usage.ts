@@ -153,6 +153,10 @@ export function extractTokenUsage(
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 				completionTokens = data.usage.outputTokens ?? null;
+				// The Bedrock Converse API does not break out reasoning tokens; they
+				// are bundled into outputTokens (unlike the direct Anthropic API,
+				// which reports output_tokens_details.thinking_tokens). So there is
+				// no reasoningTokens source to read here.
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheWriteTokens;
