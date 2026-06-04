@@ -1,6 +1,6 @@
 ---
 title: Speech Generation
-description: Generate speech (text-to-speech) using Gemini models through the OpenAI-compatible audio API
+description: Generate speech (text-to-speech) using Gemini and OpenAI models through the OpenAI-compatible audio API
 icon: Volume2
 ---
 
@@ -9,31 +9,36 @@ import { Callout } from "fumadocs-ui/components/callout";
 # Speech Generation
 
 LLMGateway supports text-to-speech (TTS) through the OpenAI-compatible
-**`/v1/audio/speech`** endpoint, powered by Google's Gemini speech models.
+**`/v1/audio/speech`** endpoint, powered by Google Gemini and OpenAI speech
+models.
 
 ## Available Models
 
-| Model                          | Description                          |
-| ------------------------------ | ------------------------------------ |
-| `gemini-2.5-flash-preview-tts` | Fast, low-cost single-speaker speech |
-| `gemini-2.5-pro-preview-tts`   | Higher-quality single-speaker speech |
+| Model                          | Provider | Description                          |
+| ------------------------------ | -------- | ------------------------------------ |
+| `gemini-2.5-flash-preview-tts` | Gemini   | Fast, low-cost single-speaker speech |
+| `gemini-2.5-pro-preview-tts`   | Gemini   | Higher-quality single-speaker speech |
+| `tts-1`                        | OpenAI   | Real-time optimized speech           |
+| `tts-1-hd`                     | OpenAI   | Quality-optimized speech             |
+| `gpt-4o-mini-tts`              | OpenAI   | Steerable speech via `instructions`  |
 
 ## Parameters
 
-| Parameter         | Type   | Default  | Description                                                                        |
-| ----------------- | ------ | -------- | ---------------------------------------------------------------------------------- |
-| `model`           | string | required | The speech model to use                                                            |
-| `input`           | string | required | The text to synthesize into speech                                                 |
-| `voice`           | string | `"Kore"` | A prebuilt Gemini voice (e.g. `Kore`, `Puck`, `Zephyr`, `Charon`)                  |
-| `response_format` | string | `"wav"`  | Audio format. Gemini emits PCM, so only `wav` and `pcm` are supported              |
-| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`) |
-| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models         |
+| Parameter         | Type   | Default  | Description                                                                                                |
+| ----------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `model`           | string | required | The speech model to use                                                                                    |
+| `input`           | string | required | The text to synthesize into speech                                                                         |
+| `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini) or `alloy` (OpenAI)                                          |
+| `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. Gemini: `wav` (default), `pcm` |
+| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                         |
+| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                 |
 
 <Callout type="info">
 	Gemini speech models return raw PCM audio. LLMGateway wraps it in a WAV
 	container by default (`response_format: "wav"`), or returns the raw 16-bit
 	little-endian PCM at 24&nbsp;kHz when `response_format: "pcm"` is requested.
-	Other formats such as `mp3` are not supported.
+	Other formats such as `mp3` are only available on the OpenAI models, which
+	return the audio already encoded in the requested format.
 </Callout>
 
 ## curl
@@ -77,6 +82,9 @@ writeFileSync("speech.wav", buffer);
 ## Voices
 
 Gemini exposes 30 prebuilt voices. A few common ones:
-
 `Kore`, `Puck`, `Zephyr`, `Charon`, `Fenrir`, `Leda`, `Orus`, `Aoede`. When
-`voice` is omitted, `Kore` is used.
+`voice` is omitted on a Gemini model, `Kore` is used.
+
+OpenAI voices include `alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`,
+`nova`, `onyx`, `sage`, `shimmer`, and `verse`. When `voice` is omitted on an
+OpenAI model, `alloy` is used.

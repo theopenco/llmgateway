@@ -1124,6 +1124,37 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v1/audio/speech", async (c) => {
+	const body = await c.req.json();
+	const input = typeof body.input === "string" ? body.input : "";
+
+	const statusTrigger = extractStatusCodeTrigger(input);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (input.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const format =
+		typeof body.response_format === "string" ? body.response_format : "mp3";
+	const contentTypes: Record<string, string> = {
+		mp3: "audio/mpeg",
+		opus: "audio/opus",
+		aac: "audio/aac",
+		flac: "audio/flac",
+		wav: "audio/wav",
+		pcm: "audio/pcm",
+	};
+	// Deterministic mock audio payload (not a real encoded stream).
+	const audio = Buffer.from("MOCK_OPENAI_AUDIO");
+	return c.body(audio, 200, {
+		"Content-Type": contentTypes[format] ?? "audio/mpeg",
+	});
+});
+
 mockOpenAIServer.post("/v1/embeddings", async (c) => {
 	const body = await c.req.json();
 	const inputs = Array.isArray(body.input) ? body.input : [body.input];

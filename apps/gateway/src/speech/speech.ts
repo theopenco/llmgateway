@@ -66,12 +66,12 @@ const speechRequestSchema = z.object({
 		.optional()
 		.openapi({
 			description:
-				"The audio format of the returned audio. Gemini speech models emit PCM, so only `wav` (default) and `pcm` are supported.",
+				"The audio format of the returned audio. OpenAI models support mp3 (default), opus, aac, flac, wav and pcm. Gemini models emit PCM, so only wav (default) and pcm are supported.",
 			example: "wav",
 		}),
 	speed: z.number().min(0.25).max(4).optional().openapi({
 		description:
-			"Playback speed hint. Accepted for OpenAI compatibility but not applied by Gemini speech models.",
+			"Playback speed hint. Forwarded to OpenAI models; not applied by Gemini speech models.",
 		example: 1,
 	}),
 	instructions: z.string().optional().openapi({
@@ -94,6 +94,33 @@ interface SpeechErrorBody {
 
 const PROVIDER_BASE_URL_DEFAULTS: Partial<Record<string, string>> = {
 	"google-ai-studio": "https://generativelanguage.googleapis.com",
+	openai: "https://api.openai.com",
+};
+
+const SUPPORTED_PROVIDERS = new Set(["google-ai-studio", "openai"]);
+
+// Response formats Gemini can satisfy. Gemini emits raw PCM, so the gateway can
+// only return PCM directly or wrapped in a WAV container.
+const GOOGLE_RESPONSE_FORMATS = new Set(["wav", "pcm"]);
+
+// OpenAI's speech endpoint returns the audio already encoded in the requested
+// format, so all of its formats pass straight through.
+const OPENAI_RESPONSE_FORMATS = new Set([
+	"mp3",
+	"opus",
+	"aac",
+	"flac",
+	"wav",
+	"pcm",
+]);
+
+const OPENAI_CONTENT_TYPES: Record<string, string> = {
+	mp3: "audio/mpeg",
+	opus: "audio/opus",
+	aac: "audio/aac",
+	flac: "audio/flac",
+	wav: "audio/wav",
+	pcm: "audio/pcm",
 };
 
 /**
@@ -258,21 +285,6 @@ speech.post("/", async (c): Promise<Response> => {
 	const request: SpeechRequest = validationResult.data;
 	const requestedModel = request.model;
 
-	const responseFormat = request.response_format ?? "wav";
-	if (responseFormat !== "wav" && responseFormat !== "pcm") {
-		return c.json(
-			{
-				error: {
-					message: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
-					type: "invalid_request_error",
-					param: "response_format",
-					code: "unsupported_response_format",
-				},
-			} satisfies SpeechErrorBody,
-			400,
-		);
-	}
-
 	const match = findSpeechMapping(requestedModel);
 	if (!match) {
 		return c.json(
@@ -291,8 +303,9 @@ speech.post("/", async (c): Promise<Response> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const isOpenAI = providerId === "openai";
 
-	if (providerId !== "google-ai-studio") {
+	if (!SUPPORTED_PROVIDERS.has(providerId)) {
 		return c.json(
 			{
 				error: {
@@ -306,7 +319,30 @@ speech.post("/", async (c): Promise<Response> => {
 		);
 	}
 
-	const voice = request.voice ?? mapping.supportedVoices?.[0] ?? "Kore";
+	const responseFormat = request.response_format ?? (isOpenAI ? "mp3" : "wav");
+	const allowedFormats = isOpenAI
+		? OPENAI_RESPONSE_FORMATS
+		: GOOGLE_RESPONSE_FORMATS;
+	if (!allowedFormats.has(responseFormat)) {
+		return c.json(
+			{
+				error: {
+					message: isOpenAI
+						? `Unsupported response_format '${responseFormat}'.`
+						: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
+					type: "invalid_request_error",
+					param: "response_format",
+					code: "unsupported_response_format",
+				},
+			} satisfies SpeechErrorBody,
+			400,
+		);
+	}
+
+	const voice =
+		request.voice ??
+		mapping.supportedVoices?.[0] ??
+		(isOpenAI ? "alloy" : "Kore");
 
 	const startedAt = Date.now();
 	const source = validateSource(
@@ -395,17 +431,26 @@ speech.post("/", async (c): Promise<Response> => {
 		? `${request.instructions}: ${request.input}`
 		: request.input;
 
-	const upstreamRequestBody: Record<string, unknown> = {
-		contents: [{ parts: [{ text: promptText }] }],
-		generationConfig: {
-			responseModalities: ["AUDIO"],
-			speechConfig: {
-				voiceConfig: {
-					prebuiltVoiceConfig: { voiceName: voice },
+	const upstreamRequestBody: Record<string, unknown> = isOpenAI
+		? {
+				model: upstreamModel,
+				input: request.input,
+				voice,
+				response_format: responseFormat,
+				...(request.speed !== undefined ? { speed: request.speed } : {}),
+				...(request.instructions ? { instructions: request.instructions } : {}),
+			}
+		: {
+				contents: [{ parts: [{ text: promptText }] }],
+				generationConfig: {
+					responseModalities: ["AUDIO"],
+					speechConfig: {
+						voiceConfig: {
+							prebuiltVoiceConfig: { voiceName: voice },
+						},
+					},
 				},
-			},
-		},
-	};
+			};
 
 	interface SpeechAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -512,7 +557,9 @@ speech.post("/", async (c): Promise<Response> => {
 			PROVIDER_BASE_URL_DEFAULTS[providerId] ??
 			"https://generativelanguage.googleapis.com";
 
-		const upstreamUrl = `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
+		const upstreamUrl = isOpenAI
+			? `${resolvedBaseUrl}/v1/audio/speech`
+			: `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
 
 		return { providerKey, usedToken, configIndex, envVarName, upstreamUrl };
 	}
@@ -731,20 +778,19 @@ speech.post("/", async (c): Promise<Response> => {
 				);
 			}
 
-			const upstreamText = await upstreamResponse.text();
 			const duration = Date.now() - startedAt;
-			const responseSize = upstreamText.length;
-
-			let upstreamJson: any = null;
-			if (upstreamText) {
-				try {
-					upstreamJson = JSON.parse(upstreamText);
-				} catch {
-					upstreamJson = upstreamText;
-				}
-			}
 
 			if (!upstreamResponse.ok) {
+				const upstreamText = await upstreamResponse.text();
+				const responseSize = upstreamText.length;
+				let upstreamJson: any = null;
+				if (upstreamText) {
+					try {
+						upstreamJson = JSON.parse(upstreamText);
+					} catch {
+						upstreamJson = upstreamText;
+					}
+				}
 				const status = upstreamResponse.status;
 				if (attempt.envVarName !== undefined) {
 					reportKeyError(
@@ -863,6 +909,110 @@ speech.post("/", async (c): Promise<Response> => {
 				);
 			}
 
+			// HTTP 200 — the credential worked.
+			if (attempt.envVarName !== undefined) {
+				reportKeySuccess(
+					attempt.envVarName,
+					attempt.configIndex,
+					upstreamModel,
+				);
+			}
+			if (attempt.providerKey?.id) {
+				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
+			}
+
+			// OpenAI returns the audio already encoded in the requested format, so
+			// the bytes pass straight through and billing is by input characters.
+			if (isOpenAI) {
+				const out = Buffer.from(await upstreamResponse.arrayBuffer());
+				const contentType =
+					upstreamResponse.headers.get("content-type") ??
+					OPENAI_CONTENT_TYPES[responseFormat] ??
+					"audio/mpeg";
+
+				const characters = request.input.length;
+				const inputCharacterPrice = Number(mapping.inputCharacterPrice ?? "0");
+				const inputCost = characters * inputCharacterPrice;
+				const requestCost = Number(mapping.requestPrice ?? "0");
+				const cost = inputCost + requestCost;
+
+				routingAttempts.push(
+					buildRoutingAttempt(
+						providerId,
+						modelDefId,
+						upstreamResponse.status,
+						"none",
+						true,
+						{
+							apiKeyHash: usedApiKeyHash,
+							logId: finalLogId,
+						},
+					),
+				);
+
+				await insertLog({
+					...baseLogEntry,
+					id: finalLogId,
+					routingMetadata: buildSpeechRoutingMetadata(usedApiKeyHash),
+					duration,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize: out.length,
+					content: `[audio: ${out.length} bytes, ${contentType}]`,
+					reasoningContent: null,
+					finishReason: "stop",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: null,
+					inputCost,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: calculateDataStorageCost(
+						null,
+						null,
+						null,
+						null,
+						retentionLevel,
+					),
+					cached: false,
+					toolResults: null,
+				});
+
+				return c.body(toArrayBuffer(out), 200, {
+					"Content-Type": contentType,
+					"Content-Length": String(out.length),
+					"x-request-id": requestId,
+				});
+			}
+
+			// Google AI Studio: parse the inline PCM audio from the JSON response.
+			const upstreamText = await upstreamResponse.text();
+			const responseSize = upstreamText.length;
+			let upstreamJson: any = null;
+			if (upstreamText) {
+				try {
+					upstreamJson = JSON.parse(upstreamText);
+				} catch {
+					upstreamJson = upstreamText;
+				}
+			}
+
 			// Extract the audio payload from the Gemini response.
 			const parts = upstreamJson?.candidates?.[0]?.content?.parts ?? [];
 			const audioPart = Array.isArray(parts)
@@ -954,17 +1104,6 @@ speech.post("/", async (c): Promise<Response> => {
 					} satisfies SpeechErrorBody,
 					500,
 				);
-			}
-
-			if (attempt.envVarName !== undefined) {
-				reportKeySuccess(
-					attempt.envVarName,
-					attempt.configIndex,
-					upstreamModel,
-				);
-			}
-			if (attempt.providerKey?.id) {
-				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
 			}
 
 			const pcm = Buffer.from(base64Audio, "base64");

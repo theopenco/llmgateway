@@ -182,6 +182,12 @@ export interface ProviderModelMapping {
 	 */
 	outputAudioPrice?: Price;
 	/**
+	 * Price per input character in USD. Used by speech generation models that
+	 * bill on input characters rather than tokens (e.g. OpenAI `tts-1`), since
+	 * the OpenAI speech endpoint returns audio bytes without token usage.
+	 */
+	inputCharacterPrice?: Price;
+	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
 	imageOutputPrice?: Price;

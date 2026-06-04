@@ -1,5 +1,23 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Prebuilt voices supported by the OpenAI text-to-speech models. The first
+ * entry ("alloy") is used as the default when the caller omits `voice`.
+ */
+const OPENAI_TTS_VOICES = [
+	"alloy",
+	"ash",
+	"ballad",
+	"coral",
+	"echo",
+	"fable",
+	"nova",
+	"onyx",
+	"sage",
+	"shimmer",
+	"verse",
+];
+
 export const openaiModels = [
 	{
 		id: "gpt-4o-mini",
@@ -2070,6 +2088,86 @@ export const openaiModels = [
 				tools: false,
 				jsonOutput: false,
 				embeddings: true,
+			},
+		],
+	},
+	{
+		id: "tts-1",
+		name: "TTS-1",
+		description:
+			"OpenAI text-to-speech model optimized for real-time use. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2023-11-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "tts-1",
+				inputPrice: "0",
+				outputPrice: "0",
+				// $15.00 per 1M input characters.
+				inputCharacterPrice: "15e-6",
+				requestPrice: "0",
+				contextSize: 4096,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "tts-1-hd",
+		name: "TTS-1 HD",
+		description:
+			"OpenAI text-to-speech model optimized for quality. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2023-11-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "tts-1-hd",
+				inputPrice: "0",
+				outputPrice: "0",
+				// $30.00 per 1M input characters.
+				inputCharacterPrice: "30e-6",
+				requestPrice: "0",
+				contextSize: 4096,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "gpt-4o-mini-tts",
+		name: "GPT-4o Mini TTS",
+		description:
+			"OpenAI text-to-speech model with steerable delivery via instructions. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2025-03-20"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-4o-mini-tts",
+				inputPrice: "0",
+				outputPrice: "0",
+				// OpenAI bills this per token (~$0.015/min). Approximated per input
+				// character (~$0.0135/min at typical speaking rates) since the speech
+				// endpoint returns audio bytes without token usage.
+				inputCharacterPrice: "15e-6",
+				requestPrice: "0",
+				contextSize: 4096,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_TTS_VOICES,
 			},
 		],
 	},

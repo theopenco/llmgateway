@@ -9,7 +9,11 @@ import { db, tables } from "@llmgateway/db";
 describe("speech", () => {
 	const harness = createGatewayApiTestHarness();
 
-	async function seedKeys(token: string, apiKeyId: string) {
+	async function seedKeys(
+		token: string,
+		apiKeyId: string,
+		provider: "google-ai-studio" | "openai" = "google-ai-studio",
+	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
 			token,
@@ -18,9 +22,9 @@ describe("speech", () => {
 			createdBy: "user-id",
 		});
 		await db.insert(tables.providerKey).values({
-			id: `provider-key-google-${apiKeyId}`,
-			token: "google-test-key",
-			provider: "google-ai-studio",
+			id: `provider-key-${provider}-${apiKeyId}`,
+			token: provider === "openai" ? "openai-test-key" : "google-test-key",
+			provider,
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
 		});
@@ -126,5 +130,66 @@ describe("speech", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(JSON.stringify(json)).toContain("Speech generation model not found");
+	});
+
+	test("/v1/audio/speech proxies OpenAI tts-1 and bills by characters", async () => {
+		await seedKeys(
+			"real-token-speech-openai",
+			"token-id-speech-openai",
+			"openai",
+		);
+
+		const input = "Hello from OpenAI";
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-openai",
+			},
+			body: JSON.stringify({
+				model: "tts-1",
+				input,
+				voice: "alloy",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// Default OpenAI format is mp3.
+		expect(res.headers.get("Content-Type")).toBe("audio/mpeg");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_OPENAI_AUDIO");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/tts-1");
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
+		// tts-1 bills $15 / 1M input characters.
+		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 15e-6, 12);
+	});
+
+	test("/v1/audio/speech passes OpenAI response_format through", async () => {
+		await seedKeys(
+			"real-token-speech-openai-wav",
+			"token-id-speech-openai-wav",
+			"openai",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-openai-wav",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini-tts",
+				input: "Hello there",
+				response_format: "wav",
+				instructions: "Say it warmly",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
 	});
 });
