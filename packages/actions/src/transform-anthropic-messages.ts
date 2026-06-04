@@ -35,8 +35,7 @@ export async function transformAnthropicMessages(
 	// Apply for anthropic provider only, and only when the project hasn't
 	// opted out of auto-injection.
 	const shouldApplyCacheControl =
-		(provider === "anthropic" || provider === "anthropic-discount") &&
-		providerCacheControlEnabled;
+		provider === "anthropic" && providerCacheControlEnabled;
 
 	// Track cache_control usage to limit to maximum of 4 blocks total (including system messages)
 	let cacheControlCount = initialCacheControlCount;

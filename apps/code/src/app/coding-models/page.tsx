@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { Footer } from "@/components/Footer";
+import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
@@ -116,9 +117,10 @@ export default function CodingModelsPage() {
 							key.
 						</p>
 						<div className="flex gap-4 justify-center">
-							<Button size="lg" asChild>
-								<Link href="/signup">Get your DevPass</Link>
-							</Button>
+							<GetDevPassButton
+								cta="get_started"
+								location="coding_models_cta"
+							/>
 						</div>
 					</div>
 				</section>

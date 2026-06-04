@@ -7,14 +7,17 @@ import { Button } from "@/lib/components/button";
 
 interface CopyModelNameProps {
 	modelName: string;
+	providerId?: string;
 }
 
-export function CopyModelName({ modelName }: CopyModelNameProps) {
+export function CopyModelName({ modelName, providerId }: CopyModelNameProps) {
 	const [copied, setCopied] = useState(false);
+
+	const displayName = providerId ? `${providerId}/${modelName}` : modelName;
 
 	const copyToClipboard = async () => {
 		try {
-			await navigator.clipboard.writeText(modelName);
+			await navigator.clipboard.writeText(displayName);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		} catch (err) {
@@ -25,7 +28,7 @@ export function CopyModelName({ modelName }: CopyModelNameProps) {
 	return (
 		<div className="flex items-center gap-2">
 			<code className="bg-muted px-2 py-1 rounded text-sm font-mono">
-				{modelName}
+				{displayName}
 			</code>
 			<Button
 				variant="ghost"

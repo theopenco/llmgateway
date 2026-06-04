@@ -855,6 +855,14 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 
 	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
 
+	// Honor the OpenAI `n` parameter for both streaming and non-streaming
+	// responses. Input tokens count once; completion tokens scale by n,
+	// mirroring upstream billing.
+	const requestedN =
+		typeof body.n === "number" && Number.isInteger(body.n) && body.n > 0
+			? body.n
+			: 1;
+
 	if (body.stream === true) {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
@@ -898,24 +906,25 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				}
 			}
 
-			await stream.writeSSE({
-				data: JSON.stringify({
-					id: "chatcmpl-123",
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: body.model ?? "gpt-4o-mini",
-					choices: [
-						{
-							index: 0,
-							delta: {
-								role: "assistant",
+			// Role chunks: one per choice index.
+			for (let index = 0; index < requestedN; index++) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-123",
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: body.model ?? "gpt-4o-mini",
+						choices: [
+							{
+								index,
+								delta: { role: "assistant" },
+								finish_reason: null,
 							},
-							finish_reason: null,
-						},
-					],
-				}),
-				id: String(eventId++),
-			});
+						],
+					}),
+					id: String(eventId++),
+				});
+			}
 
 			if (shouldReturnStreamedProviderError) {
 				await stream.writeSSE({
@@ -950,52 +959,75 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				return;
 			}
 
-			await stream.writeSSE({
-				data: JSON.stringify({
-					id: "chatcmpl-123",
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: body.model ?? "gpt-4o-mini",
-					choices: [
-						{
-							index: 0,
-							delta: {
-								content: assistantContent,
+			// Content chunks: one per choice index. For n > 1 each variant tags
+			// the content so the test can assert that no two choice streams
+			// were merged into one buffer.
+			for (let index = 0; index < requestedN; index++) {
+				const choiceContent =
+					requestedN > 1
+						? `${assistantContent} (variant ${index + 1})`
+						: assistantContent;
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-123",
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: body.model ?? "gpt-4o-mini",
+						choices: [
+							{
+								index,
+								delta: { content: choiceContent },
+								finish_reason: null,
 							},
-							finish_reason: null,
-						},
-					],
-				}),
-				id: String(eventId++),
-			});
+						],
+					}),
+					id: String(eventId++),
+				});
+			}
 
 			if (shouldTruncateStream) {
 				return;
 			}
 
-			await stream.writeSSE({
-				data: JSON.stringify({
-					id: "chatcmpl-123",
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: body.model ?? "gpt-4o-mini",
-					choices: [
-						{
-							index: 0,
-							delta: {},
-							finish_reason: "stop",
-						},
-					],
-					usage: shouldReturnZeroTokens
-						? {
-								prompt_tokens: 0,
-								completion_tokens: 20,
-								total_tokens: 20,
-							}
-						: sampleChatCompletionResponse.usage,
-				}),
-				id: String(eventId++),
-			});
+			// Finish chunks: one per choice index. The last finish chunk also
+			// carries the shared usage object (input × 1, output × n) matching
+			// real OpenAI streaming behavior.
+			const baseUsage = sampleChatCompletionResponse.usage;
+			const streamingUsage = shouldReturnZeroTokens
+				? {
+						prompt_tokens: 0,
+						completion_tokens: 20 * requestedN,
+						total_tokens: 20 * requestedN,
+					}
+				: (() => {
+						const completionTokens = baseUsage.completion_tokens * requestedN;
+						return {
+							prompt_tokens: baseUsage.prompt_tokens,
+							completion_tokens: completionTokens,
+							total_tokens: baseUsage.prompt_tokens + completionTokens,
+						};
+					})();
+
+			for (let index = 0; index < requestedN; index++) {
+				const isLastChoice = index === requestedN - 1;
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-123",
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: body.model ?? "gpt-4o-mini",
+						choices: [
+							{
+								index,
+								delta: {},
+								finish_reason: "stop",
+							},
+						],
+						...(isLastChoice && { usage: streamingUsage }),
+					}),
+					id: String(eventId++),
+				});
+			}
 
 			if (shouldFinishWithoutDone) {
 				return;
@@ -1008,26 +1040,39 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		});
 	}
+	const baseChoice = sampleChatCompletionResponse.choices[0];
+	const choices = Array.from({ length: requestedN }, (_, index) => ({
+		...baseChoice,
+		index,
+		message: {
+			role: "assistant",
+			content:
+				requestedN > 1
+					? `${assistantContent} (variant ${index + 1})`
+					: assistantContent,
+		},
+	}));
 
-	// Create a custom response that includes the user's message
+	const baseUsage = sampleChatCompletionResponse.usage;
+	const usage = shouldReturnZeroTokens
+		? {
+				prompt_tokens: 0,
+				completion_tokens: 20 * requestedN,
+				total_tokens: 20 * requestedN,
+			}
+		: (() => {
+				const completionTokens = baseUsage.completion_tokens * requestedN;
+				return {
+					prompt_tokens: baseUsage.prompt_tokens,
+					completion_tokens: completionTokens,
+					total_tokens: baseUsage.prompt_tokens + completionTokens,
+				};
+			})();
+
 	const response = {
 		...sampleChatCompletionResponse,
-		choices: [
-			{
-				...sampleChatCompletionResponse.choices[0],
-				message: {
-					role: "assistant",
-					content: assistantContent,
-				},
-			},
-		],
-		usage: shouldReturnZeroTokens
-			? {
-					prompt_tokens: 0,
-					completion_tokens: 20,
-					total_tokens: 20,
-				}
-			: sampleChatCompletionResponse.usage,
+		choices,
+		usage,
 	};
 
 	return c.json(response);

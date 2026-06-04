@@ -198,6 +198,31 @@ function formatDuration(ms: number) {
 	return `${(ms / 1000).toFixed(2)}s`;
 }
 
+// Selection reasons where the weighted-score formula is bypassed entirely, so
+// every provider's score is a hardcoded 0 placeholder rather than a real value.
+const SCORE_BYPASSED_SELECTION_REASONS = new Set([
+	"session-sticky",
+	"random-exploration",
+	"price-only-no-metrics",
+]);
+
+// The per-provider score only carries information when scoring actually ran.
+// Sticky/exploration/price-only paths emit 0 for every provider, and
+// "stable-preferred" can layer on top of a sticky pick (also all zeros), so
+// treat an all-zero set as "scoring did not run" regardless of the reason.
+function isProviderScoreMeaningful(
+	selectionReason: string | null | undefined,
+	providerScores: { score: number }[],
+): boolean {
+	if (
+		selectionReason &&
+		SCORE_BYPASSED_SELECTION_REASONS.has(selectionReason)
+	) {
+		return false;
+	}
+	return providerScores.some((s) => s.score !== 0);
+}
+
 function isBase64ImageChar(char: string) {
 	return (
 		(char >= "A" && char <= "Z") ||
@@ -650,79 +675,87 @@ export function LogDetailClient({
 											/>
 										)}
 									{log.routingMetadata.providerScores &&
-										log.routingMetadata.providerScores.length > 0 && (
-											<div className="mt-3 pt-3 border-t border-border/50">
-												<p className="text-xs text-muted-foreground mb-2">
-													Provider Scores
-												</p>
-												<div className="space-y-1.5">
-													{log.routingMetadata.providerScores.map((score) => (
-														<div
-															key={`${score.providerId}-${score.region ?? "default"}`}
-															className="flex items-center justify-between text-xs font-mono"
-														>
-															<span className="flex items-center gap-1.5">
-																{score.providerId}
-																{score.region && (
-																	<span className="text-muted-foreground">
-																		({score.region})
-																	</span>
-																)}
-																{score.failed && (
-																	<span className="inline-flex items-center gap-0.5 text-red-500">
-																		<AlertCircle className="h-3 w-3" />
-																		<span>
-																			{score.status_code}
-																			{score.error_type && (
-																				<span className="ml-0.5 text-red-400">
-																					{score.error_type}
-																				</span>
-																			)}
+										log.routingMetadata.providerScores.length > 0 &&
+										(() => {
+											const scores = log.routingMetadata?.providerScores ?? [];
+											const showScore = isProviderScoreMeaningful(
+												log.routingMetadata?.selectionReason,
+												scores,
+											);
+											return (
+												<div className="mt-3 pt-3 border-t border-border/50">
+													<p className="text-xs text-muted-foreground mb-2">
+														Provider Scores
+													</p>
+													<div className="space-y-1.5">
+														{scores.map((score) => (
+															<div
+																key={`${score.providerId}-${score.region ?? "default"}`}
+																className="flex items-center justify-between text-xs font-mono"
+															>
+																<span className="flex items-center gap-1.5">
+																	{score.providerId}
+																	{score.region && (
+																		<span className="text-muted-foreground">
+																			({score.region})
 																		</span>
-																	</span>
-																)}
-																{score.rate_limited && (
-																	<span className="inline-flex items-center gap-0.5 text-amber-500">
-																		<Clock className="h-3 w-3" />
-																		<span>rpm capped</span>
-																	</span>
-																)}
-																{score.excludedByContentFilter && (
-																	<span className="inline-flex items-center gap-0.5 text-amber-500">
-																		<Ban className="h-3 w-3" />
-																		<span>content filter</span>
-																	</span>
-																)}
-															</span>
-															<span className="text-muted-foreground font-mono">
-																{score.score.toFixed(2)}
-																{score.uptime !== undefined && (
-																	<span className="ml-2">
-																		{score.uptime?.toFixed(0)}% up
-																	</span>
-																)}
-																{score.throughput !== undefined && (
-																	<span className="ml-2">
-																		{score.throughput?.toFixed(0)}t/s
-																	</span>
-																)}
-																{score.latency !== undefined && (
-																	<span className="ml-2">
-																		{score.latency?.toFixed(0)}ms
-																	</span>
-																)}
-																{score.price !== undefined && (
-																	<span className="ml-2">${score.price}</span>
-																)}
-																{score.cacheSupported && (
-																	<span className="ml-2">cache</span>
-																)}
-															</span>
-														</div>
-													))}
+																	)}
+																	{score.failed && (
+																		<span className="inline-flex items-center gap-0.5 text-red-500">
+																			<AlertCircle className="h-3 w-3" />
+																			<span>
+																				{score.status_code}
+																				{score.error_type && (
+																					<span className="ml-0.5 text-red-400">
+																						{score.error_type}
+																					</span>
+																				)}
+																			</span>
+																		</span>
+																	)}
+																	{score.rate_limited && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Clock className="h-3 w-3" />
+																			<span>rpm capped</span>
+																		</span>
+																	)}
+																	{score.excludedByContentFilter && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Ban className="h-3 w-3" />
+																			<span>content filter</span>
+																		</span>
+																	)}
+																</span>
+																<span className="text-muted-foreground font-mono">
+																	{showScore && score.score.toFixed(2)}
+																	{score.uptime !== undefined && (
+																		<span className="ml-2">
+																			{score.uptime?.toFixed(0)}% up
+																		</span>
+																	)}
+																	{score.throughput !== undefined && (
+																		<span className="ml-2">
+																			{score.throughput?.toFixed(0)}t/s
+																		</span>
+																	)}
+																	{score.latency !== undefined && (
+																		<span className="ml-2">
+																			{score.latency?.toFixed(0)}ms
+																		</span>
+																	)}
+																	{score.price !== undefined && (
+																		<span className="ml-2">${score.price}</span>
+																	)}
+																	{score.cacheSupported && (
+																		<span className="ml-2">cache</span>
+																	)}
+																</span>
+															</div>
+														))}
+													</div>
 												</div>
-											</div>
-										)}
+											);
+										})()}
 									{log.routingMetadata.routing &&
 										log.routingMetadata.routing.length > 0 && (
 											<div className="mt-3 pt-3 border-t border-border/50">
