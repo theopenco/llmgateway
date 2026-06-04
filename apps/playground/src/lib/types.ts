@@ -76,6 +76,7 @@ export interface Organization {
 	createdAt: string;
 	updatedAt: string;
 	name: string;
+	isPersonal: boolean;
 	credits: string;
 	plan: "free" | "pro" | "enterprise";
 	planExpiresAt: string | null;

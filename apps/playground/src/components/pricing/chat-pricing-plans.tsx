@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
+import { formatCredits } from "@/lib/format-credits";
 
 import {
 	CHAT_PLAN_ANNUAL_DISCOUNT_MONTHS,
@@ -267,8 +268,8 @@ export function ChatPricingPlans({
 								</span>
 							</div>
 							<div className="mt-1 text-xs text-muted-foreground tabular-nums">
-								${Number(status.chatPlanCreditsUsed).toFixed(2)} of $
-								{Number(status.chatPlanCreditsLimit).toFixed(2)} used
+								${formatCredits(Number(status.chatPlanCreditsUsed))} of $
+								{formatCredits(Number(status.chatPlanCreditsLimit))} used
 								{status.chatPlanExpiresAt
 									? ` · ${status.chatPlanCancelled ? "ends" : "renews"} ${new Date(
 											status.chatPlanExpiresAt,

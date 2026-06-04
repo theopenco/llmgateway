@@ -12,11 +12,15 @@ export function useOrganization() {
 		isLoading,
 		isError,
 		error,
-	} = api.useQuery("get", "/orgs");
+	} = api.useQuery("get", "/orgs", {
+		params: { query: { includePersonal: "true" } },
+	});
 
-	// Get the first (default) organization
+	// The playground is the consumer chat product — pay-as-you-go credits and the
+	// chat plan live on the personal org, so prefer it over dashboard orgs.
+	const organizations = orgsData?.organizations ?? [];
 	const organization: Organization | null =
-		orgsData?.organizations?.[0] ?? null;
+		organizations.find((o) => o.isPersonal) ?? organizations[0] ?? null;
 
 	return {
 		organization,

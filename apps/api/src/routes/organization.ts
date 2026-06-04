@@ -143,7 +143,14 @@ const transactionSchema = z.object({
 const getOrganizations = createRoute({
 	method: "get",
 	path: "/",
-	request: {},
+	request: {
+		query: z.object({
+			includePersonal: z.enum(["true", "false"]).optional().openapi({
+				description:
+					"Include personal organizations. Used by the chat/devpass surfaces where plans live on the personal org. Defaults to hiding them from the regular dashboard.",
+			}),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -175,11 +182,15 @@ organization.openapi(getOrganizations, async (c) => {
 		},
 	});
 
+	const { includePersonal } = c.req.valid("query");
+
 	const organizations = userOrganizations
 		.map((uo) => uo.organization!)
 		.filter((org) => org.status !== "deleted")
-		// Hide personal orgs from regular UI - they are only visible on devpass.llmgateway.io
-		.filter((org) => !org.isPersonal);
+		// Personal orgs are hidden from the regular dashboard. Chat/devpass
+		// surfaces opt in via ?includePersonal=true since their plans + credits
+		// live on the personal org.
+		.filter((org) => includePersonal === "true" || !org.isPersonal);
 
 	return c.json({
 		organizations,

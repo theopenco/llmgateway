@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, Sparkles } from "lucide-react";
+import { ChevronRight, CreditCard, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
 import { useApi } from "@/lib/fetch-client";
+import { formatCredits } from "@/lib/format-credits";
 
 import { TopUpCreditsDialog } from "./top-up-credits-dialog";
 
@@ -76,8 +77,8 @@ export function CreditsDisplay({
 									{plan.chatPlan[0].toUpperCase() + plan.chatPlan.slice(1)} plan
 								</span>
 								<span className="text-[10px] text-muted-foreground tabular-nums">
-									${planRemaining.toFixed(2)} of $
-									{Number(plan.chatPlanCreditsLimit).toFixed(2)} left
+									${formatCredits(planRemaining)} of $
+									{formatCredits(Number(plan.chatPlanCreditsLimit))} left
 								</span>
 							</div>
 						</div>
@@ -107,9 +108,20 @@ export function CreditsDisplay({
 			{!hasActivePlan && (
 				<Link
 					href="/pricing"
-					className="mt-1 block px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+					className="group mt-1 flex items-center gap-2.5 rounded-md border border-indigo-500/20 bg-indigo-500/5 px-2 py-2 transition-colors hover:bg-indigo-500/10"
 				>
-					→ Save with a monthly plan (up to 3× credits)
+					<span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+						<TrendingUp className="size-3.5" />
+					</span>
+					<div className="flex min-w-0 flex-col">
+						<span className="text-xs font-medium leading-tight">
+							Get up to 3× the credits
+						</span>
+						<span className="text-[10px] text-muted-foreground leading-tight">
+							Upgrade to a monthly plan · from $9/mo
+						</span>
+					</div>
+					<ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
 				</Link>
 			)}
 			{hasNoCredits && !hasActivePlan && (

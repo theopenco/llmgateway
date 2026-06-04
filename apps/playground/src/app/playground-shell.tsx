@@ -70,8 +70,10 @@ export async function renderPlaygroundShell({
 		redirect(`/?${newParams.toString()}`);
 	}
 
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
-	const organizations = (
+	const initialOrganizationsData = await fetchServerData("GET", "/orgs", {
+		params: { query: { includePersonal: "true" } },
+	});
+	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
 		"organizations" in initialOrganizationsData
@@ -79,6 +81,12 @@ export async function renderPlaygroundShell({
 					.organizations
 			: []
 	) as Organization[];
+
+	// Personal orgs back the "Personal" context (selectedOrganization === null)
+	// and must not appear in the org switcher, which lists real orgs for
+	// shared-chat views only.
+	const personalOrg = allOrganizations.find((o) => o.isPersonal) ?? null;
+	const organizations = allOrganizations.filter((o) => !o.isPersonal);
 
 	if (
 		orgShareView &&
@@ -123,7 +131,11 @@ export async function renderPlaygroundShell({
 	const selectedOrganization =
 		(orgId ? organizations.find((o) => o.id === orgId) : null) ?? null;
 
-	const projectOrg = selectedOrganization ?? organizations[0] ?? null;
+	// Personal context (no org selected): generation + billing run under the
+	// personal org, so resolve its project instead of falling back to the first
+	// dashboard org — that fallback silently billed the wrong organization.
+	const projectOrg =
+		selectedOrganization ?? personalOrg ?? organizations[0] ?? null;
 
 	if (!initialProjectsData && projectOrg?.id) {
 		try {
