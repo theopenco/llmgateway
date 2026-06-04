@@ -977,6 +977,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "xai":
+			return "https://api.x.ai";
 		case "bytedance":
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
@@ -2148,7 +2150,7 @@ async function streamVideoFromUrl(
 }
 
 function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
-	return job.usedProvider === "openai";
+	return job.usedProvider === "openai" || job.usedProvider === "xai";
 }
 
 async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
@@ -2923,6 +2925,65 @@ async function createBytedanceVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+async function createXaiVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		prompt,
+		size: videoSize.size,
+		duration: durationSeconds,
+	};
+
+	if (processedFirstFrame) {
+		upstreamRequest.image = `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`;
+	}
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/v1/videos/generations",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("xai", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "xAI video response did not include a request id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -2946,6 +3007,15 @@ async function createUpstreamVideoJob(
 	upstreamResponse: Record<string, unknown>;
 }> {
 	switch (providerContext.providerId) {
+		case "xai":
+			return await createXaiVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				processedFirstFrame,
+			);
 		case "openai":
 			return await createOpenAIVideoJob(
 				providerContext,

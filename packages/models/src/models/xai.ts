@@ -803,6 +803,40 @@ export const xaiModels = [
 		],
 	},
 	{
+		id: "grok-imagine-video-1-5-preview",
+		name: "Grok Imagine Video 1.5 Preview",
+		description:
+			"xAI's video generation model. Creates videos from text prompts and images with up to 15 seconds duration.",
+		family: "xai",
+		output: ["video"],
+		releasedAt: new Date("2026-05-01"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "xai",
+				externalId: "grok-imagine-video-1.5-preview",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					"720p": "0.08",
+					"1080p": "0.08",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1280x720", "1920x1080"],
+				supportedVideoDurationsSeconds: [5, 10, 15],
+				supportsVideoAudio: false,
+				supportsVideoWithoutAudio: true,
+			},
+		],
+	},
+	{
 		id: "grok-build-0-1",
 		name: "Grok Build 0.1",
 		description:
