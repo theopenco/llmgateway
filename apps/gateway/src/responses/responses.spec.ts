@@ -85,6 +85,17 @@ describe("responsesRequestSchema", () => {
 
 		expect(result.success).toBe(true);
 	});
+
+	it('normalizes reasoning.effort "max" to "high"', () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "deepseek-v4",
+			input: "hello",
+			reasoning: { effort: "max" },
+		});
+
+		expect(result.success).toBe(true);
+		expect(result.data?.reasoning?.effort).toBe("high");
+	});
 });
 
 describe("convertResponsesInputToMessages", () => {
