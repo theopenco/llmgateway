@@ -24,7 +24,6 @@ anthropic/claude-opus-4-8
 - **1,000,000** token context, up to **128K** output tokens
 - Adaptive reasoning, vision, tool use, structured JSON output, and web search
 - **$5 / 1M** input · **$25 / 1M** output
-- Also routable through the new **anthropic-discount** provider for **10% off** when you'd rather trade a little latency for a lower bill
 
 ## Sonnet 4.6 Now Runs on 1M Context
 

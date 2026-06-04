@@ -19,7 +19,7 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { and, db, desc, eq, isNull, tables } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import { replyToEmail } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
@@ -99,7 +99,7 @@ async function checkRateLimit(identifier: string): Promise<boolean> {
 		}
 		return count <= RATE_LIMIT_MAX;
 	} catch (error) {
-		logger.error("Chat support rate limit check failed", { error });
+		logger.error("Chat support rate limit check failed", toError(error));
 		return true;
 	}
 }
@@ -118,7 +118,7 @@ async function safeRedisGet(key: string): Promise<string | null> {
 	try {
 		return await redisClient.get(key);
 	} catch (error) {
-		logger.error("Chat support Redis get failed", { error });
+		logger.error("Chat support Redis get failed", toError(error));
 		return null;
 	}
 }
@@ -130,7 +130,7 @@ async function safeRedisSetConversation(
 	try {
 		await redisClient.set(key, value, "EX", CONVERSATION_TTL_SECONDS);
 	} catch (error) {
-		logger.error("Chat support Redis set failed", { error });
+		logger.error("Chat support Redis set failed", toError(error));
 	}
 }
 
@@ -252,7 +252,7 @@ async function persistMessage(
 				.where(eq(t.id, conversationId));
 		});
 	} catch (error) {
-		logger.error("Failed to persist chat support message", { error });
+		logger.error("Failed to persist chat support message", toError(error));
 	}
 }
 
@@ -361,9 +361,7 @@ publicChatSupport.post("/", async (c) => {
 	// surface as "Load failed" errors on iOS.
 	const uiStream = result.toUIMessageStream({
 		onError: (error) => {
-			logger.error("Chat support streaming error", {
-				error: error instanceof Error ? error.message : String(error),
-			});
+			logger.error("Chat support streaming error", toError(error));
 			return "Something went wrong. Please try again.";
 		},
 	});
