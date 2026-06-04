@@ -12,16 +12,30 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
 
+import type { paths } from "@/lib/api/v1";
 import type React from "react";
 
-export default function DevPassPaymentMethod() {
+type PaymentMethod =
+	paths["/dev-plans/payment-method"]["get"]["responses"]["200"]["content"]["application/json"];
+
+export default function DevPassPaymentMethod({
+	initialData,
+}: {
+	initialData?: PaymentMethod | null;
+}) {
 	const api = useApi();
 	const [editing, setEditing] = useState(false);
 
-	const { data, isLoading } = api.useQuery("get", "/dev-plans/payment-method");
+	const { data, isLoading } = api.useQuery(
+		"get",
+		"/dev-plans/payment-method",
+		{},
+		{ initialData: initialData ?? undefined },
+	);
 	const card = data?.card ?? null;
 
 	return (
@@ -42,9 +56,12 @@ export default function DevPassPaymentMethod() {
 
 			<div className="mt-5">
 				{isLoading ? (
-					<div className="flex items-center gap-2 text-sm text-muted-foreground">
-						<Loader2 className="h-4 w-4 animate-spin" />
-						Loading payment method…
+					<div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-3.5">
+						<Skeleton className="h-5 w-5 rounded" />
+						<div className="space-y-1.5">
+							<Skeleton className="h-4 w-32" />
+							<Skeleton className="h-3 w-24" />
+						</div>
 					</div>
 				) : editing ? (
 					<UpdateCardForm
