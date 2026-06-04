@@ -268,6 +268,32 @@ describe("getProviderEndpoint", () => {
 				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-pro:generateContent",
 			);
 		});
+
+		it("uses a pre-resolved vertexTokenType over options and env var", () => {
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "api-key";
+
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-pro",
+				"ya29.oauth-token",
+				false,
+				undefined,
+				undefined,
+				{ google_vertex_token_type: "api-key" },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"oauth", // vertexTokenType override
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-pro:generateContent",
+			);
+		});
 	});
 
 	describe("azure-ai-foundry", () => {

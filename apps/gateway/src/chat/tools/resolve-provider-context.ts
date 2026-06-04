@@ -24,7 +24,9 @@ import {
 	type Provider,
 	type ProviderRequestBody,
 	providers,
+	resolveVertexTokenType,
 	type ToolChoiceType,
+	type VertexTokenType,
 	type WebSearchTool,
 } from "@llmgateway/models";
 
@@ -356,6 +358,20 @@ export async function resolveProviderContext(
 	// When using a provider key (BYOK), skip env vars entirely —
 	// only the provider key's baseUrl or hardcoded provider defaults should be used.
 	const isBYOK = providerKey !== undefined;
+	// Resolve the Vertex/Quartz token type once and feed it to both the endpoint
+	// (`?key=` query param) and the headers (`Authorization: Bearer`) so they
+	// never disagree. There is no BYOK region-env override here (the override
+	// above only runs when `!providerKey`), so `isBYOK` correctly reflects
+	// whether the DB key is the active credential.
+	const vertexTokenType: VertexTokenType | undefined =
+		usedProvider === "google-vertex" || usedProvider === "quartz"
+			? resolveVertexTokenType(
+					usedProvider,
+					providerKey?.options ?? undefined,
+					configIndex,
+					isBYOK,
+				)
+			: undefined;
 	const url = getProviderEndpoint(
 		usedProvider as Provider,
 		providerKey?.baseUrl ?? undefined,
@@ -376,6 +392,7 @@ export async function resolveProviderContext(
 		usedRegion,
 		isBYOK,
 		usedInternalModel,
+		vertexTokenType,
 	);
 
 	if (!url) {
@@ -529,6 +546,7 @@ export async function resolveProviderContext(
 	const headers = getProviderHeaders(usedProvider as Provider, usedToken, {
 		requestId: options.requestId,
 		webSearchEnabled: options.webSearchEnabled,
+		tokenType: vertexTokenType,
 	});
 	headers["Content-Type"] = "application/json";
 

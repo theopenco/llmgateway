@@ -70,6 +70,28 @@ describe("getProviderHeaders", () => {
 				}),
 			).toEqual({ Authorization: "Bearer ya29.example" });
 		});
+
+		it("uses a pre-resolved tokenType over options and env var", () => {
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "api-key";
+
+			expect(
+				getProviderHeaders("google-vertex", "ya29.example", {
+					providerKeyOptions: { google_vertex_token_type: "api-key" },
+					tokenType: "oauth",
+				}),
+			).toEqual({ Authorization: "Bearer ya29.example" });
+		});
+
+		it("uses a pre-resolved api-key tokenType to suppress the Bearer header", () => {
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			expect(
+				getProviderHeaders("google-vertex", "AIzaSyExample", {
+					providerKeyOptions: { google_vertex_token_type: "oauth" },
+					tokenType: "api-key",
+				}),
+			).toEqual({});
+		});
 	});
 
 	describe("quartz", () => {

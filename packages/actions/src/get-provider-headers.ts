@@ -1,4 +1,8 @@
-import { resolveVertexTokenType, type ProviderId } from "@llmgateway/models";
+import {
+	resolveVertexTokenType,
+	type ProviderId,
+	type VertexTokenType,
+} from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
@@ -16,6 +20,14 @@ export interface ProviderHeaderOptions {
 	 * `skipEnvVars` passed to {@link getProviderEndpoint} for the same request.
 	 */
 	skipEnvVars?: boolean;
+	/**
+	 * Pre-resolved Vertex/Quartz token type. When set it takes precedence over
+	 * `providerKeyOptions`/`skipEnvVars` resolution, so the caller can resolve
+	 * the token type once and feed the identical value to both
+	 * {@link getProviderEndpoint} and this function (avoids header auth and the
+	 * `?key=` query param disagreeing).
+	 */
+	tokenType?: VertexTokenType;
 }
 
 /**
@@ -49,12 +61,14 @@ export function getProviderHeaders(
 			return requestIdHeader;
 		case "google-vertex":
 		case "quartz": {
-			const tokenType = resolveVertexTokenType(
-				provider,
-				options?.providerKeyOptions,
-				options?.configIndex,
-				options?.skipEnvVars,
-			);
+			const tokenType =
+				options?.tokenType ??
+				resolveVertexTokenType(
+					provider,
+					options?.providerKeyOptions,
+					options?.configIndex,
+					options?.skipEnvVars,
+				);
 			if (tokenType === "oauth") {
 				return {
 					...requestIdHeader,
