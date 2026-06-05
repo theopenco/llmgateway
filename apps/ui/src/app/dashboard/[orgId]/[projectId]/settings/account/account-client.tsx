@@ -170,20 +170,20 @@ export function AccountClient() {
 						<CardHeader>
 							<CardTitle>Delete Account</CardTitle>
 							<CardDescription>
-								Permanently delete your account and all associated data
+								Permanently delete your account and personal data
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-2">
 							<p className="text-muted-foreground text-sm">
-								This action is irreversible. All your data, including API keys,
-								usage history, and provider connections will be permanently
-								deleted.
+								This action is irreversible. Your account and personal data,
+								including login credentials and personal API keys, will be
+								permanently deleted.
 							</p>
 							<p className="text-muted-foreground text-sm">
 								Billing records of credits you purchased and spent are retained
 								for 10 years as required by tax and accounting law. See our{" "}
 								<a
-									href="/privacy"
+									href="/legal/privacy"
 									className="underline underline-offset-4 hover:text-foreground"
 								>
 									Privacy Policy
@@ -209,11 +209,11 @@ export function AccountClient() {
 											Are you absolutely sure?
 										</AlertDialogTitle>
 										<AlertDialogDescription>
-											This permanently deletes your account, including API keys,
-											usage history, and provider connections. This action
-											cannot be undone. Billing records of credits you purchased
-											and spent are retained for 10 years as required by tax and
-											accounting law.
+											This permanently deletes your account and personal data,
+											including login credentials and personal API keys. This
+											action cannot be undone. Billing records of credits you
+											purchased and spent are retained for 10 years as required
+											by tax and accounting law.
 										</AlertDialogDescription>
 									</AlertDialogHeader>
 									<AlertDialogFooter>
