@@ -13,12 +13,10 @@ vi.mock("@llmgateway/db", () => ({
 describe("calculateCosts", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
-		vi.mocked(mockGetEffectiveDiscount).mockImplementation(
-			async (_organizationId, _provider, _model, hardcodedDiscount = 0) => ({
-				discount: hardcodedDiscount,
-				source: hardcodedDiscount > 0 ? "hardcoded" : "none",
-			}),
-		);
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
 	});
 
 	it("should calculate costs with provided token counts", async () => {
@@ -357,7 +355,6 @@ describe("calculateCosts", () => {
 			null,
 			"openai",
 			"gpt-4",
-			"0",
 		);
 	});
 

@@ -1176,10 +1176,6 @@ function generateSeedModelProviderMappings() {
 					p.webSearchPrice !== undefined && p.webSearchPrice !== null
 						? String(p.webSearchPrice)
 						: null,
-				discount:
-					p.discount !== undefined && p.discount !== null
-						? String(p.discount)
-						: "0",
 				stability: p.stability ?? "stable",
 				supportedParameters: p.supportedParameters ?? null,
 				test: p.test ?? null,

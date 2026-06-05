@@ -4082,7 +4082,6 @@ export interface paths {
                                 inputPrice: string | null;
                                 outputPrice: string | null;
                                 requestPrice: string | null;
-                                discount: string | null;
                                 updatedAt: string;
                             }[];
                             total: number;

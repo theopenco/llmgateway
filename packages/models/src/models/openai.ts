@@ -1439,7 +1439,6 @@ export const openaiModels = [
 				externalId: "gpt-5.4-pro",
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
-				discount: "0.3",
 				requestPrice: "0",
 				contextSize: 1050000,
 				maxOutput: 128000,

@@ -274,17 +274,11 @@ export function getProviderSelectionPrice(
 	providerInfo:
 		| Pick<
 				ProviderModelMapping,
-				| "discount"
-				| "inputPrice"
-				| "outputPrice"
-				| "perSecondPrice"
-				| "requestPrice"
+				"inputPrice" | "outputPrice" | "perSecondPrice" | "requestPrice"
 		  >
 		| undefined,
 	videoPricing?: VideoPricingContext,
 ): Decimal {
-	const discount = providerInfo?.discount ?? "0";
-	const discountMultiplier = new Decimal(1).minus(discount);
 	const inputPrice = providerInfo?.inputPrice;
 	const outputPrice = providerInfo?.outputPrice;
 	const requestPrice = providerInfo?.requestPrice;
@@ -298,29 +292,21 @@ export function getProviderSelectionPrice(
 		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
 			const perSecondPrice = providerInfo.perSecondPrice[billingKey];
 			if (perSecondPrice !== undefined) {
-				return new Decimal(perSecondPrice)
-					.times(videoPricing.durationSeconds)
-					.times(discountMultiplier);
+				return new Decimal(perSecondPrice).times(videoPricing.durationSeconds);
 			}
 		}
 	}
 
 	if (hasPositiveTokenPrice) {
-		return new Decimal(inputPrice ?? "0")
-			.plus(outputPrice ?? "0")
-			.div(2)
-			.times(discountMultiplier);
+		return new Decimal(inputPrice ?? "0").plus(outputPrice ?? "0").div(2);
 	}
 
 	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
-		return new Decimal(requestPrice).times(discountMultiplier);
+		return new Decimal(requestPrice);
 	}
 
 	if (hasAnyTokenPrice) {
-		return new Decimal(inputPrice ?? "0")
-			.plus(outputPrice ?? "0")
-			.div(2)
-			.times(discountMultiplier);
+		return new Decimal(inputPrice ?? "0").plus(outputPrice ?? "0").div(2);
 	}
 
 	return new Decimal(0);

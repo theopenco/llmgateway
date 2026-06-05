@@ -129,17 +129,6 @@ function formatPrice(price: string | null) {
 	return `$${num.toFixed(4)}`;
 }
 
-function formatDiscount(discount: string | null) {
-	if (!discount) {
-		return null;
-	}
-	const num = parseFloat(discount);
-	if (num <= 0) {
-		return null;
-	}
-	return `${(num * 100).toFixed(0)}%`;
-}
-
 function ModelRow({
 	model,
 	externalWindow,
@@ -161,7 +150,6 @@ function ModelRow({
 	);
 
 	const hasTokenPricing = model.inputPrice && parseFloat(model.inputPrice) > 0;
-	const discountLabel = formatDiscount(model.discount);
 
 	return (
 		<>
@@ -214,15 +202,6 @@ function ModelRow({
 						<span className="text-amber-500">
 							{formatPrice(model.requestPrice)}/req
 						</span>
-					) : (
-						<span className="text-muted-foreground">{"\u2014"}</span>
-					)}
-				</TableCell>
-				<TableCell className="tabular-nums text-xs">
-					{discountLabel ? (
-						<Badge variant="secondary" className="text-xs">
-							{discountLabel} off
-						</Badge>
 					) : (
 						<span className="text-muted-foreground">{"\u2014"}</span>
 					)}
@@ -327,7 +306,6 @@ export function ModelsTable({
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "totalCost")}
 					<TableHead>Pricing</TableHead>
-					<TableHead>Discount</TableHead>
 					{sh("Errors", "errorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}

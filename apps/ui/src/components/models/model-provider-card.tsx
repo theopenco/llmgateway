@@ -48,6 +48,7 @@ import type {
 } from "@llmgateway/models";
 
 interface ProviderWithInfo extends ProviderModelMapping {
+	discount?: string | null;
 	providerInfo?: ProviderDefinition;
 }
 
