@@ -60,6 +60,13 @@ export const user = pgTable("user", {
 	})
 		.notNull()
 		.default("active"),
+	// DevPass public profile. `username` is the public URL slug
+	// (/profiles/:username) and is null until the user claims one.
+	username: text().unique(),
+	profilePublic: boolean().notNull().default(false),
+	bio: text(),
+	githubUsername: text(),
+	xUsername: text(),
 });
 
 export const userFavoriteModel = pgTable(
@@ -317,12 +324,16 @@ export const transaction = pgTable(
 			.default("completed"),
 		stripePaymentIntentId: text(),
 		stripeInvoiceId: text(),
+		stripeRefundId: text(),
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		uniqueIndex("transaction_stripe_refund_id_unique")
+			.on(table.stripeRefundId)
+			.where(sql`${table.stripeRefundId} IS NOT NULL`),
 	],
 );
 

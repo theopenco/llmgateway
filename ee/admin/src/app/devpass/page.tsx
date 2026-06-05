@@ -6,6 +6,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Info,
+	RotateCcw,
 	Search,
 	TrendingDown,
 	TrendingUp,
@@ -447,6 +448,7 @@ export default async function DevpassPage({
 	}
 
 	const kpis = data.kpis;
+	const grossMrrAfterRefunds = kpis.grossMrr - kpis.refundedAmountThisMonth;
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -463,7 +465,7 @@ export default async function DevpassPage({
 				</Suspense>
 			</header>
 
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 						<Users className="h-3.5 w-3.5" />
@@ -517,6 +519,28 @@ export default async function DevpassPage({
 						</Tooltip>
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
+						Net after refunds this month:{" "}
+						<span
+							className={cn(
+								"font-medium tabular-nums",
+								grossMrrAfterRefunds < kpis.grossMrr
+									? "text-rose-600 dark:text-rose-400"
+									: "",
+							)}
+						>
+							{currencyFormatter.format(grossMrrAfterRefunds)}
+						</span>
+						{kpis.refundedAmountThisMonth > 0 ? (
+							<>
+								{" "}
+								after {currencyFormatter.format(
+									kpis.refundedAmountThisMonth,
+								)}{" "}
+								refunded
+							</>
+						) : null}
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
 						Net new this month:{" "}
 						<span
 							className={cn(
@@ -532,6 +556,26 @@ export default async function DevpassPage({
 							{kpis.netNewThisMonth}
 						</span>{" "}
 						({kpis.startsThisMonth} starts / {kpis.endsThisMonth} ends)
+					</div>
+				</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+						<RotateCcw className="h-3.5 w-3.5" />
+						Refunds this month
+					</div>
+					<div
+						className={cn(
+							"mt-2 text-2xl font-semibold tabular-nums",
+							kpis.refundedAmountThisMonth > 0
+								? "text-rose-600 dark:text-rose-400"
+								: "",
+						)}
+					>
+						{currencyFormatter.format(kpis.refundedAmountThisMonth)}
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{kpis.refundsThisMonth} refund
+						{kpis.refundsThisMonth === 1 ? "" : "s"} processed
 					</div>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">

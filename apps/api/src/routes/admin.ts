@@ -8775,6 +8775,8 @@ const devpassKpisSchema = z.object({
 	startsThisMonth: z.number(),
 	endsThisMonth: z.number(),
 	netNewThisMonth: z.number(),
+	refundsThisMonth: z.number(),
+	refundedAmountThisMonth: z.number(),
 	weightedAvgUtilization: z.number(),
 	totalRealCostCycle: z.number(),
 	totalMrrCycle: z.number(),
@@ -9525,6 +9527,46 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		);
 	const endsThisMonth = Number(endsRow?.count ?? 0);
 
+	// Refunds this month for DevPass transactions. Mirrors the timeseries
+	// refund query (joins credit_refund rows to their original tx and filters
+	// to dev plan types, plus legacy subscription_* rows on personal orgs) but
+	// aggregates to a single month total so the KPI strip reflects refund
+	// activity that the snapshot-based MRR cards can't show.
+	const refundOriginalTx = aliasedTable(
+		tables.transaction,
+		"refund_original_tx",
+	);
+	const [refundsRow] = await db
+		.select({
+			count: sql<number>`COUNT(*)`,
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			refundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, refundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, monthStart),
+				or(
+					inArray(refundOriginalTx.type, [...DEV_PLAN_TX_TYPES]),
+					and(
+						inArray(refundOriginalTx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+						eq(tables.organization.isPersonal, true),
+					),
+				),
+			),
+		);
+	const refundsThisMonth = Number(refundsRow?.count ?? 0);
+	const refundedAmountThisMonth = Number(refundsRow?.total ?? 0);
+
 	// Weighted utilization across active subscribers
 	const [utilRow] = await db
 		.select({
@@ -9643,6 +9685,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			startsThisMonth,
 			endsThisMonth,
 			netNewThisMonth: startsThisMonth - endsThisMonth,
+			refundsThisMonth,
+			refundedAmountThisMonth,
 			weightedAvgUtilization,
 			totalRealCostCycle,
 			totalMrrCycle,

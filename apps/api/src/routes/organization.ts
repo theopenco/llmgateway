@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -189,7 +190,7 @@ organization.openapi(getOrganizations, async (c) => {
 
 	const { includePersonal, includeChat } = c.req.valid("query");
 
-	const organizations = userOrganizations
+	let organizations = userOrganizations
 		.map((uo) => uo.organization!)
 		.filter((org) => org.status !== "deleted")
 		// Personal and chat orgs are hidden from the regular dashboard. The
@@ -197,6 +198,20 @@ organization.openapi(getOrganizations, async (c) => {
 		// ?includeChat=true since their plans + credits live on those orgs.
 		.filter((org) => includePersonal === "true" || !org.isPersonal)
 		.filter((org) => includeChat === "true" || !org.isChat);
+
+	if (organizations.length === 0) {
+		const defaultOrganization = await getOrCreateDefaultOrganization({
+			id: user.id,
+			email: user.email,
+		});
+
+		if (
+			defaultOrganization.status !== "deleted" &&
+			!defaultOrganization.isPersonal
+		) {
+			organizations = [defaultOrganization];
+		}
+	}
 
 	return c.json({
 		organizations,

@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { models } from "@llmgateway/models";
-
 import { calculateCosts } from "./costs.js";
 
 const { mockGetEffectiveDiscount } = vi.hoisted(() => ({
@@ -303,17 +301,14 @@ describe("calculateCosts", () => {
 			},
 		);
 
-		const discountMultiplier = 0.8;
-		expect(result.inputCost).toBeCloseTo(4 * (1.0 / 1e6) * discountMultiplier);
-		expect(result.outputCost).toBeCloseTo(
-			50 * (5.0 / 1e6) * discountMultiplier,
-		);
+		expect(result.inputCost).toBeCloseTo(4 * (1.0 / 1e6));
+		expect(result.outputCost).toBeCloseTo(50 * (5.0 / 1e6));
 		const fiveMinuteCacheWriteCost = 300 * (1.25 / 1e6);
 		const oneHourCacheWriteCost = 700 * (2.0 / 1e6);
 		expect(result.cacheWriteInputCost).toBeCloseTo(
-			(fiveMinuteCacheWriteCost + oneHourCacheWriteCost) * discountMultiplier,
+			fiveMinuteCacheWriteCost + oneHourCacheWriteCost,
 		);
-		expect(result.discount).toBeCloseTo(0.2);
+		expect(result.discount).toBeUndefined();
 		expect(result.cacheWriteTokens).toBe(1000);
 	});
 
@@ -656,7 +651,7 @@ describe("calculateCosts", () => {
 		);
 	});
 
-	it("should apply azure discount on top of split image/text input pricing for gpt-image-2", async () => {
+	it("should split azure image/text input pricing for gpt-image-2", async () => {
 		const promptTokens = 524;
 		const reportedImageInputTokens = 512;
 		const completionTokens = 196;
@@ -681,20 +676,10 @@ describe("calculateCosts", () => {
 			reportedImageOutputTokens,
 		);
 
-		// Read discount from the model definition so the test stays correct
-		// even if the azure discount value changes.
-		const azureProvider = models
-			.find((m) => m.id === "gpt-image-2")
-			?.providers.find((p) => p.providerId === "azure");
-		const discountMultiplier = 1 - Number(azureProvider?.discount ?? "0");
 		const expectedTextInputCost =
-			(promptTokens - reportedImageInputTokens) *
-			(5 / 1e6) *
-			discountMultiplier;
-		const expectedImageInputCost =
-			reportedImageInputTokens * (8 / 1e6) * discountMultiplier;
-		const expectedImageOutputCost =
-			reportedImageOutputTokens * (30 / 1e6) * discountMultiplier;
+			(promptTokens - reportedImageInputTokens) * (5 / 1e6);
+		const expectedImageInputCost = reportedImageInputTokens * (8 / 1e6);
+		const expectedImageOutputCost = reportedImageOutputTokens * (30 / 1e6);
 
 		expect(result.imageInputTokens).toBe(reportedImageInputTokens);
 		expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
@@ -702,6 +687,7 @@ describe("calculateCosts", () => {
 			expectedTextInputCost + expectedImageInputCost,
 		);
 		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.discount).toBeUndefined();
 	});
 
 	it("should split cached tokens between text and image rates for gpt-image-2", async () => {
