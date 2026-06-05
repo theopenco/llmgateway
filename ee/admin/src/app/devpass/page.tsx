@@ -448,6 +448,7 @@ export default async function DevpassPage({
 	}
 
 	const kpis = data.kpis;
+	const grossMrrAfterRefunds = kpis.grossMrr - kpis.refundedAmountThisMonth;
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -516,6 +517,28 @@ export default async function DevpassPage({
 								gone next cycle).
 							</TooltipContent>
 						</Tooltip>
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						Net after refunds this month:{" "}
+						<span
+							className={cn(
+								"font-medium tabular-nums",
+								grossMrrAfterRefunds < kpis.grossMrr
+									? "text-rose-600 dark:text-rose-400"
+									: "",
+							)}
+						>
+							{currencyFormatter.format(grossMrrAfterRefunds)}
+						</span>
+						{kpis.refundedAmountThisMonth > 0 ? (
+							<>
+								{" "}
+								after {currencyFormatter.format(
+									kpis.refundedAmountThisMonth,
+								)}{" "}
+								refunded
+							</>
+						) : null}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
 						Net new this month:{" "}
