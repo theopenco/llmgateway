@@ -65,6 +65,7 @@ export { selectLoadBalancedItem } from "./load-balance.js";
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	type TokenEstimateFallback,
 } from "./token-estimate.js";
 
 export {

@@ -1,0 +1,106 @@
+---
+title: Error Handling
+description: How LLMGateway returns errors in an OpenAI-compatible format on the OpenAI-compatible endpoints.
+icon: TriangleAlert
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Error Handling
+
+On the OpenAI-compatible endpoints, LLMGateway returns errors in the same format as the OpenAI API, so existing OpenAI SDKs and tooling can parse gateway errors without changes. This applies to errors forwarded from upstream providers as well as errors raised by the gateway itself (authentication failures, usage limits, validation problems, timeouts, and so on). The Anthropic-compatible Messages endpoint (`/v1/messages`) instead returns Anthropic-native errors — see [Anthropic Endpoint](#anthropic-endpoint) below.
+
+## Error Format
+
+Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddings`, `/v1/images`, `/v1/models`, `/v1/moderations`, `/v1/responses`, `/v1/videos`) use the standard OpenAI error envelope:
+
+```json
+{
+	"error": {
+		"message": "Unauthorized: LLMGateway API key reached its usage limit.",
+		"type": "invalid_request_error",
+		"param": null,
+		"code": "invalid_api_key"
+	}
+}
+```
+
+| Field           | Description                                                                         |
+| --------------- | ----------------------------------------------------------------------------------- |
+| `error.message` | Human-readable description of what went wrong.                                      |
+| `error.type`    | High-level error category (see the table below).                                    |
+| `error.param`   | The request parameter that caused the error, or `null` when not parameter-specific. |
+| `error.code`    | A more specific machine-readable code, or `null` when no specific code applies.     |
+
+The HTTP status code on the response always matches the error and is the authoritative signal — read it from the response status line rather than the body.
+
+## Status Codes
+
+The gateway maps HTTP status codes to OpenAI error types and codes as follows:
+
+| Status | `type`                  | `code`                   |
+| ------ | ----------------------- | ------------------------ |
+| 400    | `invalid_request_error` | _(varies / `null`)_      |
+| 401    | `invalid_request_error` | `invalid_api_key`        |
+| 402    | `invalid_request_error` | `billing_error`          |
+| 403    | `invalid_request_error` | `permission_denied`      |
+| 404    | `invalid_request_error` | `not_found`              |
+| 408    | `timeout_error`         | `timeout`                |
+| 413    | `invalid_request_error` | `request_too_large`      |
+| 415    | `invalid_request_error` | `unsupported_media_type` |
+| 429    | `rate_limit_error`      | `rate_limit_exceeded`    |
+| 499    | `invalid_request_error` | `request_cancelled`      |
+| 504    | `timeout_error`         | `timeout`                |
+| 5xx    | `api_error`             | _(`null`)_               |
+
+<Callout type="info">
+	Validation errors raised before a request reaches a provider often include a
+	more specific `code` and a `param` pointing at the offending field — for
+	example `invalid_json`, `model_not_found`, or
+	`unsupported_parameter_combination`.
+</Callout>
+
+## Streaming Errors
+
+For streaming requests (`"stream": true`), an error that occurs **after** the stream has started is delivered as an SSE `error` event whose payload uses the same `{ "error": { ... } }` envelope. Errors that occur **before** streaming begins (such as authentication failures) are returned as a normal JSON error response with the appropriate status code.
+
+## Anthropic Endpoint
+
+The Anthropic-compatible Messages endpoint (`/v1/messages`) returns errors in Anthropic's native format instead, so the Anthropic SDK can parse them:
+
+```json
+{
+	"type": "error",
+	"error": {
+		"type": "authentication_error",
+		"message": "Unauthorized: invalid API key."
+	}
+}
+```
+
+## Deprecated Compatibility Fields
+
+<Callout type="warning">
+	For backwards compatibility during the migration to the OpenAI-compatible
+	format, error responses currently also include top-level `message` and
+	`status` fields that mirror the previous error shape. **These fields are
+	deprecated and will be removed in a future release.** Read `error.message`
+	from the envelope and use the HTTP response status code instead.
+</Callout>
+
+```json
+{
+	"error": {
+		"message": "Unauthorized: LLMGateway API key reached its usage limit.",
+		"type": "invalid_request_error",
+		"param": null,
+		"code": "invalid_api_key"
+	},
+	"message": "Unauthorized: LLMGateway API key reached its usage limit.",
+	"status": 401
+}
+```
+
+## Related
+
+- [Rate Limits](/resources/rate-limits) — details on `429` responses and rate limit headers.

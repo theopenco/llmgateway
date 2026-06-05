@@ -1,5 +1,7 @@
 import { logger } from "@llmgateway/logger";
 
+import { parseDataUrl } from "./parse-data-url.js";
+
 /**
  * Generates a user-friendly error message for image size limits
  */
@@ -35,13 +37,13 @@ export async function processImageUrl(
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
 	if (url.startsWith("data:")) {
-		const dataUrlMatch = url.match(/^data:([^;,]+)(?:;base64)?,(.*)$/);
-		if (!dataUrlMatch) {
+		const parsed = parseDataUrl(url);
+		if (!parsed) {
 			logger.warn("Invalid data URL format provided");
 			throw new Error("Invalid image data URL format");
 		}
 
-		const [, mimeType, data] = dataUrlMatch;
+		const { mediaType: mimeType, data, isBase64 } = parsed;
 
 		// Validate it's an image MIME type
 		if (!mimeType.startsWith("image/")) {
@@ -50,7 +52,6 @@ export async function processImageUrl(
 		}
 
 		// Check if data is base64 encoded or needs encoding
-		const isBase64 = url.includes(";base64,");
 		const base64Data = isBase64 ? data : btoa(data);
 
 		// Validate size (estimate: base64 adds ~33% overhead)

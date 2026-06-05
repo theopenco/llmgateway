@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { parseApiToken } from "@/lib/extract-api-token.js";
 
+import { parseDataUrl } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
 import {
 	models as modelsList,
@@ -501,13 +502,12 @@ function createMcpServer(apiKey: string): McpServer {
 
 						// Check if it's a base64 data URL
 						if (url.startsWith("data:")) {
-							// Parse data URL: data:image/png;base64,<data>
-							const matches = url.match(/^data:([^;]+);base64,(.+)$/);
-							if (matches) {
+							const parsed = parseDataUrl(url);
+							if (parsed && parsed.isBase64 && parsed.data) {
 								contentBlocks.push({
 									type: "image" as const,
-									data: matches[2],
-									mimeType: matches[1],
+									data: parsed.data,
+									mimeType: parsed.mediaType,
 								});
 							}
 						} else {
@@ -693,13 +693,13 @@ function createMcpServer(apiKey: string): McpServer {
 						continue;
 					}
 
-					const matches = url.match(/^data:([^;]+);base64,(.+)$/);
-					if (!matches) {
+					const parsed = parseDataUrl(url);
+					if (!parsed || !parsed.isBase64 || !parsed.data) {
 						continue;
 					}
 
-					const mimeType = matches[1];
-					const base64Data = matches[2];
+					const mimeType = parsed.mediaType;
+					const base64Data = parsed.data;
 
 					const ext = extMap[mimeType] || ".png";
 
