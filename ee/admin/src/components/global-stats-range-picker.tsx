@@ -6,6 +6,7 @@ import {
 	format,
 	startOfMonth,
 	startOfYear,
+	subDays,
 	subMonths,
 	subYears,
 } from "date-fns";
@@ -34,6 +35,21 @@ export const DEFAULT_GLOBAL_STATS_PRESET = "last_3_months";
 
 function buildPresets(today: Date): DatePreset[] {
 	return [
+		{
+			label: "Last 7 days",
+			value: "last_7_days",
+			getRange: () => ({ from: subDays(today, 6), to: today }),
+		},
+		{
+			label: "Last 30 days",
+			value: "last_30_days",
+			getRange: () => ({ from: subDays(today, 29), to: today }),
+		},
+		{
+			label: "Last 90 days",
+			value: "last_90_days",
+			getRange: () => ({ from: subDays(today, 89), to: today }),
+		},
 		{
 			label: "This month",
 			value: "this_month",
