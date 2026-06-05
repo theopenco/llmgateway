@@ -706,6 +706,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/profile/{username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    username: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A public DevPass profile. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            profile: {
+                                username: string | null;
+                                name: string | null;
+                                image: string | null;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
+                                createdAt: string;
+                                isPublic: boolean;
+                                stats: {
+                                    totalTokens: number;
+                                    totalRequests: number;
+                                    currentStreak: number;
+                                    longestStreak: number;
+                                    activeDays: number;
+                                };
+                                activity: {
+                                    date: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                models: {
+                                    id: string;
+                                    provider: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                providers: {
+                                    provider: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                agents: {
+                                    source: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            };
+                        };
+                    };
+                };
+                /** @description Profile not found or not public. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/providers/stats": {
         parameters: {
             query?: never;
@@ -1335,6 +1422,11 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                username: string | null;
+                                profilePublic: boolean;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
                                 accounts: {
                                     providerId: string;
                                 }[];
@@ -1406,6 +1498,11 @@ export interface paths {
                         name?: string;
                         /** Format: email */
                         email?: string;
+                        username?: string | null;
+                        profilePublic?: boolean;
+                        bio?: string | null;
+                        githubUsername?: string | null;
+                        xUsername?: string | null;
                     };
                 };
             };
@@ -1424,6 +1521,11 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                username: string | null;
+                                profilePublic: boolean;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
                                 accounts: {
                                     providerId: string;
                                 }[];
@@ -1611,6 +1713,11 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                username: string | null;
+                                profilePublic: boolean;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
                                 accounts: {
                                     providerId: string;
                                 }[];
@@ -1644,6 +1751,91 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/user/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The authenticated user's DevPass profile data. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            profile: {
+                                username: string | null;
+                                name: string | null;
+                                image: string | null;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
+                                createdAt: string;
+                                isPublic: boolean;
+                                stats: {
+                                    totalTokens: number;
+                                    totalRequests: number;
+                                    currentStreak: number;
+                                    longestStreak: number;
+                                    activeDays: number;
+                                };
+                                activity: {
+                                    date: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                models: {
+                                    id: string;
+                                    provider: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                providers: {
+                                    provider: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                agents: {
+                                    source: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
