@@ -1688,7 +1688,7 @@ async function handlePaymentIntentFailed(
 
 async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	const charge = event.data.object;
-	const { payment_intent, amount_refunded } = charge;
+	const { payment_intent } = charge;
 
 	if (!payment_intent) {
 		logger.error("No payment intent in charge.refunded event");
@@ -1776,8 +1776,10 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		return;
 	}
 
-	// Calculate refund amounts
-	const refundAmountInDollars = amount_refunded / 100;
+	// Use the latest refund's amount, not charge.amount_refunded, which is the
+	// cumulative total refunded on the charge and over-counts on every refund
+	// after the first.
+	const refundAmountInDollars = latestRefund.amount / 100;
 	const originalAmount = Number.parseFloat(originalTransaction.amount ?? "0");
 	const originalCreditAmount = Number.parseFloat(
 		originalTransaction.creditAmount ?? "0",
@@ -1796,18 +1798,20 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		? originalCreditAmount * refundRatio
 		: 0;
 
-	// Check if refund already exists (prevent duplicates)
+	// Dedupe by the Stripe refund id (unique per individual refund). Earlier
+	// we keyed on amount, but charge.refunded retries on the same refund carry
+	// the same amount as legitimate subsequent partial refunds, so amount is
+	// not a reliable key.
 	const existingRefund = await db.query.transaction.findFirst({
 		where: {
-			relatedTransactionId: { eq: originalTransaction.id },
+			stripeRefundId: { eq: latestRefund.id },
 			type: { eq: "credit_refund" },
-			amount: { eq: refundAmountInDollars.toString() },
 		},
 	});
 
 	if (existingRefund) {
 		logger.info(
-			`Refund already processed for transaction ${originalTransaction.id}`,
+			`Refund already processed for transaction ${originalTransaction.id} (refund ${latestRefund.id})`,
 		);
 		return;
 	}
@@ -1821,6 +1825,7 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		currency: originalTransaction.currency,
 		status: "completed",
 		stripePaymentIntentId: payment_intent as string,
+		stripeRefundId: latestRefund.id,
 		relatedTransactionId: originalTransaction.id,
 		refundReason: latestRefund.reason ?? null,
 		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
@@ -1960,7 +1965,7 @@ async function handleSetupIntentSucceeded(
 	});
 }
 
-async function handleInvoicePaymentSucceeded(
+export async function handleInvoicePaymentSucceeded(
 	event: Stripe.InvoicePaymentSucceededEvent,
 ) {
 	const invoice = event.data.object;
@@ -2031,13 +2036,22 @@ async function handleInvoicePaymentSucceeded(
 		}
 	}
 
-	// Check if this is a dev plan subscription renewal
-	const isDevPlanRenewal =
+	const isDevPlanSubscription =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
 
+	// Stripe fires `invoice.payment_succeeded` both for true period renewals
+	// (`subscription_cycle`) and for the proration invoice generated when a
+	// user changes tier mid-cycle (`subscription_update`). Only a real cycle
+	// renewal should reset the credit allotment. Treating a proration invoice
+	// as a renewal lets a user downgrade and then upgrade to repeatedly
+	// refresh a full fresh credit balance — so we gate the credit reset on the
+	// billing reason.
+	const isDevPlanRenewal =
+		isDevPlanSubscription && invoice.billing_reason === "subscription_cycle";
+
 	logger.info(
-		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlanRenewal: ${isDevPlanRenewal}`,
+		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}`,
 	);
 
 	if (isDevPlanRenewal) {
@@ -2059,13 +2073,20 @@ async function handleInvoicePaymentSucceeded(
 			description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
 		});
 
-		// Reset credits used and update billing cycle start
+		// Reset credits used and update billing cycle start. Also reset the
+		// limit to the full tier allotment: mid-cycle tier changes leave the
+		// limit at a prorated value, and a fresh cycle should grant the tier's
+		// full credits. Clear any dunning freeze state since the limit is now
+		// authoritative again.
 		await db
 			.update(tables.organization)
 			.set({
+				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekStart: new Date(),
+				devPlanCreditsFrozen: false,
+				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanBillingCycleStart: new Date(),
 				devPlanCancelled: false,
 			})
@@ -2100,6 +2121,38 @@ async function handleInvoicePaymentSucceeded(
 				organization.devPlan ?? "unknown",
 			);
 		}
+	} else if (
+		isDevPlanSubscription &&
+		invoice.billing_reason === "subscription_update"
+	) {
+		// Proration invoice from a mid-cycle upgrade. The change-tier endpoint
+		// already adjusted `devPlanCreditsLimit` (prorated); here we record the
+		// upgrade — with the amount actually collected — as the single canonical
+		// `dev_plan_upgrade` transaction (change-tier deliberately does not record
+		// one for upgrades, to avoid double-counting). We do NOT reset
+		// `devPlanCreditsUsed` or grant a fresh allotment.
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "dev_plan_upgrade",
+			amount: (invoice.amount_paid / 100).toString(),
+			currency: invoice.currency.toUpperCase(),
+			status: "completed",
+			stripePaymentIntentId: (invoice as any).payment_intent,
+			stripeInvoiceId: invoice.id,
+			description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+		});
+
+		logger.info(
+			`Recorded dev plan upgrade proration invoice for organization ${organizationId}; credits left unchanged`,
+		);
+	} else if (isDevPlanSubscription) {
+		// Any other dev-plan invoice (e.g. `manual`, or a `subscription_create`
+		// that somehow wasn't deduped above). Leave credits untouched and do not
+		// fall through to the Pro-subscription handler, which would wrongly flip
+		// the org to the Pro plan.
+		logger.info(
+			`Skipping non-renewal dev plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
+		);
 	} else {
 		// Handle regular pro subscription
 		// Create transaction record for subscription start
@@ -2187,18 +2240,32 @@ async function handleInvoicePaymentSucceeded(
 
 async function freezeDevPlanCredits(
 	organizationId: string,
-	organization: { devPlanCreditsUsed: string | null },
+	organization: {
+		devPlanCreditsUsed: string | null;
+		devPlanCreditsLimit: string | null;
+		devPlanCreditsFrozen: boolean | null;
+	},
 	reason: string,
 ) {
 	// Cap the devPlan credit limit at what's already been used so the gateway's
 	// `limit - used` balance check returns 0. Stops further dev-plan spend
 	// without revoking the tier (so we don't lose the tier metadata before
 	// dunning resolves one way or the other).
+	//
+	// Preserve the pre-freeze limit (only on the first freeze, so repeated
+	// dunning events don't overwrite it with the frozen value) so recovery can
+	// restore the exact limit — which may be a prorated mid-cycle amount rather
+	// than the tier's full cap.
+	if (organization.devPlanCreditsFrozen) {
+		return;
+	}
 	const used = organization.devPlanCreditsUsed ?? "0";
 	await db
 		.update(tables.organization)
 		.set({
 			devPlanCreditsLimit: used,
+			devPlanCreditsFrozen: true,
+			devPlanCreditsLimitBeforeFreeze: organization.devPlanCreditsLimit ?? "0",
 		})
 		.where(eq(tables.organization.id, organizationId));
 
@@ -2211,30 +2278,36 @@ async function restoreDevPlanCredits(
 	organizationId: string,
 	organization: {
 		devPlan: DevPlanTier | "none" | null;
-		devPlanCreditsLimit: string | null;
+		devPlanCreditsFrozen: boolean | null;
+		devPlanCreditsLimitBeforeFreeze: string | null;
 	},
 	reason: string,
 ) {
 	// Counterpart to freezeDevPlanCredits: when the subscription returns to a
-	// healthy state, raise the credit limit back to the tier's expected cap so
-	// previously-frozen accounts aren't permanently stuck at the freeze value.
-	if (!organization.devPlan || organization.devPlan === "none") {
+	// healthy state, restore the exact pre-freeze limit. Only acts on an
+	// actually-frozen org — otherwise a routine `subscription.updated` (e.g.
+	// the one Stripe emits for a mid-cycle tier change) would clobber an
+	// intentional prorated limit with the tier's full cap and reopen the
+	// credit-refresh loophole.
+	if (!organization.devPlanCreditsFrozen) {
 		return;
 	}
-	const expectedLimit = getDevPlanCreditsLimit(organization.devPlan);
-	const currentLimit = parseFloat(organization.devPlanCreditsLimit ?? "0");
-	if (currentLimit >= expectedLimit) {
-		return;
-	}
+	const restoredLimit =
+		organization.devPlanCreditsLimitBeforeFreeze ??
+		(organization.devPlan && organization.devPlan !== "none"
+			? getDevPlanCreditsLimit(organization.devPlan).toString()
+			: "0");
 	await db
 		.update(tables.organization)
 		.set({
-			devPlanCreditsLimit: expectedLimit.toString(),
+			devPlanCreditsLimit: restoredLimit,
+			devPlanCreditsFrozen: false,
+			devPlanCreditsLimitBeforeFreeze: null,
 		})
 		.where(eq(tables.organization.id, organizationId));
 
 	logger.info(
-		`Restored dev plan credits for organization ${organizationId} (reason: ${reason}); credits limit raised from ${currentLimit} to ${expectedLimit}`,
+		`Restored dev plan credits for organization ${organizationId} (reason: ${reason}); credits limit set to ${restoredLimit}`,
 	);
 }
 
@@ -2578,6 +2651,8 @@ async function handleSubscriptionDeleted(
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekStart: null,
+				devPlanCreditsFrozen: false,
+				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanStripeSubscriptionId: null,
 				devPlanExpiresAt: null,
 				devPlanCancelled: false,

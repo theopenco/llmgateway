@@ -11,17 +11,15 @@ export {
 } from "./fees.js";
 
 export {
-	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
 	DEV_PLAN_PRICES,
 	type DevPlanCycle,
 	type DevPlanTier,
-	getDevPlanAnnualMonthlyPrice,
-	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getRemainingPremiumWeeklyAllowance,
+	getProratedCreditDelta,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
 
@@ -74,9 +72,12 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
+export { isContentFilterErrorText } from "./content-filter.js";
+
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	type TokenEstimateFallback,
 } from "./token-estimate.js";
 
 export {

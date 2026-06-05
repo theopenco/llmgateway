@@ -20,6 +20,7 @@ import {
 	Trash2,
 	User,
 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -148,7 +149,25 @@ function StarRating({
 export function ChatSupportLogsClient() {
 	const $api = useApi();
 	const queryClient = useQueryClient();
-	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const searchParams = useSearchParams();
+	const router = useRouter();
+	const pathname = usePathname();
+	const selectedId = searchParams.get("chat");
+	const setSelectedId = useCallback(
+		(id: string | null) => {
+			const params = new URLSearchParams(searchParams.toString());
+			if (id) {
+				params.set("chat", id);
+			} else {
+				params.delete("chat");
+			}
+			const query = params.toString();
+			router.replace(query ? `${pathname}?${query}` : pathname, {
+				scroll: false,
+			});
+		},
+		[searchParams, router, pathname],
+	);
 	const [search, setSearch] = useState("");
 	const [debouncedSearch, setDebouncedSearch] = useState("");
 	const [replyText, setReplyText] = useState("");
@@ -303,7 +322,7 @@ export function ChatSupportLogsClient() {
 				});
 			}
 		},
-		[conversations, markRead],
+		[conversations, markRead, setSelectedId],
 	);
 
 	const handleReplySubmit = (e: React.FormEvent) => {

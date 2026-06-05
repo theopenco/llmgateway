@@ -193,6 +193,11 @@ export const organization = pgTable(
 		devPlanCreditsLimit: decimal().notNull().default("0"),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
+		// Set when dunning freezes dev-plan spend (limit capped to used). The
+		// pre-freeze limit is preserved so recovery restores the exact value
+		// (which may be a prorated mid-cycle amount), not a full tier cap.
+		devPlanCreditsFrozen: boolean().notNull().default(false),
+		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
@@ -280,12 +285,16 @@ export const transaction = pgTable(
 			.default("completed"),
 		stripePaymentIntentId: text(),
 		stripeInvoiceId: text(),
+		stripeRefundId: text(),
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		uniqueIndex("transaction_stripe_refund_id_unique")
+			.on(table.stripeRefundId)
+			.where(sql`${table.stripeRefundId} IS NOT NULL`),
 	],
 );
 

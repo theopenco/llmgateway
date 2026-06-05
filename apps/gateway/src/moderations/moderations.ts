@@ -19,6 +19,7 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
@@ -651,8 +652,15 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 		return c.json(
 			(typeof upstreamJson === "string"
-				? { error: { message: upstreamJson } }
-				: upstreamJson) ?? { error: true },
+				? buildOpenAIErrorBody({
+						message: upstreamJson,
+						status: upstreamResponse.status,
+					})
+				: upstreamJson) ??
+				buildOpenAIErrorBody({
+					message: "An error occurred",
+					status: upstreamResponse.status,
+				}),
 			upstreamResponse.status as
 				| 400
 				| 401

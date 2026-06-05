@@ -45,6 +45,18 @@ Do not run test files or suites in parallel unless the repository instructions f
 
 When running curl commands against the local API, you can use `test-token` as authentication.
 
+To test a specific provider in isolation (e.g. to reproduce a provider-specific failure without the gateway silently falling back to a healthy provider), pin the provider with the `provider/model` model string and disable fallback with the `x-no-fallback: true` header:
+
+```bash
+curl -N http://localhost:4001/v1/chat/completions \
+  -H "Authorization: Bearer test-token" -H "x-no-fallback: true" \
+  -d '{"model":"embercloud/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+Without `x-no-fallback`, a failing pinned provider falls back to the next healthy provider, masking the error. Also note that the gateway caches responses (including errors) in Redis keyed on the request body, so vary the prompt when re-testing the same failure.
+
+Caveat: if you run multiple git worktrees (e.g. conductor workspaces), only one `pnpm dev` can own port :4001 — confirm which working tree is actually serving it (`lsof -a -p <pid> -d cwd -Fn`) before assuming your local edits are live, or launch your own build on a different `PORT`.
+
 #### E2E Test Options
 
 - `TEST_MODELS` - Run tests only for specific models (comma-separated list of `provider/model-id` pairs)
@@ -153,6 +165,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Never force push on main/default branch; force pushing is only acceptable on feature branches
 - When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
+- When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse

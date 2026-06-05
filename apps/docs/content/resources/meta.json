@@ -1,0 +1,6 @@
+{
+	"title": "Resources",
+	"description": "Reference material for working with the LLM Gateway API",
+	"icon": "BookOpen",
+	"pages": ["error-handling", "rate-limits"]
+}
