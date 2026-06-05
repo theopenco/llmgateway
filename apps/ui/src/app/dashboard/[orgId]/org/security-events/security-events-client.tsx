@@ -87,6 +87,7 @@ export function SecurityEventsClient() {
 	// Filters
 	const [actionFilter, setActionFilter] = useState<string>("all");
 	const [categoryFilter, setCategoryFilter] = useState<string>("all");
+	const [statsDays, setStatsDays] = useState<string>("7");
 
 	const canViewEvents =
 		selectedOrganization?.plan === "enterprise" &&
@@ -97,7 +98,10 @@ export function SecurityEventsClient() {
 			const response = await fetchClient.GET(
 				"/guardrails/stats/{organizationId}",
 				{
-					params: { path: { organizationId } },
+					params: {
+						path: { organizationId },
+						query: { days: statsDays },
+					},
 				},
 			);
 
@@ -107,7 +111,7 @@ export function SecurityEventsClient() {
 		} catch {
 			// Silently fail for stats
 		}
-	}, [fetchClient, organizationId]);
+	}, [fetchClient, organizationId, statsDays]);
 
 	const fetchViolations = useCallback(
 		async (cursor?: string) => {
@@ -166,23 +170,23 @@ export function SecurityEventsClient() {
 		[fetchClient, organizationId, actionFilter, categoryFilter],
 	);
 
-	// Reset and refetch when filters or view permissions change
+	// Reset and refetch the violations list when filters or permissions change
 	useEffect(() => {
 		if (canViewEvents) {
 			setViolations([]);
 			setNextCursor(null);
-			void fetchStats();
 			void fetchViolations();
 		} else {
 			setIsLoading(false);
 		}
-	}, [
-		canViewEvents,
-		fetchStats,
-		fetchViolations,
-		actionFilter,
-		categoryFilter,
-	]);
+	}, [canViewEvents, fetchViolations, actionFilter, categoryFilter]);
+
+	// Refetch stats when the time window or permissions change
+	useEffect(() => {
+		if (canViewEvents) {
+			void fetchStats();
+		}
+	}, [canViewEvents, fetchStats]);
 
 	if (selectedOrganization?.plan !== "enterprise") {
 		return <ContactSalesCard />;
@@ -211,45 +215,66 @@ export function SecurityEventsClient() {
 
 	return (
 		<div className="space-y-6">
-			{/* Stats Cards */}
-			{stats && (
-				<div className="grid gap-4 md:grid-cols-4">
-					<Card>
-						<CardHeader className="pb-2">
-							<CardDescription>Total Violations</CardDescription>
-							<CardTitle className="text-3xl">
-								{stats.totalViolations}
-							</CardTitle>
-							<p className="text-xs text-muted-foreground">Last 7 days</p>
-						</CardHeader>
-					</Card>
-					<Card>
-						<CardHeader className="pb-2">
-							<CardDescription>Last 24 Hours</CardDescription>
-							<CardTitle className="text-3xl">{stats.last24Hours}</CardTitle>
-							<p className="text-xs text-muted-foreground">&nbsp;</p>
-						</CardHeader>
-					</Card>
-					<Card>
-						<CardHeader className="pb-2">
-							<CardDescription>Blocked</CardDescription>
-							<CardTitle className="text-3xl text-destructive">
-								{stats.byAction?.blocked ?? 0}
-							</CardTitle>
-							<p className="text-xs text-muted-foreground">Last 7 days</p>
-						</CardHeader>
-					</Card>
-					<Card>
-						<CardHeader className="pb-2">
-							<CardDescription>Redacted</CardDescription>
-							<CardTitle className="text-3xl text-orange-500">
-								{stats.byAction?.redacted ?? 0}
-							</CardTitle>
-							<p className="text-xs text-muted-foreground">Last 7 days</p>
-						</CardHeader>
-					</Card>
+			{/* Stats overview */}
+			<div className="space-y-4">
+				<div className="flex items-center justify-between gap-2">
+					<h2 className="text-lg font-semibold">Overview</h2>
+					<Select value={statsDays} onValueChange={setStatsDays}>
+						<SelectTrigger className="w-[160px]">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="7">Last 7 days</SelectItem>
+							<SelectItem value="30">Last 30 days</SelectItem>
+							<SelectItem value="90">Last 90 days</SelectItem>
+						</SelectContent>
+					</Select>
 				</div>
-			)}
+				{stats && (
+					<div className="grid gap-4 md:grid-cols-4">
+						<Card>
+							<CardHeader className="pb-2">
+								<CardDescription>Total Violations</CardDescription>
+								<CardTitle className="text-3xl">
+									{stats.totalViolations}
+								</CardTitle>
+								<p className="text-xs text-muted-foreground">
+									Last {statsDays} days
+								</p>
+							</CardHeader>
+						</Card>
+						<Card>
+							<CardHeader className="pb-2">
+								<CardDescription>Last 24 Hours</CardDescription>
+								<CardTitle className="text-3xl">{stats.last24Hours}</CardTitle>
+								<p className="text-xs text-muted-foreground">&nbsp;</p>
+							</CardHeader>
+						</Card>
+						<Card>
+							<CardHeader className="pb-2">
+								<CardDescription>Blocked</CardDescription>
+								<CardTitle className="text-3xl text-destructive">
+									{stats.byAction?.blocked ?? 0}
+								</CardTitle>
+								<p className="text-xs text-muted-foreground">
+									Last {statsDays} days
+								</p>
+							</CardHeader>
+						</Card>
+						<Card>
+							<CardHeader className="pb-2">
+								<CardDescription>Redacted</CardDescription>
+								<CardTitle className="text-3xl text-orange-500">
+									{stats.byAction?.redacted ?? 0}
+								</CardTitle>
+								<p className="text-xs text-muted-foreground">
+									Last {statsDays} days
+								</p>
+							</CardHeader>
+						</Card>
+					</div>
+				)}
+			</div>
 
 			{/* Violations List */}
 			<Card>
