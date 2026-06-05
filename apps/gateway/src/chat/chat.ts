@@ -1167,6 +1167,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		service_tier,
 		web_search,
 		plugins,
 		n,
@@ -5348,6 +5349,7 @@ chat.openapi(completions, async (c) => {
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							webSearchEnabled: !!webSearchTool,
+							serviceTier: service_tier,
 						});
 						headers["Content-Type"] = "application/json";
 
@@ -9130,6 +9132,7 @@ chat.openapi(completions, async (c) => {
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
+				serviceTier: service_tier,
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";

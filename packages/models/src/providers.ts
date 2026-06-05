@@ -46,6 +46,27 @@ export interface ProviderRegionConfig {
 	sharedCredentialAcrossRegions?: boolean;
 }
 
+/**
+ * A selectable processing tier offered by a provider that trades latency
+ * against price relative to the standard on-demand rate. Selected per-request
+ * via the OpenAI-compatible `service_tier` field. Currently used by Google
+ * Vertex AI (Flex / Priority PayGo).
+ */
+export interface ServiceTier {
+	/** Value the client passes via `service_tier` to select this tier (e.g. "flex", "priority") */
+	id: string;
+	/** Human-readable tier name (e.g. "Flex", "Priority") */
+	name: string;
+	/**
+	 * Multiplier applied to the standard input/output token prices for this
+	 * tier. 0.5 means 50% cheaper, 1.8 means an 80% premium. Multipliers are
+	 * uniform across all Gemini 2.5 models on Vertex.
+	 */
+	multiplier: number;
+	/** Short description of the latency/availability trade-off */
+	description?: string;
+}
+
 export interface ProviderDataPolicy {
 	apiTraining: boolean | null;
 	consumerTraining: boolean | null;
@@ -84,6 +105,12 @@ export interface ProviderDefinition {
 	contentFilter?: boolean;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
+	/**
+	 * Selectable processing tiers (e.g. Flex / Priority) offered by this
+	 * provider. Chosen per-request via the `service_tier` field. When unset,
+	 * the provider only offers the standard on-demand tier.
+	 */
+	serviceTiers?: ServiceTier[];
 	termsUrl?: string | null;
 	privacyPolicyUrl?: string | null;
 	/** ISO 3166-1 alpha-2 country code for provider headquarters */
@@ -250,6 +277,22 @@ export const providers: ProviderDefinition[] = [
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
 		priority: 0.8,
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for variable latency and best-effort availability. Served on the global endpoint.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.8,
+				description:
+					"Premium low-latency tier prioritized above standard and flex traffic, at an 80% premium. Served on the global endpoint.",
+			},
+		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://policies.google.com/privacy",
 		headquarters: "US",
