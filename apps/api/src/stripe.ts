@@ -1686,7 +1686,7 @@ async function handlePaymentIntentFailed(
 
 async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	const charge = event.data.object;
-	const { payment_intent, amount_refunded } = charge;
+	const { payment_intent } = charge;
 
 	if (!payment_intent) {
 		logger.error("No payment intent in charge.refunded event");
@@ -1774,8 +1774,10 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		return;
 	}
 
-	// Calculate refund amounts
-	const refundAmountInDollars = amount_refunded / 100;
+	// Use the latest refund's amount, not charge.amount_refunded, which is the
+	// cumulative total refunded on the charge and over-counts on every refund
+	// after the first.
+	const refundAmountInDollars = latestRefund.amount / 100;
 	const originalAmount = Number.parseFloat(originalTransaction.amount ?? "0");
 	const originalCreditAmount = Number.parseFloat(
 		originalTransaction.creditAmount ?? "0",
@@ -1794,18 +1796,20 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		? originalCreditAmount * refundRatio
 		: 0;
 
-	// Check if refund already exists (prevent duplicates)
+	// Dedupe by the Stripe refund id (unique per individual refund). Earlier
+	// we keyed on amount, but charge.refunded retries on the same refund carry
+	// the same amount as legitimate subsequent partial refunds, so amount is
+	// not a reliable key.
 	const existingRefund = await db.query.transaction.findFirst({
 		where: {
-			relatedTransactionId: { eq: originalTransaction.id },
+			stripeRefundId: { eq: latestRefund.id },
 			type: { eq: "credit_refund" },
-			amount: { eq: refundAmountInDollars.toString() },
 		},
 	});
 
 	if (existingRefund) {
 		logger.info(
-			`Refund already processed for transaction ${originalTransaction.id}`,
+			`Refund already processed for transaction ${originalTransaction.id} (refund ${latestRefund.id})`,
 		);
 		return;
 	}
@@ -1819,6 +1823,7 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		currency: originalTransaction.currency,
 		status: "completed",
 		stripePaymentIntentId: payment_intent as string,
+		stripeRefundId: latestRefund.id,
 		relatedTransactionId: originalTransaction.id,
 		refundReason: latestRefund.reason ?? null,
 		description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
