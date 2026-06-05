@@ -65,6 +65,7 @@ import {
 import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
+	applyGoogleServiceTier,
 	getCheapestFromAvailableProviders,
 	getProviderEndpoint,
 	getProviderHeaders,
@@ -696,6 +697,66 @@ function isGoogleCompatibleProvider(provider: string): boolean {
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
+}
+
+function isVertexCompatibleProvider(provider: string): boolean {
+	return provider === "google-vertex" || provider === "quartz";
+}
+
+/**
+ * Dev-only verification log confirming a requested processing tier reached the
+ * provider. AI Studio reports the served tier in the `x-gemini-service-tier`
+ * response header; Vertex reports it in `usageMetadata.trafficType` (logged
+ * separately once the response body is parsed).
+ */
+function logServiceTierRequest(
+	provider: string,
+	serviceTier: string | undefined,
+	res: Response | undefined,
+): void {
+	if (
+		process.env.NODE_ENV === "production" ||
+		(serviceTier !== "flex" && serviceTier !== "priority") ||
+		!isGoogleCompatibleProvider(provider)
+	) {
+		return;
+	}
+	logger.debug("service_tier request sent", {
+		provider,
+		requestedServiceTier: serviceTier,
+		transport: isVertexCompatibleProvider(provider)
+			? "X-Vertex-AI-LLM-Shared-Request-Type header"
+			: "service_tier body field",
+		servedServiceTier: res?.headers.get("x-gemini-service-tier") ?? null,
+		status: res?.status,
+	});
+}
+
+/**
+ * Dev-only verification log for the served Vertex tier. Vertex echoes the
+ * applied tier in `usageMetadata.trafficType` (ON_DEMAND_PRIORITY /
+ * ON_DEMAND_FLEX, or plain ON_DEMAND when downgraded under load).
+ */
+function logVertexTrafficType(
+	provider: string,
+	serviceTier: string | undefined,
+	data: { usageMetadata?: { trafficType?: string } } | undefined,
+): void {
+	const trafficType = data?.usageMetadata?.trafficType;
+	if (
+		process.env.NODE_ENV === "production" ||
+		(serviceTier !== "flex" && serviceTier !== "priority") ||
+		!isVertexCompatibleProvider(provider) ||
+		!trafficType
+	) {
+		return;
+	}
+	logger.debug("service_tier served (vertex trafficType)", {
+		provider,
+		requestedServiceTier: serviceTier,
+		trafficType,
+		downgraded: trafficType === "ON_DEMAND",
+	});
 }
 
 // Pre-compiled regex pattern to avoid recompilation per request
@@ -5375,6 +5436,10 @@ chat.openapi(completions, async (c) => {
 								: "structured-outputs-2025-11-13";
 						}
 
+						// For the Gemini Developer API the processing tier is a body
+						// field; Vertex uses a header set above in getProviderHeaders.
+						applyGoogleServiceTier(requestBody, usedProvider, service_tier);
+
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
 							requestCanBeCanceled ? controller : undefined,
@@ -5387,6 +5452,8 @@ chat.openapi(completions, async (c) => {
 							body: JSON.stringify(requestBody),
 							signal: fetchSignal,
 						});
+
+						logServiceTierRequest(usedProvider, service_tier, res);
 					} catch (error) {
 						// Clean up the event listeners
 						c.req.raw.signal.removeEventListener("abort", onAbort);
@@ -7528,6 +7595,8 @@ chat.openapi(completions, async (c) => {
 										imageByteSize,
 									);
 
+									logVertexTrafficType(usedProvider, service_tier, data);
+
 									// If we have usage data from Google, add it to the streaming chunk
 									if (
 										usage.promptTokens !== null ||
@@ -9173,6 +9242,10 @@ chat.openapi(completions, async (c) => {
 						routingCfg,
 					);
 
+			// For the Gemini Developer API the processing tier is a body field;
+			// Vertex uses a header set above in getProviderHeaders.
+			applyGoogleServiceTier(requestBody, usedProvider, service_tier);
+
 			res = await fetch(url, {
 				method: "POST",
 				headers,
@@ -9182,6 +9255,8 @@ chat.openapi(completions, async (c) => {
 						: JSON.stringify(requestBody),
 				signal: fetchSignal,
 			});
+
+			logServiceTierRequest(usedProvider, service_tier, res);
 		} catch (error) {
 			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
 			if (isTimeoutError(error)) {
@@ -10454,6 +10529,8 @@ chat.openapi(completions, async (c) => {
 	let responseSize = contentLengthHeader
 		? parseInt(contentLengthHeader, 10)
 		: 0;
+
+	logVertexTrafficType(usedProvider, service_tier, json);
 
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
