@@ -29,40 +29,16 @@ import { useFetchClient } from "@/lib/fetch-client";
 
 import { ContactSalesCard } from "./contact-sales-card";
 
-interface Violation {
-	id: string;
-	createdAt: string;
-	ruleId: string;
-	ruleName: string;
-	category: string;
-	actionTaken: "blocked" | "redacted" | "warned";
-	matchedPattern: string | null;
-	matchedContent: string | null;
-	logId: string | null;
-	apiKeyId: string | null;
-	model: string | null;
-}
+import type { paths } from "@/lib/api/v1";
 
-interface ViolationsResponse {
-	violations: Violation[];
-	pagination: {
-		nextCursor: string | null;
-		hasMore: boolean;
-		limit: number;
-	};
-}
-
-interface Stats {
-	totalViolations: number;
-	last24Hours: number;
-	last7Days: number;
-	byAction: {
-		blocked: number;
-		redacted: number;
-		warned: number;
-	};
-	byCategory: Record<string, number>;
-}
+type ViolationsResponse =
+	paths["/guardrails/violations/{organizationId}"]["get"]["responses"][200]["content"]["application/json"];
+type Violation = ViolationsResponse["violations"][number];
+type ViolationsQuery = NonNullable<
+	paths["/guardrails/violations/{organizationId}"]["get"]["parameters"]["query"]
+>;
+type Stats =
+	paths["/guardrails/stats/{organizationId}"]["get"]["responses"][200]["content"]["application/json"];
 
 function getActionBadgeVariant(
 	action: string,
@@ -126,7 +102,7 @@ export function SecurityEventsClient() {
 			);
 
 			if (response.data) {
-				setStats(response.data as unknown as Stats);
+				setStats(response.data);
 			}
 		} catch {
 			// Silently fail for stats
@@ -143,7 +119,7 @@ export function SecurityEventsClient() {
 					setIsLoadingMore(true);
 				}
 
-				const queryParams: Record<string, string> = {};
+				const queryParams: ViolationsQuery = {};
 				if (cursor) {
 					queryParams.cursor = cursor;
 				}
@@ -169,7 +145,7 @@ export function SecurityEventsClient() {
 					return;
 				}
 
-				const data = response.data as unknown as ViolationsResponse;
+				const data = response.data;
 
 				if (isInitialLoad) {
 					setViolations(data.violations);
@@ -314,12 +290,14 @@ export function SecurityEventsClient() {
 								</SelectTrigger>
 								<SelectContent>
 									<SelectItem value="all">All categories</SelectItem>
-									<SelectItem value="prompt_injection">
-										Prompt Injection
-									</SelectItem>
+									<SelectItem value="injection">Prompt Injection</SelectItem>
 									<SelectItem value="jailbreak">Jailbreak</SelectItem>
-									<SelectItem value="pii_detection">PII Detection</SelectItem>
+									<SelectItem value="pii">PII Detection</SelectItem>
 									<SelectItem value="secrets">Secrets</SelectItem>
+									<SelectItem value="files">File Types</SelectItem>
+									<SelectItem value="document_leakage">
+										Document Leakage
+									</SelectItem>
 									<SelectItem value="blocked_terms">Blocked Terms</SelectItem>
 									<SelectItem value="custom_regex">Custom Regex</SelectItem>
 									<SelectItem value="topic_restriction">

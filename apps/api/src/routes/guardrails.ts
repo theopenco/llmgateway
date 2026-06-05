@@ -551,6 +551,7 @@ const listViolations = createRoute({
 			startDate: z.string().datetime({ offset: true }).optional(),
 			endDate: z.string().datetime({ offset: true }).optional(),
 			actionTaken: z.string().optional(),
+			category: z.string().optional(),
 			ruleId: z.string().optional(),
 		}),
 	},
@@ -589,6 +590,7 @@ guardrails.openapi(listViolations, async (c) => {
 		startDate,
 		endDate,
 		actionTaken,
+		category,
 		ruleId,
 	} = query;
 
@@ -620,6 +622,9 @@ guardrails.openapi(listViolations, async (c) => {
 				actionTaken as (typeof guardrailActionsTaken)[number],
 			),
 		);
+	}
+	if (category) {
+		whereConditions.push(eq(tables.guardrailViolation.category, category));
 	}
 	if (ruleId) {
 		whereConditions.push(eq(tables.guardrailViolation.ruleId, ruleId));
