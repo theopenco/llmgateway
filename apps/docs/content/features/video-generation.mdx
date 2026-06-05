@@ -41,6 +41,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | `last_frame`       | object  | no       | Optional ending frame when `image` is provided                                                                             |
 | `reference_images` | array   | no       | One to three provider-specific image inputs                                                                                |
 | `input_reference`  | object  | no       | Alias for one or more `reference_images`                                                                                   |
+| `reference_videos` | array   | no       | One to three reference video HTTPS URLs (Seedance 2.0 only, see below)                                                     |
 | `callback_url`     | string  | no       | LLMGateway extension for completion webhooks                                                                               |
 | `callback_secret`  | string  | no       | LLMGateway extension used to sign webhook deliveries                                                                       |
 
@@ -53,6 +54,33 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Seedance 2.0 / 2.0 Fast / 1.5 Pro | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
 
 Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance derives `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
+
+### Seedance 2.0 omni-reference
+
+Seedance 2.0 (`seedance-2-0`, `seedance-2-0-fast`) supports reference-guided video generation. You can supply reference images and reference videos in the same request:
+
+- `reference_images` (or `input_reference`) — one to three image inputs (HTTPS URLs or base64 data URLs)
+- `reference_videos` — one to three reference video **HTTPS URLs** (base64 data URLs are not supported for videos)
+
+Reference inputs cannot be combined with the first/last frame inputs (`image`, `last_frame`). Reference videos are only supported on Seedance 2.0 models.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seedance-2-0",
+    "prompt": "The subject performs the choreography from the reference video",
+    "seconds": 5,
+    "size": "1280x720",
+    "reference_images": [
+      { "image_url": "https://example.com/subject.png" }
+    ],
+    "reference_videos": [
+      "https://example.com/reference-motion.mp4"
+    ]
+  }'
+```
 
 ### Not supported yet
 
