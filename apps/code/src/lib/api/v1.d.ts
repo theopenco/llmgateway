@@ -706,6 +706,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/profile/{username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    username: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A public DevPass profile. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            profile: {
+                                username: string | null;
+                                name: string | null;
+                                image: string | null;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
+                                createdAt: string;
+                                isPublic: boolean;
+                                stats: {
+                                    totalTokens: number;
+                                    totalRequests: number;
+                                    currentStreak: number;
+                                    longestStreak: number;
+                                    activeDays: number;
+                                };
+                                activity: {
+                                    date: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                models: {
+                                    id: string;
+                                    provider: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                providers: {
+                                    provider: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                agents: {
+                                    source: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            };
+                        };
+                    };
+                };
+                /** @description Profile not found or not public. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/providers/stats": {
         parameters: {
             query?: never;
@@ -1335,6 +1422,11 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                username: string | null;
+                                profilePublic: boolean;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
                                 accounts: {
                                     providerId: string;
                                 }[];
@@ -1406,6 +1498,11 @@ export interface paths {
                         name?: string;
                         /** Format: email */
                         email?: string;
+                        username?: string | null;
+                        profilePublic?: boolean;
+                        bio?: string | null;
+                        githubUsername?: string | null;
+                        xUsername?: string | null;
                     };
                 };
             };
@@ -1424,6 +1521,11 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                username: string | null;
+                                profilePublic: boolean;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
                                 accounts: {
                                     providerId: string;
                                 }[];
@@ -1611,6 +1713,11 @@ export interface paths {
                                 onboardingCompleted: boolean;
                                 emailVerified: boolean;
                                 isAdmin: boolean;
+                                username: string | null;
+                                profilePublic: boolean;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
                                 accounts: {
                                     providerId: string;
                                 }[];
@@ -1644,6 +1751,91 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/user/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The authenticated user's DevPass profile data. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            profile: {
+                                username: string | null;
+                                name: string | null;
+                                image: string | null;
+                                bio: string | null;
+                                githubUsername: string | null;
+                                xUsername: string | null;
+                                createdAt: string;
+                                isPublic: boolean;
+                                stats: {
+                                    totalTokens: number;
+                                    totalRequests: number;
+                                    currentStreak: number;
+                                    longestStreak: number;
+                                    activeDays: number;
+                                };
+                                activity: {
+                                    date: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                models: {
+                                    id: string;
+                                    provider: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                providers: {
+                                    provider: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                                agents: {
+                                    source: string;
+                                    requestCount: number;
+                                    totalTokens: number;
+                                }[];
+                            };
+                        };
+                    };
+                };
+                /** @description Unauthorized. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            message: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11103,9 +11295,9 @@ export interface paths {
                                 organizationId: string;
                                 userId: string;
                                 /** @enum {string} */
-                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "referral_bonus.update" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key" | "dev_plan.update_payment_method";
+                                action: "organization.create" | "organization.update" | "organization.delete" | "organization.block" | "project.create" | "project.update" | "project.delete" | "team_member.add" | "team_member.update" | "team_member.remove" | "api_key.create" | "api_key.update_status" | "api_key.update_limit" | "api_key.update_description" | "api_key.delete" | "api_key.iam_rule.create" | "api_key.iam_rule.update" | "api_key.iam_rule.delete" | "master_key.create" | "master_key.update_status" | "master_key.delete" | "provider_key.create" | "provider_key.update" | "provider_key.delete" | "subscription.create" | "subscription.cancel" | "subscription.resume" | "subscription.upgrade_yearly" | "payment.method.set_default" | "payment.method.delete" | "payment.credit_topup" | "payment.auto_topup.update" | "payment.auto_topup.disable" | "credits.gift" | "referral_bonus.update" | "dev_plan.subscribe" | "dev_plan.cancel" | "dev_plan.resume" | "dev_plan.change_tier" | "dev_plan.update_settings" | "dev_plan.rotate_api_key" | "dev_plan.update_payment_method" | "chat_plan.subscribe" | "chat_plan.cancel" | "chat_plan.resume" | "chat_plan.change_tier";
                                 /** @enum {string} */
-                                resourceType: "organization" | "project" | "team_member" | "api_key" | "master_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan";
+                                resourceType: "organization" | "project" | "team_member" | "api_key" | "master_key" | "iam_rule" | "provider_key" | "subscription" | "payment_method" | "payment" | "dev_plan" | "chat_plan";
                                 resourceId: string | null;
                                 metadata?: unknown;
                                 user?: {

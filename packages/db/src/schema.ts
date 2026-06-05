@@ -60,6 +60,13 @@ export const user = pgTable("user", {
 	})
 		.notNull()
 		.default("active"),
+	// DevPass public profile. `username` is the public URL slug
+	// (/profiles/:username) and is null until the user claims one.
+	username: text().unique(),
+	profilePublic: boolean().notNull().default(false),
+	bio: text(),
+	githubUsername: text(),
+	xUsername: text(),
 });
 
 export const userFavoriteModel = pgTable(

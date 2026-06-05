@@ -1,7 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Code, CreditCard, LogOut, Settings } from "lucide-react";
+import {
+	BarChart3,
+	Code,
+	CreditCard,
+	LogOut,
+	Settings,
+	UserRound,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -43,6 +50,7 @@ const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
 		{ label: "Usage", href: "/dashboard" as Route, icon: BarChart3 },
 		{ label: "Billing", href: "/dashboard/billing" as Route, icon: CreditCard },
+		{ label: "Profile", href: "/profile" as Route, icon: UserRound },
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },
 	];
 
