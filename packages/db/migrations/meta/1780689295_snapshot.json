@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "87619473-507e-4256-a368-2acf646c0d6a",
-  "prevId": "c212ca23-76d7-4da7-a978-5599492d88f7",
+  "id": "e040c409-1b47-4979-8b65-fb1a2688f0f9",
+  "prevId": "03950ec1-d2a2-4b51-845e-33e3a3d80bbe",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -9396,6 +9396,35 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_credits_limit",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_credits_frozen",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_credits_limit_before_freeze",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"

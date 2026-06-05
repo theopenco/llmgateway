@@ -24,6 +24,8 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// 404 model_not_found: moonshotai/kimi-k2-instruct no longer served
+				deactivatedAt: new Date("2026-06-05"),
 			},
 			{
 				providerId: "novita",
@@ -53,6 +55,8 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// 404 resource_not_found: kimi-k2-0905-preview no longer served
+				deactivatedAt: new Date("2026-06-05"),
 			},
 			{
 				providerId: "nebius",
@@ -81,6 +85,8 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				// 404 InvalidEndpointOrModel.NotFound: kimi-k2-250905 no longer served
+				deactivatedAt: new Date("2026-06-05"),
 			},
 			{
 				test: "skip",

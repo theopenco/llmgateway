@@ -10,6 +10,7 @@ CREATE TABLE "chat_plan_cancellation_feedback" (
 	"comments" text
 );
 --> statement-breakpoint
+ALTER TABLE "organization" ADD COLUMN "is_chat" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "organization" ADD COLUMN "chat_plan" text DEFAULT 'none' NOT NULL;--> statement-breakpoint
 ALTER TABLE "organization" ADD COLUMN "chat_plan_credits_used" numeric DEFAULT '0' NOT NULL;--> statement-breakpoint
 ALTER TABLE "organization" ADD COLUMN "chat_plan_credits_limit" numeric DEFAULT '0' NOT NULL;--> statement-breakpoint
