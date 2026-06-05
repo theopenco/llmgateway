@@ -8644,6 +8644,9 @@ const devpassSubscriberSchema = z.object({
 	realCost: z.number(),
 	margin: z.number(),
 	marginPct: z.number().nullable(),
+	allTimeRevenue: z.number(),
+	allTimeCost: z.number(),
+	allTimeMargin: z.number(),
 	subscribedSince: z.string().nullable(),
 	tierChanges: z.number(),
 	lastPaymentFailureAt: z.string().nullable(),
@@ -8692,6 +8695,9 @@ const devpassSortBySchema = z.enum([
 	"margin",
 	"mrr",
 	"creditsUsed",
+	"allTimeRevenue",
+	"allTimeCost",
+	"allTimeMargin",
 ]);
 
 const devpassUtilizationSchema = z.enum(["low", "healthy", "high", "over"]);
@@ -8855,6 +8861,22 @@ const getDevpassUsage = createRoute({
 	},
 });
 
+const DEV_PLAN_TX_TYPES = [
+	"dev_plan_start",
+	"dev_plan_upgrade",
+	"dev_plan_downgrade",
+	"dev_plan_renewal",
+] as const;
+
+// Pre-rename rows for what is now a dev plan. The same `subscription_*` types
+// are STILL written today for non-personal org Pro subs, so always pair them
+// with `organization.isPersonal = true` to avoid counting org Pro revenue.
+const LEGACY_DEV_PLAN_TX_TYPES = [
+	"subscription_start",
+	"subscription_cancel",
+	"subscription_end",
+] as const;
+
 function tierPriceOf(tier: string): number {
 	if (tier === "lite" || tier === "pro" || tier === "max") {
 		return DEV_PLAN_PRICES[tier];
@@ -8981,6 +9003,101 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.where(eq(tables.userOrganization.role, "owner"))
 		.as("owner_sub");
 
+	// All-time provider cost per org: every project, every cycle, no status or
+	// billing-cycle window. Unlike `realCostSub` (current cycle only) this never
+	// collapses to 0 when a renewal advances `devPlanBillingCycleStart` or when
+	// the org is blocked/expired, so the admin always sees the true spend.
+	const allTimeCostSub = db
+		.select({
+			organizationId: tables.project.organizationId,
+			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				"all_time_cost",
+			),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.groupBy(tables.project.organizationId)
+		.as("all_time_cost_sub");
+
+	// All-time DevPass revenue per org: sum of completed dev plan payments
+	// (`amount` = actual dollars paid). Deduplicated by invoice with the same
+	// NOT EXISTS guard as the timeseries endpoint — the first invoice of a
+	// subscription inserts BOTH a `dev_plan_start` and a `dev_plan_renewal` row,
+	// which would otherwise double-count. The list is already scoped to personal
+	// orgs, so legacy `subscription_*` rows are safe to include unconditionally
+	// (the left join discards any non-personal org's revenue).
+	const allTimeRevenueSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			revenue:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"all_time_revenue",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} dup
+					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
+						AND dup.stripe_invoice_id IS NOT NULL
+						AND dup.organization_id = ${tables.transaction.organizationId}
+						AND dup.id <> ${tables.transaction.id}
+						AND dup.status = 'completed'
+						AND dup.amount IS NOT NULL
+						AND dup.type IN (
+							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
+							'subscription_start', 'subscription_cancel', 'subscription_end'
+						)
+						AND (
+							dup.created_at < ${tables.transaction.createdAt}
+							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
+						)
+				)`,
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("all_time_revenue_sub");
+
+	// Refunds against DevPass payments per org, netted out of revenue.
+	const allTimeRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"all_time_refund_original_tx",
+	);
+	const allTimeRefundSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			refund:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"all_time_refund",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			allTimeRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, allTimeRefundOriginalTx.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				inArray(allTimeRefundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("all_time_refund_sub");
+
 	const tierPriceExpr = sql<number>`CASE
 		WHEN ${tables.organization.devPlan} = 'lite' THEN ${DEV_PLAN_PRICES.lite}
 		WHEN ${tables.organization.devPlan} = 'pro' THEN ${DEV_PLAN_PRICES.pro}
@@ -8997,6 +9114,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 
 	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
 	const marginExpr = sql<number>`(${tierPriceExpr}) - COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+
+	const allTimeCostExpr = sql<number>`COALESCE(CAST(${allTimeCostSub.cost} AS NUMERIC), 0)`;
+	const allTimeRevenueExpr = sql<number>`(COALESCE(CAST(${allTimeRevenueSub.revenue} AS NUMERIC), 0) - COALESCE(CAST(${allTimeRefundSub.refund} AS NUMERIC), 0))`;
+	const allTimeMarginExpr = sql<number>`(${allTimeRevenueExpr}) - (${allTimeCostExpr})`;
 
 	const conditions = [];
 
@@ -9089,6 +9210,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		margin: sql`${marginExpr}`,
 		mrr: sql`${tierPriceExpr}`,
 		creditsUsed: sql`CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)`,
+		allTimeRevenue: sql`${allTimeRevenueExpr}`,
+		allTimeCost: sql`${allTimeCostExpr}`,
+		allTimeMargin: sql`${allTimeMarginExpr}`,
 	} as const;
 	const sortColumn = sortColumnMap[sortBy];
 
@@ -9110,6 +9234,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
 			margin: marginExpr,
+			allTimeRevenue: allTimeRevenueExpr,
+			allTimeCost: allTimeCostExpr,
+			allTimeMargin: allTimeMarginExpr,
 			subscribedSince: subscribedSinceSub.firstStart,
 			tierChanges: sql<number>`COALESCE(${tierChangesSub.count}, 0)`,
 			lastPaymentFailureAt: lastPaymentFailureSub.lastFailureAt,
@@ -9134,7 +9261,19 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			lastPaymentFailureSub,
 			eq(tables.organization.id, lastPaymentFailureSub.organizationId),
 		)
-		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId));
+		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
+		.leftJoin(
+			allTimeCostSub,
+			eq(tables.organization.id, allTimeCostSub.organizationId),
+		)
+		.leftJoin(
+			allTimeRevenueSub,
+			eq(tables.organization.id, allTimeRevenueSub.organizationId),
+		)
+		.leftJoin(
+			allTimeRefundSub,
+			eq(tables.organization.id, allTimeRefundSub.organizationId),
+		);
 
 	const rows = await baseSelect
 		.where(whereClause)
@@ -9344,6 +9483,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			realCost: Number(row.realCost ?? 0),
 			margin: marginNum,
 			marginPct,
+			allTimeRevenue: Number(row.allTimeRevenue ?? 0),
+			allTimeCost: Number(row.allTimeCost ?? 0),
+			allTimeMargin: Number(row.allTimeMargin ?? 0),
 			subscribedSince: row.subscribedSince
 				? new Date(row.subscribedSince).toISOString()
 				: null,
@@ -9379,22 +9521,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		offset,
 	});
 });
-
-const DEV_PLAN_TX_TYPES = [
-	"dev_plan_start",
-	"dev_plan_upgrade",
-	"dev_plan_downgrade",
-	"dev_plan_renewal",
-] as const;
-
-// Pre-rename rows for what is now a dev plan. The same `subscription_*` types
-// are STILL written today for non-personal org Pro subs, so always pair them
-// with `organization.isPersonal = true` to avoid counting org Pro revenue.
-const LEGACY_DEV_PLAN_TX_TYPES = [
-	"subscription_start",
-	"subscription_cancel",
-	"subscription_end",
-] as const;
 
 // Registered before the `/devpass/{orgId}` handler below: Hono matches routes
 // in registration order, so the literal `/devpass/timeseries` path must be
@@ -9899,6 +10025,86 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	const mrr = tierPriceOf(org.devPlan);
 	const margin = mrr - realCost;
 
+	// All-time figures: never windowed on the (resettable) billing cycle and
+	// never gated on plan status, so a blocked/expired/renewed org still shows
+	// its true lifetime spend and margin. Mirrors the timeseries definitions —
+	// revenue is the sum of completed dev plan payments (deduped by invoice,
+	// refunds netted), cost is every project's provider cost.
+	const [allTimeCostRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.where(eq(tables.project.organizationId, orgId));
+	const allTimeCost = Number(allTimeCostRow?.total ?? 0);
+
+	const [allTimeRevenueRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} dup
+					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
+						AND dup.stripe_invoice_id IS NOT NULL
+						AND dup.organization_id = ${tables.transaction.organizationId}
+						AND dup.id <> ${tables.transaction.id}
+						AND dup.status = 'completed'
+						AND dup.amount IS NOT NULL
+						AND dup.type IN (
+							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
+							'subscription_start', 'subscription_cancel', 'subscription_end'
+						)
+						AND (
+							dup.created_at < ${tables.transaction.createdAt}
+							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
+						)
+				)`,
+			),
+		);
+
+	const detailRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"detail_refund_original_tx",
+	);
+	const [allTimeRefundRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			detailRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, detailRefundOriginalTx.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				inArray(detailRefundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+			),
+		);
+
+	const allTimeRevenue =
+		Number(allTimeRevenueRow?.total ?? 0) -
+		Number(allTimeRefundRow?.total ?? 0);
+	const allTimeMargin = allTimeRevenue - allTimeCost;
+
 	const status = deriveStatus(
 		org.devPlan,
 		org.devPlanCancelled,
@@ -9954,6 +10160,9 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		realCost,
 		margin,
 		marginPct,
+		allTimeRevenue,
+		allTimeCost,
+		allTimeMargin,
 		subscribedSince: firstStartRow?.firstStart
 			? new Date(firstStartRow.firstStart).toISOString()
 			: null,

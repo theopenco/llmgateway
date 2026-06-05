@@ -5832,7 +5832,7 @@ export interface paths {
                     utilization?: "low" | "healthy" | "high" | "over";
                     marginNegative?: boolean | null;
                     showChurned?: boolean | null;
-                    sortBy?: "name" | "billingEmail" | "tier" | "createdAt" | "cycleStart" | "expiresAt" | "subscribedSince" | "utilizationPct" | "realCost" | "margin" | "mrr" | "creditsUsed";
+                    sortBy?: "name" | "billingEmail" | "tier" | "createdAt" | "cycleStart" | "expiresAt" | "subscribedSince" | "utilizationPct" | "realCost" | "margin" | "mrr" | "creditsUsed" | "allTimeRevenue" | "allTimeCost" | "allTimeMargin";
                     sortOrder?: "asc" | "desc";
                 };
                 header?: never;
@@ -5872,6 +5872,9 @@ export interface paths {
                                 realCost: number;
                                 margin: number;
                                 marginPct: number | null;
+                                allTimeRevenue: number;
+                                allTimeCost: number;
+                                allTimeMargin: number;
                                 subscribedSince: string | null;
                                 tierChanges: number;
                                 lastPaymentFailureAt: string | null;
@@ -6078,6 +6081,9 @@ export interface paths {
                                 realCost: number;
                                 margin: number;
                                 marginPct: number | null;
+                                allTimeRevenue: number;
+                                allTimeCost: number;
+                                allTimeMargin: number;
                                 subscribedSince: string | null;
                                 tierChanges: number;
                                 lastPaymentFailureAt: string | null;

@@ -51,6 +51,9 @@ const SORT_BY_VALUES = [
 	"margin",
 	"mrr",
 	"creditsUsed",
+	"allTimeRevenue",
+	"allTimeCost",
+	"allTimeMargin",
 ] as const;
 type SortBy = (typeof SORT_BY_VALUES)[number];
 
@@ -816,6 +819,24 @@ export default async function DevpassPage({
 							</TableHead>
 							<TableHead>
 								<SortableHeader
+									label="Cost (all-time)"
+									sortKey="allTimeCost"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
+							<TableHead>
+								<SortableHeader
+									label="Margin (all-time)"
+									sortKey="allTimeMargin"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
+							<TableHead>
+								<SortableHeader
 									label="Since"
 									sortKey="subscribedSince"
 									currentSortBy={sortBy}
@@ -831,7 +852,7 @@ export default async function DevpassPage({
 						{data.subscribers.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={12}
+									colSpan={14}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No subscribers match
@@ -889,6 +910,22 @@ export default async function DevpassPage({
 										)}
 									>
 										{currencyFormatter.format(sub.margin)}
+									</TableCell>
+									<TableCell className="tabular-nums text-muted-foreground">
+										{currencyFormatterPrecise.format(sub.allTimeCost)}
+									</TableCell>
+									<TableCell
+										className={cn(
+											"tabular-nums",
+											sub.allTimeMargin < 0
+												? "text-rose-600 dark:text-rose-400"
+												: "text-emerald-600 dark:text-emerald-400",
+										)}
+										title={`Revenue ${currencyFormatter.format(
+											sub.allTimeRevenue,
+										)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
+									>
+										{currencyFormatter.format(sub.allTimeMargin)}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
 										{formatDate(sub.subscribedSince)}
