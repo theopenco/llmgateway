@@ -56,15 +56,68 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 
 Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance derives `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
 
-### Seedance 2.0 omni-reference
+### Reference-guided generation (Seedance 2.0)
 
-Seedance 2.0 (`seedance-2-0`, `seedance-2-0-fast`) supports reference-guided video generation. You can supply reference images, videos, and audio in the same request:
+Seedance 2.0 (`seedance-2-0`, `seedance-2-0-fast`) can generate a video that is guided by reference **images**, **videos**, and **audio** — sometimes called omni-reference. You attach references as top-level fields in the same `POST /v1/videos` payload; the gateway forwards each one to the provider tagged with the correct role, so you don't set roles yourself.
 
-- `reference_images` (or `input_reference`) — one to three image inputs (HTTPS URLs or base64 data URLs)
-- `reference_videos` — one to three reference video **HTTPS URLs** (base64 data URLs are not supported for videos)
-- `reference_audios` — one to three reference audio **HTTPS URLs** (base64 data URLs are not supported for audio)
+| Reference type | Payload field                                | Count | Accepted input                   | Available on                                         |
+| -------------- | -------------------------------------------- | ----- | -------------------------------- | ---------------------------------------------------- |
+| Image          | `reference_images` (`input_reference` alias) | 1–3   | HTTPS URL **or** base64 data URL | Seedance 2.0, Veo 3.1 (`google-vertex`, `avalanche`) |
+| Video          | `reference_videos`                           | 1–3   | HTTPS URL only                   | Seedance 2.0                                         |
+| Audio          | `reference_audios`                           | 1–3   | HTTPS URL only                   | Seedance 2.0                                         |
 
-Reference inputs cannot be combined with the first/last frame inputs (`image`, `last_frame`). Reference videos and audio are only supported on Seedance 2.0 models.
+Each list item accepts either a bare URL string or an object form:
+
+- `reference_images`: `"https://…/subject.png"` or `{ "image_url": "https://…/subject.png" }`
+- `reference_videos`: `"https://…/motion.mp4"` or `{ "video_url": "https://…/motion.mp4" }`
+- `reference_audios`: `"https://…/track.mp3"` or `{ "audio_url": "https://…/track.mp3" }`
+
+You can mix all three reference types in one request. The `prompt` can be a light instruction (for example `"adapt this to show more detail"`) — the references drive the result.
+
+#### Rules and limits
+
+- **HTTPS only for video and audio.** `reference_videos` and `reference_audios` must be publicly reachable HTTPS URLs (the provider fetches them). base64 data URLs are rejected for video/audio; images may be HTTPS URLs or base64 data URLs.
+- **Reference video resolution.** Seedance requires reference video frames to be at least ~409,600 pixels (roughly 480p or larger). Low-resolution clips such as 360p are rejected with a `400`.
+- **Not combinable with frames.** Reference inputs (`reference_images`, `reference_videos`, `reference_audios`) cannot be combined with the first/last frame inputs (`image`, `last_frame`).
+- **Provider scope.** Reference videos and audio are only supported on Seedance 2.0 models; sending them to other models returns a `400`.
+- **Moderation still applies.** The output is subject to the provider's content moderation. Blocked generations finish as `failed` and are logged with a `content_filter` finish reason.
+
+#### Examples
+
+Reference images only (subjects / style):
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seedance-2-0",
+    "prompt": "The subject walks through a neon-lit market at night",
+    "seconds": 5,
+    "size": "1280x720",
+    "reference_images": [
+      { "image_url": "https://example.com/subject.png" },
+      { "image_url": "https://example.com/style.png" }
+    ]
+  }'
+```
+
+Reference video only (motion / scene — let the clip drive the output):
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seedance-2-0",
+    "prompt": "adapt this to show more detail",
+    "seconds": 5,
+    "size": "1280x720",
+    "reference_videos": ["https://example.com/reference-motion.mp4"]
+  }'
+```
+
+All three reference types combined:
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/videos" \
