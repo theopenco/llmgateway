@@ -128,6 +128,37 @@ export function buildOpenAIErrorBody(opts: {
 	};
 }
 
+// Marker attached as the `cause` of an HTTPException when an internal
+// chat-completions call surfaces an expected upstream/gateway provider error
+// (e.g. a provider 429). These are already recorded in the log table with their
+// unifiedFinishReason, so the global error handler should surface them as
+// warnings rather than ERROR-level logs that trip error alerting.
+export interface UpstreamErrorCause {
+	upstreamError: true;
+	unifiedFinishReason: string;
+}
+
+export function upstreamErrorCause(
+	unifiedFinishReason: string,
+): UpstreamErrorCause {
+	return { upstreamError: true, unifiedFinishReason };
+}
+
+export function getUpstreamErrorCause(
+	cause: unknown,
+): UpstreamErrorCause | null {
+	if (
+		cause &&
+		typeof cause === "object" &&
+		(cause as Partial<UpstreamErrorCause>).upstreamError === true &&
+		typeof (cause as Partial<UpstreamErrorCause>).unifiedFinishReason ===
+			"string"
+	) {
+		return cause as UpstreamErrorCause;
+	}
+	return null;
+}
+
 export function buildAnthropicErrorBody(opts: {
 	message: string;
 	status: number;

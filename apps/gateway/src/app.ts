@@ -30,6 +30,7 @@ import { imagesRoute } from "./images/route.js";
 import {
 	buildAnthropicErrorBody,
 	buildOpenAIErrorBody,
+	getUpstreamErrorCause,
 } from "./lib/error-response.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
@@ -165,8 +166,19 @@ app.onError((error, c) => {
 
 	if (error instanceof HTTPException) {
 		const status = error.status;
+		const upstreamCause = getUpstreamErrorCause(error.cause);
 
-		if (status >= 500) {
+		if (upstreamCause) {
+			// Expected upstream/gateway provider error (e.g. a provider 429)
+			// forwarded from an internal chat-completions call. It is already
+			// recorded in the log table with its unifiedFinishReason, so surface
+			// it as a warning rather than an ERROR-level log.
+			logger.warn("Provider error", {
+				status,
+				message: error.message,
+				unifiedFinishReason: upstreamCause.unifiedFinishReason,
+			});
+		} else if (status >= 500) {
 			logger.error("HTTP 500 exception", error);
 		} else {
 			logger.warn("HTTP client error", { status, message: error.message });

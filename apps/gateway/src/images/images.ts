@@ -2,12 +2,14 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { upstreamErrorCause } from "@/lib/error-response.js";
 
 import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 const imageGenerationsRequestSchema = z.object({
 	prompt: z.string().min(1).openapi({
@@ -338,15 +340,23 @@ async function forwardToChatCompletions(
 		});
 		const errorData = await response.text();
 		let errorMessage = `Image generation failed with status ${response.status}`;
+		let upstreamFinishReason: string | undefined;
 		try {
 			const parsed = JSON.parse(errorData);
 			errorMessage = parsed?.error?.message ?? parsed?.message ?? errorMessage;
+			const errorType = parsed?.error?.type ?? parsed?.error?.code;
+			if (errorType === "upstream_error" || errorType === "gateway_error") {
+				upstreamFinishReason = errorType;
+			}
 		} catch {
 			// use default message
 		}
 
-		throw new HTTPException(response.status as any, {
+		throw new HTTPException(response.status as ContentfulStatusCode, {
 			message: errorMessage,
+			...(upstreamFinishReason
+				? { cause: upstreamErrorCause(upstreamFinishReason) }
+				: {}),
 		});
 	}
 

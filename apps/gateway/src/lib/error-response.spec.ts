@@ -5,6 +5,8 @@ import {
 	buildOpenAIErrorBody,
 	getAnthropicErrorType,
 	getOpenAIErrorMeta,
+	getUpstreamErrorCause,
+	upstreamErrorCause,
 } from "./error-response.js";
 
 describe("error-response", () => {
@@ -69,5 +71,28 @@ describe("error-response", () => {
 		);
 		expect(getAnthropicErrorType(429)).toBe("rate_limit_error");
 		expect(getAnthropicErrorType(500)).toBe("api_error");
+	});
+
+	test("round-trips the upstream error cause marker", () => {
+		const cause = upstreamErrorCause("upstream_error");
+		expect(cause).toEqual({
+			upstreamError: true,
+			unifiedFinishReason: "upstream_error",
+		});
+		expect(getUpstreamErrorCause(cause)).toBe(cause);
+		expect(getUpstreamErrorCause(upstreamErrorCause("gateway_error"))).toEqual({
+			upstreamError: true,
+			unifiedFinishReason: "gateway_error",
+		});
+	});
+
+	test("rejects non-marker causes", () => {
+		expect(getUpstreamErrorCause(undefined)).toBeNull();
+		expect(getUpstreamErrorCause(null)).toBeNull();
+		expect(getUpstreamErrorCause(new Error("boom"))).toBeNull();
+		expect(getUpstreamErrorCause({ upstreamError: true })).toBeNull();
+		expect(
+			getUpstreamErrorCause({ unifiedFinishReason: "upstream_error" }),
+		).toBeNull();
 	});
 });
