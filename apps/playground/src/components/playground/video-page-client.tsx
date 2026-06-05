@@ -556,13 +556,9 @@ export default function VideoPageClient({
 				return;
 			}
 
-			if (
-				someModelsRequireImage &&
-				!frameInputs.start &&
-				referenceImages.length === 0
-			) {
+			if (someModelsRequireImage && !frameInputs.start) {
 				toast.error(
-					"Selected model requires an input image. Please add a start frame or reference image.",
+					"Selected model requires an input image. Please add a start frame.",
 				);
 				return;
 			}
