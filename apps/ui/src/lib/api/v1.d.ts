@@ -2492,7 +2492,7 @@ export interface paths {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d";
                     groupBy?: "model" | "source";
-                    modelView?: "mapping" | "canonical";
+                    modelView?: "mapping" | "canonical" | "provider";
                 };
                 header?: never;
                 path?: never;
@@ -2512,7 +2512,7 @@ export interface paths {
                             /** @enum {string} */
                             groupBy: "model" | "source";
                             /** @enum {string} */
-                            modelView: "mapping" | "canonical";
+                            modelView: "mapping" | "canonical" | "provider";
                             totals: {
                                 requestCount: number;
                                 errorCount: number;

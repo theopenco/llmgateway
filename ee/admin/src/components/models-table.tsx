@@ -73,7 +73,7 @@ function SortableHeader({
 	pageWindow?: PageWindow;
 }) {
 	const isActive = currentSortBy === sortKey;
-	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
+	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";

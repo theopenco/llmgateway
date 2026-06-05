@@ -1,7 +1,7 @@
 "use client";
 
 import { format, parseISO } from "date-fns";
-import { BarChart3, Coins, Cpu, Layers } from "lucide-react";
+import { BarChart3, Coins, Cpu, Layers, Server } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -36,7 +36,7 @@ import type { ChartConfig } from "@/components/ui/chart";
 
 type Range = "7d" | "30d" | "90d" | "365d";
 type GroupBy = "model" | "source";
-type ModelView = "mapping" | "canonical";
+type ModelView = "mapping" | "canonical" | "provider";
 
 const RANGE_OPTIONS: { value: Range; label: string }[] = [
 	{ value: "7d", label: "Last 7 days" },
@@ -57,6 +57,7 @@ const MODEL_VIEW_OPTIONS: {
 }[] = [
 	{ value: "mapping", label: "Mappings", icon: Layers },
 	{ value: "canonical", label: "Canonical", icon: Cpu },
+	{ value: "provider", label: "Providers", icon: Server },
 ];
 
 // Distinct, color-blind-friendly hues. Repeat for >12 series.
@@ -114,7 +115,7 @@ const VALID_METRICS: TimeseriesMetric[] = [
 	"cost",
 	"totalTokens",
 ];
-const VALID_MODEL_VIEWS: ModelView[] = ["mapping", "canonical"];
+const VALID_MODEL_VIEWS: ModelView[] = ["mapping", "canonical", "provider"];
 
 const BREAKDOWN_PAGE_SIZE = 25;
 
@@ -319,6 +320,19 @@ export function GlobalStatsClient() {
 		[breakdown, chartMetric],
 	);
 
+	const breakdownNoun =
+		groupBy === "model"
+			? modelView === "provider"
+				? "providers"
+				: "models"
+			: "sources";
+	const breakdownNounSingular =
+		groupBy === "model"
+			? modelView === "provider"
+				? "Provider"
+				: "Model"
+			: "Source";
+
 	const breakdownTotalPages = Math.max(
 		1,
 		Math.ceil(sortedBreakdown.length / BREAKDOWN_PAGE_SIZE),
@@ -412,7 +426,7 @@ export function GlobalStatsClient() {
 					accent="orange"
 				/>
 				<StatCard
-					label={groupBy === "model" ? "Distinct models" : "Distinct sources"}
+					label={`Distinct ${breakdownNoun}`}
 					value={numberFormatter.format(breakdown.length)}
 					subtitle={
 						totals
@@ -421,7 +435,11 @@ export function GlobalStatsClient() {
 					}
 					icon={
 						groupBy === "model" ? (
-							<Cpu className="h-4 w-4" />
+							modelView === "provider" ? (
+								<Server className="h-4 w-4" />
+							) : (
+								<Cpu className="h-4 w-4" />
+							)
 						) : (
 							<Layers className="h-4 w-4" />
 						)
@@ -533,12 +551,12 @@ export function GlobalStatsClient() {
 					<div>
 						<CardTitle>
 							{timeseriesChartConfig[chartMetric].label as string} share —{" "}
-							{groupBy === "model" ? "models" : "sources"}
+							{breakdownNoun}
 						</CardTitle>
 						<CardDescription>
 							{breakdown.length > 10
 								? `Top 10 + Other across the ${range} window.`
-								: `All ${breakdown.length} ${groupBy === "model" ? "models" : "sources"} in the ${range} window.`}
+								: `All ${breakdown.length} ${breakdownNoun} in the ${range} window.`}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-3">
@@ -640,7 +658,7 @@ export function GlobalStatsClient() {
 								<thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
 									<tr>
 										<th className="px-3 py-2 text-left">
-											{groupBy === "model" ? "Model" : "Source"}
+											{breakdownNounSingular}
 										</th>
 										<th className="px-3 py-2 text-right">
 											{timeseriesChartConfig[chartMetric].label as string}

@@ -1073,7 +1073,7 @@ admin.openapi(getTimeseries, async (c) => {
 
 const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d"]);
 const globalStatsGroupBySchema = z.enum(["model", "source"]);
-const globalStatsModelViewSchema = z.enum(["mapping", "canonical"]);
+const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
 
 const globalStatsMetricsSchema = z.object({
 	requestCount: z.number(),
@@ -1311,26 +1311,34 @@ admin.openapi(getGlobalStats, async (c) => {
 						}
 					>,
 				)
-			: breakdownRows.map((row) => {
-					const isModel = "usedModel" in row;
-					const key = isModel ? row.usedModel : row.source;
-					const label = isModel ? row.usedModel : row.source;
-					return {
-						key,
-						label,
-						requestCount: Number(row.requestCount),
-						errorCount: Number(row.errorCount),
-						cacheCount: Number(row.cacheCount),
-						inputTokens: Number(row.inputTokens),
-						cachedTokens: Number(row.cachedTokens),
-						outputTokens: Number(row.outputTokens),
-						totalTokens: Number(row.totalTokens),
-						cost: Number(row.cost),
-						inputCost: Number(row.inputCost),
-						cachedInputCost: Number(row.cachedInputCost),
-						outputCost: Number(row.outputCost),
-					};
-				});
+			: groupBy === "model" && modelView === "provider"
+				? aggregateModelRowsByProvider(
+						breakdownRows as Array<
+							(typeof breakdownRows)[number] & {
+								usedProvider: string;
+							}
+						>,
+					)
+				: breakdownRows.map((row) => {
+						const isModel = "usedModel" in row;
+						const key = isModel ? row.usedModel : row.source;
+						const label = isModel ? row.usedModel : row.source;
+						return {
+							key,
+							label,
+							requestCount: Number(row.requestCount),
+							errorCount: Number(row.errorCount),
+							cacheCount: Number(row.cacheCount),
+							inputTokens: Number(row.inputTokens),
+							cachedTokens: Number(row.cachedTokens),
+							outputTokens: Number(row.outputTokens),
+							totalTokens: Number(row.totalTokens),
+							cost: Number(row.cost),
+							inputCost: Number(row.inputCost),
+							cachedInputCost: Number(row.cachedInputCost),
+							outputCost: Number(row.outputCost),
+						};
+					});
 
 	return c.json({
 		range,
@@ -1392,6 +1400,64 @@ function aggregateModelRowsByCanonicalId(
 			aggregated.set(canonical, {
 				key: canonical,
 				label: canonical,
+				requestCount: Number(row.requestCount),
+				errorCount: Number(row.errorCount),
+				cacheCount: Number(row.cacheCount),
+				inputTokens: Number(row.inputTokens),
+				cachedTokens: Number(row.cachedTokens),
+				outputTokens: Number(row.outputTokens),
+				totalTokens: Number(row.totalTokens),
+				cost: Number(row.cost),
+				inputCost: Number(row.inputCost),
+				cachedInputCost: Number(row.cachedInputCost),
+				outputCost: Number(row.outputCost),
+			});
+		}
+	}
+	return Array.from(aggregated.values()).sort(
+		(a, b) => b.requestCount - a.requestCount,
+	);
+}
+
+function aggregateModelRowsByProvider(
+	rows: Array<{
+		usedProvider: string;
+		requestCount: number;
+		errorCount: number;
+		cacheCount: number;
+		inputTokens: number;
+		cachedTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+		cost: number;
+		inputCost: number;
+		cachedInputCost: number;
+		outputCost: number;
+	}>,
+): z.infer<typeof globalStatsBreakdownItemSchema>[] {
+	const aggregated = new Map<
+		string,
+		z.infer<typeof globalStatsBreakdownItemSchema>
+	>();
+	for (const row of rows) {
+		const provider = row.usedProvider || "unknown";
+		const existing = aggregated.get(provider);
+		if (existing) {
+			existing.requestCount += Number(row.requestCount);
+			existing.errorCount += Number(row.errorCount);
+			existing.cacheCount += Number(row.cacheCount);
+			existing.inputTokens += Number(row.inputTokens);
+			existing.cachedTokens += Number(row.cachedTokens);
+			existing.outputTokens += Number(row.outputTokens);
+			existing.totalTokens += Number(row.totalTokens);
+			existing.cost += Number(row.cost);
+			existing.inputCost += Number(row.inputCost);
+			existing.cachedInputCost += Number(row.cachedInputCost);
+			existing.outputCost += Number(row.outputCost);
+		} else {
+			aggregated.set(provider, {
+				key: provider,
+				label: provider,
 				requestCount: Number(row.requestCount),
 				errorCount: Number(row.errorCount),
 				cacheCount: Number(row.cacheCount),

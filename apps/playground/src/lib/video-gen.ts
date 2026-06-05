@@ -112,10 +112,18 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 	);
 }
 
+function isSeedance2ReferenceModel(rootModelId: string): boolean {
+	return rootModelId === "seedance-2-0" || rootModelId === "seedance-2-0-fast";
+}
+
 export function supportsVideoReferenceInput(modelId: string): boolean {
 	const [providerId, rootModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
+
+	if (providerId === "bytedance") {
+		return isSeedance2ReferenceModel(rootModelId);
+	}
 
 	if (providerId === "google-vertex") {
 		return rootModelId === "veo-3.1-generate-preview";
@@ -127,8 +135,33 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 
 	return (
 		rootModelId === "veo-3.1-generate-preview" ||
-		rootModelId === "veo-3.1-fast-generate-preview"
+		rootModelId === "veo-3.1-fast-generate-preview" ||
+		isSeedance2ReferenceModel(rootModelId)
 	);
+}
+
+export function supportsVideoReferenceVideoInput(modelId: string): boolean {
+	const [providerId, rootModelId] = modelId.includes("/")
+		? modelId.split("/", 2)
+		: [undefined, modelId];
+
+	if (providerId !== undefined && providerId !== "bytedance") {
+		return false;
+	}
+
+	return isSeedance2ReferenceModel(rootModelId);
+}
+
+export function supportsVideoReferenceAudioInput(modelId: string): boolean {
+	const [providerId, rootModelId] = modelId.includes("/")
+		? modelId.split("/", 2)
+		: [undefined, modelId];
+
+	if (providerId !== undefined && providerId !== "bytedance") {
+		return false;
+	}
+
+	return isSeedance2ReferenceModel(rootModelId);
 }
 
 function getSelectedVideoMappings(
@@ -189,8 +222,15 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (inputMode === "reference") {
-		// Reference images are only supported on the veo-3.1 family. Match by
-		// canonical root model id — never by the upstream externalId.
+		// Match by canonical root model id — never by the upstream externalId.
+		if (mapping.providerId === "bytedance") {
+			return (
+				mapping.modelId === "seedance-2-0" ||
+				mapping.modelId === "seedance-2-0-fast"
+			);
+		}
+
+		// Veo reference images are only supported on the veo-3.1 family.
 		if (mapping.modelId !== "veo-3.1-generate-preview") {
 			return false;
 		}
