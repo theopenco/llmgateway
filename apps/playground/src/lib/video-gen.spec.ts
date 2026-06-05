@@ -7,6 +7,7 @@ import {
 	getNormalizedVideoRequestSelection,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
+	supportsVideoReferenceAudioInput,
 } from "./video-gen";
 
 import type { ApiModel, ApiModelProviderMapping } from "./fetch-models";
@@ -240,6 +241,19 @@ describe("Seedance 2.0 reference capabilities", () => {
 			false,
 		);
 		expect(supportsVideoReferenceVideoInput("veo-3.1-generate-preview")).toBe(
+			false,
+		);
+	});
+
+	test("supportsVideoReferenceAudioInput is restricted to Seedance 2.0 bytedance", () => {
+		expect(supportsVideoReferenceAudioInput("seedance-2-0")).toBe(true);
+		expect(
+			supportsVideoReferenceAudioInput("bytedance/seedance-2-0-fast"),
+		).toBe(true);
+		expect(supportsVideoReferenceAudioInput("google-vertex/seedance-2-0")).toBe(
+			false,
+		);
+		expect(supportsVideoReferenceAudioInput("veo-3.1-generate-preview")).toBe(
 			false,
 		);
 	});

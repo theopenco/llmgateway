@@ -33,6 +33,7 @@ import {
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
+	supportsVideoReferenceAudioInput,
 } from "@/lib/video-gen";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -131,6 +132,7 @@ export default function VideoPageClient({
 	});
 	const [referenceImages, setReferenceImages] = useState<VideoInputImage[]>([]);
 	const [referenceVideos, setReferenceVideos] = useState<string[]>([]);
+	const [referenceAudios, setReferenceAudios] = useState<string[]>([]);
 	const availableModelsById = useMemo(
 		() => new Map(availableModels.map((model) => [model.id, model])),
 		[availableModels],
@@ -259,6 +261,14 @@ export default function VideoPageClient({
 			selectedModels.length > 0 &&
 			selectedModels.every((modelId) =>
 				supportsVideoReferenceVideoInput(modelId),
+			),
+		[selectedModels],
+	);
+	const canUseReferenceAudioInputs = useMemo(
+		() =>
+			selectedModels.length > 0 &&
+			selectedModels.every((modelId) =>
+				supportsVideoReferenceAudioInput(modelId),
 			),
 		[selectedModels],
 	);
@@ -404,10 +414,22 @@ export default function VideoPageClient({
 		if (!canUseReferenceVideoInputs) {
 			setReferenceVideos([]);
 		}
-	}, [canUseFrameInputs, canUseReferenceInputs, canUseReferenceVideoInputs]);
+		if (!canUseReferenceAudioInputs) {
+			setReferenceAudios([]);
+		}
+	}, [
+		canUseFrameInputs,
+		canUseReferenceInputs,
+		canUseReferenceVideoInputs,
+		canUseReferenceAudioInputs,
+	]);
 
 	const videoInputMode = useMemo(() => {
-		if (referenceImages.length > 0 || referenceVideos.length > 0) {
+		if (
+			referenceImages.length > 0 ||
+			referenceVideos.length > 0 ||
+			referenceAudios.length > 0
+		) {
 			return "reference" as const;
 		}
 
@@ -421,6 +443,7 @@ export default function VideoPageClient({
 		frameInputs.start,
 		referenceImages.length,
 		referenceVideos.length,
+		referenceAudios.length,
 	]);
 
 	const supportedVideoRequestOptions = useMemo(
@@ -559,6 +582,7 @@ export default function VideoPageClient({
 				has_frame_inputs: !!(frameInputs.start ?? frameInputs.end),
 				has_reference_images: referenceImages.length > 0,
 				has_reference_videos: referenceVideos.length > 0,
+				has_reference_audios: referenceAudios.length > 0,
 			});
 
 			const itemId = crypto.randomUUID();
@@ -593,6 +617,7 @@ export default function VideoPageClient({
 			});
 			setReferenceImages([]);
 			setReferenceVideos([]);
+			setReferenceAudios([]);
 
 			pendingRef.current = modelsToGenerate.length;
 
@@ -618,6 +643,7 @@ export default function VideoPageClient({
 								audio: effectiveAudioEnabled,
 								...(referenceImages.length === 0 &&
 								referenceVideos.length === 0 &&
+								referenceAudios.length === 0 &&
 								frameInputs.start
 									? {
 											image: {
@@ -627,6 +653,7 @@ export default function VideoPageClient({
 									: {}),
 								...(referenceImages.length === 0 &&
 								referenceVideos.length === 0 &&
+								referenceAudios.length === 0 &&
 								frameInputs.end
 									? {
 											last_frame: {
@@ -644,6 +671,11 @@ export default function VideoPageClient({
 								...(referenceVideos.length > 0
 									? {
 											reference_videos: referenceVideos,
+										}
+									: {}),
+								...(referenceAudios.length > 0
+									? {
+											reference_audios: referenceAudios,
 										}
 									: {}),
 							}),
@@ -731,6 +763,7 @@ export default function VideoPageClient({
 			posthog,
 			referenceImages,
 			referenceVideos,
+			referenceAudios,
 			updateGalleryModel,
 			pathname,
 			router,
@@ -791,6 +824,7 @@ export default function VideoPageClient({
 		setFrameInputs({ start: null, end: null });
 		setReferenceImages([]);
 		setReferenceVideos([]);
+		setReferenceAudios([]);
 		setIsGenerating(false);
 		setComparisonMode(false);
 		pendingRef.current = 0;
@@ -883,12 +917,15 @@ export default function VideoPageClient({
 						canUseFrameInputs={canUseFrameInputs}
 						canUseReferenceInputs={canUseReferenceInputs}
 						canUseReferenceVideoInputs={canUseReferenceVideoInputs}
+						canUseReferenceAudioInputs={canUseReferenceAudioInputs}
 						frameInputs={frameInputs}
 						setFrameInputs={setFrameInputs}
 						referenceImages={referenceImages}
 						setReferenceImages={setReferenceImages}
 						referenceVideos={referenceVideos}
 						setReferenceVideos={setReferenceVideos}
+						referenceAudios={referenceAudios}
+						setReferenceAudios={setReferenceAudios}
 						supportedVideoSizes={supportedVideoRequestOptions.sizes}
 						supportedVideoDurations={supportedVideoRequestOptions.durations}
 						isGenerating={isGenerating}

@@ -144,6 +144,18 @@ export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 	return isSeedance2ReferenceModel(rootModelId);
 }
 
+export function supportsVideoReferenceAudioInput(modelId: string): boolean {
+	const [providerId, rootModelId] = modelId.includes("/")
+		? modelId.split("/", 2)
+		: [undefined, modelId];
+
+	if (providerId !== undefined && providerId !== "bytedance") {
+		return false;
+	}
+
+	return isSeedance2ReferenceModel(rootModelId);
+}
+
 function getSelectedVideoMappings(
 	models: ApiModel[],
 	modelId: string,
