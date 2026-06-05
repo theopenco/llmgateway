@@ -154,7 +154,6 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["lite", "pro", "max"]),
-						cycle: z.enum(["monthly", "annual"]).optional().default("monthly"),
 					}),
 				},
 			},
@@ -176,7 +175,11 @@ const subscribe = createRoute({
 
 devPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier, cycle } = c.req.valid("json");
+	const { tier } = c.req.valid("json");
+
+	// Dev plans are billed monthly only; the Stripe monthly cycle drives credit
+	// refreshes. (Legacy annual subscriptions are still serviced on read.)
+	const cycle: DevPlanCycle = "monthly";
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -207,9 +210,8 @@ devPlans.openapi(subscribe, async (c) => {
 
 	const priceId = getDevPlanPriceId(tier, cycle);
 	if (!priceId) {
-		const envSuffix = cycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}${envSuffix} environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
 		});
 	}
 
