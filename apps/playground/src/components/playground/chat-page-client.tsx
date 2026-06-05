@@ -28,6 +28,7 @@ import {
 	useUpdateMessage,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
@@ -270,6 +271,9 @@ export default function ChatPageClient({
 	initialModelPreference,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	// In the personal context selectedOrganization is null; billing + top-ups run
+	// under the dedicated Chat org resolved here.
+	const { organization: chatOrg } = useOrganization();
 	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -1963,7 +1967,11 @@ export default function ChatPageClient({
 					</section>
 				</main>
 			</div>
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id ?? chatOrg?.id}
+			/>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 		</SidebarProvider>
 	);

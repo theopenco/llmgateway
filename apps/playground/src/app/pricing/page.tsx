@@ -1,3 +1,6 @@
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
+
 import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 import { getUser } from "@/lib/getUser";
 
@@ -19,6 +22,14 @@ export default async function PricingPage() {
 
 	return (
 		<main className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+			<Link
+				href="/"
+				className="mb-8 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+			>
+				<ArrowLeft className="h-4 w-4" />
+				Back to chat
+			</Link>
+
 			<header className="mb-12 text-center">
 				<h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
 					Three plans. Frontier models on Plus and Pro.

@@ -872,7 +872,11 @@ export default function VideoPageClient({
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id}
+			/>
 		</SidebarProvider>
 	);
 }

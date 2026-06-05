@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { ensureStripeCustomer } from "@/stripe.js";
+import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq } from "@llmgateway/db";
@@ -18,58 +19,6 @@ import { getStripe } from "./payments.js";
 import type { ServerTypes } from "@/vars.js";
 
 export const chatPlans = new OpenAPIHono<ServerTypes>();
-
-interface User {
-	id: string;
-	email: string;
-	emailVerified?: boolean;
-}
-
-// Mirror of dev-plans' personal-org helper. Chat plans live on the user's
-// personal org so the credit pool has a single, predictable home.
-async function getOrCreatePersonalOrg(user: User) {
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const existingPersonalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
-	);
-
-	if (existingPersonalOrg?.organization) {
-		return existingPersonalOrg.organization;
-	}
-
-	return await db.transaction(async (tx) => {
-		const [newOrg] = await tx
-			.insert(tables.organization)
-			.values({
-				name: "Personal",
-				isPersonal: true,
-				billingEmail: user.email,
-			})
-			.returning();
-
-		await tx.insert(tables.userOrganization).values({
-			userId: user.id,
-			organizationId: newOrg.id,
-			role: "owner",
-		});
-
-		await tx.insert(tables.project).values({
-			name: "Default Project",
-			organizationId: newOrg.id,
-			mode: "credits",
-		});
-
-		return newOrg;
-	});
-}
 
 function getChatPlanPriceId(tier: ChatPlanTier): string | undefined {
 	const monthlyKeys: Record<ChatPlanTier, string> = {
@@ -124,7 +73,7 @@ chatPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	const personalOrg = await getOrCreatePersonalOrg(user);
+	const personalOrg = await getOrCreateChatOrg(user);
 
 	if (
 		personalOrg.chatPlan !== "none" &&
@@ -247,7 +196,7 @@ chatPlans.openapi(cancel, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.isChat === true,
 	)?.organization;
 
 	if (!personalOrg) {
@@ -336,7 +285,7 @@ chatPlans.openapi(resume, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.isChat === true,
 	)?.organization;
 
 	if (!personalOrg) {
@@ -446,7 +395,7 @@ chatPlans.openapi(changeTier, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.isChat === true,
 	)?.organization;
 
 	if (!personalOrg) {
@@ -622,7 +571,7 @@ chatPlans.openapi(getStatus, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.isChat === true,
 	)?.organization;
 
 	if (!personalOrg) {

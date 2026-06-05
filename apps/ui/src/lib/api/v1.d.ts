@@ -7592,6 +7592,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/playground/chat-org": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Ensures the user's dedicated Chat organization (and a default project) and returns their ids. This is the playground's billing home. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            organizationId: string;
+                            projectId: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/playground/key": {
         parameters: {
             query?: never;
@@ -8068,6 +8106,7 @@ export interface paths {
             parameters: {
                 query?: {
                     includePersonal?: "true" | "false";
+                    includeChat?: "true" | "false";
                 };
                 header?: never;
                 path?: never;
@@ -8107,6 +8146,7 @@ export interface paths {
                                 referralBonusEnabled: boolean;
                                 referralBonusPercent: string;
                                 isPersonal: boolean;
+                                isChat: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
                                 /** @enum {string} */
@@ -8178,6 +8218,7 @@ export interface paths {
                                 referralBonusEnabled: boolean;
                                 referralBonusPercent: string;
                                 isPersonal: boolean;
+                                isChat: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
                                 /** @enum {string} */
@@ -8378,6 +8419,7 @@ export interface paths {
                                 referralBonusEnabled: boolean;
                                 referralBonusPercent: string;
                                 isPersonal: boolean;
+                                isChat: boolean;
                                 /** @enum {string} */
                                 devPlan: "none" | "lite" | "pro" | "max";
                                 /** @enum {string} */

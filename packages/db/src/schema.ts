@@ -184,6 +184,10 @@ export const organization = pgTable(
 		paymentFailureStartedAt: timestamp(),
 		// Dev Plans fields (for personal accounts)
 		isPersonal: boolean().notNull().default(false),
+		// Marks the dedicated per-user "Chat" org that backs chat.llmgateway.io.
+		// Like isPersonal, these orgs are hidden from the dashboard org switcher
+		// and cannot be deleted or managed as team orgs.
+		isChat: boolean().notNull().default(false),
 		devPlan: text({
 			enum: ["none", "lite", "pro", "max"],
 		})

@@ -85,7 +85,7 @@ export function CreditsDisplay({
 					</div>
 				</Link>
 			)}
-			<TopUpCreditsDialog>
+			<TopUpCreditsDialog organizationId={organization?.id}>
 				<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
 					<div className="flex items-center gap-2">
 						<CreditCard

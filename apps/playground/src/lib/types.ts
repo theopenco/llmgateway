@@ -77,6 +77,7 @@ export interface Organization {
 	updatedAt: string;
 	name: string;
 	isPersonal: boolean;
+	isChat: boolean;
 	credits: string;
 	plan: "free" | "pro" | "enterprise";
 	planExpiresAt: string | null;

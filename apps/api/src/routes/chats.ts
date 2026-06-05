@@ -915,6 +915,7 @@ chats.openapi(shareChat, async (c) => {
 					eq(tables.organization.id, organizationId),
 					eq(tables.organization.status, "active"),
 					eq(tables.organization.isPersonal, false),
+					eq(tables.organization.isChat, false),
 				),
 			)
 			.limit(1);
@@ -1164,6 +1165,7 @@ chats.openapi(listOrgShares, async (c) => {
 				eq(tables.chat.status, "active"),
 				eq(tables.organization.status, "active"),
 				eq(tables.organization.isPersonal, false),
+				eq(tables.organization.isChat, false),
 			),
 		)
 		.orderBy(desc(tables.chatShare.updatedAt));
@@ -1231,6 +1233,7 @@ chats.openapi(getOrgShare, async (c) => {
 				eq(tables.chat.status, "active"),
 				eq(tables.organization.status, "active"),
 				eq(tables.organization.isPersonal, false),
+				eq(tables.organization.isChat, false),
 			),
 		)
 		.limit(1);

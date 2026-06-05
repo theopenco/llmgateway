@@ -47,6 +47,7 @@ const organizationSchema = z.object({
 	referralBonusPercent: z.string(),
 	// Dev Plans fields
 	isPersonal: z.boolean(),
+	isChat: z.boolean(),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
 	devPlanCycle: z.enum(["monthly", "annual"]),
 	devPlanCreditsUsed: z.string(),
@@ -149,6 +150,10 @@ const getOrganizations = createRoute({
 				description:
 					"Include personal organizations. Used by the chat/devpass surfaces where plans live on the personal org. Defaults to hiding them from the regular dashboard.",
 			}),
+			includeChat: z.enum(["true", "false"]).optional().openapi({
+				description:
+					"Include the dedicated Chat organization. Used by the playground where the chat plan + credits live. Defaults to hiding it from the regular dashboard.",
+			}),
 		}),
 	},
 	responses: {
@@ -182,15 +187,16 @@ organization.openapi(getOrganizations, async (c) => {
 		},
 	});
 
-	const { includePersonal } = c.req.valid("query");
+	const { includePersonal, includeChat } = c.req.valid("query");
 
 	const organizations = userOrganizations
 		.map((uo) => uo.organization!)
 		.filter((org) => org.status !== "deleted")
-		// Personal orgs are hidden from the regular dashboard. Chat/devpass
-		// surfaces opt in via ?includePersonal=true since their plans + credits
-		// live on the personal org.
-		.filter((org) => includePersonal === "true" || !org.isPersonal);
+		// Personal and chat orgs are hidden from the regular dashboard. The
+		// devpass/playground surfaces opt in via ?includePersonal=true /
+		// ?includeChat=true since their plans + credits live on those orgs.
+		.filter((org) => includePersonal === "true" || !org.isPersonal)
+		.filter((org) => includeChat === "true" || !org.isChat);
 
 	return c.json({
 		organizations,
@@ -691,6 +697,14 @@ organization.openapi(deleteOrganization, async (c) => {
 		throw new HTTPException(403, {
 			message:
 				"Personal organizations cannot be deleted. Please cancel your dev plan at devpass.llmgateway.io instead.",
+		});
+	}
+
+	// Block deletion of the dedicated Chat org - it is managed via chat plans
+	if (userOrganization.organization?.isChat) {
+		throw new HTTPException(403, {
+			message:
+				"The Chat organization cannot be deleted. Please cancel your chat plan from the chat.llmgateway.io pricing page instead.",
 		});
 	}
 
