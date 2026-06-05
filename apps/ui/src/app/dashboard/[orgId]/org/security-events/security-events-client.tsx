@@ -220,12 +220,14 @@ export function SecurityEventsClient() {
 							<CardTitle className="text-3xl">
 								{stats.totalViolations}
 							</CardTitle>
+							<p className="text-xs text-muted-foreground">Last 7 days</p>
 						</CardHeader>
 					</Card>
 					<Card>
 						<CardHeader className="pb-2">
 							<CardDescription>Last 24 Hours</CardDescription>
 							<CardTitle className="text-3xl">{stats.last24Hours}</CardTitle>
+							<p className="text-xs text-muted-foreground">&nbsp;</p>
 						</CardHeader>
 					</Card>
 					<Card>
@@ -234,6 +236,7 @@ export function SecurityEventsClient() {
 							<CardTitle className="text-3xl text-destructive">
 								{stats.byAction?.blocked ?? 0}
 							</CardTitle>
+							<p className="text-xs text-muted-foreground">Last 7 days</p>
 						</CardHeader>
 					</Card>
 					<Card>
@@ -242,6 +245,7 @@ export function SecurityEventsClient() {
 							<CardTitle className="text-3xl text-orange-500">
 								{stats.byAction?.redacted ?? 0}
 							</CardTitle>
+							<p className="text-xs text-muted-foreground">Last 7 days</p>
 						</CardHeader>
 					</Card>
 				</div>
