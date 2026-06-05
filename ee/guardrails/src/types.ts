@@ -31,10 +31,13 @@ export interface RuleViolation {
 
 export interface RedactionInfo {
 	ruleId: string;
-	pattern: string;
-	replacement: string;
 	messageIndex: number;
-	originalContent: string;
+	// "pii"/"secrets" apply the built-in detectors' redaction; "mask" replaces literal matches with asterisks
+	kind: "pii" | "secrets" | "mask";
+	// Literal substrings to mask out (used when kind is "mask")
+	matches: string[];
+	// Matched patterns, for reference/logging
+	pattern: string;
 }
 
 export interface GuardrailResult {

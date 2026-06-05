@@ -262,23 +262,31 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	reasoning_effort: z
-		.enum(["none", "minimal", "low", "medium", "high", "xhigh"])
+		.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 		.nullable()
 		.optional()
-		.transform((val) => (val === null ? undefined : val))
+		.transform((val) => {
+			if (val === null) {
+				return undefined;
+			}
+			// "max" is accepted for client compatibility (e.g. opencode/DeepSeek)
+			// and normalized to "high".
+			return val === "max" ? "high" : val;
+		})
 		.openapi({
 			description:
-				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning.",
+				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is accepted as an alias for `high`.",
 			example: "medium",
 		}),
 	reasoning: z
 		.object({
 			effort: z
-				.enum(["none", "minimal", "low", "medium", "high", "xhigh"])
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 				.optional()
+				.transform((val) => (val === "max" ? "high" : val))
 				.openapi({
 					description:
-						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort.",
+						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is accepted as an alias for `high`.",
 					example: "medium",
 				}),
 			max_tokens: z.number().int().positive().optional().openapi({
