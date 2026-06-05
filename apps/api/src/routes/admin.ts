@@ -9007,6 +9007,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	// billing-cycle window. Unlike `realCostSub` (current cycle only) this never
 	// collapses to 0 when a renewal advances `devPlanBillingCycleStart` or when
 	// the org is blocked/expired, so the admin always sees the true spend.
+	// Scoped to personal orgs (DevPass is personal-only) so the aggregation
+	// doesn't scan every org's hourly stats.
 	const allTimeCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
@@ -9019,6 +9021,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tables.project,
 			eq(projectHourlyStats.projectId, tables.project.id),
 		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.project.organizationId, tables.organization.id),
+				eq(tables.organization.isPersonal, true),
+			),
+		)
 		.groupBy(tables.project.organizationId)
 		.as("all_time_cost_sub");
 
@@ -9026,9 +9035,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	// (`amount` = actual dollars paid). Deduplicated by invoice with the same
 	// NOT EXISTS guard as the timeseries endpoint — the first invoice of a
 	// subscription inserts BOTH a `dev_plan_start` and a `dev_plan_renewal` row,
-	// which would otherwise double-count. The list is already scoped to personal
-	// orgs, so legacy `subscription_*` rows are safe to include unconditionally
-	// (the left join discards any non-personal org's revenue).
+	// which would otherwise double-count. Scoped to personal orgs so legacy
+	// `subscription_*` rows (still written for non-personal org Pro subs) can't
+	// be misattributed as DevPass revenue.
 	const allTimeRevenueSub = db
 		.select({
 			organizationId: tables.transaction.organizationId,
@@ -9038,6 +9047,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 				),
 		})
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.transaction.organizationId, tables.organization.id),
+				eq(tables.organization.isPersonal, true),
+			),
+		)
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
@@ -9067,7 +9083,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_revenue_sub");
 
-	// Refunds against DevPass payments per org, netted out of revenue.
+	// Refunds against DevPass payments per org, netted out of revenue. Scoped to
+	// personal orgs for the same reason as the revenue subquery.
 	const allTimeRefundOriginalTx = aliasedTable(
 		tables.transaction,
 		"all_time_refund_original_tx",
@@ -9084,6 +9101,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.innerJoin(
 			allTimeRefundOriginalTx,
 			eq(tables.transaction.relatedTransactionId, allTimeRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.transaction.organizationId, tables.organization.id),
+				eq(tables.organization.isPersonal, true),
+			),
 		)
 		.where(
 			and(
@@ -10029,7 +10053,12 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	// never gated on plan status, so a blocked/expired/renewed org still shows
 	// its true lifetime spend and margin. Mirrors the timeseries definitions —
 	// revenue is the sum of completed dev plan payments (deduped by invoice,
-	// refunds netted), cost is every project's provider cost.
+	// refunds netted), cost is every project's provider cost. Legacy
+	// `subscription_*` rows are only DevPass revenue on personal orgs (they are
+	// org Pro subs otherwise), so only count them when the org is personal.
+	const allTimeRevenueTypes = org.isPersonal
+		? [...DEV_PLAN_TX_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES]
+		: [...DEV_PLAN_TX_TYPES];
 	const [allTimeCostRow] = await db
 		.select({
 			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
@@ -10051,10 +10080,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			and(
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.status, "completed"),
-				inArray(tables.transaction.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
+				inArray(tables.transaction.type, allTimeRevenueTypes),
 				sql`NOT EXISTS (
 					SELECT 1 FROM ${tables.transaction} dup
 					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
@@ -10093,10 +10119,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
-				inArray(detailRefundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
+				inArray(detailRefundOriginalTx.type, allTimeRevenueTypes),
 			),
 		);
 
