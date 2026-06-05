@@ -69,6 +69,7 @@ import {
 	getCheapestFromAvailableProviders,
 	getProviderEndpoint,
 	getProviderHeaders,
+	resolveServedServiceTier,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
@@ -1902,6 +1903,12 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+	// The processing tier the provider actually served (Flex / Priority),
+	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
+	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
+	// this served tier (not the requested one) since Google downgrades
+	// unsupported tiers to standard. Null = standard / no tier.
+	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
@@ -5238,7 +5245,7 @@ chat.openapi(completions, async (c) => {
 						image_config?.image_quality,
 						null,
 						null,
-						{ explicitCacheUsed },
+						{ explicitCacheUsed, servedServiceTier },
 						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -5454,6 +5461,11 @@ chat.openapi(completions, async (c) => {
 						});
 
 						logServiceTierRequest(usedProvider, service_tier, res);
+						// AI Studio reports the served tier in a response header; Vertex
+						// reports it later in usageMetadata.trafficType (set below).
+						servedServiceTier = resolveServedServiceTier({
+							serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
+						});
 					} catch (error) {
 						// Clean up the event listeners
 						c.req.raw.signal.removeEventListener("abort", onAbort);
@@ -5681,6 +5693,10 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchTool ? 1 : null, // Bill for web search if it was enabled
 									project.organizationId,
+									undefined, // imageQuality
+									null, // reportedImageInputTokens
+									null, // reportedImageOutputTokens
+									{ servedServiceTier },
 								);
 							}
 
@@ -6151,7 +6167,7 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										undefined,
+										{ servedServiceTier },
 										true,
 									)
 								: null;
@@ -7121,6 +7137,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 											explicitCacheUsed,
+											servedServiceTier,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -7596,6 +7613,14 @@ chat.openapi(completions, async (c) => {
 									);
 
 									logVertexTrafficType(usedProvider, service_tier, data);
+									{
+										const served = resolveServedServiceTier({
+											trafficType: data?.usageMetadata?.trafficType,
+										});
+										if (served) {
+											servedServiceTier = served;
+										}
+									}
 
 									// If we have usage data from Google, add it to the streaming chunk
 									if (
@@ -8507,6 +8532,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 											explicitCacheUsed,
+											servedServiceTier,
 										},
 										finishReason === "content_filter",
 									);
@@ -8839,6 +8865,7 @@ chat.openapi(completions, async (c) => {
 										audioInputTokens,
 										cachedAudioInputTokens,
 										explicitCacheUsed,
+										servedServiceTier,
 									},
 									finishReason === "content_filter",
 								));
@@ -9257,6 +9284,11 @@ chat.openapi(completions, async (c) => {
 			});
 
 			logServiceTierRequest(usedProvider, service_tier, res);
+			// AI Studio reports the served tier in a response header; Vertex reports
+			// it later in usageMetadata.trafficType (set below).
+			servedServiceTier = resolveServedServiceTier({
+				serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
+			});
 		} catch (error) {
 			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
 			if (isTimeoutError(error)) {
@@ -9530,6 +9562,10 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					webSearchTool ? 1 : null, // Bill for web search if it was enabled
 					project.organizationId,
+					undefined, // imageQuality
+					null, // reportedImageInputTokens
+					null, // reportedImageOutputTokens
+					{ servedServiceTier },
 				);
 			}
 
@@ -9891,7 +9927,7 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							undefined,
+							{ servedServiceTier },
 							true,
 						)
 					: null;
@@ -10531,6 +10567,14 @@ chat.openapi(completions, async (c) => {
 		: 0;
 
 	logVertexTrafficType(usedProvider, service_tier, json);
+	{
+		const served = resolveServedServiceTier({
+			trafficType: json?.usageMetadata?.trafficType,
+		});
+		if (served) {
+			servedServiceTier = served;
+		}
+	}
 
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
@@ -10682,6 +10726,7 @@ chat.openapi(completions, async (c) => {
 			audioInputTokens,
 			cachedAudioInputTokens,
 			explicitCacheUsed,
+			servedServiceTier,
 		},
 		finishReason === "content_filter",
 	);

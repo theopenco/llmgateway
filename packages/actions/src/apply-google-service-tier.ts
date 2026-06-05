@@ -29,3 +29,37 @@ export function applyGoogleServiceTier(
 	}
 	(body as { service_tier?: string }).service_tier = serviceTier;
 }
+
+/**
+ * Resolve the processing tier the provider actually served from the upstream
+ * response signals. Returns "flex" / "priority", or null for the standard tier
+ * (including when Google downgraded an unsupported tier to standard).
+ *
+ * - Vertex AI reports the served tier in `usageMetadata.trafficType`
+ *   (`ON_DEMAND_PRIORITY` / `ON_DEMAND_FLEX` / `ON_DEMAND`).
+ * - The Gemini Developer API (AI Studio / glacier) reports it in the
+ *   `x-gemini-service-tier` response header (`priority` / `flex` / `standard`).
+ *
+ * Billing keys off this value rather than the requested tier so a downgraded
+ * request is charged at the rate it actually ran at.
+ */
+export function resolveServedServiceTier(signals: {
+	trafficType?: string | null;
+	serviceTierHeader?: string | null;
+}): "flex" | "priority" | null {
+	const trafficType = signals.trafficType?.toUpperCase();
+	if (trafficType === "ON_DEMAND_PRIORITY") {
+		return "priority";
+	}
+	if (trafficType === "ON_DEMAND_FLEX") {
+		return "flex";
+	}
+	const header = signals.serviceTierHeader?.toLowerCase();
+	if (header === "priority") {
+		return "priority";
+	}
+	if (header === "flex") {
+		return "flex";
+	}
+	return null;
+}

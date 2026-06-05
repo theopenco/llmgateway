@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { applyGoogleServiceTier } from "./apply-google-service-tier.js";
+import {
+	applyGoogleServiceTier,
+	resolveServedServiceTier,
+} from "./apply-google-service-tier.js";
 
 import type { GoogleRequestBody } from "@llmgateway/models";
 
@@ -47,5 +50,39 @@ describe("applyGoogleServiceTier", () => {
 			applyGoogleServiceTier(form, "google-ai-studio", "flex"),
 		).not.toThrow();
 		expect(form.has("service_tier")).toBe(false);
+	});
+});
+
+describe("resolveServedServiceTier", () => {
+	it("maps Vertex trafficType to a tier id", () => {
+		expect(
+			resolveServedServiceTier({ trafficType: "ON_DEMAND_PRIORITY" }),
+		).toBe("priority");
+		expect(resolveServedServiceTier({ trafficType: "ON_DEMAND_FLEX" })).toBe(
+			"flex",
+		);
+	});
+
+	it("treats a downgraded Vertex response (ON_DEMAND) as standard", () => {
+		expect(resolveServedServiceTier({ trafficType: "ON_DEMAND" })).toBeNull();
+	});
+
+	it("maps the AI Studio x-gemini-service-tier header to a tier id", () => {
+		expect(resolveServedServiceTier({ serviceTierHeader: "priority" })).toBe(
+			"priority",
+		);
+		expect(resolveServedServiceTier({ serviceTierHeader: "flex" })).toBe(
+			"flex",
+		);
+		expect(
+			resolveServedServiceTier({ serviceTierHeader: "standard" }),
+		).toBeNull();
+	});
+
+	it("returns null when no signals are present", () => {
+		expect(resolveServedServiceTier({})).toBeNull();
+		expect(
+			resolveServedServiceTier({ trafficType: null, serviceTierHeader: null }),
+		).toBeNull();
 	});
 });
