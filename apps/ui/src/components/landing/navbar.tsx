@@ -445,7 +445,7 @@ export const Navbar = ({
 								<NavigationMenuList className="flex gap-1 text-sm">
 									{/* Products dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
 											Products
 										</NavigationMenuTrigger>
 										<NavigationMenuContent>
@@ -467,7 +467,7 @@ export const Navbar = ({
 
 									{/* Resources dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
 											Resources
 										</NavigationMenuTrigger>
 										<NavigationMenuContent>
@@ -503,7 +503,7 @@ export const Navbar = ({
 
 									{/* AI dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
 											AI
 										</NavigationMenuTrigger>
 										<NavigationMenuContent>

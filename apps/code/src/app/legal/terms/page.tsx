@@ -94,15 +94,11 @@ export default function TermsPage() {
 			</p>
 			<hr />
 			<h2>4. Plans, Billing, and Fair Use</h2>
-			<p>DevPass is sold as a tiered monthly or annual subscription:</p>
+			<p>DevPass is sold as a tiered monthly subscription:</p>
 			<ul>
 				<li>
 					<strong>Lite, Pro, and Max</strong> tiers each include a monthly
 					model-usage allowance, denominated in dollars of provider cost
-				</li>
-				<li>
-					Annual billing is offered at a discount; the discounted total is
-					charged up front and renews annually
 				</li>
 				<li>
 					Allowances reset at the start of each billing cycle and{" "}

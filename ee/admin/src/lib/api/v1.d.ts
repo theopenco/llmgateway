@@ -2491,8 +2491,10 @@ export interface paths {
             parameters: {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d";
+                    from?: string;
+                    to?: string;
                     groupBy?: "model" | "source";
-                    modelView?: "mapping" | "canonical";
+                    modelView?: "mapping" | "canonical" | "provider";
                 };
                 header?: never;
                 path?: never;
@@ -2507,12 +2509,12 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            /** @enum {string} */
-                            range: "7d" | "30d" | "90d" | "365d";
+                            start: string;
+                            end: string;
                             /** @enum {string} */
                             groupBy: "model" | "source";
                             /** @enum {string} */
-                            modelView: "mapping" | "canonical";
+                            modelView: "mapping" | "canonical" | "provider";
                             totals: {
                                 requestCount: number;
                                 errorCount: number;
@@ -5832,7 +5834,7 @@ export interface paths {
                     utilization?: "low" | "healthy" | "high" | "over";
                     marginNegative?: boolean | null;
                     showChurned?: boolean | null;
-                    sortBy?: "name" | "billingEmail" | "tier" | "createdAt" | "cycleStart" | "expiresAt" | "subscribedSince" | "utilizationPct" | "realCost" | "margin" | "mrr" | "creditsUsed";
+                    sortBy?: "name" | "billingEmail" | "tier" | "createdAt" | "cycleStart" | "expiresAt" | "subscribedSince" | "utilizationPct" | "realCost" | "margin" | "mrr" | "creditsUsed" | "allTimeRevenue" | "allTimeCost" | "allTimeMargin";
                     sortOrder?: "asc" | "desc";
                 };
                 header?: never;
@@ -5872,6 +5874,9 @@ export interface paths {
                                 realCost: number;
                                 margin: number;
                                 marginPct: number | null;
+                                allTimeRevenue: number;
+                                allTimeCost: number;
+                                allTimeMargin: number;
                                 subscribedSince: string | null;
                                 tierChanges: number;
                                 lastPaymentFailureAt: string | null;
@@ -6080,6 +6085,9 @@ export interface paths {
                                 realCost: number;
                                 margin: number;
                                 marginPct: number | null;
+                                allTimeRevenue: number;
+                                allTimeCost: number;
+                                allTimeMargin: number;
                                 subscribedSince: string | null;
                                 tierChanges: number;
                                 lastPaymentFailureAt: string | null;
@@ -10481,11 +10489,6 @@ export interface paths {
                     "application/json": {
                         /** @enum {string} */
                         tier: "lite" | "pro" | "max";
-                        /**
-                         * @default monthly
-                         * @enum {string}
-                         */
-                        cycle?: "monthly" | "annual";
                     };
                 };
             };
@@ -11726,6 +11729,7 @@ export interface paths {
                     startDate?: string;
                     endDate?: string;
                     actionTaken?: string;
+                    category?: string;
                     ruleId?: string;
                 };
                 header?: never;
@@ -11804,10 +11808,17 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            blocked: number;
-                            redacted: number;
-                            warned: number;
-                            total: number;
+                            totalViolations: number;
+                            last24Hours: number;
+                            last7Days: number;
+                            byAction: {
+                                blocked: number;
+                                redacted: number;
+                                warned: number;
+                            };
+                            byCategory: {
+                                [key: string]: number;
+                            };
                         };
                     };
                 };

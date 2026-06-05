@@ -128,6 +128,8 @@ export type SerializedOrganization = Omit<
 	| "devPlanCancelled"
 	| "devPlanExpiresAt"
 	| "devPlanCardFingerprint"
+	| "devPlanCreditsFrozen"
+	| "devPlanCreditsLimitBeforeFreeze"
 	| "lastTopUpAmount"
 > & {
 	createdAt: string;

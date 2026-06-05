@@ -161,6 +161,60 @@ const videoImageInputSchema = z
 
 const videoReferenceImagesSchema = z.array(videoImageInputSchema).min(1).max(3);
 
+const referenceVideoUrlSchema = z
+	.string()
+	.url()
+	.refine((value) => /^https:\/\//i.test(value), {
+		message: "Reference video URL must be an HTTPS URL",
+	});
+
+const videoReferenceVideoInputSchema = z
+	.union([
+		referenceVideoUrlSchema,
+		z.object({
+			video_url: referenceVideoUrlSchema,
+		}),
+	])
+	.openapi({
+		description:
+			"Reference video input for omni-reference video generation. Must be a publicly reachable HTTPS URL; base64 data URLs are not supported for videos.",
+		example: {
+			video_url: "https://example.com/reference-motion.mp4",
+		},
+	});
+
+const videoReferenceVideosSchema = z
+	.array(videoReferenceVideoInputSchema)
+	.min(1)
+	.max(3);
+
+const referenceAudioUrlSchema = z
+	.string()
+	.url()
+	.refine((value) => /^https:\/\//i.test(value), {
+		message: "Reference audio URL must be an HTTPS URL",
+	});
+
+const videoReferenceAudioInputSchema = z
+	.union([
+		referenceAudioUrlSchema,
+		z.object({
+			audio_url: referenceAudioUrlSchema,
+		}),
+	])
+	.openapi({
+		description:
+			"Reference audio input for omni-reference video generation. Must be a publicly reachable HTTPS URL; base64 data URLs are not supported for audio.",
+		example: {
+			audio_url: "https://example.com/reference-track.mp3",
+		},
+	});
+
+const videoReferenceAudiosSchema = z
+	.array(videoReferenceAudioInputSchema)
+	.min(1)
+	.max(3);
+
 const createVideoRequestSchema = z
 	.object({
 		model: z.string().default("veo-3.1-generate-preview").openapi({
@@ -223,6 +277,24 @@ const createVideoRequestSchema = z
 				},
 			],
 		}),
+		reference_videos: videoReferenceVideosSchema.optional().openapi({
+			description:
+				"One to three reference videos (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.0 models and can be combined with reference_images.",
+			example: [
+				{
+					video_url: "https://example.com/reference-motion.mp4",
+				},
+			],
+		}),
+		reference_audios: videoReferenceAudiosSchema.optional().openapi({
+			description:
+				"One to three reference audio clips (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.0 models and can be combined with reference_images and reference_videos.",
+			example: [
+				{
+					audio_url: "https://example.com/reference-track.mp3",
+				},
+			],
+		}),
 	})
 	.superRefine((value, ctx) => {
 		const hasCallbackUrl = value.callback_url !== undefined;
@@ -258,7 +330,9 @@ const createVideoRequestSchema = z
 			value.image !== undefined || value.last_frame !== undefined;
 		const hasReferenceInput =
 			value.reference_images !== undefined ||
-			value.input_reference !== undefined;
+			value.input_reference !== undefined ||
+			value.reference_videos !== undefined ||
+			value.reference_audios !== undefined;
 
 		if (value.last_frame !== undefined && value.image === undefined) {
 			ctx.addIssue({
@@ -700,6 +774,13 @@ function isSoraVideoModelName(externalId: string): boolean {
 	return externalId === "sora-2" || externalId === "sora-2-pro";
 }
 
+function isBytedanceReferenceModel(externalId: string): boolean {
+	return (
+		externalId === "dreamina-seedance-2-0-260128" ||
+		externalId === "dreamina-seedance-2-0-fast-260128"
+	);
+}
+
 function isGoogleVertexVideoProvider(providerId: string): boolean {
 	return providerId === "google-vertex";
 }
@@ -710,6 +791,8 @@ function getVideoProviderConstraintReasons(
 	videoDurationSeconds: number,
 	inputMode: VideoInputMode,
 	inputImageCount: number,
+	referenceVideoCount: number,
+	referenceAudioCount: number,
 	includeAudio: boolean,
 ): string[] {
 	const reasons: string[] = [];
@@ -783,6 +866,16 @@ function getVideoProviderConstraintReasons(
 
 	if (inputMode === "reference") {
 		if (isSoraVideoModelName(provider.externalId)) {
+			if (referenceVideoCount > 0) {
+				reasons.push(
+					"Sora models do not support reference videos. Use reference_images with exactly one image.",
+				);
+			}
+			if (referenceAudioCount > 0) {
+				reasons.push(
+					"Sora models do not support reference audio. Use reference_images with exactly one image.",
+				);
+			}
 			if (inputImageCount !== 1) {
 				reasons.push(
 					"Sora reference-image video generation supports exactly 1 input image",
@@ -790,6 +883,28 @@ function getVideoProviderConstraintReasons(
 			}
 
 			return reasons;
+		}
+
+		if (provider.providerId === "bytedance") {
+			if (!isBytedanceReferenceModel(provider.externalId)) {
+				reasons.push(
+					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+				);
+			}
+
+			return reasons;
+		}
+
+		if (referenceVideoCount > 0) {
+			reasons.push(
+				"reference videos are currently only supported on bytedance Seedance 2.0 models",
+			);
+		}
+
+		if (referenceAudioCount > 0) {
+			reasons.push(
+				"reference audio is currently only supported on bytedance Seedance 2.0 models",
+			);
 		}
 
 		if (isGoogleVertexVideoProvider(provider.providerId)) {
@@ -827,6 +942,8 @@ function formatVideoProviderConstraintSummary(
 	videoDurationSeconds: number,
 	inputMode: VideoInputMode,
 	inputImageCount: number,
+	referenceVideoCount: number,
+	referenceAudioCount: number,
 	includeAudio: boolean,
 ): string {
 	const providerSummaries = providers.map((provider) => {
@@ -836,6 +953,8 @@ function formatVideoProviderConstraintSummary(
 			videoDurationSeconds,
 			inputMode,
 			inputImageCount,
+			referenceVideoCount,
+			referenceAudioCount,
 			includeAudio,
 		);
 		return `${provider.providerId}: ${reasons.join("; ")}`;
@@ -856,6 +975,8 @@ function getEligibleVideoProviderMappings(
 	videoDurationSeconds: number,
 	inputMode: VideoInputMode,
 	inputImageCount: number,
+	referenceVideoCount: number,
+	referenceAudioCount: number,
 	includeAudio: boolean,
 ): ProviderModelMapping[] {
 	const now = new Date();
@@ -886,6 +1007,8 @@ function getEligibleVideoProviderMappings(
 				videoDurationSeconds,
 				inputMode,
 				inputImageCount,
+				referenceVideoCount,
+				referenceAudioCount,
 				includeAudio,
 			).length === 0
 		);
@@ -900,6 +1023,8 @@ function getEligibleVideoProviderMappings(
 				videoDurationSeconds,
 				inputMode,
 				inputImageCount,
+				referenceVideoCount,
+				referenceAudioCount,
 				includeAudio,
 			),
 		});
@@ -1370,6 +1495,8 @@ async function resolveVideoExecution(
 	videoDurationSeconds: number,
 	inputMode: VideoInputMode,
 	inputImageCount: number,
+	referenceVideoCount: number,
+	referenceAudioCount: number,
 	includeAudio: boolean,
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
@@ -1397,6 +1524,8 @@ async function resolveVideoExecution(
 		videoDurationSeconds,
 		inputMode,
 		inputImageCount,
+		referenceVideoCount,
+		referenceAudioCount,
 		includeAudio,
 	);
 	const configuredEligibleMappings: ProviderModelMapping[] = [];
@@ -1446,6 +1575,8 @@ async function resolveVideoExecution(
 						videoDurationSeconds,
 						inputMode,
 						inputImageCount,
+						referenceVideoCount,
+						referenceAudioCount,
 						includeAudio,
 					),
 				});
@@ -2840,6 +2971,8 @@ async function createBytedanceVideoJob(
 	firstFrameInput: VideoImageInput | undefined,
 	processedFirstFrame: ProcessedVideoImageInput | null,
 	processedReferenceImages: ProcessedVideoImageInput[],
+	referenceVideoUrls: string[],
+	referenceAudioUrls: string[],
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
@@ -2859,6 +2992,7 @@ async function createBytedanceVideoJob(
 			image_url: {
 				url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
 			},
+			role: "first_frame",
 		});
 	}
 
@@ -2869,8 +3003,29 @@ async function createBytedanceVideoJob(
 				image_url: {
 					url: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
 				},
+				role: "reference_image",
 			});
 		}
+	}
+
+	for (const referenceVideoUrl of referenceVideoUrls) {
+		content.push({
+			type: "video_url",
+			video_url: {
+				url: referenceVideoUrl,
+			},
+			role: "reference_video",
+		});
+	}
+
+	for (const referenceAudioUrl of referenceAudioUrls) {
+		content.push({
+			type: "audio_url",
+			audio_url: {
+				url: referenceAudioUrl,
+			},
+			role: "reference_audio",
+		});
 	}
 
 	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
@@ -2934,6 +3089,8 @@ async function createUpstreamVideoJob(
 	firstFrameInput: VideoImageInput | undefined,
 	lastFrameInput: VideoImageInput | undefined,
 	referenceImageInputs: VideoImageInput[],
+	referenceVideoUrls: string[],
+	referenceAudioUrls: string[],
 	processedFirstFrame: ProcessedVideoImageInput | null,
 	processedLastFrame: ProcessedVideoImageInput | null,
 	processedReferenceImages: ProcessedVideoImageInput[],
@@ -2986,6 +3143,8 @@ async function createUpstreamVideoJob(
 				firstFrameInput,
 				processedFirstFrame,
 				processedReferenceImages,
+				referenceVideoUrls,
+				referenceAudioUrls,
 			);
 		case "google-vertex":
 			return await createGoogleVertexVideoJob(
@@ -3048,12 +3207,42 @@ function getVideoInputMode(
 
 	if (
 		request.reference_images !== undefined ||
-		request.input_reference !== undefined
+		request.input_reference !== undefined ||
+		request.reference_videos !== undefined ||
+		request.reference_audios !== undefined
 	) {
 		return "reference";
 	}
 
 	return "none";
+}
+
+function getVideoReferenceVideoInputs(
+	request: z.infer<typeof createVideoRequestSchema>,
+): string[] {
+	if (!request.reference_videos) {
+		return [];
+	}
+
+	return request.reference_videos.map((referenceVideo) =>
+		typeof referenceVideo === "string"
+			? referenceVideo
+			: referenceVideo.video_url,
+	);
+}
+
+function getVideoReferenceAudioInputs(
+	request: z.infer<typeof createVideoRequestSchema>,
+): string[] {
+	if (!request.reference_audios) {
+		return [];
+	}
+
+	return request.reference_audios.map((referenceAudio) =>
+		typeof referenceAudio === "string"
+			? referenceAudio
+			: referenceAudio.audio_url,
+	);
 }
 
 function getVideoInputImageCount(
@@ -3199,6 +3388,8 @@ videos.openapi(createVideo, async (c) => {
 	const firstFrameInput = getVideoFirstFrameInput(request);
 	const lastFrameInput = getVideoLastFrameInput(request);
 	const referenceImageInputs = getVideoReferenceImageInputs(request);
+	const referenceVideoInputs = getVideoReferenceVideoInputs(request);
+	const referenceAudioInputs = getVideoReferenceAudioInputs(request);
 	const inputMode = getVideoInputMode(request);
 	const inputImageCount = getVideoInputImageCount(
 		inputMode,
@@ -3251,6 +3442,8 @@ videos.openapi(createVideo, async (c) => {
 		videoDurationSeconds,
 		inputMode,
 		inputImageCount,
+		referenceVideoInputs.length,
+		referenceAudioInputs.length,
 		request.audio,
 		project,
 		organization.id,
@@ -3399,6 +3592,8 @@ videos.openapi(createVideo, async (c) => {
 				firstFrameInput,
 				lastFrameInput,
 				referenceImageInputs,
+				referenceVideoInputs,
+				referenceAudioInputs,
 				processedFirstFrame,
 				processedLastFrameInput,
 				processedReferenceImages,

@@ -634,7 +634,7 @@ function ModelEntryRowComponent({
 									)}
 								</div>
 								<span className="text-xs text-muted-foreground truncate">
-									{disabledReason ?? "Auto-select provider"}
+									Auto-select provider
 								</span>
 							</div>
 						</div>
@@ -1719,7 +1719,9 @@ export function ModelSelector({
 														previewEntry.model,
 													);
 
-													const isVideo = mode === "video";
+													const isVideo =
+														mode === "video" ||
+														!!previewEntry.model.output?.includes("video");
 													const minPerSec = isVideo
 														? getMinPerSecondPrice(previewEntry.model.mappings)
 														: null;
@@ -1792,6 +1794,15 @@ export function ModelSelector({
 																				</p>
 																			</div>
 																		</div>
+																		{mode === "chat" && (
+																			<div className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">
+																				<Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+																				<span>
+																					Selecting this model will open Video
+																					Studio.
+																				</span>
+																			</div>
+																		)}
 																	</div>
 																) : (
 																	<div className="space-y-2">
@@ -1958,25 +1969,37 @@ export function ModelSelector({
 
 												<div className="space-y-2">
 													<h5 className="font-medium text-xs">
-														{mode === "video"
+														{mode === "video" ||
+														previewEntry.model.output?.includes("video")
 															? "Video Pricing"
 															: "Pricing & Limits"}
 													</h5>
-													{mode === "video" ? (
-														<div className="grid grid-cols-1 gap-3">
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Per Second
-																</span>
-																<p className="text-xs font-mono">
-																	{previewEntry.mapping?.perSecondPrice
-																		? formatPerSecondPrice(
-																				previewEntry.mapping.perSecondPrice,
-																			)
-																		: "Unknown"}
-																</p>
+													{mode === "video" ||
+													previewEntry.model.output?.includes("video") ? (
+														<>
+															<div className="grid grid-cols-1 gap-3">
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Per Second
+																	</span>
+																	<p className="text-xs font-mono">
+																		{previewEntry.mapping?.perSecondPrice
+																			? formatPerSecondPrice(
+																					previewEntry.mapping.perSecondPrice,
+																				)
+																			: "Unknown"}
+																	</p>
+																</div>
 															</div>
-														</div>
+															{mode === "chat" && (
+																<div className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">
+																	<Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+																	<span>
+																		Selecting this model will open Video Studio.
+																	</span>
+																</div>
+															)}
+														</>
 													) : (
 														<>
 															<div className="grid grid-cols-2 gap-3">

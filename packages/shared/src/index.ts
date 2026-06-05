@@ -11,13 +11,11 @@ export {
 } from "./fees.js";
 
 export {
-	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
 	DEV_PLAN_PRICES,
 	type DevPlanCycle,
 	type DevPlanTier,
-	getDevPlanAnnualMonthlyPrice,
-	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 } from "./dev-plans.js";
 
 export {
@@ -61,6 +59,8 @@ export {
 } from "./video-proxy.js";
 
 export { selectLoadBalancedItem } from "./load-balance.js";
+
+export { isContentFilterErrorText } from "./content-filter.js";
 
 export {
 	estimateChatMessageTokens,
