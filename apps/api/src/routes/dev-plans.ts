@@ -12,7 +12,6 @@ import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
 	getProratedCreditDelta,
-	monthlyBucketWindow,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -726,30 +725,13 @@ devPlans.openapi(changeTier, async (c) => {
 			// receive a near-full fresh allotment. Clamp to the new tier's full
 			// allotment so a carried-over higher limit (e.g. credits kept from a
 			// prior downgrade) can never push the balance above the tier cap.
-			//
-			// Annual subscribers receive a fresh MONTHLY credit bucket from the
-			// worker, so prorate over the current monthly window — not the Stripe
-			// yearly period — otherwise an upgrade would grant nearly a full year's
-			// worth of extra credits at once.
-			let remainingFraction: number;
-			const nowMs = Date.now();
-			if (existingCycle === "annual" && personalOrg.devPlanBillingCycleStart) {
-				const { windowStart, windowEnd } = monthlyBucketWindow(
-					personalOrg.devPlanBillingCycleStart,
-					new Date(nowMs),
-				);
-				const windowLength = windowEnd.getTime() - windowStart.getTime();
-				remainingFraction =
-					windowLength > 0 ? (windowEnd.getTime() - nowMs) / windowLength : 0;
-			} else {
-				const subscriptionItem = updated.items.data[0];
-				const periodStart = subscriptionItem.current_period_start;
-				const periodEnd = subscriptionItem.current_period_end;
-				const nowSeconds = Math.floor(nowMs / 1000);
-				const periodLength = periodEnd - periodStart;
-				remainingFraction =
-					periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
-			}
+			const subscriptionItem = updated.items.data[0];
+			const periodStart = subscriptionItem.current_period_start;
+			const periodEnd = subscriptionItem.current_period_end;
+			const nowSeconds = Math.floor(Date.now() / 1000);
+			const periodLength = periodEnd - periodStart;
+			const remainingFraction =
+				periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
 
 			const creditDelta = getProratedCreditDelta(
 				currentTier,

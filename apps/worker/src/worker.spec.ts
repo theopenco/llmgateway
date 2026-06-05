@@ -8,21 +8,12 @@ import {
 } from "vitest";
 
 import { db, eq, inArray, tables } from "@llmgateway/db";
-import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import {
 	acquireLock,
 	cleanupExpiredLogData,
 	processAutoTopUp,
-	refreshAnnualDevPlanCredits,
 } from "./worker.js";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function daysAgo(days: number): Date {
-	const elapsed = days * DAY_MS;
-	return new Date(Date.now() - elapsed);
-}
 
 describe("worker", () => {
 	const previousDataRetentionCleanup =
@@ -391,102 +382,6 @@ describe("worker", () => {
 			expect(cleanedLog?.userAgent).toBeNull();
 			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
 			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
-		});
-	});
-
-	describe("refreshAnnualDevPlanCredits", () => {
-		const ORG_ID = "annual-refresh-org";
-
-		async function seedAnnualOrg(opts: {
-			cycle?: "monthly" | "annual";
-			cycleStart: Date | null;
-			creditsUsed?: string;
-			creditsLimit?: string;
-			frozen?: boolean;
-			devPlan?: "none" | "lite" | "pro" | "max";
-			subscriptionId?: string | null;
-		}) {
-			await db.insert(tables.organization).values({
-				id: ORG_ID,
-				name: "Annual Co",
-				billingEmail: "billing@annual.test",
-				devPlan: opts.devPlan ?? "max",
-				devPlanCycle: opts.cycle ?? "annual",
-				devPlanCreditsUsed: opts.creditsUsed ?? "200",
-				devPlanCreditsLimit: opts.creditsLimit ?? "300",
-				devPlanCreditsFrozen: opts.frozen ?? false,
-				devPlanStripeSubscriptionId:
-					opts.subscriptionId === undefined
-						? "sub_annual_001"
-						: opts.subscriptionId,
-				devPlanBillingCycleStart: opts.cycleStart,
-			});
-		}
-
-		test("refreshes credits and advances the anchor once a monthly boundary passes", async () => {
-			const cycleStart = daysAgo(40);
-			await seedAnnualOrg({ cycleStart });
-
-			await refreshAnnualDevPlanCredits();
-
-			const org = await db.query.organization.findFirst({
-				where: { id: { eq: ORG_ID } },
-			});
-			expect(org?.devPlanCreditsUsed).toBe("0");
-			expect(org?.devPlanCreditsLimit).toBe(
-				getDevPlanCreditsLimit("max").toString(),
-			);
-			expect(org?.devPlanBillingCycleStart?.getTime()).toBeGreaterThan(
-				cycleStart.getTime(),
-			);
-
-			const txns = await db.query.transaction.findMany({
-				where: { organizationId: { eq: ORG_ID } },
-			});
-			expect(txns).toHaveLength(1);
-			expect(txns[0].type).toBe("dev_plan_renewal");
-			expect(txns[0].creditAmount).toBe(
-				getDevPlanCreditsLimit("max").toString(),
-			);
-		});
-
-		test("does nothing within the first month of the bucket", async () => {
-			await seedAnnualOrg({ cycleStart: daysAgo(10) });
-
-			await refreshAnnualDevPlanCredits();
-
-			const org = await db.query.organization.findFirst({
-				where: { id: { eq: ORG_ID } },
-			});
-			expect(org?.devPlanCreditsUsed).toBe("200");
-		});
-
-		test("skips frozen orgs", async () => {
-			await seedAnnualOrg({
-				cycleStart: daysAgo(40),
-				frozen: true,
-			});
-
-			await refreshAnnualDevPlanCredits();
-
-			const org = await db.query.organization.findFirst({
-				where: { id: { eq: ORG_ID } },
-			});
-			expect(org?.devPlanCreditsUsed).toBe("200");
-		});
-
-		test("skips monthly subscribers (Stripe refreshes those)", async () => {
-			await seedAnnualOrg({
-				cycle: "monthly",
-				cycleStart: daysAgo(40),
-			});
-
-			await refreshAnnualDevPlanCredits();
-
-			const org = await db.query.organization.findFirst({
-				where: { id: { eq: ORG_ID } },
-			});
-			expect(org?.devPlanCreditsUsed).toBe("200");
 		});
 	});
 });

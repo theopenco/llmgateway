@@ -19,8 +19,6 @@ export {
 	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
 	getProratedCreditDelta,
-	addUtcMonths,
-	monthlyBucketWindow,
 } from "./dev-plans.js";
 
 export {
