@@ -17,6 +17,14 @@ import {
 } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { SidebarProvider } from "@/components/ui/sidebar";
 // No local api key. We'll call backend to ensure key cookie exists after login.
 import {
@@ -331,6 +339,9 @@ export default function ChatPageClient({
 	const [finishReason, setFinishReason] = useState<string | null>(null);
 	const [showTopUp, setShowTopUp] = useState(false);
 	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
+	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
+		null,
+	);
 
 	// MCP servers management
 	const {
@@ -1487,6 +1498,12 @@ export default function ChatPageClient({
 
 	const handleSelectModel = useCallback(
 		(model: string) => {
+			const { modelId } = parseModelSelectorValue(model);
+			const def = models.find((m) => m.id === modelId);
+			if (def?.output?.includes("video")) {
+				setPendingVideoModel(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			if (model) {
 				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
@@ -1504,7 +1521,7 @@ export default function ChatPageClient({
 			const qs = currentParams.toString();
 			router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
 		},
-		[pathname, router, comparisonEnabled, extraPanelModels],
+		[pathname, router, comparisonEnabled, extraPanelModels, models],
 	);
 
 	const handleExtraPanelModelChange = useCallback(
@@ -1657,6 +1674,11 @@ export default function ChatPageClient({
 							providers={providers}
 							selectedModel={selectedModel}
 							setSelectedModel={handleSelectModel}
+							getOptionDisabledReason={(modelId) =>
+								models.find((m) => m.id === modelId)?.output?.includes("video")
+									? "Opens in Video Studio"
+									: undefined
+							}
 							comparisonEnabled={comparisonEnabled}
 							hideCompare={messages.length > 0}
 							onComparisonEnabledChange={(enabled) => {
@@ -1787,6 +1809,13 @@ export default function ChatPageClient({
 												providers={providers}
 												value={selectedModel}
 												onValueChange={handleSelectModel}
+												getOptionDisabledReason={(modelId) =>
+													models
+														.find((m) => m.id === modelId)
+														?.output?.includes("video")
+														? "Opens in Video Studio"
+														: undefined
+												}
 												placeholder="Select a model..."
 											/>
 										</div>
@@ -1928,6 +1957,7 @@ export default function ChatPageClient({
 												onModelChange={(model) =>
 													handleExtraPanelModelChange(index, model)
 												}
+												onVideoModelSelected={setPendingVideoModel}
 												resetToken={comparisonResetToken}
 												primaryChatId={currentChatId}
 												primaryChatIdRef={chatIdRef}
@@ -1943,6 +1973,46 @@ export default function ChatPageClient({
 			</div>
 			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
+			<Dialog
+				open={pendingVideoModel !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPendingVideoModel(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Switch to Video Studio?</DialogTitle>
+						<DialogDescription>
+							{pendingVideoModel
+								? (models.find((m) => m.id === pendingVideoModel)?.name ??
+									pendingVideoModel)
+								: ""}{" "}
+							is a video generation model. Would you like to open it in Video
+							Studio?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setPendingVideoModel(null)}
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={() => {
+								if (pendingVideoModel) {
+									router.push(`/video?model=${pendingVideoModel}`);
+								}
+								setPendingVideoModel(null);
+							}}
+						>
+							Open Video Studio
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</SidebarProvider>
 	);
 }
@@ -1959,6 +2029,7 @@ interface ExtraChatPanelProps {
 		submit: (content: string) => Promise<void> | void,
 	) => void;
 	onModelChange?: (model: string) => void;
+	onVideoModelSelected?: (modelId: string) => void;
 	resetToken: number;
 	primaryChatId: string | null;
 	primaryChatIdRef: React.RefObject<string | null>;
@@ -1980,6 +2051,7 @@ function ExtraChatPanel({
 	setSyncedText,
 	onRegisterExternalSubmit,
 	onModelChange,
+	onVideoModelSelected,
 	resetToken,
 	primaryChatId,
 	primaryChatIdRef,
@@ -1992,10 +2064,18 @@ function ExtraChatPanel({
 	const [selectedModel, setSelectedModel] = useState(initialModel);
 	const handleModelChange = useCallback(
 		(model: string) => {
+			const modelId = model.includes("/")
+				? (model.split("/")[1] ?? model)
+				: model;
+			const def = models.find((m) => m.id === modelId);
+			if (def?.output?.includes("video")) {
+				onVideoModelSelected?.(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			onModelChange?.(model);
 		},
-		[onModelChange],
+		[onModelChange, onVideoModelSelected, models],
 	);
 	const [comparisonChatId, setComparisonChatId] = useState<string | null>(
 		initialChatId,
@@ -2532,6 +2612,11 @@ function ExtraChatPanel({
 						providers={providers}
 						value={selectedModel}
 						onValueChange={handleModelChange}
+						getOptionDisabledReason={(modelId) =>
+							models.find((m) => m.id === modelId)?.output?.includes("video")
+								? "Opens in Video Studio"
+								: undefined
+						}
 						placeholder="Select a model..."
 					/>
 				</div>

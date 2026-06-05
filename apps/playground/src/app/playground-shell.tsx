@@ -189,10 +189,7 @@ export async function renderPlaygroundShell({
 			) : null}
 			<PlaygroundSeoSection variant="chat" />
 			<ChatPageClient
-				models={models.filter(
-					(m) =>
-						!m.output?.includes("video") && !m.output?.includes("embedding"),
-				)}
+				models={models.filter((m) => !m.output?.includes("embedding"))}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}
