@@ -62,6 +62,8 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
+export { isContentFilterErrorText } from "./content-filter.js";
+
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
