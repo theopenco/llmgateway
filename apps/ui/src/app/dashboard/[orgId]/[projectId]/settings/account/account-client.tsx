@@ -80,7 +80,7 @@ export function AccountClient() {
 
 	const handleDeleteAccount = async () => {
 		const confirmed = window.confirm(
-			"Are you sure you want to delete your account? This action cannot be undone.",
+			"Are you sure you want to delete your account? This action cannot be undone. Billing records of credits you purchased and spent are retained for up to 10 years as required by tax and accounting law.",
 		);
 
 		if (!confirmed) {
@@ -170,11 +170,23 @@ export function AccountClient() {
 								Permanently delete your account and all associated data
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="space-y-2">
 							<p className="text-muted-foreground text-sm">
 								This action is irreversible. All your data, including API keys,
 								usage history, and provider connections will be permanently
 								deleted.
+							</p>
+							<p className="text-muted-foreground text-sm">
+								Billing records of credits you purchased and spent are retained
+								for up to 10 years as required by tax and accounting law. See
+								our{" "}
+								<a
+									href="/privacy"
+									className="underline underline-offset-4 hover:text-foreground"
+								>
+									Privacy Policy
+								</a>{" "}
+								for details.
 							</p>
 						</CardContent>
 						<CardFooter>
