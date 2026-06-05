@@ -80,7 +80,7 @@ export function AccountClient() {
 
 	const handleDeleteAccount = async () => {
 		const confirmed = window.confirm(
-			"Are you sure you want to delete your account? This action cannot be undone. Billing records of credits you purchased and spent are retained for up to 10 years as required by tax and accounting law.",
+			"Are you sure you want to delete your account? This action cannot be undone. Billing records of credits you purchased and spent are retained for 10 years as required by tax and accounting law.",
 		);
 
 		if (!confirmed) {
@@ -178,8 +178,7 @@ export function AccountClient() {
 							</p>
 							<p className="text-muted-foreground text-sm">
 								Billing records of credits you purchased and spent are retained
-								for up to 10 years as required by tax and accounting law. See
-								our{" "}
+								for 10 years as required by tax and accounting law. See our{" "}
 								<a
 									href="/privacy"
 									className="underline underline-offset-4 hover:text-foreground"

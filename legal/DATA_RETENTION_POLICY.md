@@ -22,14 +22,13 @@ financial record of credits purchased and spent for the statutory period.
 | --- | --- | --- | --- | --- |
 | Identity & profile | `user` (name, email), `session`, `account`, `passkey`, `apiKey`, `masterKey`, chats | Contract (Art. 6(1)(b)) | Life of account | Hard-deleted (cascade from `user`) |
 | Request/usage logs | `log` (prompts, responses, raw req/resp) | Legitimate interest / contract | Content nullified after 30 days | Content already removed by worker; cost/token metadata retained |
-| Billing & accounting | `transaction` (credit_topup/refund/gift, amounts, currency, Stripe IDs), `paymentMethod`, `paymentFailure`, `organization.credits` | Legal obligation (Art. 6(1)(c)) — tax & accounting law | Up to 10 years | Retained; personal identifiers not required for the accounting record are anonymized |
+| Billing & accounting | `transaction` (credit_topup/refund/gift, amounts, currency, Stripe IDs), `paymentMethod`, `paymentFailure`, `organization.credits` | Legal obligation (Art. 6(1)(c)) — tax & accounting law | 10 years | Retained; personal identifiers not required for the accounting record are anonymized |
 
 ## Retention period rationale
 
-We use **10 years** as the retention period because it is the longest applicable
-statutory period among the jurisdictions we bill in (Germany, HGB §257 / AO §147,
-mandates 10 years for invoices and accounting records). Most other EU member states
-require 6–7 years; 10 years safely covers all of them.
+We are established in Germany, where HGB §257 / AO §147 require invoices and
+accounting records to be kept for **10 years**. The retention period for
+billing/accounting records is therefore fixed at 10 years.
 
 ## Known gaps to remediate (not yet implemented)
 
@@ -56,6 +55,5 @@ personal identifiers in retained tables anonymized.
 - After the retention period expires, billing/accounting records are deleted or
   anonymized.
 
-> This is an engineering accountability note, not legal advice. Confirm the exact
-> retention period and the set of fields that qualify as "accounting data" with a
-> DPO / lawyer for each jurisdiction in which we bill.
+> This is an engineering accountability note. The 10-year period is fixed by our
+> German establishment (HGB §257 / AO §147).

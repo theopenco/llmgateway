@@ -73,7 +73,7 @@ We keep your personal data only as long as necessary for the purposes it was col
 - **Usage logs** (request metadata, token counts, costs): the content of requests and responses is governed by your organization’s retention setting below; aggregated usage and cost metadata is retained for analytics and billing accuracy.
   - **Retain All Data:** Saves request payloads and responses with metadata
   - **Metadata Only:** Saves only usage and cost metadata, excluding request content
-- **Billing and accounting records** (purchases of credits, payments, invoices, and the transaction history of credits bought and spent): we are legally required to retain these under applicable tax and accounting law. We keep them for up to **10 years**, even after you delete your account, after which they are deleted or anonymized.
+- **Billing and accounting records** (purchases of credits, payments, invoices, and the transaction history of credits bought and spent): we are legally required to retain these under applicable tax and accounting law. We keep them for **10 years**, even after you delete your account, after which they are deleted or anonymized.
 
 Where we retain billing records after account deletion, we restrict our processing of that data to what the law requires, and we anonymize personal identifiers that are not needed for the accounting record.
 

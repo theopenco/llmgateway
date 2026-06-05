@@ -135,7 +135,7 @@ export default function PrivacyPage() {
 					account, and deleted promptly when you delete it. Billing and
 					accounting records — purchases, payments, and the transaction history
 					of credits bought and spent — are retained to meet legal, tax, and
-					accounting obligations for up to 10 years, even after you delete your
+					accounting obligations for 10 years, even after you delete your
 					account, after which they are deleted or anonymized
 				</li>
 				<li>
