@@ -31,7 +31,7 @@ interface DatePreset {
 	getRange: () => { from: Date; to: Date };
 }
 
-export const DEFAULT_GLOBAL_STATS_PRESET = "last_3_months";
+export const DEFAULT_GLOBAL_STATS_PRESET = "last_7_days";
 
 function buildPresets(today: Date): DatePreset[] {
 	return [
