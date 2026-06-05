@@ -294,12 +294,17 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
-	// A username is required before a profile can be made public.
-	if (
-		updateData.profilePublic === true &&
-		!updateData.username &&
-		!userRecord.username
-	) {
+	// Resolve the final state. `username` is only present in updateData when the
+	// client explicitly sends it (including null to clear it); otherwise the
+	// existing value is kept.
+	const finalUsername =
+		"username" in updateData ? updateData.username : userRecord.username;
+	const finalProfilePublic =
+		updateData.profilePublic ?? userRecord.profilePublic;
+
+	// A username is required before a profile can be public. Validate the final
+	// state so clearing the username can't leave a public profile without one.
+	if (finalProfilePublic && !finalUsername) {
 		throw new HTTPException(400, {
 			message: "Choose a username before making your profile public",
 		});
