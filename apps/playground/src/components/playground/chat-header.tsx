@@ -18,7 +18,6 @@ interface ChatHeaderProps {
 	providers: ApiProvider[];
 	selectedModel: string;
 	setSelectedModel: (model: string) => void;
-	getOptionHint?: (value: string) => string | undefined;
 	comparisonEnabled: boolean;
 	onComparisonEnabledChange: (enabled: boolean) => void;
 	hideCompare?: boolean;
@@ -51,7 +50,6 @@ export const ChatHeader = ({
 	providers,
 	selectedModel,
 	setSelectedModel,
-	getOptionHint,
 	comparisonEnabled,
 	onComparisonEnabledChange,
 	hideCompare = false,
@@ -85,7 +83,6 @@ export const ChatHeader = ({
 							providers={providers}
 							value={selectedModel}
 							onValueChange={setSelectedModel}
-							getOptionHint={getOptionHint}
 							placeholder="Search and select a model..."
 						/>
 					</div>

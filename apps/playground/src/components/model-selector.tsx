@@ -39,11 +39,6 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useFavoriteModels } from "@/hooks/useFavoriteModels";
 import { useApi } from "@/lib/fetch-client";
@@ -76,7 +71,6 @@ interface ModelSelectorProps {
 	mode?: "chat" | "video" | "image";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
-	getOptionHint?: (value: string) => string | undefined;
 }
 
 interface FilterState {
@@ -559,7 +553,6 @@ interface ModelEntryRowProps {
 	setDetailsOpen: (open: boolean) => void;
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
-	getOptionHint?: (value: string) => string | undefined;
 }
 
 function ModelEntryRowComponent({
@@ -578,7 +571,6 @@ function ModelEntryRowComponent({
 	setDetailsOpen,
 	isOptionDisabled,
 	getOptionDisabledReason,
-	getOptionHint,
 }: RowComponentProps<ModelEntryRowProps>) {
 	const entry = entries[index];
 	if (!entry) {
@@ -592,7 +584,6 @@ function ModelEntryRowComponent({
 		const entryKey = model.id;
 		const disabled = isOptionDisabled?.(entryKey) ?? false;
 		const disabledReason = getOptionDisabledReason?.(entryKey);
-		const hint = getOptionHint?.(entryKey);
 		const hasRequestPrice = model.mappings.some(
 			(p) => p.requestPrice && parseFloat(p.requestPrice) > 0,
 		);
@@ -637,18 +628,7 @@ function ModelEntryRowComponent({
 							<Sparkles className="h-6 w-6 shrink-0 text-primary" />
 							<div className="flex flex-col min-w-0 flex-1">
 								<div className="flex items-center gap-1 min-w-0">
-									{hint ? (
-										<Tooltip>
-											<TooltipTrigger asChild>
-												<span className="font-medium truncate cursor-pointer">
-													{model.name}
-												</span>
-											</TooltipTrigger>
-											<TooltipContent>{hint}</TooltipContent>
-										</Tooltip>
-									) : (
-										<span className="font-medium truncate">{model.name}</span>
-									)}
+									<span className="font-medium truncate">{model.name}</span>
 									{isFreeRoot && (
 										<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
 									)}
@@ -820,7 +800,6 @@ export function ModelSelector({
 	mode = "chat",
 	isOptionDisabled,
 	getOptionDisabledReason,
-	getOptionHint,
 }: ModelSelectorProps) {
 	const { isFavorite, toggleFavorite } = useFavoriteModels();
 	const isMobile = useIsMobile();
@@ -1316,7 +1295,6 @@ export function ModelSelector({
 			setDetailsOpen,
 			isOptionDisabled,
 			getOptionDisabledReason,
-			getOptionHint,
 		}),
 
 		[
@@ -1328,7 +1306,6 @@ export function ModelSelector({
 			onValueChange,
 			isOptionDisabled,
 			getOptionDisabledReason,
-			getOptionHint,
 		],
 	);
 
@@ -1742,7 +1719,9 @@ export function ModelSelector({
 														previewEntry.model,
 													);
 
-													const isVideo = mode === "video";
+													const isVideo =
+														mode === "video" ||
+														!!previewEntry.model.output?.includes("video");
 													const minPerSec = isVideo
 														? getMinPerSecondPrice(previewEntry.model.mappings)
 														: null;
@@ -1981,11 +1960,13 @@ export function ModelSelector({
 
 												<div className="space-y-2">
 													<h5 className="font-medium text-xs">
-														{mode === "video"
+														{mode === "video" ||
+														previewEntry.model.output?.includes("video")
 															? "Video Pricing"
 															: "Pricing & Limits"}
 													</h5>
-													{mode === "video" ? (
+													{mode === "video" ||
+													previewEntry.model.output?.includes("video") ? (
 														<div className="grid grid-cols-1 gap-3">
 															<div className="space-y-1">
 																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">

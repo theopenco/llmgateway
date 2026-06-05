@@ -1674,11 +1674,6 @@ export default function ChatPageClient({
 							providers={providers}
 							selectedModel={selectedModel}
 							setSelectedModel={handleSelectModel}
-							getOptionHint={(modelId) =>
-								models.find((m) => m.id === modelId)?.output?.includes("video")
-									? "Opens in Video Studio"
-									: undefined
-							}
 							comparisonEnabled={comparisonEnabled}
 							hideCompare={messages.length > 0}
 							onComparisonEnabledChange={(enabled) => {
@@ -1809,13 +1804,6 @@ export default function ChatPageClient({
 												providers={providers}
 												value={selectedModel}
 												onValueChange={handleSelectModel}
-												getOptionHint={(modelId) =>
-													models
-														.find((m) => m.id === modelId)
-														?.output?.includes("video")
-														? "Opens in Video Studio"
-														: undefined
-												}
 												placeholder="Select a model..."
 											/>
 										</div>
@@ -2612,11 +2600,6 @@ function ExtraChatPanel({
 						providers={providers}
 						value={selectedModel}
 						onValueChange={handleModelChange}
-						getOptionHint={(modelId) =>
-							models.find((m) => m.id === modelId)?.output?.includes("video")
-								? "Opens in Video Studio"
-								: undefined
-						}
 						placeholder="Select a model..."
 					/>
 				</div>
