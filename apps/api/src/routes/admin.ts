@@ -1074,6 +1074,7 @@ admin.openapi(getTimeseries, async (c) => {
 const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d"]);
 const globalStatsGroupBySchema = z.enum(["model", "source"]);
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
+const globalStatsDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 const globalStatsMetricsSchema = z.object({
 	requestCount: z.number(),
@@ -1103,7 +1104,8 @@ const globalStatsBreakdownItemSchema = globalStatsMetricsSchema
 	.openapi({});
 
 const globalStatsResponseSchema = z.object({
-	range: globalStatsRangeSchema,
+	start: z.string(),
+	end: z.string(),
 	groupBy: globalStatsGroupBySchema,
 	modelView: globalStatsModelViewSchema,
 	totals: globalStatsMetricsSchema,
@@ -1117,6 +1119,8 @@ const getGlobalStats = createRoute({
 	request: {
 		query: z.object({
 			range: globalStatsRangeSchema.default("30d").optional(),
+			from: globalStatsDateSchema.optional(),
+			to: globalStatsDateSchema.optional(),
 			groupBy: globalStatsGroupBySchema.default("model").optional(),
 			modelView: globalStatsModelViewSchema.default("mapping").optional(),
 		}),
@@ -1135,23 +1139,45 @@ const getGlobalStats = createRoute({
 
 admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
-	const range = query.range ?? "30d";
 	const groupBy = query.groupBy ?? "model";
 	const modelView = query.modelView ?? "mapping";
 
-	const rangeDays: Record<typeof range, number> = {
-		"7d": 7,
-		"30d": 30,
-		"90d": 90,
-		"365d": 365,
-	};
-	const days = rangeDays[range];
-
 	const dayMs = 24 * 60 * 60 * 1000;
-	const startDate = new Date();
-	startDate.setUTCHours(0, 0, 0, 0);
-	const startMs = startDate.getTime() - (days - 1) * dayMs; // eslint-disable-line no-mixed-operators
-	startDate.setTime(startMs);
+	const MAX_GLOBAL_STATS_DAYS = 731;
+
+	let startDate: Date;
+	let endDate: Date;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00Z");
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(query.to + "T00:00:00Z");
+		endDate.setUTCHours(0, 0, 0, 0);
+		if (endDate.getTime() < startDate.getTime()) {
+			const tmp = startDate;
+			startDate = endDate;
+			endDate = tmp;
+		}
+	} else {
+		const range = query.range ?? "30d";
+		const rangeDays: Record<typeof range, number> = {
+			"7d": 7,
+			"30d": 30,
+			"90d": 90,
+			"365d": 365,
+		};
+		endDate = new Date();
+		endDate.setUTCHours(0, 0, 0, 0);
+		startDate = new Date(endDate.getTime() - (rangeDays[range] - 1) * dayMs); // eslint-disable-line no-mixed-operators
+	}
+
+	let days = Math.floor((endDate.getTime() - startDate.getTime()) / dayMs) + 1;
+	if (days < 1) {
+		days = 1;
+	}
+	if (days > MAX_GLOBAL_STATS_DAYS) {
+		days = MAX_GLOBAL_STATS_DAYS;
+		startDate = new Date(endDate.getTime() - (days - 1) * dayMs); // eslint-disable-line no-mixed-operators
+	}
 
 	const sourceTable =
 		groupBy === "model" ? globalModelStats : globalSourceStats;
@@ -1209,7 +1235,12 @@ admin.openapi(getGlobalStats, async (c) => {
 			...metricSums,
 		})
 		.from(sourceTable)
-		.where(gte(sourceTable.dayTimestamp, startDate))
+		.where(
+			and(
+				gte(sourceTable.dayTimestamp, startDate),
+				lte(sourceTable.dayTimestamp, endDate),
+			),
+		)
 		.groupBy(sourceTable.dayTimestamp)
 		.orderBy(asc(sourceTable.dayTimestamp));
 
@@ -1289,7 +1320,12 @@ admin.openapi(getGlobalStats, async (c) => {
 						...metricSums,
 					})
 					.from(globalModelStats)
-					.where(gte(globalModelStats.dayTimestamp, startDate))
+					.where(
+						and(
+							gte(globalModelStats.dayTimestamp, startDate),
+							lte(globalModelStats.dayTimestamp, endDate),
+						),
+					)
 					.groupBy(globalModelStats.usedModel, globalModelStats.usedProvider)
 					.orderBy(desc(metricSums.requestCount))
 			: await db
@@ -1298,7 +1334,12 @@ admin.openapi(getGlobalStats, async (c) => {
 						...metricSums,
 					})
 					.from(globalSourceStats)
-					.where(gte(globalSourceStats.dayTimestamp, startDate))
+					.where(
+						and(
+							gte(globalSourceStats.dayTimestamp, startDate),
+							lte(globalSourceStats.dayTimestamp, endDate),
+						),
+					)
 					.groupBy(globalSourceStats.source)
 					.orderBy(desc(metricSums.requestCount));
 
@@ -1341,7 +1382,8 @@ admin.openapi(getGlobalStats, async (c) => {
 					});
 
 	return c.json({
-		range,
+		start: startDate.toISOString().split("T")[0],
+		end: endDate.toISOString().split("T")[0],
 		groupBy,
 		modelView,
 		totals,

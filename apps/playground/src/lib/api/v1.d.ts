@@ -2491,6 +2491,8 @@ export interface paths {
             parameters: {
                 query?: {
                     range?: "7d" | "30d" | "90d" | "365d";
+                    from?: string;
+                    to?: string;
                     groupBy?: "model" | "source";
                     modelView?: "mapping" | "canonical" | "provider";
                 };
@@ -2507,8 +2509,8 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            /** @enum {string} */
-                            range: "7d" | "30d" | "90d" | "365d";
+                            start: string;
+                            end: string;
                             /** @enum {string} */
                             groupBy: "model" | "source";
                             /** @enum {string} */
