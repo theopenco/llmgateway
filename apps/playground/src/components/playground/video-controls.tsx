@@ -51,6 +51,7 @@ interface VideoControlsProps {
 	supportedVideoDurations: VideoDuration[];
 	isGenerating: boolean;
 	onGenerate: () => void;
+	imageInputRequired?: boolean;
 }
 
 type UploadTarget = "frame-start" | "frame-end" | "reference";
@@ -76,6 +77,7 @@ export function VideoControls({
 	supportedVideoDurations,
 	isGenerating,
 	onGenerate,
+	imageInputRequired,
 }: VideoControlsProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,7 +85,13 @@ export function VideoControls({
 	const [isDragging, setIsDragging] = useState(false);
 	const [uploadTarget, setUploadTarget] = useState<UploadTarget>("frame-start");
 
-	const canGenerate = prompt.trim().length > 0 && selectedModels.length > 0;
+	const hasImageInput =
+		!!frameInputs.start || !!frameInputs.end || referenceImages.length > 0;
+	const missingRequiredImage = imageInputRequired && !hasImageInput;
+	const canGenerate =
+		prompt.trim().length > 0 &&
+		selectedModels.length > 0 &&
+		!missingRequiredImage;
 	const canAcceptInput = canUseFrameInputs || canUseReferenceInputs;
 	const defaultUploadTarget: UploadTarget = !canUseReferenceInputs
 		? frameInputs.start
@@ -488,6 +496,11 @@ export function VideoControls({
 						<span>Audio</span>
 					</label>
 					<div className="flex-1" />
+					{missingRequiredImage && (
+						<p className="text-sm text-destructive">
+							This model requires an input image
+						</p>
+					)}
 					<Button
 						onClick={onGenerate}
 						disabled={isGenerating || !canGenerate}

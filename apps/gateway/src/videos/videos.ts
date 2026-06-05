@@ -3325,6 +3325,17 @@ videos.openapi(createVideo, async (c) => {
 			message: `Model ${normalizedModel} not found`,
 		});
 	}
+
+	if (
+		"imageInputRequired" in modelInfo &&
+		modelInfo.imageInputRequired &&
+		inputMode === "none"
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${normalizedModel} requires an input image. Please provide an image using the "image" field.`,
+		});
+	}
+
 	const videoSize = getVideoSizeConfig(request.size);
 	const videoDurationSeconds = getVideoDurationSeconds(
 		modelInfo,

@@ -266,6 +266,14 @@ export default function VideoPageClient({
 			}),
 		[selectedModels, availableModelsById],
 	);
+	const someModelsRequireImage = useMemo(
+		() =>
+			selectedModels.some((modelId) => {
+				const model = availableModelsById.get(modelId);
+				return model?.imageInputRequired === true;
+			}),
+		[selectedModels, availableModelsById],
+	);
 	const allModelsRequireNoAudio = useMemo(
 		() =>
 			selectedModels.length > 0 &&
@@ -548,6 +556,17 @@ export default function VideoPageClient({
 				return;
 			}
 
+			if (
+				someModelsRequireImage &&
+				!frameInputs.start &&
+				referenceImages.length === 0
+			) {
+				toast.error(
+					"Selected model requires an input image. Please add a start frame or reference image.",
+				);
+				return;
+			}
+
 			const currentPrompt = effectivePrompt.trim();
 			setIsGenerating(true);
 			posthog.capture("playground_video_generated", {
@@ -723,6 +742,7 @@ export default function VideoPageClient({
 			updateGalleryModel,
 			pathname,
 			router,
+			someModelsRequireImage,
 		],
 	);
 
@@ -878,6 +898,7 @@ export default function VideoPageClient({
 						supportedVideoDurations={supportedVideoRequestOptions.durations}
 						isGenerating={isGenerating}
 						onGenerate={generateVideos}
+						imageInputRequired={someModelsRequireImage}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
 						<div className="max-w-6xl mx-auto">
