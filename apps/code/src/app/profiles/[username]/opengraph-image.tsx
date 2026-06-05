@@ -104,34 +104,72 @@ export default async function OgImage({
 					position: "relative",
 				}}
 			>
-				{/* Brand */}
-				<div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-					<div
-						style={{
-							display: "flex",
-							alignItems: "center",
-							justifyContent: "center",
-							width: "44px",
-							height: "44px",
-							borderRadius: "12px",
-							background: "#fafafa",
-							color: "#0a0a0b",
-							fontSize: "24px",
-							fontWeight: 700,
-						}}
-					>
-						{"</>"}
-					</div>
-					<div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
-						<span
-							style={{ color: "#fafafa", fontSize: "30px", fontWeight: 700 }}
+				{/* Top: brand + top coding agent */}
+				<div
+					style={{
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "space-between",
+					}}
+				>
+					<div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								width: "44px",
+								height: "44px",
+								borderRadius: "12px",
+								background: "#fafafa",
+								color: "#0a0a0b",
+								fontSize: "24px",
+								fontWeight: 700,
+							}}
 						>
-							DevPass
-						</span>
-						<span style={{ color: "#71717a", fontSize: "20px" }}>
-							by LLM Gateway
-						</span>
+							{"</>"}
+						</div>
+						<div
+							style={{ display: "flex", alignItems: "baseline", gap: "10px" }}
+						>
+							<span
+								style={{ color: "#fafafa", fontSize: "30px", fontWeight: 700 }}
+							>
+								DevPass
+							</span>
+							<span style={{ color: "#71717a", fontSize: "20px" }}>
+								by LLM Gateway
+							</span>
+						</div>
 					</div>
+
+					{topAgentLabel && (
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: "10px",
+								padding: "10px 18px",
+								borderRadius: "9999px",
+								background: "rgba(16,185,129,0.12)",
+								border: "1px solid rgba(16,185,129,0.35)",
+							}}
+						>
+							<div
+								style={{
+									width: "10px",
+									height: "10px",
+									borderRadius: "9999px",
+									background: "#10b981",
+								}}
+							/>
+							<span
+								style={{ color: "#fafafa", fontSize: "22px", fontWeight: 600 }}
+							>
+								{topAgentLabel}
+							</span>
+						</div>
+					)}
 				</div>
 
 				{/* Name */}
@@ -184,76 +222,33 @@ export default async function OgImage({
 					</div>
 				</div>
 
-				{/* Bottom: heatmap + top coding agent */}
+				{/* Heatmap */}
 				<div
 					style={{
 						display: "flex",
-						flexDirection: "column",
-						gap: "28px",
+						gap: "4px",
 						marginTop: "auto",
 					}}
 				>
-					<div
-						style={{
-							display: "flex",
-							gap: "4px",
-						}}
-					>
-						{weeks.map((week, wi) => (
-							<div
-								key={wi}
-								style={{ display: "flex", flexDirection: "column", gap: "4px" }}
-							>
-								{week.map((count, di) => (
-									<div
-										key={di}
-										style={{
-											width: "14px",
-											height: "14px",
-											borderRadius: "3px",
-											background:
-												count < 0 ? "transparent" : cellColor(count, max),
-										}}
-									/>
-								))}
-							</div>
-						))}
-					</div>
-
-					{/* Top coding agent */}
-					<div style={{ display: "flex", justifyContent: "flex-end" }}>
-						{topAgentLabel && (
-							<div
-								style={{
-									display: "flex",
-									alignItems: "center",
-									gap: "10px",
-									padding: "10px 18px",
-									borderRadius: "9999px",
-									background: "rgba(16,185,129,0.12)",
-									border: "1px solid rgba(16,185,129,0.35)",
-								}}
-							>
+					{weeks.map((week, wi) => (
+						<div
+							key={wi}
+							style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+						>
+							{week.map((count, di) => (
 								<div
+									key={di}
 									style={{
-										width: "10px",
-										height: "10px",
-										borderRadius: "9999px",
-										background: "#10b981",
+										width: "14px",
+										height: "14px",
+										borderRadius: "3px",
+										background:
+											count < 0 ? "transparent" : cellColor(count, max),
 									}}
 								/>
-								<span
-									style={{
-										color: "#fafafa",
-										fontSize: "22px",
-										fontWeight: 600,
-									}}
-								>
-									{topAgentLabel}
-								</span>
-							</div>
-						)}
-					</div>
+							))}
+						</div>
+					))}
 				</div>
 			</div>
 		),
