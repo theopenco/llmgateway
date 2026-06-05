@@ -4,9 +4,10 @@
  * stored as the cumulative `charge.amount_refunded` (pre-fix in
  * apps/api/src/stripe.ts) and which therefore have no stripe_refund_id.
  *
- * For each affected payment intent, pulls the actual refunds from Stripe,
- * deletes the legacy NULL-refund-id rows, and inserts one correct row per
- * Stripe refund delta — keyed on stripe_refund_id so the run is idempotent.
+ * For each affected DevPass payment intent, pulls the actual refunds from
+ * Stripe, deletes the DevPass legacy NULL-refund-id rows, and inserts one
+ * correct row per Stripe refund delta — keyed on stripe_refund_id so the run is
+ * idempotent. Regular credit top-up refunds are intentionally skipped.
  *
  * Usage:
  *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds                       # dry run
@@ -20,9 +21,20 @@
 
 import Stripe from "stripe";
 
-import { and, db, eq, isNull, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, isNull, tables } from "@llmgateway/db";
 
 const STRIPE_API_VERSION = "2025-04-30.basil" as const;
+const DEV_PLAN_TX_TYPES = [
+	"dev_plan_start",
+	"dev_plan_upgrade",
+	"dev_plan_downgrade",
+	"dev_plan_renewal",
+] as const;
+const LEGACY_DEV_PLAN_TX_TYPES = [
+	"subscription_start",
+	"subscription_cancel",
+	"subscription_end",
+] as const;
 
 function getStripe(): Stripe {
 	const key = process.env.STRIPE_SECRET_KEY;
@@ -77,9 +89,64 @@ async function main(): Promise<void> {
 		process.exit(0);
 	}
 
-	const byPI = new Map<string, typeof legacyRows>();
-	const noPI: typeof legacyRows = [];
+	const devpassRows: typeof legacyRows = [];
+	const originalAmountByRefundId = new Map<string, number>();
+	let nonDevpassRows = 0;
 	for (const row of legacyRows) {
+		if (!row.relatedTransactionId) {
+			nonDevpassRows += 1;
+			continue;
+		}
+
+		const original = await db.query.transaction.findFirst({
+			where: { id: { eq: row.relatedTransactionId } },
+		});
+		if (!original) {
+			nonDevpassRows += 1;
+			continue;
+		}
+
+		const isDevPlan = (DEV_PLAN_TX_TYPES as readonly string[]).includes(
+			original.type,
+		);
+		const isLegacyDevPlan = (
+			LEGACY_DEV_PLAN_TX_TYPES as readonly string[]
+		).includes(original.type);
+		if (isLegacyDevPlan) {
+			const organization = await db.query.organization.findFirst({
+				where: { id: { eq: row.organizationId } },
+			});
+			if (!organization?.isPersonal) {
+				nonDevpassRows += 1;
+				continue;
+			}
+		}
+
+		if (!isDevPlan && !isLegacyDevPlan) {
+			nonDevpassRows += 1;
+			continue;
+		}
+
+		devpassRows.push(row);
+		originalAmountByRefundId.set(
+			row.id,
+			Number.parseFloat(original.amount ?? "0"),
+		);
+	}
+
+	if (nonDevpassRows > 0) {
+		console.log(
+			`Skipping ${nonDevpassRows} non-DevPass legacy refund row(s).`,
+		);
+	}
+	if (devpassRows.length === 0) {
+		console.log("No DevPass refund rows to backfill.");
+		process.exit(0);
+	}
+
+	const byPI = new Map<string, typeof devpassRows>();
+	const noPI: typeof legacyRows = [];
+	for (const row of devpassRows) {
 		if (!row.stripePaymentIntentId) {
 			noPI.push(row);
 			continue;
@@ -105,7 +172,6 @@ async function main(): Promise<void> {
 	let totalInsert = 0;
 	let totalDelete = 0;
 	let totalSkippedPI = 0;
-	let totalReconcileNeeded = 0;
 
 	for (const [pi, rows] of byPI) {
 		console.log(`=== ${pi} (${rows.length} legacy row(s)) ===`);
@@ -183,34 +249,7 @@ async function main(): Promise<void> {
 		}
 
 		const sample = rows[0];
-		if (!sample.relatedTransactionId) {
-			console.warn(
-				`  No related_transaction_id on legacy rows — cannot determine original tx, skipping`,
-			);
-			totalSkippedPI += 1;
-			continue;
-		}
-
-		const original = await db.query.transaction.findFirst({
-			where: { id: { eq: sample.relatedTransactionId } },
-		});
-		if (!original) {
-			console.warn(
-				`  Original transaction ${sample.relatedTransactionId} not found — skipping`,
-			);
-			totalSkippedPI += 1;
-			continue;
-		}
-
-		const isCreditTopup = original.type === "credit_topup";
-		if (isCreditTopup) {
-			console.warn(
-				`  WARNING: original tx is credit_topup (amount=$${original.amount}, credit=${original.creditAmount}) — creditAmount will be deducted 1:1 with refunded dollars (matching current webhook behavior), but organization.credits balance is NOT reverted/reapplied here. Manual credit reconciliation may be needed.`,
-			);
-			totalReconcileNeeded += 1;
-		}
-
-		const originalCredit = Number.parseFloat(original.creditAmount ?? "0");
+		const originalAmount = originalAmountByRefundId.get(sample.id) ?? 0;
 
 		console.log(
 			`  Plan: delete ${rows.length} legacy row(s), insert ${toInsert.length} correct row(s) — net change to refund total: $${(stripeTotal - legacyTotal).toFixed(2)}`,
@@ -221,24 +260,22 @@ async function main(): Promise<void> {
 				await tx
 					.delete(tables.transaction)
 					.where(
-						and(
-							eq(tables.transaction.type, "credit_refund"),
-							eq(tables.transaction.stripePaymentIntentId, pi),
-							isNull(tables.transaction.stripeRefundId),
+						inArray(
+							tables.transaction.id,
+							rows.map((row) => row.id),
 						),
 					);
 
 				for (const r of toInsert) {
 					const refundDollars = r.amount / 100;
-					const ratio = originalCredit > 0 ? refundDollars / originalCredit : 0;
-					const creditRefundAmount = isCreditTopup ? refundDollars : 0;
+					const ratio = originalAmount > 0 ? refundDollars / originalAmount : 0;
 					await tx.insert(tables.transaction).values({
 						createdAt: new Date(r.created * 1000),
 						updatedAt: new Date(r.created * 1000),
 						organizationId: sample.organizationId,
 						type: "credit_refund",
 						amount: refundDollars.toString(),
-						creditAmount: (-creditRefundAmount).toString(),
+						creditAmount: "0",
 						currency: sample.currency ?? "USD",
 						status: "completed",
 						stripePaymentIntentId: pi,
@@ -264,11 +301,6 @@ async function main(): Promise<void> {
 		`  ${totalInsert} correct row(s) ${commit ? "inserted" : "would be inserted"}`,
 	);
 	console.log(`  ${totalSkippedPI} payment intent(s) skipped`);
-	if (totalReconcileNeeded > 0) {
-		console.log(
-			`  ${totalReconcileNeeded} payment intent(s) involve credit_topup — review organization.credits manually`,
-		);
-	}
 
 	if (!commit) {
 		console.log(`\n(Dry run — re-run with --commit to apply)`);
