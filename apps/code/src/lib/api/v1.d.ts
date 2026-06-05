@@ -8119,7 +8119,7 @@ export interface paths {
                                 /** @enum {string} */
                                 chatPlan: "none" | "starter" | "plus" | "pro";
                                 /** @enum {string} */
-                                chatPlanCycle: "monthly" | "annual";
+                                chatPlanCycle: "monthly";
                                 chatPlanCreditsUsed: string;
                                 chatPlanCreditsLimit: string;
                                 chatPlanBillingCycleStart: string | null;
@@ -8190,7 +8190,7 @@ export interface paths {
                                 /** @enum {string} */
                                 chatPlan: "none" | "starter" | "plus" | "pro";
                                 /** @enum {string} */
-                                chatPlanCycle: "monthly" | "annual";
+                                chatPlanCycle: "monthly";
                                 chatPlanCreditsUsed: string;
                                 chatPlanCreditsLimit: string;
                                 chatPlanBillingCycleStart: string | null;
@@ -8390,7 +8390,7 @@ export interface paths {
                                 /** @enum {string} */
                                 chatPlan: "none" | "starter" | "plus" | "pro";
                                 /** @enum {string} */
-                                chatPlanCycle: "monthly" | "annual";
+                                chatPlanCycle: "monthly";
                                 chatPlanCreditsUsed: string;
                                 chatPlanCreditsLimit: string;
                                 chatPlanBillingCycleStart: string | null;

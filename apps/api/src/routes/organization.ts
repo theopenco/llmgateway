@@ -56,7 +56,7 @@ const organizationSchema = z.object({
 	devPlanAllowAllModels: z.boolean(),
 	// Chat Plans fields
 	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
-	chatPlanCycle: z.enum(["monthly", "annual"]),
+	chatPlanCycle: z.enum(["monthly"]),
 	chatPlanCreditsUsed: z.string(),
 	chatPlanCreditsLimit: z.string(),
 	chatPlanBillingCycleStart: z.date().nullable(),
