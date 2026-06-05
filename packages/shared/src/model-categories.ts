@@ -18,6 +18,9 @@ export const PREMIUM_MODEL_IDS = new Set<string>([
 	"claude-opus-4-20250514",
 	"claude-opus-4-1-20250805",
 	"claude-opus-4-5-20251101",
+	"claude-opus-4-6",
+	"claude-opus-4-7",
+	"claude-opus-4-8",
 
 	// OpenAI — Pro and reasoning flagships
 	"o1",

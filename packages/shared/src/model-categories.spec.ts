@@ -12,6 +12,21 @@ describe("model-categories", () => {
 		expect(getModelCategory("claude-opus-4-5-20251101")).toBe("premium");
 	});
 
+	it("classifies all catalog Opus models as premium", () => {
+		for (const modelId of [
+			"claude-3-opus",
+			"claude-opus-4-20250514",
+			"claude-opus-4-1-20250805",
+			"claude-opus-4-5-20251101",
+			"claude-opus-4-6",
+			"claude-opus-4-7",
+			"claude-opus-4-8",
+		]) {
+			expect(isPremiumModel(modelId)).toBe(true);
+			expect(getModelCategory(modelId)).toBe("premium");
+		}
+	});
+
 	it("classifies an unknown model as standard", () => {
 		expect(isPremiumModel("some-non-existent-model")).toBe(false);
 		expect(getModelCategory("some-non-existent-model")).toBe("standard");
