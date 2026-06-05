@@ -39,6 +39,12 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useFavoriteModels } from "@/hooks/useFavoriteModels";
 import { useApi } from "@/lib/fetch-client";
@@ -71,6 +77,7 @@ interface ModelSelectorProps {
 	mode?: "chat" | "video" | "image";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
+	getOptionHint?: (value: string) => string | undefined;
 }
 
 interface FilterState {
@@ -553,6 +560,7 @@ interface ModelEntryRowProps {
 	setDetailsOpen: (open: boolean) => void;
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
+	getOptionHint?: (value: string) => string | undefined;
 }
 
 function ModelEntryRowComponent({
@@ -571,6 +579,7 @@ function ModelEntryRowComponent({
 	setDetailsOpen,
 	isOptionDisabled,
 	getOptionDisabledReason,
+	getOptionHint,
 }: RowComponentProps<ModelEntryRowProps>) {
 	const entry = entries[index];
 	if (!entry) {
@@ -584,6 +593,7 @@ function ModelEntryRowComponent({
 		const entryKey = model.id;
 		const disabled = isOptionDisabled?.(entryKey) ?? false;
 		const disabledReason = getOptionDisabledReason?.(entryKey);
+		const hint = getOptionHint?.(entryKey);
 		const hasRequestPrice = model.mappings.some(
 			(p) => p.requestPrice && parseFloat(p.requestPrice) > 0,
 		);
@@ -595,88 +605,100 @@ function ModelEntryRowComponent({
 					(!p.inputPrice || parseFloat(p.inputPrice) === 0) &&
 					(!p.outputPrice || parseFloat(p.outputPrice) === 0),
 			);
+		const rowInner = (
+			<div
+				title={disabledReason}
+				onMouseEnter={() => {
+					setFocusedIndex(index);
+					setPreviewEntry({ model, mapping, provider, isRoot });
+				}}
+				onClick={() => {
+					if (disabled) {
+						return;
+					}
+					onSelect(model.id);
+				}}
+				className={cn(
+					"relative flex h-full select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
+					isFocused
+						? "bg-accent text-accent-foreground"
+						: "hover:bg-accent hover:text-accent-foreground",
+					disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+				)}
+			>
+				<Check
+					className={cn(
+						"h-4 w-4 shrink-0",
+						entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
+					)}
+				/>
+				<div className="flex items-center justify-between flex-1 min-w-0 gap-2">
+					<div className="flex items-center gap-2 min-w-0 flex-1">
+						<Sparkles className="h-6 w-6 shrink-0 text-primary" />
+						<div className="flex flex-col min-w-0 flex-1">
+							<div className="flex items-center gap-1 min-w-0">
+								<span className="font-medium truncate">{model.name}</span>
+								{isFreeRoot && (
+									<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+								)}
+							</div>
+							<span className="text-xs text-muted-foreground truncate">
+								Auto-select provider
+							</span>
+						</div>
+					</div>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label={
+							isFavorite(model.id)
+								? "Remove from favorites"
+								: "Add to favorites"
+						}
+						aria-pressed={isFavorite(model.id)}
+						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
+						onClick={(e) => {
+							e.stopPropagation();
+							toggleFavorite(model.id);
+						}}
+					>
+						<Star
+							className={cn(
+								"h-4 w-4",
+								isFavorite(model.id)
+									? "fill-yellow-400 text-yellow-400"
+									: "text-muted-foreground",
+							)}
+						/>
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label="Model details"
+						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
+						onClick={(e) => {
+							e.stopPropagation();
+							setSelectedDetails({ model });
+							setDetailsOpen(true);
+						}}
+					>
+						<Info className="h-4 w-4" />
+					</Button>
+				</div>
+			</div>
+		);
 		return (
 			<div {...ariaAttributes} style={style} className="px-1 py-0.5">
-				<div
-					title={disabledReason}
-					onMouseEnter={() => {
-						setFocusedIndex(index);
-						setPreviewEntry({ model, mapping, provider, isRoot });
-					}}
-					onClick={() => {
-						if (disabled) {
-							return;
-						}
-						onSelect(model.id);
-					}}
-					className={cn(
-						"relative flex h-full select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
-						isFocused
-							? "bg-accent text-accent-foreground"
-							: "hover:bg-accent hover:text-accent-foreground",
-						disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-					)}
-				>
-					<Check
-						className={cn(
-							"h-4 w-4 shrink-0",
-							entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
-						)}
-					/>
-					<div className="flex items-center justify-between flex-1 min-w-0 gap-2">
-						<div className="flex items-center gap-2 min-w-0 flex-1">
-							<Sparkles className="h-6 w-6 shrink-0 text-primary" />
-							<div className="flex flex-col min-w-0 flex-1">
-								<div className="flex items-center gap-1 min-w-0">
-									<span className="font-medium truncate">{model.name}</span>
-									{isFreeRoot && (
-										<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-									)}
-								</div>
-								<span className="text-xs text-muted-foreground truncate">
-									{disabledReason ?? "Auto-select provider"}
-								</span>
-							</div>
-						</div>
-						<Button
-							variant="ghost"
-							size="sm"
-							aria-label={
-								isFavorite(model.id)
-									? "Remove from favorites"
-									: "Add to favorites"
-							}
-							aria-pressed={isFavorite(model.id)}
-							className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
-							onClick={(e) => {
-								e.stopPropagation();
-								toggleFavorite(model.id);
-							}}
-						>
-							<Star
-								className={cn(
-									"h-4 w-4",
-									isFavorite(model.id)
-										? "fill-yellow-400 text-yellow-400"
-										: "text-muted-foreground",
-								)}
-							/>
-						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
-							aria-label="Model details"
-							className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
-							onClick={(e) => {
-								e.stopPropagation();
-								setSelectedDetails({ model });
-								setDetailsOpen(true);
-							}}
-						>
-							<Info className="h-4 w-4" />
-						</Button>
-					</div>
-				</div>
+				{hint ? (
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>{rowInner}</TooltipTrigger>
+							<TooltipContent>{hint}</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
+				) : (
+					rowInner
+				)}
 			</div>
 		);
 	}
@@ -800,6 +822,7 @@ export function ModelSelector({
 	mode = "chat",
 	isOptionDisabled,
 	getOptionDisabledReason,
+	getOptionHint,
 }: ModelSelectorProps) {
 	const { isFavorite, toggleFavorite } = useFavoriteModels();
 	const isMobile = useIsMobile();
@@ -1295,6 +1318,7 @@ export function ModelSelector({
 			setDetailsOpen,
 			isOptionDisabled,
 			getOptionDisabledReason,
+			getOptionHint,
 		}),
 
 		[
@@ -1306,6 +1330,7 @@ export function ModelSelector({
 			onValueChange,
 			isOptionDisabled,
 			getOptionDisabledReason,
+			getOptionHint,
 		],
 	);
 

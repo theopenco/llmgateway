@@ -1674,7 +1674,7 @@ export default function ChatPageClient({
 							providers={providers}
 							selectedModel={selectedModel}
 							setSelectedModel={handleSelectModel}
-							getOptionDisabledReason={(modelId) =>
+							getOptionHint={(modelId) =>
 								models.find((m) => m.id === modelId)?.output?.includes("video")
 									? "Opens in Video Studio"
 									: undefined
@@ -1809,7 +1809,7 @@ export default function ChatPageClient({
 												providers={providers}
 												value={selectedModel}
 												onValueChange={handleSelectModel}
-												getOptionDisabledReason={(modelId) =>
+												getOptionHint={(modelId) =>
 													models
 														.find((m) => m.id === modelId)
 														?.output?.includes("video")
@@ -2612,7 +2612,7 @@ function ExtraChatPanel({
 						providers={providers}
 						value={selectedModel}
 						onValueChange={handleModelChange}
-						getOptionDisabledReason={(modelId) =>
+						getOptionHint={(modelId) =>
 							models.find((m) => m.id === modelId)?.output?.includes("video")
 								? "Opens in Video Studio"
 								: undefined
