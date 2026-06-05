@@ -4,8 +4,8 @@
  * stored as the cumulative `charge.amount_refunded` (pre-fix in
  * apps/api/src/stripe.ts) and which therefore have no stripe_refund_id.
  *
- * For each affected DevPass payment intent, pulls the actual refunds from
- * Stripe, deletes the DevPass legacy NULL-refund-id rows, and inserts one
+ * For each affected DevPass payment intent, pulls the actual succeeded refunds
+ * from Stripe, deletes the DevPass legacy NULL-refund-id rows, and inserts one
  * correct row per Stripe refund delta — keyed on stripe_refund_id so the run is
  * idempotent. Regular credit top-up refunds are intentionally skipped.
  *
@@ -187,13 +187,13 @@ async function main(): Promise<void> {
 			);
 		}
 
-		let refunds: Stripe.Refund[] = [];
+		let refundAttempts: Stripe.Refund[] = [];
 		try {
 			for await (const r of stripe.refunds.list({
 				payment_intent: pi,
 				limit: 100,
 			})) {
-				refunds.push(r);
+				refundAttempts.push(r);
 			}
 		} catch (err) {
 			console.warn(
@@ -203,7 +203,7 @@ async function main(): Promise<void> {
 			continue;
 		}
 
-		if (refunds.length === 0) {
+		if (refundAttempts.length === 0) {
 			console.warn(
 				`  No Stripe refunds found for this PI — leaving legacy rows in place`,
 			);
@@ -211,15 +211,35 @@ async function main(): Promise<void> {
 			continue;
 		}
 
-		refunds = refunds.sort((a, b) => a.created - b.created);
+		refundAttempts = refundAttempts.sort((a, b) => a.created - b.created);
+		const skippedAttempts = refundAttempts.filter((r) => r.status !== "succeeded");
+		if (skippedAttempts.length > 0) {
+			console.log(
+				`  Ignoring ${skippedAttempts.length} non-succeeded Stripe refund attempt(s):`,
+			);
+			for (const r of skippedAttempts) {
+				console.log(
+					`    - ${r.id} $${(r.amount / 100).toFixed(2)} status=${r.status ?? "unknown"} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
+				);
+			}
+		}
+
+		const refunds = refundAttempts.filter((r) => r.status === "succeeded");
+		if (refunds.length === 0) {
+			console.warn(
+				`  No succeeded Stripe refunds found for this PI — leaving legacy rows in place`,
+			);
+			totalSkippedPI += 1;
+			continue;
+		}
 
 		const stripeTotal = refunds.reduce((s, r) => s + r.amount / 100, 0);
 		console.log(
-			`  Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`,
+			`  Succeeded Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`,
 		);
 		for (const r of refunds) {
 			console.log(
-				`    - ${r.id} $${(r.amount / 100).toFixed(2)} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
+				`    - ${r.id} $${(r.amount / 100).toFixed(2)} status=${r.status ?? "unknown"} created=${new Date(r.created * 1000).toISOString()} reason=${r.reason ?? "—"}`,
 			);
 		}
 
