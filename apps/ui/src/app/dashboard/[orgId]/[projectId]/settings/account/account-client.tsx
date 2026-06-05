@@ -4,6 +4,17 @@ import { useEffect, useState } from "react";
 
 import { useDeleteAccount, useUpdateUser } from "@/hooks/useUser";
 import { useUser } from "@/hooks/useUser";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/lib/components/alert-dialog";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -79,14 +90,6 @@ export function AccountClient() {
 	};
 
 	const handleDeleteAccount = async () => {
-		const confirmed = window.confirm(
-			"Are you sure you want to delete your account? This action cannot be undone. Billing records of credits you purchased and spent are retained for 10 years as required by tax and accounting law.",
-		);
-
-		if (!confirmed) {
-			return;
-		}
-
 		try {
 			await deleteAccountMutation.mutateAsync({});
 
@@ -189,15 +192,44 @@ export function AccountClient() {
 							</p>
 						</CardContent>
 						<CardFooter>
-							<Button
-								variant="destructive"
-								onClick={handleDeleteAccount}
-								disabled={deleteAccountMutation.isPending}
-							>
-								{deleteAccountMutation.isPending
-									? "Deleting..."
-									: "Delete Account"}
-							</Button>
+							<AlertDialog>
+								<AlertDialogTrigger asChild>
+									<Button
+										variant="destructive"
+										disabled={deleteAccountMutation.isPending}
+									>
+										{deleteAccountMutation.isPending
+											? "Deleting..."
+											: "Delete Account"}
+									</Button>
+								</AlertDialogTrigger>
+								<AlertDialogContent>
+									<AlertDialogHeader>
+										<AlertDialogTitle>
+											Are you absolutely sure?
+										</AlertDialogTitle>
+										<AlertDialogDescription>
+											This permanently deletes your account, including API keys,
+											usage history, and provider connections. This action
+											cannot be undone. Billing records of credits you purchased
+											and spent are retained for 10 years as required by tax and
+											accounting law.
+										</AlertDialogDescription>
+									</AlertDialogHeader>
+									<AlertDialogFooter>
+										<AlertDialogCancel>Cancel</AlertDialogCancel>
+										<AlertDialogAction
+											onClick={handleDeleteAccount}
+											disabled={deleteAccountMutation.isPending}
+											className="bg-destructive text-white hover:bg-destructive/90"
+										>
+											{deleteAccountMutation.isPending
+												? "Deleting..."
+												: "Delete Account"}
+										</AlertDialogAction>
+									</AlertDialogFooter>
+								</AlertDialogContent>
+							</AlertDialog>
 						</CardFooter>
 					</Card>
 				</div>
