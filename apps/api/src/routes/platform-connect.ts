@@ -5,7 +5,7 @@ import { z } from "zod";
 import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 import { getStripe } from "@/routes/payments.js";
 
-import { and, db, eq, sql, tables } from "@llmgateway/db";
+import { and, db, eq, shortid, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
@@ -217,18 +217,29 @@ platformConnect.openapi(createPayout, async (c) => {
 		});
 	}
 
+	// Unique per-payout reference. The idempotency key MUST NOT be derived from
+	// the amount alone: two distinct payouts of the same cents value (here or via
+	// the auto-payout worker) within Stripe's idempotency window would collide,
+	// silently replaying the first transfer (no money moves) while we still debit
+	// the margin balance — losing the developer's funds. A fresh ref per
+	// reservation keeps single-call network retries safe (the Stripe SDK reuses
+	// this key) while letting genuinely distinct payouts through.
+	const payoutRef = shortid();
+
 	let transfer: { id: string };
 	try {
-		// Idempotency key derived from the org + the integer balance so retries
-		// with the same accrued balance don't double-pay.
 		transfer = await getStripe().transfers.create(
 			{
 				amount: amountCents,
 				currency: "usd",
 				destination: org.stripeConnectAccountId,
-				metadata: { organizationId: org.id, kind: "end_user_margin_payout" },
+				metadata: {
+					organizationId: org.id,
+					kind: "end_user_margin_payout",
+					payoutRef,
+				},
 			},
-			{ idempotencyKey: `margin_payout_${org.id}_${amountCents}` },
+			{ idempotencyKey: `margin_payout_${org.id}_${payoutRef}` },
 		);
 	} catch (err) {
 		// Transfer failed — restore the reserved funds.

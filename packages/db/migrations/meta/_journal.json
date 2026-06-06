@@ -1058,6 +1058,13 @@
       "when": 1780775243266,
       "tag": "1780775243_embeddable_end_user_wallets",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "8",
+      "when": 1780786502936,
+      "tag": "1780786502_nosy_thunderbolt",
+      "breakpoints": true
     }
   ]
 }

@@ -635,6 +635,12 @@ export const walletLedger = pgTable(
 		uniqueIndex("wallet_ledger_topup_payment_intent_unique")
 			.on(table.stripePaymentIntentId)
 			.where(sql`${table.type} = 'topup'`),
+		// Idempotency guard: at most one reversal row per PaymentIntent, so
+		// concurrent / re-delivered charge.refunded webhooks can't double-reverse a
+		// wallet (debit twice + claw back margin twice).
+		uniqueIndex("wallet_ledger_reversal_payment_intent_unique")
+			.on(table.stripePaymentIntentId)
+			.where(sql`${table.type} = 'reversal'`),
 	],
 );
 

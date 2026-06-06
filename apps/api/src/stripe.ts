@@ -1512,53 +1512,81 @@ async function handleEndUserTopUpRefunded(
 		return;
 	}
 
-	const wallet = await db.query.wallet.findFirst({
-		where: { id: { eq: topUp.walletId } },
-	});
-	if (!wallet) {
-		logger.error(`Wallet not found for end-user refund: ${topUp.walletId}`);
-		return;
-	}
-
 	const credited = Number(topUp.netCredited ?? "0");
-	const currentBalance = Number(wallet.balance ?? "0");
-	const reversal = Math.min(credited, Math.max(currentBalance, 0));
 	const developerMargin = Number(topUp.developerMargin ?? "0");
 
-	const [updated] = await db
-		.update(tables.wallet)
-		.set({ balance: sql`${tables.wallet.balance} - ${reversal}` })
-		.where(eq(tables.wallet.id, topUp.walletId))
-		.returning();
+	// Debit the wallet, write the reversal ledger row, and claw back the margin
+	// atomically. The ledger insert hits the unique partial index
+	// (wallet_ledger_reversal_payment_intent_unique), so a concurrent / re-
+	// delivered charge.refunded rolls the whole transaction back instead of
+	// double-reversing. The wallet is locked + re-read inside the transaction so
+	// the balance clamp can't go stale against a concurrent debit.
+	let reversal: number;
+	try {
+		reversal = await db.transaction(async (tx) => {
+			const [wallet] = await tx
+				.select()
+				.from(tables.wallet)
+				.where(eq(tables.wallet.id, topUp.walletId))
+				.for("update")
+				.limit(1);
+			if (!wallet) {
+				logger.error(`Wallet not found for end-user refund: ${topUp.walletId}`);
+				return 0;
+			}
 
-	await db.insert(tables.walletLedger).values({
-		walletId: topUp.walletId,
-		endCustomerId: topUp.endCustomerId,
-		organizationId: topUp.organizationId,
-		type: "reversal",
-		amount: String(-reversal),
-		balanceAfter: updated.balance,
-		stripePaymentIntentId: topUp.stripePaymentIntentId,
-		description: "End-user top-up refund",
-	});
+			const currentBalance = Number(wallet.balance ?? "0");
+			const amount = Math.min(credited, Math.max(currentBalance, 0));
 
-	if (developerMargin > 0) {
-		await db
-			.update(tables.organization)
-			.set({
-				endUserMarginBalance: sql`GREATEST(${tables.organization.endUserMarginBalance} - ${developerMargin}, 0)`,
-			})
-			.where(eq(tables.organization.id, topUp.organizationId));
+			const [updated] = await tx
+				.update(tables.wallet)
+				.set({ balance: sql`${tables.wallet.balance} - ${amount}` })
+				.where(eq(tables.wallet.id, topUp.walletId))
+				.returning();
 
-		await db.insert(tables.transaction).values({
-			organizationId: topUp.organizationId,
-			type: "end_user_refund",
-			amount: String(developerMargin),
-			creditAmount: String(developerMargin),
-			status: "completed",
-			stripePaymentIntentId: topUp.stripePaymentIntentId,
-			description: `End-user top-up refund margin claw-back (wallet ${topUp.walletId})`,
+			await tx.insert(tables.walletLedger).values({
+				walletId: topUp.walletId,
+				endCustomerId: topUp.endCustomerId,
+				organizationId: topUp.organizationId,
+				type: "reversal",
+				amount: String(-amount),
+				balanceAfter: updated.balance,
+				stripePaymentIntentId: topUp.stripePaymentIntentId,
+				description: "End-user top-up refund",
+			});
+
+			if (developerMargin > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						endUserMarginBalance: sql`GREATEST(${tables.organization.endUserMarginBalance} - ${developerMargin}, 0)`,
+					})
+					.where(eq(tables.organization.id, topUp.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: topUp.organizationId,
+					type: "end_user_refund",
+					amount: String(developerMargin),
+					creditAmount: String(developerMargin),
+					status: "completed",
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description: `End-user top-up refund margin claw-back (wallet ${topUp.walletId})`,
+				});
+			}
+
+			return amount;
 		});
+	} catch (err) {
+		const code =
+			(err as { code?: string; cause?: { code?: string } })?.code ??
+			(err as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			logger.info(
+				`Skipping duplicate end-user refund for wallet ${topUp.walletId} (concurrent delivery for ${topUp.stripePaymentIntentId})`,
+			);
+			return;
+		}
+		throw err;
 	}
 
 	logger.info(

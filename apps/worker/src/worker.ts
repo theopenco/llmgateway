@@ -26,6 +26,7 @@ import {
 	type LogInsertData,
 	lt,
 	organization,
+	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -2005,6 +2006,15 @@ async function processMarginPayouts(): Promise<void> {
 				continue;
 			}
 
+			// Unique per-payout reference. The idempotency key MUST NOT be derived
+			// from the amount alone: two distinct payouts of the same cents value
+			// within Stripe's idempotency window would collide, silently replaying
+			// the first transfer (no money moves) while we still debit the margin
+			// balance — losing the developer's funds. A fresh ref per reservation
+			// keeps single-call network retries safe (the Stripe SDK reuses this
+			// key) while letting genuinely distinct payouts through.
+			const payoutRef = shortid();
+
 			try {
 				const transfer = await getStripe().transfers.create(
 					{
@@ -2014,9 +2024,10 @@ async function processMarginPayouts(): Promise<void> {
 						metadata: {
 							organizationId: org.id,
 							kind: "end_user_margin_payout",
+							payoutRef,
 						},
 					},
-					{ idempotencyKey: `margin_payout_${org.id}_${amountCents}` },
+					{ idempotencyKey: `margin_payout_${org.id}_${payoutRef}` },
 				);
 
 				await db.insert(tables.transaction).values({
