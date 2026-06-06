@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -162,11 +163,25 @@ organization.openapi(getOrganizations, async (c) => {
 		},
 	});
 
-	const organizations = userOrganizations
+	let organizations = userOrganizations
 		.map((uo) => uo.organization!)
 		.filter((org) => org.status !== "deleted")
 		// Hide personal orgs from regular UI - they are only visible on devpass.llmgateway.io
 		.filter((org) => !org.isPersonal);
+
+	if (organizations.length === 0) {
+		const defaultOrganization = await getOrCreateDefaultOrganization({
+			id: user.id,
+			email: user.email,
+		});
+
+		if (
+			defaultOrganization.status !== "deleted" &&
+			!defaultOrganization.isPersonal
+		) {
+			organizations = [defaultOrganization];
+		}
+	}
 
 	return c.json({
 		organizations,

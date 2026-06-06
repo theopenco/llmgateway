@@ -1,0 +1,2 @@
+ALTER TABLE "organization" ADD COLUMN "dev_plan_credits_frozen" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "organization" ADD COLUMN "dev_plan_credits_limit_before_freeze" numeric;

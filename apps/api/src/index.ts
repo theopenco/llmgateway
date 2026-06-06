@@ -27,6 +27,7 @@ import { publicChatSupport } from "./routes/public-chat-support.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
+import { publicProfile } from "./routes/public-profile.js";
 import { publicProvidersStats } from "./routes/public-providers-stats.js";
 import { referral } from "./routes/referral.js";
 import { v1Master } from "./routes/v1-master.js";
@@ -234,6 +235,7 @@ app.route("/public/newsletter", publicNewsletter);
 app.route("/public/chat-support", publicChatSupport);
 app.route("/public/chats/share", publicChatShares);
 app.route("/public/apps", publicApps);
+app.route("/public/profile", publicProfile);
 app.route("/public/providers/stats", publicProvidersStats);
 
 app.doc("/json", config);
