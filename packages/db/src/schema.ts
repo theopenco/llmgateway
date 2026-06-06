@@ -60,6 +60,13 @@ export const user = pgTable("user", {
 	})
 		.notNull()
 		.default("active"),
+	// DevPass public profile. `username` is the public URL slug
+	// (/profiles/:username) and is null until the user claims one.
+	username: text().unique(),
+	profilePublic: boolean().notNull().default(false),
+	bio: text(),
+	githubUsername: text(),
+	xUsername: text(),
 });
 
 export const userFavoriteModel = pgTable(
@@ -191,6 +198,11 @@ export const organization = pgTable(
 			.default("none"),
 		devPlanCreditsUsed: decimal().notNull().default("0"),
 		devPlanCreditsLimit: decimal().notNull().default("0"),
+		// Set when dunning freezes dev-plan spend (limit capped to used). The
+		// pre-freeze limit is preserved so recovery restores the exact value
+		// (which may be a prorated mid-cycle amount), not a full tier cap.
+		devPlanCreditsFrozen: boolean().notNull().default(false),
+		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
@@ -278,12 +290,16 @@ export const transaction = pgTable(
 			.default("completed"),
 		stripePaymentIntentId: text(),
 		stripeInvoiceId: text(),
+		stripeRefundId: text(),
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
+		uniqueIndex("transaction_stripe_refund_id_unique")
+			.on(table.stripeRefundId)
+			.where(sql`${table.stripeRefundId} IS NOT NULL`),
 	],
 );
 

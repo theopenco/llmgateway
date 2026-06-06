@@ -3,7 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
 
-import { processImageUrl } from "@llmgateway/actions";
+import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
@@ -207,10 +207,10 @@ async function extractImagesFromChatResponse(
 			const imageUrl = img.image_url?.url;
 			if (imageUrl && typeof imageUrl === "string") {
 				// Handle data URIs (e.g. Google/Gemini returns data:image/png;base64,...)
-				const base64Match = imageUrl.match(/^data:[^;]+;base64,(.+)$/);
-				if (base64Match && base64Match[1]) {
+				const parsedDataUrl = parseDataUrl(imageUrl);
+				if (parsedDataUrl && parsedDataUrl.isBase64 && parsedDataUrl.data) {
 					imageObjects.push({
-						b64_json: base64Match[1],
+						b64_json: parsedDataUrl.data,
 						revised_prompt: prompt,
 					});
 				} else if (

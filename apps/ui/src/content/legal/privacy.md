@@ -9,7 +9,7 @@ description: "Read LLM Gateway’s Privacy Policy to understand how we collect, 
 # Privacy Policy
 
 **Effective Date:** October 21, 2025  
-**Last Updated:** October 21, 2025
+**Last Updated:** June 5, 2026
 
 LLM Gateway (“we”, “our”, or “us”) provides a unified AI gateway platform that enables users to connect, manage, and analyze AI models across multiple providers.  
 This Privacy Policy explains how we collect, use, and protect your personal information when you use our website, services, or applications (collectively, the “Service”).
@@ -67,12 +67,15 @@ We use your data to:
 
 ## 3. Data Retention
 
-You control how your data is retained:
+We keep your personal data only as long as necessary for the purposes it was collected, or as required by law:
 
-- **Retain All Data:** Saves request payloads and responses with metadata
-- **Metadata Only:** Saves only usage and cost metadata, excluding request content
+- **Account and profile data** (name, email, login credentials, API keys): retained while your account is active. When you delete your account, this data is deleted promptly.
+- **Usage logs** (request metadata, token counts, costs): the content of requests and responses is governed by your organization’s retention setting below; aggregated usage and cost metadata is retained for analytics and billing accuracy.
+  - **Retain All Data:** Saves request payloads and responses with metadata
+  - **Metadata Only:** Saves only usage and cost metadata, excluding request content
+- **Billing and accounting records** (purchases of credits, payments, invoices, and the transaction history of credits bought and spent): we are legally required to retain these under applicable tax and accounting law. We keep them for **10 years**, even after you delete your account, after which they are deleted or anonymized.
 
-Data is automatically purged based on your organization’s retention policy or when you delete your account.
+Where we retain billing records after account deletion, we restrict our processing of that data to what the law requires, and we anonymize personal identifiers that are not needed for the accounting record.
 
 ---
 
@@ -86,6 +89,15 @@ We may share limited data with:
 - **Legal Authorities:** Only if required by law or to protect our rights and users’ safety
 
 Each provider processes data under their own privacy terms.
+
+### Sub-processors
+
+We rely on a small set of vetted sub-processors, each bound by contractual data-protection obligations:
+
+- **Stripe** — payment and subscription processing. Stripe acts as a separate processor and retains its own payment records to meet its legal and tax obligations, in accordance with their [Privacy Policy](https://stripe.com/privacy).
+- **Google Cloud** — application hosting and database storage
+- **Resend** — transactional and product email delivery
+- **AI Providers** — as listed in the model catalog, when routing your requests
 
 ---
 
@@ -119,8 +131,15 @@ Depending on your location, you may have the right to:
 - Access, correct, or delete your data
 - Export your data in a machine-readable format
 - Withdraw consent for specific processing activities
+- Object to or restrict certain processing activities
 
 You can make requests via **[contact@llmgateway.io](mailto:contact@llmgateway.io)**.
+
+### Limits on the right to erasure
+
+We will honor erasure requests except where we are legally obliged to retain data. In particular, **records of credits you purchased and spent** are kept to comply with tax and accounting law (see [Data Retention](#3-data-retention)) and cannot be deleted on request during the statutory retention period. During that period we limit our processing of those records to what the law requires. Once the retention period ends, the data is deleted or anonymized.
+
+If you are in the EU/EEA or UK, you also have the right to lodge a complaint with your data protection supervisory authority.
 
 ---
 

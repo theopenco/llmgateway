@@ -10,6 +10,7 @@ import {
 	projectHourlyStats,
 	sql,
 	transaction,
+	userOrganization,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -206,7 +207,7 @@ async function sendAndRecord(
 
 // ─── Email A: Signed up but never bought credits (>24h) ─────────────────────
 
-async function processNoPurchaseEmails(): Promise<void> {
+export async function processNoPurchaseEmails(): Promise<void> {
 	const twentyFourHoursAgo = new Date(Date.now() - MS_PER_DAY);
 
 	const eligibleOrgs = await db
@@ -230,6 +231,20 @@ async function processNoPurchaseEmails(): Promise<void> {
 					SELECT ${followUpEmail.organizationId}
 					FROM ${followUpEmail}
 					WHERE ${followUpEmail.emailType} = 'no_purchase'
+				)`,
+				// Skip orgs whose owner already subscribes to a DevPass plan on any
+				// of their organizations — they shouldn't be nudged to add credits.
+				sql`${organization.id} NOT IN (
+					SELECT owner_membership.organization_id
+					FROM ${userOrganization} owner_membership
+					WHERE owner_membership.role = 'owner'
+					AND owner_membership.user_id IN (
+						SELECT devpass_membership.user_id
+						FROM ${userOrganization} devpass_membership
+						JOIN ${organization} devpass_org
+							ON devpass_org.id = devpass_membership.organization_id
+						WHERE devpass_org.dev_plan != 'none'
+					)
 				)`,
 			),
 		);

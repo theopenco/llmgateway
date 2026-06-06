@@ -536,7 +536,7 @@ describe("api", () => {
 
 		expect(res.status).toBe(403);
 		const json = await res.json();
-		expect(json.message).toContain(
+		expect(json.error.message).toContain(
 			"Provider openai is in the denied providers list",
 		);
 	});
@@ -573,7 +573,9 @@ describe("api", () => {
 
 		expect(res.status).toBe(402);
 		const json = await res.json();
-		expect(json.message).toBe("Organization org-id has insufficient credits");
+		expect(json.error.message).toBe(
+			"Organization org-id has insufficient credits",
+		);
 	});
 
 	test("/v1/embeddings hybrid fallback requires credits", async () => {
@@ -607,7 +609,7 @@ describe("api", () => {
 
 		expect(res.status).toBe(402);
 		const json = await res.json();
-		expect(json.message).toBe(
+		expect(json.error.message).toBe(
 			"No API key set for provider and organization has insufficient credits",
 		);
 	});
@@ -647,7 +649,9 @@ describe("api", () => {
 
 		expect(res.status).toBe(402);
 		const json = await res.json();
-		expect(json.message).toContain("insufficient credits for data retention");
+		expect(json.error.message).toContain(
+			"insufficient credits for data retention",
+		);
 	});
 
 	test("/v1/embeddings google-ai-studio single input", async () => {
@@ -2620,7 +2624,7 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 
 		const json = await res.json();
-		expect(json.message).toContain("does not support reasoning");
+		expect(json.error.message).toContain("does not support reasoning");
 	});
 
 	test("Max tokens validation error when exceeding model limit", async () => {
@@ -2662,9 +2666,11 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 
 		const json = await res.json();
-		expect(json.message).toContain("exceeds the maximum output tokens allowed");
-		expect(json.message).toContain("10000");
-		expect(json.message).toContain("8192");
+		expect(json.error.message).toContain(
+			"exceeds the maximum output tokens allowed",
+		);
+		expect(json.error.message).toContain("10000");
+		expect(json.error.message).toContain("8192");
 	});
 
 	test("Max tokens validation allows valid token count", async () => {
@@ -2733,7 +2739,7 @@ describe("api", () => {
 			"Provider-specific model error:",
 			JSON.stringify(json, null, 2),
 		);
-		expect(json.message).toContain("not supported");
+		expect(json.error.message).toContain("not supported");
 	});
 
 	// invalid model test
@@ -2820,6 +2826,13 @@ describe("api", () => {
 			}),
 		});
 		expect(res.status).toBe(401);
+		const json = await res.json();
+		expect(json.error).toMatchObject({
+			type: "invalid_request_error",
+			param: null,
+			code: "invalid_api_key",
+		});
+		expect(typeof json.error.message).toBe("string");
 	});
 
 	// test for explicitly specifying a provider in the format "provider/model"
@@ -3061,7 +3074,7 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 		const errorMessage = await res.text();
 		expect(errorMessage).toMatchInlineSnapshot(
-			`"{"error":true,"status":400,"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode."}"`,
+			`"{"error":{"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.","type":"invalid_request_error","param":null,"code":null},"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.","status":400}"`,
 		);
 	});
 
@@ -3972,7 +3985,7 @@ describe("api", () => {
 
 				expect(res.status).toBe(402);
 				const json = await res.json();
-				expect(json.message).toBe(
+				expect(json.error.message).toBe(
 					"No API key set for provider and organization has insufficient credits",
 				);
 			} finally {
@@ -4010,7 +4023,7 @@ describe("api", () => {
 
 				expect(res.status).toBe(402);
 				const json = await res.json();
-				expect(json.message).toBe(
+				expect(json.error.message).toBe(
 					"Organization org-id has insufficient credits",
 				);
 			} finally {

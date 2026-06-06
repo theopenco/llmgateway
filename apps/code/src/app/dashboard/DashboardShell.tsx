@@ -1,7 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Code, CreditCard, LogOut, Settings } from "lucide-react";
+import {
+	BarChart3,
+	Code,
+	CreditCard,
+	LogOut,
+	Settings,
+	UserRound,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -33,7 +40,6 @@ import { useDevPlanStatus } from "./useDevPlanStatus";
 import type { PlanTier } from "./types";
 import type { DevPlanStatus } from "./useDevPlanStatus";
 import type { UserMe } from "@/hooks/useUser";
-import type { DevPlanCycle } from "@llmgateway/shared";
 import type { Route } from "next";
 
 const InactivePlanChooser = dynamic(
@@ -44,6 +50,7 @@ const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
 		{ label: "Usage", href: "/dashboard" as Route, icon: BarChart3 },
 		{ label: "Billing", href: "/dashboard/billing" as Route, icon: CreditCard },
+		{ label: "Profile", href: "/profile" as Route, icon: UserRound },
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },
 	];
 
@@ -143,14 +150,11 @@ export default function DashboardShell({
 			});
 	}, [searchParams, finalizeMutation, queryClient, router]);
 
-	const handleSubscribe = async (
-		tier: PlanTier,
-		cycle: DevPlanCycle = "monthly",
-	): Promise<void> => {
+	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
 		setSubscribingTier(tier);
 		try {
 			const result = await subscribeMutation.mutateAsync({
-				body: { tier, cycle },
+				body: { tier },
 			});
 
 			if (!result?.checkoutUrl) {
@@ -159,7 +163,7 @@ export default function DashboardShell({
 			}
 
 			if (posthogKey) {
-				posthog.capture("dev_plan_subscribe_started", { tier, cycle });
+				posthog.capture("dev_plan_subscribe_started", { tier });
 			}
 			window.location.href = result.checkoutUrl;
 		} catch (error: unknown) {
@@ -318,9 +322,6 @@ export default function DashboardShell({
 							plans={plans}
 							subscribingTier={subscribingTier}
 							onSubscribe={handleSubscribe}
-							initialCycle={
-								searchParams.get("cycle") === "annual" ? "annual" : "monthly"
-							}
 						/>
 					</div>
 				</main>
