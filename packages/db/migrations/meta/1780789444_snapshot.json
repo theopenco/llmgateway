@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9787d16c-27a7-4ab9-8668-81291492b6a0",
+  "id": "eecefa13-9574-41a8-9ed9-8f9e198b8b97",
   "prevId": "fb0fb354-6c26-4ba4-81ce-b619b2e45183",
   "ddl": [
     {
@@ -18544,6 +18544,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "wallet_ledger_topup_payment_intent_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "wallet_ledger"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "stripe_payment_intent_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"type\" = 'reversal'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "wallet_ledger_reversal_payment_intent_unique",
       "entityType": "indexes",
       "schema": "public",
       "table": "wallet_ledger"

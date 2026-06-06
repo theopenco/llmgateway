@@ -98,6 +98,7 @@ CREATE INDEX "wallet_ledger_wallet_id_idx" ON "wallet_ledger" ("wallet_id");--> 
 CREATE INDEX "wallet_ledger_organization_id_idx" ON "wallet_ledger" ("organization_id");--> statement-breakpoint
 CREATE INDEX "wallet_ledger_stripe_payment_intent_id_idx" ON "wallet_ledger" ("stripe_payment_intent_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_ledger_topup_payment_intent_unique" ON "wallet_ledger" ("stripe_payment_intent_id") WHERE "type" = 'topup';--> statement-breakpoint
+CREATE UNIQUE INDEX "wallet_ledger_reversal_payment_intent_unique" ON "wallet_ledger" ("stripe_payment_intent_id") WHERE "type" = 'reversal';--> statement-breakpoint
 CREATE INDEX "webhook_endpoint_project_id_idx" ON "webhook_endpoint" ("project_id");--> statement-breakpoint
 CREATE INDEX "webhook_endpoint_organization_id_idx" ON "webhook_endpoint" ("organization_id");--> statement-breakpoint
 ALTER TABLE "api_key" ADD CONSTRAINT "api_key_end_customer_wallet_id_wallet_id_fkey" FOREIGN KEY ("end_customer_wallet_id") REFERENCES "wallet"("id") ON DELETE CASCADE;--> statement-breakpoint

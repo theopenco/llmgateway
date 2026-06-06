@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "wallet_ledger_reversal_payment_intent_unique" ON "wallet_ledger" ("stripe_payment_intent_id") WHERE "type" = 'reversal';
