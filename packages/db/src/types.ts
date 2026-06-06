@@ -68,8 +68,45 @@ type OrganizationBase = InferSelectModel<typeof tables.organization>;
 type UserBase = InferSelectModel<typeof tables.user>;
 type ApiKeyIamRuleBase = InferSelectModel<typeof tables.apiKeyIamRule>;
 
-export type ApiKey = Omit<ApiKeyBase, "status"> & {
+export type ApiKey = Omit<ApiKeyBase, "status" | "keyType"> & {
 	status: "active" | "inactive" | "deleted" | null;
+	keyType:
+		| "user"
+		| "platform_secret"
+		| "platform_publishable"
+		| "ephemeral_session";
+};
+
+export type EndCustomer = Omit<
+	InferSelectModel<typeof tables.endCustomer>,
+	"status"
+> & {
+	status: "active" | "blocked" | "deleted";
+};
+
+export type Wallet = Omit<InferSelectModel<typeof tables.wallet>, "status"> & {
+	status: "active" | "frozen";
+};
+
+export type WalletLedger = Omit<
+	InferSelectModel<typeof tables.walletLedger>,
+	"type"
+> & {
+	type: "topup" | "usage_debit" | "refund" | "adjustment" | "reversal";
+};
+
+export type WebhookEndpoint = Omit<
+	InferSelectModel<typeof tables.webhookEndpoint>,
+	"status"
+> & {
+	status: "active" | "disabled";
+};
+
+export type PlatformWebhookDelivery = Omit<
+	InferSelectModel<typeof tables.platformWebhookDelivery>,
+	"status"
+> & {
+	status: "pending" | "delivered" | "failed";
 };
 
 export type Project = Omit<ProjectBase, "status" | "mode"> & {

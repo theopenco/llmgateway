@@ -1051,6 +1051,27 @@
       "when": 1780698570697,
       "tag": "1780698570_fair_gladiator",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "8",
+      "when": 1780705855362,
+      "tag": "1780705855_fat_firedrake",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "8",
+      "when": 1780710405025,
+      "tag": "1780710405_even_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "8",
+      "when": 1780710942808,
+      "tag": "1780710942_adorable_moonstone",
+      "breakpoints": true
     }
   ]
 }

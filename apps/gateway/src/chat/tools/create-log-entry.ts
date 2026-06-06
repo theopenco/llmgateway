@@ -70,6 +70,10 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		organizationId: options.project.organizationId,
 		projectId: options.apiKey.projectId,
 		apiKeyId: options.apiKey.id,
+		// Embeddable SDK: ephemeral_session keys carry the end-user wallet to
+		// debit. Null for normal developer keys (org-billed). The worker debits
+		// this wallet instead of organization.credits when set.
+		endCustomerWalletId: options.apiKey.endCustomerWalletId ?? null,
 		usedMode: options.providerKeyId ? "api-keys" : "credits",
 		usedModel: options.usedModel,
 		usedModelMapping: options.usedModelMapping,

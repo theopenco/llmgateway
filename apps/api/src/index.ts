@@ -21,9 +21,16 @@ import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
+import { platformConnect } from "./routes/platform-connect.js";
+import { platformCustomers } from "./routes/platform-customers.js";
+import { platformSessionRefresh } from "./routes/platform-session-refresh.js";
+import { platformSessions } from "./routes/platform-sessions.js";
+import { platformWallet } from "./routes/platform-wallet.js";
+import { platformWebhooks } from "./routes/platform-webhooks.js";
 import { publicApps } from "./routes/public-apps.js";
 import { publicChatShares } from "./routes/public-chat-shares.js";
 import { publicChatSupport } from "./routes/public-chat-support.js";
+import { publicConfig } from "./routes/public-config.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
@@ -61,17 +68,41 @@ app.use("*", tracingMiddleware);
 app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
 
+const corsAllowList = process.env.ORIGIN_URLS?.split(",") ?? [
+	"http://localhost:3002",
+	"http://localhost:3003",
+	"http://localhost:3004",
+	"http://localhost:3005",
+	"http://localhost:3006",
+];
+
+// Embeddable SDK endpoints are called cross-origin from arbitrary developer
+// frontends with a bearer session token (no cookies), so they reflect the
+// request origin. The per-project `allowedOrigins` allowlist is enforced
+// server-side in the end-user session middleware / gateway handler.
+const EMBEDDABLE_CORS_PREFIXES = ["/v1/wallet", "/v1/sessions", "/v1/config"];
+
 app.use(
 	"*",
 	cors({
-		origin: process.env.ORIGIN_URLS?.split(",") ?? [
-			"http://localhost:3002",
-			"http://localhost:3003",
-			"http://localhost:3004",
-			"http://localhost:3005",
-			"http://localhost:3006",
+		origin: (origin, c) => {
+			if (!origin) {
+				return corsAllowList[0];
+			}
+			if (corsAllowList.includes(origin)) {
+				return origin;
+			}
+			if (EMBEDDABLE_CORS_PREFIXES.some((p) => c.req.path.startsWith(p))) {
+				return origin;
+			}
+			return corsAllowList[0];
+		},
+		allowHeaders: [
+			"Content-Type",
+			"Authorization",
+			"Cache-Control",
+			"x-api-key",
 		],
-		allowHeaders: ["Content-Type", "Authorization", "Cache-Control"],
 		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
 		exposeHeaders: ["Content-Length"],
 		maxAge: 600,
@@ -245,5 +276,19 @@ app.get("/docs", swaggerUI({ url: "./json" }));
 app.route("/", authHandler);
 
 app.route("/v1/master", v1Master);
+
+app.route("/v1", platformSessions);
+
+app.route("/v1/sessions", platformSessionRefresh);
+
+app.route("/v1/wallet", platformWallet);
+
+app.route("/v1/customers", platformCustomers);
+
+app.route("/v1/connect", platformConnect);
+
+app.route("/v1/webhooks", platformWebhooks);
+
+app.route("/v1/config", publicConfig);
 
 app.route("/", routes);

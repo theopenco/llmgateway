@@ -94,6 +94,14 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.paymentFailure.organizationId,
 		}),
+		endCustomers: r.many.endCustomer({
+			from: r.organization.id,
+			to: r.endCustomer.organizationId,
+		}),
+		wallets: r.many.wallet({
+			from: r.organization.id,
+			to: r.wallet.organizationId,
+		}),
 	},
 	referral: {
 		referrerOrganization: r.one.organization({
@@ -130,6 +138,88 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.project.id,
 			to: r.routingConfig.projectId,
 		}),
+		endCustomers: r.many.endCustomer({
+			from: r.project.id,
+			to: r.endCustomer.projectId,
+		}),
+		wallets: r.many.wallet({
+			from: r.project.id,
+			to: r.wallet.projectId,
+		}),
+		webhookEndpoints: r.many.webhookEndpoint({
+			from: r.project.id,
+			to: r.webhookEndpoint.projectId,
+		}),
+	},
+	webhookEndpoint: {
+		organization: r.one.organization({
+			from: r.webhookEndpoint.organizationId,
+			to: r.organization.id,
+		}),
+		project: r.one.project({
+			from: r.webhookEndpoint.projectId,
+			to: r.project.id,
+		}),
+		deliveries: r.many.platformWebhookDelivery({
+			from: r.webhookEndpoint.id,
+			to: r.platformWebhookDelivery.webhookEndpointId,
+		}),
+	},
+	platformWebhookDelivery: {
+		endpoint: r.one.webhookEndpoint({
+			from: r.platformWebhookDelivery.webhookEndpointId,
+			to: r.webhookEndpoint.id,
+		}),
+	},
+	endCustomer: {
+		organization: r.one.organization({
+			from: r.endCustomer.organizationId,
+			to: r.organization.id,
+		}),
+		project: r.one.project({
+			from: r.endCustomer.projectId,
+			to: r.project.id,
+		}),
+		wallet: r.one.wallet({
+			from: r.endCustomer.id,
+			to: r.wallet.endCustomerId,
+		}),
+		ledger: r.many.walletLedger({
+			from: r.endCustomer.id,
+			to: r.walletLedger.endCustomerId,
+		}),
+	},
+	wallet: {
+		endCustomer: r.one.endCustomer({
+			from: r.wallet.endCustomerId,
+			to: r.endCustomer.id,
+		}),
+		project: r.one.project({
+			from: r.wallet.projectId,
+			to: r.project.id,
+		}),
+		organization: r.one.organization({
+			from: r.wallet.organizationId,
+			to: r.organization.id,
+		}),
+		ledger: r.many.walletLedger({
+			from: r.wallet.id,
+			to: r.walletLedger.walletId,
+		}),
+	},
+	walletLedger: {
+		wallet: r.one.wallet({
+			from: r.walletLedger.walletId,
+			to: r.wallet.id,
+		}),
+		endCustomer: r.one.endCustomer({
+			from: r.walletLedger.endCustomerId,
+			to: r.endCustomer.id,
+		}),
+		organization: r.one.organization({
+			from: r.walletLedger.organizationId,
+			to: r.organization.id,
+		}),
 	},
 	routingConfig: {
 		project: r.one.project({
@@ -151,6 +241,11 @@ export const relations = defineRelations(schema, (r) => ({
 		creator: r.one.user({
 			from: r.apiKey.createdBy,
 			to: r.user.id,
+		}),
+		// Only set for ephemeral_session keys.
+		wallet: r.one.wallet({
+			from: r.apiKey.endCustomerWalletId,
+			to: r.wallet.id,
 		}),
 	},
 	apiKeyIamRule: {

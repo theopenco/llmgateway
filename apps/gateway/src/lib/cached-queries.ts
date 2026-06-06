@@ -28,6 +28,7 @@ import {
 	rateLimit as rateLimitTable,
 	user as userTable,
 	userOrganization as userOrganizationTable,
+	wallet as walletTable,
 } from "@llmgateway/db";
 
 import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
@@ -47,6 +48,7 @@ import type {
 	providerKey,
 	user,
 	userOrganization,
+	wallet,
 } from "@llmgateway/db";
 
 // Type aliases for cleaner function signatures
@@ -57,6 +59,7 @@ type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
+type Wallet = InferSelectModel<typeof wallet>;
 
 const apiKeyTableName = getTableName(apiKeyTable);
 const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
@@ -66,6 +69,7 @@ const providerKeyTableName = getTableName(providerKeyTable);
 const rateLimitTableName = getTableName(rateLimitTable);
 const userTableName = getTableName(userTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
+const walletTableName = getTableName(walletTable);
 
 function selectProviderKeyWithFailover<T extends { id: string }>(
 	items: T[],
@@ -204,6 +208,44 @@ export async function findOrganizationById(
 	}
 
 	return org;
+}
+
+/**
+ * Find an end-user wallet by ID without cache (for fresh balance checks)
+ */
+export async function findWalletByIdUncached(
+	id: string,
+): Promise<Wallet | undefined> {
+	return await swrWrap(`wallet:${id}`, [walletTableName], async () => {
+		const results = await uncachedDb
+			.select()
+			.from(walletTable)
+			.where(eq(walletTable.id, id))
+			.limit(1);
+		return results[0];
+	});
+}
+
+/**
+ * Find an end-user wallet by ID (cacheable). Mirrors findOrganizationById: when
+ * the wallet balance is 0 or negative, refetch without cache so top-ups and
+ * usage debits are reflected immediately.
+ */
+export async function findWalletById(id: string): Promise<Wallet | undefined> {
+	const w = await swrWrap(`wallet:${id}`, [walletTableName], async () => {
+		const results = await db
+			.select()
+			.from(walletTable)
+			.where(eq(walletTable.id, id))
+			.limit(1);
+		return results[0];
+	});
+
+	if (w && parseFloat(w.balance || "0") <= 0) {
+		return await findWalletByIdUncached(id);
+	}
+
+	return w;
 }
 
 /**
