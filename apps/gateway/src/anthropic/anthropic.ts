@@ -12,6 +12,7 @@ import { extractAnthropicSessionId } from "@/lib/session-id.js";
 import { logger, toError } from "@llmgateway/logger";
 
 import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
+import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -145,6 +146,33 @@ const anthropicRequestSchema = z.object({
 		.openapi({
 			description:
 				"Anthropic request metadata. Claude Code embeds the session id in user_id, which the gateway uses for sticky routing.",
+		}),
+	thinking: z
+		.object({
+			// Tolerant string (not an enum) so a future Anthropic thinking type
+			// doesn't 400 the request; unknown types simply map to no reasoning.
+			type: z.string(),
+			budget_tokens: z.number().int().positive().optional(),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Anthropic extended-thinking configuration. Mapped onto the gateway's unified reasoning controls so the requested effort reaches the provider.",
+		}),
+	output_config: z
+		.object({
+			// Matches the chat completions reasoning-effort enum. Claude Code emits
+			// the full range (including `xhigh` and `max`), so accept all of them;
+			// `max` is normalized to `high` downstream for client compatibility.
+			effort: z
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+				.optional(),
+		})
+		.passthrough()
+		.optional()
+		.openapi({
+			description:
+				"Anthropic output configuration. `effort` controls adaptive reasoning depth on Opus 4.7+ models.",
 		}),
 });
 
@@ -519,6 +547,19 @@ anthropic.openapi(messages, async (c) => {
 	if (openaiTools) {
 		openaiRequest.tools = openaiTools;
 	}
+
+	// Translate Anthropic reasoning controls (extended `thinking` and adaptive
+	// `output_config.effort`) onto the unified reasoning fields the inner
+	// /v1/chat/completions endpoint understands. Without this, native-Anthropic
+	// clients like Claude Code lose reasoning entirely — the field is otherwise
+	// dropped here and never reaches the provider.
+	Object.assign(
+		openaiRequest,
+		mapAnthropicThinkingToReasoning(
+			anthropicRequest.thinking,
+			anthropicRequest.output_config?.effort,
+		),
+	);
 
 	// Get user-agent for forwarding
 	const userAgent = c.req.header("User-Agent") ?? "";

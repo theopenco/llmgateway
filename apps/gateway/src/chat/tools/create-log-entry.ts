@@ -31,7 +31,14 @@ export interface CreateLogEntryOptions {
 	top_p?: number;
 	frequency_penalty?: number;
 	presence_penalty?: number;
-	reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoningEffort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max";
 	reasoningMaxTokens?: number;
 	effort?: "low" | "medium" | "high";
 	responseFormat?: any;
@@ -153,6 +160,7 @@ export function createLogEntry(
 		| "medium"
 		| "high"
 		| "xhigh"
+		| "max"
 		| undefined,
 	reasoningMaxTokens: number | undefined,
 	effort: "low" | "medium" | "high" | undefined,
@@ -195,7 +203,14 @@ export function createLogEntry(
 	top_p?: number,
 	frequency_penalty?: number,
 	presence_penalty?: number,
-	reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoningEffort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max",
 	reasoningMaxTokens?: number,
 	effort?: "low" | "medium" | "high",
 	responseFormat?: any,
