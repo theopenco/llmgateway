@@ -26,7 +26,13 @@ const DEFAULT_TTL_SECONDS = 15 * 60;
 const MIN_TTL_SECONDS = 60;
 const MAX_TTL_SECONDS = 60 * 60;
 
-platformSessions.use("*", platformSecretAuth);
+// Scope the secret-key auth to only the routes this router owns. This router is
+// mounted at the bare `/v1` prefix, so a blanket `use("*")` would register as
+// `/v1/*` and leak onto sibling routers (e.g. the public `/v1/config` and the
+// `es_`-authenticated `/v1/wallet`, `/v1/sessions/refresh`), wrongly demanding a
+// secret key there.
+platformSessions.use("/sessions", platformSecretAuth);
+platformSessions.use("/wallets/*", platformSecretAuth);
 
 const customerInput = z.union([
 	z.string().min(1),
@@ -192,11 +198,19 @@ platformSessions.openapi(createSession, async (c) => {
 	// Reuse the existing IAM machinery: an allow_models rule scopes which models
 	// the browser session may call. The gateway's validateModelAccess reads these
 	// from the session key's id, no new code path needed.
+	//
+	// The IAM `allow_models` check compares against the canonical model id
+	// (e.g. `gpt-4o-mini`), not the `provider/model` request form. Normalize so
+	// developers can pass either `openai/gpt-4o-mini` or `gpt-4o-mini` and have
+	// it scope correctly.
 	if (scope?.models && scope.models.length > 0) {
+		const normalizedModels = scope.models.map((m) =>
+			m.includes("/") ? m.slice(m.lastIndexOf("/") + 1) : m,
+		);
 		await db.insert(tables.apiKeyIamRule).values({
 			apiKeyId: sessionKey.id,
 			ruleType: "allow_models",
-			ruleValue: { models: scope.models },
+			ruleValue: { models: normalizedModels },
 		});
 	}
 
