@@ -1010,6 +1010,27 @@ export async function prepareRequestBody(
 			}
 		}
 
+		const allowedReveAspectRatios = [
+			"16:9",
+			"3:2",
+			"4:3",
+			"1:1",
+			"2:3",
+			"9:16",
+			"auto",
+		];
+
+		if (
+			image_config?.aspect_ratio &&
+			!allowedReveAspectRatios.includes(image_config.aspect_ratio)
+		) {
+			throw new Error(
+				`Invalid aspect_ratio for Reve: "${image_config.aspect_ratio}". Allowed values: ${allowedReveAspectRatios.join(
+					", ",
+				)}`,
+			);
+		}
+
 		const reveRequest: any = {
 			prompt,
 			version: "latest",

@@ -48,10 +48,21 @@ export const GPT_IMAGE_SIZES = [
 	"2160x3840",
 ] as const;
 
+const REVE_ASPECT_RATIOS: AspectRatio[] = [
+	"auto",
+	"1:1",
+	"16:9",
+	"9:16",
+	"3:2",
+	"2:3",
+	"4:3",
+];
+
 export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
 	const isGptImage = lower.includes("gpt-image");
+	const isReve = lower.includes("reve");
 
 	const usesPixelDimensions =
 		isGptImage ||
@@ -83,6 +94,10 @@ export function getModelImageConfig(model: string) {
 
 	const maxInputImages = getMaxInputImages(lower);
 
+	const supportedAspectRatios: AspectRatio[] | undefined = isReve
+		? REVE_ASPECT_RATIOS
+		: undefined;
+
 	return {
 		usesPixelDimensions,
 		isSeedream,
@@ -94,6 +109,7 @@ export function getModelImageConfig(model: string) {
 		availableQualities,
 		defaultQuality,
 		maxInputImages,
+		supportedAspectRatios,
 	};
 }
 
