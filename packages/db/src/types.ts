@@ -168,6 +168,10 @@ export type SerializedOrganization = Omit<
 	| "devPlanCreditsFrozen"
 	| "devPlanCreditsLimitBeforeFreeze"
 	| "lastTopUpAmount"
+	// Embeddable SDK internals — not part of the dashboard-facing API surface.
+	| "endUserMarginBalance"
+	| "stripeConnectAccountId"
+	| "stripeConnectOnboarded"
 > & {
 	createdAt: string;
 	updatedAt: string;
@@ -176,7 +180,15 @@ export type SerializedOrganization = Omit<
 	devPlanExpiresAt: string | null;
 };
 
-export type SerializedProject = Omit<Project, "createdAt" | "updatedAt"> & {
+export type SerializedProject = Omit<
+	Project,
+	| "createdAt"
+	| "updatedAt"
+	// Embeddable SDK internals — not part of the dashboard-facing API surface.
+	| "endUserEnabled"
+	| "endUserMarkupPercent"
+	| "allowedOrigins"
+> & {
 	createdAt: string;
 	updatedAt: string;
 };
@@ -185,7 +197,13 @@ export type SerializedUser = Pick<User, "id" | "email" | "name">;
 
 export type SerializedApiKey = Omit<
 	ApiKey,
-	"createdAt" | "updatedAt" | "currentPeriodStartedAt"
+	| "createdAt"
+	| "updatedAt"
+	| "currentPeriodStartedAt"
+	// Embeddable SDK internals — ephemeral session keys aren't surfaced here.
+	| "keyType"
+	| "endCustomerWalletId"
+	| "expiresAt"
 > & {
 	createdAt: string;
 	updatedAt: string;

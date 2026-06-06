@@ -1055,29 +1055,8 @@
     {
       "idx": 150,
       "version": "8",
-      "when": 1780705855362,
-      "tag": "1780705855_fat_firedrake",
-      "breakpoints": true
-    },
-    {
-      "idx": 151,
-      "version": "8",
-      "when": 1780710405025,
-      "tag": "1780710405_even_madripoor",
-      "breakpoints": true
-    },
-    {
-      "idx": 152,
-      "version": "8",
-      "when": 1780710942808,
-      "tag": "1780710942_adorable_moonstone",
-      "breakpoints": true
-    },
-    {
-      "idx": 153,
-      "version": "8",
-      "when": 1780768844623,
-      "tag": "1780768844_embeddable_hardening",
+      "when": 1780775243266,
+      "tag": "1780775243_embeddable_end_user_wallets",
       "breakpoints": true
     }
   ]

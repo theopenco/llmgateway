@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ae4a04a5-f119-4fee-baa8-9c86797a69b4",
-  "prevId": "c62d876f-4808-445f-88a1-4ebf24c03487",
+  "id": "9787d16c-27a7-4ab9-8668-81291492b6a0",
+  "prevId": "fb0fb354-6c26-4ba4-81ce-b619b2e45183",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -222,6 +222,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "platform_webhook_delivery",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "playground_image_history",
       "entityType": "tables",
       "schema": "public"
@@ -349,6 +355,12 @@
     {
       "isRlsEnabled": false,
       "name": "webhook_delivery_log",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "webhook_endpoint",
       "entityType": "tables",
       "schema": "public"
     },
@@ -10199,6 +10211,190 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "webhook_endpoint_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "event_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "event_type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "payload",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'pending'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "attempts",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "next_attempt_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_attempt_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "response_status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_error",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "playground_image_history"
     },
     {
@@ -14437,6 +14633,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "end_customer_wallet_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -15482,6 +15691,132 @@
       "entityType": "columns",
       "schema": "public",
       "table": "webhook_delivery_log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "url",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "secret",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "enabled_events",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'active'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "webhook_endpoint"
     },
     {
       "nameExplicit": true,
@@ -17314,6 +17649,55 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "next_attempt_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "status = 'pending'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "platform_webhook_delivery_status_next_attempt_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "webhook_endpoint_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "platform_webhook_delivery_endpoint_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
@@ -18147,6 +18531,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "stripe_payment_intent_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"type\" = 'topup'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "wallet_ledger_topup_payment_intent_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "wallet_ledger"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "video_job_id",
           "isExpression": false,
           "asc": true,
@@ -18191,6 +18596,48 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "webhook_delivery_log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "webhook_endpoint_project_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "webhook_endpoint_organization_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "webhook_endpoint"
     },
     {
       "nameExplicit": false,
@@ -18756,6 +19203,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "webhook_endpoint_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "webhook_endpoint",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "platform_webhook_delivery_6o69dFuU5JAY_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "platform_webhook_delivery"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "user_id"
       ],
       "schemaTo": "public",
@@ -19045,6 +19509,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "end_customer_wallet_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "wallet",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "video_job_end_customer_wallet_id_wallet_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "end_customer_id"
       ],
       "schemaTo": "public",
@@ -19160,6 +19641,40 @@
       "entityType": "fks",
       "schema": "public",
       "table": "webhook_delivery_log"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "webhook_endpoint_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "webhook_endpoint"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "project_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "project",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "webhook_endpoint_project_id_project_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "webhook_endpoint"
     },
     {
       "columns": [
@@ -19526,6 +20041,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "platform_webhook_delivery_pkey",
+      "schema": "public",
+      "table": "platform_webhook_delivery",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "playground_image_history_pkey",
       "schema": "public",
       "table": "playground_image_history",
@@ -19739,6 +20264,16 @@
       "name": "webhook_delivery_log_pkey",
       "schema": "public",
       "table": "webhook_delivery_log",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "webhook_endpoint_pkey",
+      "schema": "public",
+      "table": "webhook_endpoint",
       "entityType": "pks"
     },
     {
