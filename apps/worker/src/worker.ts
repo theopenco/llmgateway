@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { lookup } from "node:dns/promises";
 
 import { Decimal } from "decimal.js";
 import Stripe from "stripe";
@@ -30,7 +31,12 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees, isCreditTopUpAmountInRange } from "@llmgateway/shared";
+import {
+	assertSafeWebhookUrl,
+	calculateFees,
+	isCreditTopUpAmountInRange,
+	isPrivateOrReservedIp,
+} from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import {
@@ -958,17 +964,26 @@ export async function batchProcessLogs(): Promise<void> {
 					continue;
 				}
 				const costNumber = totalCost.toNumber();
-				const walletRecord = await tx.query.wallet.findFirst({
-					where: { id: { eq: walletId } },
-				});
-				if (!walletRecord) {
+				// Debit atomically and derive the resulting balance from the row we
+				// actually updated, so a concurrent top-up/reversal can't make
+				// balanceAfter or the low-balance crossing check stale.
+				const [updatedWallet] = await tx
+					.update(tables.wallet)
+					.set({
+						balance: sql`${tables.wallet.balance} - ${costNumber}`,
+					})
+					.where(eq(tables.wallet.id, walletId))
+					.returning();
+
+				if (!updatedWallet) {
 					logger.warn(
 						`Wallet ${walletId} not found while debiting end-user usage`,
 					);
 					continue;
 				}
-				const prevBalance = new Decimal(walletRecord.balance || "0");
-				const newBalance = prevBalance.minus(totalCost);
+
+				const newBalance = new Decimal(updatedWallet.balance);
+				const prevBalance = newBalance.plus(totalCost);
 
 				// Emit a single low-balance event on the downward crossing.
 				if (
@@ -976,24 +991,17 @@ export async function batchProcessLogs(): Promise<void> {
 					newBalance.lessThan(WALLET_LOW_BALANCE_THRESHOLD)
 				) {
 					walletLowBalanceEvents.push({
-						projectId: walletRecord.projectId,
+						projectId: updatedWallet.projectId,
 						walletId,
-						endCustomerId: walletRecord.endCustomerId,
+						endCustomerId: updatedWallet.endCustomerId,
 						balance: newBalance.toString(),
 					});
 				}
 
-				await tx
-					.update(tables.wallet)
-					.set({
-						balance: sql`${tables.wallet.balance} - ${costNumber}`,
-					})
-					.where(eq(tables.wallet.id, walletId));
-
 				await tx.insert(tables.walletLedger).values({
 					walletId,
-					endCustomerId: walletRecord.endCustomerId,
-					organizationId: walletRecord.organizationId,
+					endCustomerId: updatedWallet.endCustomerId,
+					organizationId: updatedWallet.organizationId,
 					type: "usage_debit",
 					amount: totalCost.negated().toString(),
 					balanceAfter: newBalance.toString(),
@@ -1799,6 +1807,23 @@ const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
  * `X-LLMGateway-Signature: t=<unix>,v1=<hex hmac of "t.body">`, which
  * `@llmgateway/server`'s `webhooks.constructEvent` verifies.
  */
+/**
+ * SSRF guard for an outbound webhook delivery: validate the URL is https + not
+ * an internal literal, then resolve the host and reject if any resolved address
+ * is private/reserved (DNS rebinding protection). Throws on an unsafe target.
+ */
+async function assertSafeWebhookTarget(rawUrl: string): Promise<void> {
+	const url = assertSafeWebhookUrl(rawUrl);
+	const resolved = await lookup(url.hostname, { all: true });
+	for (const { address } of resolved) {
+		if (isPrivateOrReservedIp(address)) {
+			throw new Error(
+				`Webhook host ${url.hostname} resolves to a disallowed address (${address})`,
+			);
+		}
+	}
+}
+
 async function processWebhookDeliveries(): Promise<void> {
 	const lockAcquired = await acquireLock(WEBHOOK_DELIVERY_LOCK_KEY);
 	if (!lockAcquired) {
@@ -1833,6 +1858,11 @@ async function processWebhookDeliveries(): Promise<void> {
 
 			const attempts = delivery.attempts + 1;
 			try {
+				// SSRF guard at delivery time: https + literal checks, plus resolve
+				// the host and reject if any address is private/reserved (defeats
+				// DNS rebinding between registration and delivery).
+				await assertSafeWebhookTarget(delivery.endpoint.url);
+
 				const res = await fetch(delivery.endpoint.url, {
 					method: "POST",
 					headers: {
@@ -1954,6 +1984,27 @@ async function processMarginPayouts(): Promise<void> {
 			const amountCents = Math.floor(balance * 100);
 			const amount = amountCents / 100;
 
+			// Reserve the funds first with a conditional decrement: only proceed if
+			// we actually claimed >= amount. This prevents the manual payout
+			// endpoint (or another tick) from racing this one into an overpayment.
+			const reserved = await db
+				.update(organization)
+				.set({
+					endUserMarginBalance: sql`${organization.endUserMarginBalance} - ${amount}`,
+				})
+				.where(
+					and(
+						eq(organization.id, org.id),
+						sql`${organization.endUserMarginBalance} >= ${amount}`,
+					),
+				)
+				.returning();
+
+			if (reserved.length === 0) {
+				// Balance changed under us; skip this org this tick.
+				continue;
+			}
+
 			try {
 				const transfer = await getStripe().transfers.create(
 					{
@@ -1968,13 +2019,6 @@ async function processMarginPayouts(): Promise<void> {
 					{ idempotencyKey: `margin_payout_${org.id}_${amountCents}` },
 				);
 
-				await db
-					.update(organization)
-					.set({
-						endUserMarginBalance: sql`GREATEST(${organization.endUserMarginBalance} - ${amount}, 0)`,
-					})
-					.where(eq(organization.id, org.id));
-
 				await db.insert(tables.transaction).values({
 					organizationId: org.id,
 					type: "end_user_margin_payout",
@@ -1988,6 +2032,13 @@ async function processMarginPayouts(): Promise<void> {
 					`Auto-paid out ${amount} end-user margin for organization ${org.id}`,
 				);
 			} catch (err) {
+				// Transfer failed — restore the reserved funds so they aren't lost.
+				await db
+					.update(organization)
+					.set({
+						endUserMarginBalance: sql`${organization.endUserMarginBalance} + ${amount}`,
+					})
+					.where(eq(organization.id, org.id));
 				logger.error(
 					`Failed to auto-pay-out margin for organization ${org.id}`,
 					err instanceof Error ? err : new Error(String(err)),

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 
 import { db, eq, shortid, tables } from "@llmgateway/db";
+import { assertSafeWebhookUrl } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -62,6 +63,17 @@ platformWebhooks.openapi(createEndpoint, async (c) => {
 	}
 
 	const { url, enabledEvents } = c.req.valid("json");
+
+	// SSRF guard: reject non-https and private/reserved/internal destinations
+	// up-front (the worker re-validates + resolves DNS at delivery time).
+	try {
+		assertSafeWebhookUrl(url);
+	} catch (err) {
+		throw new HTTPException(400, {
+			message: err instanceof Error ? err.message : "Invalid webhook URL",
+		});
+	}
+
 	const secret = `whsec_${shortid(40)}`;
 
 	const [endpoint] = await db

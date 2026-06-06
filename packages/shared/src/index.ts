@@ -94,4 +94,6 @@ export {
 	type RoutingWeightsConfig,
 } from "./routing-config.js";
 
+export { assertSafeWebhookUrl, isPrivateOrReservedIp } from "./url-safety.js";
+
 export * from "./components/ui/index.js";

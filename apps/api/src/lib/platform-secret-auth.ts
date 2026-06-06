@@ -49,11 +49,15 @@ export async function platformSecretAuth(c: Context, next: Next) {
 		throw new HTTPException(401, { message: "Invalid platform secret key" });
 	}
 
-	if (row.project.status === "deleted") {
+	// Strict active-only: reject inactive/deleted projects, not just deleted ones.
+	if (row.project.status && row.project.status !== "active") {
 		throw new HTTPException(403, { message: "Project is not active" });
 	}
 
-	if (row.project.organization?.status === "deleted") {
+	if (
+		row.project.organization &&
+		row.project.organization.status !== "active"
+	) {
 		throw new HTTPException(403, { message: "Organization is not active" });
 	}
 

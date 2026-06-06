@@ -21,6 +21,14 @@ import type { ServerTypes } from "@/vars.js";
  */
 export const platformSessions = new OpenAPIHono<ServerTypes>();
 
+/** Postgres unique-constraint violation (used to detect insert races). */
+function isUniqueViolation(err: unknown): boolean {
+	const code =
+		(err as { code?: string; cause?: { code?: string } })?.code ??
+		(err as { cause?: { code?: string } })?.cause?.code;
+	return code === "23505";
+}
+
 const EPHEMERAL_PREFIX = "es_";
 const DEFAULT_TTL_SECONDS = 15 * 60;
 const MIN_TTL_SECONDS = 60;
@@ -117,8 +125,12 @@ async function ensureCustomerAndWallet(
 					name,
 				})
 				.returning();
-		} catch {
-			// Likely a unique-constraint race — re-read.
+		} catch (err) {
+			// Only a unique-constraint race is recoverable by re-reading; surface
+			// any other DB error instead of masking it as "failed to create".
+			if (!isUniqueViolation(err)) {
+				throw err;
+			}
 			endCustomer = await db.query.endCustomer.findFirst({
 				where: {
 					projectId: { eq: platformKey.projectId },
@@ -150,7 +162,10 @@ async function ensureCustomerAndWallet(
 					organizationId: platformKey.organizationId,
 				})
 				.returning();
-		} catch {
+		} catch (err) {
+			if (!isUniqueViolation(err)) {
+				throw err;
+			}
 			wallet = await db.query.wallet.findFirst({
 				where: { endCustomerId: { eq: endCustomer.id } },
 			});
@@ -182,19 +197,6 @@ platformSessions.openapi(createSession, async (c) => {
 	const expiresAt = new Date(Date.now() + ttlMs);
 	const token = EPHEMERAL_PREFIX + shortid(40);
 
-	const [sessionKey] = await db
-		.insert(tables.apiKey)
-		.values({
-			token,
-			projectId: platformKey.projectId,
-			description: `End-user session for ${endCustomer.externalId}`,
-			keyType: "ephemeral_session",
-			endCustomerWalletId: wallet.id,
-			expiresAt,
-			createdBy: platformKey.createdBy,
-		})
-		.returning();
-
 	// Reuse the existing IAM machinery: an allow_models rule scopes which models
 	// the browser session may call. The gateway's validateModelAccess reads these
 	// from the session key's id, no new code path needed.
@@ -203,24 +205,39 @@ platformSessions.openapi(createSession, async (c) => {
 	// (e.g. `gpt-4o-mini`), not the `provider/model` request form. Normalize so
 	// developers can pass either `openai/gpt-4o-mini` or `gpt-4o-mini` and have
 	// it scope correctly.
-	if (scope?.models && scope.models.length > 0) {
-		const normalizedModels = scope.models.map((m) =>
-			m.includes("/") ? m.slice(m.lastIndexOf("/") + 1) : m,
-		);
-		await db.insert(tables.apiKeyIamRule).values({
-			apiKeyId: sessionKey.id,
-			ruleType: "allow_models",
-			ruleValue: { models: normalizedModels },
-		});
-	}
+	const normalizedModels =
+		scope?.models && scope.models.length > 0
+			? scope.models.map((m) =>
+					m.includes("/") ? m.slice(m.lastIndexOf("/") + 1) : m,
+				)
+			: null;
 
-	// Optional per-session spend ceiling maps onto the api key usage limit.
-	if (scope?.maxSpend) {
-		await db
-			.update(tables.apiKey)
-			.set({ usageLimit: String(scope.maxSpend) })
-			.where(eq(tables.apiKey.id, sessionKey.id));
-	}
+	// Mint the key + its scope atomically: a partial failure must never leave an
+	// unscoped (full-access) session behind. The per-session spend ceiling maps
+	// onto the api key usage limit, set on the initial insert.
+	await db.transaction(async (tx) => {
+		const [key] = await tx
+			.insert(tables.apiKey)
+			.values({
+				token,
+				projectId: platformKey.projectId,
+				description: `End-user session for ${endCustomer.externalId}`,
+				keyType: "ephemeral_session",
+				endCustomerWalletId: wallet.id,
+				expiresAt,
+				createdBy: platformKey.createdBy,
+				usageLimit: scope?.maxSpend ? String(scope.maxSpend) : undefined,
+			})
+			.returning();
+
+		if (normalizedModels) {
+			await tx.insert(tables.apiKeyIamRule).values({
+				apiKeyId: key.id,
+				ruleType: "allow_models",
+				ruleValue: { models: normalizedModels },
+			});
+		}
+	});
 
 	// The publishable key is a sibling platform_publishable key on the project,
 	// used by the browser to load Stripe for top-ups (Phase 2). May not exist yet.
@@ -259,14 +276,26 @@ const walletResponse = z.object({
 	status: z.enum(["active", "frozen"]),
 });
 
-/** Load a wallet and assert it belongs to the authenticated platform key's org. */
-async function loadWalletForPlatform(walletId: string, organizationId: string) {
+/**
+ * Load a wallet and assert it belongs to the authenticated platform key's
+ * project (and org). A secret key is project-scoped, so an org with multiple
+ * projects must not be able to reach another project's wallets.
+ */
+async function loadWalletForPlatform(
+	walletId: string,
+	organizationId: string,
+	projectId: string,
+) {
 	const wallet = await db.query.wallet.findFirst({
 		where: { id: { eq: walletId } },
 	});
-	if (!wallet || wallet.organizationId !== organizationId) {
+	if (
+		!wallet ||
+		wallet.organizationId !== organizationId ||
+		wallet.projectId !== projectId
+	) {
 		throw new HTTPException(404, {
-			message: "Wallet not found in this organization",
+			message: "Wallet not found in this project",
 		});
 	}
 	return wallet;
@@ -290,7 +319,11 @@ platformSessions.openapi(retrieveWallet, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { id } = c.req.param();
-	const wallet = await loadWalletForPlatform(id, platformKey.organizationId);
+	const wallet = await loadWalletForPlatform(
+		id,
+		platformKey.organizationId,
+		platformKey.projectId,
+	);
 	return c.json({
 		id: wallet.id,
 		endCustomerId: wallet.endCustomerId,
@@ -333,22 +366,31 @@ platformSessions.openapi(creditWallet, async (c) => {
 	const { id } = c.req.param();
 	const { amount, reason } = c.req.valid("json");
 
-	const wallet = await loadWalletForPlatform(id, platformKey.organizationId);
+	const wallet = await loadWalletForPlatform(
+		id,
+		platformKey.organizationId,
+		platformKey.projectId,
+	);
 
-	const [updated] = await db
-		.update(tables.wallet)
-		.set({ balance: sql`${tables.wallet.balance} + ${amount}` })
-		.where(eq(tables.wallet.id, id))
-		.returning();
+	// Balance bump + ledger row must commit together.
+	const updated = await db.transaction(async (tx) => {
+		const [row] = await tx
+			.update(tables.wallet)
+			.set({ balance: sql`${tables.wallet.balance} + ${amount}` })
+			.where(eq(tables.wallet.id, id))
+			.returning();
 
-	await db.insert(tables.walletLedger).values({
-		walletId: wallet.id,
-		endCustomerId: wallet.endCustomerId,
-		organizationId: wallet.organizationId,
-		type: "adjustment",
-		amount: String(amount),
-		balanceAfter: updated.balance,
-		description: reason ?? "Server-side credit grant",
+		await tx.insert(tables.walletLedger).values({
+			walletId: wallet.id,
+			endCustomerId: wallet.endCustomerId,
+			organizationId: wallet.organizationId,
+			type: "adjustment",
+			amount: String(amount),
+			balanceAfter: row.balance,
+			description: reason ?? "Server-side credit grant",
+		});
+
+		return row;
 	});
 
 	return c.json({

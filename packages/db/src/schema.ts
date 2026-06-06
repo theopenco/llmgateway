@@ -630,6 +630,11 @@ export const walletLedger = pgTable(
 		index("wallet_ledger_stripe_payment_intent_id_idx").on(
 			table.stripePaymentIntentId,
 		),
+		// Idempotency guard: at most one topup row per PaymentIntent, so concurrent
+		// webhook deliveries can't double-credit a wallet (enforced at the DB layer).
+		uniqueIndex("wallet_ledger_topup_payment_intent_unique")
+			.on(table.stripePaymentIntentId)
+			.where(sql`${table.type} = 'topup'`),
 	],
 );
 
@@ -1102,6 +1107,13 @@ export const videoJob = pgTable(
 		apiKeyId: text()
 			.notNull()
 			.references(() => apiKey.id, { onDelete: "cascade" }),
+		// Embeddable SDK: for jobs created under an ephemeral end-user session, the
+		// owning wallet. Null for normal developer keys. Read routes enforce that a
+		// session may only access its own wallet's jobs (per-end-user isolation
+		// within a shared project).
+		endCustomerWalletId: text().references(() => wallet.id, {
+			onDelete: "set null",
+		}),
 		mode: text({
 			enum: ["api-keys", "credits", "hybrid"],
 		}).notNull(),

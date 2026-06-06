@@ -44,7 +44,9 @@ export async function loadEndUserWallet(
 		});
 	}
 	if (!apiKey.endCustomerWalletId) {
-		throw new HTTPException(500, {
+		// An ephemeral token with no bound wallet is an invalid credential, not a
+		// server fault.
+		throw new HTTPException(401, {
 			message: "Session token is not bound to a wallet",
 		});
 	}

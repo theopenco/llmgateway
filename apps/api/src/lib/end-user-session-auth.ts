@@ -63,6 +63,17 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 		throw new HTTPException(402, { message: "Wallet is frozen" });
 	}
 
+	// Reject sessions whose end customer was blocked/deleted or whose project was
+	// deactivated/deleted after the token was minted.
+	if (key.wallet.endCustomer && key.wallet.endCustomer.status !== "active") {
+		throw new HTTPException(401, { message: "End customer is inactive" });
+	}
+
+	const projectStatus = key.wallet.project?.status;
+	if (projectStatus && projectStatus !== "active") {
+		throw new HTTPException(401, { message: "Project is inactive" });
+	}
+
 	// Defense-in-depth origin allowlist (see gateway chat handler).
 	const allowedOrigins = key.wallet.project?.allowedOrigins ?? null;
 	const origin = c.req.header("Origin");

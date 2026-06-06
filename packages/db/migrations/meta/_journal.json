@@ -1072,6 +1072,13 @@
       "when": 1780710942808,
       "tag": "1780710942_adorable_moonstone",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "8",
+      "when": 1780768844623,
+      "tag": "1780768844_embeddable_hardening",
+      "breakpoints": true
     }
   ]
 }

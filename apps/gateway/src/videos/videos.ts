@@ -2177,6 +2177,7 @@ function getGoogleVertexInlineVideo(
 async function requireVideoJobForProject(
 	projectId: string,
 	videoId: string,
+	sessionWalletId: string | null = null,
 ): Promise<VideoJobRecord> {
 	const job = await db
 		.select()
@@ -2191,6 +2192,16 @@ async function requireVideoJobForProject(
 		.then((rows) => rows[0]);
 
 	if (!job) {
+		throw new HTTPException(404, {
+			message: "Video not found",
+		});
+	}
+
+	// Embeddable SDK: an ephemeral end-user session may only read jobs owned by
+	// its own wallet. End-users share a project, so a project-only scope would
+	// leak other end-users' jobs. (Normal developer keys pass null and see all
+	// project jobs, as before.)
+	if (sessionWalletId && job.endCustomerWalletId !== sessionWalletId) {
 		throw new HTTPException(404, {
 			message: "Video not found",
 		});
@@ -3733,6 +3744,8 @@ videos.openapi(createVideo, async (c) => {
 			organizationId: organization.id,
 			projectId: project.id,
 			apiKeyId: apiKey.id,
+			// Owner for per-end-user isolation; null for normal developer keys.
+			endCustomerWalletId: apiKey.endCustomerWalletId ?? null,
 			mode: project.mode,
 			usedMode: selectedProviderContext.usedMode,
 			model: normalizedModel,
@@ -3791,9 +3804,13 @@ videos.openapi(createVideo, async (c) => {
 });
 
 videos.openapi(getVideo, async (c) => {
-	const { project } = await requireRequestContext(c);
+	const { project, apiKey } = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(project.id, videoId);
+	const job = await requireVideoJobForProject(
+		project.id,
+		videoId,
+		apiKey.endCustomerWalletId ?? null,
+	);
 	return c.json(await serializeVideoJob(job));
 });
 
@@ -3875,9 +3892,13 @@ videos.openapi(getVideoLogContent, async (c) => {
 });
 
 videos.openapi(getVideoContent, async (c) => {
-	const { project } = await requireRequestContext(c);
+	const { project, apiKey } = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(project.id, videoId);
+	const job = await requireVideoJobForProject(
+		project.id,
+		videoId,
+		apiKey.endCustomerWalletId ?? null,
+	);
 
 	if (job.status !== "completed") {
 		throw new HTTPException(409, {

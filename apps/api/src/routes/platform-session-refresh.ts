@@ -69,9 +69,15 @@ platformSessionRefresh.openapi(refresh, async (c) => {
 			endCustomerWalletId: session.walletId,
 			expiresAt,
 			// Carry the spend cap + accumulated usage forward so refreshing can't
-			// reset it.
+			// reset it — including the windowed-limit state, so a rotation mid-window
+			// doesn't hand out a fresh allowance.
 			usageLimit: oldKey.usageLimit,
 			usage: oldKey.usage,
+			periodUsageLimit: oldKey.periodUsageLimit,
+			periodUsageDurationValue: oldKey.periodUsageDurationValue,
+			periodUsageDurationUnit: oldKey.periodUsageDurationUnit,
+			currentPeriodUsage: oldKey.currentPeriodUsage,
+			currentPeriodStartedAt: oldKey.currentPeriodStartedAt,
 			createdBy: oldKey.createdBy,
 		})
 		.returning();

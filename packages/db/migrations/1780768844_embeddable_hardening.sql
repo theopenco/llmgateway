@@ -1,0 +1,3 @@
+ALTER TABLE "video_job" ADD COLUMN "end_customer_wallet_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "wallet_ledger_topup_payment_intent_unique" ON "wallet_ledger" ("stripe_payment_intent_id") WHERE "type" = 'topup';--> statement-breakpoint
+ALTER TABLE "video_job" ADD CONSTRAINT "video_job_end_customer_wallet_id_wallet_id_fkey" FOREIGN KEY ("end_customer_wallet_id") REFERENCES "wallet"("id") ON DELETE SET NULL;

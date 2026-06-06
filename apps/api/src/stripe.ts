@@ -86,34 +86,42 @@ export async function ensureStripeCustomer(
 export async function ensureEndCustomerStripeCustomer(
 	endCustomerId: string,
 ): Promise<string> {
-	const endCustomer = await db.query.endCustomer.findFirst({
-		where: { id: { eq: endCustomerId } },
+	// Claim the row under a lock so two concurrent top-ups for the same customer
+	// can't each create a Stripe customer (orphaning one). The second caller
+	// blocks until the first commits, then sees the persisted id.
+	return await db.transaction(async (tx) => {
+		const [endCustomer] = await tx
+			.select()
+			.from(tables.endCustomer)
+			.where(eq(tables.endCustomer.id, endCustomerId))
+			.for("update")
+			.limit(1);
+
+		if (!endCustomer) {
+			throw new Error(`End customer not found: ${endCustomerId}`);
+		}
+
+		if (endCustomer.stripeCustomerId) {
+			return endCustomer.stripeCustomerId;
+		}
+
+		const customer = await getStripe().customers.create({
+			email: endCustomer.email ?? undefined,
+			name: endCustomer.name ?? undefined,
+			metadata: {
+				endCustomerId,
+				projectId: endCustomer.projectId,
+				organizationId: endCustomer.organizationId,
+			},
+		});
+
+		await tx
+			.update(tables.endCustomer)
+			.set({ stripeCustomerId: customer.id })
+			.where(eq(tables.endCustomer.id, endCustomerId));
+
+		return customer.id;
 	});
-
-	if (!endCustomer) {
-		throw new Error(`End customer not found: ${endCustomerId}`);
-	}
-
-	if (endCustomer.stripeCustomerId) {
-		return endCustomer.stripeCustomerId;
-	}
-
-	const customer = await getStripe().customers.create({
-		email: endCustomer.email ?? undefined,
-		name: endCustomer.name ?? undefined,
-		metadata: {
-			endCustomerId,
-			projectId: endCustomer.projectId,
-			organizationId: endCustomer.organizationId,
-		},
-	});
-
-	await db
-		.update(tables.endCustomer)
-		.set({ stripeCustomerId: customer.id })
-		.where(eq(tables.endCustomer.id, endCustomerId));
-
-	return customer.id;
 }
 
 /**
@@ -1358,8 +1366,11 @@ async function handleEndUserTopUpSucceeded(
 		return;
 	}
 
-	// Idempotency: a topup ledger row for this payment intent means we already
-	// processed it (webhook re-delivery).
+	// Fast-path idempotency: a topup ledger row for this payment intent means we
+	// already processed it (webhook re-delivery). The authoritative guard is the
+	// unique partial index on wallet_ledger(stripePaymentIntentId) WHERE
+	// type='topup', enforced inside the transaction below to close the race
+	// between concurrent deliveries.
 	const existing = await db.query.walletLedger.findFirst({
 		where: {
 			stripePaymentIntentId: { eq: paymentIntent.id },
@@ -1381,48 +1392,73 @@ async function handleEndUserTopUpSucceeded(
 		return;
 	}
 
-	const [updated] = await db
-		.update(tables.wallet)
-		.set({ balance: sql`${tables.wallet.balance} + ${netCredited}` })
-		.where(eq(tables.wallet.id, walletId))
-		.returning();
+	// Credit the wallet, write the ledger row, and accrue the developer margin
+	// atomically. The ledger insert hits the unique index first, so a concurrent
+	// duplicate delivery rolls the whole transaction back instead of double-
+	// crediting.
+	let newBalance: string;
+	try {
+		newBalance = await db.transaction(async (tx) => {
+			// Lock + credit the wallet first; a concurrent duplicate delivery blocks
+			// on this row, then fails the ledger insert below on the unique index.
+			const [updated] = await tx
+				.update(tables.wallet)
+				.set({ balance: sql`${tables.wallet.balance} + ${netCredited}` })
+				.where(eq(tables.wallet.id, walletId))
+				.returning();
 
-	await db.insert(tables.walletLedger).values({
-		walletId,
-		endCustomerId: wallet.endCustomerId,
-		organizationId: wallet.organizationId,
-		type: "topup",
-		amount: String(netCredited),
-		balanceAfter: updated.balance,
-		grossPaid: String(grossPaid),
-		platformFee: String(platformFee),
-		developerMargin: String(developerMargin),
-		netCredited: String(netCredited),
-		stripePaymentIntentId: paymentIntent.id,
-		description: "End-user credit top-up",
-	});
+			await tx.insert(tables.walletLedger).values({
+				walletId,
+				endCustomerId: wallet.endCustomerId,
+				organizationId: wallet.organizationId,
+				type: "topup",
+				amount: String(netCredited),
+				balanceAfter: updated.balance,
+				grossPaid: String(grossPaid),
+				platformFee: String(platformFee),
+				developerMargin: String(developerMargin),
+				netCredited: String(netCredited),
+				stripePaymentIntentId: paymentIntent.id,
+				description: "End-user credit top-up",
+			});
 
-	// Accrue the developer's margin to their org (settled out-of-band / via
-	// Stripe Connect in a later phase) and record it in the org's transaction
-	// history for visibility.
-	if (developerMargin > 0) {
-		await db
-			.update(tables.organization)
-			.set({
-				endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${developerMargin}`,
-			})
-			.where(eq(tables.organization.id, wallet.organizationId));
+			// Accrue the developer's margin to their org (settled out-of-band / via
+			// Stripe Connect) and record it in the org's transaction history.
+			if (developerMargin > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${developerMargin}`,
+					})
+					.where(eq(tables.organization.id, wallet.organizationId));
 
-		await db.insert(tables.transaction).values({
-			organizationId: wallet.organizationId,
-			type: "end_user_margin_accrual",
-			amount: String(developerMargin),
-			creditAmount: String(developerMargin),
-			status: "completed",
-			stripePaymentIntentId: paymentIntent.id,
-			description: `End-user top-up margin (wallet ${walletId})`,
+				await tx.insert(tables.transaction).values({
+					organizationId: wallet.organizationId,
+					type: "end_user_margin_accrual",
+					amount: String(developerMargin),
+					creditAmount: String(developerMargin),
+					status: "completed",
+					stripePaymentIntentId: paymentIntent.id,
+					description: `End-user top-up margin (wallet ${walletId})`,
+				});
+			}
+
+			return updated.balance;
 		});
+	} catch (err) {
+		const code =
+			(err as { code?: string; cause?: { code?: string } })?.code ??
+			(err as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			logger.info(
+				`Skipping duplicate end-user top-up for wallet ${walletId} (concurrent delivery for ${paymentIntent.id})`,
+			);
+			return;
+		}
+		throw err;
 	}
+
+	const updated = { balance: newBalance };
 
 	logger.info(
 		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee})`,

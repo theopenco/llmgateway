@@ -5,7 +5,7 @@ import { z } from "zod";
 import { platformSecretAuth } from "@/lib/platform-secret-auth.js";
 import { getStripe } from "@/routes/payments.js";
 
-import { db, eq, sql, tables } from "@llmgateway/db";
+import { and, db, eq, sql, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
@@ -195,24 +195,51 @@ platformConnect.openapi(createPayout, async (c) => {
 	const amountCents = Math.floor(marginBalance * 100);
 	const amount = amountCents / 100;
 
-	// Idempotency key derived from the org + the integer balance so retries with
-	// the same accrued balance don't double-pay.
-	const transfer = await getStripe().transfers.create(
-		{
-			amount: amountCents,
-			currency: "usd",
-			destination: org.stripeConnectAccountId,
-			metadata: { organizationId: org.id, kind: "end_user_margin_payout" },
-		},
-		{ idempotencyKey: `margin_payout_${org.id}_${amountCents}` },
-	);
-
-	await db
+	// Reserve the funds first with a conditional decrement so this can't race the
+	// auto-payout worker (or a concurrent request) into an overpayment. Only
+	// proceed if we actually claimed the amount.
+	const reserved = await db
 		.update(tables.organization)
 		.set({
-			endUserMarginBalance: sql`GREATEST(${tables.organization.endUserMarginBalance} - ${amount}, 0)`,
+			endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} - ${amount}`,
 		})
-		.where(eq(tables.organization.id, org.id));
+		.where(
+			and(
+				eq(tables.organization.id, org.id),
+				sql`${tables.organization.endUserMarginBalance} >= ${amount}`,
+			),
+		)
+		.returning();
+
+	if (reserved.length === 0) {
+		throw new HTTPException(409, {
+			message: "Margin balance changed; please retry.",
+		});
+	}
+
+	let transfer: { id: string };
+	try {
+		// Idempotency key derived from the org + the integer balance so retries
+		// with the same accrued balance don't double-pay.
+		transfer = await getStripe().transfers.create(
+			{
+				amount: amountCents,
+				currency: "usd",
+				destination: org.stripeConnectAccountId,
+				metadata: { organizationId: org.id, kind: "end_user_margin_payout" },
+			},
+			{ idempotencyKey: `margin_payout_${org.id}_${amountCents}` },
+		);
+	} catch (err) {
+		// Transfer failed — restore the reserved funds.
+		await db
+			.update(tables.organization)
+			.set({
+				endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${amount}`,
+			})
+			.where(eq(tables.organization.id, org.id));
+		throw err;
+	}
 
 	await db.insert(tables.transaction).values({
 		organizationId: org.id,
