@@ -6,9 +6,11 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	apiKey,
 	sql,
 	and,
 	isNull,
+	eq,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -356,11 +358,13 @@ async function recalculateApiKeyHourlyStats(
 			...getCommonAggregationFields(),
 		})
 		.from(log)
+		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
 				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
 				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				eq(apiKey.keyType, "user"),
 			),
 		)
 		.groupBy(log.apiKeyId);
@@ -402,11 +406,13 @@ async function recalculateApiKeyHourlyModelStats(
 			...getCommonAggregationFields(),
 		})
 		.from(log)
+		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
 				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
 				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				eq(apiKey.keyType, "user"),
 			),
 		)
 		.groupBy(log.apiKeyId, log.usedModel, log.usedProvider);

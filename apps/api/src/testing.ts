@@ -6,6 +6,7 @@ import {
 	projectHourlyModelStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	eq,
 } from "@llmgateway/db";
 
 import { app } from "./index.js";
@@ -313,6 +314,8 @@ export async function aggregateLogsForTesting() {
 			...getCommonAggregationFields(),
 		})
 		.from(tables.log)
+		.innerJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
+		.where(eq(tables.apiKey.keyType, "user"))
 		.groupBy(tables.log.apiKeyId, tables.log.projectId, hourTrunc);
 
 	for (const stat of apiKeyStats) {
@@ -348,6 +351,8 @@ export async function aggregateLogsForTesting() {
 			...getCommonAggregationFields(),
 		})
 		.from(tables.log)
+		.innerJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
+		.where(eq(tables.apiKey.keyType, "user"))
 		.groupBy(
 			tables.log.apiKeyId,
 			tables.log.projectId,
