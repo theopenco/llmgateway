@@ -2,19 +2,11 @@
 
 import { Check, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 
 import { CodePlanTracker } from "@/components/LandingTracker";
 import { Button } from "@/components/ui/button";
 
-import {
-	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
-	DEV_PLAN_PRICES,
-	getDevPlanAnnualMonthlyPrice,
-	getDevPlanAnnualPrice,
-	type DevPlanCycle,
-	type DevPlanTier,
-} from "@llmgateway/shared";
+import { DEV_PLAN_PRICES, type DevPlanTier } from "@llmgateway/shared";
 
 export type DevPlanCredits = Record<DevPlanTier, number>;
 
@@ -67,57 +59,6 @@ const plans: PlanContent[] = [
 	},
 ];
 
-interface CycleToggleProps {
-	cycle: DevPlanCycle;
-	onChange: (cycle: DevPlanCycle) => void;
-}
-
-function CycleToggle({ cycle, onChange }: CycleToggleProps) {
-	return (
-		<div
-			role="radiogroup"
-			aria-label="Billing cycle"
-			className="inline-flex items-center rounded-full border bg-card p-1 text-sm shadow-sm"
-		>
-			<button
-				role="radio"
-				aria-checked={cycle === "monthly"}
-				type="button"
-				onClick={() => onChange("monthly")}
-				className={`relative rounded-full px-4 py-1.5 font-medium transition-colors ${
-					cycle === "monthly"
-						? "bg-foreground text-background"
-						: "text-muted-foreground hover:text-foreground"
-				}`}
-			>
-				Monthly
-			</button>
-			<button
-				role="radio"
-				aria-checked={cycle === "annual"}
-				type="button"
-				onClick={() => onChange("annual")}
-				className={`relative rounded-full px-4 py-1.5 font-medium transition-colors ${
-					cycle === "annual"
-						? "bg-foreground text-background"
-						: "text-muted-foreground hover:text-foreground"
-				}`}
-			>
-				Annual
-				<span
-					className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-						cycle === "annual"
-							? "bg-background/20 text-background"
-							: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-					}`}
-				>
-					−{DEV_PLAN_ANNUAL_DISCOUNT_MONTHS} mo
-				</span>
-			</button>
-		</div>
-	);
-}
-
 function formatUsd(amount: number): string {
 	return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(0)}`;
 }
@@ -127,20 +68,12 @@ interface PricingPlansProps {
 }
 
 export function PricingPlans({ credits }: PricingPlansProps) {
-	const [cycle, setCycle] = useState<DevPlanCycle>("monthly");
-
 	return (
 		<div>
-			<div className="mb-10 flex justify-center">
-				<CycleToggle cycle={cycle} onChange={setCycle} />
-			</div>
 			<div className="grid gap-6 md:grid-cols-3">
 				{plans.map((plan) => {
 					const monthlyPrice = DEV_PLAN_PRICES[plan.tier];
-					const annualPerMonth = getDevPlanAnnualMonthlyPrice(plan.tier);
-					const annualTotal = getDevPlanAnnualPrice(plan.tier);
-					const displayPrice =
-						cycle === "annual" ? annualPerMonth : monthlyPrice;
+					const displayPrice = monthlyPrice;
 					const usageValue = credits[plan.tier];
 					const ratio = usageValue / monthlyPrice;
 					const usageWithSoulForge = Math.round(usageValue * 2);
@@ -176,17 +109,7 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 								<span className="text-muted-foreground">/mo</span>
 							</div>
 							<div className="mb-6 min-h-[20px] text-xs text-muted-foreground">
-								{cycle === "annual" ? (
-									<>
-										Billed{" "}
-										<span className="font-medium text-foreground tabular-nums">
-											${annualTotal}
-										</span>{" "}
-										yearly
-									</>
-								) : (
-									plan.tagline
-								)}
+								{plan.tagline}
 							</div>
 
 							{/* Baseline: what you pay vs. what you actually get */}
@@ -263,15 +186,6 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 										</span>
 									</li>
 								))}
-								{cycle === "annual" && (
-									<li className="flex items-start gap-2.5">
-										<Check className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
-										<span className="text-sm text-muted-foreground">
-											Save {DEV_PLAN_ANNUAL_DISCOUNT_MONTHS} months vs monthly
-											billing
-										</span>
-									</li>
-								)}
 							</ul>
 
 							<CodePlanTracker plan={plan.tier} price={displayPrice}>
@@ -281,7 +195,7 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 									variant={plan.popular ? "default" : "outline"}
 									asChild
 								>
-									<Link href={`/signup?plan=${plan.tier}&cycle=${cycle}`}>
+									<Link href={`/signup?plan=${plan.tier}`}>
 										Get {plan.name}
 									</Link>
 								</Button>
