@@ -277,6 +277,9 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "invoice.payment_succeeded":
 				await handleInvoicePaymentSucceeded(event);
 				break;
+			case "invoice.paid":
+				await handleInvoicePaymentSucceeded(event);
+				break;
 			case "invoice.payment_failed":
 				await handleInvoicePaymentFailed(event);
 				break;
@@ -429,6 +432,10 @@ async function findDevPlanSubscriptionForSetupSession(
 	return await getStripe().subscriptions.retrieve(existing.id, {
 		expand: ["latest_invoice.payment_intent"],
 	});
+}
+
+function shouldForceDevPlan3dsChallenge(): boolean {
+	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
 }
 
 async function resolvePaymentMethodFromSetupSession(
@@ -601,6 +608,17 @@ export async function finalizeDevPlanSetupSession(
 				items: [{ price: priceId }],
 				default_payment_method: paymentMethod.id,
 				payment_behavior: "default_incomplete",
+				...(shouldForceDevPlan3dsChallenge()
+					? {
+							payment_settings: {
+								payment_method_options: {
+									card: {
+										request_three_d_secure: "challenge" as const,
+									},
+								},
+							},
+						}
+					: {}),
 				metadata: {
 					organizationId,
 					subscriptionType: "dev_plan",
@@ -2381,9 +2399,9 @@ async function handleSetupIntentSucceeded(
 	});
 }
 
-export async function handleInvoicePaymentSucceeded(
-	event: Stripe.InvoicePaymentSucceededEvent,
-) {
+export async function handleInvoicePaymentSucceeded(event: {
+	data: { object: Stripe.Invoice };
+}) {
 	const invoice = event.data.object;
 	const { customer, metadata } = invoice;
 	const subscription = (invoice as any).subscription;

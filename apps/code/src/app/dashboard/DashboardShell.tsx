@@ -55,6 +55,24 @@ const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },
 	];
 
+const wait = async (ms: number, signal: AbortSignal) => {
+	if (signal.aborted) {
+		throw new DOMException("Aborted", "AbortError");
+	}
+
+	await new Promise<void>((resolve, reject) => {
+		const timeoutId = window.setTimeout(() => {
+			signal.removeEventListener("abort", handleAbort);
+			resolve();
+		}, ms);
+		function handleAbort() {
+			window.clearTimeout(timeoutId);
+			reject(new DOMException("Aborted", "AbortError"));
+		}
+		signal.addEventListener("abort", handleAbort, { once: true });
+	});
+};
+
 export default function DashboardShell({
 	children,
 	initialUser,
@@ -103,6 +121,8 @@ export default function DashboardShell({
 			return;
 		}
 		finalizedSessions.current.add(sessionId);
+		const abortController = new AbortController();
+		const { signal } = abortController;
 
 		const clearParam = () => {
 			const params = new URLSearchParams(searchParams.toString());
@@ -111,10 +131,28 @@ export default function DashboardShell({
 			router.replace(query ? `/dashboard?${query}` : "/dashboard");
 		};
 
-		const finalizeDevPlan = async () => {
-			const result = await finalizeMutation.mutateAsync({
+		const finalizeOnce = async () => {
+			return await finalizeMutation.mutateAsync({
 				body: { sessionId },
 			});
+		};
+
+		const waitForFinalization = async (
+			initialResult: Awaited<ReturnType<typeof finalizeOnce>>,
+		) => {
+			let result = initialResult;
+			for (let attempt = 0; attempt < 10; attempt++) {
+				if (result?.status !== "payment_pending") {
+					return result;
+				}
+				await wait(2000, signal);
+				result = await finalizeOnce();
+			}
+			return result;
+		};
+
+		const finalizeDevPlan = async () => {
+			const result = await finalizeOnce();
 			if (result?.status === "requires_action") {
 				if (!stripe) {
 					throw new Error("Stripe is not ready. Please refresh and try again.");
@@ -127,18 +165,17 @@ export default function DashboardShell({
 						confirmation.error.message ?? "Payment authentication failed",
 					);
 				}
-				if (confirmation.paymentIntent?.status !== "succeeded") {
-					toast.info("Payment is processing. DevPass will activate shortly.");
-					return;
-				}
 
-				return await finalizeMutation.mutateAsync({ body: { sessionId } });
+				return await waitForFinalization(await finalizeOnce());
 			}
-			return result;
+			return await waitForFinalization(result);
 		};
 
 		finalizeDevPlan()
 			.then((result) => {
+				if (signal.aborted) {
+					return;
+				}
 				if (result?.status === "ok" || result?.status === "already_processed") {
 					toast.success("DevPass activated");
 					void queryClient.invalidateQueries({
@@ -152,6 +189,9 @@ export default function DashboardShell({
 				}
 			})
 			.catch((error: unknown) => {
+				if (signal.aborted) {
+					return;
+				}
 				const errCode =
 					error && typeof error === "object" && "error" in error
 						? (error as { error?: unknown }).error
@@ -179,8 +219,14 @@ export default function DashboardShell({
 				}
 			})
 			.finally(() => {
-				clearParam();
+				if (!signal.aborted) {
+					clearParam();
+				}
 			});
+
+		return () => {
+			abortController.abort();
+		};
 	}, [
 		searchParams,
 		finalizeMutation,
