@@ -3932,6 +3932,8 @@ chat.openapi(completions, async (c) => {
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
 	let splitTaggedReasoning =
 		selectedProviderMapping?.splitTaggedReasoning === true;
+	let healStreamingJsonOutput =
+		selectedProviderMapping?.healStreamingJsonOutput === true;
 
 	// Check if messages contain existing tool calls or tool results
 	// If so, use Chat Completions API instead of Responses API
@@ -5008,6 +5010,7 @@ chat.openapi(completions, async (c) => {
 		}
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
+		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
 		temperature = ctx.temperature;
 		max_tokens = ctx.max_tokens;
 		top_p = ctx.top_p;
@@ -6657,7 +6660,8 @@ chat.openapi(completions, async (c) => {
 						(usedProvider === "aws-bedrock" &&
 							response_format?.type === "json_object") ||
 						usedProvider === "novita" ||
-						splitTaggedReasoning);
+						splitTaggedReasoning ||
+						healStreamingJsonOutput);
 
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end

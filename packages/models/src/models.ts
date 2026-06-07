@@ -370,6 +370,13 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutput?: boolean;
 	/**
+	 * Whether JSON-mode streaming output for this provider mapping should be
+	 * buffered and healed before being sent downstream. Use this for providers
+	 * that support JSON mode but may stream reasoning or explanatory text as
+	 * content before the final JSON object.
+	 */
+	healStreamingJsonOutput?: boolean;
+	/**
 	 * Whether this provider supports JSON schema output mode (json_schema response format)
 	 */
 	jsonOutputSchema?: boolean;

@@ -66,6 +66,7 @@ export interface ProviderContext {
 	isImageGeneration: boolean;
 	supportsReasoning: boolean;
 	splitTaggedReasoning: boolean;
+	healStreamingJsonOutput: boolean;
 	temperature: number | undefined;
 	max_tokens: number | undefined;
 	top_p: number | undefined;
@@ -338,6 +339,8 @@ export async function resolveProviderContext(
 	const supportsReasoning = providerMappingForSelected?.reasoning === true;
 	const splitTaggedReasoning =
 		providerMappingForSelected?.splitTaggedReasoning === true;
+	const healStreamingJsonOutput =
+		providerMappingForSelected?.healStreamingJsonOutput === true;
 
 	// --- Image generation check ---
 	const isImageGeneration =
@@ -568,6 +571,7 @@ export async function resolveProviderContext(
 		isImageGeneration,
 		supportsReasoning,
 		splitTaggedReasoning,
+		healStreamingJsonOutput,
 		temperature,
 		max_tokens,
 		top_p,

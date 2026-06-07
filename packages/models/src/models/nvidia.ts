@@ -22,6 +22,7 @@ export const nvidiaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				healStreamingJsonOutput: true,
 			},
 		],
 	},
