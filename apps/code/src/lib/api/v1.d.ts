@@ -2804,6 +2804,7 @@ export interface paths {
                                     }[];
                                 } | null;
                                 discount?: number | null;
+                                serviceTier?: string | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {
@@ -3060,6 +3061,7 @@ export interface paths {
                                     }[];
                                 } | null;
                                 discount?: number | null;
+                                serviceTier?: string | null;
                                 retried?: boolean | null;
                                 retriedByLogId?: string | null;
                                 gatewayContentFilterResponse?: {

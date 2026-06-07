@@ -110,7 +110,7 @@ ALTER TABLE "video_job" ADD COLUMN "end_user_session_id" text;--> statement-brea
 ALTER TABLE "video_job" ADD COLUMN "end_customer_wallet_id" text;--> statement-breakpoint
 ALTER TABLE "organization" ADD CONSTRAINT "organization_stripe_connect_account_id_key" UNIQUE("stripe_connect_account_id");--> statement-breakpoint
 CREATE INDEX "api_key_key_type_expires_at_idx" ON "api_key" ("key_type","expires_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "api_key_project_end_user_sessions_unique" ON "api_key" ("project_id") WHERE "key_type" = 'end_user_sessions';--> statement-breakpoint
+CREATE UNIQUE INDEX "api_key_end_user_customer_wallet_unique" ON "api_key" ("end_customer_wallet_id") WHERE "key_type" = 'end_user_customer' AND "status" = 'active';--> statement-breakpoint
 CREATE UNIQUE INDEX "end_customer_project_id_external_id_unique" ON "end_customer" ("project_id","external_id");--> statement-breakpoint
 CREATE INDEX "end_customer_organization_id_idx" ON "end_customer" ("organization_id");--> statement-breakpoint
 CREATE INDEX "end_customer_project_id_idx" ON "end_customer" ("project_id");--> statement-breakpoint
