@@ -36,6 +36,8 @@ import {
 	assertSafeWebhookUrl,
 	calculateFees,
 	isCreditTopUpAmountInRange,
+	isPremiumModel,
+	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
 } from "@llmgateway/shared";
 
@@ -777,6 +779,8 @@ export async function batchProcessLogs(): Promise<void> {
 			interface OrgCostBuckets {
 				chat: Decimal;
 				other: Decimal;
+				chatPremium: Decimal;
+				otherPremium: Decimal;
 			}
 			const orgCosts = new Map<string, OrgCostBuckets>();
 			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
@@ -867,16 +871,21 @@ export async function batchProcessLogs(): Promise<void> {
 						continue;
 					}
 
-					const sourceBucket: keyof OrgCostBuckets = isChatSource(row.source)
-						? "chat"
-						: "other";
+					const sourceBucket = isChatSource(row.source) ? "chat" : "other";
 
-					const addToBucket = (amount: Decimal) => {
+					const addToBucket = (amount: Decimal, premium: boolean) => {
 						const existing = orgCosts.get(row.organization_id) ?? {
 							chat: new Decimal(0),
 							other: new Decimal(0),
+							chatPremium: new Decimal(0),
+							otherPremium: new Decimal(0),
 						};
 						existing[sourceBucket] = existing[sourceBucket].plus(amount);
+						if (premium) {
+							const premiumBucket =
+								sourceBucket === "chat" ? "chatPremium" : "otherPremium";
+							existing[premiumBucket] = existing[premiumBucket].plus(amount);
+						}
 						orgCosts.set(row.organization_id, existing);
 					};
 
@@ -884,12 +893,15 @@ export async function batchProcessLogs(): Promise<void> {
 					// - Credits mode: deduct full cost (includes request cost + storage cost)
 					// - API keys mode: only deduct storage cost (data retention billing)
 					if (row.used_mode === "credits") {
-						addToBucket(apiKeyCost);
+						addToBucket(
+							apiKeyCost,
+							Boolean(row.used_model && isPremiumModel(row.used_model)),
+						);
 					} else if (row.used_mode === "api-keys") {
 						if (row.data_storage_cost) {
 							const storageCost = new Decimal(row.data_storage_cost);
 							if (storageCost.greaterThan(0)) {
-								addToBucket(storageCost);
+								addToBucket(storageCost, false);
 							}
 						}
 					}
@@ -912,12 +924,15 @@ export async function batchProcessLogs(): Promise<void> {
 			interface PlanPool {
 				kind: "chat" | "dev";
 				remaining: Decimal;
+				premiumCreditsUsed?: Decimal;
+				premiumWeekStart?: Date | null;
 			}
 
 			const deductFromPlanPool = async (
 				orgId: string,
 				pool: PlanPool,
 				amount: Decimal,
+				premiumAmount: Decimal,
 			) => {
 				const amountStr = amount.toString();
 				if (pool.kind === "chat") {
@@ -931,12 +946,53 @@ export async function batchProcessLogs(): Promise<void> {
 						`Deducted ${amountStr} chat plan credits from organization ${orgId}`,
 					);
 				} else {
-					await tx
-						.update(organization)
-						.set({
-							devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
-						})
-						.where(eq(organization.id, orgId));
+					const weekExpired = isPremiumWeekExpired(pool.premiumWeekStart);
+					const now = new Date();
+					const premiumAmountStr = premiumAmount.toString();
+
+					if (premiumAmount.greaterThan(0)) {
+						if (weekExpired) {
+							await tx
+								.update(organization)
+								.set({
+									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									devPlanPremiumCreditsUsed: premiumAmountStr,
+									devPlanPremiumWeekStart: now,
+								})
+								.where(eq(organization.id, orgId));
+							pool.premiumCreditsUsed = premiumAmount;
+							pool.premiumWeekStart = now;
+						} else {
+							await tx
+								.update(organization)
+								.set({
+									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									devPlanPremiumCreditsUsed: sql`${organization.devPlanPremiumCreditsUsed} + ${premiumAmountStr}`,
+								})
+								.where(eq(organization.id, orgId));
+							pool.premiumCreditsUsed = (
+								pool.premiumCreditsUsed ?? new Decimal(0)
+							).plus(premiumAmount);
+						}
+					} else if (weekExpired && pool.premiumWeekStart) {
+						await tx
+							.update(organization)
+							.set({
+								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+								devPlanPremiumCreditsUsed: "0",
+								devPlanPremiumWeekStart: now,
+							})
+							.where(eq(organization.id, orgId));
+						pool.premiumCreditsUsed = new Decimal(0);
+						pool.premiumWeekStart = now;
+					} else {
+						await tx
+							.update(organization)
+							.set({
+								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+							})
+							.where(eq(organization.id, orgId));
+					}
 					logger.debug(
 						`Deducted ${amountStr} dev plan credits from organization ${orgId}`,
 					);
@@ -971,15 +1027,21 @@ export async function batchProcessLogs(): Promise<void> {
 								remaining: new Decimal(org.devPlanCreditsLimit || "0").minus(
 									new Decimal(org.devPlanCreditsUsed || "0"),
 								),
+								premiumCreditsUsed: new Decimal(
+									org.devPlanPremiumCreditsUsed || "0",
+								),
+								premiumWeekStart: org.devPlanPremiumWeekStart,
 							}
 						: null;
 
 				const drainBucket = async (
 					bucketCost: Decimal,
+					premiumCost: Decimal,
 					preferred: PlanPool | null,
 					fallback: PlanPool | null,
 				): Promise<Decimal> => {
 					let remaining = bucketCost;
+					let remainingPremium = premiumCost;
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
 							continue;
@@ -988,18 +1050,33 @@ export async function batchProcessLogs(): Promise<void> {
 							continue;
 						}
 						const take = Decimal.min(remaining, pool.remaining);
-						await deductFromPlanPool(orgId, pool, take);
+						const premiumTake =
+							pool.kind === "dev"
+								? Decimal.min(remainingPremium, take)
+								: new Decimal(0);
+						await deductFromPlanPool(orgId, pool, take, premiumTake);
 						remaining = remaining.minus(take);
+						remainingPremium = remainingPremium.minus(premiumTake);
 					}
 					return remaining;
 				};
 
 				const remainingFromChat = buckets.chat.greaterThan(0)
-					? await drainBucket(buckets.chat, chatPool, devPool)
+					? await drainBucket(
+							buckets.chat,
+							buckets.chatPremium,
+							chatPool,
+							devPool,
+						)
 					: new Decimal(0);
 
 				const remainingFromOther = buckets.other.greaterThan(0)
-					? await drainBucket(buckets.other, devPool, chatPool)
+					? await drainBucket(
+							buckets.other,
+							buckets.otherPremium,
+							devPool,
+							chatPool,
+						)
 					: new Decimal(0);
 
 				const remainingCost = remainingFromChat.plus(remainingFromOther);

@@ -178,6 +178,7 @@ import {
 } from "./tools/reasoning-details.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import {
+	assertDevPlanPremiumCapNotExceeded,
 	formatUsedModelForDisplay,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
@@ -1706,6 +1707,8 @@ chat.openapi(completions, async (c) => {
 		devPlan: organization.devPlan,
 		devPlanCreditsLimit: organization.devPlanCreditsLimit,
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
+		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
+		devPlanPremiumWeekStart: organization.devPlanPremiumWeekStart,
 		devPlanExpiresAt: organization.devPlanExpiresAt,
 		chatPlan: organization.chatPlan,
 		chatPlanCreditsLimit: organization.chatPlanCreditsLimit,
@@ -3594,6 +3597,10 @@ chat.openapi(completions, async (c) => {
 		}
 	} else if (project.mode === "credits") {
 		// Check regular credits, dev plan credits, and chat plan credits.
+		assertDevPlanPremiumCapNotExceeded(
+			organization,
+			(finalModelInfo ?? modelInfo) as ModelDefinition,
+		);
 		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
 			organization.devPlan !== "none"
@@ -3718,6 +3725,10 @@ chat.openapi(completions, async (c) => {
 		} else {
 			// No API key available, fall back to credits
 			// Check regular credits, dev plan credits, and chat plan credits.
+			assertDevPlanPremiumCapNotExceeded(
+				organization,
+				(finalModelInfo ?? modelInfo) as ModelDefinition,
+			);
 			const regularCredits = parseFloat(organization.credits ?? "0");
 			const devPlanCreditsRemaining =
 				organization.devPlan !== "none"

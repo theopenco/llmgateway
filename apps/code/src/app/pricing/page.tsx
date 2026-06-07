@@ -308,6 +308,13 @@ export default function PricingPage() {
 								max: maxCredits,
 							}}
 						/>
+						<p className="mx-auto mt-6 max-w-3xl text-center text-xs text-muted-foreground">
+							Premium-tier frontier models (Anthropic Opus, OpenAI
+							Pro/reasoning, Gemini Pro, Grok 4) are subject to a weekly
+							fair-use allowance ($10 / $50 / $140 for Lite / Pro / Max) in
+							addition to the monthly credit allowance. All other 190+ models
+							use the full monthly allowance with the 3x multiplier.
+						</p>
 					</div>
 				</section>
 

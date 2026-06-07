@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "445e0181-4370-4274-b051-78ad3cde9423",
-  "prevId": "201ba0b5-6d52-42dd-814b-ab4f64931256",
+  "id": "0d356979-3ce8-4142-89c9-2f244b10edad",
+  "prevId": "5e02105a-12f9-4d26-939c-b6d196abe33f",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -9924,6 +9924,35 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_credits_limit",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_premium_credits_used",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_premium_week_start",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
