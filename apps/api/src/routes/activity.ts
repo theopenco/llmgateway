@@ -843,6 +843,7 @@ activity.openapi(getActivity, async (c) => {
 			.where(
 				and(
 					inArray(apiKeyHourlyStats.projectId, projectIds),
+					eq(apiKey.keyType, "user"),
 					gte(apiKeyHourlyStats.hourTimestamp, startDate),
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),

@@ -47,11 +47,10 @@ platformSessionRefresh.openapi(refresh, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const oldKey = await db.query.apiKey.findFirst({
-		where: { id: { eq: session.apiKeyId } },
-		with: { iamRules: true },
+	const oldSession = await db.query.endUserSession.findFirst({
+		where: { id: { eq: session.sessionId } },
 	});
-	if (!oldKey) {
+	if (!oldSession) {
 		throw new HTTPException(401, { message: "Invalid session token" });
 	}
 
@@ -59,47 +58,47 @@ platformSessionRefresh.openapi(refresh, async (c) => {
 	const expiresAt = new Date(Date.now() + ttlMs);
 	const token = EPHEMERAL_PREFIX + shortid(40);
 
-	const [newKey] = await db
-		.insert(tables.apiKey)
-		.values({
-			token,
-			projectId: oldKey.projectId,
-			description: oldKey.description,
-			keyType: "ephemeral_session",
-			endCustomerWalletId: session.walletId,
-			expiresAt,
-			// Carry the spend cap + accumulated usage forward so refreshing can't
-			// reset it — including the windowed-limit state, so a rotation mid-window
-			// doesn't hand out a fresh allowance.
-			usageLimit: oldKey.usageLimit,
-			usage: oldKey.usage,
-			periodUsageLimit: oldKey.periodUsageLimit,
-			periodUsageDurationValue: oldKey.periodUsageDurationValue,
-			periodUsageDurationUnit: oldKey.periodUsageDurationUnit,
-			currentPeriodUsage: oldKey.currentPeriodUsage,
-			currentPeriodStartedAt: oldKey.currentPeriodStartedAt,
-			createdBy: oldKey.createdBy,
-		})
-		.returning();
+	const newSession = await db.transaction(async (tx) => {
+		const [created] = await tx
+			.insert(tables.endUserSession)
+			.values({
+				token,
+				projectId: oldSession.projectId,
+				organizationId: oldSession.organizationId,
+				endCustomerId: oldSession.endCustomerId,
+				walletId: session.walletId,
+				expiresAt,
+				// Carry the spend cap + accumulated usage forward so refreshing can't
+				// reset it — including the windowed-limit state, so a rotation mid-window
+				// doesn't hand out a fresh allowance.
+				scope: oldSession.scope,
+				usageLimit: oldSession.usageLimit,
+				usage: oldSession.usage,
+				periodUsageLimit: oldSession.periodUsageLimit,
+				periodUsageDurationValue: oldSession.periodUsageDurationValue,
+				periodUsageDurationUnit: oldSession.periodUsageDurationUnit,
+				currentPeriodUsage: oldSession.currentPeriodUsage,
+				currentPeriodStartedAt: oldSession.currentPeriodStartedAt,
+				createdBy: oldSession.createdBy,
+			})
+			.returning();
 
-	for (const rule of oldKey.iamRules) {
-		await db.insert(tables.apiKeyIamRule).values({
-			apiKeyId: newKey.id,
-			ruleType: rule.ruleType,
-			ruleValue: rule.ruleValue,
-			status: rule.status,
-		});
-	}
+		if (!created) {
+			throw new HTTPException(500, { message: "Failed to refresh session" });
+		}
 
-	await db
-		.update(tables.apiKey)
-		.set({ status: "inactive" })
-		.where(eq(tables.apiKey.id, oldKey.id));
+		await tx
+			.update(tables.endUserSession)
+			.set({ status: "inactive" })
+			.where(eq(tables.endUserSession.id, oldSession.id));
+
+		return created;
+	});
 
 	return c.json({
 		sessionToken: token,
-		walletId: session.walletId,
-		expiresAt: expiresAt.toISOString(),
+		walletId: newSession.walletId,
+		expiresAt: newSession.expiresAt.toISOString(),
 	});
 });
 

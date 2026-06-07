@@ -74,7 +74,7 @@ export type ApiKey = Omit<ApiKeyBase, "status" | "keyType"> & {
 		| "user"
 		| "platform_secret"
 		| "platform_publishable"
-		| "ephemeral_session";
+		| "end_user_sessions";
 };
 
 export type EndCustomer = Omit<
@@ -82,6 +82,13 @@ export type EndCustomer = Omit<
 	"status"
 > & {
 	status: "active" | "blocked" | "deleted";
+};
+
+export type EndUserSession = Omit<
+	InferSelectModel<typeof tables.endUserSession>,
+	"status"
+> & {
+	status: "active" | "inactive" | "deleted";
 };
 
 export type Wallet = Omit<InferSelectModel<typeof tables.wallet>, "status"> & {
@@ -200,7 +207,7 @@ export type SerializedApiKey = Omit<
 	| "createdAt"
 	| "updatedAt"
 	| "currentPeriodStartedAt"
-	// Embeddable SDK internals — ephemeral session keys aren't surfaced here.
+	// Embeddable SDK internals — hidden aggregate keys aren't surfaced here.
 	| "keyType"
 	| "endCustomerWalletId"
 	| "expiresAt"

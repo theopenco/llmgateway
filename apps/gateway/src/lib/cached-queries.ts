@@ -17,10 +17,13 @@ import {
 	eq,
 	getTableName,
 	inArray,
+	ne,
 	cdb as db,
 	db as uncachedDb,
 	apiKey as apiKeyTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
+	endCustomer as endCustomerTable,
+	endUserSession as endUserSessionTable,
 	getEffectiveRateLimit,
 	organization as organizationTable,
 	project as projectTable,
@@ -43,6 +46,7 @@ import type { InferSelectModel } from "@llmgateway/db";
 import type {
 	apiKey,
 	apiKeyIamRule,
+	endUserSession,
 	organization,
 	project,
 	providerKey,
@@ -53,6 +57,7 @@ import type {
 
 // Type aliases for cleaner function signatures
 type ApiKey = InferSelectModel<typeof apiKey>;
+type EndUserSession = InferSelectModel<typeof endUserSession>;
 type ApiKeyIamRule = InferSelectModel<typeof apiKeyIamRule>;
 type Organization = InferSelectModel<typeof organization>;
 type Project = InferSelectModel<typeof project>;
@@ -63,6 +68,8 @@ type Wallet = InferSelectModel<typeof wallet>;
 
 const apiKeyTableName = getTableName(apiKeyTable);
 const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
+const endCustomerTableName = getTableName(endCustomerTable);
+const endUserSessionTableName = getTableName(endUserSessionTable);
 const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
@@ -126,19 +133,116 @@ function selectProviderKeyWithFailover<T extends { id: string }>(
 /**
  * Find an API key by token (cacheable)
  */
+export type GatewayApiKey = ApiKey & {
+	endUserSession?: {
+		id: string;
+		walletId: string;
+		endCustomerId: string;
+		expiresAt: Date;
+		scope: EndUserSession["scope"];
+		walletStatus: Wallet["status"];
+		endCustomerStatus: string;
+		projectStatus: Project["status"];
+	};
+};
+
 export async function findApiKeyByToken(
 	token: string,
-): Promise<ApiKey | undefined> {
-	return await swrWrap(
+): Promise<GatewayApiKey | undefined> {
+	const key = await swrWrap(
 		`apiKey:token:${getApiKeyFingerprint(token)}`,
 		[apiKeyTableName],
 		async () => {
 			const results = await db
 				.select()
 				.from(apiKeyTable)
-				.where(eq(apiKeyTable.token, token))
+				.where(
+					and(
+						eq(apiKeyTable.token, token),
+						ne(apiKeyTable.keyType, "end_user_sessions"),
+					),
+				)
 				.limit(1);
 			return results[0];
+		},
+	);
+
+	if (key) {
+		return key;
+	}
+
+	if (!token.startsWith("es_")) {
+		return undefined;
+	}
+
+	return await swrWrap(
+		`endUserSession:token:${getApiKeyFingerprint(token)}`,
+		[
+			endUserSessionTableName,
+			apiKeyTableName,
+			walletTableName,
+			endCustomerTableName,
+			projectTableName,
+		],
+		async () => {
+			const rows = await db
+				.select({
+					session: endUserSessionTable,
+					aggregateKey: apiKeyTable,
+					wallet: walletTable,
+					endCustomer: endCustomerTable,
+					project: projectTable,
+				})
+				.from(endUserSessionTable)
+				.innerJoin(
+					walletTable,
+					eq(walletTable.id, endUserSessionTable.walletId),
+				)
+				.innerJoin(
+					endCustomerTable,
+					eq(endCustomerTable.id, endUserSessionTable.endCustomerId),
+				)
+				.innerJoin(
+					projectTable,
+					eq(projectTable.id, endUserSessionTable.projectId),
+				)
+				.innerJoin(
+					apiKeyTable,
+					and(
+						eq(apiKeyTable.projectId, endUserSessionTable.projectId),
+						eq(apiKeyTable.keyType, "end_user_sessions"),
+						eq(apiKeyTable.status, "active"),
+					),
+				)
+				.where(eq(endUserSessionTable.token, token))
+				.limit(1);
+			const row = rows[0];
+			if (!row || row.session.status !== "active") {
+				return undefined;
+			}
+
+			return {
+				...row.aggregateKey,
+				endCustomerWalletId: row.session.walletId,
+				expiresAt: row.session.expiresAt,
+				usageLimit: row.session.usageLimit,
+				usage: row.session.usage,
+				periodUsageLimit: row.session.periodUsageLimit,
+				periodUsageDurationValue: row.session.periodUsageDurationValue,
+				periodUsageDurationUnit: row.session.periodUsageDurationUnit,
+				currentPeriodUsage: row.session.currentPeriodUsage,
+				currentPeriodStartedAt: row.session.currentPeriodStartedAt,
+				endUserSession: {
+					id: row.session.id,
+					walletId: row.session.walletId,
+					endCustomerId: row.session.endCustomerId,
+					expiresAt: row.session.expiresAt,
+					scope: row.session.scope,
+					walletStatus: row.wallet.status,
+					endCustomerStatus: row.endCustomer.status,
+					projectStatus: row.project.status,
+				},
+			};
 		},
 	);
 }

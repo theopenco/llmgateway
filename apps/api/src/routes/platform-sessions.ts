@@ -30,6 +30,7 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 const EPHEMERAL_PREFIX = "es_";
+const EMBEDDED_AGGREGATE_KEY_PREFIX = "eusk_";
 const DEFAULT_TTL_SECONDS = 15 * 60;
 const MIN_TTL_SECONDS = 60;
 const MAX_TTL_SECONDS = 60 * 60;
@@ -179,6 +180,49 @@ async function ensureCustomerAndWallet(
 	return { endCustomer, wallet };
 }
 
+async function ensureEmbeddedSessionsApiKey(
+	platformKey: AuthenticatedPlatformKey,
+) {
+	let aggregateKey = await db.query.apiKey.findFirst({
+		where: {
+			projectId: { eq: platformKey.projectId },
+			keyType: { eq: "end_user_sessions" },
+			status: { eq: "active" },
+		},
+	});
+
+	if (aggregateKey) {
+		return aggregateKey;
+	}
+
+	await db
+		.insert(tables.apiKey)
+		.values({
+			token: EMBEDDED_AGGREGATE_KEY_PREFIX + shortid(40),
+			projectId: platformKey.projectId,
+			description: "Embedded end-user sessions",
+			keyType: "end_user_sessions",
+			createdBy: platformKey.createdBy,
+		})
+		.onConflictDoNothing();
+
+	aggregateKey = await db.query.apiKey.findFirst({
+		where: {
+			projectId: { eq: platformKey.projectId },
+			keyType: { eq: "end_user_sessions" },
+			status: { eq: "active" },
+		},
+	});
+
+	if (!aggregateKey) {
+		throw new HTTPException(500, {
+			message: "Failed to create embedded sessions key",
+		});
+	}
+
+	return aggregateKey;
+}
+
 platformSessions.openapi(createSession, async (c) => {
 	const platformKey = c.get("platformKey");
 	if (!platformKey) {
@@ -191,17 +235,16 @@ platformSessions.openapi(createSession, async (c) => {
 		platformKey,
 		customer,
 	);
+	await ensureEmbeddedSessionsApiKey(platformKey);
 
 	const ttl = ttlSeconds ?? DEFAULT_TTL_SECONDS;
 	const ttlMs = ttl * 1000;
 	const expiresAt = new Date(Date.now() + ttlMs);
 	const token = EPHEMERAL_PREFIX + shortid(40);
 
-	// Reuse the existing IAM machinery: an allow_models rule scopes which models
-	// the browser session may call. The gateway's validateModelAccess reads these
-	// from the session key's id, no new code path needed.
-	//
-	// The IAM `allow_models` check compares against the canonical model id
+	// Store the session model allowlist directly on end_user_session. The gateway
+	// applies this before falling back to API-key IAM rules for developer keys.
+	// The scope check compares against the canonical model id
 	// (e.g. `gpt-4o-mini`), not the `provider/model` request form. Normalize so
 	// developers can pass either `openai/gpt-4o-mini` or `gpt-4o-mini` and have
 	// it scope correctly.
@@ -212,31 +255,16 @@ platformSessions.openapi(createSession, async (c) => {
 				)
 			: null;
 
-	// Mint the key + its scope atomically: a partial failure must never leave an
-	// unscoped (full-access) session behind. The per-session spend ceiling maps
-	// onto the api key usage limit, set on the initial insert.
-	await db.transaction(async (tx) => {
-		const [key] = await tx
-			.insert(tables.apiKey)
-			.values({
-				token,
-				projectId: platformKey.projectId,
-				description: `End-user session for ${endCustomer.externalId}`,
-				keyType: "ephemeral_session",
-				endCustomerWalletId: wallet.id,
-				expiresAt,
-				createdBy: platformKey.createdBy,
-				usageLimit: scope?.maxSpend ? String(scope.maxSpend) : undefined,
-			})
-			.returning();
-
-		if (normalizedModels) {
-			await tx.insert(tables.apiKeyIamRule).values({
-				apiKeyId: key.id,
-				ruleType: "allow_models",
-				ruleValue: { models: normalizedModels },
-			});
-		}
+	await db.insert(tables.endUserSession).values({
+		token,
+		projectId: platformKey.projectId,
+		organizationId: platformKey.organizationId,
+		endCustomerId: endCustomer.id,
+		walletId: wallet.id,
+		expiresAt,
+		createdBy: platformKey.createdBy,
+		scope: normalizedModels ? { models: normalizedModels } : undefined,
+		usageLimit: scope?.maxSpend ? String(scope.maxSpend) : undefined,
 	});
 
 	// The publishable key is a sibling platform_publishable key on the project,

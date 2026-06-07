@@ -102,6 +102,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.wallet.organizationId,
 		}),
+		endUserSessions: r.many.endUserSession({
+			from: r.organization.id,
+			to: r.endUserSession.organizationId,
+		}),
 	},
 	referral: {
 		referrerOrganization: r.one.organization({
@@ -146,6 +150,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.project.id,
 			to: r.wallet.projectId,
 		}),
+		endUserSessions: r.many.endUserSession({
+			from: r.project.id,
+			to: r.endUserSession.projectId,
+		}),
 		webhookEndpoints: r.many.webhookEndpoint({
 			from: r.project.id,
 			to: r.webhookEndpoint.projectId,
@@ -188,6 +196,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.endCustomer.id,
 			to: r.walletLedger.endCustomerId,
 		}),
+		sessions: r.many.endUserSession({
+			from: r.endCustomer.id,
+			to: r.endUserSession.endCustomerId,
+		}),
 	},
 	wallet: {
 		endCustomer: r.one.endCustomer({
@@ -205,6 +217,36 @@ export const relations = defineRelations(schema, (r) => ({
 		ledger: r.many.walletLedger({
 			from: r.wallet.id,
 			to: r.walletLedger.walletId,
+		}),
+		sessions: r.many.endUserSession({
+			from: r.wallet.id,
+			to: r.endUserSession.walletId,
+		}),
+	},
+	endUserSession: {
+		organization: r.one.organization({
+			from: r.endUserSession.organizationId,
+			to: r.organization.id,
+		}),
+		project: r.one.project({
+			from: r.endUserSession.projectId,
+			to: r.project.id,
+		}),
+		endCustomer: r.one.endCustomer({
+			from: r.endUserSession.endCustomerId,
+			to: r.endCustomer.id,
+		}),
+		wallet: r.one.wallet({
+			from: r.endUserSession.walletId,
+			to: r.wallet.id,
+		}),
+		creator: r.one.user({
+			from: r.endUserSession.createdBy,
+			to: r.user.id,
+		}),
+		logs: r.many.log({
+			from: r.endUserSession.id,
+			to: r.log.endUserSessionId,
 		}),
 	},
 	walletLedger: {
@@ -242,7 +284,7 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.apiKey.createdBy,
 			to: r.user.id,
 		}),
-		// Only set for ephemeral_session keys.
+		// Browser-session wallet binding now lives on end_user_session.
 		wallet: r.one.wallet({
 			from: r.apiKey.endCustomerWalletId,
 			to: r.wallet.id,
@@ -292,6 +334,10 @@ export const relations = defineRelations(schema, (r) => ({
 		apiKey: r.one.apiKey({
 			from: r.videoJob.apiKeyId,
 			to: r.apiKey.id,
+		}),
+		endUserSession: r.one.endUserSession({
+			from: r.videoJob.endUserSessionId,
+			to: r.endUserSession.id,
 		}),
 		webhookDeliveryLogs: r.many.webhookDeliveryLog({
 			from: r.videoJob.id,

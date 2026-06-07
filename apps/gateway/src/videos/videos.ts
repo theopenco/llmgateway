@@ -15,10 +15,11 @@ import {
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { applyEndUserSession } from "@/lib/end-user-session.js";
-import { validateModelAccess } from "@/lib/iam.js";
+import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
@@ -526,7 +527,7 @@ type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
 type LogRecord = InferSelectModel<typeof tables.log>;
 
 interface RequestContext {
-	apiKey: InferSelectModel<typeof tables.apiKey>;
+	apiKey: GatewayApiKey;
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
 	requestId: string;
@@ -3438,8 +3439,8 @@ videos.openapi(createVideo, async (c) => {
 		request.seconds,
 	);
 
-	const iamValidation = await validateModelAccess(
-		apiKey.id,
+	const iamValidation = await validateRequestModelAccess(
+		apiKey,
 		normalizedModel,
 		requestedProvider,
 		modelInfo,
@@ -3744,7 +3745,9 @@ videos.openapi(createVideo, async (c) => {
 			organizationId: organization.id,
 			projectId: project.id,
 			apiKeyId: apiKey.id,
-			// Owner for per-end-user isolation; null for normal developer keys.
+			// Owner for per-end-user logging/isolation; null for normal developer
+			// keys.
+			endUserSessionId: apiKey.endUserSession?.id ?? null,
 			endCustomerWalletId: apiKey.endCustomerWalletId ?? null,
 			mode: project.mode,
 			usedMode: selectedProviderContext.usedMode,

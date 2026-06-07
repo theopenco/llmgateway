@@ -590,6 +590,58 @@ export const wallet = pgTable(
 	],
 );
 
+export const endUserSession = pgTable(
+	"end_user_session",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		token: text().notNull().unique(),
+		status: text({
+			enum: ["active", "inactive", "deleted"],
+		})
+			.notNull()
+			.default("active"),
+		expiresAt: timestamp().notNull(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		endCustomerId: text()
+			.notNull()
+			.references(() => endCustomer.id, { onDelete: "cascade" }),
+		walletId: text()
+			.notNull()
+			.references(() => wallet.id, { onDelete: "cascade" }),
+		createdBy: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		scope: json().$type<{ models?: string[] }>(),
+		usageLimit: decimal(),
+		usage: decimal().notNull().default("0"),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
+		currentPeriodUsage: decimal().notNull().default("0"),
+		currentPeriodStartedAt: timestamp(),
+	},
+	(table) => [
+		index("end_user_session_project_id_idx").on(table.projectId),
+		index("end_user_session_wallet_id_idx").on(table.walletId),
+		index("end_user_session_status_expires_at_idx").on(
+			table.status,
+			table.expiresAt,
+		),
+	],
+);
+
 // Append-only ledger for every wallet movement. `topup` rows carry the economic
 // split (grossPaid = what the end-user paid Stripe, platformFee = llmgateway
 // cut, developerMargin = markup accrued to the developer org, netCredited = what
@@ -727,26 +779,26 @@ export const apiKey = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
-		// Discriminates normal developer keys from the embeddable-SDK principals.
+		// Discriminates normal developer keys from embeddable-SDK principals.
 		// `platform_secret`/`platform_publishable` are long-lived keys on a hidden
-		// per-org project; `ephemeral_session` is a short-lived browser token bound
-		// to one wallet (see endCustomerWalletId/expiresAt). Reuses the entire
-		// findApiKeyByToken + IAM + usage-limit machinery.
+		// per-org project. `end_user_sessions` is a hidden per-project aggregate
+		// key used as the stable log/api-key stats principal for browser sessions.
 		keyType: text({
 			enum: [
 				"user",
 				"platform_secret",
 				"platform_publishable",
-				"ephemeral_session",
+				"end_user_sessions",
 			],
 		})
 			.notNull()
 			.default("user"),
-		// Set only on ephemeral_session rows: the wallet this session debits.
+		// Browser-session wallet binding now lives on end_user_session.wallet_id.
 		endCustomerWalletId: text().references(() => wallet.id, {
 			onDelete: "cascade",
 		}),
-		// Set only on ephemeral_session rows: hard expiry of the browser token.
+		// Platform keys may be long-lived; browser-session expiry now lives on
+		// end_user_session.expires_at.
 		expiresAt: timestamp(),
 		usageLimit: decimal(),
 		usage: decimal().notNull().default("0"),
@@ -767,9 +819,10 @@ export const apiKey = pgTable(
 	(table) => [
 		index("api_key_project_id_idx").on(table.projectId),
 		index("api_key_created_by_idx").on(table.createdBy),
-		// Sweep of expired ephemeral sessions: WHERE key_type = 'ephemeral_session'
-		// AND expires_at < now().
 		index("api_key_key_type_expires_at_idx").on(table.keyType, table.expiresAt),
+		uniqueIndex("api_key_project_end_user_sessions_unique")
+			.on(table.projectId)
+			.where(sql`${table.keyType} = 'end_user_sessions'`),
 	],
 );
 
@@ -921,9 +974,15 @@ export const log = pgTable(
 		organizationId: text().notNull(),
 		projectId: text().notNull(),
 		apiKeyId: text().notNull(),
-		// Set when the request was authenticated with an end-user ephemeral
-		// session: the worker debits this wallet instead of organization.credits,
-		// and per-end-user usage history keys off these.
+		// Set when the request was authenticated with an end-user session. apiKeyId
+		// points to the stable project-level aggregate key; this points to the
+		// actual short-lived browser session.
+		endUserSessionId: text().references(() => endUserSession.id, {
+			onDelete: "set null",
+		}),
+		// Set when the request was authenticated with an end-user session: the
+		// worker debits this wallet instead of organization.credits, and
+		// per-end-user usage history keys off these.
 		endCustomerWalletId: text(),
 		endCustomerId: text(),
 		duration: integer().notNull(),
@@ -1091,6 +1150,9 @@ export const log = pgTable(
 		index("log_end_customer_wallet_id_idx")
 			.on(table.endCustomerWalletId, table.createdAt)
 			.where(sql`end_customer_wallet_id IS NOT NULL`),
+		index("log_end_user_session_id_idx")
+			.on(table.endUserSessionId, table.createdAt)
+			.where(sql`end_user_session_id IS NOT NULL`),
 	],
 );
 
@@ -1113,7 +1175,12 @@ export const videoJob = pgTable(
 		apiKeyId: text()
 			.notNull()
 			.references(() => apiKey.id, { onDelete: "cascade" }),
-		// Embeddable SDK: for jobs created under an ephemeral end-user session, the
+		// Embeddable SDK: for jobs created under an end-user session, the
+		// concrete session id and owning wallet. Null for normal developer keys.
+		endUserSessionId: text().references(() => endUserSession.id, {
+			onDelete: "set null",
+		}),
+		// Embeddable SDK: for jobs created under an end-user session, the
 		// owning wallet. Null for normal developer keys. Read routes enforce that a
 		// session may only access its own wallet's jobs (per-end-user isolation
 		// within a shared project).
@@ -1229,6 +1296,7 @@ export const videoJob = pgTable(
 		),
 		index("video_job_upstream_id_idx").on(table.upstreamId),
 		index("video_job_callback_status_idx").on(table.callbackStatus),
+		index("video_job_end_user_session_id_idx").on(table.endUserSessionId),
 	],
 );
 

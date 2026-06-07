@@ -1058,6 +1058,13 @@
       "when": 1780789444584,
       "tag": "1780789444_fast_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "8",
+      "when": 1780838542716,
+      "tag": "1780838542_sleepy_wallow",
+      "breakpoints": true
     }
   ]
 }

@@ -94,7 +94,7 @@ function getStripe(): Stripe {
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
-const EPHEMERAL_SESSION_CLEANUP_LOCK_KEY = "ephemeral_session_cleanup";
+const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
@@ -191,6 +191,7 @@ const schema = z.object({
 	cost: z.number().nullable(),
 	cached: z.boolean(),
 	api_key_id: z.string(),
+	end_user_session_id: z.string().nullable(),
 	end_customer_wallet_id: z.string().nullable(),
 	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
 	used_mode: z.enum(["api-keys", "credits"]),
@@ -721,6 +722,7 @@ export async function batchProcessLogs(): Promise<void> {
 					cost: log.cost,
 					cached: log.cached,
 					api_key_id: log.apiKeyId,
+					end_user_session_id: log.endUserSessionId,
 					end_customer_wallet_id: log.endCustomerWalletId,
 					project_mode: tables.project.mode,
 					used_mode: log.usedMode,
@@ -768,6 +770,7 @@ export async function batchProcessLogs(): Promise<void> {
 			// Use Decimal.js to avoid floating point rounding errors
 			const orgCosts = new Map<string, Decimal>();
 			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
+			const endUserSessionEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const logIds: string[] = [];
 			// Embeddable SDK: end-user wallet costs are accumulated separately and
 			// debited from wallet.balance (not organization.credits). Keyed by
@@ -797,6 +800,7 @@ export async function batchProcessLogs(): Promise<void> {
 					error: !!row.hasError,
 					cached: row.cached,
 					apiKeyId: row.api_key_id,
+					endUserSessionId: row.end_user_session_id,
 					projectMode: row.project_mode,
 					usedMode: row.used_mode,
 					duration: row.duration,
@@ -819,12 +823,20 @@ export async function batchProcessLogs(): Promise<void> {
 
 				if (row.cost && row.cost > 0 && !row.cached) {
 					const apiKeyCost = new Decimal(row.cost);
-					const existingEvents = apiKeyEvents.get(row.api_key_id) ?? [];
-					existingEvents.push({
+					const usageEvent = {
 						cost: apiKeyCost,
 						createdAt: row.created_at,
-					});
-					apiKeyEvents.set(row.api_key_id, existingEvents);
+					};
+					if (row.end_user_session_id) {
+						const existingEvents =
+							endUserSessionEvents.get(row.end_user_session_id) ?? [];
+						existingEvents.push(usageEvent);
+						endUserSessionEvents.set(row.end_user_session_id, existingEvents);
+					} else {
+						const existingEvents = apiKeyEvents.get(row.api_key_id) ?? [];
+						existingEvents.push(usageEvent);
+						apiKeyEvents.set(row.api_key_id, existingEvents);
+					}
 
 					// Embeddable SDK: end-user session traffic debits the wallet, not
 					// the developer's org credits. Always full-cost (credits mode).
@@ -1079,6 +1091,59 @@ export async function batchProcessLogs(): Promise<void> {
 						.where(eq(apiKey.id, apiKeyId));
 
 					logger.debug(`Added ${costNumber} usage to API key ${apiKeyId}`);
+				}
+			}
+
+			// Batch update end-user session usage separately from the hidden
+			// aggregate API key. This keeps API-key stats low-cardinality while
+			// preserving session max-spend and period-limit enforcement.
+			const endUserSessionIds = Array.from(endUserSessionEvents.keys());
+			if (endUserSessionIds.length > 0) {
+				const sessionRecords = await tx.query.endUserSession.findMany({
+					columns: {
+						id: true,
+						currentPeriodStartedAt: true,
+						currentPeriodUsage: true,
+						periodUsageLimit: true,
+						periodUsageDurationValue: true,
+						periodUsageDurationUnit: true,
+					},
+					where: {
+						id: {
+							in: endUserSessionIds,
+						},
+					},
+				});
+				const sessionRecordsById = new Map(
+					sessionRecords.map((record) => [record.id, record]),
+				);
+
+				for (const [sessionId, events] of endUserSessionEvents.entries()) {
+					const sessionRecord = sessionRecordsById.get(sessionId);
+					if (!sessionRecord) {
+						logger.warn(
+							`Skipping usage update for missing end-user session ${sessionId}`,
+						);
+						continue;
+					}
+
+					const usageUpdate = buildApiKeyUsageUpdate(sessionRecord, events);
+					const costNumber = usageUpdate.totalUsageCost.toNumber();
+
+					await tx
+						.update(tables.endUserSession)
+						.set({
+							usage: sql`${tables.endUserSession.usage} + ${costNumber}`,
+							...(usageUpdate.hasPeriodUsageUpdate && {
+								currentPeriodUsage: usageUpdate.currentPeriodUsage,
+								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
+							}),
+						})
+						.where(eq(tables.endUserSession.id, sessionId));
+
+					logger.debug(
+						`Added ${costNumber} usage to end-user session ${sessionId}`,
+					);
 				}
 			}
 
@@ -1741,53 +1806,51 @@ async function runDataRetentionLoop() {
 }
 
 /**
- * Embeddable SDK: deactivate expired ephemeral end-user session tokens so they
- * stop authenticating and don't accumulate. Uses the
- * api_key_key_type_expires_at_idx partial index.
+ * Embeddable SDK: deactivate expired end-user session tokens so they stop
+ * authenticating and don't accumulate.
  */
-async function cleanupExpiredEphemeralSessions(): Promise<void> {
-	const lockAcquired = await acquireLock(EPHEMERAL_SESSION_CLEANUP_LOCK_KEY);
+async function cleanupExpiredEndUserSessions(): Promise<void> {
+	const lockAcquired = await acquireLock(END_USER_SESSION_CLEANUP_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
 	}
 
 	try {
 		const expired = await db
-			.update(tables.apiKey)
+			.update(tables.endUserSession)
 			.set({ status: "deleted" })
 			.where(
 				and(
-					eq(tables.apiKey.keyType, "ephemeral_session"),
-					eq(tables.apiKey.status, "active"),
-					lt(tables.apiKey.expiresAt, new Date()),
+					eq(tables.endUserSession.status, "active"),
+					lt(tables.endUserSession.expiresAt, new Date()),
 				),
 			)
-			.returning({ id: tables.apiKey.id });
+			.returning({ id: tables.endUserSession.id });
 
 		if (expired.length > 0) {
-			logger.info(`Deactivated ${expired.length} expired ephemeral session(s)`);
+			logger.info(`Deactivated ${expired.length} expired end-user session(s)`);
 		}
 	} finally {
-		await releaseLock(EPHEMERAL_SESSION_CLEANUP_LOCK_KEY);
+		await releaseLock(END_USER_SESSION_CLEANUP_LOCK_KEY);
 	}
 }
 
-async function runEphemeralSessionCleanupLoop() {
+async function runEndUserSessionCleanupLoop() {
 	activeLoops++;
 	const interval = (process.env.NODE_ENV === "production" ? 300 : 60) * 1000; // 5 minutes in prod, 1 minute in dev
 	logger.info(
-		`Starting ephemeral session cleanup loop (interval: ${interval / 1000} seconds)...`,
+		`Starting end-user session cleanup loop (interval: ${interval / 1000} seconds)...`,
 	);
 
 	try {
 		while (!isStopRequested()) {
 			try {
-				await cleanupExpiredEphemeralSessions();
+				await cleanupExpiredEndUserSessions();
 
 				await interruptibleSleep(interval);
 			} catch (error) {
 				logger.error(
-					"Error in ephemeral session cleanup loop",
+					"Error in end-user session cleanup loop",
 					error instanceof Error ? error : new Error(String(error)),
 				);
 				await interruptibleSleep(5000);
@@ -2175,7 +2238,7 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
-	void runEphemeralSessionCleanupLoop();
+	void runEndUserSessionCleanupLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({

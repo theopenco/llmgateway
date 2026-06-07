@@ -553,7 +553,7 @@ export async function createApiKeyForProject(
 			projectId: { eq: projectId },
 			status: { ne: "deleted" },
 			// Only count developer keys toward the per-project cap; platform and
-			// ephemeral end-user session keys (embeddable SDK) are excluded.
+			// hidden embeddable-SDK aggregate keys are excluded.
 			keyType: { eq: "user" },
 		},
 	});
@@ -737,8 +737,8 @@ keysApi.openapi(list, async (c) => {
 			projectId: {
 				in: projectId ? [projectId] : projectIds,
 			},
-			// Hide platform/ephemeral-session keys (embeddable SDK) from the
-			// dashboard — only show developer-created keys.
+			// Hide platform and embeddable-SDK aggregate keys from the dashboard —
+			// only show developer-created keys.
 			keyType: { eq: "user" },
 			...(shouldFilterByCreator && {
 				createdBy: {

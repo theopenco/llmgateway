@@ -4,25 +4,32 @@
  * developer's organization credits.
  *
  * The approach (see apps/gateway/src/chat/chat.ts for the canonical use): an
- * ephemeral session presents an *effective* project (forced `credits` mode) and
- * organization (credits mirror the wallet balance), so all existing credit
- * gating bills the wallet. The log's `endCustomerWalletId` (stamped from the api
- * key in create-log-entry) redirects the worker's debit to that wallet.
+ * end-user session presents the project's hidden embedded-session aggregate key
+ * as the effective API key, plus request-local session metadata. The effective
+ * project is forced to `credits` mode and organization credits mirror the
+ * wallet balance, so existing credit gating bills the wallet. Logs keep the
+ * aggregate apiKeyId while endCustomerWalletId/endUserSessionId preserve the
+ * actual end-user owner.
  */
 import { HTTPException } from "hono/http-exception";
 
+import {
+	models,
+	type ModelDefinition,
+	type ProviderId,
+} from "@llmgateway/models";
+
 import { findWalletById } from "./cached-queries.js";
 
+import type { GatewayApiKey } from "./cached-queries.js";
 import type { InferSelectModel } from "@llmgateway/db";
 import type {
-	apiKey as apiKeyTable,
 	organization as organizationTable,
 	project as projectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
 import type { Context } from "hono";
 
-type ApiKey = InferSelectModel<typeof apiKeyTable>;
 type Project = InferSelectModel<typeof projectTable>;
 type Organization = InferSelectModel<typeof organizationTable>;
 type Wallet = InferSelectModel<typeof walletTable>;
@@ -32,31 +39,75 @@ type Wallet = InferSelectModel<typeof walletTable>;
  * developer keys. Throws on expired / unbound / frozen sessions.
  */
 export async function loadEndUserWallet(
-	apiKey: ApiKey,
+	apiKey: GatewayApiKey,
 ): Promise<Wallet | null> {
-	if (apiKey.keyType !== "ephemeral_session") {
+	if (!apiKey.endUserSession) {
 		return null;
 	}
-	if (!apiKey.expiresAt || apiKey.expiresAt.getTime() < Date.now()) {
+	if (apiKey.endUserSession.expiresAt.getTime() < Date.now()) {
 		throw new HTTPException(401, {
 			message:
 				"Ephemeral session expired. Mint a fresh session token from your backend.",
 		});
 	}
-	if (!apiKey.endCustomerWalletId) {
+	if (apiKey.endUserSession.endCustomerStatus !== "active") {
+		throw new HTTPException(401, { message: "End customer is inactive" });
+	}
+	if (apiKey.endUserSession.projectStatus !== "active") {
+		throw new HTTPException(401, { message: "Project is inactive" });
+	}
+	if (apiKey.endUserSession.walletStatus !== "active") {
+		throw new HTTPException(402, {
+			message: "End-user wallet not found or frozen",
+		});
+	}
+	if (!apiKey.endUserSession.walletId) {
 		// An ephemeral token with no bound wallet is an invalid credential, not a
 		// server fault.
 		throw new HTTPException(401, {
 			message: "Session token is not bound to a wallet",
 		});
 	}
-	const wallet = await findWalletById(apiKey.endCustomerWalletId);
+	const wallet = await findWalletById(apiKey.endUserSession.walletId);
 	if (!wallet || wallet.status !== "active") {
 		throw new HTTPException(402, {
 			message: "End-user wallet not found or frozen",
 		});
 	}
 	return wallet;
+}
+
+export function validateEndUserSessionModelAccess(
+	apiKey: GatewayApiKey,
+	requestedModel: string,
+	activeModelInfo?: ModelDefinition,
+): {
+	allowed: boolean;
+	reason?: string;
+	allowedProviders?: ProviderId[];
+} | null {
+	const scopeModels = apiKey.endUserSession?.scope?.models;
+	if (!scopeModels) {
+		return null;
+	}
+
+	const modelDef =
+		activeModelInfo ?? models.find((model) => model.id === requestedModel);
+	if (!modelDef) {
+		return { allowed: false, reason: `Model ${requestedModel} not found` };
+	}
+
+	if (!scopeModels.includes(modelDef.id)) {
+		return {
+			allowed: false,
+			reason: `Model ${modelDef.id} is not in the allowed models list`,
+		};
+	}
+
+	return {
+		allowed: true,
+		allowedProviders: modelDef.providers.map((provider) => provider.providerId),
+	};
 }
 
 /**
@@ -107,7 +158,7 @@ export function withWalletCredits(
  */
 export async function applyEndUserSession(
 	c: Pick<Context, "req">,
-	apiKey: ApiKey,
+	apiKey: GatewayApiKey,
 	project: Project,
 	organization: Organization,
 ): Promise<{

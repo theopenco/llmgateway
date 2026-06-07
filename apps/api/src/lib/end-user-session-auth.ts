@@ -11,7 +11,7 @@ import type { Context, Next } from "hono";
  * endpoints and the session-refresh endpoint.
  */
 export interface AuthenticatedSession {
-	apiKeyId: string;
+	sessionId: string;
 	walletId: string;
 	endCustomerId: string;
 	projectId: string;
@@ -40,42 +40,44 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 		});
 	}
 
-	const key = await db.query.apiKey.findFirst({
+	const session = await db.query.endUserSession.findFirst({
 		where: {
 			token: { eq: token },
-			keyType: { eq: "ephemeral_session" },
 			status: { eq: "active" },
 		},
 		with: { wallet: { with: { endCustomer: true, project: true } } },
 	});
 
-	if (!key || !key.endCustomerWalletId || !key.wallet) {
+	if (!session || !session.wallet) {
 		throw new HTTPException(401, { message: "Invalid session token" });
 	}
 
-	if (!key.expiresAt || key.expiresAt.getTime() < Date.now()) {
+	if (session.expiresAt.getTime() < Date.now()) {
 		throw new HTTPException(401, {
 			message: "Session expired. Mint a fresh session token from your backend.",
 		});
 	}
 
-	if (key.wallet.status !== "active") {
+	if (session.wallet.status !== "active") {
 		throw new HTTPException(402, { message: "Wallet is frozen" });
 	}
 
 	// Reject sessions whose end customer was blocked/deleted or whose project was
 	// deactivated/deleted after the token was minted.
-	if (key.wallet.endCustomer && key.wallet.endCustomer.status !== "active") {
+	if (
+		session.wallet.endCustomer &&
+		session.wallet.endCustomer.status !== "active"
+	) {
 		throw new HTTPException(401, { message: "End customer is inactive" });
 	}
 
-	const projectStatus = key.wallet.project?.status;
+	const projectStatus = session.wallet.project?.status;
 	if (projectStatus && projectStatus !== "active") {
 		throw new HTTPException(401, { message: "Project is inactive" });
 	}
 
 	// Defense-in-depth origin allowlist (see gateway chat handler).
-	const allowedOrigins = key.wallet.project?.allowedOrigins ?? null;
+	const allowedOrigins = session.wallet.project?.allowedOrigins ?? null;
 	const origin = c.req.header("Origin");
 	if (
 		origin &&
@@ -89,19 +91,19 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 	}
 
 	const markupPercent = Number(
-		key.wallet.markupPercentOverride ??
-			key.wallet.project?.endUserMarkupPercent ??
+		session.wallet.markupPercentOverride ??
+			session.wallet.project?.endUserMarkupPercent ??
 			"0",
 	);
 
 	c.set("endUserSession", {
-		apiKeyId: key.id,
-		walletId: key.wallet.id,
-		endCustomerId: key.wallet.endCustomerId,
-		projectId: key.wallet.projectId,
-		organizationId: key.wallet.organizationId,
+		sessionId: session.id,
+		walletId: session.wallet.id,
+		endCustomerId: session.wallet.endCustomerId,
+		projectId: session.wallet.projectId,
+		organizationId: session.wallet.organizationId,
 		markupPercent: Number.isFinite(markupPercent) ? markupPercent : 0,
-		allowedOrigins: key.wallet.project?.allowedOrigins ?? null,
+		allowedOrigins: session.wallet.project?.allowedOrigins ?? null,
 	});
 
 	await next();

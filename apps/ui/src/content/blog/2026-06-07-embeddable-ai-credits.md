@@ -95,7 +95,7 @@ That's the whole integration. The session token auto-refreshes before it expires
 
 ## A few engineering details we cared about
 
-- **The hot path is unchanged.** Sessions ride the existing API-key + IAM machinery — an ephemeral token is just an API key with a wallet bound to it — so model access control, caching, and routing all work without a separate code path.
+- **The hot path stays low-cardinality.** Browser sessions live in a dedicated session table, while logs and API-key aggregates use one hidden project-level embedded-session key so end-user traffic does not create one API key per user.
 - **Idempotent top-ups.** Wallet credits are written in a single transaction guarded by a unique index on the payment intent, so a re-delivered Stripe webhook can never double-credit.
 - **Safe by default.** Tokens are short-lived and revocable, scoped to an allow-list of models, bounded by per-session spend caps, and constrained by a per-project origin allowlist. Webhook URLs are validated against SSRF (no private/internal targets), and developer margin payouts reserve funds before transferring so they can't overpay under concurrency.
 
