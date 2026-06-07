@@ -1,11 +1,8 @@
 import { trace } from "@opentelemetry/api";
 
+import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
-import type {
-	ApiKey,
-	GatewayContentFilterResponse,
-	Project,
-} from "@llmgateway/db";
+import type { GatewayContentFilterResponse, Project } from "@llmgateway/db";
 import type { OpenAIToolInput } from "@llmgateway/models";
 
 export interface PluginResults {
@@ -18,7 +15,7 @@ export interface PluginResults {
 export interface CreateLogEntryOptions {
 	requestId: string;
 	project: Project;
-	apiKey: ApiKey;
+	apiKey: GatewayApiKey;
 	providerKeyId?: string;
 	usedModel: string;
 	usedModelMapping?: string;
@@ -70,6 +67,11 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		organizationId: options.project.organizationId,
 		projectId: options.apiKey.projectId,
 		apiKeyId: options.apiKey.id,
+		// Embeddable SDK: session tokens log against the project's stable
+		// aggregate API key while retaining the concrete browser session and
+		// wallet billing pointer.
+		endUserSessionId: options.apiKey.endUserSession?.id ?? null,
+		endCustomerWalletId: options.apiKey.endCustomerWalletId ?? null,
 		usedMode: options.providerKeyId ? "api-keys" : "credits",
 		usedModel: options.usedModel,
 		usedModelMapping: options.usedModelMapping,
@@ -133,7 +135,7 @@ export function createLogEntry(
 export function createLogEntry(
 	requestId: string,
 	project: Project,
-	apiKey: ApiKey,
+	apiKey: GatewayApiKey,
 	providerKeyId: string | undefined,
 	usedModel: string,
 	usedModelMapping: string | undefined,
@@ -182,7 +184,7 @@ export function createLogEntry(
 export function createLogEntry(
 	requestIdOrOptions: string | CreateLogEntryOptions,
 	project?: Project,
-	apiKey?: ApiKey,
+	apiKey?: GatewayApiKey,
 	providerKeyId?: string,
 	usedModel?: string,
 	usedModelMapping?: string,

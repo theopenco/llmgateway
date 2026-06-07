@@ -15,9 +15,11 @@ import {
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { validateModelAccess } from "@/lib/iam.js";
+import { applyEndUserSession } from "@/lib/end-user-session.js";
+import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
@@ -525,7 +527,7 @@ type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
 type LogRecord = InferSelectModel<typeof tables.log>;
 
 interface RequestContext {
-	apiKey: InferSelectModel<typeof tables.apiKey>;
+	apiKey: GatewayApiKey;
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
 	requestId: string;
@@ -650,31 +652,42 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 
 	assertApiKeyWithinUsageLimits(apiKey);
 
-	const project = await findProjectById(apiKey.projectId);
-	if (!project) {
+	const baseProject = await findProjectById(apiKey.projectId);
+	if (!baseProject) {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
 	}
 
-	if (project.status === "deleted") {
+	if (baseProject.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
 
-	const organization = await findOrganizationById(project.organizationId);
-	if (!organization) {
+	const baseOrganization = await findOrganizationById(
+		baseProject.organizationId,
+	);
+	if (!baseOrganization) {
 		throw new HTTPException(500, {
 			message: "Could not find organization",
 		});
 	}
 
-	if (organization.status === "deleted") {
+	if (baseOrganization.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
 		});
 	}
+
+	// Embeddable SDK: ephemeral end-user sessions bill the bound wallet. No-op
+	// for normal keys.
+	const { project, organization } = await applyEndUserSession(
+		c,
+		apiKey,
+		baseProject,
+		baseOrganization,
+	);
 
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	const routingCfg = await getResolvedRoutingConfig(
@@ -2170,6 +2183,7 @@ function getGoogleVertexInlineVideo(
 async function requireVideoJobForProject(
 	projectId: string,
 	videoId: string,
+	sessionWalletId: string | null = null,
 ): Promise<VideoJobRecord> {
 	const job = await db
 		.select()
@@ -2184,6 +2198,16 @@ async function requireVideoJobForProject(
 		.then((rows) => rows[0]);
 
 	if (!job) {
+		throw new HTTPException(404, {
+			message: "Video not found",
+		});
+	}
+
+	// Embeddable SDK: an ephemeral end-user session may only read jobs owned by
+	// its own wallet. End-users share a project, so a project-only scope would
+	// leak other end-users' jobs. (Normal developer keys pass null and see all
+	// project jobs, as before.)
+	if (sessionWalletId && job.endCustomerWalletId !== sessionWalletId) {
 		throw new HTTPException(404, {
 			message: "Video not found",
 		});
@@ -3420,8 +3444,8 @@ videos.openapi(createVideo, async (c) => {
 		request.seconds,
 	);
 
-	const iamValidation = await validateModelAccess(
-		apiKey.id,
+	const iamValidation = await validateRequestModelAccess(
+		apiKey,
 		normalizedModel,
 		requestedProvider,
 		modelInfo,
@@ -3726,6 +3750,10 @@ videos.openapi(createVideo, async (c) => {
 			organizationId: organization.id,
 			projectId: project.id,
 			apiKeyId: apiKey.id,
+			// Owner for per-end-user logging/isolation; null for normal developer
+			// keys.
+			endUserSessionId: apiKey.endUserSession?.id ?? null,
+			endCustomerWalletId: apiKey.endCustomerWalletId ?? null,
 			mode: project.mode,
 			usedMode: selectedProviderContext.usedMode,
 			model: normalizedModel,
@@ -3784,9 +3812,13 @@ videos.openapi(createVideo, async (c) => {
 });
 
 videos.openapi(getVideo, async (c) => {
-	const { project } = await requireRequestContext(c);
+	const { project, apiKey } = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(project.id, videoId);
+	const job = await requireVideoJobForProject(
+		project.id,
+		videoId,
+		apiKey.endCustomerWalletId ?? null,
+	);
 	return c.json(await serializeVideoJob(job));
 });
 
@@ -3868,9 +3900,13 @@ videos.openapi(getVideoLogContent, async (c) => {
 });
 
 videos.openapi(getVideoContent, async (c) => {
-	const { project } = await requireRequestContext(c);
+	const { project, apiKey } = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(project.id, videoId);
+	const job = await requireVideoJobForProject(
+		project.id,
+		videoId,
+		apiKey.endCustomerWalletId ?? null,
+	);
 
 	if (job.status !== "completed") {
 		throw new HTTPException(409, {

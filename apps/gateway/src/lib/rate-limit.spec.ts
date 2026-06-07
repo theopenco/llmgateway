@@ -126,6 +126,9 @@ describe("Rate Limiting", () => {
 				chatPlanCycle: "monthly" as const,
 				chatPlanCardFingerprint: null,
 				lastTopUpAmount: null,
+				endUserMarginBalance: "0",
+				stripeConnectAccountId: null,
+				stripeConnectOnboarded: false,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(0);
@@ -201,6 +204,9 @@ describe("Rate Limiting", () => {
 				chatPlanCycle: "monthly" as const,
 				chatPlanCardFingerprint: null,
 				lastTopUpAmount: null,
+				endUserMarginBalance: "0",
+				stripeConnectAccountId: null,
+				stripeConnectOnboarded: false,
 			});
 			vi.mocked(redis.zcard).mockResolvedValue(0);
 
@@ -277,6 +283,9 @@ describe("Rate Limiting", () => {
 				chatPlanCycle: "monthly" as const,
 				chatPlanCardFingerprint: null,
 				lastTopUpAmount: null,
+				endUserMarginBalance: "0",
+				stripeConnectAccountId: null,
+				stripeConnectOnboarded: false,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(5); // Under elevated limit (20)
@@ -347,6 +356,9 @@ describe("Rate Limiting", () => {
 				chatPlanCycle: "monthly" as const,
 				chatPlanCardFingerprint: null,
 				lastTopUpAmount: null,
+				endUserMarginBalance: "0",
+				stripeConnectAccountId: null,
+				stripeConnectOnboarded: false,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(5); // At limit (5)
@@ -425,6 +437,9 @@ describe("Rate Limiting", () => {
 				chatPlanCycle: "monthly" as const,
 				chatPlanCardFingerprint: null,
 				lastTopUpAmount: null,
+				endUserMarginBalance: "0",
+				stripeConnectAccountId: null,
+				stripeConnectOnboarded: false,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(20); // At elevated limit (20)
@@ -503,6 +518,9 @@ describe("Rate Limiting", () => {
 				chatPlanCycle: "monthly" as const,
 				chatPlanCardFingerprint: null,
 				lastTopUpAmount: null,
+				endUserMarginBalance: "0",
+				stripeConnectAccountId: null,
+				stripeConnectOnboarded: false,
 			});
 			vi.mocked(redis.zremrangebyscore).mockRejectedValue(
 				new Error("Redis error"),
