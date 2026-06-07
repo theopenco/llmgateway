@@ -437,7 +437,7 @@ describe("getCheapestModelForProvider", () => {
 });
 
 describe("getCheapestFromAvailableProviders", () => {
-	it("should return cheapest provider from available providers", () => {
+	it("should return cheapest provider from available providers", async () => {
 		// Find a model with multiple providers
 		const modelWithMultipleProviders = models.find(
 			(model) =>
@@ -453,7 +453,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			);
 
 			if (availableProviders.length > 1) {
-				const cheapestProvider = getCheapestFromAvailableProviders(
+				const cheapestProvider = await getCheapestFromAvailableProviders(
 					availableProviders,
 					modelWithMultipleProviders,
 				);
@@ -476,7 +476,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				),
 		);
 
-		it("pins the same session to the same provider deterministically", () => {
+		it("pins the same session to the same provider deterministically", async () => {
 			if (!modelWithMultipleProviders) {
 				return;
 			}
@@ -487,12 +487,12 @@ describe("getCheapestFromAvailableProviders", () => {
 				return;
 			}
 
-			const first = getCheapestFromAvailableProviders(
+			const first = await getCheapestFromAvailableProviders(
 				availableProviders,
 				modelWithMultipleProviders,
 				{ sessionId: "session_abc-123" },
 			);
-			const second = getCheapestFromAvailableProviders(
+			const second = await getCheapestFromAvailableProviders(
 				availableProviders,
 				modelWithMultipleProviders,
 				{ sessionId: "session_abc-123" },
@@ -506,7 +506,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(regionOf(second?.provider)).toBe(regionOf(first?.provider));
 		});
 
-		it("does not pin a session when session stickiness is disabled", () => {
+		it("does not pin a session when session stickiness is disabled", async () => {
 			if (!modelWithMultipleProviders) {
 				return;
 			}
@@ -521,7 +521,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				{ session: { enabled: false } },
 				buildProviderPriorityDefaults(),
 			);
-			const result = getCheapestFromAvailableProviders(
+			const result = await getCheapestFromAvailableProviders(
 				availableProviders,
 				modelWithMultipleProviders,
 				{ sessionId: "session_abc-123", routingConfig: overrides },
@@ -530,7 +530,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(result?.metadata.selectionReason).not.toBe("session-sticky");
 		});
 
-		it("keeps unrelated sessions on their provider when one provider is removed", () => {
+		it("keeps unrelated sessions on their provider when one provider is removed", async () => {
 			if (!modelWithMultipleProviders) {
 				return;
 			}
@@ -544,7 +544,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			// Find a session pinned to a provider, then drop a *different* provider
 			// and confirm the session stays put (rendezvous hashing property).
 			const sessionId = "session_stable";
-			const pinned = getCheapestFromAvailableProviders(
+			const pinned = await getCheapestFromAvailableProviders(
 				availableProviders,
 				modelWithMultipleProviders,
 				{ sessionId },
@@ -556,7 +556,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				(p) => p.providerId !== removable?.providerId,
 			);
 
-			const afterRemoval = getCheapestFromAvailableProviders(
+			const afterRemoval = await getCheapestFromAvailableProviders(
 				reduced,
 				modelWithMultipleProviders,
 				{ sessionId },
@@ -568,7 +568,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		});
 	});
 
-	it("should use per-second pricing for video providers", () => {
+	it("should use per-second pricing for video providers", async () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",
 		);
@@ -582,7 +582,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					provider.providerId === "avalanche",
 			) ?? [];
 
-		const cheapestProvider = getCheapestFromAvailableProviders(
+		const cheapestProvider = await getCheapestFromAvailableProviders(
 			availableProviders,
 			videoModel!,
 			{
@@ -607,7 +607,52 @@ describe("getCheapestFromAvailableProviders", () => {
 		expect(avalancheScore?.price).toBeCloseTo(3.2);
 	});
 
-	it("should disable random exploration for vitest processes", () => {
+	it("should apply effective discounts before comparing provider prices", async () => {
+		const discountRoutingModel = {
+			id: "discount-routing-test",
+			name: "Discount Routing Test",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					externalId: "discount-routing-test",
+					inputPrice: "2",
+					outputPrice: "2",
+					streaming: true as const,
+				},
+				{
+					providerId: "anthropic" as const,
+					externalId: "discount-routing-test",
+					inputPrice: "1",
+					outputPrice: "1",
+					streaming: true as const,
+				},
+			],
+		};
+		const equalPriorityConfig = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, anthropic: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		const result = await getCheapestFromAvailableProviders(
+			discountRoutingModel.providers,
+			discountRoutingModel,
+			{
+				routingConfig: equalPriorityConfig,
+				providerDiscountResolver: (provider) =>
+					provider.providerId === "openai" ? "0.6" : "0",
+			},
+		);
+
+		expect(result?.provider.providerId).toBe("openai");
+		expect(
+			result?.metadata.providerScores.find(
+				(score) => score.providerId === "openai",
+			)?.price,
+		).toBe(0.8);
+	});
+
+	it("should disable random exploration for vitest processes", async () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",
 		);
@@ -636,7 +681,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		process.argv = ["node", "/tmp/vitest.mjs"];
 
 		try {
-			const result = getCheapestFromAvailableProviders(
+			const result = await getCheapestFromAvailableProviders(
 				[avalancheProvider, vertexProvider],
 				videoModel,
 				{
@@ -694,7 +739,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
-	it("should include provider scores during random exploration", () => {
+	it("should include provider scores during random exploration", async () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",
 		);
@@ -726,7 +771,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		process.argv = ["node", "/tmp/not-a-test-run.mjs"];
 
 		try {
-			const result = getCheapestFromAvailableProviders(
+			const result = await getCheapestFromAvailableProviders(
 				[avalancheProvider, vertexProvider],
 				videoModel,
 				{
@@ -787,13 +832,13 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
-	it("should return null for empty provider list", () => {
+	it("should return null for empty provider list", async () => {
 		const testModel = models[0];
-		const result = getCheapestFromAvailableProviders([], testModel);
+		const result = await getCheapestFromAvailableProviders([], testModel);
 		expect(result).toBe(null);
 	});
 
-	it("should use the default exploration rate when EXPLORATION_RATE is empty", () => {
+	it("should use the default exploration rate when EXPLORATION_RATE is empty", async () => {
 		const originalExplorationRate = process.env.EXPLORATION_RATE;
 		process.env.EXPLORATION_RATE = "";
 
@@ -803,17 +848,17 @@ describe("getCheapestFromAvailableProviders", () => {
 				throw new Error("Missing gpt-4o-mini test fixture");
 			}
 
-			expect(() =>
-				getCheapestFromAvailableProviders(
-					[
-						{
-							providerId: "openai",
-							externalId: "gpt-4o-mini",
-						},
-					],
-					testModel,
-				),
-			).not.toThrow();
+			const result = await getCheapestFromAvailableProviders(
+				[
+					{
+						providerId: "openai",
+						externalId: "gpt-4o-mini",
+					},
+				],
+				testModel,
+			);
+
+			expect(result).not.toBeNull();
 		} finally {
 			if (originalExplorationRate === undefined) {
 				delete process.env.EXPLORATION_RATE;
@@ -823,7 +868,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
-	it("should throw when EXPLORATION_RATE is outside the valid range", () => {
+	it("should throw when EXPLORATION_RATE is outside the valid range", async () => {
 		const originalExplorationRate = process.env.EXPLORATION_RATE;
 		const originalArgv = process.argv;
 		const originalNodeEnv = process.env.NODE_ENV;
@@ -839,7 +884,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				throw new Error("Missing gpt-4o-mini test fixture");
 			}
 
-			expect(() =>
+			await expect(
 				getCheapestFromAvailableProviders(
 					[
 						{
@@ -849,7 +894,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					],
 					testModel,
 				),
-			).toThrow(
+			).rejects.toThrow(
 				'Invalid EXPLORATION_RATE: "1.5". Expected a number between 0 and 1.',
 			);
 		} finally {
@@ -959,8 +1004,8 @@ describe("getCheapestFromAvailableProviders", () => {
 			buildProviderPriorityDefaults(),
 		);
 
-		it("does not factor cache support when prompt is below the threshold", () => {
-			const result = getCheapestFromAvailableProviders(
+		it("does not factor cache support when prompt is below the threshold", async () => {
+			const result = await getCheapestFromAvailableProviders(
 				cacheTestModel.providers,
 				cacheTestModel,
 				{
@@ -980,8 +1025,8 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(openai?.score).toBe(deepseek?.score);
 		});
 
-		it("prefers a cache-supporting provider when prompt is large", () => {
-			const result = getCheapestFromAvailableProviders(
+		it("prefers a cache-supporting provider when prompt is large", async () => {
+			const result = await getCheapestFromAvailableProviders(
 				cacheTestModel.providers,
 				cacheTestModel,
 				{
@@ -1005,7 +1050,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect((openai?.score ?? 0) < (deepseek?.score ?? 0)).toBe(true);
 		});
 
-		it("does not override a much cheaper non-cache provider for large prompts", () => {
+		it("does not override a much cheaper non-cache provider for large prompts", async () => {
 			const cheapNoCacheModel = {
 				...cacheTestModel,
 				providers: [
@@ -1027,7 +1072,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				],
 			};
 
-			const result = getCheapestFromAvailableProviders(
+			const result = await getCheapestFromAvailableProviders(
 				cheapNoCacheModel.providers,
 				cheapNoCacheModel,
 				{
@@ -1042,7 +1087,7 @@ describe("getCheapestFromAvailableProviders", () => {
 	});
 
 	describe("routing config overrides", () => {
-		it("excludes providers whose override priority is 0", () => {
+		it("excludes providers whose override priority is 0", async () => {
 			const model = models.find((m) => m.id === "gpt-4o-mini");
 			if (!model) {
 				throw new Error("Missing gpt-4o-mini fixture");
@@ -1058,7 +1103,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				{ providerPriorities: { openai: 0 } },
 				buildProviderPriorityDefaults(),
 			);
-			const result = getCheapestFromAvailableProviders(
+			const result = await getCheapestFromAvailableProviders(
 				providersWithOpenAi,
 				model,
 				{ routingConfig: overrides },
@@ -1067,7 +1112,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(result).toBe(null);
 		});
 
-		it("accepts custom thresholds without failing selection", () => {
+		it("accepts custom thresholds without failing selection", async () => {
 			const model = models.find((m) => m.providers.length >= 2);
 			if (!model) {
 				return;
@@ -1078,14 +1123,14 @@ describe("getCheapestFromAvailableProviders", () => {
 				{ thresholds: { defaultUptime: 50 } },
 				buildProviderPriorityDefaults(),
 			);
-			const result = getCheapestFromAvailableProviders(available, model, {
+			const result = await getCheapestFromAvailableProviders(available, model, {
 				routingConfig: overrides,
 				metricsMap: new Map(),
 			});
 			expect(result).not.toBeNull();
 		});
 
-		it("falls back to price-only selection when every scoring weight is zero", () => {
+		it("falls back to price-only selection when every scoring weight is zero", async () => {
 			const model = models.find((m) => m.id === "gpt-4o-mini");
 			if (!model) {
 				throw new Error("Missing gpt-4o-mini fixture");
@@ -1127,14 +1172,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				],
 			]);
 
-			expect(() =>
-				getCheapestFromAvailableProviders(available, model, {
-					routingConfig: overrides,
-					metricsMap,
-				}),
-			).not.toThrow();
-
-			const result = getCheapestFromAvailableProviders(available, model, {
+			const result = await getCheapestFromAvailableProviders(available, model, {
 				routingConfig: overrides,
 				metricsMap,
 			});

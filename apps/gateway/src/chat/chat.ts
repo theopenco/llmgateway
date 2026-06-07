@@ -73,10 +73,10 @@ import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 import {
 	applyGoogleServiceTier,
 	getCheapestFromAvailableProviders,
+	getDiscountedProviderSelectionPrice,
 	getProviderEndpoint,
 	getProviderHeaders,
 	resolveServedServiceTier,
-	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
@@ -341,7 +341,7 @@ function preferConcreteRegionalMappings(
 	);
 }
 
-function collapseProvidersToBestRegionPerProvider(
+async function collapseProvidersToBestRegionPerProvider(
 	candidates: ProviderModelMapping[],
 	model: ModelDefinition & {
 		id: string;
@@ -353,8 +353,9 @@ function collapseProvidersToBestRegionPerProvider(
 		promptTokens?: number;
 		sessionId?: string;
 		routingConfig?: ResolvedRoutingConfig;
+		organizationId: string;
 	},
-): ProviderModelMapping[] {
+): Promise<ProviderModelMapping[]> {
 	const providersById = new Map<string, ProviderModelMapping[]>();
 
 	for (const candidate of candidates) {
@@ -363,19 +364,23 @@ function collapseProvidersToBestRegionPerProvider(
 		providersById.set(candidate.providerId, providerCandidates);
 	}
 
-	return Array.from(providersById.values()).map((providerCandidates) => {
-		if (providerCandidates.length === 1) {
-			return providerCandidates[0];
-		}
+	const collapsedProviders = await Promise.all(
+		Array.from(providersById.values()).map(async (providerCandidates) => {
+			if (providerCandidates.length === 1) {
+				return providerCandidates[0];
+			}
 
-		const bestCandidate = getCheapestFromAvailableProviders(
-			providerCandidates,
-			model,
-			options,
-		);
+			const bestCandidate = await getCheapestFromAvailableProviders(
+				providerCandidates,
+				model,
+				options,
+			);
 
-		return bestCandidate?.provider ?? providerCandidates[0];
-	});
+			return bestCandidate?.provider ?? providerCandidates[0];
+		}),
+	);
+
+	return collapsedProviders;
 }
 
 function resolveRegionFromProviderKey(
@@ -619,13 +624,14 @@ function getContentFilterRoutingDecision(
 	};
 }
 
-function addContentFilterRoutingMetadata(
+async function addContentFilterRoutingMetadata(
 	routingMetadata: RoutingMetadata,
 	contentFilterMatched: boolean,
 	excludedProviders: ProviderModelMapping[],
 	modelId: string | undefined,
 	metricsMap: Map<string, ProviderMetrics>,
-): RoutingMetadata {
+	organizationId: string,
+): Promise<RoutingMetadata> {
 	if (!contentFilterMatched) {
 		return routingMetadata;
 	}
@@ -638,23 +644,30 @@ function addContentFilterRoutingMetadata(
 		excludedProviders.length === 0 || !modelId
 			? routingMetadata.providerScores
 			: [
-					...excludedProviders.map((provider) => {
-						const metrics = metricsMap.get(
-							metricsKey(modelId, provider.providerId, provider.region),
-						);
+					...(await Promise.all(
+						excludedProviders.map(async (provider) => {
+							const metrics = metricsMap.get(
+								metricsKey(modelId, provider.providerId, provider.region),
+							);
+							const { price, discount } =
+								await getDiscountedProviderSelectionPrice(provider, modelId, {
+									organizationId,
+								});
 
-						return {
-							providerId: provider.providerId,
-							region: provider.region,
-							score: -1,
-							uptime: metrics?.uptime ?? 0,
-							latency: metrics?.averageLatency ?? 0,
-							throughput: metrics?.throughput ?? 0,
-							price: getProviderSelectionPrice(provider).toNumber(),
-							contentFilterProvider: true,
-							excludedByContentFilter: true,
-						};
-					}),
+							return {
+								providerId: provider.providerId,
+								region: provider.region,
+								score: -1,
+								uptime: metrics?.uptime ?? 0,
+								latency: metrics?.averageLatency ?? 0,
+								throughput: metrics?.throughput ?? 0,
+								price: price.toNumber(),
+								discount: discount.toNumber(),
+								contentFilterProvider: true,
+								excludedByContentFilter: true,
+							};
+						}),
+					)),
 					...routingMetadata.providerScores,
 				];
 
@@ -2297,7 +2310,7 @@ chat.openapi(completions, async (c) => {
 				routingCfg,
 			);
 			providerAgnosticSelectedProviders =
-				collapseProvidersToBestRegionPerProvider(
+				await collapseProvidersToBestRegionPerProvider(
 					selectedProviders,
 					selectedModel,
 					{
@@ -2306,10 +2319,11 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						sessionId,
 						routingConfig: routingCfg,
+						organizationId: project.organizationId,
 					},
 				);
 
-			const cheapestResult = getCheapestFromAvailableProviders(
+			const cheapestResult = await getCheapestFromAvailableProviders(
 				providerAgnosticSelectedProviders,
 				selectedModel,
 				{
@@ -2318,6 +2332,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					sessionId,
 					routingConfig: routingCfg,
+					organizationId: project.organizationId,
 				},
 			);
 
@@ -2529,7 +2544,7 @@ chat.openapi(completions, async (c) => {
 						metricsCombinations,
 						routingCfg,
 					);
-					const bestRegionResult = getCheapestFromAvailableProviders(
+					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
 						modelInfo as ModelDefinition & {
 							id: string;
@@ -2541,6 +2556,7 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							sessionId,
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
 						},
 					);
 
@@ -2729,7 +2745,7 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 
-						const cheapestResult = getCheapestFromAvailableProviders(
+						const cheapestResult = await getCheapestFromAvailableProviders(
 							candidatesForRouting,
 							modelWithPricing,
 							{
@@ -2738,6 +2754,7 @@ chat.openapi(completions, async (c) => {
 								promptTokens: routingPromptTokens,
 								sessionId,
 								routingConfig: routingCfg,
+								organizationId: project.organizationId,
 							},
 						);
 
@@ -2901,7 +2918,7 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 						const providerAgnosticCandidates =
-							collapseProvidersToBestRegionPerProvider(
+							await collapseProvidersToBestRegionPerProvider(
 								uptimeFallbackCandidates,
 								modelWithPricing,
 								{
@@ -2910,6 +2927,7 @@ chat.openapi(completions, async (c) => {
 									promptTokens: routingPromptTokens,
 									sessionId,
 									routingConfig: routingCfg,
+									organizationId: project.organizationId,
 								},
 							);
 
@@ -2932,7 +2950,7 @@ chat.openapi(completions, async (c) => {
 						// Only proceed with fallback if there are providers with better uptime
 						// Otherwise stick with the original provider
 						if (betterUptimeProviders.length > 0) {
-							const cheapestResult = getCheapestFromAvailableProviders(
+							const cheapestResult = await getCheapestFromAvailableProviders(
 								betterUptimeProviders,
 								modelWithPricing,
 								{
@@ -2941,6 +2959,7 @@ chat.openapi(completions, async (c) => {
 									promptTokens: routingPromptTokens,
 									sessionId,
 									routingConfig: routingCfg,
+									organizationId: project.organizationId,
 								},
 							);
 
@@ -3116,7 +3135,7 @@ chat.openapi(completions, async (c) => {
 					routingCfg,
 				);
 				const providerAgnosticCandidates =
-					collapseProvidersToBestRegionPerProvider(
+					await collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
 						modelWithPricing,
 						{
@@ -3125,10 +3144,11 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							sessionId,
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
 						},
 					);
 
-				const cheapestResult = getCheapestFromAvailableProviders(
+				const cheapestResult = await getCheapestFromAvailableProviders(
 					providerAgnosticCandidates,
 					modelWithPricing,
 					{
@@ -3137,6 +3157,7 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						sessionId,
 						routingConfig: routingCfg,
+						organizationId: project.organizationId,
 					},
 				);
 
@@ -3190,7 +3211,7 @@ chat.openapi(completions, async (c) => {
 					usedInternalModel = modelWithPricing.id;
 					usedExternalId = selectedProvider.externalId;
 					usedRegion = selectedProvider.region;
-					routingMetadata = addContentFilterRoutingMetadata(
+					routingMetadata = await addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
 							selectedProvider: usedProvider,
@@ -3201,6 +3222,7 @@ chat.openapi(completions, async (c) => {
 						contentFilterRoutingExcludedProviders,
 						modelWithPricing.id,
 						metricsMap,
+						project.organizationId,
 					);
 					// Annotate rate-limited providers in routing metadata
 					if (rateLimitedProviderIds.size > 0) {
@@ -3215,13 +3237,19 @@ chat.openapi(completions, async (c) => {
 								const providerInfo = modelInfo.providers.find(
 									(p) => p.providerId === rlProviderId,
 								);
+								const { price, discount } =
+									await getDiscountedProviderSelectionPrice(
+										providerInfo,
+										modelWithPricing.id,
+										{
+											organizationId: project.organizationId,
+										},
+									);
 								routingMetadata.providerScores.push({
 									providerId: rlProviderId,
 									score: -1,
-									price: providerInfo
-										? Number(providerInfo.inputPrice ?? "0") +
-											Number(providerInfo.outputPrice ?? "0")
-										: 0,
+									price: price.toNumber(),
+									discount: discount.toNumber(),
 									rate_limited: true,
 								});
 							}
@@ -3355,7 +3383,7 @@ chat.openapi(completions, async (c) => {
 			selectionReason === "direct-provider-specified" &&
 			directProviderRegionWasExplicit
 				? null
-				: getCheapestFromAvailableProviders(
+				: await getCheapestFromAvailableProviders(
 						routingMetadataProviders,
 						modelInfo as ModelDefinition & {
 							id: string;
@@ -3367,31 +3395,43 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							sessionId,
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
 						},
 					);
 
 		const allProviderScores =
 			weightedScores?.metadata.providerScores ??
-			routingMetadataProviders.map((p) => {
-				const metrics = metricsMap.get(
-					metricsKey(baseModelId, p.providerId, p.region),
-				);
-				return {
-					providerId: p.providerId,
-					region: p.region,
-					score:
-						selectionReason === "direct-provider-specified" &&
-						directProviderRegionWasExplicit
-							? 1
-							: 0,
-					price: getProviderSelectionPrice(p).toNumber(),
-					uptime: metrics?.uptime ?? 0,
-					latency: metrics?.averageLatency ?? 0,
-					throughput: metrics?.throughput ?? 0,
-				};
-			});
+			(await Promise.all(
+				routingMetadataProviders.map(async (p) => {
+					const metrics = metricsMap.get(
+						metricsKey(baseModelId, p.providerId, p.region),
+					);
+					const { price, discount } = await getDiscountedProviderSelectionPrice(
+						p,
+						baseModelId,
+						{
+							organizationId: project.organizationId,
+						},
+					);
 
-		routingMetadata = addContentFilterRoutingMetadata(
+					return {
+						providerId: p.providerId,
+						region: p.region,
+						score:
+							selectionReason === "direct-provider-specified" &&
+							directProviderRegionWasExplicit
+								? 1
+								: 0,
+						price: price.toNumber(),
+						discount: discount.toNumber(),
+						uptime: metrics?.uptime ?? 0,
+						latency: metrics?.averageLatency ?? 0,
+						throughput: metrics?.throughput ?? 0,
+					};
+				}),
+			));
+
+		routingMetadata = await addContentFilterRoutingMetadata(
 			{
 				availableProviders: routingMetadataProviders.map((p) => p.providerId),
 				selectedProvider: usedProvider,
@@ -3403,6 +3443,7 @@ chat.openapi(completions, async (c) => {
 			contentFilterRoutingExcludedProviders,
 			baseModelId,
 			metricsMap,
+			project.organizationId,
 		);
 	}
 

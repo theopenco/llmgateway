@@ -26,8 +26,8 @@ import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 
 import {
 	getCheapestFromAvailableProviders,
+	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
-	getProviderSelectionPrice,
 	processImageUrl,
 	type RoutingMetadata,
 	type VideoPricingContext,
@@ -1658,7 +1658,7 @@ async function resolveVideoExecution(
 				});
 
 				if (betterMappings.length > 0) {
-					const betterResult = getCheapestFromAvailableProviders(
+					const betterResult = await getCheapestFromAvailableProviders(
 						betterMappings,
 						modelInfo,
 						{
@@ -1666,6 +1666,7 @@ async function resolveVideoExecution(
 							isStreaming: false,
 							videoPricing,
 							routingConfig: routingCfg,
+							organizationId,
 						},
 					);
 
@@ -1673,12 +1674,15 @@ async function resolveVideoExecution(
 						const originalMapping = configuredEligibleMappings.find(
 							(provider) => provider.providerId === requestedProvider,
 						);
-						const originalPrice = originalMapping
-							? getProviderSelectionPrice(
-									originalMapping,
+						const { price: originalPrice, discount: originalDiscount } =
+							await getDiscountedProviderSelectionPrice(
+								originalMapping,
+								modelInfo.id,
+								{
+									organizationId,
 									videoPricing,
-								).toNumber()
-							: 0;
+								},
+							);
 						routingMetadata = {
 							...betterResult.metadata,
 							selectionReason: "low-uptime-fallback",
@@ -1688,7 +1692,8 @@ async function resolveVideoExecution(
 								{
 									providerId: requestedProvider,
 									score: -1,
-									price: originalPrice,
+									price: originalPrice.toNumber(),
+									discount: originalDiscount.toNumber(),
 									uptime: requestedUptime,
 									latency: requestedMetrics?.averageLatency,
 									throughput: requestedMetrics?.throughput,
@@ -1723,7 +1728,7 @@ async function resolveVideoExecution(
 		}
 
 		if (!routingMetadata) {
-			const cheapestResult = getCheapestFromAvailableProviders(
+			const cheapestResult = await getCheapestFromAvailableProviders(
 				configuredEligibleMappings,
 				modelInfo,
 				{
@@ -1731,6 +1736,7 @@ async function resolveVideoExecution(
 					isStreaming: false,
 					videoPricing,
 					routingConfig: routingCfg,
+					organizationId,
 				},
 			);
 			if (cheapestResult) {
@@ -1771,11 +1777,25 @@ async function resolveVideoExecution(
 			: configuredEligibleMappings.length === 1
 				? "single-provider-available"
 				: "fallback-first-available",
-		providerScores: configuredEligibleMappings.map((provider) => ({
-			providerId: provider.providerId,
-			score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
-			price: getProviderSelectionPrice(provider, videoPricing).toNumber(),
-		})),
+		providerScores: await Promise.all(
+			configuredEligibleMappings.map(async (provider) => {
+				const { price, discount } = await getDiscountedProviderSelectionPrice(
+					provider,
+					modelInfo.id,
+					{
+						organizationId,
+						videoPricing,
+					},
+				);
+
+				return {
+					providerId: provider.providerId,
+					score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
+					price: price.toNumber(),
+					discount: discount.toNumber(),
+				};
+			}),
+		),
 		...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 	};
 
