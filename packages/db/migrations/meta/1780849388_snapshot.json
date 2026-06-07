@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "eecefa13-9574-41a8-9ed9-8f9e198b8b97",
+  "id": "0daac140-fa8e-44c8-bd15-944569e64d62",
   "prevId": "fb0fb354-6c26-4ba4-81ce-b619b2e45183",
   "ddl": [
     {
@@ -85,6 +85,12 @@
     {
       "isRlsEnabled": false,
       "name": "end_customer",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "end_user_session",
       "entityType": "tables",
       "schema": "public"
     },
@@ -3457,6 +3463,268 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'active'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "end_customer_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "wallet_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "usage_limit",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "usage",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "period_usage_limit",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "period_usage_duration_value",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "period_usage_duration_unit",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "current_period_usage",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "current_period_started_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "enterprise_contact_submission"
     },
     {
@@ -5824,6 +6092,19 @@
       "generated": null,
       "identity": null,
       "name": "api_key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "end_user_session_id",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
@@ -14638,6 +14919,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "end_user_session_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "end_customer_wallet_id",
       "entityType": "columns",
       "schema": "public",
@@ -15913,6 +16207,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"key_type\" = 'end_user_sessions'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "api_key_project_end_user_sessions_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "api_key_id",
           "isExpression": false,
           "asc": true,
@@ -16634,6 +16949,76 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "end_user_session_project_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "wallet_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "end_user_session_wallet_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "end_user_session_status_expires_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "created_at",
           "isExpression": false,
           "asc": true,
@@ -17179,6 +17564,34 @@
       "method": "btree",
       "concurrently": false,
       "name": "log_end_customer_wallet_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "end_user_session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "end_user_session_id IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_end_user_session_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"
@@ -18426,6 +18839,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "end_user_session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "video_job_end_user_session_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -19012,6 +19446,91 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
+      "name": "end_user_session_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "project_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "project",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "end_user_session_project_id_project_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "end_customer_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "end_customer",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "end_user_session_end_customer_id_end_customer_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "wallet_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "wallet",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "end_user_session_wallet_id_wallet_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "created_by"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "end_user_session_created_by_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "follow_up_email_organization_id_organization_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -19067,6 +19586,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "guardrail_violation"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "end_user_session_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "end_user_session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "log_end_user_session_id_end_user_session_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "log"
     },
     {
       "nameExplicit": false,
@@ -19530,6 +20066,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "end_user_session_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "end_user_session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "video_job_end_user_session_id_end_user_session_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "end_customer_wallet_id"
       ],
       "schemaTo": "public",
@@ -19835,6 +20388,16 @@
       "name": "end_customer_pkey",
       "schema": "public",
       "table": "end_customer",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "end_user_session_pkey",
+      "schema": "public",
+      "table": "end_user_session",
       "entityType": "pks"
     },
     {
@@ -20492,6 +21055,17 @@
       "name": "end_customer_stripe_customer_id_key",
       "schema": "public",
       "table": "end_customer",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "token"
+      ],
+      "nullsNotDistinct": false,
+      "name": "end_user_session_token_key",
+      "schema": "public",
+      "table": "end_user_session",
       "entityType": "uniques"
     },
     {
