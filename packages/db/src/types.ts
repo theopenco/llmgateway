@@ -68,8 +68,52 @@ type OrganizationBase = InferSelectModel<typeof tables.organization>;
 type UserBase = InferSelectModel<typeof tables.user>;
 type ApiKeyIamRuleBase = InferSelectModel<typeof tables.apiKeyIamRule>;
 
-export type ApiKey = Omit<ApiKeyBase, "status"> & {
+export type ApiKey = Omit<ApiKeyBase, "status" | "keyType"> & {
 	status: "active" | "inactive" | "deleted" | null;
+	keyType:
+		| "user"
+		| "platform_secret"
+		| "platform_publishable"
+		| "end_user_customer";
+};
+
+export type EndCustomer = Omit<
+	InferSelectModel<typeof tables.endCustomer>,
+	"status"
+> & {
+	status: "active" | "blocked" | "deleted";
+};
+
+export type EndUserSession = Omit<
+	InferSelectModel<typeof tables.endUserSession>,
+	"status"
+> & {
+	status: "active" | "inactive" | "deleted";
+};
+
+export type Wallet = Omit<InferSelectModel<typeof tables.wallet>, "status"> & {
+	status: "active" | "frozen";
+};
+
+export type WalletLedger = Omit<
+	InferSelectModel<typeof tables.walletLedger>,
+	"type"
+> & {
+	type: "topup" | "usage_debit" | "refund" | "adjustment" | "reversal";
+};
+
+export type WebhookEndpoint = Omit<
+	InferSelectModel<typeof tables.webhookEndpoint>,
+	"status"
+> & {
+	status: "active" | "disabled";
+};
+
+export type PlatformWebhookDelivery = Omit<
+	InferSelectModel<typeof tables.platformWebhookDelivery>,
+	"status"
+> & {
+	status: "pending" | "delivered" | "failed";
 };
 
 export type Project = Omit<ProjectBase, "status" | "mode"> & {
@@ -131,6 +175,10 @@ export type SerializedOrganization = Omit<
 	| "devPlanCreditsFrozen"
 	| "devPlanCreditsLimitBeforeFreeze"
 	| "lastTopUpAmount"
+	// Embeddable SDK internals — not part of the dashboard-facing API surface.
+	| "endUserMarginBalance"
+	| "stripeConnectAccountId"
+	| "stripeConnectOnboarded"
 > & {
 	createdAt: string;
 	updatedAt: string;
@@ -139,7 +187,15 @@ export type SerializedOrganization = Omit<
 	devPlanExpiresAt: string | null;
 };
 
-export type SerializedProject = Omit<Project, "createdAt" | "updatedAt"> & {
+export type SerializedProject = Omit<
+	Project,
+	| "createdAt"
+	| "updatedAt"
+	// Embeddable SDK internals — not part of the dashboard-facing API surface.
+	| "endUserEnabled"
+	| "endUserMarkupPercent"
+	| "allowedOrigins"
+> & {
 	createdAt: string;
 	updatedAt: string;
 };
@@ -148,7 +204,13 @@ export type SerializedUser = Pick<User, "id" | "email" | "name">;
 
 export type SerializedApiKey = Omit<
 	ApiKey,
-	"createdAt" | "updatedAt" | "currentPeriodStartedAt"
+	| "createdAt"
+	| "updatedAt"
+	| "currentPeriodStartedAt"
+	// Embeddable SDK internals — hidden aggregate keys aren't surfaced here.
+	| "keyType"
+	| "endCustomerWalletId"
+	| "expiresAt"
 > & {
 	createdAt: string;
 	updatedAt: string;

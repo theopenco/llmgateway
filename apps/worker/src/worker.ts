@@ -1,3 +1,6 @@
+import { createHmac } from "node:crypto";
+import { lookup } from "node:dns/promises";
+
 import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 import { z } from "zod";
@@ -15,6 +18,7 @@ import {
 	cdb,
 	closeDatabase,
 	db,
+	enqueueWebhookDeliveries,
 	eq,
 	inArray,
 	isApiKeyPeriodLimitConfigured,
@@ -22,12 +26,18 @@ import {
 	type LogInsertData,
 	lt,
 	organization,
+	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
-import { calculateFees, isCreditTopUpAmountInRange } from "@llmgateway/shared";
+import {
+	assertSafeWebhookUrl,
+	calculateFees,
+	isCreditTopUpAmountInRange,
+	isPrivateOrReservedIp,
+} from "@llmgateway/shared";
 
 import { posthog } from "./posthog.js";
 import {
@@ -84,7 +94,13 @@ function getStripe(): Stripe {
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
+const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
+const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
+const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
+// Embeddable SDK: emit a wallet.low_balance webhook when a wallet's balance
+// crosses below this (USD) on a usage debit.
+const WALLET_LOW_BALANCE_THRESHOLD = 1;
 const AUTO_TOPUP_DISABLE_AFTER_DAYS = 7;
 const AUTO_TOPUP_DISABLE_AFTER_MS =
 	AUTO_TOPUP_DISABLE_AFTER_DAYS * 24 * 60 * 60 * 1000;
@@ -175,6 +191,8 @@ const schema = z.object({
 	cost: z.number().nullable(),
 	cached: z.boolean(),
 	api_key_id: z.string(),
+	end_user_session_id: z.string().nullable(),
+	end_customer_wallet_id: z.string().nullable(),
 	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
 	used_mode: z.enum(["api-keys", "credits"]),
 	duration: z.number(),
@@ -682,6 +700,14 @@ export async function batchProcessLogs(): Promise<void> {
 	}
 
 	const deductedOrgIds: string[] = [];
+	// Embeddable SDK: wallets that crossed below the low-balance threshold this
+	// batch — webhooks are enqueued after the transaction commits.
+	const walletLowBalanceEvents: Array<{
+		projectId: string;
+		walletId: string;
+		endCustomerId: string;
+		balance: string;
+	}> = [];
 
 	try {
 		await db.transaction(async (tx) => {
@@ -696,6 +722,8 @@ export async function batchProcessLogs(): Promise<void> {
 					cost: log.cost,
 					cached: log.cached,
 					api_key_id: log.apiKeyId,
+					end_user_session_id: log.endUserSessionId,
+					end_customer_wallet_id: log.endCustomerWalletId,
 					project_mode: tables.project.mode,
 					used_mode: log.usedMode,
 					duration: log.duration,
@@ -742,7 +770,14 @@ export async function batchProcessLogs(): Promise<void> {
 			// Use Decimal.js to avoid floating point rounding errors
 			const orgCosts = new Map<string, Decimal>();
 			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
+			const endUserSessionEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const logIds: string[] = [];
+			// Embeddable SDK: end-user wallet costs are accumulated separately and
+			// debited from wallet.balance (not organization.credits). Keyed by
+			// walletId; we keep a representative logId per wallet to link the
+			// usage_debit ledger row back to a gateway log.
+			const walletCosts = new Map<string, Decimal>();
+			const walletLogIds = new Map<string, string>();
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
@@ -765,6 +800,7 @@ export async function batchProcessLogs(): Promise<void> {
 					error: !!row.hasError,
 					cached: row.cached,
 					apiKeyId: row.api_key_id,
+					endUserSessionId: row.end_user_session_id,
 					projectMode: row.project_mode,
 					usedMode: row.used_mode,
 					duration: row.duration,
@@ -787,12 +823,36 @@ export async function batchProcessLogs(): Promise<void> {
 
 				if (row.cost && row.cost > 0 && !row.cached) {
 					const apiKeyCost = new Decimal(row.cost);
-					const existingEvents = apiKeyEvents.get(row.api_key_id) ?? [];
-					existingEvents.push({
+					const usageEvent = {
 						cost: apiKeyCost,
 						createdAt: row.created_at,
-					});
-					apiKeyEvents.set(row.api_key_id, existingEvents);
+					};
+					if (row.end_user_session_id) {
+						const existingEvents =
+							endUserSessionEvents.get(row.end_user_session_id) ?? [];
+						existingEvents.push(usageEvent);
+						endUserSessionEvents.set(row.end_user_session_id, existingEvents);
+					} else {
+						const existingEvents = apiKeyEvents.get(row.api_key_id) ?? [];
+						existingEvents.push(usageEvent);
+						apiKeyEvents.set(row.api_key_id, existingEvents);
+					}
+
+					// Embeddable SDK: end-user session traffic debits the wallet, not
+					// the developer's org credits. Always full-cost (credits mode).
+					if (row.end_customer_wallet_id) {
+						const currentWalletCost =
+							walletCosts.get(row.end_customer_wallet_id) ?? new Decimal(0);
+						walletCosts.set(
+							row.end_customer_wallet_id,
+							currentWalletCost.plus(apiKeyCost),
+						);
+						if (!walletLogIds.has(row.end_customer_wallet_id)) {
+							walletLogIds.set(row.end_customer_wallet_id, row.id);
+						}
+						logIds.push(row.id);
+						continue;
+					}
 
 					// Deduct organization credits based on mode:
 					// - Credits mode: deduct full cost (includes request cost + storage cost)
@@ -909,6 +969,62 @@ export async function batchProcessLogs(): Promise<void> {
 			// deductedOrgIds is populated inside the loop above — only orgs
 			// with actual regular-credit deductions are included.
 
+			// Embeddable SDK: debit end-user wallets and append usage_debit ledger
+			// rows. Kept fully separate from the org-credit path above so normal
+			// developer traffic is untouched.
+			for (const [walletId, totalCost] of walletCosts.entries()) {
+				if (!totalCost.greaterThan(0)) {
+					continue;
+				}
+				const costNumber = totalCost.toNumber();
+				// Debit atomically and derive the resulting balance from the row we
+				// actually updated, so a concurrent top-up/reversal can't make
+				// balanceAfter or the low-balance crossing check stale.
+				const [updatedWallet] = await tx
+					.update(tables.wallet)
+					.set({
+						balance: sql`${tables.wallet.balance} - ${costNumber}`,
+					})
+					.where(eq(tables.wallet.id, walletId))
+					.returning();
+
+				if (!updatedWallet) {
+					logger.warn(
+						`Wallet ${walletId} not found while debiting end-user usage`,
+					);
+					continue;
+				}
+
+				const newBalance = new Decimal(updatedWallet.balance);
+				const prevBalance = newBalance.plus(totalCost);
+
+				// Emit a single low-balance event on the downward crossing.
+				if (
+					prevBalance.greaterThanOrEqualTo(WALLET_LOW_BALANCE_THRESHOLD) &&
+					newBalance.lessThan(WALLET_LOW_BALANCE_THRESHOLD)
+				) {
+					walletLowBalanceEvents.push({
+						projectId: updatedWallet.projectId,
+						walletId,
+						endCustomerId: updatedWallet.endCustomerId,
+						balance: newBalance.toString(),
+					});
+				}
+
+				await tx.insert(tables.walletLedger).values({
+					walletId,
+					endCustomerId: updatedWallet.endCustomerId,
+					organizationId: updatedWallet.organizationId,
+					type: "usage_debit",
+					amount: totalCost.negated().toString(),
+					balanceAfter: newBalance.toString(),
+					gatewayLogId: walletLogIds.get(walletId) ?? null,
+					description: "AI usage",
+				});
+
+				logger.debug(`Debited ${costNumber} from end-user wallet ${walletId}`);
+			}
+
 			// Apply referral earnings to referrer organizations
 			for (const [referrerOrgId, earnings] of referralEarnings.entries()) {
 				if (earnings.greaterThan(0)) {
@@ -978,6 +1094,59 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
+			// Batch update end-user session usage separately from the hidden
+			// aggregate API key. This keeps API-key stats low-cardinality while
+			// preserving session max-spend and period-limit enforcement.
+			const endUserSessionIds = Array.from(endUserSessionEvents.keys());
+			if (endUserSessionIds.length > 0) {
+				const sessionRecords = await tx.query.endUserSession.findMany({
+					columns: {
+						id: true,
+						currentPeriodStartedAt: true,
+						currentPeriodUsage: true,
+						periodUsageLimit: true,
+						periodUsageDurationValue: true,
+						periodUsageDurationUnit: true,
+					},
+					where: {
+						id: {
+							in: endUserSessionIds,
+						},
+					},
+				});
+				const sessionRecordsById = new Map(
+					sessionRecords.map((record) => [record.id, record]),
+				);
+
+				for (const [sessionId, events] of endUserSessionEvents.entries()) {
+					const sessionRecord = sessionRecordsById.get(sessionId);
+					if (!sessionRecord) {
+						logger.warn(
+							`Skipping usage update for missing end-user session ${sessionId}`,
+						);
+						continue;
+					}
+
+					const usageUpdate = buildApiKeyUsageUpdate(sessionRecord, events);
+					const costNumber = usageUpdate.totalUsageCost.toNumber();
+
+					await tx
+						.update(tables.endUserSession)
+						.set({
+							usage: sql`${tables.endUserSession.usage} + ${costNumber}`,
+							...(usageUpdate.hasPeriodUsageUpdate && {
+								currentPeriodUsage: usageUpdate.currentPeriodUsage,
+								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
+							}),
+						})
+						.where(eq(tables.endUserSession.id, sessionId));
+
+					logger.debug(
+						`Added ${costNumber} usage to end-user session ${sessionId}`,
+					);
+				}
+			}
+
 			// Mark all logs as processed within the same transaction
 			await tx
 				.update(log)
@@ -992,6 +1161,27 @@ export async function batchProcessLogs(): Promise<void> {
 		// Async low-balance alert check (outside transaction, non-blocking)
 		if (deductedOrgIds.length > 0) {
 			void checkLowBalanceAlerts(deductedOrgIds);
+		}
+
+		// Embeddable SDK: enqueue end-user wallet low-balance webhooks (best-effort).
+		for (const ev of walletLowBalanceEvents) {
+			try {
+				await enqueueWebhookDeliveries({
+					projectId: ev.projectId,
+					eventType: "wallet.low_balance",
+					data: {
+						walletId: ev.walletId,
+						endCustomerId: ev.endCustomerId,
+						balance: ev.balance,
+						threshold: WALLET_LOW_BALANCE_THRESHOLD,
+					},
+				});
+			} catch (err) {
+				logger.warn("Failed to enqueue wallet.low_balance webhook", {
+					walletId: ev.walletId,
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
 		}
 	} catch (error) {
 		logger.error(
@@ -1615,6 +1805,351 @@ async function runDataRetentionLoop() {
 	}
 }
 
+/**
+ * Embeddable SDK: deactivate expired end-user session tokens so they stop
+ * authenticating and don't accumulate.
+ */
+async function cleanupExpiredEndUserSessions(): Promise<void> {
+	const lockAcquired = await acquireLock(END_USER_SESSION_CLEANUP_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		const expired = await db
+			.update(tables.endUserSession)
+			.set({ status: "deleted" })
+			.where(
+				and(
+					eq(tables.endUserSession.status, "active"),
+					lt(tables.endUserSession.expiresAt, new Date()),
+				),
+			)
+			.returning({ id: tables.endUserSession.id });
+
+		if (expired.length > 0) {
+			logger.info(`Deactivated ${expired.length} expired end-user session(s)`);
+		}
+	} finally {
+		await releaseLock(END_USER_SESSION_CLEANUP_LOCK_KEY);
+	}
+}
+
+async function runEndUserSessionCleanupLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 300 : 60) * 1000; // 5 minutes in prod, 1 minute in dev
+	logger.info(
+		`Starting end-user session cleanup loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await cleanupExpiredEndUserSessions();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in end-user session cleanup loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Ephemeral session cleanup loop stopped");
+	}
+}
+
+const MAX_WEBHOOK_ATTEMPTS = 5;
+const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
+
+/**
+ * Embeddable SDK: deliver queued platform webhook events with an HMAC signature,
+ * retrying with exponential backoff. The signature header is
+ * `X-LLMGateway-Signature: t=<unix>,v1=<hex hmac of "t.body">`, which
+ * `@llmgateway/server`'s `webhooks.constructEvent` verifies.
+ */
+/**
+ * SSRF guard for an outbound webhook delivery: validate the URL is https + not
+ * an internal literal, then resolve the host and reject if any resolved address
+ * is private/reserved (DNS rebinding protection). Throws on an unsafe target.
+ */
+async function assertSafeWebhookTarget(rawUrl: string): Promise<void> {
+	const url = assertSafeWebhookUrl(rawUrl);
+	const resolved = await lookup(url.hostname, { all: true });
+	for (const { address } of resolved) {
+		if (isPrivateOrReservedIp(address)) {
+			throw new Error(
+				`Webhook host ${url.hostname} resolves to a disallowed address (${address})`,
+			);
+		}
+	}
+}
+
+async function processWebhookDeliveries(): Promise<void> {
+	const lockAcquired = await acquireLock(WEBHOOK_DELIVERY_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		const pending = await db.query.platformWebhookDelivery.findMany({
+			where: {
+				status: { eq: "pending" },
+				nextAttemptAt: { lte: new Date() },
+			},
+			with: { endpoint: true },
+			orderBy: { nextAttemptAt: "asc" },
+			limit: WEBHOOK_DELIVERY_BATCH_SIZE,
+		});
+
+		for (const delivery of pending) {
+			if (!delivery.endpoint || delivery.endpoint.status !== "active") {
+				await db
+					.update(tables.platformWebhookDelivery)
+					.set({ status: "failed", lastError: "Endpoint inactive or deleted" })
+					.where(eq(tables.platformWebhookDelivery.id, delivery.id));
+				continue;
+			}
+
+			const body = JSON.stringify(delivery.payload);
+			const timestamp = Math.floor(Date.now() / 1000);
+			const signature = createHmac("sha256", delivery.endpoint.secret)
+				.update(`${timestamp}.${body}`)
+				.digest("hex");
+
+			const attempts = delivery.attempts + 1;
+			try {
+				// SSRF guard at delivery time: https + literal checks, plus resolve
+				// the host and reject if any address is private/reserved (defeats
+				// DNS rebinding between registration and delivery).
+				await assertSafeWebhookTarget(delivery.endpoint.url);
+
+				const res = await fetch(delivery.endpoint.url, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-LLMGateway-Signature": `t=${timestamp},v1=${signature}`,
+						"X-LLMGateway-Event": delivery.eventType,
+						"X-LLMGateway-Event-Id": delivery.eventId,
+					},
+					body,
+					signal: AbortSignal.timeout(10000),
+				});
+
+				if (res.ok) {
+					await db
+						.update(tables.platformWebhookDelivery)
+						.set({
+							status: "delivered",
+							attempts,
+							lastAttemptAt: new Date(),
+							responseStatus: res.status,
+						})
+						.where(eq(tables.platformWebhookDelivery.id, delivery.id));
+				} else {
+					await scheduleWebhookRetry(
+						delivery.id,
+						attempts,
+						res.status,
+						`HTTP ${res.status}`,
+					);
+				}
+			} catch (err) {
+				await scheduleWebhookRetry(
+					delivery.id,
+					attempts,
+					null,
+					err instanceof Error ? err.message : String(err),
+				);
+			}
+		}
+	} finally {
+		await releaseLock(WEBHOOK_DELIVERY_LOCK_KEY);
+	}
+}
+
+async function scheduleWebhookRetry(
+	deliveryId: string,
+	attempts: number,
+	responseStatus: number | null,
+	error: string,
+): Promise<void> {
+	const exhausted = attempts >= MAX_WEBHOOK_ATTEMPTS;
+	// Exponential backoff: 2^attempts minutes (2, 4, 8, 16…).
+	const backoffMs = Math.pow(2, attempts) * 60 * 1000;
+	await db
+		.update(tables.platformWebhookDelivery)
+		.set({
+			status: exhausted ? "failed" : "pending",
+			attempts,
+			lastAttemptAt: new Date(),
+			nextAttemptAt: new Date(Date.now() + backoffMs),
+			responseStatus,
+			lastError: error,
+		})
+		.where(eq(tables.platformWebhookDelivery.id, deliveryId));
+}
+
+async function runWebhookDeliveryLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 15 : 5) * 1000;
+	logger.info(
+		`Starting webhook delivery loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await processWebhookDeliveries();
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in webhook delivery loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Webhook delivery loop stopped");
+	}
+}
+
+/** Minimum accrued margin (USD) before the auto-payout loop transfers it. */
+const AUTO_PAYOUT_MIN_AMOUNT = 25;
+
+/**
+ * Embeddable SDK: automatically pay out accrued developer margin to onboarded
+ * connected accounts above a threshold, via Stripe Connect transfers.
+ */
+async function processMarginPayouts(): Promise<void> {
+	const lockAcquired = await acquireLock(MARGIN_PAYOUT_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		const orgs = await db.query.organization.findMany({
+			where: {
+				stripeConnectOnboarded: { eq: true },
+			},
+		});
+
+		for (const org of orgs) {
+			const balance = Number(org.endUserMarginBalance ?? "0");
+			if (!org.stripeConnectAccountId || balance < AUTO_PAYOUT_MIN_AMOUNT) {
+				continue;
+			}
+
+			const amountCents = Math.floor(balance * 100);
+			const amount = amountCents / 100;
+
+			// Reserve the funds first with a conditional decrement: only proceed if
+			// we actually claimed >= amount. This prevents the manual payout
+			// endpoint (or another tick) from racing this one into an overpayment.
+			const reserved = await db
+				.update(organization)
+				.set({
+					endUserMarginBalance: sql`${organization.endUserMarginBalance} - ${amount}`,
+				})
+				.where(
+					and(
+						eq(organization.id, org.id),
+						sql`${organization.endUserMarginBalance} >= ${amount}`,
+					),
+				)
+				.returning();
+
+			if (reserved.length === 0) {
+				// Balance changed under us; skip this org this tick.
+				continue;
+			}
+
+			// Unique per-payout reference. The idempotency key MUST NOT be derived
+			// from the amount alone: two distinct payouts of the same cents value
+			// within Stripe's idempotency window would collide, silently replaying
+			// the first transfer (no money moves) while we still debit the margin
+			// balance — losing the developer's funds. A fresh ref per reservation
+			// keeps single-call network retries safe (the Stripe SDK reuses this
+			// key) while letting genuinely distinct payouts through.
+			const payoutRef = shortid();
+
+			try {
+				const transfer = await getStripe().transfers.create(
+					{
+						amount: amountCents,
+						currency: "usd",
+						destination: org.stripeConnectAccountId,
+						metadata: {
+							organizationId: org.id,
+							kind: "end_user_margin_payout",
+							payoutRef,
+						},
+					},
+					{ idempotencyKey: `margin_payout_${org.id}_${payoutRef}` },
+				);
+
+				await db.insert(tables.transaction).values({
+					organizationId: org.id,
+					type: "end_user_margin_payout",
+					amount: String(amount),
+					creditAmount: String(amount),
+					status: "completed",
+					description: `Automatic end-user margin payout (transfer ${transfer.id})`,
+				});
+
+				logger.info(
+					`Auto-paid out ${amount} end-user margin for organization ${org.id}`,
+				);
+			} catch (err) {
+				// Transfer failed — restore the reserved funds so they aren't lost.
+				await db
+					.update(organization)
+					.set({
+						endUserMarginBalance: sql`${organization.endUserMarginBalance} + ${amount}`,
+					})
+					.where(eq(organization.id, org.id));
+				logger.error(
+					`Failed to auto-pay-out margin for organization ${org.id}`,
+					err instanceof Error ? err : new Error(String(err)),
+				);
+			}
+		}
+	} finally {
+		await releaseLock(MARGIN_PAYOUT_LOCK_KEY);
+	}
+}
+
+async function runMarginPayoutLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 3600 : 120) * 1000; // hourly in prod
+	logger.info(
+		`Starting margin payout loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await processMarginPayouts();
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in margin payout loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Margin payout loop stopped");
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -1703,6 +2238,9 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
+	void runEndUserSessionCleanupLoop();
+	void runWebhookDeliveryLoop();
+	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,
 		acquireLock,

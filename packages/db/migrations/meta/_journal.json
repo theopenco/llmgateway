@@ -1048,8 +1048,29 @@
     {
       "idx": 149,
       "version": "8",
-      "when": 1780698280180,
-      "tag": "1780698280_clear_runaways",
+      "when": 1780698570697,
+      "tag": "1780698570_fair_gladiator",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "8",
+      "when": 1780852017972,
+      "tag": "1780852017_chubby_wilson_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "8",
+      "when": 1780855399542,
+      "tag": "1780855399_panoramic_rafael_vega",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "8",
+      "when": 1780857793050,
+      "tag": "1780857793_free_longshot",
       "breakpoints": true
     }
   ]

@@ -2,7 +2,16 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { and, db, eq, inArray, isNull, sql, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	enqueueWebhookDeliveries,
+	eq,
+	inArray,
+	isNull,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	getDevPlanCreditsLimit,
@@ -68,6 +77,51 @@ export async function ensureStripeCustomer(
 	}
 
 	return stripeCustomerId;
+}
+
+/**
+ * Embeddable SDK: ensure the end-customer has its own Stripe customer, separate
+ * from the developer's org customer, so cards and receipts are per-end-user.
+ */
+export async function ensureEndCustomerStripeCustomer(
+	endCustomerId: string,
+): Promise<string> {
+	// Claim the row under a lock so two concurrent top-ups for the same customer
+	// can't each create a Stripe customer (orphaning one). The second caller
+	// blocks until the first commits, then sees the persisted id.
+	return await db.transaction(async (tx) => {
+		const [endCustomer] = await tx
+			.select()
+			.from(tables.endCustomer)
+			.where(eq(tables.endCustomer.id, endCustomerId))
+			.for("update")
+			.limit(1);
+
+		if (!endCustomer) {
+			throw new Error(`End customer not found: ${endCustomerId}`);
+		}
+
+		if (endCustomer.stripeCustomerId) {
+			return endCustomer.stripeCustomerId;
+		}
+
+		const customer = await getStripe().customers.create({
+			email: endCustomer.email ?? undefined,
+			name: endCustomer.name ?? undefined,
+			metadata: {
+				endCustomerId,
+				projectId: endCustomer.projectId,
+				organizationId: endCustomer.organizationId,
+			},
+		});
+
+		await tx
+			.update(tables.endCustomer)
+			.set({ stripeCustomerId: customer.id })
+			.where(eq(tables.endCustomer.id, endCustomerId));
+
+		return customer.id;
+	});
 }
 
 /**
@@ -1287,11 +1341,271 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 	);
 }
 
+/**
+ * Embeddable SDK: credit an end-user wallet after a successful top-up payment.
+ * Idempotent on wallet_ledger.stripePaymentIntentId. Splits the charge into the
+ * net credited to the wallet, the developer's margin (accrued to the developer
+ * org), and the platform fee — all carried in the PaymentIntent metadata that
+ * /v1/wallet/top-up set.
+ */
+async function handleEndUserTopUpSucceeded(
+	paymentIntent: Stripe.PaymentIntent,
+) {
+	const md = paymentIntent.metadata;
+	const walletId = md.walletId;
+	const netCredited = Number(md.netCredited);
+	const developerMargin = Number(md.developerMargin ?? "0");
+	const platformFee = Number(md.platformFee ?? "0");
+	const grossPaid = paymentIntent.amount / 100;
+
+	if (!walletId || !Number.isFinite(netCredited) || netCredited <= 0) {
+		logger.error("Invalid end_user_topup metadata", {
+			paymentIntentId: paymentIntent.id,
+			metadata: md,
+		});
+		return;
+	}
+
+	// Fast-path idempotency: a topup ledger row for this payment intent means we
+	// already processed it (webhook re-delivery). The authoritative guard is the
+	// unique partial index on wallet_ledger(stripePaymentIntentId) WHERE
+	// type='topup', enforced inside the transaction below to close the race
+	// between concurrent deliveries.
+	const existing = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: paymentIntent.id },
+			type: { eq: "topup" },
+		},
+	});
+	if (existing) {
+		logger.info(
+			`Skipping duplicate end-user top-up for wallet ${walletId} (ledger ${existing.id} already processed)`,
+		);
+		return;
+	}
+
+	const wallet = await db.query.wallet.findFirst({
+		where: { id: { eq: walletId } },
+	});
+	if (!wallet) {
+		logger.error(`Wallet not found for end-user top-up: ${walletId}`);
+		return;
+	}
+
+	// Credit the wallet, write the ledger row, and accrue the developer margin
+	// atomically. The ledger insert hits the unique index first, so a concurrent
+	// duplicate delivery rolls the whole transaction back instead of double-
+	// crediting.
+	let newBalance: string;
+	try {
+		newBalance = await db.transaction(async (tx) => {
+			// Lock + credit the wallet first; a concurrent duplicate delivery blocks
+			// on this row, then fails the ledger insert below on the unique index.
+			const [updated] = await tx
+				.update(tables.wallet)
+				.set({ balance: sql`${tables.wallet.balance} + ${netCredited}` })
+				.where(eq(tables.wallet.id, walletId))
+				.returning();
+
+			await tx.insert(tables.walletLedger).values({
+				walletId,
+				endCustomerId: wallet.endCustomerId,
+				organizationId: wallet.organizationId,
+				type: "topup",
+				amount: String(netCredited),
+				balanceAfter: updated.balance,
+				grossPaid: String(grossPaid),
+				platformFee: String(platformFee),
+				developerMargin: String(developerMargin),
+				netCredited: String(netCredited),
+				stripePaymentIntentId: paymentIntent.id,
+				description: "End-user credit top-up",
+			});
+
+			// Accrue the developer's margin to their org (settled out-of-band / via
+			// Stripe Connect) and record it in the org's transaction history.
+			if (developerMargin > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${developerMargin}`,
+					})
+					.where(eq(tables.organization.id, wallet.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: wallet.organizationId,
+					type: "end_user_margin_accrual",
+					amount: String(developerMargin),
+					creditAmount: String(developerMargin),
+					status: "completed",
+					stripePaymentIntentId: paymentIntent.id,
+					description: `End-user top-up margin (wallet ${walletId})`,
+				});
+			}
+
+			return updated.balance;
+		});
+	} catch (err) {
+		const code =
+			(err as { code?: string; cause?: { code?: string } })?.code ??
+			(err as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			logger.info(
+				`Skipping duplicate end-user top-up for wallet ${walletId} (concurrent delivery for ${paymentIntent.id})`,
+			);
+			return;
+		}
+		throw err;
+	}
+
+	const updated = { balance: newBalance };
+
+	logger.info(
+		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee})`,
+	);
+
+	// Notify the developer's webhook endpoints (best-effort).
+	try {
+		await enqueueWebhookDeliveries({
+			projectId: wallet.projectId,
+			eventType: "wallet.credited",
+			data: {
+				walletId,
+				endCustomerId: wallet.endCustomerId,
+				netCredited,
+				grossPaid,
+				balance: updated.balance,
+				currency: wallet.currency,
+			},
+		});
+	} catch (err) {
+		logger.warn("Failed to enqueue wallet.credited webhook", {
+			walletId,
+			error: err instanceof Error ? err.message : String(err),
+		});
+	}
+}
+
+/**
+ * Embeddable SDK: reverse an end-user wallet top-up on refund. Idempotent on a
+ * reversal ledger row. The wallet debit is clamped to the current balance (the
+ * end-user may have already spent some), and the developer's accrued margin is
+ * clawed back (clamped at zero).
+ */
+async function handleEndUserTopUpRefunded(
+	topUp: typeof tables.walletLedger.$inferSelect,
+) {
+	if (!topUp.stripePaymentIntentId) {
+		return;
+	}
+
+	const alreadyReversed = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: topUp.stripePaymentIntentId },
+			type: { eq: "reversal" },
+		},
+	});
+	if (alreadyReversed) {
+		logger.info(
+			`Skipping duplicate end-user refund for wallet ${topUp.walletId}`,
+		);
+		return;
+	}
+
+	const credited = Number(topUp.netCredited ?? "0");
+	const developerMargin = Number(topUp.developerMargin ?? "0");
+
+	// Debit the wallet, write the reversal ledger row, and claw back the margin
+	// atomically. The ledger insert hits the unique partial index
+	// (wallet_ledger_reversal_payment_intent_unique), so a concurrent / re-
+	// delivered charge.refunded rolls the whole transaction back instead of
+	// double-reversing. The wallet is locked + re-read inside the transaction so
+	// the balance clamp can't go stale against a concurrent debit.
+	let reversal: number;
+	try {
+		reversal = await db.transaction(async (tx) => {
+			const [wallet] = await tx
+				.select()
+				.from(tables.wallet)
+				.where(eq(tables.wallet.id, topUp.walletId))
+				.for("update")
+				.limit(1);
+			if (!wallet) {
+				logger.error(`Wallet not found for end-user refund: ${topUp.walletId}`);
+				return 0;
+			}
+
+			const currentBalance = Number(wallet.balance ?? "0");
+			const amount = Math.min(credited, Math.max(currentBalance, 0));
+
+			const [updated] = await tx
+				.update(tables.wallet)
+				.set({ balance: sql`${tables.wallet.balance} - ${amount}` })
+				.where(eq(tables.wallet.id, topUp.walletId))
+				.returning();
+
+			await tx.insert(tables.walletLedger).values({
+				walletId: topUp.walletId,
+				endCustomerId: topUp.endCustomerId,
+				organizationId: topUp.organizationId,
+				type: "reversal",
+				amount: String(-amount),
+				balanceAfter: updated.balance,
+				stripePaymentIntentId: topUp.stripePaymentIntentId,
+				description: "End-user top-up refund",
+			});
+
+			if (developerMargin > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						endUserMarginBalance: sql`GREATEST(${tables.organization.endUserMarginBalance} - ${developerMargin}, 0)`,
+					})
+					.where(eq(tables.organization.id, topUp.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: topUp.organizationId,
+					type: "end_user_refund",
+					amount: String(developerMargin),
+					creditAmount: String(developerMargin),
+					status: "completed",
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description: `End-user top-up refund margin claw-back (wallet ${topUp.walletId})`,
+				});
+			}
+
+			return amount;
+		});
+	} catch (err) {
+		const code =
+			(err as { code?: string; cause?: { code?: string } })?.code ??
+			(err as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			logger.info(
+				`Skipping duplicate end-user refund for wallet ${topUp.walletId} (concurrent delivery for ${topUp.stripePaymentIntentId})`,
+			);
+			return;
+		}
+		throw err;
+	}
+
+	logger.info(
+		`Reversed ${reversal} from end-user wallet ${topUp.walletId} on refund`,
+	);
+}
+
 async function handlePaymentIntentSucceeded(
 	event: Stripe.PaymentIntentSucceededEvent,
 ) {
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
+
+	// Embeddable SDK end-user wallet top-ups are handled separately and bill an
+	// end-user wallet, not the developer's org credits.
+	if (paymentIntent.metadata.kind === "end_user_topup") {
+		await handleEndUserTopUpSucceeded(paymentIntent);
+		return;
+	}
 
 	// payment_intent.succeeded also fires for subscription invoice payments;
 	// only credit top-up payment intents set baseAmount in metadata.
@@ -1690,6 +2004,19 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 
 	if (!payment_intent) {
 		logger.error("No payment intent in charge.refunded event");
+		return;
+	}
+
+	// Embeddable SDK: end-user wallet top-up refund. Reverse the credited amount
+	// (clamped to the wallet's current balance) and write a reversal ledger row.
+	const walletTopUp = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: payment_intent as string },
+			type: { eq: "topup" },
+		},
+	});
+	if (walletTopUp) {
+		await handleEndUserTopUpRefunded(walletTopUp);
 		return;
 	}
 

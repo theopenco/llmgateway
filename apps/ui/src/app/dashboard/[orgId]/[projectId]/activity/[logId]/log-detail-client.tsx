@@ -35,6 +35,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+} from "@llmgateway/models";
+
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 
@@ -918,6 +923,29 @@ export function LogDetailClient({
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}
+										{log.serviceTier &&
+											(() => {
+												const tierName =
+													log.serviceTier.charAt(0).toUpperCase() +
+													log.serviceTier.slice(1);
+												const tier = getServiceTier(
+													log.usedProvider ?? "",
+													log.serviceTier,
+												);
+												const multiplier = tier
+													? formatServiceTierMultiplier(tier.multiplier)
+													: "";
+												return (
+													<Field
+														label="Service Tier"
+														value={
+															multiplier
+																? `${tierName} (${multiplier})`
+																: tierName
+														}
+													/>
+												);
+											})()}
 									</div>
 								</div>
 								<div className="border-t border-border/50 pt-4">

@@ -310,6 +310,14 @@ export const completionsRequestSchema = z.object({
 				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
 			example: "medium",
 		}),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.optional()
+		.openapi({
+			description:
+				"Processing tier for the request. For Google Vertex AI, `flex` selects Flex PayGo (lower cost, best-effort latency) and `priority` selects Priority PayGo (premium low-latency). `auto`/`default` use the standard on-demand tier. Ignored by providers that don't support tiers.",
+			example: "flex",
+		}),
 	free_models_only: z.boolean().optional().default(false).openapi({
 		description:
 			"When used with auto routing, only route to free models (models with zero input and output pricing)",

@@ -331,6 +331,13 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 export interface GoogleRequestBody {
 	contents: GoogleMessage[];
 	tools?: GoogleTool[];
+	/**
+	 * Processing tier for the Gemini Developer API (google-ai-studio / glacier).
+	 * "flex" / "priority" select Flex / Priority inference. The served tier is
+	 * returned in the `x-gemini-service-tier` response header.
+	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.
+	 */
+	service_tier?: "auto" | "default" | "flex" | "priority";
 	generationConfig?: {
 		temperature?: number;
 		maxOutputTokens?: number;

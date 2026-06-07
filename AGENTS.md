@@ -62,6 +62,7 @@ Caveat: if you run multiple git worktrees (e.g. conductor workspaces), only one 
 - `TEST_MODELS` - Run tests only for specific models (comma-separated list of `provider/model-id` pairs)
   Example: `TEST_MODELS="openai/gpt-4o-mini,anthropic/claude-3-5-sonnet-20241022" pnpm test:e2e`
   This is useful for quick testing as the full e2e suite can take too long with all models.
+  `TEST_MODELS` always overrides provider mappings marked with `test: "skip"`. For example, `TEST_MODELS="anthropic/claude-opus-4-6"` will include that Anthropic mapping even if it is skipped by default, so metadata-driven e2e assertions such as `reasoningOutput` still apply.
 - `FULL_MODE` - Include free models in tests (default: only paid models)
 - `LOG_MODE` - Enable detailed logging of responses
 
