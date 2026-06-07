@@ -283,6 +283,9 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "invoice.payment_succeeded":
 				await handleInvoicePaymentSucceeded(event);
 				break;
+			case "invoice.paid":
+				await handleInvoicePaymentSucceeded(event);
+				break;
 			case "invoice.payment_failed":
 				await handleInvoicePaymentFailed(event);
 				break;
@@ -376,10 +379,200 @@ async function getSubscriptionCardFingerprint(
 
 export type FinalizeDevPlanResult =
 	| { status: "ok"; subscriptionId: string }
+	| {
+			status: "requires_action";
+			subscriptionId: string;
+			clientSecret: string;
+			paymentMethodId?: string;
+	  }
+	| {
+			status: "payment_pending";
+			subscriptionId: string;
+			subscriptionStatus?: string;
+			invoiceId?: string;
+			invoiceStatus?: string | null;
+			paymentIntentStatus?: string;
+			hasClientSecret?: boolean;
+	  }
 	| { status: "duplicate_card"; conflictingOrgId: string }
 	| { status: "already_processed"; subscriptionId: string | null }
 	| { status: "no_payment_method" }
 	| { status: "invalid_session"; reason: string };
+
+function isStripePaymentIntent(value: unknown): value is Stripe.PaymentIntent {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	return (value as { object?: unknown }).object === "payment_intent";
+}
+
+function getSubscriptionPaymentIntent(
+	subscription: Stripe.Subscription,
+): Stripe.PaymentIntent | null {
+	const latestInvoice = subscription.latest_invoice;
+	if (
+		!latestInvoice ||
+		typeof latestInvoice === "string" ||
+		!("payment_intent" in latestInvoice)
+	) {
+		return null;
+	}
+
+	const { payment_intent: paymentIntent } = latestInvoice as {
+		payment_intent?: unknown;
+	};
+	if (!paymentIntent || typeof paymentIntent === "string") {
+		return null;
+	}
+
+	return isStripePaymentIntent(paymentIntent) ? paymentIntent : null;
+}
+
+function getInvoiceConfirmationClientSecret(
+	invoice: Stripe.Invoice,
+): string | null {
+	const confirmationSecret = invoice.confirmation_secret;
+	return confirmationSecret?.client_secret ?? null;
+}
+
+async function getPaymentIntentFromInvoicePayments(
+	invoice: Stripe.Invoice,
+): Promise<Stripe.PaymentIntent | null> {
+	let invoicePayments = invoice.payments?.data ?? [];
+	if (invoicePayments.length === 0) {
+		const listedPayments = await getStripe().invoicePayments.list({
+			invoice: invoice.id,
+			limit: 10,
+		});
+		invoicePayments = listedPayments.data;
+	}
+
+	for (const invoicePayment of invoicePayments) {
+		const paymentIntent = invoicePayment.payment.payment_intent;
+		if (!paymentIntent) {
+			continue;
+		}
+		if (typeof paymentIntent !== "string") {
+			if (isStripePaymentIntent(paymentIntent)) {
+				return paymentIntent;
+			}
+			continue;
+		}
+		const retrieved = await getStripe().paymentIntents.retrieve(paymentIntent);
+		return isStripePaymentIntent(retrieved) ? retrieved : null;
+	}
+
+	return null;
+}
+
+async function getSubscriptionInvoice(
+	subscription: Stripe.Subscription,
+): Promise<Stripe.Invoice | null> {
+	const latestInvoice = subscription.latest_invoice;
+	if (!latestInvoice) {
+		return null;
+	}
+	if (typeof latestInvoice !== "string") {
+		return latestInvoice;
+	}
+
+	return await getStripe().invoices.retrieve(latestInvoice, {
+		expand: ["payment_intent"],
+	});
+}
+
+async function getSubscriptionPaymentConfirmation(
+	subscription: Stripe.Subscription,
+): Promise<{
+	paymentIntent: Stripe.PaymentIntent | null;
+	clientSecret: string | null;
+	invoice: Stripe.Invoice | null;
+}> {
+	const invoice = await getSubscriptionInvoice(subscription);
+	if (!invoice) {
+		return { paymentIntent: null, clientSecret: null, invoice: null };
+	}
+
+	let paymentIntent = getSubscriptionPaymentIntent(subscription);
+	if (!paymentIntent) {
+		const { payment_intent: invoicePaymentIntent } = invoice as {
+			payment_intent?: unknown;
+		};
+		if (
+			invoicePaymentIntent &&
+			typeof invoicePaymentIntent !== "string" &&
+			isStripePaymentIntent(invoicePaymentIntent)
+		) {
+			paymentIntent = invoicePaymentIntent;
+		}
+	}
+	paymentIntent ??= await getPaymentIntentFromInvoicePayments(invoice);
+
+	return {
+		paymentIntent,
+		clientSecret:
+			paymentIntent?.client_secret ??
+			getInvoiceConfirmationClientSecret(invoice),
+		invoice,
+	};
+}
+
+function getPaymentPendingResult({
+	subscription,
+	invoice,
+	paymentIntent,
+	clientSecret,
+}: {
+	subscription: Stripe.Subscription;
+	invoice: Stripe.Invoice | null;
+	paymentIntent: Stripe.PaymentIntent | null;
+	clientSecret: string | null;
+}): FinalizeDevPlanResult {
+	logger.info("Dev plan subscription payment is pending", {
+		subscriptionId: subscription.id,
+		subscriptionStatus: subscription.status,
+		invoiceId: invoice?.id,
+		invoiceStatus: invoice?.status,
+		paymentIntentId: paymentIntent?.id,
+		paymentIntentStatus: paymentIntent?.status,
+		hasClientSecret: Boolean(clientSecret),
+	});
+
+	return {
+		status: "payment_pending",
+		subscriptionId: subscription.id,
+		subscriptionStatus: subscription.status,
+		invoiceId: invoice?.id,
+		invoiceStatus: invoice?.status,
+		paymentIntentStatus: paymentIntent?.status,
+		hasClientSecret: Boolean(clientSecret),
+	};
+}
+
+async function findDevPlanSubscriptionForSetupSession(
+	customerId: string,
+	sessionId: string,
+): Promise<Stripe.Subscription | null> {
+	const subscriptions = await getStripe().subscriptions.list({
+		customer: customerId,
+		status: "all",
+		limit: 100,
+	});
+	const existing = subscriptions.data.find(
+		(subscription) => subscription.metadata?.setupSessionId === sessionId,
+	);
+	if (!existing) {
+		return null;
+	}
+
+	return await getStripe().subscriptions.retrieve(existing.id, {
+		expand: ["latest_invoice.payment_intent"],
+	});
+}
+
+function shouldForceDevPlan3dsChallenge(): boolean {
+	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
+}
 
 async function resolvePaymentMethodFromSetupSession(
 	session: Stripe.Checkout.Session,
@@ -538,24 +731,81 @@ export async function finalizeDevPlanSetupSession(
 	// writer has filled in devPlanStripeSubscriptionId yet — the loser then
 	// reports already_processed so it doesn't double-insert the transaction
 	// row or re-send notifications.
-	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
-	const subscription = await getStripe().subscriptions.create(
-		{
-			customer: stripeCustomerId,
-			items: [{ price: priceId }],
-			default_payment_method: paymentMethod.id,
-			payment_behavior: "error_if_incomplete",
-			metadata: {
-				organizationId,
-				subscriptionType: "dev_plan",
-				devPlan: devPlanTier,
-				devPlanCycle,
-				userEmail: userEmail ?? "",
-			},
-			expand: ["latest_invoice"],
-		},
-		{ idempotencyKey: stripeIdempotencyKey },
+	const existingSubscription = await findDevPlanSubscriptionForSetupSession(
+		stripeCustomerId,
+		sessionId,
 	);
+	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
+	const subscription =
+		existingSubscription ??
+		(await getStripe().subscriptions.create(
+			{
+				customer: stripeCustomerId,
+				items: [{ price: priceId }],
+				default_payment_method: paymentMethod.id,
+				payment_behavior: "default_incomplete",
+				...(shouldForceDevPlan3dsChallenge()
+					? {
+							payment_settings: {
+								payment_method_options: {
+									card: {
+										request_three_d_secure: "challenge" as const,
+									},
+								},
+							},
+						}
+					: {}),
+				metadata: {
+					organizationId,
+					subscriptionType: "dev_plan",
+					devPlan: devPlanTier,
+					devPlanCycle,
+					setupSessionId: sessionId,
+					userEmail: userEmail ?? "",
+				},
+				expand: ["latest_invoice.payment_intent"],
+			},
+			{ idempotencyKey: stripeIdempotencyKey },
+		));
+
+	const { paymentIntent, clientSecret, invoice } =
+		await getSubscriptionPaymentConfirmation(subscription);
+	if (
+		clientSecret &&
+		((paymentIntent &&
+			(paymentIntent.status === "requires_action" ||
+				paymentIntent.status === "requires_confirmation" ||
+				paymentIntent.status === "requires_payment_method")) ||
+			(!paymentIntent &&
+				(subscription.status === "incomplete" ||
+					subscription.status === "past_due")))
+	) {
+		return {
+			status: "requires_action",
+			subscriptionId: subscription.id,
+			clientSecret,
+			paymentMethodId: paymentMethod.id,
+		};
+	}
+	if (paymentIntent && paymentIntent.status !== "succeeded") {
+		return getPaymentPendingResult({
+			subscription,
+			invoice,
+			paymentIntent,
+			clientSecret,
+		});
+	}
+	if (
+		!paymentIntent &&
+		(subscription.status === "incomplete" || subscription.status === "past_due")
+	) {
+		return getPaymentPendingResult({
+			subscription,
+			invoice,
+			paymentIntent,
+			clientSecret,
+		});
+	}
 
 	const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
 
@@ -2471,9 +2721,9 @@ async function handleSetupIntentSucceeded(
 	});
 }
 
-export async function handleInvoicePaymentSucceeded(
-	event: Stripe.InvoicePaymentSucceededEvent,
-) {
+export async function handleInvoicePaymentSucceeded(event: {
+	data: { object: Stripe.Invoice };
+}) {
 	const invoice = event.data.object;
 	const { customer, metadata } = invoice;
 	const subscription = (invoice as any).subscription;
@@ -2549,6 +2799,26 @@ export async function handleInvoicePaymentSucceeded(
 	const isDevPlanSubscription =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
+	let subscriptionMetadata: Stripe.Metadata | undefined;
+	if (
+		organization.devPlan === "none" &&
+		organization.devPlanStripeSubscriptionId !== subscriptionId
+	) {
+		const stripeSubscription =
+			await getStripe().subscriptions.retrieve(subscriptionId);
+		subscriptionMetadata = stripeSubscription.metadata;
+	}
+	subscriptionMetadata ??= {};
+	const initialDevPlanTier = subscriptionMetadata.devPlan as
+		| DevPlanTier
+		| undefined;
+	const initialDevPlanCycle: DevPlanCycle =
+		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
+	const isInitialDevPlanSubscription =
+		subscriptionMetadata.subscriptionType === "dev_plan" &&
+		!!initialDevPlanTier &&
+		organization.devPlan === "none" &&
+		organization.devPlanStripeSubscriptionId !== subscriptionId;
 
 	// Stripe fires `invoice.payment_succeeded` both for true period renewals
 	// (`subscription_cycle`) and for the proration invoice generated when a
@@ -2569,7 +2839,114 @@ export async function handleInvoicePaymentSucceeded(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}, isChatPlanRenewal: ${isChatPlanRenewal}`,
 	);
 
-	if (isChatPlanRenewal) {
+	if (isInitialDevPlanSubscription && initialDevPlanTier) {
+		const creditsLimit = getDevPlanCreditsLimit(initialDevPlanTier);
+		const fingerprint = await getSubscriptionCardFingerprint(subscriptionId);
+
+		const claimed = await db
+			.update(tables.organization)
+			.set({
+				devPlan: initialDevPlanTier,
+				devPlanCreditsLimit: creditsLimit.toString(),
+				devPlanCreditsUsed: "0",
+				devPlanBillingCycleStart: new Date(),
+				devPlanStripeSubscriptionId: subscriptionId,
+				devPlanCancelled: false,
+				devPlanCycle: initialDevPlanCycle,
+				devPlanCardFingerprint: fingerprint,
+			})
+			.where(
+				and(
+					eq(tables.organization.id, organizationId),
+					isNull(tables.organization.devPlanStripeSubscriptionId),
+				),
+			)
+			.returning({ id: tables.organization.id });
+
+		if (claimed.length === 0) {
+			logger.info(
+				`Skipping initial DevPass invoice ${invoice.id}: subscription ${subscriptionId} was already activated`,
+			);
+			return;
+		}
+
+		const [transaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_start",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as { payment_intent?: string | null })
+					.payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${initialDevPlanTier.toUpperCase()} started via Stripe Checkout`,
+			})
+			.returning();
+
+		try {
+			await generateAndEmailInvoice({
+				invoiceNumber: transaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				billingEmail: organization.billingEmail,
+				billingCompany: organization.billingCompany,
+				billingAddress: organization.billingAddress,
+				billingTaxId: organization.billingTaxId,
+				billingNotes: organization.billingNotes,
+				lineItems: [
+					{
+						description: `Dev Plan ${initialDevPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (initial DevPass invoice); suppressing failure",
+				e as Error,
+			);
+		}
+
+		posthog.groupIdentify({
+			groupType: "organization",
+			groupKey: organizationId,
+			properties: { name: organization.name },
+		});
+		posthog.capture({
+			distinctId: "organization",
+			event: "dev_plan_started",
+			groups: { organization: organizationId },
+			properties: {
+				devPlan: initialDevPlanTier,
+				creditsLimit,
+				organization: organizationId,
+				subscriptionId,
+				source: "stripe_invoice",
+			},
+		});
+
+		const subscribedEmail =
+			subscriptionMetadata.userEmail || organization.billingEmail;
+		if (subscribedEmail) {
+			const subscribedUser = await db.query.user.findFirst({
+				where: { email: { eq: subscribedEmail } },
+			});
+			await notifyDevPlanSubscribed(
+				subscribedEmail,
+				subscribedUser?.name,
+				initialDevPlanTier,
+				initialDevPlanCycle,
+			);
+		}
+
+		logger.info(
+			`Activated initial DevPass subscription ${subscriptionId} for organization ${organizationId} from invoice ${invoice.id}`,
+		);
+	} else if (isChatPlanRenewal) {
 		const creditsLimit = getChatPlanCreditsLimit(
 			organization.chatPlan as ChatPlanTier,
 		);
