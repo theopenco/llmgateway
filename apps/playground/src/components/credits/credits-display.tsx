@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, CreditCard, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
+import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 import { formatCredits } from "@/lib/format-credits";
 
@@ -26,15 +27,16 @@ export function CreditsDisplay({
 	isLoading,
 }: CreditsDisplayProps) {
 	const api = useApi();
+	const { user, isLoading: isUserLoading } = useUser();
 	const planQuery = useQuery({
 		...api.queryOptions("get", "/chat-plans/status"),
-		enabled: Boolean(organization),
+		enabled: Boolean(user),
 		staleTime: 30_000,
 	});
 	const plan = planQuery.data;
 	const hasActivePlan = plan && plan.chatPlan !== "none";
 
-	if (isLoading) {
+	if (isLoading || isUserLoading || (user && planQuery.isLoading && !plan)) {
 		return (
 			<div className="px-2 py-1.5">
 				<div className="w-full flex items-center justify-between p-2 rounded-md">
@@ -50,17 +52,26 @@ export function CreditsDisplay({
 		);
 	}
 
-	const creditsBalance = organization
-		? Number(organization.credits).toFixed(2)
-		: "0.00";
+	const paygCredits =
+		organization?.credits ?? (plan?.regularCredits ? plan.regularCredits : "0");
+	const paygCreditsValue = Number(paygCredits);
+	const creditsBalance = paygCreditsValue.toFixed(2);
+	const topUpOrganizationId =
+		organization?.id ?? plan?.organizationId ?? undefined;
 
 	const planRemaining = hasActivePlan
 		? Number(plan!.chatPlanCreditsRemaining)
 		: 0;
-	const totalAvailable = Number(creditsBalance) + planRemaining;
+	const totalAvailable = paygCreditsValue + planRemaining;
 
-	const isLowCredits = organization && totalAvailable < 1;
-	const hasNoCredits = organization && totalAvailable <= 0;
+	const hasCreditContext = Boolean(
+		user || organization || plan?.hasPersonalOrg,
+	);
+	const shouldShowPlanUpsell =
+		hasCreditContext && !hasActivePlan && paygCreditsValue <= 0;
+	const shouldShowNoCredits = hasCreditContext && totalAvailable <= 0;
+	const shouldShowLowCredits =
+		hasCreditContext && totalAvailable > 0 && totalAvailable < 1;
 
 	return (
 		<div className="px-2 py-1.5">
@@ -85,18 +96,16 @@ export function CreditsDisplay({
 					</div>
 				</Link>
 			)}
-			<TopUpCreditsDialog organizationId={organization?.id}>
+			<TopUpCreditsDialog organizationId={topUpOrganizationId}>
 				<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
 					<div className="flex items-center gap-2">
 						<CreditCard
-							className={`h-4 w-4 ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-500" : "text-muted-foreground"}`}
+							className={`h-4 w-4 ${shouldShowNoCredits ? "text-destructive" : shouldShowLowCredits ? "text-yellow-500" : "text-muted-foreground"}`}
 						/>
 						<div className="flex flex-col">
-							<span className="text-sm font-medium">
-								{hasActivePlan ? "Pay-as-you-go" : "Credits"}
-							</span>
+							<span className="text-sm font-medium">Pay-as-you-go</span>
 							<span
-								className={`text-xs ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-600" : "text-muted-foreground"}`}
+								className={`text-xs ${shouldShowNoCredits ? "text-destructive" : shouldShowLowCredits ? "text-yellow-600" : "text-muted-foreground"}`}
 							>
 								${creditsBalance}
 							</span>
@@ -105,7 +114,7 @@ export function CreditsDisplay({
 					<span className="text-xs text-muted-foreground">Add</span>
 				</button>
 			</TopUpCreditsDialog>
-			{!hasActivePlan && (
+			{shouldShowPlanUpsell && (
 				<Link
 					href="/pricing"
 					className="group mt-1 flex items-center gap-2.5 rounded-md border border-indigo-500/20 bg-indigo-500/5 px-2 py-2 transition-colors hover:bg-indigo-500/10"
@@ -124,12 +133,12 @@ export function CreditsDisplay({
 					<ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
 				</Link>
 			)}
-			{hasNoCredits && !hasActivePlan && (
+			{shouldShowNoCredits && !hasActivePlan && (
 				<div className="mt-1 px-2">
 					<p className="text-xs text-destructive">⚠️ No credits remaining</p>
 				</div>
 			)}
-			{isLowCredits && !hasNoCredits && !hasActivePlan && (
+			{shouldShowLowCredits && !hasActivePlan && (
 				<div className="mt-1 px-2">
 					<p className="text-xs text-yellow-600">⚡ Low credits remaining</p>
 				</div>

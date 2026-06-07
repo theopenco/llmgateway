@@ -852,6 +852,10 @@ export default function ChatPageClient({
 	const hasChatPlanCredits =
 		isChatPlanStatusLoaded &&
 		Number(chatPlanStatus.chatPlanCreditsRemaining) > 0;
+	const paygCreditsAvailable = selectedOrganization
+		? Number(selectedOrganization.credits)
+		: Number(chatPlanStatus?.regularCredits ?? "0");
+	const hasAvailableCredits = paygCreditsAvailable > 0 || hasChatPlanCredits;
 	const updateMessage = useUpdateMessage();
 	const deleteChat = useDeleteChat();
 	const deleteComparisonChat = useDeleteChat({ silent: true });
@@ -1137,12 +1141,7 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (
-			selectedOrganization &&
-			Number(selectedOrganization.credits) <= 0 &&
-			isChatPlanStatusLoaded &&
-			!hasChatPlanCredits
-		) {
+		if (isChatPlanStatusLoaded && !hasAvailableCredits) {
 			setShowTopUp(true);
 			return undefined;
 		}
@@ -1314,12 +1313,7 @@ export default function ChatPageClient({
 			return;
 		}
 
-		if (
-			selectedOrganization &&
-			Number(selectedOrganization.credits) <= 0 &&
-			isChatPlanStatusLoaded &&
-			!hasChatPlanCredits
-		) {
+		if (isChatPlanStatusLoaded && !hasAvailableCredits) {
 			setShowTopUp(true);
 			return;
 		}

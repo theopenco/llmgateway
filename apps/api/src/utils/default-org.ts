@@ -18,7 +18,8 @@ function isActiveDashboardOrganization(userOrganization: {
 	return (
 		userOrganization.organization !== null &&
 		userOrganization.organization.status !== "deleted" &&
-		!userOrganization.organization.isPersonal
+		!userOrganization.organization.isPersonal &&
+		!userOrganization.organization.isChat
 	);
 }
 
