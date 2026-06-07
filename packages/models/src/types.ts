@@ -2,7 +2,7 @@
  * Comprehensive TypeScript types for provider API messages and tool definitions
  */
 
-import type { ProviderId } from "./providers.js";
+import type { ProviderId, ServiceTierId } from "./providers.js";
 
 // Base content types
 export interface TextContent {
@@ -247,6 +247,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 		include_usage: boolean;
 	};
 	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	service_tier?: ServiceTierId;
 	n?: number;
 	extra_body?: Record<string, unknown>;
 }
@@ -288,6 +289,7 @@ export interface OpenAIResponsesRequestBody {
 	stream?: boolean;
 	temperature?: number;
 	max_output_tokens?: number;
+	service_tier?: ServiceTierId;
 	text?: {
 		format:
 			| { type: "text" }
@@ -337,7 +339,7 @@ export interface GoogleRequestBody {
 	 * returned in the `x-gemini-service-tier` response header.
 	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.
 	 */
-	service_tier?: "auto" | "default" | "flex" | "priority";
+	service_tier?: ServiceTierId;
 	generationConfig?: {
 		temperature?: number;
 		maxOutputTokens?: number;

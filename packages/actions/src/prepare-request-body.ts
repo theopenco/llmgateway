@@ -12,12 +12,14 @@ import {
 	type OpenAIToolInput,
 	type PromptCacheRetention,
 	type ProviderRequestBody,
+	type ServiceTierId,
 	supportsOpenAIExtendedPromptCache,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
 
 import { parseDataUrl } from "./parse-data-url.js";
+import { applyOpenAIServiceTier } from "./service-tier.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
@@ -731,6 +733,7 @@ export async function prepareRequestBody(
 	prompt_cache_retention?: PromptCacheRetention,
 	providerCacheControlEnabled = true,
 	n?: number,
+	service_tier?: ServiceTierId,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 
@@ -1326,6 +1329,7 @@ export async function prepareRequestBody(
 				if (max_tokens !== undefined) {
 					responsesBody.max_output_tokens = max_tokens;
 				}
+				applyOpenAIServiceTier(responsesBody, usedProvider, service_tier);
 
 				// Handle response_format for Responses API - transform to text.format
 				if (response_format) {
@@ -1375,6 +1379,7 @@ export async function prepareRequestBody(
 				if (response_format) {
 					requestBody.response_format = response_format;
 				}
+				applyOpenAIServiceTier(requestBody, usedProvider, service_tier);
 
 				// Add web search for OpenAI Chat Completions
 				// For search models (gpt-4o-search-preview, gpt-4o-mini-search-preview), use web_search_options

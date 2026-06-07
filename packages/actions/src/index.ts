@@ -4,6 +4,7 @@ export * from "./process-image-url.js";
 export * from "./transform-google-messages.js";
 export * from "./get-provider-headers.js";
 export * from "./apply-google-service-tier.js";
+export * from "./service-tier.js";
 export * from "./prepare-request-body.js";
 export * from "./get-provider-endpoint.js";
 export * from "./get-cheapest-from-available-providers.js";

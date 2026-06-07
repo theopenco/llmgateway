@@ -11,6 +11,8 @@ import {
 	getProviderEndpoint,
 	getProviderHeaders,
 	prepareRequestBody,
+	mappingSupportsServiceTier,
+	getSupportedServiceTiers,
 } from "@llmgateway/actions";
 import {
 	type BaseMessage,
@@ -24,6 +26,7 @@ import {
 	type Provider,
 	type ProviderRequestBody,
 	providers,
+	type ServiceTierId,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
@@ -123,6 +126,7 @@ export interface ProviderContextOptions {
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
 	providerCacheControlEnabled: boolean;
+	service_tier: ServiceTierId | undefined;
 }
 
 interface ProjectInfo {
@@ -343,6 +347,20 @@ export async function resolveProviderContext(
 	const isImageGeneration =
 		providerMappingForSelected?.imageGenerations === true;
 
+	if (
+		options.service_tier !== undefined &&
+		providerMappingForSelected &&
+		!mappingSupportsServiceTier(
+			providerMappingForSelected,
+			options.service_tier,
+		)
+	) {
+		const supported = getSupportedServiceTiers(providerMappingForSelected);
+		throw new HTTPException(400, {
+			message: `Model ${usedInternalModel} with provider ${usedProvider} does not support service_tier "${options.service_tier}". Supported tiers: ${supported.length > 0 ? supported.join(", ") : "none"}.`,
+		});
+	}
+
 	// Apply azure_deployment_name override (if set) to the upstream model
 	// name. Must run after providerKey is resolved so retry fallbacks also
 	// pick up the override.
@@ -490,6 +508,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_retention,
 		options.providerCacheControlEnabled,
 		options.n,
+		options.service_tier,
 	);
 
 	// Post-validation of max_tokens in request body

@@ -311,11 +311,11 @@ export const completionsRequestSchema = z.object({
 			example: "medium",
 		}),
 	service_tier: z
-		.enum(["auto", "default", "flex", "priority"])
+		.enum(["auto", "default", "flex", "priority", "scale"])
 		.optional()
 		.openapi({
 			description:
-				"Processing tier for the request. For Google Vertex AI, `flex` selects Flex PayGo (lower cost, best-effort latency) and `priority` selects Priority PayGo (premium low-latency). `auto`/`default` use the standard on-demand tier. Ignored by providers that don't support tiers.",
+				"Processing tier for the request. `auto`/`default` select standard provider behavior. `flex`, `priority`, and `scale` are only accepted for provider/model mappings that advertise support.",
 			example: "flex",
 		}),
 	free_models_only: z.boolean().optional().default(false).openapi({

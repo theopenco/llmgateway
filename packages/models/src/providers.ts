@@ -46,15 +46,16 @@ export interface ProviderRegionConfig {
 	sharedCredentialAcrossRegions?: boolean;
 }
 
+export type ServiceTierId = "auto" | "default" | "flex" | "priority" | "scale";
+
 /**
  * A selectable processing tier offered by a provider that trades latency
  * against price relative to the standard on-demand rate. Selected per-request
- * via the OpenAI-compatible `service_tier` field. Currently used by Google
- * Vertex AI (Flex / Priority PayGo).
+ * via the OpenAI-compatible `service_tier` field.
  */
 export interface ServiceTier {
 	/** Value the client passes via `service_tier` to select this tier (e.g. "flex", "priority") */
-	id: string;
+	id: ServiceTierId;
 	/** Human-readable tier name (e.g. "Flex", "Priority") */
 	name: string;
 	/**

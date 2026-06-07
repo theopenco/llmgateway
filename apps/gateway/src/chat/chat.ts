@@ -69,7 +69,10 @@ import {
 	getCheapestFromAvailableProviders,
 	getProviderEndpoint,
 	getProviderHeaders,
+	getSupportedServiceTiers,
+	mappingSupportsServiceTier,
 	resolveServedServiceTier,
+	resolveOpenAIServedServiceTier,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
@@ -1908,7 +1911,7 @@ chat.openapi(completions, async (c) => {
 	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
 	// this served tier (not the requested one) since Google downgrades
 	// unsupported tiers to standard. Null = standard / no tier.
-	let servedServiceTier: "flex" | "priority" | null = null;
+	let servedServiceTier: string | null = null;
 
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
@@ -2182,6 +2185,10 @@ chat.openapi(completions, async (c) => {
 				// auto-routing doesn't pick one and trip the post-selection
 				// 400 guard. The post-guard stays as a safety net.
 				if (n !== undefined && n > 1 && provider.supportsN !== true) {
+					return false;
+				}
+
+				if (!mappingSupportsServiceTier(provider, service_tier)) {
 					return false;
 				}
 
@@ -4693,6 +4700,21 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	if (service_tier !== undefined && finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.region === usedRegion,
+		);
+		if (
+			providerMapping &&
+			!mappingSupportsServiceTier(providerMapping, service_tier)
+		) {
+			const supported = getSupportedServiceTiers(providerMapping);
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support service_tier "${service_tier}". Supported tiers: ${supported.length > 0 ? supported.join(", ") : "none"}.`,
+			});
+		}
+	}
+
 	// Save original parameters before provider-specific stripping for retry fallback
 	const originalRequestParams: OriginalRequestParams = {
 		temperature,
@@ -4814,6 +4836,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_retention,
 			providerCacheControlEnabled,
 			n,
+			service_tier,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -5018,6 +5041,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlEnabled,
+				service_tier,
 			},
 		);
 	}
@@ -10568,6 +10592,9 @@ chat.openapi(completions, async (c) => {
 		: 0;
 
 	logVertexTrafficType(usedProvider, service_tier, json);
+	if (usedProvider === "openai") {
+		servedServiceTier = resolveOpenAIServedServiceTier(json);
+	}
 	{
 		const served = resolveServedServiceTier({
 			trafficType: json?.usageMetadata?.trafficType,

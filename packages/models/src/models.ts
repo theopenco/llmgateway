@@ -16,7 +16,7 @@ import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
-import type { providers } from "./providers.js";
+import type { providers, ServiceTierId } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
@@ -327,6 +327,12 @@ export interface ProviderModelMapping {
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;
+	/**
+	 * Non-standard processing tiers accepted by this provider/model mapping via
+	 * the OpenAI-compatible `service_tier` request field. Standard `auto` and
+	 * `default` are accepted separately by providers that implement the field.
+	 */
+	supportedServiceTiers?: ServiceTierId[];
 	/**
 	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
 	 * (multiple completion choices per request) natively. When true, the gateway

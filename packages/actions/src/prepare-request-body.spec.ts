@@ -50,6 +50,7 @@ async function prepareOpenAITextRequest(options: {
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
+	serviceTier?: "auto" | "default" | "flex" | "priority" | "scale";
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -81,6 +82,9 @@ async function prepareOpenAITextRequest(options: {
 		options.useResponsesApi ?? false,
 		options.promptCacheKey,
 		options.promptCacheRetention,
+		true,
+		undefined,
+		options.serviceTier,
 	);
 }
 
@@ -389,6 +393,23 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 		expect(requestBody.prompt_cache_retention).toBe("in_memory");
 	});
 
+	test("should forward service_tier to OpenAI chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			serviceTier: "priority",
+		})) as any;
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should forward service_tier to OpenAI Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			useResponsesApi: true,
+			serviceTier: "flex",
+		})) as any;
+
+		expect(requestBody.service_tier).toBe("flex");
+	});
+
 	test("should not forward OpenAI prompt cache controls to Azure", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
 			provider: "azure",
@@ -398,6 +419,15 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 
 		expect(requestBody.prompt_cache_key).toBeUndefined();
 		expect(requestBody.prompt_cache_retention).toBeUndefined();
+	});
+
+	test("should not forward service_tier to Azure", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			serviceTier: "priority",
+		})) as any;
+
+		expect(requestBody.service_tier).toBeUndefined();
 	});
 
 	test("should strip prompt_cache_retention=24h on models that don't support extended retention", async () => {
