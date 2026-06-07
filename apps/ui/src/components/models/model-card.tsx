@@ -563,33 +563,56 @@ export function ProviderSection({
 								type="button"
 								onClick={() => setSelectedServiceTierId("standard")}
 								className={cn(
-									"h-5 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
+									"inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
 									selectedServiceTierId === "standard"
 										? "bg-muted text-foreground shadow-sm"
 										: "text-muted-foreground hover:text-foreground",
 								)}
 								aria-pressed={selectedServiceTierId === "standard"}
-								title="Standard pricing"
+								title="Standard pricing (1x)"
 							>
-								Std
-							</button>
-							{serviceTiers.map((tier) => (
-								<button
-									key={tier.id}
-									type="button"
-									onClick={() => setSelectedServiceTierId(tier.id)}
+								<span>Std</span>
+								<span
 									className={cn(
-										"h-5 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
-										selectedServiceTierId === tier.id
-											? "bg-muted text-foreground shadow-sm"
-											: "text-muted-foreground hover:text-foreground",
+										"text-[9px] font-medium",
+										selectedServiceTierId === "standard"
+											? "text-foreground/65"
+											: "text-muted-foreground/70",
 									)}
-									aria-pressed={selectedServiceTierId === tier.id}
-									title={`${tier.name} (${tier.multiplier}x pricing)`}
 								>
-									{tier.name}
-								</button>
-							))}
+									1x
+								</span>
+							</button>
+							{serviceTiers.map((tier) => {
+								const isSelected = selectedServiceTierId === tier.id;
+								return (
+									<button
+										key={tier.id}
+										type="button"
+										onClick={() => setSelectedServiceTierId(tier.id)}
+										className={cn(
+											"inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
+											isSelected
+												? "bg-muted text-foreground shadow-sm"
+												: "text-muted-foreground hover:text-foreground",
+										)}
+										aria-pressed={isSelected}
+										title={`${tier.name} (${tier.multiplier}x pricing)`}
+									>
+										<span>{tier.name}</span>
+										<span
+											className={cn(
+												"text-[9px] font-medium",
+												isSelected
+													? "text-foreground/65"
+													: "text-muted-foreground/70",
+											)}
+										>
+											{tier.multiplier}x
+										</span>
+									</button>
+								);
+							})}
 						</div>
 					)}
 					<ShareDropdown modelId={modelId} providerId={providerId} />
