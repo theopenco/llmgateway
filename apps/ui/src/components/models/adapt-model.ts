@@ -101,6 +101,7 @@ export function adaptProviderMapping(
 								: null,
 					}))
 				: null,
+			serviceTiers: p.serviceTiers ?? null,
 			discount: p.discount ?? null,
 			stability: p.stability ?? null,
 			supportedParameters: p.supportedParameters ?? null,

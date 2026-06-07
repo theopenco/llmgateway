@@ -1414,7 +1414,7 @@ export const googleModels = [
 				test: "skip",
 				providerId: "google-ai-studio",
 				externalId: "gemini-3-pro-image-preview",
-				serviceTiers: ["flex", "priority"],
+				serviceTiers: ["flex"],
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",

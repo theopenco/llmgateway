@@ -13376,6 +13376,7 @@ export interface operations {
                                     cacheWriteInputPrice: string | null;
                                     cacheWriteInputPrice1h: string | null;
                                 }[] | null;
+                                serviceTiers: string[] | null;
                                 deprecatedAt: string | null;
                                 deactivatedAt: string | null;
                                 /** @enum {string} */

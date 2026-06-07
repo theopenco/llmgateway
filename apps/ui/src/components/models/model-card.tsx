@@ -520,10 +520,18 @@ export function ProviderSection({
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
-	const serviceTiers = providerInfo.serviceTiers ?? [];
+	const supportedServiceTierIds = new Set(activeMapping.serviceTiers ?? []);
+	const serviceTiers = (providerInfo.serviceTiers ?? []).filter((tier) =>
+		supportedServiceTierIds.has(tier.id),
+	);
+	const activeServiceTierId =
+		selectedServiceTierId === "standard" ||
+		serviceTiers.some((tier) => tier.id === selectedServiceTierId)
+			? selectedServiceTierId
+			: "standard";
 	const serviceTierMultiplier =
-		serviceTiers.find((tier) => tier.id === selectedServiceTierId)
-			?.multiplier ?? 1;
+		serviceTiers.find((tier) => tier.id === activeServiceTierId)?.multiplier ??
+		1;
 	const providerModelId = activeMapping.region
 		? `${providerId}/${modelId}:${activeMapping.region}`
 		: `${providerId}/${modelId}`;
@@ -564,18 +572,18 @@ export function ProviderSection({
 								onClick={() => setSelectedServiceTierId("standard")}
 								className={cn(
 									"inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
-									selectedServiceTierId === "standard"
+									activeServiceTierId === "standard"
 										? "bg-muted text-foreground shadow-sm"
 										: "text-muted-foreground hover:text-foreground",
 								)}
-								aria-pressed={selectedServiceTierId === "standard"}
+								aria-pressed={activeServiceTierId === "standard"}
 								title="Standard pricing (1x)"
 							>
 								<span>Std</span>
 								<span
 									className={cn(
 										"text-[9px] font-medium",
-										selectedServiceTierId === "standard"
+										activeServiceTierId === "standard"
 											? "text-foreground/65"
 											: "text-muted-foreground/70",
 									)}
@@ -584,7 +592,7 @@ export function ProviderSection({
 								</span>
 							</button>
 							{serviceTiers.map((tier) => {
-								const isSelected = selectedServiceTierId === tier.id;
+								const isSelected = activeServiceTierId === tier.id;
 								return (
 									<button
 										key={tier.id}

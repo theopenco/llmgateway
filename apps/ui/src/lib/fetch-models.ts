@@ -67,6 +67,7 @@ export interface ApiModelProviderMapping {
 		cacheWriteInputPrice: string | null;
 		cacheWriteInputPrice1h: string | null;
 	}> | null;
+	serviceTiers?: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;

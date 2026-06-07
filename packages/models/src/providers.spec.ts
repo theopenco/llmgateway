@@ -101,7 +101,7 @@ describe("model service tier support", () => {
 				"gemini-3-pro-image-preview",
 				"google-ai-studio",
 			).map((tier) => tier.id),
-		).toEqual(["flex", "priority"]);
+		).toEqual(["flex"]);
 	});
 
 	it("limits Google Vertex service tiers to the global endpoint", () => {
