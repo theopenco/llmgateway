@@ -753,7 +753,8 @@ export function ProviderSection({
 								resolutionKey = preferred[0];
 							}
 							if (requestPriceNum > 0 || outputCost > 0) {
-								perImage = requestPriceNum + outputCost;
+								perImage =
+									(requestPriceNum + outputCost) * serviceTierMultiplier;
 								if (resolutionKey) {
 									label = `Per image (${resolutionKey})`;
 								}
@@ -991,7 +992,10 @@ export function ProviderSection({
 											Input
 										</div>
 										{entries.map(([res, tokensPerImage]) => {
-											const raw = tokensPerImage * imageInputPriceNum;
+											const raw =
+												tokensPerImage *
+												imageInputPriceNum *
+												serviceTierMultiplier;
 											const discounted = raw * (1 - discountNum);
 											return (
 												<div
@@ -1031,6 +1035,8 @@ export function ProviderSection({
 											{formatPrice(
 												activeMapping.imageOutputPrice,
 												activeMapping.discount,
+												"end",
+												serviceTierMultiplier,
 											)}
 											<span className="text-muted-foreground/60">
 												/M tokens
@@ -1060,7 +1066,10 @@ export function ProviderSection({
 											Output
 										</div>
 										{entries.map(([res, tokensPerImage]) => {
-											const raw = tokensPerImage * imageOutputPriceNum;
+											const raw =
+												tokensPerImage *
+												imageOutputPriceNum *
+												serviceTierMultiplier;
 											const discounted = raw * (1 - discountNum);
 											return (
 												<div
