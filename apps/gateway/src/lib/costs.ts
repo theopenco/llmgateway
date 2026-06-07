@@ -403,7 +403,7 @@ export async function calculateCosts(
 	const discountMultiplier = new Decimal(1).minus(discount);
 
 	// Flex / Priority processing tiers scale every per-token price uniformly
-	// (Flex −50%, Priority +80%). They do NOT affect per-request, web-search, or
+	// (Flex 0.5x, Priority 2.5x). They do NOT affect per-request, web-search, or
 	// content-filter fees, so token costs use `tokenDiscountMultiplier` while
 	// those flat fees keep the plain `discountMultiplier`. When the served tier
 	// is standard/unknown the multiplier is 1 and behavior is unchanged.

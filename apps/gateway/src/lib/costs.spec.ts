@@ -695,8 +695,8 @@ describe("calculateCosts", () => {
 
 		it("ignores the tier for providers without configured service tiers", async () => {
 			const result = await calculateCosts(
-				"gpt-4",
-				"openai",
+				"claude-3-5-sonnet-20241022",
+				"anthropic",
 				null,
 				100,
 				50,
@@ -713,8 +713,8 @@ describe("calculateCosts", () => {
 				null,
 				{ servedServiceTier: "priority" },
 			);
-			expect(result.inputCost).toBeCloseTo(0.001);
-			expect(result.outputCost).toBeCloseTo(0.0015);
+			expect(result.inputCost).toBeCloseTo(0.0003);
+			expect(result.outputCost).toBeCloseTo(0.00075);
 		});
 	});
 

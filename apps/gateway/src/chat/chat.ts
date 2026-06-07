@@ -10875,6 +10875,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
 		audioInputTokens,
+		usedProvider === "openai" ? readServiceTierValue(json) : undefined,
 	);
 	const transformedMetadata =
 		transformedResponse.metadata &&
