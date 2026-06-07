@@ -413,6 +413,62 @@ function getSubscriptionPaymentIntent(
 	return isStripePaymentIntent(paymentIntent) ? paymentIntent : null;
 }
 
+function getInvoiceConfirmationClientSecret(
+	invoice: Stripe.Invoice,
+): string | null {
+	const confirmationSecret = invoice.confirmation_secret;
+	return confirmationSecret?.client_secret ?? null;
+}
+
+async function getSubscriptionInvoice(
+	subscription: Stripe.Subscription,
+): Promise<Stripe.Invoice | null> {
+	const latestInvoice = subscription.latest_invoice;
+	if (!latestInvoice) {
+		return null;
+	}
+	if (typeof latestInvoice !== "string") {
+		return latestInvoice;
+	}
+
+	return await getStripe().invoices.retrieve(latestInvoice, {
+		expand: ["payment_intent"],
+	});
+}
+
+async function getSubscriptionPaymentConfirmation(
+	subscription: Stripe.Subscription,
+): Promise<{
+	paymentIntent: Stripe.PaymentIntent | null;
+	clientSecret: string | null;
+}> {
+	const invoice = await getSubscriptionInvoice(subscription);
+	if (!invoice) {
+		return { paymentIntent: null, clientSecret: null };
+	}
+
+	let paymentIntent = getSubscriptionPaymentIntent(subscription);
+	if (!paymentIntent) {
+		const { payment_intent: invoicePaymentIntent } = invoice as {
+			payment_intent?: unknown;
+		};
+		if (
+			invoicePaymentIntent &&
+			typeof invoicePaymentIntent !== "string" &&
+			isStripePaymentIntent(invoicePaymentIntent)
+		) {
+			paymentIntent = invoicePaymentIntent;
+		}
+	}
+
+	return {
+		paymentIntent,
+		clientSecret:
+			paymentIntent?.client_secret ??
+			getInvoiceConfirmationClientSecret(invoice),
+	};
+}
+
 async function findDevPlanSubscriptionForSetupSession(
 	customerId: string,
 	sessionId: string,
@@ -632,16 +688,21 @@ export async function finalizeDevPlanSetupSession(
 			{ idempotencyKey: stripeIdempotencyKey },
 		));
 
-	const paymentIntent = getSubscriptionPaymentIntent(subscription);
+	const { paymentIntent, clientSecret } =
+		await getSubscriptionPaymentConfirmation(subscription);
 	if (
-		paymentIntent?.client_secret &&
-		(paymentIntent.status === "requires_action" ||
-			paymentIntent.status === "requires_confirmation")
+		clientSecret &&
+		((paymentIntent &&
+			(paymentIntent.status === "requires_action" ||
+				paymentIntent.status === "requires_confirmation")) ||
+			(!paymentIntent &&
+				(subscription.status === "incomplete" ||
+					subscription.status === "past_due")))
 	) {
 		return {
 			status: "requires_action",
 			subscriptionId: subscription.id,
-			clientSecret: paymentIntent.client_secret,
+			clientSecret,
 		};
 	}
 	if (paymentIntent && paymentIntent.status !== "succeeded") {
