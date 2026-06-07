@@ -311,10 +311,16 @@ const finalize = createRoute({
 							status: z.literal("requires_action"),
 							subscriptionId: z.string(),
 							clientSecret: z.string(),
+							paymentMethodId: z.string().optional(),
 						}),
 						z.object({
 							status: z.literal("payment_pending"),
 							subscriptionId: z.string(),
+							subscriptionStatus: z.string().optional(),
+							invoiceId: z.string().optional(),
+							invoiceStatus: z.string().nullable().optional(),
+							paymentIntentStatus: z.string().optional(),
+							hasClientSecret: z.boolean().optional(),
 						}),
 					]),
 				},
@@ -382,6 +388,7 @@ devPlans.openapi(finalize, async (c) => {
 					status: result.status,
 					subscriptionId: result.subscriptionId,
 					clientSecret: result.clientSecret,
+					paymentMethodId: result.paymentMethodId,
 				},
 				200,
 			);
@@ -390,6 +397,11 @@ devPlans.openapi(finalize, async (c) => {
 				{
 					status: result.status,
 					subscriptionId: result.subscriptionId,
+					subscriptionStatus: result.subscriptionStatus,
+					invoiceId: result.invoiceId,
+					invoiceStatus: result.invoiceStatus,
+					paymentIntentStatus: result.paymentIntentStatus,
+					hasClientSecret: result.hasClientSecret,
 				},
 				200,
 			);
