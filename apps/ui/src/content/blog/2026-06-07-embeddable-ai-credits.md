@@ -76,7 +76,11 @@ const fetchSession = () =>
 
 export default function App({ session }) {
   return (
-    <LLMGatewayProvider session={session} fetchSession={fetchSession}>
+    <LLMGatewayProvider
+      session={session}
+      fetchSession={fetchSession}
+      test={process.env.NODE_ENV !== "production"}
+    >
       <CreditBalance /> {/* live wallet balance */}
       <BuyCredits amount={10} />{" "}
       {/* Stripe checkout → credits land in the wallet */}
@@ -87,7 +91,7 @@ export default function App({ session }) {
 }
 ```
 
-That's the whole integration. The session token auto-refreshes before it expires, `<BuyCredits>` loads Stripe and confirms the payment, and the balance updates once the webhook credits the wallet.
+That's the whole integration. The session token auto-refreshes before it expires, `<BuyCredits>` loads LLM Gateway's bundled Stripe publishable key, confirms the payment, and the balance updates once the webhook credits the wallet. Pass `test` while developing to use Stripe test mode; you don't need to ship a Stripe publishable key of your own for LLM Gateway payments.
 
 ## A few engineering details we cared about
 
