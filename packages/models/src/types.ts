@@ -383,7 +383,6 @@ export interface ModelWithPricing {
 		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
 		externalId: string;
-		discount?: string;
 		region?: string;
 		stability?: string;
 	}>;

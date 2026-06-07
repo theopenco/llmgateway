@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "7d473f56-4c54-450a-9087-0022c5968df7",
-  "prevId": "69601c6c-bdd8-4c93-8fb5-07d0e2bf99af",
+  "id": "201ba0b5-6d52-42dd-814b-ab4f64931256",
+  "prevId": "7d473f56-4c54-450a-9087-0022c5968df7",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -17512,6 +17512,62 @@
       "method": "btree",
       "concurrently": false,
       "name": "log_project_id_session_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "end_customer_wallet_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "end_customer_wallet_id IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_end_customer_wallet_id_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "end_user_session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "end_user_session_id IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_end_user_session_id_created_at_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"

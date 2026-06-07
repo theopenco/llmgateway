@@ -127,7 +127,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 										: null,
 							}))
 						: null,
-					discount: map.discount?.toString() ?? null,
+					discount: null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
 					deprecatedAt: map.deprecatedAt?.toISOString() ?? null,

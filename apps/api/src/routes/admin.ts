@@ -4004,7 +4004,6 @@ const modelStatsSchema = z.object({
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
-	discount: z.string().nullable(),
 	updatedAt: z.string(),
 });
 
@@ -4151,9 +4150,6 @@ admin.openapi(getModelStats, async (c) => {
 					sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
 						"request_price",
 					),
-				discount: sql<string>`MAX(${tables.modelProviderMapping.discount})`.as(
-					"discount",
-				),
 			})
 			.from(tables.modelProviderMapping)
 			.where(eq(tables.modelProviderMapping.status, "active"))
@@ -4242,7 +4238,6 @@ admin.openapi(getModelStats, async (c) => {
 				inputPrice: pricingSub.inputPrice,
 				outputPrice: pricingSub.outputPrice,
 				requestPrice: pricingSub.requestPrice,
-				discount: pricingSub.discount,
 				updatedAt: tables.model.updatedAt,
 			})
 			.from(tables.model);
@@ -4292,7 +4287,6 @@ admin.openapi(getModelStats, async (c) => {
 				inputPrice: r.inputPrice ?? null,
 				outputPrice: r.outputPrice ?? null,
 				requestPrice: r.requestPrice ?? null,
-				discount: r.discount ?? null,
 				updatedAt: r.updatedAt.toISOString(),
 			})),
 			total,
@@ -4327,9 +4321,6 @@ admin.openapi(getModelStats, async (c) => {
 				sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
 					"request_price",
 				),
-			discount: sql<string>`MAX(${tables.modelProviderMapping.discount})`.as(
-				"discount",
-			),
 		})
 		.from(tables.modelProviderMapping)
 		.where(eq(tables.modelProviderMapping.status, "active"))
@@ -4385,7 +4376,6 @@ admin.openapi(getModelStats, async (c) => {
 			inputPrice: pricingSub.inputPrice,
 			outputPrice: pricingSub.outputPrice,
 			requestPrice: pricingSub.requestPrice,
-			discount: pricingSub.discount,
 			updatedAt: tables.model.updatedAt,
 		})
 		.from(tables.model)
@@ -4417,7 +4407,6 @@ admin.openapi(getModelStats, async (c) => {
 			inputPrice: r.inputPrice ?? null,
 			outputPrice: r.outputPrice ?? null,
 			requestPrice: r.requestPrice ?? null,
-			discount: r.discount ?? null,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total,

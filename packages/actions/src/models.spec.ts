@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { metricsKey } from "@llmgateway/db";
 import {
-	getProviderDefinition,
 	models,
 	type ProviderModelMapping,
 	type BaseMessage,
@@ -435,77 +434,6 @@ describe("getCheapestModelForProvider", () => {
 			}
 		}
 	});
-
-	it("should account for discount when calculating cheapest model", () => {
-		const discountOf = (p: ProviderModelMapping): number | undefined =>
-			p.discount !== undefined ? Number(p.discount) : undefined;
-		// Test that discounts are properly applied in the cheapest model calculation
-		// Look for models with discount providers
-		const modelsWithDiscountProviders = models.filter((model) =>
-			model.providers.some((p) => {
-				const d = discountOf(p as ProviderModelMapping);
-				return d !== undefined && d < 1;
-			}),
-		);
-
-		if (modelsWithDiscountProviders.length > 0) {
-			// Find a model that has both regular and discount providers
-			const testModel = modelsWithDiscountProviders.find((model) => {
-				const regularProvider = model.providers.find((p) => {
-					const d = discountOf(p as ProviderModelMapping);
-					return d === undefined || d === 1;
-				});
-				const discountProvider = model.providers.find((p) => {
-					const d = discountOf(p as ProviderModelMapping);
-					return d !== undefined && d < 1;
-				});
-				return regularProvider && discountProvider;
-			});
-
-			if (testModel) {
-				const regularProvider = testModel.providers.find((p) => {
-					const d = discountOf(p as ProviderModelMapping);
-					return d === undefined || d === 1;
-				});
-				const discountProvider = testModel.providers.find((p) => {
-					const d = discountOf(p as ProviderModelMapping);
-					return d !== undefined && d < 1;
-				});
-
-				if (
-					regularProvider &&
-					discountProvider &&
-					regularProvider.inputPrice &&
-					discountProvider.inputPrice
-				) {
-					// Calculate expected prices
-					const regularPrice =
-						(Number(regularProvider.inputPrice) +
-							Number(regularProvider.outputPrice ?? "0")) /
-						2;
-					const discountPrice =
-						((Number(discountProvider.inputPrice) +
-							Number(discountProvider.outputPrice ?? "0")) /
-							2) *
-						(1 - discountOf(discountProvider as ProviderModelMapping)!);
-
-					// The discount provider should be cheaper than the regular provider
-					expect(discountPrice).toBeLessThan(regularPrice);
-
-					// Test both provider functions handle discounts
-					const cheapestForDiscountProvider = getCheapestModelForProvider(
-						discountProvider.providerId,
-					);
-					const cheapestForRegularProvider = getCheapestModelForProvider(
-						regularProvider.providerId,
-					);
-
-					expect(cheapestForDiscountProvider).toBeDefined();
-					expect(cheapestForRegularProvider).toBeDefined();
-				}
-			}
-		}
-	});
 });
 
 describe("getCheapestFromAvailableProviders", () => {
@@ -640,108 +568,6 @@ describe("getCheapestFromAvailableProviders", () => {
 		});
 	});
 
-	it("should account for discounts when selecting cheapest provider", () => {
-		const discountOf = (p: ProviderModelMapping): number | undefined =>
-			p.discount !== undefined ? Number(p.discount) : undefined;
-		// Find a model that has both regular and discount providers
-		const modelWithDiscountProvider = models.find((model) => {
-			const hasRegularProvider = model.providers.some((p) => {
-				const d = discountOf(p as ProviderModelMapping);
-				return (
-					(d === undefined || d === 1) &&
-					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined
-				);
-			});
-			const hasDiscountProvider = model.providers.some((p) => {
-				const d = discountOf(p as ProviderModelMapping);
-				return (
-					d !== undefined &&
-					d < 1 &&
-					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined
-				);
-			});
-			return hasRegularProvider && hasDiscountProvider;
-		});
-
-		if (modelWithDiscountProvider) {
-			const regularProvider = modelWithDiscountProvider.providers.find((p) => {
-				const d = discountOf(p as ProviderModelMapping);
-				return (
-					(d === undefined || d === 1) &&
-					(p as ProviderModelMapping).stability !== "experimental" &&
-					(p as ProviderModelMapping).stability !== "unstable" &&
-					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined
-				);
-			});
-			const discountProvider = modelWithDiscountProvider.providers.find((p) => {
-				const d = discountOf(p as ProviderModelMapping);
-				return (
-					d !== undefined &&
-					d < 1 &&
-					(p as ProviderModelMapping).stability !== "experimental" &&
-					(p as ProviderModelMapping).stability !== "unstable" &&
-					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined
-				);
-			});
-
-			if (regularProvider && discountProvider) {
-				const availableProviders = [regularProvider, discountProvider];
-
-				const cheapestProvider = getCheapestFromAvailableProviders(
-					availableProviders,
-					modelWithDiscountProvider,
-				);
-
-				// Calculate actual effective prices with discount and priority
-				// The function uses: discountMultiplier = 1 - discount, effectivePrice = totalPrice / priority
-				const regularProviderDef = getProviderDefinition(
-					regularProvider.providerId,
-				);
-				const discountProviderDef = getProviderDefinition(
-					discountProvider.providerId,
-				);
-				const regularPriority = regularProviderDef?.priority ?? 1;
-				const discountPriority = discountProviderDef?.priority ?? 1;
-
-				const regularBasePrice =
-					(Number(regularProvider.inputPrice!) +
-						Number(regularProvider.outputPrice!)) /
-					2;
-				const regularEffectivePrice =
-					regularPriority > 0
-						? regularBasePrice / regularPriority
-						: regularBasePrice;
-
-				const discount = discountOf(discountProvider as ProviderModelMapping)!;
-				const discountMultiplier = 1 - discount;
-				const discountBasePrice =
-					((Number(discountProvider.inputPrice!) +
-						Number(discountProvider.outputPrice!)) /
-						2) *
-					discountMultiplier;
-				const discountEffectivePrice =
-					discountPriority > 0
-						? discountBasePrice / discountPriority
-						: discountBasePrice;
-
-				// The provider with lower effective price should be selected
-				if (discountEffectivePrice < regularEffectivePrice) {
-					expect(cheapestProvider?.provider.providerId).toBe(
-						discountProvider.providerId,
-					);
-				} else {
-					expect(cheapestProvider?.provider.providerId).toBe(
-						regularProvider.providerId,
-					);
-				}
-			}
-		}
-	});
-
 	it("should use per-second pricing for video providers", () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",
@@ -778,7 +604,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		);
 
 		expect(vertexScore?.price).toBeCloseTo(3.2);
-		expect(avalancheScore?.price).toBeCloseTo(2.56);
+		expect(avalancheScore?.price).toBeCloseTo(3.2);
 	});
 
 	it("should disable random exploration for vitest processes", () => {
@@ -1075,15 +901,6 @@ describe("getCheapestFromAvailableProviders", () => {
 				outputPrice: "0.6e-6",
 			}).toNumber(),
 		).toBe(0.375 / 1e6);
-
-		// Discount path: 0.02 * (1 - 0.1) under raw JS gives 0.018000000000000002.
-		expect(
-			getProviderSelectionPrice({
-				inputPrice: "0.01",
-				outputPrice: "0.03",
-				discount: "0.1",
-			}).toNumber(),
-		).toBe(0.018);
 	});
 
 	describe("cache support weighting", () => {
