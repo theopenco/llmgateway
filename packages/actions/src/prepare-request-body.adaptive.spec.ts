@@ -2,6 +2,13 @@ import { describe, expect, test } from "vitest";
 
 import { prepareRequestBody } from "./prepare-request-body.js";
 
+interface AdaptiveThinkingBody {
+	thinking?: { type: "adaptive" | "enabled"; budget_tokens?: number };
+	output_config?: {
+		effort?: "low" | "medium" | "high" | "xhigh" | "max";
+	};
+}
+
 // Regression test for adaptive thinking. Anthropic models with
 // `reasoningMode: "adaptive"` (Opus 4.6/4.7/4.8) must build
 // `thinking: { type: "adaptive" }` rather than the legacy
@@ -14,7 +21,7 @@ async function buildAnthropicBody(
 		reasoning_effort?: "low" | "medium" | "high" | "xhigh";
 		reasoning_max_tokens?: number;
 	},
-) {
+): Promise<AdaptiveThinkingBody> {
 	return (await prepareRequestBody(
 		"anthropic",
 		internalModel,
@@ -46,7 +53,7 @@ async function buildAnthropicBody(
 		undefined, // imageGenerations
 		undefined, // webSearchTool
 		opts.reasoning_max_tokens, // reasoning_max_tokens
-	)) as any;
+	)) as AdaptiveThinkingBody;
 }
 
 describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
