@@ -1044,6 +1044,48 @@
       "when": 1780677492527,
       "tag": "1780677492_bitter_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "8",
+      "when": 1780698570697,
+      "tag": "1780698570_fair_gladiator",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "8",
+      "when": 1780852017972,
+      "tag": "1780852017_chubby_wilson_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "8",
+      "when": 1780855399542,
+      "tag": "1780855399_panoramic_rafael_vega",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "8",
+      "when": 1780857793050,
+      "tag": "1780857793_free_longshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "8",
+      "when": 1780859140522,
+      "tag": "1780859140_wild_blink",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "8",
+      "when": 1780863603767,
+      "tag": "1780863603_high_polaris",
+      "breakpoints": true
     }
   ]
 }

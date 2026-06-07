@@ -60,6 +60,13 @@ export const user = pgTable("user", {
 	})
 		.notNull()
 		.default("active"),
+	// DevPass public profile. `username` is the public URL slug
+	// (/profiles/:username) and is null until the user claims one.
+	username: text().unique(),
+	profilePublic: boolean().notNull().default(false),
+	bio: text(),
+	githubUsername: text(),
+	xUsername: text(),
 });
 
 export const userFavoriteModel = pgTable(
@@ -212,6 +219,14 @@ export const organization = pgTable(
 		devPlanCardFingerprint: text(),
 		// Last top-up amount (used for low balance alert thresholds)
 		lastTopUpAmount: decimal(),
+		// Accrued developer margin from end-user credit top-ups (embeddable SDK).
+		// Internal liability tracked here; paid out to the developer's connected
+		// Stripe account via Stripe Connect transfers.
+		endUserMarginBalance: decimal().notNull().default("0"),
+		// The developer's connected Stripe account (Express) used to pay out their
+		// accrued end-user margin. Null until they onboard.
+		stripeConnectAccountId: text().unique(),
+		stripeConnectOnboarded: boolean().notNull().default(false),
 	},
 	(table) => [
 		index("organization_dev_plan_card_fingerprint_idx").on(
@@ -273,6 +288,11 @@ export const transaction = pgTable(
 				"dev_plan_cancel",
 				"dev_plan_end",
 				"dev_plan_renewal",
+				// Embeddable SDK end-user wallet flows.
+				"end_user_topup",
+				"end_user_margin_accrual",
+				"end_user_refund",
+				"end_user_margin_payout",
 			],
 		}).notNull(),
 		amount: decimal(),
@@ -475,8 +495,276 @@ export const project = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
+		// Embeddable end-user SDK: gates whether this project may mint end-user
+		// sessions / wallets at all.
+		endUserEnabled: boolean().notNull().default(false),
+		// Developer markup applied to end-user credit top-ups (e.g. "20" = +20%).
+		// Baked into credited spend power at top-up time so the usage/debit path
+		// stays raw-cost. Overridable per-wallet via wallet.markupPercentOverride.
+		endUserMarkupPercent: decimal().notNull().default("0"),
+		// Browser origins allowed to call the gateway with this project's
+		// ephemeral end-user session tokens (CORS allowlist).
+		allowedOrigins: json().$type<string[]>(),
 	},
 	(table) => [index("project_organization_id_idx").on(table.organizationId)],
+);
+
+// The developer's own end-users (the "customers" in the embeddable SDK). Scoped
+// to one project; `externalId` is the developer's own user id in their system.
+export const endCustomer = pgTable(
+	"end_customer",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		externalId: text().notNull(),
+		email: text(),
+		name: text(),
+		// Each end-customer is the merchant-of-record customer for their own
+		// top-ups (separate Stripe customer from the developer's org).
+		stripeCustomerId: text().unique(),
+		metadata: json().$type<Record<string, unknown>>(),
+		status: text({
+			enum: ["active", "blocked", "deleted"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		uniqueIndex("end_customer_project_id_external_id_unique").on(
+			table.projectId,
+			table.externalId,
+		),
+		index("end_customer_organization_id_idx").on(table.organizationId),
+		index("end_customer_project_id_idx").on(table.projectId),
+	],
+);
+
+// Per-end-customer credit wallet. Has its OWN balance column (not
+// organization.credits) so refunds/ledgers are isolated per end-user. Balance
+// holds real USD spend power (markup already applied at top-up), so the gateway
+// debits raw provider cost with no per-request markup math. 1:1 with
+// end_customer for v1.
+export const wallet = pgTable(
+	"wallet",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		endCustomerId: text()
+			.notNull()
+			.unique()
+			.references(() => endCustomer.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		// Denormalized for fast worker debit + developer settlement.
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		balance: decimal().notNull().default("0"),
+		currency: text().notNull().default("USD"),
+		// Optional per-wallet markup override; falls back to project.endUserMarkupPercent.
+		markupPercentOverride: decimal(),
+		// Optional safety ceiling on a single session's spend.
+		spendCapPerSession: decimal(),
+		status: text({
+			enum: ["active", "frozen"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("wallet_organization_id_idx").on(table.organizationId),
+		index("wallet_project_id_idx").on(table.projectId),
+	],
+);
+
+export const endUserSession = pgTable(
+	"end_user_session",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		token: text().notNull().unique(),
+		status: text({
+			enum: ["active", "inactive", "deleted"],
+		})
+			.notNull()
+			.default("active"),
+		expiresAt: timestamp().notNull(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		endCustomerId: text()
+			.notNull()
+			.references(() => endCustomer.id, { onDelete: "cascade" }),
+		walletId: text()
+			.notNull()
+			.references(() => wallet.id, { onDelete: "cascade" }),
+		createdBy: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		scope: json().$type<{ models?: string[] }>(),
+		usageLimit: decimal(),
+		usage: decimal().notNull().default("0"),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
+		currentPeriodUsage: decimal().notNull().default("0"),
+		currentPeriodStartedAt: timestamp(),
+	},
+	(table) => [
+		index("end_user_session_project_id_idx").on(table.projectId),
+		index("end_user_session_wallet_id_idx").on(table.walletId),
+		index("end_user_session_status_expires_at_idx").on(
+			table.status,
+			table.expiresAt,
+		),
+	],
+);
+
+// Append-only ledger for every wallet movement. `topup` rows carry the economic
+// split (grossPaid = what the end-user paid Stripe, platformFee = llmgateway
+// cut, developerMargin = markup accrued to the developer org, netCredited = what
+// landed in wallet.balance). `usage_debit` rows link back to the gateway log via
+// gatewayLogId (soft reference — log rows are retention-cleaned).
+export const walletLedger = pgTable(
+	"wallet_ledger",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		walletId: text()
+			.notNull()
+			.references(() => wallet.id, { onDelete: "cascade" }),
+		endCustomerId: text()
+			.notNull()
+			.references(() => endCustomer.id, { onDelete: "cascade" }),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		type: text({
+			enum: ["topup", "usage_debit", "refund", "adjustment", "reversal"],
+		}).notNull(),
+		// Signed amount in wallet currency (post-markup): +topup, -usage_debit.
+		amount: decimal().notNull(),
+		balanceAfter: decimal().notNull(),
+		// Economic split, populated on topup/refund rows (all in USD):
+		grossPaid: decimal(),
+		platformFee: decimal(),
+		developerMargin: decimal(),
+		netCredited: decimal(),
+		stripePaymentIntentId: text(),
+		gatewayLogId: text(),
+		description: text(),
+	},
+	(table) => [
+		index("wallet_ledger_wallet_id_idx").on(table.walletId),
+		index("wallet_ledger_organization_id_idx").on(table.organizationId),
+		index("wallet_ledger_stripe_payment_intent_id_idx").on(
+			table.stripePaymentIntentId,
+		),
+		// Idempotency guard: at most one topup row per PaymentIntent, so concurrent
+		// webhook deliveries can't double-credit a wallet (enforced at the DB layer).
+		uniqueIndex("wallet_ledger_topup_payment_intent_unique")
+			.on(table.stripePaymentIntentId)
+			.where(sql`${table.type} = 'topup'`),
+		// Idempotency guard: at most one reversal row per PaymentIntent, so
+		// concurrent / re-delivered charge.refunded webhooks can't double-reverse a
+		// wallet (debit twice + claw back margin twice).
+		uniqueIndex("wallet_ledger_reversal_payment_intent_unique")
+			.on(table.stripePaymentIntentId)
+			.where(sql`${table.type} = 'reversal'`),
+	],
+);
+
+// Embeddable SDK: a developer's registered webhook endpoint. LLM Gateway POSTs
+// signed events (wallet.credited, wallet.low_balance, …) here so the developer's
+// backend can react. The signing secret is shown once at creation.
+export const webhookEndpoint = pgTable(
+	"webhook_endpoint",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		url: text().notNull(),
+		/** HMAC signing secret (`whsec_…`). */
+		secret: text().notNull(),
+		/** Subscribed event types; null = all events. */
+		enabledEvents: json().$type<string[]>(),
+		status: text({ enum: ["active", "disabled"] })
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("webhook_endpoint_project_id_idx").on(table.projectId),
+		index("webhook_endpoint_organization_id_idx").on(table.organizationId),
+	],
+);
+
+// One queued delivery of an event to one endpoint, retried with backoff.
+export const platformWebhookDelivery = pgTable(
+	"platform_webhook_delivery",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		webhookEndpointId: text()
+			.notNull()
+			.references(() => webhookEndpoint.id, { onDelete: "cascade" }),
+		eventId: text().notNull(),
+		eventType: text().notNull(),
+		payload: jsonb().$type<Record<string, unknown>>().notNull(),
+		status: text({ enum: ["pending", "delivered", "failed"] })
+			.notNull()
+			.default("pending"),
+		attempts: integer().notNull().default(0),
+		nextAttemptAt: timestamp().notNull().defaultNow(),
+		lastAttemptAt: timestamp(),
+		responseStatus: integer(),
+		lastError: text(),
+	},
+	(table) => [
+		// Delivery worker poll: WHERE status = 'pending' AND next_attempt_at <= now().
+		index("platform_webhook_delivery_status_next_attempt_idx")
+			.on(table.status, table.nextAttemptAt)
+			.where(sql`status = 'pending'`),
+		index("platform_webhook_delivery_endpoint_id_idx").on(
+			table.webhookEndpointId,
+		),
+	],
 );
 
 export const apiKey = pgTable(
@@ -493,6 +781,27 @@ export const apiKey = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
+		// Discriminates normal developer keys from embeddable-SDK principals.
+		// `platform_secret`/`platform_publishable` are long-lived keys on a hidden
+		// per-org project. `end_user_customer` is a hidden per-customer aggregate
+		// key used as the stable log/api-key stats principal for browser sessions.
+		keyType: text({
+			enum: [
+				"user",
+				"platform_secret",
+				"platform_publishable",
+				"end_user_customer",
+			],
+		})
+			.notNull()
+			.default("user"),
+		// Browser-session wallet binding now lives on end_user_session.wallet_id.
+		endCustomerWalletId: text().references(() => wallet.id, {
+			onDelete: "cascade",
+		}),
+		// Platform keys may be long-lived; browser-session expiry now lives on
+		// end_user_session.expires_at.
+		expiresAt: timestamp(),
 		usageLimit: decimal(),
 		usage: decimal().notNull().default("0"),
 		periodUsageLimit: decimal(),
@@ -512,6 +821,12 @@ export const apiKey = pgTable(
 	(table) => [
 		index("api_key_project_id_idx").on(table.projectId),
 		index("api_key_created_by_idx").on(table.createdBy),
+		index("api_key_key_type_expires_at_idx").on(table.keyType, table.expiresAt),
+		uniqueIndex("api_key_end_user_customer_wallet_unique")
+			.on(table.endCustomerWalletId)
+			.where(
+				sql`${table.keyType} = 'end_user_customer' AND ${table.status} = 'active'`,
+			),
 	],
 );
 
@@ -663,6 +978,15 @@ export const log = pgTable(
 		organizationId: text().notNull(),
 		projectId: text().notNull(),
 		apiKeyId: text().notNull(),
+		// Set when the request was authenticated with an end-user session. apiKeyId
+		// points to the stable end-customer aggregate key; this points to the
+		// actual short-lived browser session.
+		endUserSessionId: text(),
+		// Set when the request was authenticated with an end-user session: the
+		// worker debits this wallet instead of organization.credits, and
+		// per-end-user usage history keys off these.
+		endCustomerWalletId: text(),
+		endCustomerId: text(),
 		duration: integer().notNull(),
 		timeToFirstToken: integer(),
 		timeToFirstReasoningToken: integer(),
@@ -717,6 +1041,10 @@ export const log = pgTable(
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		pricingTier: text(),
+		// The processing tier the provider actually served (e.g. "flex" /
+		// "priority"), resolved from the upstream response. Null for the standard
+		// tier or providers without tiers. Billed token costs reflect this tier.
+		serviceTier: text(),
 		canceled: boolean().default(false),
 		streamed: boolean().default(false),
 		cached: boolean().default(false),
@@ -820,6 +1148,12 @@ export const log = pgTable(
 		index("log_project_id_session_id_idx")
 			.on(table.projectId, table.sessionId, table.createdAt)
 			.where(sql`session_id IS NOT NULL`),
+		index("log_end_customer_wallet_id_created_at_idx")
+			.on(table.endCustomerWalletId, table.createdAt)
+			.where(sql`end_customer_wallet_id IS NOT NULL`),
+		index("log_end_user_session_id_created_at_idx")
+			.on(table.endUserSessionId, table.createdAt)
+			.where(sql`end_user_session_id IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
@@ -846,6 +1180,18 @@ export const videoJob = pgTable(
 		apiKeyId: text()
 			.notNull()
 			.references(() => apiKey.id, { onDelete: "cascade" }),
+		// Embeddable SDK: for jobs created under an end-user session, the
+		// concrete session id and owning wallet. Null for normal developer keys.
+		endUserSessionId: text().references(() => endUserSession.id, {
+			onDelete: "set null",
+		}),
+		// Embeddable SDK: for jobs created under an end-user session, the
+		// owning wallet. Null for normal developer keys. Read routes enforce that a
+		// session may only access its own wallet's jobs (per-end-user isolation
+		// within a shared project).
+		endCustomerWalletId: text().references(() => wallet.id, {
+			onDelete: "set null",
+		}),
 		mode: text({
 			enum: ["api-keys", "credits", "hybrid"],
 		}).notNull(),
@@ -955,6 +1301,7 @@ export const videoJob = pgTable(
 		),
 		index("video_job_upstream_id_idx").on(table.upstreamId),
 		index("video_job_callback_status_idx").on(table.callbackStatus),
+		index("video_job_end_user_session_id_idx").on(table.endUserSessionId),
 	],
 );
 
@@ -1364,7 +1711,6 @@ export const modelProviderMapping = pgTable(
 		jsonOutputSchema: boolean().default(false).notNull(),
 		webSearch: boolean().default(false).notNull(),
 		webSearchPrice: decimal(),
-		discount: decimal().default("0").notNull(),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})

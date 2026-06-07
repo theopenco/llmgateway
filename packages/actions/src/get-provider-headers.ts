@@ -6,6 +6,13 @@ export interface ProviderHeaderOptions {
 	 */
 	webSearchEnabled?: boolean;
 	requestId?: string;
+	/**
+	 * OpenAI-compatible processing tier selected by the caller via the
+	 * `service_tier` request field. For Google Vertex AI, "flex" and "priority"
+	 * are mapped to the `X-Vertex-AI-LLM-Shared-Request-Type` header (Flex /
+	 * Priority PayGo). Other values and other providers ignore this.
+	 */
+	serviceTier?: string;
 }
 
 /**
@@ -37,7 +44,22 @@ export function getProviderHeaders(
 		case "google-ai-studio":
 		case "glacier":
 			return requestIdHeader;
-		case "google-vertex":
+		case "google-vertex": {
+			// Map the OpenAI-compatible `service_tier` to Vertex's Flex / Priority
+			// PayGo header. Only "flex" and "priority" are valid; standard/default
+			// requests omit the header. Flex and Priority PayGo are served only on
+			// the global endpoint (the gateway's default Vertex region).
+			if (
+				options?.serviceTier === "flex" ||
+				options?.serviceTier === "priority"
+			) {
+				return {
+					...requestIdHeader,
+					"X-Vertex-AI-LLM-Shared-Request-Type": options.serviceTier,
+				};
+			}
+			return requestIdHeader;
+		}
 		case "quartz":
 			return requestIdHeader;
 		case "vertex-anthropic":

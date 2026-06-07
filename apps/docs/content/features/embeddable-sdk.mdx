@@ -1,0 +1,216 @@
+---
+title: Embeddable SDK
+description: Embed AI and in-app credit purchases into your app like Stripe + Stripe Elements. Your end-users get their own wallet, buy credits, and chat with any model — billed through LLM Gateway, with your markup as margin.
+icon: Wallet
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Embeddable SDK
+
+The Embeddable SDK lets you drop **AI + in-app credit purchases** into your product the same way Stripe Elements lets you drop in payments. Your end-users get their **own wallet**, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record; you set a markup and keep the margin.
+
+It ships as three packages:
+
+| Package                | Runs in                   | Use it for                                                                           |
+| ---------------------- | ------------------------- | ------------------------------------------------------------------------------------ |
+| `@llmgateway/server`   | Your backend (secret key) | Mint end-user sessions, manage wallets/customers, verify webhooks, trigger payouts   |
+| `@llmgateway/client`   | Browser (headless)        | Framework-agnostic chat/image/embeddings + balance/top-up, with auto session refresh |
+| `@llmgateway/elements` | React                     | Drop-in `<Chat/>`, `<BuyCredits/>`, `<CreditBalance/>` + hooks                       |
+
+<Callout type="info">
+	A complete, runnable Next.js example lives in the templates repo:
+	[**theopenco/llmgateway-templates →
+	templates/embeddable-credits**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits).
+</Callout>
+
+## How it works
+
+```
+Your backend ──(secret key sk_)──▶ POST /v1/sessions ──▶ ephemeral session token (es_, ~15 min)
+      │                                                          │
+      └────────── returns es_ to your frontend ◀────────────────┘
+                                  │
+        Browser (es_ + pk_) ──▶ chat / images / embeddings  ──▶ debits the end-user wallet
+                            └──▶ buy credits (Stripe Elements) ─▶ credits land in the wallet
+```
+
+- Your **secret key** (`sk_…`) never leaves your backend. It mints short-lived **ephemeral session tokens** (`es_…`) scoped to one end-user wallet.
+- The **browser** only ever holds the `es_…` token (and a publishable Stripe key). It calls the gateway directly; usage is billed to that user's wallet.
+- **Markup is applied at top-up time**: if you set a 20% markup and a user buys $10, their wallet is credited the net spend power and your **margin accrues to your organization** for later payout.
+
+## Prerequisites
+
+1. In the dashboard, open your project and **enable end-user sessions** (sets `endUserEnabled` on the project). Optionally set a **markup percent** and an **allowed-origins** list.
+2. Create a **platform secret key** (`sk_…`, an API key of type `platform_secret`) for that project. Keep it server-side.
+
+## 1. Install
+
+```bash
+# backend
+npm install @llmgateway/server
+# frontend (pick one)
+npm install @llmgateway/elements   # React drop-in components
+npm install @llmgateway/client     # headless / non-React
+```
+
+## 2. Mint a session on your backend
+
+Identify your signed-in user and mint a session bound to their wallet. Scope which models they may call.
+
+```ts
+// app/api/llmgateway/session/route.ts  (Next.js Route Handler)
+import { LLMGateway } from "@llmgateway/server";
+
+const lg = new LLMGateway({ secretKey: process.env.LLMGATEWAY_SECRET_KEY! });
+
+export async function POST() {
+	const session = await lg.sessions.create({
+		customer: { externalId: "user_123" }, // your stable user id
+		scope: { models: ["openai/gpt-4o-mini"] }, // lock down what they can call
+		ttlSeconds: 900, // optional, default 15 min
+	});
+	return Response.json(session); // { sessionToken, walletId, endCustomerId, expiresAt, publishableKey }
+}
+```
+
+<Callout type="warn">
+	Always mint sessions server-side. Never ship your `sk_…` secret key to the
+	browser.
+</Callout>
+
+## 3a. Drop in the React components
+
+Wrap your UI in `<LLMGatewayProvider>` and use the components. `fetchSession` is how the client refreshes the short-lived token before it expires.
+
+```tsx
+"use client";
+import {
+	LLMGatewayProvider,
+	Chat,
+	CreditBalance,
+	BuyCredits,
+} from "@llmgateway/elements";
+
+const fetchSession = () =>
+	fetch("/api/llmgateway/session", { method: "POST" }).then((r) => r.json());
+
+export default function Assistant({ session }) {
+	return (
+		<LLMGatewayProvider
+			session={session}
+			fetchSession={fetchSession}
+			test={process.env.NODE_ENV !== "production"}
+			appearance={{ theme: "light" }}
+		>
+			<CreditBalance label="Your balance" />
+			<BuyCredits amount={10} />
+			<Chat model="openai/gpt-4o-mini" />
+		</LLMGatewayProvider>
+	);
+}
+```
+
+Need full control over rendering? Use the hooks instead of the components:
+
+- `useBalance()` → `{ balance, currency, recentLedger, loading, error, refetch, refetchUntilChange }`
+- `useChat({ model })` → `{ turns, send, streaming, ... }`
+
+<Callout type="info">
+	`useBalance().refetchUntilChange()` polls until the balance actually changes —
+	use it after a purchase, since the wallet is credited asynchronously once the
+	Stripe webhook lands.
+</Callout>
+
+## 3b. Or go headless (any framework)
+
+```ts
+import { LLMGatewayClient } from "@llmgateway/client";
+
+const client = new LLMGatewayClient({
+	session: { token: session.sessionToken, expiresAt: session.expiresAt },
+	refresh: fetchSession, // auto-refreshes ~60s before expiry
+});
+
+// stream a completion (billed to the user's wallet)
+for await (const delta of client.stream({
+	model: "openai/gpt-4o-mini",
+	messages: [{ role: "user", content: "Hello!" }],
+})) {
+	process.stdout.write(delta);
+}
+
+const { balance } = await client.getBalance();
+```
+
+The headless client also exposes `chat()`, `image()`, `embeddings()`, `getBalance()`, `createTopUp(amount)`, and `getConfig()`.
+
+## Buying credits
+
+`<BuyCredits amount={10} />` creates a Stripe PaymentIntent scoped to the user's wallet, renders Stripe's `PaymentElement`, and confirms the payment. Once LLM Gateway's webhook processes it, the wallet is credited the **net** amount (after your markup) and your margin accrues to your organization.
+
+`@llmgateway/elements` bundles LLM Gateway's browser-safe Stripe publishable keys. Pass `test` to `<LLMGatewayProvider>` while developing to use Stripe test mode; omit it or pass `false` for live payments. You never need to provide LLM Gateway's Stripe publishable key yourself, and the end-user never sees your `sk_…` secret key.
+
+## Managing wallets & customers (server-side)
+
+```ts
+// grant credits directly (e.g. free trial)
+await lg.wallets.credit({ walletId, amount: 5, reason: "Signup bonus" });
+
+const wallet = await lg.wallets.retrieve(walletId);
+
+// analytics: customers with balances + lifetime spend
+const { customers } = await lg.customers.list();
+const detail = await lg.customers.retrieve(endCustomerId);
+```
+
+## Webhooks
+
+Register an endpoint to react to wallet events. Events are signed (`X-LLMGateway-Signature`); verify them like Stripe.
+
+```ts
+await lg.webhookEndpoints.create({
+	url: "https://yourapp.com/webhooks/llmgateway",
+	enabledEvents: ["wallet.credited", "wallet.low_balance"],
+});
+
+// in your handler
+const event = lg.webhooks.constructEvent(
+	rawBody,
+	signatureHeader,
+	endpointSecret,
+);
+```
+
+<Callout type="warn">
+	Webhook URLs must be **https** and public — requests to private/internal
+	addresses are rejected (SSRF protection), both at registration and at delivery
+	time.
+</Callout>
+
+## Margin payouts (Stripe Connect)
+
+Your accrued markup is held as a margin balance. Onboard a connected account and pay it out:
+
+```ts
+const { url } = await lg.connect.createOnboardingLink({
+	refreshUrl: "https://yourapp.com/settings/payouts",
+	returnUrl: "https://yourapp.com/settings/payouts?done=1",
+});
+// redirect the developer to `url`, then later:
+const status = await lg.connect.status(); // { onboarded, payoutsEnabled, marginBalance }
+const payout = await lg.connect.payout(); // transfer the accrued margin out
+```
+
+## Security model
+
+- **Ephemeral tokens** (`es_…`) are short-lived and revocable; mint them per-user from your backend.
+- **Model scopes** restrict each session to an allow-list of models.
+- **Origin allowlist** (configured on the project) blocks browser calls from unexpected origins.
+- **Per-session spend caps** (`scope.maxSpend`) bound how much a single session can spend.
+
+## Full example
+
+The end-to-end Next.js app — backend session route, provider, chat, and buy-credits — is in the templates repo:
+
+➡️ [**theopenco/llmgateway-templates → templates/embeddable-credits**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)

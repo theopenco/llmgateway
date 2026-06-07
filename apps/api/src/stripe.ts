@@ -2,7 +2,16 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { and, db, eq, inArray, isNull, sql, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	enqueueWebhookDeliveries,
+	eq,
+	inArray,
+	isNull,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	getDevPlanCreditsLimit,
@@ -68,6 +77,51 @@ export async function ensureStripeCustomer(
 	}
 
 	return stripeCustomerId;
+}
+
+/**
+ * Embeddable SDK: ensure the end-customer has its own Stripe customer, separate
+ * from the developer's org customer, so cards and receipts are per-end-user.
+ */
+export async function ensureEndCustomerStripeCustomer(
+	endCustomerId: string,
+): Promise<string> {
+	// Claim the row under a lock so two concurrent top-ups for the same customer
+	// can't each create a Stripe customer (orphaning one). The second caller
+	// blocks until the first commits, then sees the persisted id.
+	return await db.transaction(async (tx) => {
+		const [endCustomer] = await tx
+			.select()
+			.from(tables.endCustomer)
+			.where(eq(tables.endCustomer.id, endCustomerId))
+			.for("update")
+			.limit(1);
+
+		if (!endCustomer) {
+			throw new Error(`End customer not found: ${endCustomerId}`);
+		}
+
+		if (endCustomer.stripeCustomerId) {
+			return endCustomer.stripeCustomerId;
+		}
+
+		const customer = await getStripe().customers.create({
+			email: endCustomer.email ?? undefined,
+			name: endCustomer.name ?? undefined,
+			metadata: {
+				endCustomerId,
+				projectId: endCustomer.projectId,
+				organizationId: endCustomer.organizationId,
+			},
+		});
+
+		await tx
+			.update(tables.endCustomer)
+			.set({ stripeCustomerId: customer.id })
+			.where(eq(tables.endCustomer.id, endCustomerId));
+
+		return customer.id;
+	});
 }
 
 /**
@@ -223,6 +277,9 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "invoice.payment_succeeded":
 				await handleInvoicePaymentSucceeded(event);
 				break;
+			case "invoice.paid":
+				await handleInvoicePaymentSucceeded(event);
+				break;
 			case "invoice.payment_failed":
 				await handleInvoicePaymentFailed(event);
 				break;
@@ -316,10 +373,200 @@ async function getSubscriptionCardFingerprint(
 
 export type FinalizeDevPlanResult =
 	| { status: "ok"; subscriptionId: string }
+	| {
+			status: "requires_action";
+			subscriptionId: string;
+			clientSecret: string;
+			paymentMethodId?: string;
+	  }
+	| {
+			status: "payment_pending";
+			subscriptionId: string;
+			subscriptionStatus?: string;
+			invoiceId?: string;
+			invoiceStatus?: string | null;
+			paymentIntentStatus?: string;
+			hasClientSecret?: boolean;
+	  }
 	| { status: "duplicate_card"; conflictingOrgId: string }
 	| { status: "already_processed"; subscriptionId: string | null }
 	| { status: "no_payment_method" }
 	| { status: "invalid_session"; reason: string };
+
+function isStripePaymentIntent(value: unknown): value is Stripe.PaymentIntent {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	return (value as { object?: unknown }).object === "payment_intent";
+}
+
+function getSubscriptionPaymentIntent(
+	subscription: Stripe.Subscription,
+): Stripe.PaymentIntent | null {
+	const latestInvoice = subscription.latest_invoice;
+	if (
+		!latestInvoice ||
+		typeof latestInvoice === "string" ||
+		!("payment_intent" in latestInvoice)
+	) {
+		return null;
+	}
+
+	const { payment_intent: paymentIntent } = latestInvoice as {
+		payment_intent?: unknown;
+	};
+	if (!paymentIntent || typeof paymentIntent === "string") {
+		return null;
+	}
+
+	return isStripePaymentIntent(paymentIntent) ? paymentIntent : null;
+}
+
+function getInvoiceConfirmationClientSecret(
+	invoice: Stripe.Invoice,
+): string | null {
+	const confirmationSecret = invoice.confirmation_secret;
+	return confirmationSecret?.client_secret ?? null;
+}
+
+async function getPaymentIntentFromInvoicePayments(
+	invoice: Stripe.Invoice,
+): Promise<Stripe.PaymentIntent | null> {
+	let invoicePayments = invoice.payments?.data ?? [];
+	if (invoicePayments.length === 0) {
+		const listedPayments = await getStripe().invoicePayments.list({
+			invoice: invoice.id,
+			limit: 10,
+		});
+		invoicePayments = listedPayments.data;
+	}
+
+	for (const invoicePayment of invoicePayments) {
+		const paymentIntent = invoicePayment.payment.payment_intent;
+		if (!paymentIntent) {
+			continue;
+		}
+		if (typeof paymentIntent !== "string") {
+			if (isStripePaymentIntent(paymentIntent)) {
+				return paymentIntent;
+			}
+			continue;
+		}
+		const retrieved = await getStripe().paymentIntents.retrieve(paymentIntent);
+		return isStripePaymentIntent(retrieved) ? retrieved : null;
+	}
+
+	return null;
+}
+
+async function getSubscriptionInvoice(
+	subscription: Stripe.Subscription,
+): Promise<Stripe.Invoice | null> {
+	const latestInvoice = subscription.latest_invoice;
+	if (!latestInvoice) {
+		return null;
+	}
+	if (typeof latestInvoice !== "string") {
+		return latestInvoice;
+	}
+
+	return await getStripe().invoices.retrieve(latestInvoice, {
+		expand: ["payment_intent"],
+	});
+}
+
+async function getSubscriptionPaymentConfirmation(
+	subscription: Stripe.Subscription,
+): Promise<{
+	paymentIntent: Stripe.PaymentIntent | null;
+	clientSecret: string | null;
+	invoice: Stripe.Invoice | null;
+}> {
+	const invoice = await getSubscriptionInvoice(subscription);
+	if (!invoice) {
+		return { paymentIntent: null, clientSecret: null, invoice: null };
+	}
+
+	let paymentIntent = getSubscriptionPaymentIntent(subscription);
+	if (!paymentIntent) {
+		const { payment_intent: invoicePaymentIntent } = invoice as {
+			payment_intent?: unknown;
+		};
+		if (
+			invoicePaymentIntent &&
+			typeof invoicePaymentIntent !== "string" &&
+			isStripePaymentIntent(invoicePaymentIntent)
+		) {
+			paymentIntent = invoicePaymentIntent;
+		}
+	}
+	paymentIntent ??= await getPaymentIntentFromInvoicePayments(invoice);
+
+	return {
+		paymentIntent,
+		clientSecret:
+			paymentIntent?.client_secret ??
+			getInvoiceConfirmationClientSecret(invoice),
+		invoice,
+	};
+}
+
+function getPaymentPendingResult({
+	subscription,
+	invoice,
+	paymentIntent,
+	clientSecret,
+}: {
+	subscription: Stripe.Subscription;
+	invoice: Stripe.Invoice | null;
+	paymentIntent: Stripe.PaymentIntent | null;
+	clientSecret: string | null;
+}): FinalizeDevPlanResult {
+	logger.info("Dev plan subscription payment is pending", {
+		subscriptionId: subscription.id,
+		subscriptionStatus: subscription.status,
+		invoiceId: invoice?.id,
+		invoiceStatus: invoice?.status,
+		paymentIntentId: paymentIntent?.id,
+		paymentIntentStatus: paymentIntent?.status,
+		hasClientSecret: Boolean(clientSecret),
+	});
+
+	return {
+		status: "payment_pending",
+		subscriptionId: subscription.id,
+		subscriptionStatus: subscription.status,
+		invoiceId: invoice?.id,
+		invoiceStatus: invoice?.status,
+		paymentIntentStatus: paymentIntent?.status,
+		hasClientSecret: Boolean(clientSecret),
+	};
+}
+
+async function findDevPlanSubscriptionForSetupSession(
+	customerId: string,
+	sessionId: string,
+): Promise<Stripe.Subscription | null> {
+	const subscriptions = await getStripe().subscriptions.list({
+		customer: customerId,
+		status: "all",
+		limit: 100,
+	});
+	const existing = subscriptions.data.find(
+		(subscription) => subscription.metadata?.setupSessionId === sessionId,
+	);
+	if (!existing) {
+		return null;
+	}
+
+	return await getStripe().subscriptions.retrieve(existing.id, {
+		expand: ["latest_invoice.payment_intent"],
+	});
+}
+
+function shouldForceDevPlan3dsChallenge(): boolean {
+	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
+}
 
 async function resolvePaymentMethodFromSetupSession(
 	session: Stripe.Checkout.Session,
@@ -478,24 +725,81 @@ export async function finalizeDevPlanSetupSession(
 	// writer has filled in devPlanStripeSubscriptionId yet — the loser then
 	// reports already_processed so it doesn't double-insert the transaction
 	// row or re-send notifications.
-	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
-	const subscription = await getStripe().subscriptions.create(
-		{
-			customer: stripeCustomerId,
-			items: [{ price: priceId }],
-			default_payment_method: paymentMethod.id,
-			payment_behavior: "error_if_incomplete",
-			metadata: {
-				organizationId,
-				subscriptionType: "dev_plan",
-				devPlan: devPlanTier,
-				devPlanCycle,
-				userEmail: userEmail ?? "",
-			},
-			expand: ["latest_invoice"],
-		},
-		{ idempotencyKey: stripeIdempotencyKey },
+	const existingSubscription = await findDevPlanSubscriptionForSetupSession(
+		stripeCustomerId,
+		sessionId,
 	);
+	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
+	const subscription =
+		existingSubscription ??
+		(await getStripe().subscriptions.create(
+			{
+				customer: stripeCustomerId,
+				items: [{ price: priceId }],
+				default_payment_method: paymentMethod.id,
+				payment_behavior: "default_incomplete",
+				...(shouldForceDevPlan3dsChallenge()
+					? {
+							payment_settings: {
+								payment_method_options: {
+									card: {
+										request_three_d_secure: "challenge" as const,
+									},
+								},
+							},
+						}
+					: {}),
+				metadata: {
+					organizationId,
+					subscriptionType: "dev_plan",
+					devPlan: devPlanTier,
+					devPlanCycle,
+					setupSessionId: sessionId,
+					userEmail: userEmail ?? "",
+				},
+				expand: ["latest_invoice.payment_intent"],
+			},
+			{ idempotencyKey: stripeIdempotencyKey },
+		));
+
+	const { paymentIntent, clientSecret, invoice } =
+		await getSubscriptionPaymentConfirmation(subscription);
+	if (
+		clientSecret &&
+		((paymentIntent &&
+			(paymentIntent.status === "requires_action" ||
+				paymentIntent.status === "requires_confirmation" ||
+				paymentIntent.status === "requires_payment_method")) ||
+			(!paymentIntent &&
+				(subscription.status === "incomplete" ||
+					subscription.status === "past_due")))
+	) {
+		return {
+			status: "requires_action",
+			subscriptionId: subscription.id,
+			clientSecret,
+			paymentMethodId: paymentMethod.id,
+		};
+	}
+	if (paymentIntent && paymentIntent.status !== "succeeded") {
+		return getPaymentPendingResult({
+			subscription,
+			invoice,
+			paymentIntent,
+			clientSecret,
+		});
+	}
+	if (
+		!paymentIntent &&
+		(subscription.status === "incomplete" || subscription.status === "past_due")
+	) {
+		return getPaymentPendingResult({
+			subscription,
+			invoice,
+			paymentIntent,
+			clientSecret,
+		});
+	}
 
 	const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
 
@@ -1289,11 +1593,271 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 	);
 }
 
+/**
+ * Embeddable SDK: credit an end-user wallet after a successful top-up payment.
+ * Idempotent on wallet_ledger.stripePaymentIntentId. Splits the charge into the
+ * net credited to the wallet, the developer's margin (accrued to the developer
+ * org), and the platform fee — all carried in the PaymentIntent metadata that
+ * /v1/wallet/top-up set.
+ */
+async function handleEndUserTopUpSucceeded(
+	paymentIntent: Stripe.PaymentIntent,
+) {
+	const md = paymentIntent.metadata;
+	const walletId = md.walletId;
+	const netCredited = Number(md.netCredited);
+	const developerMargin = Number(md.developerMargin ?? "0");
+	const platformFee = Number(md.platformFee ?? "0");
+	const grossPaid = paymentIntent.amount / 100;
+
+	if (!walletId || !Number.isFinite(netCredited) || netCredited <= 0) {
+		logger.error("Invalid end_user_topup metadata", {
+			paymentIntentId: paymentIntent.id,
+			metadata: md,
+		});
+		return;
+	}
+
+	// Fast-path idempotency: a topup ledger row for this payment intent means we
+	// already processed it (webhook re-delivery). The authoritative guard is the
+	// unique partial index on wallet_ledger(stripePaymentIntentId) WHERE
+	// type='topup', enforced inside the transaction below to close the race
+	// between concurrent deliveries.
+	const existing = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: paymentIntent.id },
+			type: { eq: "topup" },
+		},
+	});
+	if (existing) {
+		logger.info(
+			`Skipping duplicate end-user top-up for wallet ${walletId} (ledger ${existing.id} already processed)`,
+		);
+		return;
+	}
+
+	const wallet = await db.query.wallet.findFirst({
+		where: { id: { eq: walletId } },
+	});
+	if (!wallet) {
+		logger.error(`Wallet not found for end-user top-up: ${walletId}`);
+		return;
+	}
+
+	// Credit the wallet, write the ledger row, and accrue the developer margin
+	// atomically. The ledger insert hits the unique index first, so a concurrent
+	// duplicate delivery rolls the whole transaction back instead of double-
+	// crediting.
+	let newBalance: string;
+	try {
+		newBalance = await db.transaction(async (tx) => {
+			// Lock + credit the wallet first; a concurrent duplicate delivery blocks
+			// on this row, then fails the ledger insert below on the unique index.
+			const [updated] = await tx
+				.update(tables.wallet)
+				.set({ balance: sql`${tables.wallet.balance} + ${netCredited}` })
+				.where(eq(tables.wallet.id, walletId))
+				.returning();
+
+			await tx.insert(tables.walletLedger).values({
+				walletId,
+				endCustomerId: wallet.endCustomerId,
+				organizationId: wallet.organizationId,
+				type: "topup",
+				amount: String(netCredited),
+				balanceAfter: updated.balance,
+				grossPaid: String(grossPaid),
+				platformFee: String(platformFee),
+				developerMargin: String(developerMargin),
+				netCredited: String(netCredited),
+				stripePaymentIntentId: paymentIntent.id,
+				description: "End-user credit top-up",
+			});
+
+			// Accrue the developer's margin to their org (settled out-of-band / via
+			// Stripe Connect) and record it in the org's transaction history.
+			if (developerMargin > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${developerMargin}`,
+					})
+					.where(eq(tables.organization.id, wallet.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: wallet.organizationId,
+					type: "end_user_margin_accrual",
+					amount: String(developerMargin),
+					creditAmount: String(developerMargin),
+					status: "completed",
+					stripePaymentIntentId: paymentIntent.id,
+					description: `End-user top-up margin (wallet ${walletId})`,
+				});
+			}
+
+			return updated.balance;
+		});
+	} catch (err) {
+		const code =
+			(err as { code?: string; cause?: { code?: string } })?.code ??
+			(err as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			logger.info(
+				`Skipping duplicate end-user top-up for wallet ${walletId} (concurrent delivery for ${paymentIntent.id})`,
+			);
+			return;
+		}
+		throw err;
+	}
+
+	const updated = { balance: newBalance };
+
+	logger.info(
+		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee})`,
+	);
+
+	// Notify the developer's webhook endpoints (best-effort).
+	try {
+		await enqueueWebhookDeliveries({
+			projectId: wallet.projectId,
+			eventType: "wallet.credited",
+			data: {
+				walletId,
+				endCustomerId: wallet.endCustomerId,
+				netCredited,
+				grossPaid,
+				balance: updated.balance,
+				currency: wallet.currency,
+			},
+		});
+	} catch (err) {
+		logger.warn("Failed to enqueue wallet.credited webhook", {
+			walletId,
+			error: err instanceof Error ? err.message : String(err),
+		});
+	}
+}
+
+/**
+ * Embeddable SDK: reverse an end-user wallet top-up on refund. Idempotent on a
+ * reversal ledger row. The wallet debit is clamped to the current balance (the
+ * end-user may have already spent some), and the developer's accrued margin is
+ * clawed back (clamped at zero).
+ */
+async function handleEndUserTopUpRefunded(
+	topUp: typeof tables.walletLedger.$inferSelect,
+) {
+	if (!topUp.stripePaymentIntentId) {
+		return;
+	}
+
+	const alreadyReversed = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: topUp.stripePaymentIntentId },
+			type: { eq: "reversal" },
+		},
+	});
+	if (alreadyReversed) {
+		logger.info(
+			`Skipping duplicate end-user refund for wallet ${topUp.walletId}`,
+		);
+		return;
+	}
+
+	const credited = Number(topUp.netCredited ?? "0");
+	const developerMargin = Number(topUp.developerMargin ?? "0");
+
+	// Debit the wallet, write the reversal ledger row, and claw back the margin
+	// atomically. The ledger insert hits the unique partial index
+	// (wallet_ledger_reversal_payment_intent_unique), so a concurrent / re-
+	// delivered charge.refunded rolls the whole transaction back instead of
+	// double-reversing. The wallet is locked + re-read inside the transaction so
+	// the balance clamp can't go stale against a concurrent debit.
+	let reversal: number;
+	try {
+		reversal = await db.transaction(async (tx) => {
+			const [wallet] = await tx
+				.select()
+				.from(tables.wallet)
+				.where(eq(tables.wallet.id, topUp.walletId))
+				.for("update")
+				.limit(1);
+			if (!wallet) {
+				logger.error(`Wallet not found for end-user refund: ${topUp.walletId}`);
+				return 0;
+			}
+
+			const currentBalance = Number(wallet.balance ?? "0");
+			const amount = Math.min(credited, Math.max(currentBalance, 0));
+
+			const [updated] = await tx
+				.update(tables.wallet)
+				.set({ balance: sql`${tables.wallet.balance} - ${amount}` })
+				.where(eq(tables.wallet.id, topUp.walletId))
+				.returning();
+
+			await tx.insert(tables.walletLedger).values({
+				walletId: topUp.walletId,
+				endCustomerId: topUp.endCustomerId,
+				organizationId: topUp.organizationId,
+				type: "reversal",
+				amount: String(-amount),
+				balanceAfter: updated.balance,
+				stripePaymentIntentId: topUp.stripePaymentIntentId,
+				description: "End-user top-up refund",
+			});
+
+			if (developerMargin > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						endUserMarginBalance: sql`GREATEST(${tables.organization.endUserMarginBalance} - ${developerMargin}, 0)`,
+					})
+					.where(eq(tables.organization.id, topUp.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: topUp.organizationId,
+					type: "end_user_refund",
+					amount: String(developerMargin),
+					creditAmount: String(developerMargin),
+					status: "completed",
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description: `End-user top-up refund margin claw-back (wallet ${topUp.walletId})`,
+				});
+			}
+
+			return amount;
+		});
+	} catch (err) {
+		const code =
+			(err as { code?: string; cause?: { code?: string } })?.code ??
+			(err as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			logger.info(
+				`Skipping duplicate end-user refund for wallet ${topUp.walletId} (concurrent delivery for ${topUp.stripePaymentIntentId})`,
+			);
+			return;
+		}
+		throw err;
+	}
+
+	logger.info(
+		`Reversed ${reversal} from end-user wallet ${topUp.walletId} on refund`,
+	);
+}
+
 async function handlePaymentIntentSucceeded(
 	event: Stripe.PaymentIntentSucceededEvent,
 ) {
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
+
+	// Embeddable SDK end-user wallet top-ups are handled separately and bill an
+	// end-user wallet, not the developer's org credits.
+	if (paymentIntent.metadata.kind === "end_user_topup") {
+		await handleEndUserTopUpSucceeded(paymentIntent);
+		return;
+	}
 
 	// payment_intent.succeeded also fires for subscription invoice payments;
 	// only credit top-up payment intents set baseAmount in metadata.
@@ -1695,6 +2259,19 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		return;
 	}
 
+	// Embeddable SDK: end-user wallet top-up refund. Reverse the credited amount
+	// (clamped to the wallet's current balance) and write a reversal ledger row.
+	const walletTopUp = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: payment_intent as string },
+			type: { eq: "topup" },
+		},
+	});
+	if (walletTopUp) {
+		await handleEndUserTopUpRefunded(walletTopUp);
+		return;
+	}
+
 	// Stripe v18 removed `invoice` from the typed Charge surface, but the
 	// field is still present on the underlying object for invoice-driven
 	// charges (subscriptions). Fall back to it to locate dev_plan_start /
@@ -1965,9 +2542,9 @@ async function handleSetupIntentSucceeded(
 	});
 }
 
-export async function handleInvoicePaymentSucceeded(
-	event: Stripe.InvoicePaymentSucceededEvent,
-) {
+export async function handleInvoicePaymentSucceeded(event: {
+	data: { object: Stripe.Invoice };
+}) {
 	const invoice = event.data.object;
 	const { customer, metadata } = invoice;
 	const subscription = (invoice as any).subscription;
@@ -2039,6 +2616,26 @@ export async function handleInvoicePaymentSucceeded(
 	const isDevPlanSubscription =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
+	let subscriptionMetadata: Stripe.Metadata | undefined;
+	if (
+		organization.devPlan === "none" &&
+		organization.devPlanStripeSubscriptionId !== subscriptionId
+	) {
+		const stripeSubscription =
+			await getStripe().subscriptions.retrieve(subscriptionId);
+		subscriptionMetadata = stripeSubscription.metadata;
+	}
+	subscriptionMetadata ??= {};
+	const initialDevPlanTier = subscriptionMetadata.devPlan as
+		| DevPlanTier
+		| undefined;
+	const initialDevPlanCycle: DevPlanCycle =
+		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
+	const isInitialDevPlanSubscription =
+		subscriptionMetadata.subscriptionType === "dev_plan" &&
+		!!initialDevPlanTier &&
+		organization.devPlan === "none" &&
+		organization.devPlanStripeSubscriptionId !== subscriptionId;
 
 	// Stripe fires `invoice.payment_succeeded` both for true period renewals
 	// (`subscription_cycle`) and for the proration invoice generated when a
@@ -2054,7 +2651,114 @@ export async function handleInvoicePaymentSucceeded(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}`,
 	);
 
-	if (isDevPlanRenewal) {
+	if (isInitialDevPlanSubscription && initialDevPlanTier) {
+		const creditsLimit = getDevPlanCreditsLimit(initialDevPlanTier);
+		const fingerprint = await getSubscriptionCardFingerprint(subscriptionId);
+
+		const claimed = await db
+			.update(tables.organization)
+			.set({
+				devPlan: initialDevPlanTier,
+				devPlanCreditsLimit: creditsLimit.toString(),
+				devPlanCreditsUsed: "0",
+				devPlanBillingCycleStart: new Date(),
+				devPlanStripeSubscriptionId: subscriptionId,
+				devPlanCancelled: false,
+				devPlanCycle: initialDevPlanCycle,
+				devPlanCardFingerprint: fingerprint,
+			})
+			.where(
+				and(
+					eq(tables.organization.id, organizationId),
+					isNull(tables.organization.devPlanStripeSubscriptionId),
+				),
+			)
+			.returning({ id: tables.organization.id });
+
+		if (claimed.length === 0) {
+			logger.info(
+				`Skipping initial DevPass invoice ${invoice.id}: subscription ${subscriptionId} was already activated`,
+			);
+			return;
+		}
+
+		const [transaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_start",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as { payment_intent?: string | null })
+					.payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${initialDevPlanTier.toUpperCase()} started via Stripe Checkout`,
+			})
+			.returning();
+
+		try {
+			await generateAndEmailInvoice({
+				invoiceNumber: transaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				billingEmail: organization.billingEmail,
+				billingCompany: organization.billingCompany,
+				billingAddress: organization.billingAddress,
+				billingTaxId: organization.billingTaxId,
+				billingNotes: organization.billingNotes,
+				lineItems: [
+					{
+						description: `Dev Plan ${initialDevPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (initial DevPass invoice); suppressing failure",
+				e as Error,
+			);
+		}
+
+		posthog.groupIdentify({
+			groupType: "organization",
+			groupKey: organizationId,
+			properties: { name: organization.name },
+		});
+		posthog.capture({
+			distinctId: "organization",
+			event: "dev_plan_started",
+			groups: { organization: organizationId },
+			properties: {
+				devPlan: initialDevPlanTier,
+				creditsLimit,
+				organization: organizationId,
+				subscriptionId,
+				source: "stripe_invoice",
+			},
+		});
+
+		const subscribedEmail =
+			subscriptionMetadata.userEmail || organization.billingEmail;
+		if (subscribedEmail) {
+			const subscribedUser = await db.query.user.findFirst({
+				where: { email: { eq: subscribedEmail } },
+			});
+			await notifyDevPlanSubscribed(
+				subscribedEmail,
+				subscribedUser?.name,
+				initialDevPlanTier,
+				initialDevPlanCycle,
+			);
+		}
+
+		logger.info(
+			`Activated initial DevPass subscription ${subscriptionId} for organization ${organizationId} from invoice ${invoice.id}`,
+		);
+	} else if (isDevPlanRenewal) {
 		// Handle dev plan renewal - reset credits
 		const creditsLimit = getDevPlanCreditsLimit(
 			organization.devPlan as DevPlanTier,
