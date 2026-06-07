@@ -247,6 +247,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 		include_usage: boolean;
 	};
 	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	n?: number;
 	extra_body?: Record<string, unknown>;
 }
 
@@ -330,6 +331,13 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 export interface GoogleRequestBody {
 	contents: GoogleMessage[];
 	tools?: GoogleTool[];
+	/**
+	 * Processing tier for the Gemini Developer API (google-ai-studio / glacier).
+	 * "flex" / "priority" select Flex / Priority inference. The served tier is
+	 * returned in the `x-gemini-service-tier` response header.
+	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.
+	 */
+	service_tier?: "auto" | "default" | "flex" | "priority";
 	generationConfig?: {
 		temperature?: number;
 		maxOutputTokens?: number;
@@ -427,6 +435,7 @@ export type RequestBodyPreparer = (
 	useResponsesApi?: boolean,
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
+	n?: number,
 ) => Promise<ProviderRequestBody | FormData>;
 
 // Type guards

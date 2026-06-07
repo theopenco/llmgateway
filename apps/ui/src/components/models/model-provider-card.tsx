@@ -612,6 +612,73 @@ export function ModelProviderCard({
 								</div>
 							</div>
 						)}
+					{(() => {
+						const tiers = provider.providerInfo?.serviceTiers;
+						if (
+							!tiers ||
+							tiers.length === 0 ||
+							(!provider.inputPrice && !provider.outputPrice)
+						) {
+							return null;
+						}
+						const effectiveDiscount = Number(provider.discount ?? "0");
+						const base = (price?: string) =>
+							price === undefined
+								? undefined
+								: Number(price) * (1 - effectiveDiscount);
+						const inBase = base(provider.inputPrice);
+						const outBase = base(provider.outputPrice);
+						return (
+							<div className="mt-3 pt-3 border-t">
+								<div className="text-muted-foreground text-xs mb-2">
+									Processing Tiers
+								</div>
+								<div className="space-y-2">
+									{tiers.map((tier) => {
+										const isDiscount = tier.multiplier < 1;
+										const badgeLabel = isDiscount
+											? `${Math.round((1 - tier.multiplier) * 100)}% off`
+											: `+${Math.round((tier.multiplier - 1) * 100)}%`;
+										return (
+											<div key={tier.id} className="text-xs">
+												<div className="flex items-center gap-2 mb-0.5">
+													<span className="font-medium">{tier.name}</span>
+													<Badge
+														className={
+															isDiscount
+																? "text-[10px] px-1.5 py-0 h-4 font-semibold bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20"
+																: "text-[10px] px-1.5 py-0 h-4 font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+														}
+													>
+														{badgeLabel}
+													</Badge>
+												</div>
+												<div className="flex justify-between items-center font-mono text-muted-foreground">
+													<span>
+														{inBase !== undefined
+															? `${formatPrice(inBase * tier.multiplier)} in`
+															: ""}
+														{inBase !== undefined && outBase !== undefined
+															? " / "
+															: ""}
+														{outBase !== undefined
+															? `${formatPrice(outBase * tier.multiplier)} out`
+															: ""}
+													</span>
+													<span>/M</span>
+												</div>
+												{tier.description && (
+													<div className="text-muted-foreground mt-0.5">
+														{tier.description}
+													</div>
+												)}
+											</div>
+										);
+									})}
+								</div>
+							</div>
+						);
+					})()}
 				</div>
 
 				<div className="border-t pt-4 mb-4">

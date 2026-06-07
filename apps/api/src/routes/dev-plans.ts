@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
+import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq, shortid } from "@llmgateway/db";
@@ -10,6 +11,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -19,60 +21,6 @@ import { getStripe } from "./payments.js";
 import type { ServerTypes } from "@/vars.js";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
-
-interface User {
-	id: string;
-	email: string;
-	emailVerified?: boolean;
-}
-
-// Helper to get or create personal organization for a user
-// Uses a transaction to ensure atomicity when creating org, membership, and project
-async function getOrCreatePersonalOrg(user: User) {
-	// Find existing personal org for user
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const existingPersonalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
-	);
-
-	if (existingPersonalOrg?.organization) {
-		return existingPersonalOrg.organization;
-	}
-
-	// Create new personal org with transaction for atomicity
-	return await db.transaction(async (tx) => {
-		const [newOrg] = await tx
-			.insert(tables.organization)
-			.values({
-				name: "Personal",
-				isPersonal: true,
-				billingEmail: user.email,
-			})
-			.returning();
-
-		await tx.insert(tables.userOrganization).values({
-			userId: user.id,
-			organizationId: newOrg.id,
-			role: "owner",
-		});
-
-		await tx.insert(tables.project).values({
-			name: "Default Project",
-			organizationId: newOrg.id,
-			mode: "credits",
-		});
-
-		return newOrg;
-	});
-}
 
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
@@ -206,7 +154,6 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["lite", "pro", "max"]),
-						cycle: z.enum(["monthly", "annual"]).optional().default("monthly"),
 					}),
 				},
 			},
@@ -228,7 +175,11 @@ const subscribe = createRoute({
 
 devPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier, cycle } = c.req.valid("json");
+	const { tier } = c.req.valid("json");
+
+	// Dev plans are billed monthly only; the Stripe monthly cycle drives credit
+	// refreshes. (Legacy annual subscriptions are still serviced on read.)
+	const cycle: DevPlanCycle = "monthly";
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -259,9 +210,8 @@ devPlans.openapi(subscribe, async (c) => {
 
 	const priceId = getDevPlanPriceId(tier, cycle);
 	if (!priceId) {
-		const envSuffix = cycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}${envSuffix} environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
 		});
 	}
 
@@ -698,6 +648,14 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const currentTier: DevPlanTier = personalOrg.devPlan;
+
 	// Preserve the subscriber's existing billing cadence so an annual
 	// subscriber doesn't silently get switched to monthly when changing tier.
 	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
@@ -710,20 +668,19 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	const isUpgrade =
-		DEV_PLAN_PRICES[newTier] >
-		DEV_PLAN_PRICES[personalOrg.devPlan as DevPlanTier];
+	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
 
 	try {
 		const subscription = await getStripe().subscriptions.retrieve(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
-		// For upgrades, charge the prorated amount synchronously and reject the
-		// upgrade if the customer's payment method can't cover it. Without this,
-		// Stripe leaves the subscription on the new (higher) price even when the
-		// proration invoice fails — letting the user spend at the upgraded tier
-		// while we never collect.
+		// Upgrades are charged a prorated amount synchronously (and rejected if
+		// the payment method can't cover it — otherwise Stripe would leave the
+		// subscription on the higher price while we never collect). Downgrades
+		// use `none`: the subscriber keeps the current (higher) tier's credits
+		// for the rest of the billing cycle and there is no refund — the lower
+		// price simply takes effect at the next renewal.
 		const updated = await getStripe().subscriptions.update(
 			personalOrg.devPlanStripeSubscriptionId,
 			{
@@ -759,30 +716,65 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Only update local DB after Stripe confirms the upgrade is paid/active.
-		const newCreditsLimit = getDevPlanCreditsLimit(newTier);
+		if (isUpgrade) {
+			// Only update local DB after Stripe confirms the upgrade is paid/active.
+			//
+			// Credits track prorated dollars: a mid-cycle upgrade grants only the
+			// prorated difference between the two tiers' allotments for the
+			// remaining part of the billing period, mirroring the prorated amount
+			// Stripe charges. Granting the full new-tier allotment on every
+			// upgrade would let a user upgrade cheaply near the end of a cycle to
+			// receive a near-full fresh allotment. Clamp to the new tier's full
+			// allotment so a carried-over higher limit (e.g. credits kept from a
+			// prior downgrade) can never push the balance above the tier cap.
+			const subscriptionItem = updated.items.data[0];
+			const periodStart = subscriptionItem.current_period_start;
+			const periodEnd = subscriptionItem.current_period_end;
+			const nowSeconds = Math.floor(Date.now() / 1000);
+			const periodLength = periodEnd - periodStart;
+			const remainingFraction =
+				periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
 
-		await db
-			.update(tables.organization)
-			// On upgrade, raise the allowance now (the user paid the prorated
-			// difference). On downgrade, keep the current higher allowance for the
-			// rest of the paid period — the renewal webhook resets it to the lower
-			// tier, so a downgrade never claws back already-paid credits.
-			.set({
-				devPlan: newTier,
-				...(isUpgrade
-					? { devPlanCreditsLimit: newCreditsLimit.toString() }
-					: {}),
-			})
-			.where(eq(tables.organization.id, personalOrg.id));
+			const creditDelta = getProratedCreditDelta(
+				currentTier,
+				newTier,
+				remainingFraction,
+			);
+			const currentLimit = parseFloat(personalOrg.devPlanCreditsLimit ?? "0");
+			const newCreditsLimit = Math.min(
+				getDevPlanCreditsLimit(newTier),
+				Math.max(0, currentLimit + creditDelta),
+			);
 
-		// Record transaction
-		await db.insert(tables.transaction).values({
-			organizationId: personalOrg.id,
-			type: isUpgrade ? "dev_plan_upgrade" : "dev_plan_downgrade",
-			description: `Changed from ${personalOrg.devPlan} to ${newTier} plan`,
-			status: "completed",
-		});
+			// The upgrade's proration invoice fires `invoice.payment_succeeded`,
+			// which records the `dev_plan_upgrade` transaction (with the amount
+			// collected) — so we don't record one here to avoid double-counting.
+			await db
+				.update(tables.organization)
+				.set({
+					devPlan: newTier,
+					devPlanCreditsLimit: newCreditsLimit.toString(),
+				})
+				.where(eq(tables.organization.id, personalOrg.id));
+		} else {
+			// Downgrade: keep the current cycle's credits (limit and used) intact;
+			// the lower tier — and its smaller allotment — takes effect at the
+			// next renewal. No proration invoice is generated, so record the
+			// tier-change transaction here.
+			await db
+				.update(tables.organization)
+				.set({
+					devPlan: newTier,
+				})
+				.where(eq(tables.organization.id, personalOrg.id));
+
+			await db.insert(tables.transaction).values({
+				organizationId: personalOrg.id,
+				type: "dev_plan_downgrade",
+				description: `Changed from ${currentTier} to ${newTier} plan`,
+				status: "completed",
+			});
+		}
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -792,7 +784,7 @@ devPlans.openapi(changeTier, async (c) => {
 			resourceId: personalOrg.devPlanStripeSubscriptionId,
 			metadata: {
 				changes: {
-					tier: { old: personalOrg.devPlan, new: newTier },
+					tier: { old: currentTier, new: newTier },
 				},
 			},
 		});

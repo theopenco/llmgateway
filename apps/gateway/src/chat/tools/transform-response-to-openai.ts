@@ -425,7 +425,6 @@ export function transformResponseToOpenai(
 			break;
 		}
 		case "anthropic":
-		case "anthropic-discount":
 		case "vertex-anthropic": {
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,

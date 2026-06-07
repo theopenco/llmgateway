@@ -114,6 +114,10 @@ export function parseProviderResponse(
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 				completionTokens = json.usage.outputTokens ?? null;
+				// The Bedrock Converse API does not break out reasoning tokens; they
+				// are bundled into outputTokens (unlike the direct Anthropic API,
+				// which reports output_tokens_details.thinking_tokens). Reasoning
+				// *content* is still surfaced via the reasoningContent blocks above.
 				totalTokens = json.usage.totalTokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
@@ -138,7 +142,6 @@ export function parseProviderResponse(
 			break;
 		}
 		case "anthropic":
-		case "anthropic-discount":
 		case "vertex-anthropic": {
 			// Extract content and reasoning content from Anthropic response
 			const contentBlocks = json.content ?? [];
@@ -214,7 +217,14 @@ export function parseProviderResponse(
 				// Total prompt tokens = non-cached + cache creation + cache read
 				promptTokens = inputTokens + cacheCreation + cacheReadTokens;
 				completionTokens = json.usage.output_tokens ?? null;
-				reasoningTokens = json.usage.reasoning_output_tokens ?? null;
+				// Anthropic reports thinking tokens under
+				// `output_tokens_details.thinking_tokens` (adaptive thinking returns
+				// an encrypted thinking block with no text, so this is the only
+				// signal that reasoning happened). Keep the legacy field as a fallback.
+				reasoningTokens =
+					json.usage.output_tokens_details?.thinking_tokens ??
+					json.usage.reasoning_output_tokens ??
+					null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheCreation;
@@ -781,19 +791,38 @@ export function parseProviderResponse(
 					}
 				}
 			} else {
-				// Standard OpenAI chat completions format
-				toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
-				content = json.choices?.[0]?.message?.content ?? null;
-				// Extract reasoning content for reasoning-capable models
-				// Check both reasoning and reasoning_content (GLM models use reasoning_content)
-				reasoningContent =
-					json.choices?.[0]?.message?.reasoning ??
-					json.choices?.[0]?.message?.reasoning_content ??
-					extractReasoningDetailsText(
-						json.choices?.[0]?.message?.reasoning_details,
-					) ??
-					null;
-				finishReason = json.choices?.[0]?.finish_reason ?? null;
+				// Standard OpenAI chat completions format. The log row only
+				// stores a single content/reasoning string, so for n > 1 we
+				// aggregate every choice into the buffer — otherwise indices
+				// > 0 disappear from logs. Tool calls / images stay keyed to
+				// choice 0; tools combined with n > 1 streaming is rejected
+				// upstream and n > 1 with non-streaming tools is a niche.
+				const allChoices = Array.isArray(json.choices) ? json.choices : [];
+				toolResults = allChoices[0]?.message?.tool_calls ?? null;
+
+				let aggregatedContent = "";
+				let aggregatedReasoning = "";
+				let hasContent = false;
+				let hasReasoning = false;
+				for (const choice of allChoices) {
+					const cContent = choice?.message?.content;
+					if (typeof cContent === "string") {
+						aggregatedContent += cContent;
+						hasContent = true;
+					}
+					const cReasoning =
+						choice?.message?.reasoning ??
+						choice?.message?.reasoning_content ??
+						extractReasoningDetailsText(choice?.message?.reasoning_details) ??
+						null;
+					if (typeof cReasoning === "string" && cReasoning.length > 0) {
+						aggregatedReasoning += cReasoning;
+						hasReasoning = true;
+					}
+				}
+				content = hasContent ? aggregatedContent : null;
+				reasoningContent = hasReasoning ? aggregatedReasoning : null;
+				finishReason = allChoices[0]?.finish_reason ?? null;
 
 				if (finishReason === "abort") {
 					logger.warn("Upstream sent abort finish_reason", {

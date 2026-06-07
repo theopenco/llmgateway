@@ -2194,6 +2194,56 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 
 			expect(requestBody.max_output_tokens).toBeUndefined();
 		});
+
+		test("passes image_url data URLs through to input_image unchanged", async () => {
+			const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "image_url", image_url: { url: dataUrl } },
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			)) as any;
+
+			const userItem = requestBody.input.find((i: any) => i.role === "user");
+			expect(userItem.content).toContainEqual({
+				type: "input_text",
+				text: "describe this",
+			});
+			expect(userItem.content).toContainEqual({
+				type: "input_image",
+				image_url: dataUrl,
+			});
+		});
 	});
 
 	describe("google-ai-studio", () => {

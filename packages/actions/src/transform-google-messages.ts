@@ -7,6 +7,7 @@ import {
 	type ProviderId,
 } from "@llmgateway/models";
 
+import { parseDataUrl } from "./parse-data-url.js";
 import { processImageUrl } from "./process-image-url.js";
 
 type GoogleAudioFormat =
@@ -172,17 +173,18 @@ export function parseGoogleUpstreamDocumentError(
  * Returns null when the value isn't a base64 data URL. Optional RFC 2397
  * MIME parameters (e.g. `;charset=utf-8`) are accepted but stripped, since
  * Google's `inline_data.mime_type` expects a bare type/subtype.
+ *
+ * Delegates to `parseDataUrl` so the (potentially multi-megabyte) base64 body
+ * is never scanned or copied by a regex — only the short header is parsed.
  */
 function parseFileDataUrl(
 	fileData: string,
 ): { mimeType: string; data: string } | null {
-	const match = fileData.match(
-		/^data:([^;,]+)((?:;[^;,]+=[^;,]*)*);base64,(.*)$/i,
-	);
-	if (!match) {
+	const parsed = parseDataUrl(fileData);
+	if (!parsed || !parsed.isBase64 || !parsed.mediaType) {
 		return null;
 	}
-	return { mimeType: match[1], data: match[3] };
+	return { mimeType: parsed.mediaType, data: parsed.data };
 }
 
 function resolveGoogleProviderTarget(

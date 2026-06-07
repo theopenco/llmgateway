@@ -14,7 +14,7 @@ export default function PrivacyPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> April 26, 2026
+				<strong>Last Updated:</strong> June 5, 2026
 			</p>
 			<p>
 				This Privacy Policy describes how <strong>LLM Gateway</strong>{" "}
@@ -132,8 +132,11 @@ export default function PrivacyPage() {
 			<ul>
 				<li>
 					<strong>Account and billing data</strong> — kept for the life of your
-					account, plus a reasonable period afterward to meet legal, tax, and
-					accounting obligations
+					account, and deleted promptly when you delete it. Billing and
+					accounting records — purchases, payments, and the transaction history
+					of credits bought and spent — are retained to meet legal, tax, and
+					accounting obligations for 10 years, even after you delete your
+					account, after which they are deleted or anonymized
 				</li>
 				<li>
 					<strong>Request metadata</strong> — kept for the life of your active
@@ -172,7 +175,13 @@ export default function PrivacyPage() {
 			<p>
 				To exercise these rights, email{" "}
 				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a> from
-				the address associated with your account.
+				the address associated with your account. We will honor erasure requests
+				except where we are legally obliged to retain data — in particular,
+				records of credits you purchased and spent are kept to comply with tax
+				and accounting law (see Section 5) and cannot be deleted on request
+				during the statutory retention period. If you are in the EU/EEA or UK,
+				you also have the right to lodge a complaint with your data protection
+				supervisory authority.
 			</p>
 			<hr />
 			<h2>8. International Transfers</h2>

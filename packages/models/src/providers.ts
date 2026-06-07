@@ -46,6 +46,27 @@ export interface ProviderRegionConfig {
 	sharedCredentialAcrossRegions?: boolean;
 }
 
+/**
+ * A selectable processing tier offered by a provider that trades latency
+ * against price relative to the standard on-demand rate. Selected per-request
+ * via the OpenAI-compatible `service_tier` field. Currently used by Google
+ * Vertex AI (Flex / Priority PayGo).
+ */
+export interface ServiceTier {
+	/** Value the client passes via `service_tier` to select this tier (e.g. "flex", "priority") */
+	id: string;
+	/** Human-readable tier name (e.g. "Flex", "Priority") */
+	name: string;
+	/**
+	 * Multiplier applied to the standard input/output token prices for this
+	 * tier. 0.5 means 50% cheaper, 1.8 means an 80% premium. Multipliers are
+	 * uniform across all Gemini 2.5 models on Vertex.
+	 */
+	multiplier: number;
+	/** Short description of the latency/availability trade-off */
+	description?: string;
+}
+
 export interface ProviderDataPolicy {
 	apiTraining: boolean | null;
 	consumerTraining: boolean | null;
@@ -54,6 +75,11 @@ export interface ProviderDataPolicy {
 	soc2?: boolean | null;
 	iso27001?: boolean | null;
 	gdpr?: boolean | null;
+}
+
+export interface ProviderAdditionalLink {
+	desc: string;
+	link: string;
 }
 
 export interface ProviderDefinition {
@@ -84,12 +110,20 @@ export interface ProviderDefinition {
 	contentFilter?: boolean;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
+	/**
+	 * Selectable processing tiers (e.g. Flex / Priority) offered by this
+	 * provider. Chosen per-request via the `service_tier` field. When unset,
+	 * the provider only offers the standard on-demand tier.
+	 */
+	serviceTiers?: ServiceTier[];
 	termsUrl?: string | null;
 	privacyPolicyUrl?: string | null;
 	/** ISO 3166-1 alpha-2 country code for provider headquarters */
 	headquarters?: string | null;
 	/** Data usage and privacy policy details */
 	dataPolicy?: ProviderDataPolicy | null;
+	/** Additional provider policy links shown in the Data & Privacy card */
+	additionalLinks?: ProviderAdditionalLink[];
 }
 
 export const providers: ProviderDefinition[] = [
@@ -178,28 +212,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "anthropic-discount",
-		name: "Anthropic (Discount)",
-		description:
-			"Anthropic-compatible provider routed through a discounted endpoint configured via environment variables.",
-		env: {
-			required: {
-				apiKey: "LLM_ANTHROPIC_DISCOUNT_API_KEY",
-				baseUrl: "LLM_ANTHROPIC_DISCOUNT_BASE_URL",
-			},
-		},
-		priority: 1.5,
-		streaming: true,
-		cancellation: true,
-		color: "#8b5cf6",
-		website: null,
-		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		headquarters: null,
-		dataPolicy: null,
-	},
-	{
 		id: "google-ai-studio",
 		name: "Google AI Studio",
 		description:
@@ -272,6 +284,22 @@ export const providers: ProviderDefinition[] = [
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
 		priority: 0.8,
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for variable latency and best-effort availability. Served on the global endpoint.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.8,
+				description:
+					"Premium low-latency tier prioritized above standard and flex traffic, at an 80% premium. Served on the global endpoint.",
+			},
+		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://policies.google.com/privacy",
 		headquarters: "US",
@@ -591,7 +619,7 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_AWS_BEDROCK_REGION",
 			},
 		},
-		priority: 0.9,
+		priority: 1.5,
 		streaming: true,
 		cancellation: true,
 		color: "#FF9900",
@@ -696,6 +724,7 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		headquarters: "US",
@@ -731,6 +760,7 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		headquarters: "US",
@@ -1010,9 +1040,15 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			consumerTraining: null,
 			promptLogging: false,
-			retentionPeriod: "0 days",
+			retentionPeriod: "24 hours",
 			soc2: true,
 		},
+		additionalLinks: [
+			{
+				desc: "AI Terms",
+				link: "https://docs.byteplus.com/en/docs/legal/docs-service-specific-terms",
+			},
+		],
 	},
 	{
 		id: "minimax",
@@ -1133,4 +1169,32 @@ export function getProviderDefinition(
 	providerId: ProviderId | string,
 ): ProviderDefinition | undefined {
 	return providers.find((p) => p.id === providerId);
+}
+
+/**
+ * Look up a provider's configured service tier (e.g. Flex / Priority) by id.
+ */
+export function getServiceTier(
+	providerId: ProviderId | string,
+	tierId: string,
+): ServiceTier | undefined {
+	return getProviderDefinition(providerId)?.serviceTiers?.find(
+		(t) => t.id === tierId,
+	);
+}
+
+/**
+ * Format a service tier's price multiplier relative to standard for display,
+ * e.g. 1.8 → "1.8× (+80%)", 0.5 → "0.5× (−50%)". Returns an empty string for
+ * the standard multiplier (1).
+ */
+export function formatServiceTierMultiplier(multiplier: number): string {
+	if (multiplier === 1) {
+		return "";
+	}
+	const delta =
+		multiplier < 1
+			? `−${Math.round((1 - multiplier) * 100)}%`
+			: `+${Math.round((multiplier - 1) * 100)}%`;
+	return `${multiplier}× (${delta})`;
 }

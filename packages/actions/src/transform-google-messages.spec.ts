@@ -308,6 +308,79 @@ describe("transformGoogleMessages — document file blocks", () => {
 			),
 		).rejects.toThrow(/file_data/);
 	});
+
+	it("transforms a large base64 document in ~constant time", async () => {
+		const tiny = "data:application/pdf;base64,QQ==";
+		const big = "data:application/pdf;base64," + "A".repeat(12 * 1024 * 1024); // 12 MB
+
+		async function timeTransform(
+			fileData: string,
+			iterations: number,
+		): Promise<number> {
+			const messages: BaseMessage[] = [
+				{
+					role: "user",
+					content: [
+						{
+							type: "file",
+							file: { filename: "doc.pdf", file_data: fileData },
+						},
+					],
+				},
+			];
+			await transformGoogleMessages(
+				messages,
+				false,
+				20,
+				null,
+				undefined,
+				"google-ai-studio",
+			); // warm up
+			const start = performance.now();
+			for (let i = 0; i < iterations; i++) {
+				await transformGoogleMessages(
+					messages,
+					false,
+					20,
+					null,
+					undefined,
+					"google-ai-studio",
+				);
+			}
+			return performance.now() - start;
+		}
+
+		const iterations = 50;
+		const tinyMs = await timeTransform(tiny, iterations);
+		const bigMs = await timeTransform(big, iterations);
+
+		// parseFileDataUrl never scans the base64 body, so a 12MB document costs
+		// ~the same as a 4-byte one. A `^data:...,(.*)$` regex would scan + copy
+		// 12MB per call (~3ms), blowing past this bound. The size-ratio check is
+		// CPU-speed independent; the +100ms slack absorbs CI noise.
+		const scaled = tinyMs * 10;
+		const bound = scaled + 100;
+		expect(bigMs).toBeLessThan(bound);
+
+		// Sanity: the payload is forwarded intact, not truncated.
+		const out = await transformGoogleMessages(
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "file", file: { filename: "doc.pdf", file_data: big } },
+					],
+				},
+			],
+			false,
+			20,
+			null,
+			undefined,
+			"google-ai-studio",
+		);
+		const filePart = out[0].parts.find((p) => p.inline_data);
+		expect(filePart?.inline_data?.data.length).toBe(12 * 1024 * 1024);
+	});
 });
 
 describe("parseGoogleUpstreamDocumentError", () => {
