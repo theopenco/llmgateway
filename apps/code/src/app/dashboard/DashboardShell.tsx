@@ -109,18 +109,23 @@ export default function DashboardShell({
 	const [duplicateCardError, setDuplicateCardError] = useState<string | null>(
 		null,
 	);
-	const finalizedSessions = useRef<Set<string>>(new Set());
+	const activeSetupSession = useRef<string | null>(null);
+	const finalizeDevPlanRef = useRef(finalizeMutation.mutateAsync);
+
+	useEffect(() => {
+		finalizeDevPlanRef.current = finalizeMutation.mutateAsync;
+	}, [finalizeMutation.mutateAsync]);
 
 	useEffect(() => {
 		const sessionId = searchParams.get("setup_session_id");
 		if (
 			!sessionId ||
 			stripeLoading ||
-			finalizedSessions.current.has(sessionId)
+			activeSetupSession.current === sessionId
 		) {
 			return;
 		}
-		finalizedSessions.current.add(sessionId);
+		activeSetupSession.current = sessionId;
 		const abortController = new AbortController();
 		const { signal } = abortController;
 
@@ -132,7 +137,7 @@ export default function DashboardShell({
 		};
 
 		const finalizeOnce = async () => {
-			return await finalizeMutation.mutateAsync({
+			return await finalizeDevPlanRef.current({
 				body: { sessionId },
 			});
 		};
@@ -222,19 +227,18 @@ export default function DashboardShell({
 				if (!signal.aborted) {
 					clearParam();
 				}
+				if (activeSetupSession.current === sessionId) {
+					activeSetupSession.current = null;
+				}
 			});
 
 		return () => {
 			abortController.abort();
+			if (activeSetupSession.current === sessionId) {
+				activeSetupSession.current = null;
+			}
 		};
-	}, [
-		searchParams,
-		finalizeMutation,
-		queryClient,
-		router,
-		stripe,
-		stripeLoading,
-	]);
+	}, [searchParams, queryClient, router, stripe, stripeLoading]);
 
 	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
 		setSubscribingTier(tier);
