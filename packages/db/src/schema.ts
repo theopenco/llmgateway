@@ -977,11 +977,9 @@ export const log = pgTable(
 		projectId: text().notNull(),
 		apiKeyId: text().notNull(),
 		// Set when the request was authenticated with an end-user session. apiKeyId
-		// points to the stable project-level aggregate key; this points to the
+		// points to the stable end-customer aggregate key; this points to the
 		// actual short-lived browser session.
-		endUserSessionId: text().references(() => endUserSession.id, {
-			onDelete: "set null",
-		}),
+		endUserSessionId: text(),
 		// Set when the request was authenticated with an end-user session: the
 		// worker debits this wallet instead of organization.credits, and
 		// per-end-user usage history keys off these.
@@ -1152,13 +1150,6 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
-		// Per-end-user usage history for the embeddable SDK.
-		index("log_end_customer_wallet_id_idx")
-			.on(table.endCustomerWalletId, table.createdAt)
-			.where(sql`end_customer_wallet_id IS NOT NULL`),
-		index("log_end_user_session_id_idx")
-			.on(table.endUserSessionId, table.createdAt)
-			.where(sql`end_user_session_id IS NOT NULL`),
 	],
 );
 

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2b962511-6cb8-4f1d-a10e-42ca468f4151",
+  "id": "69601c6c-bdd8-4c93-8fb5-07d0e2bf99af",
   "prevId": "9b301715-4db2-4fc4-9018-614780f867b1",
   "ddl": [
     {
@@ -17557,62 +17557,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "end_customer_wallet_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": "end_customer_wallet_id IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "log_end_customer_wallet_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "end_user_session_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": "end_user_session_id IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "log_end_user_session_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -19599,23 +19543,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "guardrail_violation"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "end_user_session_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "end_user_session",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "log_end_user_session_id_end_user_session_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "log"
     },
     {
       "nameExplicit": false,

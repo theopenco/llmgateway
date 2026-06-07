@@ -117,8 +117,6 @@ CREATE INDEX "end_customer_project_id_idx" ON "end_customer" ("project_id");--> 
 CREATE INDEX "end_user_session_project_id_idx" ON "end_user_session" ("project_id");--> statement-breakpoint
 CREATE INDEX "end_user_session_wallet_id_idx" ON "end_user_session" ("wallet_id");--> statement-breakpoint
 CREATE INDEX "end_user_session_status_expires_at_idx" ON "end_user_session" ("status","expires_at");--> statement-breakpoint
-CREATE INDEX "log_end_customer_wallet_id_idx" ON "log" ("end_customer_wallet_id","created_at") WHERE end_customer_wallet_id IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "log_end_user_session_id_idx" ON "log" ("end_user_session_id","created_at") WHERE end_user_session_id IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "platform_webhook_delivery_status_next_attempt_idx" ON "platform_webhook_delivery" ("status","next_attempt_at") WHERE status = 'pending';--> statement-breakpoint
 CREATE INDEX "platform_webhook_delivery_endpoint_id_idx" ON "platform_webhook_delivery" ("webhook_endpoint_id");--> statement-breakpoint
 CREATE INDEX "video_job_end_user_session_id_idx" ON "video_job" ("end_user_session_id");--> statement-breakpoint
@@ -139,7 +137,6 @@ ALTER TABLE "end_user_session" ADD CONSTRAINT "end_user_session_project_id_proje
 ALTER TABLE "end_user_session" ADD CONSTRAINT "end_user_session_end_customer_id_end_customer_id_fkey" FOREIGN KEY ("end_customer_id") REFERENCES "end_customer"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "end_user_session" ADD CONSTRAINT "end_user_session_wallet_id_wallet_id_fkey" FOREIGN KEY ("wallet_id") REFERENCES "wallet"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "end_user_session" ADD CONSTRAINT "end_user_session_created_by_user_id_fkey" FOREIGN KEY ("created_by") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "log" ADD CONSTRAINT "log_end_user_session_id_end_user_session_id_fkey" FOREIGN KEY ("end_user_session_id") REFERENCES "end_user_session"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "platform_webhook_delivery" ADD CONSTRAINT "platform_webhook_delivery_6o69dFuU5JAY_fkey" FOREIGN KEY ("webhook_endpoint_id") REFERENCES "webhook_endpoint"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "video_job" ADD CONSTRAINT "video_job_end_user_session_id_end_user_session_id_fkey" FOREIGN KEY ("end_user_session_id") REFERENCES "end_user_session"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "video_job" ADD CONSTRAINT "video_job_end_customer_wallet_id_wallet_id_fkey" FOREIGN KEY ("end_customer_wallet_id") REFERENCES "wallet"("id") ON DELETE SET NULL;--> statement-breakpoint
