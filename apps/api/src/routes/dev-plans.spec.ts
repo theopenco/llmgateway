@@ -38,10 +38,14 @@ const SUBSCRIPTION_ID = "sub_dev_plan_upgrade";
 
 describe("POST /dev-plans/change-tier", () => {
 	let token: string;
+	let nowSeconds: number;
+	let dateNowSpy: ReturnType<typeof vi.spyOn>;
 
 	beforeEach(async () => {
-		token = await createTestUser();
 		vi.clearAllMocks();
+		token = await createTestUser();
+		nowSeconds = Math.floor(Date.now() / 1000);
+		dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(nowSeconds * 1000);
 
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -63,11 +67,12 @@ describe("POST /dev-plans/change-tier", () => {
 	});
 
 	afterEach(async () => {
+		dateNowSpy.mockRestore();
 		await db.delete(tables.transaction);
 		await deleteAll();
 	});
 
-	it("charges the full tier difference and preserves usage on upgrade", async () => {
+	it("charges and grants prorated upgrade deltas while preserving usage", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
 			customer: "cus_dev_plan",
@@ -82,6 +87,8 @@ describe("POST /dev-plans/change-tier", () => {
 				data: [
 					{
 						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
 						price: {
 							id: "price_lite",
 						},
@@ -136,13 +143,14 @@ describe("POST /dev-plans/change-tier", () => {
 			expect.objectContaining({
 				customer: "cus_dev_plan",
 				subscription: SUBSCRIPTION_ID,
-				amount: 5000,
+				amount: 2500,
 				currency: "usd",
 				metadata: expect.objectContaining({
 					organizationId: ORG_ID,
 					devPlanChange: "upgrade",
 					fromTier: "lite",
 					toTier: "pro",
+					remainingFraction: "0.5",
 				}),
 			}),
 		);
@@ -167,7 +175,7 @@ describe("POST /dev-plans/change-tier", () => {
 		});
 		expect(org?.devPlan).toBe("pro");
 		expect(org?.devPlanCreditsUsed).toBe("12.5");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe("162");
 
 		const transaction = await db.query.transaction.findFirst({
 			where: {
@@ -177,7 +185,7 @@ describe("POST /dev-plans/change-tier", () => {
 			},
 		});
 		expect(transaction?.type).toBe("dev_plan_upgrade");
-		expect(transaction?.amount).toBe("50");
+		expect(transaction?.amount).toBe("25");
 		expect(transaction?.stripeInvoiceId).toBe("in_upgrade");
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");
 	});

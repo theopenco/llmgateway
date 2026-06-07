@@ -11,6 +11,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -107,6 +108,21 @@ function getInvoicePaymentIntentId(invoice: Stripe.Invoice) {
 	return getStripeId(invoiceWithPaymentIntent.payment_intent);
 }
 
+function getRemainingBillingPeriodFraction(
+	subscriptionItem: Stripe.SubscriptionItem,
+) {
+	const nowSeconds = Date.now() / 1000;
+	const periodStart = subscriptionItem.current_period_start;
+	const periodEnd = subscriptionItem.current_period_end;
+	const periodSeconds = periodEnd - periodStart;
+
+	if (periodSeconds <= 0) {
+		return 0;
+	}
+
+	return Math.min(1, Math.max(0, (periodEnd - nowSeconds) / periodSeconds));
+}
+
 async function cleanupFailedUpgradeInvoice(params: {
 	invoiceId: string | null;
 	invoiceItemId: string | null;
@@ -143,6 +159,7 @@ async function collectDevPlanUpgradeCharge(params: {
 	organizationId: string;
 	currentTier: DevPlanTier;
 	newTier: DevPlanTier;
+	remainingFraction: number;
 }) {
 	const stripe = getStripe();
 	const customerId = getStripeId(params.subscription.customer);
@@ -153,9 +170,10 @@ async function collectDevPlanUpgradeCharge(params: {
 		});
 	}
 
-	const amountCents =
+	const fullDeltaCents =
 		(DEV_PLAN_PRICES[params.newTier] - DEV_PLAN_PRICES[params.currentTier]) *
 		100;
+	const amountCents = Math.round(fullDeltaCents * params.remainingFraction);
 
 	if (amountCents <= 0) {
 		return null;
@@ -167,6 +185,7 @@ async function collectDevPlanUpgradeCharge(params: {
 		devPlanChange: "upgrade",
 		fromTier: params.currentTier,
 		toTier: params.newTier,
+		remainingFraction: params.remainingFraction.toString(),
 	};
 
 	let invoiceItemId: string | null = null;
@@ -842,19 +861,22 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		const subscriptionItemId = subscription.items.data[0]?.id;
-		const currentPriceId = subscription.items.data[0]?.price.id;
+		const subscriptionItem = subscription.items.data[0];
+		const subscriptionItemId = subscriptionItem?.id;
+		const currentPriceId = subscriptionItem?.price.id;
 
-		if (!subscriptionItemId || !currentPriceId) {
+		if (!subscriptionItem || !subscriptionItemId || !currentPriceId) {
 			throw new HTTPException(500, {
 				message: "Subscription item not found",
 			});
 		}
 
-		// Tier changes suppress Stripe's default time-based proration. Upgrades
-		// collect the full tier-price difference after Stripe accepts the new
-		// subscription price; downgrades keep the current cycle's credits and
-		// issue no refund.
+		const remainingFraction =
+			getRemainingBillingPeriodFraction(subscriptionItem);
+
+		// Tier changes suppress Stripe's default proration invoice so we can
+		// charge the prorated upgrade amount with DevPass-specific metadata and
+		// grant the matching prorated credit delta. Downgrades issue no refund.
 		const updated = await getStripe().subscriptions.update(subscriptionId, {
 			items: [
 				{
@@ -888,6 +910,7 @@ devPlans.openapi(changeTier, async (c) => {
 					organizationId: personalOrg.id,
 					currentTier,
 					newTier,
+					remainingFraction,
 				}).catch(async (error: unknown) => {
 					try {
 						await getStripe().subscriptions.update(subscriptionId, {
@@ -919,7 +942,13 @@ devPlans.openapi(changeTier, async (c) => {
 			: null;
 
 		if (isUpgrade) {
-			const newCreditsLimit = getDevPlanCreditsLimit(newTier);
+			const proratedCreditDelta = getProratedCreditDelta(
+				currentTier,
+				newTier,
+				remainingFraction,
+			);
+			const newCreditsLimit =
+				getDevPlanCreditsLimit(currentTier) + proratedCreditDelta;
 
 			await db
 				.update(tables.organization)
