@@ -14,6 +14,13 @@ describe("getServiceTier", () => {
 		expect(getServiceTier("openai", "priority")?.multiplier).toBe(2.5);
 	});
 
+	it("returns the configured Google AI Studio Flex / Priority tiers", () => {
+		expect(getServiceTier("google-ai-studio", "flex")?.multiplier).toBe(0.5);
+		expect(getServiceTier("google-ai-studio", "priority")?.multiplier).toBe(
+			1.8,
+		);
+	});
+
 	it("returns undefined for unknown tiers or providers without tiers", () => {
 		expect(getServiceTier("google-vertex", "nope")).toBeUndefined();
 		expect(getServiceTier("anthropic", "priority")).toBeUndefined();
@@ -73,6 +80,30 @@ describe("model service tier support", () => {
 		).toEqual(["flex"]);
 	});
 
+	it("returns explicit Google AI Studio tiers for supported models", () => {
+		expect(
+			getSupportedServiceTiers("gemini-2.5-pro", "google-ai-studio").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gemini-2.5-flash", "google-ai-studio").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gemini-3.5-flash", "google-ai-studio").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers(
+				"gemini-3-pro-image-preview",
+				"google-ai-studio",
+			).map((tier) => tier.id),
+		).toEqual(["flex", "priority"]);
+	});
+
 	it("limits Google Vertex service tiers to the global endpoint", () => {
 		expect(
 			supportsServiceTier(
@@ -104,6 +135,13 @@ describe("model service tier support", () => {
 		expect(getSupportedServiceTiers("gpt-4o", "openai")).toEqual([]);
 		expect(
 			supportsServiceTier("gemini-3-pro-preview", "google-vertex", "priority"),
+		).toBe(false);
+		expect(
+			supportsServiceTier(
+				"gemini-3.1-flash-image-preview",
+				"google-ai-studio",
+				"flex",
+			),
 		).toBe(false);
 	});
 });

@@ -620,6 +620,31 @@ describe("calculateCosts", () => {
 			expect(result.outputCost).toBeCloseTo(0.0063 * 0.5);
 		});
 
+		it("applies Google AI Studio Flex multipliers to configured models", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-ai-studio",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00125 * 0.5);
+			expect(result.outputCost).toBeCloseTo(0.007 * 0.5);
+			expect(result.totalCost).toBeCloseTo((0.00125 + 0.007) * 0.5);
+		});
+
 		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
 			const result = await calculateCosts(
 				"gemini-2.5-pro",
@@ -739,6 +764,30 @@ describe("calculateCosts", () => {
 			);
 			expect(result.inputCost).toBeCloseTo(0.001);
 			expect(result.outputCost).toBeCloseTo(0.0015);
+		});
+
+		it("ignores Google AI Studio tiers for unsupported model mappings", async () => {
+			const result = await calculateCosts(
+				"gemini-3.1-flash-image-preview",
+				"google-ai-studio",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00025);
+			expect(result.outputCost).toBeCloseTo(0.00105);
 		});
 
 		it("ignores Google Vertex tiers outside the global endpoint", async () => {

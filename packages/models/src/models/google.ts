@@ -12,6 +12,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-pro",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -388,6 +389,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-flash",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "0.3e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.03e-6",
@@ -445,6 +447,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-flash-lite",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "0.1e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -675,6 +678,7 @@ export const googleModels = [
 				test: "skip",
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.1-pro-preview",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -851,6 +855,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.1-flash-lite",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "0.25e-6",
 				outputPrice: "1.5e-6",
 				cachedInputPrice: "0.025e-6",
@@ -910,6 +915,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.5-flash",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "1.5e-6",
 				outputPrice: "9e-6",
 				cachedInputPrice: "0.15e-6",
@@ -1226,6 +1232,7 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-3-flash-preview",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.05e-6",
@@ -1344,6 +1351,7 @@ export const googleModels = [
 				test: "skip",
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-flash-image",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "0.3e-6",
 				outputPrice: "30e-6",
 				cachedInputPrice: "0.03e-6",
@@ -1406,6 +1414,7 @@ export const googleModels = [
 				test: "skip",
 				providerId: "google-ai-studio",
 				externalId: "gemini-3-pro-image-preview",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
