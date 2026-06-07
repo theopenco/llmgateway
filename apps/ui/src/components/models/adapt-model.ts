@@ -38,7 +38,7 @@ export function adaptProviderMapping(
 			.map((tier) => ({
 				id: tier.id,
 				name: tier.name,
-				multiplier: tier.multiplier,
+				multiplier: p.serviceTierMultipliers?.[tier.id] ?? tier.multiplier,
 				description: tier.description,
 			})) ?? null;
 
