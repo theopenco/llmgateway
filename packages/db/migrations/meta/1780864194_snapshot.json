@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "78662648-9bfe-4250-b038-1e43eac14b29",
+  "id": "5e02105a-12f9-4d26-939c-b6d196abe33f",
   "prevId": "201ba0b5-6d52-42dd-814b-ab4f64931256",
   "ddl": [
     {
