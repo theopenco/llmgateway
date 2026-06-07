@@ -121,6 +121,7 @@ import {
 	type ProviderModelMapping,
 	type ProviderRequestBody,
 	providers,
+	supportsServiceTier,
 	type WebSearchTool,
 	expandAllProviderRegions,
 	getProviderDefinition,
@@ -792,6 +793,20 @@ function resolveOpenAIServiceTier(
 		return normalized;
 	}
 	return null;
+}
+
+function getForwardedServiceTier(
+	model: string,
+	provider: Provider,
+	region: string | undefined,
+	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
+): "flex" | "priority" | undefined {
+	if (serviceTier !== "flex" && serviceTier !== "priority") {
+		return undefined;
+	}
+	return supportsServiceTier(model, provider, serviceTier, region ?? null)
+		? serviceTier
+		: undefined;
 }
 
 // Pre-compiled regex pattern to avoid recompilation per request
@@ -4871,7 +4886,12 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_retention,
 			providerCacheControlEnabled,
 			n,
-			service_tier,
+			getForwardedServiceTier(
+				usedInternalModel,
+				usedProvider,
+				usedRegion,
+				service_tier,
+			),
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -5473,10 +5493,16 @@ chat.openapi(completions, async (c) => {
 					}
 
 					try {
+						const forwardedServiceTier = getForwardedServiceTier(
+							usedInternalModel,
+							usedProvider,
+							usedRegion,
+							service_tier,
+						);
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							webSearchEnabled: !!webSearchTool,
-							serviceTier: service_tier,
+							serviceTier: forwardedServiceTier,
 						});
 						headers["Content-Type"] = "application/json";
 
@@ -5504,7 +5530,11 @@ chat.openapi(completions, async (c) => {
 
 						// For the Gemini Developer API the processing tier is a body
 						// field; Vertex uses a header set above in getProviderHeaders.
-						applyGoogleServiceTier(requestBody, usedProvider, service_tier);
+						applyGoogleServiceTier(
+							requestBody,
+							usedProvider,
+							forwardedServiceTier,
+						);
 
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
@@ -5519,7 +5549,7 @@ chat.openapi(completions, async (c) => {
 							signal: fetchSignal,
 						});
 
-						logServiceTierRequest(usedProvider, service_tier, res);
+						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 						// AI Studio reports the served tier in a response header; Vertex
 						// reports it later in usageMetadata.trafficType (set below).
 						servedServiceTier = resolveServedServiceTier({
@@ -7678,7 +7708,16 @@ chat.openapi(completions, async (c) => {
 										imageByteSize,
 									);
 
-									logVertexTrafficType(usedProvider, service_tier, data);
+									logVertexTrafficType(
+										usedProvider,
+										getForwardedServiceTier(
+											usedInternalModel,
+											usedProvider,
+											usedRegion,
+											service_tier,
+										),
+										data,
+									);
 									{
 										const served = resolveServedServiceTier({
 											trafficType: data?.usageMetadata?.trafficType,
@@ -9292,10 +9331,16 @@ chat.openapi(completions, async (c) => {
 		res = undefined;
 
 		try {
+			const forwardedServiceTier = getForwardedServiceTier(
+				usedInternalModel,
+				usedProvider,
+				usedRegion,
+				service_tier,
+			);
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
-				serviceTier: service_tier,
+				serviceTier: forwardedServiceTier,
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";
@@ -9338,7 +9383,7 @@ chat.openapi(completions, async (c) => {
 
 			// For the Gemini Developer API the processing tier is a body field;
 			// Vertex uses a header set above in getProviderHeaders.
-			applyGoogleServiceTier(requestBody, usedProvider, service_tier);
+			applyGoogleServiceTier(requestBody, usedProvider, forwardedServiceTier);
 
 			res = await fetch(url, {
 				method: "POST",
@@ -9350,7 +9395,7 @@ chat.openapi(completions, async (c) => {
 				signal: fetchSignal,
 			});
 
-			logServiceTierRequest(usedProvider, service_tier, res);
+			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 			// AI Studio reports the served tier in a response header; Vertex reports
 			// it later in usageMetadata.trafficType (set below).
 			servedServiceTier = resolveServedServiceTier({
@@ -10633,7 +10678,16 @@ chat.openapi(completions, async (c) => {
 		? parseInt(contentLengthHeader, 10)
 		: 0;
 
-	logVertexTrafficType(usedProvider, service_tier, json);
+	logVertexTrafficType(
+		usedProvider,
+		getForwardedServiceTier(
+			usedInternalModel,
+			usedProvider,
+			usedRegion,
+			service_tier,
+		),
+		json,
+	);
 	if (usedProvider === "openai") {
 		const served = resolveOpenAIServiceTier(json);
 		if (served !== undefined) {

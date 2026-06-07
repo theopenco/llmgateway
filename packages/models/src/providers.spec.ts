@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
 import { formatServiceTierMultiplier, getServiceTier } from "./providers.js";
 
 describe("getServiceTier", () => {
@@ -30,5 +31,26 @@ describe("formatServiceTierMultiplier", () => {
 
 	it("returns an empty string for the standard multiplier", () => {
 		expect(formatServiceTierMultiplier(1)).toBe("");
+	});
+});
+
+describe("model service tier support", () => {
+	it("returns explicit OpenAI tiers for supported models", () => {
+		expect(
+			getSupportedServiceTiers("gpt-5.5", "openai").map((tier) => tier.id),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.5-pro", "openai").map((tier) => tier.id),
+		).toEqual(["flex"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.3-codex", "openai").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["priority"]);
+	});
+
+	it("does not infer support from provider-level tiers", () => {
+		expect(supportsServiceTier("gpt-4o", "openai", "priority")).toBe(false);
+		expect(getSupportedServiceTiers("gpt-4o", "openai")).toEqual([]);
 	});
 });

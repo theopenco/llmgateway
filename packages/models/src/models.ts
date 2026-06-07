@@ -319,6 +319,12 @@ export interface ProviderModelMapping {
 	 */
 	supportsResponsesApi?: boolean;
 	/**
+	 * Provider service tier IDs supported by this specific model mapping.
+	 * Provider definitions own the tier metadata and multipliers; mappings opt
+	 * in to the subset actually supported by the upstream model.
+	 */
+	serviceTiers?: string[];
+	/**
 	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
 	 * (multiple completion choices per request) natively. When true, the gateway
 	 * forwards `n` to the upstream provider; when false/unset, requests with

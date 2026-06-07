@@ -716,6 +716,30 @@ describe("calculateCosts", () => {
 			expect(result.inputCost).toBeCloseTo(0.0003);
 			expect(result.outputCost).toBeCloseTo(0.00075);
 		});
+
+		it("ignores the tier for model mappings without configured service tier support", async () => {
+			const result = await calculateCosts(
+				"gpt-4",
+				"openai",
+				null,
+				100,
+				50,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.001);
+			expect(result.outputCost).toBeCloseTo(0.0015);
+		});
 	});
 
 	it("should use reported image output tokens for gpt-image-2", async () => {

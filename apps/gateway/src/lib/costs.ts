@@ -9,9 +9,9 @@ import {
 	type ProviderModelMapping,
 	models,
 	type PricingTier,
-	providers,
 	type ToolCall,
 	expandAllProviderRegions,
+	getSupportedServiceTiers,
 } from "@llmgateway/models";
 
 /**
@@ -20,18 +20,20 @@ import {
  * `usageMetadata.trafficType`, AI Studio via the `x-gemini-service-tier`
  * response header — NOT what the caller requested, since Google silently
  * downgrades unsupported tiers to standard. Returns 1 (no change) for the
- * standard tier, unknown tiers, or providers without configured tiers.
+ * standard tier, unknown tiers, or model mappings without configured support.
  */
 function getServiceTierMultiplier(
+	model: string,
 	provider: string,
+	region: string | null,
 	servedServiceTier: string | null | undefined,
 ): number {
 	if (!servedServiceTier) {
 		return 1;
 	}
-	const tier = providers
-		.find((p) => p.id === provider)
-		?.serviceTiers?.find((t) => t.id === servedServiceTier);
+	const tier = getSupportedServiceTiers(model, provider, region).find(
+		(t) => t.id === servedServiceTier,
+	);
 	return tier?.multiplier ?? 1;
 }
 
@@ -408,7 +410,7 @@ export async function calculateCosts(
 	// those flat fees keep the plain `discountMultiplier`. When the served tier
 	// is standard/unknown the multiplier is 1 and behavior is unchanged.
 	const serviceTierMultiplier = new Decimal(
-		getServiceTierMultiplier(provider, servedServiceTier),
+		getServiceTierMultiplier(model, provider, region, servedServiceTier),
 	);
 	const tokenDiscountMultiplier = discountMultiplier.times(
 		serviceTierMultiplier,

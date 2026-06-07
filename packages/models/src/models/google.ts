@@ -49,6 +49,7 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-2.5-pro",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1440,6 +1441,7 @@ export const googleModels = [
 				test: "skip",
 				providerId: "google-vertex",
 				externalId: "gemini-3-pro-image-preview",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",

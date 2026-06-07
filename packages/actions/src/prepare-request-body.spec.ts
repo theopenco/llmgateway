@@ -452,6 +452,15 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 		expect(requestBody.service_tier).toBe("priority");
 	});
 
+	test("should not forward service_tier to unsupported OpenAI models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
 	test("should not forward service_tier to Azure", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
 			provider: "azure",

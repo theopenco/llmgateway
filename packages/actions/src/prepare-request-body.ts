@@ -13,6 +13,7 @@ import {
 	type PromptCacheRetention,
 	type ProviderRequestBody,
 	supportsOpenAIExtendedPromptCache,
+	supportsServiceTier,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
@@ -734,6 +735,16 @@ export async function prepareRequestBody(
 	service_tier?: "auto" | "default" | "flex" | "priority",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+	const supportedServiceTier =
+		(service_tier === "flex" || service_tier === "priority") &&
+		supportsServiceTier(
+			usedInternalModel,
+			usedProvider,
+			service_tier,
+			usedRegion,
+		)
+			? service_tier
+			: undefined;
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
@@ -1272,8 +1283,8 @@ export async function prepareRequestBody(
 				};
 
 				if (usedProvider === "openai") {
-					if (service_tier === "flex" || service_tier === "priority") {
-						responsesBody.service_tier = service_tier;
+					if (supportedServiceTier) {
+						responsesBody.service_tier = supportedServiceTier;
 					}
 					if (prompt_cache_key !== undefined) {
 						responsesBody.prompt_cache_key = prompt_cache_key;
@@ -1359,8 +1370,8 @@ export async function prepareRequestBody(
 			} else {
 				// Use regular chat completions format
 				if (usedProvider === "openai") {
-					if (service_tier === "flex" || service_tier === "priority") {
-						requestBody.service_tier = service_tier;
+					if (supportedServiceTier) {
+						requestBody.service_tier = supportedServiceTier;
 					}
 					if (prompt_cache_key !== undefined) {
 						requestBody.prompt_cache_key = prompt_cache_key;
