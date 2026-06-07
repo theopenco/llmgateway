@@ -117,6 +117,100 @@ function hasEstimatedImageCost(mapping: ApiModelProviderMapping): boolean {
 	);
 }
 
+interface ServiceTierPriceRow {
+	id: string;
+	name: string;
+	inputPrice: string | null;
+	cachedInputPrice: string | null;
+	outputPrice: string | null;
+	description: string | null;
+	badge: string | null;
+}
+
+const SERVICE_TIER_LABELS: Record<string, string> = {
+	auto: "Auto",
+	default: "Default",
+	flex: "Flex",
+	priority: "Priority",
+	scale: "Scale",
+};
+
+function getServiceTierName(id: string, providerInfo: ApiProvider): string {
+	return (
+		providerInfo.serviceTiers?.find((tier) => tier.id === id)?.name ??
+		SERVICE_TIER_LABELS[id] ??
+		id
+	);
+}
+
+function multiplyPrice(
+	price: string | null | undefined,
+	multiplier: number,
+): string | null {
+	if (price === null || price === undefined) {
+		return null;
+	}
+	const numericPrice = Number(price);
+	if (!Number.isFinite(numericPrice)) {
+		return null;
+	}
+	return String(numericPrice * multiplier);
+}
+
+function getServiceTierPriceRows(
+	mapping: ApiModelProviderMapping,
+	providerInfo: ApiProvider,
+): ServiceTierPriceRow[] {
+	const rows: ServiceTierPriceRow[] = [];
+	const seen = new Set<string>();
+
+	for (const tier of mapping.serviceTierPricing ?? []) {
+		if (!tier.inputPrice && !tier.cachedInputPrice && !tier.outputPrice) {
+			continue;
+		}
+		seen.add(tier.id);
+		rows.push({
+			id: tier.id,
+			name: getServiceTierName(tier.id, providerInfo),
+			inputPrice: tier.inputPrice,
+			cachedInputPrice: tier.cachedInputPrice,
+			outputPrice: tier.outputPrice,
+			description: tier.description,
+			badge: null,
+		});
+	}
+
+	const supportedTiers = new Set(mapping.supportedServiceTiers ?? []);
+	for (const tier of providerInfo.serviceTiers ?? []) {
+		if (seen.has(tier.id)) {
+			continue;
+		}
+		if (supportedTiers.size > 0 && !supportedTiers.has(tier.id)) {
+			continue;
+		}
+		const inputPrice = multiplyPrice(mapping.inputPrice, tier.multiplier);
+		const cachedInputPrice = multiplyPrice(
+			mapping.cachedInputPrice,
+			tier.multiplier,
+		);
+		const outputPrice = multiplyPrice(mapping.outputPrice, tier.multiplier);
+		if (!inputPrice && !cachedInputPrice && !outputPrice) {
+			continue;
+		}
+		rows.push({
+			id: tier.id,
+			name: tier.name,
+			inputPrice,
+			cachedInputPrice,
+			outputPrice,
+			description: tier.description ?? null,
+			badge: tier.multiplier === 1 ? null : `${tier.multiplier}x`,
+		});
+	}
+
+	return rows;
+}
+
 export function ModelCard({
 	model,
 	shouldShowStabilityWarning,
@@ -517,6 +611,7 @@ export function ProviderSection({
 	const hasImageCostEstimate = hasEstimatedImageCost(activeMapping);
 	const shouldShowTokenPricing =
 		!isImageGen || showTokenPricing || !hasImageCostEstimate;
+	const serviceTierRows = getServiceTierPriceRows(activeMapping, providerInfo);
 
 	return (
 		<div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
@@ -784,6 +879,78 @@ export function ProviderSection({
 								unit="/M tokens"
 								formatPrice={formatPrice}
 							/>
+						</div>
+					</div>
+				)}
+
+				{/* Service tier pricing (if applicable) */}
+				{serviceTierRows.length > 0 && (
+					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+							Processing Tiers
+						</div>
+						<div className="space-y-2">
+							{serviceTierRows.map((tier) => {
+								const hasCachedPrice = tier.cachedInputPrice !== null;
+								return (
+									<div
+										key={tier.id}
+										className="rounded-md bg-background/70 border border-border/30 p-2"
+									>
+										<div className="flex items-center justify-between gap-2 mb-2">
+											<div className="text-xs font-medium text-foreground">
+												{tier.name}
+											</div>
+											{tier.badge && (
+												<Badge
+													variant="secondary"
+													className="text-[10px] px-1.5 py-0 h-4"
+												>
+													{tier.badge}
+												</Badge>
+											)}
+										</div>
+										<div
+											className={`grid ${hasCachedPrice ? "grid-cols-3" : "grid-cols-2"} gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden`}
+										>
+											<div className="bg-background p-2">
+												<PriceCell
+													label="Input"
+													price={tier.inputPrice}
+													discount={activeMapping.discount}
+													unit="/M tokens"
+													formatPrice={formatPrice}
+												/>
+											</div>
+											{hasCachedPrice && (
+												<div className="bg-background p-2">
+													<PriceCell
+														label="Cached"
+														price={tier.cachedInputPrice}
+														discount={activeMapping.discount}
+														unit="/M tokens"
+														formatPrice={formatPrice}
+													/>
+												</div>
+											)}
+											<div className="bg-background p-2">
+												<PriceCell
+													label="Output"
+													price={tier.outputPrice}
+													discount={activeMapping.discount}
+													unit="/M tokens"
+													formatPrice={formatPrice}
+												/>
+											</div>
+										</div>
+										{tier.description && (
+											<p className="text-[10px] leading-snug text-muted-foreground mt-1.5">
+												{tier.description}
+											</p>
+										)}
+									</div>
+								);
+							})}
 						</div>
 					</div>
 				)}

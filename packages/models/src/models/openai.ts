@@ -1386,6 +1386,20 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				supportedServiceTiers: ["flex", "priority", "scale"],
+				serviceTierPricing: [
+					{
+						id: "flex",
+						inputPrice: "1.25e-6",
+						cachedInputPrice: "0.13e-6",
+						outputPrice: "7.5e-6",
+					},
+					{
+						id: "priority",
+						inputPrice: "5.0e-6",
+						cachedInputPrice: "0.5e-6",
+						outputPrice: "30.0e-6",
+					},
+				],
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -1453,6 +1467,13 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				supportsResponsesApi: true,
 				supportedServiceTiers: ["flex", "scale"],
+				serviceTierPricing: [
+					{
+						id: "flex",
+						inputPrice: "15.0e-6",
+						outputPrice: "90.0e-6",
+					},
+				],
 				jsonOutputSchema: false,
 				jsonOutput: true,
 			},
@@ -1504,6 +1525,20 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				supportedServiceTiers: ["flex", "priority", "scale"],
+				serviceTierPricing: [
+					{
+						id: "flex",
+						inputPrice: "0.375e-6",
+						cachedInputPrice: "0.0375e-6",
+						outputPrice: "2.25e-6",
+					},
+					{
+						id: "priority",
+						inputPrice: "1.5e-6",
+						cachedInputPrice: "0.15e-6",
+						outputPrice: "9.0e-6",
+					},
+				],
 				jsonOutputSchema: true,
 				jsonOutput: true,
 			},
@@ -1556,6 +1591,14 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				supportedServiceTiers: ["flex", "scale"],
+				serviceTierPricing: [
+					{
+						id: "flex",
+						inputPrice: "0.10e-6",
+						cachedInputPrice: "0.01e-6",
+						outputPrice: "0.625e-6",
+					},
+				],
 				jsonOutputSchema: true,
 				jsonOutput: true,
 			},
@@ -1608,6 +1651,20 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				supportedServiceTiers: ["flex", "priority", "scale"],
+				serviceTierPricing: [
+					{
+						id: "flex",
+						inputPrice: "2.5e-6",
+						cachedInputPrice: "0.25e-6",
+						outputPrice: "15.0e-6",
+					},
+					{
+						id: "priority",
+						inputPrice: "12.5e-6",
+						cachedInputPrice: "1.25e-6",
+						outputPrice: "75.0e-6",
+					},
+				],
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
@@ -1674,6 +1731,13 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				supportsResponsesApi: true,
 				supportedServiceTiers: ["flex", "scale"],
+				serviceTierPricing: [
+					{
+						id: "flex",
+						inputPrice: "15.0e-6",
+						outputPrice: "90.0e-6",
+					},
+				],
 				jsonOutputSchema: false,
 				jsonOutput: true,
 			},
@@ -1753,6 +1817,14 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				supportsResponsesApi: true,
 				supportedServiceTiers: ["priority", "scale"],
+				serviceTierPricing: [
+					{
+						id: "priority",
+						inputPrice: "3.5e-6",
+						cachedInputPrice: "0.35e-6",
+						outputPrice: "28.0e-6",
+					},
+				],
 				jsonOutputSchema: false,
 				jsonOutput: true,
 			},

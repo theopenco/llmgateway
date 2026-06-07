@@ -172,6 +172,25 @@ const convertToApiModel = (
 										: null,
 							}))
 						: null,
+					supportedServiceTiers: map.supportedServiceTiers ?? null,
+					serviceTierPricing: map.serviceTierPricing
+						? map.serviceTierPricing.map((tier) => ({
+								id: tier.id,
+								inputPrice:
+									tier.inputPrice !== undefined
+										? String(tier.inputPrice)
+										: null,
+								cachedInputPrice:
+									tier.cachedInputPrice !== undefined
+										? String(tier.cachedInputPrice)
+										: null,
+								outputPrice:
+									tier.outputPrice !== undefined
+										? String(tier.outputPrice)
+										: null,
+								description: tier.description ?? null,
+							}))
+						: null,
 					discount: map.discount?.toString() ?? null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
@@ -189,6 +208,13 @@ const convertToApiModel = (
 					color: provider.color ?? null,
 					website: provider.website ?? null,
 					announcement: provider.announcement ?? null,
+					serviceTiers:
+						provider.serviceTiers?.map((tier) => ({
+							id: tier.id,
+							name: tier.name,
+							multiplier: tier.multiplier,
+							description: tier.description ?? null,
+						})) ?? null,
 					status: "active",
 				},
 			},

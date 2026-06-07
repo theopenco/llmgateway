@@ -4,6 +4,21 @@ import { getConfig } from "./config-server";
 
 import type { DiscountData } from "./discount";
 
+export interface ApiServiceTier {
+	id: "auto" | "default" | "flex" | "priority" | "scale";
+	name: string;
+	multiplier: number;
+	description: string | null;
+}
+
+export interface ApiServiceTierPricing {
+	id: "auto" | "default" | "flex" | "priority" | "scale";
+	inputPrice: string | null;
+	cachedInputPrice: string | null;
+	outputPrice: string | null;
+	description: string | null;
+}
+
 export interface ApiProvider {
 	id: string;
 	createdAt: string;
@@ -14,6 +29,7 @@ export interface ApiProvider {
 	color: string | null;
 	website: string | null;
 	announcement: string | null;
+	serviceTiers: ApiServiceTier[] | null;
 	status: "active" | "inactive";
 }
 
@@ -61,6 +77,8 @@ export interface ApiModelProviderMapping {
 		cacheWriteInputPrice: string | null;
 		cacheWriteInputPrice1h: string | null;
 	}> | null;
+	supportedServiceTiers: ApiServiceTier["id"][] | null;
+	serviceTierPricing: ApiServiceTierPricing[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;

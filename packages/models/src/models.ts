@@ -77,6 +77,14 @@ export interface PricingTier {
 	cacheWriteInputPrice1h?: Price;
 }
 
+export interface ServiceTierPricing {
+	id: ServiceTierId;
+	inputPrice?: Price;
+	cachedInputPrice?: Price;
+	outputPrice?: Price;
+	description?: string;
+}
+
 /**
  * Pricing and availability for a specific geographic region.
  * When defined on a ProviderModelMapping, the first entry is the default region.
@@ -333,6 +341,12 @@ export interface ProviderModelMapping {
 	 * `default` are accepted separately by providers that implement the field.
 	 */
 	supportedServiceTiers?: ServiceTierId[];
+	/**
+	 * Concrete per-token pricing for supported processing tiers where the
+	 * provider publishes token rates. Prices are per token, matching inputPrice
+	 * and outputPrice.
+	 */
+	serviceTierPricing?: ServiceTierPricing[];
 	/**
 	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
 	 * (multiple completion choices per request) natively. When true, the gateway

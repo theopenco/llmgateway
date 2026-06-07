@@ -12694,6 +12694,15 @@ export interface operations {
                                     cacheWriteInputPrice: string | null;
                                     cacheWriteInputPrice1h: string | null;
                                 }[] | null;
+                                supportedServiceTiers: ("auto" | "default" | "flex" | "priority" | "scale")[] | null;
+                                serviceTierPricing: {
+                                    /** @enum {string} */
+                                    id: "auto" | "default" | "flex" | "priority" | "scale";
+                                    inputPrice: string | null;
+                                    cachedInputPrice: string | null;
+                                    outputPrice: string | null;
+                                    description: string | null;
+                                }[] | null;
                                 deprecatedAt: string | null;
                                 deactivatedAt: string | null;
                                 /** @enum {string} */
@@ -12731,6 +12740,13 @@ export interface operations {
                             color: string | null;
                             website: string | null;
                             announcement: string | null;
+                            serviceTiers: {
+                                /** @enum {string} */
+                                id: "auto" | "default" | "flex" | "priority" | "scale";
+                                name: string;
+                                multiplier: number;
+                                description: string | null;
+                            }[] | null;
                             /** @enum {string} */
                             status: "active" | "inactive";
                         }[];

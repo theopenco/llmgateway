@@ -127,6 +127,25 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 										: null,
 							}))
 						: null,
+					supportedServiceTiers: map.supportedServiceTiers ?? null,
+					serviceTierPricing: map.serviceTierPricing
+						? map.serviceTierPricing.map((tier) => ({
+								id: tier.id,
+								inputPrice:
+									tier.inputPrice !== undefined
+										? String(tier.inputPrice)
+										: null,
+								cachedInputPrice:
+									tier.cachedInputPrice !== undefined
+										? String(tier.cachedInputPrice)
+										: null,
+								outputPrice:
+									tier.outputPrice !== undefined
+										? String(tier.outputPrice)
+										: null,
+								description: tier.description ?? null,
+							}))
+						: null,
 					discount: map.discount?.toString() ?? null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
@@ -144,6 +163,13 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					color: providerInfo.color ?? null,
 					website: providerInfo.website ?? null,
 					announcement: providerInfo.announcement ?? null,
+					serviceTiers:
+						providerInfo.serviceTiers?.map((tier) => ({
+							id: tier.id,
+							name: tier.name,
+							multiplier: tier.multiplier,
+							description: tier.description ?? null,
+						})) ?? null,
 					status: "active",
 				},
 			},

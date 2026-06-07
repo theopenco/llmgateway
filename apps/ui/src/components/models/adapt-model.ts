@@ -89,6 +89,16 @@ export function adaptProviderMapping(
 								: null,
 					}))
 				: null,
+			supportedServiceTiers: p.supportedServiceTiers ?? null,
+			serviceTierPricing: p.serviceTierPricing
+				? p.serviceTierPricing.map((t) => ({
+						id: t.id,
+						inputPrice: toStr(t.inputPrice),
+						cachedInputPrice: toStr(t.cachedInputPrice),
+						outputPrice: toStr(t.outputPrice),
+						description: t.description ?? null,
+					}))
+				: null,
 			discount: p.discount ?? null,
 			stability: p.stability ?? null,
 			supportedParameters: p.supportedParameters ?? null,
@@ -106,6 +116,13 @@ export function adaptProviderMapping(
 			color: p.providerInfo?.color ?? null,
 			website: p.providerInfo?.website ?? null,
 			announcement: null,
+			serviceTiers:
+				p.providerInfo?.serviceTiers?.map((tier) => ({
+					id: tier.id,
+					name: tier.name,
+					multiplier: tier.multiplier,
+					description: tier.description ?? null,
+				})) ?? null,
 			status: "active" as const,
 		},
 	};

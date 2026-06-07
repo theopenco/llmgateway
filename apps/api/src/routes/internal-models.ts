@@ -17,6 +17,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as modelDefinitions,
+	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 
@@ -35,6 +36,16 @@ const providerSchema = z.object({
 	color: z.string().nullable(),
 	website: z.string().nullable(),
 	announcement: z.string().nullable(),
+	serviceTiers: z
+		.array(
+			z.object({
+				id: z.enum(["auto", "default", "flex", "priority", "scale"]),
+				name: z.string(),
+				multiplier: z.number(),
+				description: z.string().nullable(),
+			}),
+		)
+		.nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -48,6 +59,14 @@ const pricingTierSchema = z.object({
 	cacheReadInputPrice: z.string().nullable(),
 	cacheWriteInputPrice: z.string().nullable(),
 	cacheWriteInputPrice1h: z.string().nullable(),
+});
+
+const serviceTierPricingSchema = z.object({
+	id: z.enum(["auto", "default", "flex", "priority", "scale"]),
+	inputPrice: z.string().nullable(),
+	cachedInputPrice: z.string().nullable(),
+	outputPrice: z.string().nullable(),
+	description: z.string().nullable(),
 });
 
 // Model provider mapping schema
@@ -91,6 +110,10 @@ const modelProviderMappingSchema = z.object({
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
+	supportedServiceTiers: z
+		.array(z.enum(["auto", "default", "flex", "priority", "scale"]))
+		.nullable(),
+	serviceTierPricing: z.array(serviceTierPricingSchema).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
 	status: z.enum(["active", "inactive"]),
@@ -285,6 +308,23 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								: null,
 					}));
 				})(),
+				supportedServiceTiers: sharedMapping?.supportedServiceTiers ?? null,
+				serviceTierPricing: sharedMapping?.serviceTierPricing
+					? sharedMapping.serviceTierPricing.map((tier) => ({
+							id: tier.id,
+							inputPrice:
+								tier.inputPrice !== undefined ? String(tier.inputPrice) : null,
+							cachedInputPrice:
+								tier.cachedInputPrice !== undefined
+									? String(tier.cachedInputPrice)
+									: null,
+							outputPrice:
+								tier.outputPrice !== undefined
+									? String(tier.outputPrice)
+									: null,
+							description: tier.description ?? null,
+						}))
+					: null,
 			};
 		}),
 	}));
@@ -324,7 +364,23 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		},
 	});
 
-	return c.json({ providers });
+	return c.json({
+		providers: providers.map((provider) => {
+			const sharedProvider = providerDefinitions.find(
+				(p) => p.id === provider.id,
+			);
+			return {
+				...provider,
+				serviceTiers:
+					sharedProvider?.serviceTiers?.map((tier) => ({
+						id: tier.id,
+						name: tier.name,
+						multiplier: tier.multiplier,
+						description: tier.description ?? null,
+					})) ?? null,
+			};
+		}),
+	});
 });
 
 // GET /internal/models/{modelId}/benchmarks - Per-provider performance stats
