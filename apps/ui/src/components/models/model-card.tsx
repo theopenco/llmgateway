@@ -521,10 +521,9 @@ export function ProviderSection({
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
 	const serviceTiers = providerInfo.serviceTiers ?? [];
-	const selectedServiceTier = serviceTiers.find(
-		(tier) => tier.id === selectedServiceTierId,
-	);
-	const serviceTierMultiplier = selectedServiceTier?.multiplier ?? 1;
+	const serviceTierMultiplier =
+		serviceTiers.find((tier) => tier.id === selectedServiceTierId)
+			?.multiplier ?? 1;
 	const providerModelId = activeMapping.region
 		? `${providerId}/${modelId}:${activeMapping.region}`
 		: `${providerId}/${modelId}`;
@@ -533,7 +532,7 @@ export function ProviderSection({
 		!isImageGen || showTokenPricing || !hasImageCostEstimate;
 
 	return (
-		<div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+		<div className="flex flex-1 flex-col rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
 			{/* Provider header */}
 			<div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border/30">
 				<div className="flex items-center gap-2 min-w-0">
@@ -555,6 +554,44 @@ export function ProviderSection({
 					)}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
+					{serviceTiers.length > 0 && (
+						<div
+							className="flex h-6 items-center rounded-md border border-border/50 bg-background/80 p-0.5"
+							aria-label="Service tier"
+						>
+							<button
+								type="button"
+								onClick={() => setSelectedServiceTierId("standard")}
+								className={cn(
+									"h-5 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
+									selectedServiceTierId === "standard"
+										? "bg-muted text-foreground shadow-sm"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								aria-pressed={selectedServiceTierId === "standard"}
+								title="Standard pricing"
+							>
+								Std
+							</button>
+							{serviceTiers.map((tier) => (
+								<button
+									key={tier.id}
+									type="button"
+									onClick={() => setSelectedServiceTierId(tier.id)}
+									className={cn(
+										"h-5 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
+										selectedServiceTierId === tier.id
+											? "bg-muted text-foreground shadow-sm"
+											: "text-muted-foreground hover:text-foreground",
+									)}
+									aria-pressed={selectedServiceTierId === tier.id}
+									title={`${tier.name} (${tier.multiplier}x pricing)`}
+								>
+									{tier.name}
+								</button>
+							))}
+						</div>
+					)}
 					<ShareDropdown modelId={modelId} providerId={providerId} />
 					<Button
 						variant="ghost"
@@ -772,54 +809,6 @@ export function ProviderSection({
 					</div>
 				) : (
 					<div className="space-y-2">
-						{serviceTiers.length > 0 && (
-							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-								<div className="flex items-center justify-between gap-2 mb-2">
-									<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
-										Service Tier
-									</div>
-									<div className="text-[10px] text-muted-foreground/70">
-										{serviceTierMultiplier === 1
-											? "Standard pricing"
-											: `${serviceTierMultiplier}x pricing`}
-									</div>
-								</div>
-								<div className="grid grid-cols-3 gap-1">
-									<button
-										type="button"
-										onClick={() => setSelectedServiceTierId("standard")}
-										className={cn(
-											"rounded border px-2 py-1 text-xs font-medium transition-colors",
-											selectedServiceTierId === "standard"
-												? "border-border bg-background text-foreground shadow-sm"
-												: "border-transparent text-muted-foreground hover:text-foreground",
-										)}
-									>
-										Standard
-									</button>
-									{serviceTiers.map((tier) => (
-										<button
-											key={tier.id}
-											type="button"
-											onClick={() => setSelectedServiceTierId(tier.id)}
-											className={cn(
-												"rounded border px-2 py-1 text-xs font-medium transition-colors",
-												selectedServiceTierId === tier.id
-													? "border-border bg-background text-foreground shadow-sm"
-													: "border-transparent text-muted-foreground hover:text-foreground",
-											)}
-										>
-											{tier.name}
-										</button>
-									))}
-								</div>
-								{selectedServiceTier?.description && (
-									<div className="mt-2 text-xs text-muted-foreground">
-										{selectedServiceTier.description}
-									</div>
-								)}
-							</div>
-						)}
 						<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
 							<div className="bg-background p-2">
 								<PriceCell

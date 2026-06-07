@@ -115,7 +115,7 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 						(mappings.length === 1 && !!mappings[0].region);
 
 					return (
-						<div key={providerId} className="flex flex-col gap-3">
+						<div key={providerId} className="flex h-full flex-col gap-3">
 							<ProviderSection
 								modelId={model.id}
 								providerInfo={providerInfo}
