@@ -9,9 +9,31 @@ import {
 	type ProviderModelMapping,
 	models,
 	type PricingTier,
+	providers,
 	type ToolCall,
 	expandAllProviderRegions,
 } from "@llmgateway/models";
+
+/**
+ * Resolve the price multiplier for a served processing tier (Flex / Priority).
+ * The tier is what the provider actually served — Vertex reports it via
+ * `usageMetadata.trafficType`, AI Studio via the `x-gemini-service-tier`
+ * response header — NOT what the caller requested, since Google silently
+ * downgrades unsupported tiers to standard. Returns 1 (no change) for the
+ * standard tier, unknown tiers, or providers without configured tiers.
+ */
+function getServiceTierMultiplier(
+	provider: string,
+	servedServiceTier: string | null | undefined,
+): number {
+	if (!servedServiceTier) {
+		return 1;
+	}
+	const tier = providers
+		.find((p) => p.id === provider)
+		?.serviceTiers?.find((t) => t.id === servedServiceTier);
+	return tier?.multiplier ?? 1;
+}
 
 interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
@@ -146,6 +168,16 @@ export async function calculateCosts(
 		 * that rate for cached read tokens when this flag is set.
 		 */
 		explicitCacheUsed?: boolean;
+		/**
+		 * The processing tier the provider actually served (e.g. "flex" /
+		 * "priority"), resolved from the upstream response — Vertex's
+		 * `usageMetadata.trafficType` or AI Studio's `x-gemini-service-tier`
+		 * header. Token costs are scaled by the tier's multiplier. Null/undefined
+		 * (the standard tier) leaves pricing unchanged. We deliberately bill on the
+		 * served tier rather than the requested one because Google downgrades
+		 * unsupported tiers to standard.
+		 */
+		servedServiceTier?: string | null;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -154,6 +186,7 @@ export async function calculateCosts(
 	const audioInputTokens = options?.audioInputTokens ?? null;
 	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
+	const servedServiceTier = options?.servedServiceTier ?? null;
 
 	// Look up the model definition by the canonical root id only.
 	// externalId-based lookups are intentionally not supported here — the
@@ -372,6 +405,18 @@ export async function calculateCosts(
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 
+	// Flex / Priority processing tiers scale every per-token price uniformly
+	// (Flex −50%, Priority +80%). They do NOT affect per-request, web-search, or
+	// content-filter fees, so token costs use `tokenDiscountMultiplier` while
+	// those flat fees keep the plain `discountMultiplier`. When the served tier
+	// is standard/unknown the multiplier is 1 and behavior is unchanged.
+	const serviceTierMultiplier = new Decimal(
+		getServiceTierMultiplier(provider, servedServiceTier),
+	);
+	const tokenDiscountMultiplier = discountMultiplier.times(
+		serviceTierMultiplier,
+	);
+
 	// Resolve the tokens-per-image for the given imageSize from a resolution map.
 	function resolveTokensPerImage(
 		byResolution: Record<string, number> | undefined,
@@ -470,7 +515,7 @@ export async function calculateCosts(
 	if (imageInputTokens && imageInputPricePerToken) {
 		imageInputCost = new Decimal(uncachedImageTokens)
 			.times(imageInputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	// Audio input tokens are reported separately by Google and OpenAI but are
 	// included in the upstream prompt-token total, so we subtract them from the
@@ -486,7 +531,7 @@ export async function calculateCosts(
 	if (billableAudioInputTokens > 0 && audioInputPricePerToken) {
 		audioInputCost = new Decimal(billableAudioInputTokens)
 			.times(audioInputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	const billableTextPromptTokens = Math.max(
 		0,
@@ -497,7 +542,7 @@ export async function calculateCosts(
 	// inputCost includes text, image, and audio input costs when applicable
 	const inputCost = new Decimal(billableTextPromptTokens)
 		.times(inputPrice)
-		.times(discountMultiplier)
+		.times(tokenDiscountMultiplier)
 		.plus(imageInputCost ?? 0)
 		.plus(audioInputCost ?? 0);
 
@@ -539,15 +584,15 @@ export async function calculateCosts(
 
 		imageOutputCost = new Decimal(imageOutputTokens)
 			.times(imageOutputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 		outputCost = new Decimal(textTokens)
 			.times(outputPrice)
-			.times(discountMultiplier)
+			.times(tokenDiscountMultiplier)
 			.plus(imageOutputCost);
 	} else {
 		outputCost = new Decimal(totalOutputTokens)
 			.times(outputPrice)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	const cachedImageInputPriceDecimal =
 		cachedImageInputPricePerToken !== undefined
@@ -568,7 +613,7 @@ export async function calculateCosts(
 						cachedInputAudioPriceDecimal,
 					),
 				)
-				.times(discountMultiplier)
+				.times(tokenDiscountMultiplier)
 		: new Decimal(0);
 	// `cacheWriteTokens` is the total cache-creation tokens (5m + 1h).
 	// `cacheWrite1hTokens` is the 1h subset; the remainder is treated as 5m.
@@ -591,7 +636,7 @@ export async function calculateCosts(
 						cacheWriteInputPrice1h ?? cacheWriteInputPrice,
 					),
 				)
-				.times(discountMultiplier)
+				.times(tokenDiscountMultiplier)
 		: new Decimal(0);
 	const requestCost = requestPrice.times(discountMultiplier);
 

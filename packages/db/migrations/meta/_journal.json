@@ -1051,6 +1051,13 @@
       "when": 1780698570697,
       "tag": "1780698570_fair_gladiator",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "8",
+      "when": 1780852017972,
+      "tag": "1780852017_chubby_wilson_fisk",
+      "breakpoints": true
     }
   ]
 }
