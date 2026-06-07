@@ -27,7 +27,7 @@
 				"out/**",
 				".source/**",
 				"openapi.json",
-				"src/lib/api/v1.d.ts"
+				"**/src/lib/api/v1.d.ts"
 			]
 		},
 		"dev": {
