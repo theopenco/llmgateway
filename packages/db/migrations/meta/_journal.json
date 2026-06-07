@@ -1072,6 +1072,27 @@
       "when": 1780857793050,
       "tag": "1780857793_free_longshot",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "8",
+      "when": 1780859140522,
+      "tag": "1780859140_wild_blink",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "8",
+      "when": 1780864194075,
+      "tag": "1780864194_worried_mad_thinker",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "8",
+      "when": 1780871693664,
+      "tag": "1780871693_shallow_giant_man",
+      "breakpoints": true
     }
   ]
 }

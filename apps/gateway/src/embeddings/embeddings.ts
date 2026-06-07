@@ -246,10 +246,17 @@ function getAvailableCredits(
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
 
 	return {
 		devPlanCreditsRemaining,
-		totalAvailableCredits: regularCredits + devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
 	};
 }
 
@@ -259,8 +266,11 @@ function assertCreditsAvailableForEmbedding(
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
-	const { devPlanCreditsRemaining, totalAvailableCredits } =
-		getAvailableCredits(organization);
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
 
 	if (totalAvailableCredits > 0 || modelDef.free) {
 		return;
@@ -272,6 +282,15 @@ function assertCreditsAvailableForEmbedding(
 			: "your next billing date";
 		throw new HTTPException(402, {
 			message: devPlanCreditLimitMessage(renewalDate),
+		});
+	}
+
+	if (organization.chatPlan !== "none" && chatPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 		});
 	}
 

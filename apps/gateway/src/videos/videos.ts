@@ -590,7 +590,12 @@ function getAvailableCredits(
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
-	return regularCredits + devPlanCreditsRemaining;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	return regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 }
 
 function hasSufficientVideoGenerationBalance(

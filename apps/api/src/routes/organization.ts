@@ -48,13 +48,23 @@ const organizationSchema = z.object({
 	referralBonusPercent: z.string(),
 	// Dev Plans fields
 	isPersonal: z.boolean(),
+	isChat: z.boolean(),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
 	devPlanCycle: z.enum(["monthly", "annual"]),
 	devPlanCreditsUsed: z.string(),
 	devPlanCreditsLimit: z.string(),
+	devPlanPremiumCreditsUsed: z.string(),
+	devPlanPremiumWeekStart: z.date().nullable(),
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
 	devPlanAllowAllModels: z.boolean(),
+	// Chat Plans fields
+	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
+	chatPlanCycle: z.enum(["monthly"]),
+	chatPlanCreditsUsed: z.string(),
+	chatPlanCreditsLimit: z.string(),
+	chatPlanBillingCycleStart: z.date().nullable(),
+	chatPlanExpiresAt: z.date().nullable(),
 });
 
 const projectSchema = z.object({
@@ -116,6 +126,12 @@ const transactionSchema = z.object({
 		"dev_plan_cancel",
 		"dev_plan_end",
 		"dev_plan_renewal",
+		"chat_plan_start",
+		"chat_plan_upgrade",
+		"chat_plan_downgrade",
+		"chat_plan_cancel",
+		"chat_plan_end",
+		"chat_plan_renewal",
 		"end_user_topup",
 		"end_user_margin_accrual",
 		"end_user_refund",
@@ -135,7 +151,18 @@ const transactionSchema = z.object({
 const getOrganizations = createRoute({
 	method: "get",
 	path: "/",
-	request: {},
+	request: {
+		query: z.object({
+			includePersonal: z.enum(["true", "false"]).optional().openapi({
+				description:
+					"Include personal organizations. Used by the chat/devpass surfaces where plans live on the personal org. Defaults to hiding them from the regular dashboard.",
+			}),
+			includeChat: z.enum(["true", "false"]).optional().openapi({
+				description:
+					"Include the dedicated Chat organization. Used by the playground where the chat plan + credits live. Defaults to hiding it from the regular dashboard.",
+			}),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -167,11 +194,16 @@ organization.openapi(getOrganizations, async (c) => {
 		},
 	});
 
+	const { includePersonal, includeChat } = c.req.valid("query");
+
 	let organizations = userOrganizations
 		.map((uo) => uo.organization!)
 		.filter((org) => org.status !== "deleted")
-		// Hide personal orgs from regular UI - they are only visible on devpass.llmgateway.io
-		.filter((org) => !org.isPersonal);
+		// Personal and chat orgs are hidden from the regular dashboard. The
+		// devpass/playground surfaces opt in via ?includePersonal=true /
+		// ?includeChat=true since their plans + credits live on those orgs.
+		.filter((org) => includePersonal === "true" || !org.isPersonal)
+		.filter((org) => includeChat === "true" || !org.isChat);
 
 	if (organizations.length === 0) {
 		const defaultOrganization = await getOrCreateDefaultOrganization({
@@ -686,6 +718,14 @@ organization.openapi(deleteOrganization, async (c) => {
 		throw new HTTPException(403, {
 			message:
 				"Personal organizations cannot be deleted. Please cancel your dev plan at devpass.llmgateway.io instead.",
+		});
+	}
+
+	// Block deletion of the dedicated Chat org - it is managed via chat plans
+	if (userOrganization.organization?.isChat) {
+		throw new HTTPException(403, {
+			message:
+				"The Chat organization cannot be deleted. Please cancel your chat plan from the chat.llmgateway.io pricing page instead.",
 		});
 	}
 

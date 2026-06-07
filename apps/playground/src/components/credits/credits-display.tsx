@@ -1,6 +1,11 @@
 "use client";
 
-import { CreditCard } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronRight, CreditCard, Sparkles, TrendingUp } from "lucide-react";
+import Link from "next/link";
+
+import { useApi } from "@/lib/fetch-client";
+import { formatCredits } from "@/lib/format-credits";
 
 import { TopUpCreditsDialog } from "./top-up-credits-dialog";
 
@@ -20,6 +25,15 @@ export function CreditsDisplay({
 	organization,
 	isLoading,
 }: CreditsDisplayProps) {
+	const api = useApi();
+	const planQuery = useQuery({
+		...api.queryOptions("get", "/chat-plans/status"),
+		enabled: Boolean(organization),
+		staleTime: 30_000,
+	});
+	const plan = planQuery.data;
+	const hasActivePlan = plan && plan.chatPlan !== "none";
+
 	if (isLoading) {
 		return (
 			<div className="px-2 py-1.5">
@@ -40,20 +54,47 @@ export function CreditsDisplay({
 		? Number(organization.credits).toFixed(2)
 		: "0.00";
 
-	// Show different styling based on credits balance
-	const isLowCredits = organization && Number(organization.credits) < 1;
-	const hasNoCredits = organization && Number(organization.credits) <= 0;
+	const planRemaining = hasActivePlan
+		? Number(plan!.chatPlanCreditsRemaining)
+		: 0;
+	const totalAvailable = Number(creditsBalance) + planRemaining;
+
+	const isLowCredits = organization && totalAvailable < 1;
+	const hasNoCredits = organization && totalAvailable <= 0;
 
 	return (
 		<div className="px-2 py-1.5">
-			<TopUpCreditsDialog>
+			{hasActivePlan && plan && (
+				<Link
+					href="/pricing"
+					className="mb-1 block rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1.5 hover:bg-emerald-500/10 transition-colors"
+				>
+					<div className="flex items-center justify-between gap-2">
+						<div className="flex items-center gap-2 min-w-0">
+							<Sparkles className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+							<div className="flex flex-col min-w-0">
+								<span className="text-xs font-medium truncate">
+									{plan.chatPlan[0].toUpperCase() + plan.chatPlan.slice(1)} plan
+								</span>
+								<span className="text-[10px] text-muted-foreground tabular-nums">
+									${formatCredits(planRemaining)} of $
+									{formatCredits(Number(plan.chatPlanCreditsLimit))} left
+								</span>
+							</div>
+						</div>
+					</div>
+				</Link>
+			)}
+			<TopUpCreditsDialog organizationId={organization?.id}>
 				<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
 					<div className="flex items-center gap-2">
 						<CreditCard
 							className={`h-4 w-4 ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-500" : "text-muted-foreground"}`}
 						/>
 						<div className="flex flex-col">
-							<span className="text-sm font-medium">Credits</span>
+							<span className="text-sm font-medium">
+								{hasActivePlan ? "Pay-as-you-go" : "Credits"}
+							</span>
 							<span
 								className={`text-xs ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-600" : "text-muted-foreground"}`}
 							>
@@ -64,12 +105,31 @@ export function CreditsDisplay({
 					<span className="text-xs text-muted-foreground">Add</span>
 				</button>
 			</TopUpCreditsDialog>
-			{hasNoCredits && (
+			{!hasActivePlan && (
+				<Link
+					href="/pricing"
+					className="group mt-1 flex items-center gap-2.5 rounded-md border border-indigo-500/20 bg-indigo-500/5 px-2 py-2 transition-colors hover:bg-indigo-500/10"
+				>
+					<span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+						<TrendingUp className="size-3.5" />
+					</span>
+					<div className="flex min-w-0 flex-col">
+						<span className="text-xs font-medium leading-tight">
+							Get up to 3× the credits
+						</span>
+						<span className="text-[10px] text-muted-foreground leading-tight">
+							Upgrade to a monthly plan · from $9/mo
+						</span>
+					</div>
+					<ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+				</Link>
+			)}
+			{hasNoCredits && !hasActivePlan && (
 				<div className="mt-1 px-2">
 					<p className="text-xs text-destructive">⚠️ No credits remaining</p>
 				</div>
 			)}
-			{isLowCredits && !hasNoCredits && (
+			{isLowCredits && !hasNoCredits && !hasActivePlan && (
 				<div className="mt-1 px-2">
 					<p className="text-xs text-yellow-600">⚡ Low credits remaining</p>
 				</div>

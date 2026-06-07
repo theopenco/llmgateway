@@ -416,7 +416,14 @@ export type RequestBodyPreparer = (
 	response_format?: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,

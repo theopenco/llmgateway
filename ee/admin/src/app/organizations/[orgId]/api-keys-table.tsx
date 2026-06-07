@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Shield } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
+import { CopyableId } from "@/components/copyable-id";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -108,6 +109,7 @@ export function ApiKeysTable({
 						<TableRow>
 							<TableHead className="w-10" />
 							<TableHead>Token</TableHead>
+							<TableHead>ID</TableHead>
 							<TableHead>Description</TableHead>
 							<TableHead>Project</TableHead>
 							<TableHead>Usage</TableHead>
@@ -120,7 +122,7 @@ export function ApiKeysTable({
 						{apiKeys.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={8}
+									colSpan={9}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No API keys found
@@ -155,6 +157,9 @@ export function ApiKeysTable({
 											</TableCell>
 											<TableCell className="font-mono text-xs">
 												{apiKey.token.slice(0, 12)}...
+											</TableCell>
+											<TableCell>
+												<CopyableId id={apiKey.id} />
 											</TableCell>
 											<TableCell className="max-w-[200px] truncate">
 												{apiKey.description ?? "—"}
@@ -202,7 +207,7 @@ export function ApiKeysTable({
 										{isOpen && ruleCount > 0 && (
 											<TableRow className="bg-muted/30 hover:bg-muted/30">
 												<TableCell />
-												<TableCell colSpan={7} className="py-3">
+												<TableCell colSpan={8} className="py-3">
 													<div className="space-y-2">
 														<div className="text-xs font-medium text-muted-foreground">
 															IAM Rules ({ruleCount})

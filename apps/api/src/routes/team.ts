@@ -171,7 +171,10 @@ team.openapi(addMember, async (c) => {
 	}
 
 	// Block team management for personal orgs (dev plan only)
-	if (userOrganization.organization?.isPersonal) {
+	if (
+		userOrganization.organization?.isPersonal ||
+		userOrganization.organization?.isChat
+	) {
 		throw new HTTPException(403, {
 			message:
 				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
@@ -339,7 +342,10 @@ team.openapi(updateMember, async (c) => {
 	}
 
 	// Block team management for personal orgs (dev plan only)
-	if (userOrganization.organization?.isPersonal) {
+	if (
+		userOrganization.organization?.isPersonal ||
+		userOrganization.organization?.isChat
+	) {
 		throw new HTTPException(403, {
 			message:
 				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
@@ -498,7 +504,10 @@ team.openapi(removeMember, async (c) => {
 	}
 
 	// Block team management for personal orgs (dev plan only)
-	if (userOrganization.organization?.isPersonal) {
+	if (
+		userOrganization.organization?.isPersonal ||
+		userOrganization.organization?.isChat
+	) {
 		throw new HTTPException(403, {
 			message:
 				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",

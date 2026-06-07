@@ -861,8 +861,13 @@ export default function VideoPageClient({
 		[activeItems, galleryItems, pathname, router],
 	);
 
+	const chatPlanCreditsRemaining =
+		selectedOrganization?.chatPlan && selectedOrganization.chatPlan !== "none"
+			? Number(selectedOrganization.chatPlanCreditsLimit ?? "0") -
+				Number(selectedOrganization.chatPlanCreditsUsed ?? "0")
+			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1
+		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
 		: false;
 
 	return (
@@ -943,7 +948,11 @@ export default function VideoPageClient({
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id}
+			/>
 		</SidebarProvider>
 	);
 }

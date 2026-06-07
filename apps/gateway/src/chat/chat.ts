@@ -128,6 +128,7 @@ import {
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
 } from "@llmgateway/models";
+import { isChatPlanModelAllowed } from "@llmgateway/shared";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -179,6 +180,7 @@ import {
 } from "./tools/reasoning-details.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import {
+	assertDevPlanPremiumCapNotExceeded,
 	formatUsedModelForDisplay,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
@@ -1937,7 +1939,13 @@ chat.openapi(completions, async (c) => {
 		devPlan: organization.devPlan,
 		devPlanCreditsLimit: organization.devPlanCreditsLimit,
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
+		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
+		devPlanPremiumWeekStart: organization.devPlanPremiumWeekStart,
 		devPlanExpiresAt: organization.devPlanExpiresAt,
+		chatPlan: organization.chatPlan,
+		chatPlanCreditsLimit: organization.chatPlanCreditsLimit,
+		chatPlanCreditsUsed: organization.chatPlanCreditsUsed,
+		chatPlanExpiresAt: organization.chatPlanExpiresAt,
 	};
 
 	// Run guardrails check for enterprise organizations
@@ -2140,6 +2148,20 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Chat plan Starter tier is restricted to non-premium models. Plus and Pro
+	// tiers have access to everything. This applies to all requests on a
+	// personal org with chatPlan === "starter" — there's no per-request
+	// "promote to regular credits" path, so an unrestricted Starter would
+	// silently burn dev-plan/regular credits instead of nudging the upgrade.
+	const isStarterChatPlan = Boolean(
+		organization?.isPersonal && organization.chatPlan === "starter",
+	);
+	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
+		throw new HTTPException(403, {
+			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at chat.llmgateway.io/pricing to access frontier models.`,
+		});
+	}
+
 	// Validate model capabilities (JSON output, reasoning, tools, web search, documents)
 	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
 		response_format,
@@ -2324,6 +2346,16 @@ chat.openapi(completions, async (c) => {
 
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
+				continue;
+			}
+
+			// Starter chat plan can't reach blocked frontier models. Enforce it
+			// during auto-selection too, otherwise an "auto" request would skip
+			// the pre-routing check above and resolve to a blocked model.
+			if (
+				isStarterChatPlan &&
+				!isChatPlanModelAllowed("starter", modelDef.id)
+			) {
 				continue;
 			}
 
@@ -3795,14 +3827,24 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 	} else if (project.mode === "credits") {
-		// Check both regular credits AND dev plan credits
+		// Check regular credits, dev plan credits, and chat plan credits.
+		assertDevPlanPremiumCapNotExceeded(
+			organization,
+			(finalModelInfo ?? modelInfo) as ModelDefinition,
+		);
 		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
 			organization.devPlan !== "none"
 				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
-		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+		const chatPlanCreditsRemaining =
+			organization.chatPlan !== "none"
+				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+					parseFloat(organization.chatPlanCreditsUsed ?? "0")
+				: 0;
+		const totalAvailableCredits =
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 		// We trust the bare `modelInfo.free` flag here: free models are always
 		// marked explicitly in the catalog, so a `free: true` model is intended
@@ -3811,6 +3853,18 @@ chat.openapi(completions, async (c) => {
 			totalAvailableCredits <= 0 &&
 			!((finalModelInfo ?? modelInfo) as ModelDefinition).free
 		) {
+			if (
+				organization.chatPlan !== "none" &&
+				chatPlanCreditsRemaining <= 0 &&
+				devPlanCreditsRemaining <= 0
+			) {
+				const renewalDate = organization.chatPlanExpiresAt
+					? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+					: "your next billing date";
+				throw new HTTPException(402, {
+					message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				});
+			}
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 				const renewalDate = organization.devPlanExpiresAt
 					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
@@ -3901,19 +3955,41 @@ chat.openapi(completions, async (c) => {
 			}
 		} else {
 			// No API key available, fall back to credits
-			// Check both regular credits AND dev plan credits
+			// Check regular credits, dev plan credits, and chat plan credits.
+			assertDevPlanPremiumCapNotExceeded(
+				organization,
+				(finalModelInfo ?? modelInfo) as ModelDefinition,
+			);
 			const regularCredits = parseFloat(organization.credits ?? "0");
 			const devPlanCreditsRemaining =
 				organization.devPlan !== "none"
 					? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 						parseFloat(organization.devPlanCreditsUsed ?? "0")
 					: 0;
-			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+			const chatPlanCreditsRemaining =
+				organization.chatPlan !== "none"
+					? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+						parseFloat(organization.chatPlanCreditsUsed ?? "0")
+					: 0;
+			const totalAvailableCredits =
+				regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 			if (
 				totalAvailableCredits <= 0 &&
 				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition)
 			) {
+				if (
+					organization.chatPlan !== "none" &&
+					chatPlanCreditsRemaining <= 0 &&
+					devPlanCreditsRemaining <= 0
+				) {
+					const renewalDate = organization.chatPlanExpiresAt
+						? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+						: "your next billing date";
+					throw new HTTPException(402, {
+						message: `No API key set for provider. Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					});
+				}
 				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 					const renewalDate = organization.devPlanExpiresAt
 						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
@@ -4078,7 +4154,13 @@ chat.openapi(completions, async (c) => {
 				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
-		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+		const chatPlanCreditsRemaining =
+			organization.chatPlan !== "none"
+				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+					parseFloat(organization.chatPlanCreditsUsed ?? "0")
+				: 0;
+		const totalAvailableCredits =
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 		if (totalAvailableCredits <= 0) {
 			throw new HTTPException(402, {
