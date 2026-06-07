@@ -325,6 +325,11 @@ export interface ProviderModelMapping {
 	 */
 	serviceTiers?: string[];
 	/**
+	 * Regions where the mapping supports service tiers. When omitted, the mapping
+	 * supports its service tiers across all regions.
+	 */
+	serviceTierRegions?: string[];
+	/**
 	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
 	 * (multiple completion choices per request) natively. When true, the gateway
 	 * forwards `n` to the upstream provider; when false/unset, requests with

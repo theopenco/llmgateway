@@ -124,6 +124,15 @@ export function getSupportedServiceTiers(
 		return [];
 	}
 
+	const serviceTierRegions = providerMapping.serviceTierRegions;
+	if (serviceTierRegions && serviceTierRegions.length > 0) {
+		const effectiveRegion =
+			region ?? (serviceTierRegions.includes("global") ? "global" : undefined);
+		if (!effectiveRegion || !serviceTierRegions.includes(effectiveRegion)) {
+			return [];
+		}
+	}
+
 	const supportedTierIdSet = new Set(supportedTierIds);
 	return providerTiers.filter((tier) => supportedTierIdSet.has(tier.id));
 }

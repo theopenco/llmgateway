@@ -49,8 +49,61 @@ describe("model service tier support", () => {
 		).toEqual(["priority"]);
 	});
 
+	it("returns explicit Google Vertex tiers for supported models", () => {
+		expect(
+			getSupportedServiceTiers("gemini-2.5-pro", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["priority"]);
+		expect(
+			getSupportedServiceTiers("gemini-2.5-flash", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["priority"]);
+		expect(
+			getSupportedServiceTiers("gemini-3.5-flash", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers(
+				"gemini-3-pro-image-preview",
+				"google-vertex",
+			).map((tier) => tier.id),
+		).toEqual(["flex"]);
+	});
+
+	it("limits Google Vertex service tiers to the global endpoint", () => {
+		expect(
+			supportsServiceTier(
+				"gemini-3.5-flash",
+				"google-vertex",
+				"priority",
+				"global",
+			),
+		).toBe(true);
+		expect(
+			supportsServiceTier(
+				"gemini-3.5-flash",
+				"google-vertex",
+				"priority",
+				"us-central1",
+			),
+		).toBe(false);
+		expect(
+			getSupportedServiceTiers(
+				"gemini-3.5-flash",
+				"google-vertex",
+				"us-central1",
+			),
+		).toEqual([]);
+	});
+
 	it("does not infer support from provider-level tiers", () => {
 		expect(supportsServiceTier("gpt-4o", "openai", "priority")).toBe(false);
 		expect(getSupportedServiceTiers("gpt-4o", "openai")).toEqual([]);
+		expect(
+			supportsServiceTier("gemini-3-pro-preview", "google-vertex", "priority"),
+		).toBe(false);
 	});
 });

@@ -598,7 +598,7 @@ describe("calculateCosts", () => {
 
 		it("applies the Flex multiplier (0.5x) to token costs", async () => {
 			const result = await calculateCosts(
-				"gemini-2.5-pro",
+				"gemini-3.5-flash",
 				"google-vertex",
 				null,
 				1000,
@@ -616,8 +616,8 @@ describe("calculateCosts", () => {
 				null,
 				{ servedServiceTier: "flex" },
 			);
-			expect(result.inputCost).toBeCloseTo(0.00125 * 0.5);
-			expect(result.outputCost).toBeCloseTo(0.007 * 0.5);
+			expect(result.inputCost).toBeCloseTo(0.0015 * 0.5);
+			expect(result.outputCost).toBeCloseTo(0.0063 * 0.5);
 		});
 
 		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
@@ -739,6 +739,30 @@ describe("calculateCosts", () => {
 			);
 			expect(result.inputCost).toBeCloseTo(0.001);
 			expect(result.outputCost).toBeCloseTo(0.0015);
+		});
+
+		it("ignores Google Vertex tiers outside the global endpoint", async () => {
+			const result = await calculateCosts(
+				"gemini-3.5-flash",
+				"google-vertex",
+				"us-central1",
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.0015);
+			expect(result.outputCost).toBeCloseTo(0.0063);
 		});
 	});
 

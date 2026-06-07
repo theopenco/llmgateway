@@ -126,6 +126,7 @@ import {
 	expandAllProviderRegions,
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
+	getProviderEnvValue,
 } from "@llmgateway/models";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
@@ -800,11 +801,23 @@ function getForwardedServiceTier(
 	provider: Provider,
 	region: string | undefined,
 	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
+	configIndex?: number,
 ): "flex" | "priority" | undefined {
 	if (serviceTier !== "flex" && serviceTier !== "priority") {
 		return undefined;
 	}
-	return supportsServiceTier(model, provider, serviceTier, region ?? null)
+	const effectiveRegion =
+		provider === "google-vertex"
+			? (region ??
+				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				"global")
+			: region;
+	return supportsServiceTier(
+		model,
+		provider,
+		serviceTier,
+		effectiveRegion ?? null,
+	)
 		? serviceTier
 		: undefined;
 }
@@ -4891,6 +4904,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				usedRegion,
 				service_tier,
+				configIndex,
 			),
 		);
 	} catch (e) {
@@ -5498,6 +5512,7 @@ chat.openapi(completions, async (c) => {
 							usedProvider,
 							usedRegion,
 							service_tier,
+							configIndex,
 						);
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
@@ -7715,6 +7730,7 @@ chat.openapi(completions, async (c) => {
 											usedProvider,
 											usedRegion,
 											service_tier,
+											configIndex,
 										),
 										data,
 									);
@@ -9336,6 +9352,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				usedRegion,
 				service_tier,
+				configIndex,
 			);
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
@@ -10685,6 +10702,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			usedRegion,
 			service_tier,
+			configIndex,
 		),
 		json,
 	);
