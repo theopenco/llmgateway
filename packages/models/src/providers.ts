@@ -1157,3 +1157,31 @@ export function getProviderDefinition(
 ): ProviderDefinition | undefined {
 	return providers.find((p) => p.id === providerId);
 }
+
+/**
+ * Look up a provider's configured service tier (e.g. Flex / Priority) by id.
+ */
+export function getServiceTier(
+	providerId: ProviderId | string,
+	tierId: string,
+): ServiceTier | undefined {
+	return getProviderDefinition(providerId)?.serviceTiers?.find(
+		(t) => t.id === tierId,
+	);
+}
+
+/**
+ * Format a service tier's price multiplier relative to standard for display,
+ * e.g. 1.8 → "1.8× (+80%)", 0.5 → "0.5× (−50%)". Returns an empty string for
+ * the standard multiplier (1).
+ */
+export function formatServiceTierMultiplier(multiplier: number): string {
+	if (multiplier === 1) {
+		return "";
+	}
+	const delta =
+		multiplier < 1
+			? `−${Math.round((1 - multiplier) * 100)}%`
+			: `+${Math.round((multiplier - 1) * 100)}%`;
+	return `${multiplier}× (${delta})`;
+}
