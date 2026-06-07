@@ -303,9 +303,20 @@ const finalize = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						status: z.enum(["ok", "already_processed"]),
-					}),
+					schema: z.union([
+						z.object({
+							status: z.enum(["ok", "already_processed"]),
+						}),
+						z.object({
+							status: z.literal("requires_action"),
+							subscriptionId: z.string(),
+							clientSecret: z.string(),
+						}),
+						z.object({
+							status: z.literal("payment_pending"),
+							subscriptionId: z.string(),
+						}),
+					]),
 				},
 			},
 			description: "Dev plan subscription finalized",
@@ -365,6 +376,23 @@ devPlans.openapi(finalize, async (c) => {
 		case "ok":
 		case "already_processed":
 			return c.json({ status: result.status }, 200);
+		case "requires_action":
+			return c.json(
+				{
+					status: result.status,
+					subscriptionId: result.subscriptionId,
+					clientSecret: result.clientSecret,
+				},
+				200,
+			);
+		case "payment_pending":
+			return c.json(
+				{
+					status: result.status,
+					subscriptionId: result.subscriptionId,
+				},
+				200,
+			);
 		case "duplicate_card":
 			return c.json(
 				{

@@ -32,6 +32,7 @@ import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
 import { plans } from "./plans";
@@ -71,6 +72,7 @@ export default function DashboardShell({
 	const config = useAppConfig();
 	const { posthogKey } = config;
 	const api = useApi();
+	const { stripe, isLoading: stripeLoading } = useStripe();
 	const queryClient = useQueryClient();
 
 	const { user } = useUser({
@@ -93,7 +95,11 @@ export default function DashboardShell({
 
 	useEffect(() => {
 		const sessionId = searchParams.get("setup_session_id");
-		if (!sessionId || finalizedSessions.current.has(sessionId)) {
+		if (
+			!sessionId ||
+			stripeLoading ||
+			finalizedSessions.current.has(sessionId)
+		) {
 			return;
 		}
 		finalizedSessions.current.add(sessionId);
@@ -105,8 +111,33 @@ export default function DashboardShell({
 			router.replace(query ? `/dashboard?${query}` : "/dashboard");
 		};
 
-		finalizeMutation
-			.mutateAsync({ body: { sessionId } })
+		const finalizeDevPlan = async () => {
+			const result = await finalizeMutation.mutateAsync({
+				body: { sessionId },
+			});
+			if (result?.status === "requires_action") {
+				if (!stripe) {
+					throw new Error("Stripe is not ready. Please refresh and try again.");
+				}
+				const confirmation = await stripe.confirmCardPayment(
+					result.clientSecret,
+				);
+				if (confirmation.error) {
+					throw new Error(
+						confirmation.error.message ?? "Payment authentication failed",
+					);
+				}
+				if (confirmation.paymentIntent?.status !== "succeeded") {
+					toast.info("Payment is processing. DevPass will activate shortly.");
+					return;
+				}
+
+				return await finalizeMutation.mutateAsync({ body: { sessionId } });
+			}
+			return result;
+		};
+
+		finalizeDevPlan()
 			.then((result) => {
 				if (result?.status === "ok" || result?.status === "already_processed") {
 					toast.success("DevPass activated");
@@ -116,6 +147,8 @@ export default function DashboardShell({
 							return Array.isArray(key) && key[1] === "/dev-plans/status";
 						},
 					});
+				} else if (result?.status === "payment_pending") {
+					toast.info("Payment is processing. DevPass will activate shortly.");
 				}
 			})
 			.catch((error: unknown) => {
@@ -148,7 +181,14 @@ export default function DashboardShell({
 			.finally(() => {
 				clearParam();
 			});
-	}, [searchParams, finalizeMutation, queryClient, router]);
+	}, [
+		searchParams,
+		finalizeMutation,
+		queryClient,
+		router,
+		stripe,
+		stripeLoading,
+	]);
 
 	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
 		setSubscribingTier(tier);

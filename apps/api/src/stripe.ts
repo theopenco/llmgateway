@@ -370,10 +370,66 @@ async function getSubscriptionCardFingerprint(
 
 export type FinalizeDevPlanResult =
 	| { status: "ok"; subscriptionId: string }
+	| {
+			status: "requires_action";
+			subscriptionId: string;
+			clientSecret: string;
+	  }
+	| { status: "payment_pending"; subscriptionId: string }
 	| { status: "duplicate_card"; conflictingOrgId: string }
 	| { status: "already_processed"; subscriptionId: string | null }
 	| { status: "no_payment_method" }
 	| { status: "invalid_session"; reason: string };
+
+function isStripePaymentIntent(value: unknown): value is Stripe.PaymentIntent {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	return (value as { object?: unknown }).object === "payment_intent";
+}
+
+function getSubscriptionPaymentIntent(
+	subscription: Stripe.Subscription,
+): Stripe.PaymentIntent | null {
+	const latestInvoice = subscription.latest_invoice;
+	if (
+		!latestInvoice ||
+		typeof latestInvoice === "string" ||
+		!("payment_intent" in latestInvoice)
+	) {
+		return null;
+	}
+
+	const { payment_intent: paymentIntent } = latestInvoice as {
+		payment_intent?: unknown;
+	};
+	if (!paymentIntent || typeof paymentIntent === "string") {
+		return null;
+	}
+
+	return isStripePaymentIntent(paymentIntent) ? paymentIntent : null;
+}
+
+async function findDevPlanSubscriptionForSetupSession(
+	customerId: string,
+	sessionId: string,
+): Promise<Stripe.Subscription | null> {
+	const subscriptions = await getStripe().subscriptions.list({
+		customer: customerId,
+		status: "all",
+		limit: 100,
+	});
+	const existing = subscriptions.data.find(
+		(subscription) => subscription.metadata?.setupSessionId === sessionId,
+	);
+	if (!existing) {
+		return null;
+	}
+
+	return await getStripe().subscriptions.retrieve(existing.id, {
+		expand: ["latest_invoice.payment_intent"],
+	});
+}
 
 async function resolvePaymentMethodFromSetupSession(
 	session: Stripe.Checkout.Session,
@@ -532,24 +588,59 @@ export async function finalizeDevPlanSetupSession(
 	// writer has filled in devPlanStripeSubscriptionId yet — the loser then
 	// reports already_processed so it doesn't double-insert the transaction
 	// row or re-send notifications.
-	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
-	const subscription = await getStripe().subscriptions.create(
-		{
-			customer: stripeCustomerId,
-			items: [{ price: priceId }],
-			default_payment_method: paymentMethod.id,
-			payment_behavior: "error_if_incomplete",
-			metadata: {
-				organizationId,
-				subscriptionType: "dev_plan",
-				devPlan: devPlanTier,
-				devPlanCycle,
-				userEmail: userEmail ?? "",
-			},
-			expand: ["latest_invoice"],
-		},
-		{ idempotencyKey: stripeIdempotencyKey },
+	const existingSubscription = await findDevPlanSubscriptionForSetupSession(
+		stripeCustomerId,
+		sessionId,
 	);
+	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
+	const subscription =
+		existingSubscription ??
+		(await getStripe().subscriptions.create(
+			{
+				customer: stripeCustomerId,
+				items: [{ price: priceId }],
+				default_payment_method: paymentMethod.id,
+				payment_behavior: "default_incomplete",
+				metadata: {
+					organizationId,
+					subscriptionType: "dev_plan",
+					devPlan: devPlanTier,
+					devPlanCycle,
+					setupSessionId: sessionId,
+					userEmail: userEmail ?? "",
+				},
+				expand: ["latest_invoice.payment_intent"],
+			},
+			{ idempotencyKey: stripeIdempotencyKey },
+		));
+
+	const paymentIntent = getSubscriptionPaymentIntent(subscription);
+	if (
+		paymentIntent?.client_secret &&
+		(paymentIntent.status === "requires_action" ||
+			paymentIntent.status === "requires_confirmation")
+	) {
+		return {
+			status: "requires_action",
+			subscriptionId: subscription.id,
+			clientSecret: paymentIntent.client_secret,
+		};
+	}
+	if (paymentIntent && paymentIntent.status !== "succeeded") {
+		return {
+			status: "payment_pending",
+			subscriptionId: subscription.id,
+		};
+	}
+	if (
+		!paymentIntent &&
+		(subscription.status === "incomplete" || subscription.status === "past_due")
+	) {
+		return {
+			status: "payment_pending",
+			subscriptionId: subscription.id,
+		};
+	}
 
 	const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
 
@@ -2364,6 +2455,19 @@ export async function handleInvoicePaymentSucceeded(
 	const isDevPlanSubscription =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
+	const stripeSubscription =
+		await getStripe().subscriptions.retrieve(subscriptionId);
+	const subscriptionMetadata = stripeSubscription.metadata ?? {};
+	const initialDevPlanTier = subscriptionMetadata.devPlan as
+		| DevPlanTier
+		| undefined;
+	const initialDevPlanCycle: DevPlanCycle =
+		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
+	const isInitialDevPlanSubscription =
+		subscriptionMetadata.subscriptionType === "dev_plan" &&
+		!!initialDevPlanTier &&
+		organization.devPlan === "none" &&
+		organization.devPlanStripeSubscriptionId !== subscriptionId;
 
 	// Stripe fires `invoice.payment_succeeded` both for true period renewals
 	// (`subscription_cycle`) and for the proration invoice generated when a
@@ -2379,7 +2483,114 @@ export async function handleInvoicePaymentSucceeded(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}`,
 	);
 
-	if (isDevPlanRenewal) {
+	if (isInitialDevPlanSubscription && initialDevPlanTier) {
+		const creditsLimit = getDevPlanCreditsLimit(initialDevPlanTier);
+		const fingerprint = await getSubscriptionCardFingerprint(subscriptionId);
+
+		const claimed = await db
+			.update(tables.organization)
+			.set({
+				devPlan: initialDevPlanTier,
+				devPlanCreditsLimit: creditsLimit.toString(),
+				devPlanCreditsUsed: "0",
+				devPlanBillingCycleStart: new Date(),
+				devPlanStripeSubscriptionId: subscriptionId,
+				devPlanCancelled: false,
+				devPlanCycle: initialDevPlanCycle,
+				devPlanCardFingerprint: fingerprint,
+			})
+			.where(
+				and(
+					eq(tables.organization.id, organizationId),
+					isNull(tables.organization.devPlanStripeSubscriptionId),
+				),
+			)
+			.returning({ id: tables.organization.id });
+
+		if (claimed.length === 0) {
+			logger.info(
+				`Skipping initial DevPass invoice ${invoice.id}: subscription ${subscriptionId} was already activated`,
+			);
+			return;
+		}
+
+		const [transaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_start",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as { payment_intent?: string | null })
+					.payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${initialDevPlanTier.toUpperCase()} started via Stripe Checkout`,
+			})
+			.returning();
+
+		try {
+			await generateAndEmailInvoice({
+				invoiceNumber: transaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				billingEmail: organization.billingEmail,
+				billingCompany: organization.billingCompany,
+				billingAddress: organization.billingAddress,
+				billingTaxId: organization.billingTaxId,
+				billingNotes: organization.billingNotes,
+				lineItems: [
+					{
+						description: `Dev Plan ${initialDevPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (initial DevPass invoice); suppressing failure",
+				e as Error,
+			);
+		}
+
+		posthog.groupIdentify({
+			groupType: "organization",
+			groupKey: organizationId,
+			properties: { name: organization.name },
+		});
+		posthog.capture({
+			distinctId: "organization",
+			event: "dev_plan_started",
+			groups: { organization: organizationId },
+			properties: {
+				devPlan: initialDevPlanTier,
+				creditsLimit,
+				organization: organizationId,
+				subscriptionId,
+				source: "stripe_invoice",
+			},
+		});
+
+		const subscribedEmail =
+			subscriptionMetadata.userEmail || organization.billingEmail;
+		if (subscribedEmail) {
+			const subscribedUser = await db.query.user.findFirst({
+				where: { email: { eq: subscribedEmail } },
+			});
+			await notifyDevPlanSubscribed(
+				subscribedEmail,
+				subscribedUser?.name,
+				initialDevPlanTier,
+				initialDevPlanCycle,
+			);
+		}
+
+		logger.info(
+			`Activated initial DevPass subscription ${subscriptionId} for organization ${organizationId} from invoice ${invoice.id}`,
+		);
+	} else if (isDevPlanRenewal) {
 		// Handle dev plan renewal - reset credits
 		const creditsLimit = getDevPlanCreditsLimit(
 			organization.devPlan as DevPlanTier,
