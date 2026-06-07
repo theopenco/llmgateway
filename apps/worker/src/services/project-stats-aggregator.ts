@@ -11,6 +11,7 @@ import {
 	and,
 	isNull,
 	eq,
+	inArray,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -364,7 +365,7 @@ async function recalculateApiKeyHourlyStats(
 				sql`${log.projectId} = ${projectId}`,
 				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
 				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
-				eq(apiKey.keyType, "user"),
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
 		.groupBy(log.apiKeyId);
@@ -412,7 +413,7 @@ async function recalculateApiKeyHourlyModelStats(
 				sql`${log.projectId} = ${projectId}`,
 				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
 				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
-				eq(apiKey.keyType, "user"),
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
 		.groupBy(log.apiKeyId, log.usedModel, log.usedProvider);

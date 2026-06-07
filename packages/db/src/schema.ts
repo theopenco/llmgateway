@@ -781,14 +781,14 @@ export const apiKey = pgTable(
 		}).default("active"),
 		// Discriminates normal developer keys from embeddable-SDK principals.
 		// `platform_secret`/`platform_publishable` are long-lived keys on a hidden
-		// per-org project. `end_user_sessions` is a hidden per-project aggregate
+		// per-org project. `end_user_customer` is a hidden per-customer aggregate
 		// key used as the stable log/api-key stats principal for browser sessions.
 		keyType: text({
 			enum: [
 				"user",
 				"platform_secret",
 				"platform_publishable",
-				"end_user_sessions",
+				"end_user_customer",
 			],
 		})
 			.notNull()
@@ -820,9 +820,11 @@ export const apiKey = pgTable(
 		index("api_key_project_id_idx").on(table.projectId),
 		index("api_key_created_by_idx").on(table.createdBy),
 		index("api_key_key_type_expires_at_idx").on(table.keyType, table.expiresAt),
-		uniqueIndex("api_key_project_end_user_sessions_unique")
-			.on(table.projectId)
-			.where(sql`${table.keyType} = 'end_user_sessions'`),
+		uniqueIndex("api_key_end_user_customer_wallet_unique")
+			.on(table.endCustomerWalletId)
+			.where(
+				sql`${table.keyType} = 'end_user_customer' AND ${table.status} = 'active'`,
+			),
 	],
 );
 

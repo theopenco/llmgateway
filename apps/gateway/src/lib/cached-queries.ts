@@ -159,7 +159,7 @@ export async function findApiKeyByToken(
 				.where(
 					and(
 						eq(apiKeyTable.token, token),
-						ne(apiKeyTable.keyType, "end_user_sessions"),
+						ne(apiKeyTable.keyType, "end_user_customer"),
 					),
 				)
 				.limit(1);
@@ -210,7 +210,8 @@ export async function findApiKeyByToken(
 					apiKeyTable,
 					and(
 						eq(apiKeyTable.projectId, endUserSessionTable.projectId),
-						eq(apiKeyTable.keyType, "end_user_sessions"),
+						eq(apiKeyTable.keyType, "end_user_customer"),
+						eq(apiKeyTable.endCustomerWalletId, endUserSessionTable.walletId),
 						eq(apiKeyTable.status, "active"),
 					),
 				)

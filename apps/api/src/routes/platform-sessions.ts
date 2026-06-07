@@ -30,7 +30,7 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 const EPHEMERAL_PREFIX = "es_";
-const EMBEDDED_AGGREGATE_KEY_PREFIX = "eusk_";
+const END_USER_CUSTOMER_KEY_PREFIX = "euck_";
 const DEFAULT_TTL_SECONDS = 15 * 60;
 const MIN_TTL_SECONDS = 60;
 const MAX_TTL_SECONDS = 60 * 60;
@@ -180,13 +180,16 @@ async function ensureCustomerAndWallet(
 	return { endCustomer, wallet };
 }
 
-async function ensureEmbeddedSessionsApiKey(
+async function ensureEndUserCustomerApiKey(
 	platformKey: AuthenticatedPlatformKey,
+	endCustomer: typeof tables.endCustomer.$inferSelect,
+	wallet: typeof tables.wallet.$inferSelect,
 ) {
 	let aggregateKey = await db.query.apiKey.findFirst({
 		where: {
 			projectId: { eq: platformKey.projectId },
-			keyType: { eq: "end_user_sessions" },
+			keyType: { eq: "end_user_customer" },
+			endCustomerWalletId: { eq: wallet.id },
 			status: { eq: "active" },
 		},
 	});
@@ -198,10 +201,11 @@ async function ensureEmbeddedSessionsApiKey(
 	await db
 		.insert(tables.apiKey)
 		.values({
-			token: EMBEDDED_AGGREGATE_KEY_PREFIX + shortid(40),
+			token: END_USER_CUSTOMER_KEY_PREFIX + shortid(40),
 			projectId: platformKey.projectId,
-			description: "Embedded end-user sessions",
-			keyType: "end_user_sessions",
+			description: `Embedded end-user: ${endCustomer.externalId}`,
+			keyType: "end_user_customer",
+			endCustomerWalletId: wallet.id,
 			createdBy: platformKey.createdBy,
 		})
 		.onConflictDoNothing();
@@ -209,14 +213,15 @@ async function ensureEmbeddedSessionsApiKey(
 	aggregateKey = await db.query.apiKey.findFirst({
 		where: {
 			projectId: { eq: platformKey.projectId },
-			keyType: { eq: "end_user_sessions" },
+			keyType: { eq: "end_user_customer" },
+			endCustomerWalletId: { eq: wallet.id },
 			status: { eq: "active" },
 		},
 	});
 
 	if (!aggregateKey) {
 		throw new HTTPException(500, {
-			message: "Failed to create embedded sessions key",
+			message: "Failed to create end-user customer key",
 		});
 	}
 
@@ -235,7 +240,7 @@ platformSessions.openapi(createSession, async (c) => {
 		platformKey,
 		customer,
 	);
-	await ensureEmbeddedSessionsApiKey(platformKey);
+	await ensureEndUserCustomerApiKey(platformKey, endCustomer, wallet);
 
 	const ttl = ttlSeconds ?? DEFAULT_TTL_SECONDS;
 	const ttlMs = ttl * 1000;

@@ -74,7 +74,7 @@ export type ApiKey = Omit<ApiKeyBase, "status" | "keyType"> & {
 		| "user"
 		| "platform_secret"
 		| "platform_publishable"
-		| "end_user_sessions";
+		| "end_user_customer";
 };
 
 export type EndCustomer = Omit<
