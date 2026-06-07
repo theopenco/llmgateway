@@ -56,6 +56,11 @@ export interface ProviderDataPolicy {
 	gdpr?: boolean | null;
 }
 
+export interface ProviderAdditionalLink {
+	desc: string;
+	link: string;
+}
+
 export interface ProviderDefinition {
 	id: string;
 	name: string;
@@ -90,6 +95,8 @@ export interface ProviderDefinition {
 	headquarters?: string | null;
 	/** Data usage and privacy policy details */
 	dataPolicy?: ProviderDataPolicy | null;
+	/** Additional provider policy links shown in the Data & Privacy card */
+	additionalLinks?: ProviderAdditionalLink[];
 }
 
 export const providers: ProviderDefinition[] = [
@@ -990,9 +997,15 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			consumerTraining: null,
 			promptLogging: false,
-			retentionPeriod: "0 days",
+			retentionPeriod: "24 hours",
 			soc2: true,
 		},
+		additionalLinks: [
+			{
+				desc: "AI Terms",
+				link: "https://docs.byteplus.com/en/docs/legal/docs-service-specific-terms",
+			},
+		],
 	},
 	{
 		id: "minimax",
