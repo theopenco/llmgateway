@@ -47,6 +47,21 @@ describe("model service tier support", () => {
 			getSupportedServiceTiers("gpt-5.5", "openai").map((tier) => tier.id),
 		).toEqual(["flex", "priority"]);
 		expect(
+			getSupportedServiceTiers("gpt-5.5", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2.5);
+		expect(
+			getSupportedServiceTiers("gpt-5.4", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+		expect(
+			getSupportedServiceTiers("gpt-5.4-mini", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+		expect(
 			getSupportedServiceTiers("gpt-5.5-pro", "openai").map((tier) => tier.id),
 		).toEqual(["flex"]);
 		expect(
@@ -54,6 +69,11 @@ describe("model service tier support", () => {
 				(tier) => tier.id,
 			),
 		).toEqual(["priority"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.3-codex", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
 	});
 
 	it("returns explicit Google Vertex tiers for supported models", () => {

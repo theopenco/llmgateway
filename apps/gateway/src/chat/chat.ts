@@ -769,23 +769,26 @@ function logVertexTrafficType(
 }
 
 function readServiceTierValue(value: unknown): string | undefined {
-	if (typeof value === "object" && value !== null && "service_tier" in value) {
-		const record = value as Record<string, unknown>;
-		return typeof record.service_tier === "string"
-			? record.service_tier
-			: undefined;
+	if (typeof value !== "object" || value === null) {
+		return undefined;
 	}
+
+	const record = value as Record<string, unknown>;
+	if (typeof record.service_tier === "string") {
+		return record.service_tier;
+	}
+
+	if (typeof record.response === "object" && record.response !== null) {
+		return readServiceTierValue(record.response);
+	}
+
 	return undefined;
 }
 
 function resolveOpenAIServiceTier(
 	data: unknown,
 ): "flex" | "priority" | null | undefined {
-	const serviceTier =
-		readServiceTierValue(data) ??
-		(typeof data === "object" && data !== null && "response" in data
-			? readServiceTierValue((data as Record<string, unknown>).response)
-			: undefined);
+	const serviceTier = readServiceTierValue(data);
 	if (serviceTier === undefined) {
 		return undefined;
 	}
@@ -843,12 +846,19 @@ function mappingSupportsRequestedServiceTier(
 	model: string,
 	mapping: ProviderModelMapping,
 	serviceTier: "flex" | "priority",
+	configIndex?: number,
 ): boolean {
+	const effectiveRegion =
+		mapping.providerId === "google-vertex"
+			? (mapping.region ??
+				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				"global")
+			: mapping.region;
 	return supportsServiceTier(
 		model,
 		mapping.providerId,
 		serviceTier,
-		mapping.region ?? null,
+		effectiveRegion ?? null,
 	);
 }
 
@@ -1700,6 +1710,8 @@ chat.openapi(completions, async (c) => {
 			discount: discount ?? null,
 		});
 
+	let configIndex = 0; // Index for round-robin environment variables
+
 	// Filter region candidates based on available keys.
 	// - credits mode: only keep regions with env keys (base key → default region only)
 	// - hybrid mode: providers with a DB key keep all regions (user chose their region);
@@ -1763,6 +1775,7 @@ chat.openapi(completions, async (c) => {
 					modelInfo.id,
 					mapping,
 					service_tier,
+					configIndex,
 				),
 		);
 
@@ -1844,7 +1857,7 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: false,
 						discount: null,
 						pricingTier: null,
-						serviceTier: service_tier,
+						serviceTier: null,
 						dataStorageCost: "0",
 					},
 					{ syncInsert: syncLogInsert },
@@ -1870,7 +1883,12 @@ chat.openapi(completions, async (c) => {
 
 		const supportsRequestedTier = (mapping: ProviderModelMapping) =>
 			providerMatchesRequestedProvider(mapping, requestedProvider) &&
-			mappingSupportsRequestedServiceTier(modelInfo.id, mapping, service_tier);
+			mappingSupportsRequestedServiceTier(
+				modelInfo.id,
+				mapping,
+				service_tier,
+				configIndex,
+			);
 		modelInfo = {
 			...modelInfo,
 			providers: modelInfo.providers.filter(supportsRequestedTier),
@@ -3704,7 +3722,6 @@ chat.openapi(completions, async (c) => {
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let usedApiKeyHash: string | undefined;
-	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
 	// ID for tracked-key health attribution. Equal to providerKey.id when the
 	// DB-provided key is what's actually sent. Cleared when a region-specific
@@ -4352,6 +4369,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_key,
 			prompt_cache_retention,
 			n,
+			service_tier,
 		};
 
 		if (stream) {

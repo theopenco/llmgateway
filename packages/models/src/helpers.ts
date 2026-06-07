@@ -134,7 +134,13 @@ export function getSupportedServiceTiers(
 	}
 
 	const supportedTierIdSet = new Set(supportedTierIds);
-	return providerTiers.filter((tier) => supportedTierIdSet.has(tier.id));
+	return providerTiers
+		.filter((tier) => supportedTierIdSet.has(tier.id))
+		.map((tier) => ({
+			...tier,
+			multiplier:
+				providerMapping.serviceTierMultipliers?.[tier.id] ?? tier.multiplier,
+		}));
 }
 
 export function supportsServiceTier(

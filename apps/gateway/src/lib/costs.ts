@@ -27,9 +27,15 @@ function getServiceTierMultiplier(
 	provider: string,
 	region: string | null,
 	servedServiceTier: string | null | undefined,
+	providerMapping?: ProviderModelMapping,
 ): number {
 	if (!servedServiceTier) {
 		return 1;
+	}
+	const mappingMultiplier =
+		providerMapping?.serviceTierMultipliers?.[servedServiceTier];
+	if (mappingMultiplier !== undefined) {
+		return mappingMultiplier;
 	}
 	const tier = getSupportedServiceTiers(model, provider, region).find(
 		(t) => t.id === servedServiceTier,
@@ -404,13 +410,19 @@ export async function calculateCosts(
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 
-	// Flex / Priority processing tiers scale every per-token price uniformly
-	// (Flex 0.5x, Priority 2.5x). They do NOT affect per-request, web-search, or
-	// content-filter fees, so token costs use `tokenDiscountMultiplier` while
-	// those flat fees keep the plain `discountMultiplier`. When the served tier
-	// is standard/unknown the multiplier is 1 and behavior is unchanged.
+	// Flex / Priority processing tiers scale every per-token price uniformly.
+	// They do NOT affect per-request, web-search, or content-filter fees, so token
+	// costs use `tokenDiscountMultiplier` while those flat fees keep the plain
+	// `discountMultiplier`. When the served tier is standard/unknown the
+	// multiplier is 1 and behavior is unchanged.
 	const serviceTierMultiplier = new Decimal(
-		getServiceTierMultiplier(model, provider, region, servedServiceTier),
+		getServiceTierMultiplier(
+			model,
+			provider,
+			region,
+			servedServiceTier,
+			providerInfo,
+		),
 	);
 	const tokenDiscountMultiplier = discountMultiplier.times(
 		serviceTierMultiplier,

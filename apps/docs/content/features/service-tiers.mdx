@@ -17,7 +17,7 @@ when the selected provider/model mapping supports that tier.
 | ------------ | ------------------------- | ----------------- | ------------------------------------------- |
 | Standard     | `default` / `auto` / omit | baseline          | Normal on-demand latency                    |
 | **Flex**     | `flex`                    | **−50%**          | Best-effort; may be preempted under load    |
-| **Priority** | `priority`                | **2.5x**          | Prioritized above standard and flex traffic |
+| **Priority** | `priority`                | varies by model   | Prioritized above standard and flex traffic |
 
 ## Using the `service_tier` parameter
 
@@ -46,12 +46,12 @@ the exact tiers exposed by each provider card.
 
 - **OpenAI** (`openai`) — sent as the OpenAI `service_tier` request field for
   supported OpenAI models. Flex is billed at 0.5x standard token prices and
-  Priority is billed at 2.5x standard token prices.
+  Priority uses the model-specific multiplier shown on the model page.
 
 - **Google Vertex AI** (`google-vertex`) — sent as the
   `X-Vertex-AI-LLM-Shared-Request-Type` request header. Flex and Priority are
   served only on the **global** endpoint, which is the gateway default. Google
-  Flex PayGo applies a 0.5x multiplier; Google Priority PayGo applies a 2.5x
+  Flex PayGo applies a 0.5x multiplier; Google Priority PayGo applies a 1.8x
   multiplier.
 - **Google AI Studio / Gemini API** (`google-ai-studio`) — sent as a
   `service_tier` field in the request body for configured models that opt in.
@@ -70,7 +70,7 @@ the provider mapping's standard token prices:
 
 - Standard / `default` / `auto`: 1x
 - Flex: 0.5x
-- Priority: 2.5x
+- Priority: model/provider-specific, shown on the model page
 
 The multiplier scales per-token costs, including input, output, cached, and
 image tokens. Flat per-request and web-search fees are not tier-scaled.

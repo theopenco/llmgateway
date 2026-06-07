@@ -645,6 +645,40 @@ describe("calculateCosts", () => {
 			expect(result.totalCost).toBeCloseTo((0.00125 + 0.007) * 0.5);
 		});
 
+		it("applies model-specific OpenAI Priority multipliers", async () => {
+			const result = await calculateCosts(
+				"gpt-5.4",
+				"openai",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			const standardInputCost = 800 * 2.5e-6;
+			const standardCachedInputCost = 200 * 0.25e-6;
+			const standardOutputCost = 700 * 15e-6;
+			const standardCost =
+				standardInputCost + standardCachedInputCost + standardOutputCost;
+			expect(result.inputCost).toBeCloseTo(standardInputCost * 2, 8);
+			expect(result.cachedInputCost).toBeCloseTo(
+				standardCachedInputCost * 2,
+				8,
+			);
+			expect(result.outputCost).toBeCloseTo(standardOutputCost * 2, 8);
+			expect(result.totalCost).toBeCloseTo(standardCost * 2, 8);
+		});
+
 		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
 			const result = await calculateCosts(
 				"gemini-2.5-pro",
