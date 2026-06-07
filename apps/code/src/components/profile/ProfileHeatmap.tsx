@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 interface ProfileHeatmapProps {
 	activity: { date: string; requestCount: number }[];
@@ -123,8 +123,21 @@ export function ProfileHeatmap({ activity }: ProfileHeatmapProps) {
 		return { weeks: weeksArr, max: maxCount, monthMarks: marks };
 	}, [activity]);
 
+	const [hover, setHover] = useState<{
+		count: number;
+		date: string;
+		x: number;
+		y: number;
+	} | null>(null);
+
+	const scrollToEnd = useCallback((node: HTMLDivElement | null) => {
+		if (node) {
+			node.scrollLeft = node.scrollWidth;
+		}
+	}, []);
+
 	return (
-		<div className="overflow-x-auto">
+		<div ref={scrollToEnd} className="overflow-x-auto">
 			<div className="flex w-fit flex-col gap-1.5">
 				<div className="flex h-3.5 gap-[3px] pl-7 text-[10px] text-muted-foreground">
 					{weeks.map((_, w) => {
@@ -161,19 +174,20 @@ export function ProfileHeatmap({ activity }: ProfileHeatmapProps) {
 								return (
 									<div
 										key={di}
-										className={`group relative h-3 w-3 rounded-[3px] ring-1 ring-inset ring-foreground/5 transition-[box-shadow,ring] hover:z-50 hover:ring-2 hover:ring-foreground/40 ${intensityClass(cell.count, max)}`}
-									>
-										<div className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-[100] hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-[11px] font-medium text-background shadow-[0_8px_24px_-4px_rgba(0,0,0,0.5)] ring-1 ring-foreground/10 group-hover:block">
-											<span className="font-mono tabular-nums">
-												{cell.count}
-											</span>{" "}
-											<span className="text-background/70">
-												{cell.count === 1 ? "request" : "requests"} ·{" "}
-												{formatDateLong(cell.date)}
-											</span>
-											<span className="absolute left-1/2 top-full -ml-1 h-2 w-2 -translate-y-1 rotate-45 bg-foreground" />
-										</div>
-									</div>
+										onMouseEnter={(e) => {
+											const r = e.currentTarget.getBoundingClientRect();
+											const halfWidth = r.width / 2;
+											const centerX = r.left + halfWidth;
+											setHover({
+												count: cell.count,
+												date: cell.date,
+												x: centerX,
+												y: r.top,
+											});
+										}}
+										onMouseLeave={() => setHover(null)}
+										className={`h-3 w-3 rounded-[3px] ring-1 ring-inset ring-foreground/5 transition-[box-shadow,ring] hover:ring-2 hover:ring-foreground/40 ${intensityClass(cell.count, max)}`}
+									/>
 								);
 							})}
 						</div>
@@ -190,6 +204,20 @@ export function ProfileHeatmap({ activity }: ProfileHeatmapProps) {
 					<span>More</span>
 				</div>
 			</div>
+
+			{hover && (
+				<div
+					className="pointer-events-none fixed z-[100] -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-[11px] font-medium text-background shadow-[0_8px_24px_-4px_rgba(0,0,0,0.5)] ring-1 ring-foreground/10"
+					style={{ left: hover.x, top: hover.y - 6 }}
+				>
+					<span className="font-mono tabular-nums">{hover.count}</span>{" "}
+					<span className="text-background/70">
+						{hover.count === 1 ? "request" : "requests"} ·{" "}
+						{formatDateLong(hover.date)}
+					</span>
+					<span className="absolute left-1/2 top-full -ml-1 h-2 w-2 -translate-y-1 rotate-45 bg-foreground" />
+				</div>
+			)}
 		</div>
 	);
 }
