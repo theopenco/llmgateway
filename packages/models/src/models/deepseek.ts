@@ -140,7 +140,6 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v3.2",
-				discount: "0.2",
 				inputPrice: "0.57e-6",
 				cachedInputPrice: "0.114e-6",
 				outputPrice: "1.71e-6",
@@ -261,7 +260,6 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-pro",
-				discount: "0.2",
 				inputPrice: "2.4e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "4.8e-6",
@@ -352,7 +350,6 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-flash",
-				discount: "0.2",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.04e-6",
 				outputPrice: "0.4e-6",

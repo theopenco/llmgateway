@@ -2,12 +2,15 @@ import { HTTPException } from "hono/http-exception";
 
 import { findActiveIamRules } from "@/lib/cached-queries.js";
 import { anyCidrMatches } from "@/lib/client-ip.js";
+import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 
 import {
 	models,
 	type ModelDefinition,
 	type ProviderId,
 } from "@llmgateway/models";
+
+import type { GatewayApiKey } from "@/lib/cached-queries.js";
 
 export interface IamRule {
 	id: string;
@@ -101,6 +104,41 @@ export async function validateModelAccess(
 	}
 
 	return { allowed: true, allowedProviders: Array.from(allowedProviders) };
+}
+
+export async function validateRequestModelAccess(
+	apiKey: GatewayApiKey,
+	requestedModel: string,
+	requestedProvider?: string,
+	activeModelInfo?: ModelDefinition,
+	clientIp?: string,
+): Promise<IamValidationResult> {
+	const sessionValidation = validateEndUserSessionModelAccess(
+		apiKey,
+		requestedModel,
+		activeModelInfo,
+	);
+	if (sessionValidation) {
+		if (
+			sessionValidation.allowed &&
+			requestedProvider &&
+			!sessionValidation.allowedProviders?.includes(requestedProvider)
+		) {
+			return {
+				allowed: false,
+				reason: `Provider ${requestedProvider} is not allowed for this end-user session`,
+			};
+		}
+		return sessionValidation;
+	}
+
+	return await validateModelAccess(
+		apiKey.id,
+		requestedModel,
+		requestedProvider,
+		activeModelInfo,
+		clientIp,
+	);
 }
 
 interface RuleEvaluationResult {

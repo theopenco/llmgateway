@@ -28,12 +28,18 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import {
+	assertOriginAllowed,
+	loadEndUserWallet,
+	withCreditsMode,
+	withWalletCredits,
+} from "@/lib/end-user-session.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
 } from "@/lib/gcp-token.js";
-import { throwIamException, validateModelAccess } from "@/lib/iam.js";
+import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
@@ -65,9 +71,11 @@ import {
 import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
+	applyGoogleServiceTier,
 	getCheapestFromAvailableProviders,
 	getProviderEndpoint,
 	getProviderHeaders,
+	resolveServedServiceTier,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
@@ -699,6 +707,66 @@ function isGoogleCompatibleProvider(provider: string): boolean {
 	);
 }
 
+function isVertexCompatibleProvider(provider: string): boolean {
+	return provider === "google-vertex" || provider === "quartz";
+}
+
+/**
+ * Dev-only verification log confirming a requested processing tier reached the
+ * provider. AI Studio reports the served tier in the `x-gemini-service-tier`
+ * response header; Vertex reports it in `usageMetadata.trafficType` (logged
+ * separately once the response body is parsed).
+ */
+function logServiceTierRequest(
+	provider: string,
+	serviceTier: string | undefined,
+	res: Response | undefined,
+): void {
+	if (
+		process.env.NODE_ENV === "production" ||
+		(serviceTier !== "flex" && serviceTier !== "priority") ||
+		!isGoogleCompatibleProvider(provider)
+	) {
+		return;
+	}
+	logger.debug("service_tier request sent", {
+		provider,
+		requestedServiceTier: serviceTier,
+		transport: isVertexCompatibleProvider(provider)
+			? "X-Vertex-AI-LLM-Shared-Request-Type header"
+			: "service_tier body field",
+		servedServiceTier: res?.headers.get("x-gemini-service-tier") ?? null,
+		status: res?.status,
+	});
+}
+
+/**
+ * Dev-only verification log for the served Vertex tier. Vertex echoes the
+ * applied tier in `usageMetadata.trafficType` (ON_DEMAND_PRIORITY /
+ * ON_DEMAND_FLEX, or plain ON_DEMAND when downgraded under load).
+ */
+function logVertexTrafficType(
+	provider: string,
+	serviceTier: string | undefined,
+	data: { usageMetadata?: { trafficType?: string } } | undefined,
+): void {
+	const trafficType = data?.usageMetadata?.trafficType;
+	if (
+		process.env.NODE_ENV === "production" ||
+		(serviceTier !== "flex" && serviceTier !== "priority") ||
+		!isVertexCompatibleProvider(provider) ||
+		!trafficType
+	) {
+		return;
+	}
+	logger.debug("service_tier served (vertex trafficType)", {
+		provider,
+		requestedServiceTier: serviceTier,
+		trafficType,
+		downgraded: trafficType === "ON_DEMAND",
+	});
+}
+
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
@@ -1168,6 +1236,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		service_tier,
 		web_search,
 		plugins,
 		n,
@@ -1507,8 +1576,16 @@ chat.openapi(completions, async (c) => {
 
 	assertApiKeyWithinUsageLimits(apiKey);
 
+	// Embeddable SDK: ephemeral end-user session tokens are bound to one wallet.
+	// Validate expiry + load the wallet now; below we present an "effective"
+	// project (forced credits mode) and organization (credits mirror the wallet
+	// balance) so the existing credit-gating logic bills the wallet, while the
+	// log's endCustomerWalletId redirects the worker's debit to that wallet.
+	// (Shared with embeddings/moderations via apps/gateway/src/lib/end-user-session.ts.)
+	const endUserWallet = (await loadEndUserWallet(apiKey)) ?? undefined;
+
 	// Get the project to determine mode for routing decisions
-	const project = await findProjectById(apiKey.projectId);
+	let project = await findProjectById(apiKey.projectId);
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -1521,6 +1598,13 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(410, {
 			message: "Project has been archived and is no longer accessible",
 		});
+	}
+
+	// End-user sessions always bill via wallet credits through llmgateway's own
+	// provider keys — never the developer's BYO keys.
+	if (endUserWallet) {
+		assertOriginAllowed(c, project);
+		project = withCreditsMode(project);
 	}
 
 	const buildFinalResponseMetadata = (discount?: number | null) =>
@@ -1585,7 +1669,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Fetch organization for coding model restriction check and credit validation
-	const organization = await findOrganizationById(project.organizationId);
+	let organization = await findOrganizationById(project.organizationId);
 
 	if (!organization) {
 		throw new HTTPException(500, {
@@ -1597,6 +1681,14 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
 		});
+	}
+
+	// End-user session: present the wallet balance as the organization's credits
+	// so all downstream credit-gating evaluates the wallet, not the developer's
+	// org. The real organization.credits row is never touched — the worker debits
+	// the wallet (see apps/gateway/src/lib/end-user-session.ts).
+	if (endUserWallet) {
+		organization = withWalletCredits(organization, endUserWallet);
 	}
 
 	const routingCfg = await getResolvedRoutingConfig(
@@ -1843,6 +1935,12 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+	// The processing tier the provider actually served (Flex / Priority),
+	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
+	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
+	// this served tier (not the requested one) since Google downgrades
+	// unsupported tiers to standard. Null = standard / no tier.
+	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
@@ -1861,8 +1959,8 @@ chat.openapi(completions, async (c) => {
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
 	const clientIp = getClientIpFromRequest(c);
-	const iamValidation = await validateModelAccess(
-		apiKey.id,
+	const iamValidation = await validateRequestModelAccess(
+		apiKey,
 		modelInfo.id,
 		requestedProvider,
 		modelInfo,
@@ -2023,8 +2121,8 @@ chat.openapi(completions, async (c) => {
 			// Validate IAM rules for this candidate model and filter providers.
 			// We must re-evaluate per model because iamAllowedProviders was computed
 			// for the "auto" model which only has the "llmgateway" provider.
-			const candidateIam = await validateModelAccess(
-				apiKey.id,
+			const candidateIam = await validateRequestModelAccess(
+				apiKey,
 				modelDef.id,
 				undefined,
 				modelDef,
@@ -2286,8 +2384,8 @@ chat.openapi(completions, async (c) => {
 		// shortcut.  The original iamAllowedProviders was computed for the "auto"
 		// model (which only has the "llmgateway" provider) and is not meaningful
 		// for the resolved model.
-		const resolvedIamValidation = await validateModelAccess(
-			apiKey.id,
+		const resolvedIamValidation = await validateRequestModelAccess(
+			apiKey,
 			modelInfo.id,
 			undefined,
 			modelInfo,
@@ -5187,7 +5285,7 @@ chat.openapi(completions, async (c) => {
 						image_config?.image_quality,
 						null,
 						null,
-						{ explicitCacheUsed },
+						{ explicitCacheUsed, servedServiceTier },
 						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -5359,6 +5457,7 @@ chat.openapi(completions, async (c) => {
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							webSearchEnabled: !!webSearchTool,
+							serviceTier: service_tier,
 						});
 						headers["Content-Type"] = "application/json";
 
@@ -5384,6 +5483,10 @@ chat.openapi(completions, async (c) => {
 								: "structured-outputs-2025-11-13";
 						}
 
+						// For the Gemini Developer API the processing tier is a body
+						// field; Vertex uses a header set above in getProviderHeaders.
+						applyGoogleServiceTier(requestBody, usedProvider, service_tier);
+
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
 							requestCanBeCanceled ? controller : undefined,
@@ -5395,6 +5498,13 @@ chat.openapi(completions, async (c) => {
 							headers,
 							body: JSON.stringify(requestBody),
 							signal: fetchSignal,
+						});
+
+						logServiceTierRequest(usedProvider, service_tier, res);
+						// AI Studio reports the served tier in a response header; Vertex
+						// reports it later in usageMetadata.trafficType (set below).
+						servedServiceTier = resolveServedServiceTier({
+							serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
 						});
 					} catch (error) {
 						// Clean up the event listeners
@@ -5623,6 +5733,10 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchTool ? 1 : null, // Bill for web search if it was enabled
 									project.organizationId,
+									undefined, // imageQuality
+									null, // reportedImageInputTokens
+									null, // reportedImageOutputTokens
+									{ servedServiceTier },
 								);
 							}
 
@@ -6093,7 +6207,7 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										undefined,
+										{ servedServiceTier },
 										true,
 									)
 								: null;
@@ -7063,6 +7177,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 											explicitCacheUsed,
+											servedServiceTier,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -7536,6 +7651,16 @@ chat.openapi(completions, async (c) => {
 										fullContent,
 										imageByteSize,
 									);
+
+									logVertexTrafficType(usedProvider, service_tier, data);
+									{
+										const served = resolveServedServiceTier({
+											trafficType: data?.usageMetadata?.trafficType,
+										});
+										if (served) {
+											servedServiceTier = served;
+										}
+									}
 
 									// If we have usage data from Google, add it to the streaming chunk
 									if (
@@ -8447,6 +8572,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 											explicitCacheUsed,
+											servedServiceTier,
 										},
 										finishReason === "content_filter",
 									);
@@ -8779,6 +8905,7 @@ chat.openapi(completions, async (c) => {
 										audioInputTokens,
 										cachedAudioInputTokens,
 										explicitCacheUsed,
+										servedServiceTier,
 									},
 									finishReason === "content_filter",
 								));
@@ -8953,6 +9080,7 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
+						serviceTier: servedServiceTier,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -9141,6 +9269,7 @@ chat.openapi(completions, async (c) => {
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
+				serviceTier: service_tier,
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";
@@ -9181,6 +9310,10 @@ chat.openapi(completions, async (c) => {
 						routingCfg,
 					);
 
+			// For the Gemini Developer API the processing tier is a body field;
+			// Vertex uses a header set above in getProviderHeaders.
+			applyGoogleServiceTier(requestBody, usedProvider, service_tier);
+
 			res = await fetch(url, {
 				method: "POST",
 				headers,
@@ -9189,6 +9322,13 @@ chat.openapi(completions, async (c) => {
 						? requestBody
 						: JSON.stringify(requestBody),
 				signal: fetchSignal,
+			});
+
+			logServiceTierRequest(usedProvider, service_tier, res);
+			// AI Studio reports the served tier in a response header; Vertex reports
+			// it later in usageMetadata.trafficType (set below).
+			servedServiceTier = resolveServedServiceTier({
+				serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
 			});
 		} catch (error) {
 			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
@@ -9463,6 +9603,10 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					webSearchTool ? 1 : null, // Bill for web search if it was enabled
 					project.organizationId,
+					undefined, // imageQuality
+					null, // reportedImageInputTokens
+					null, // reportedImageOutputTokens
+					{ servedServiceTier },
 				);
 			}
 
@@ -9824,7 +9968,7 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							undefined,
+							{ servedServiceTier },
 							true,
 						)
 					: null;
@@ -10463,6 +10607,16 @@ chat.openapi(completions, async (c) => {
 		? parseInt(contentLengthHeader, 10)
 		: 0;
 
+	logVertexTrafficType(usedProvider, service_tier, json);
+	{
+		const served = resolveServedServiceTier({
+			trafficType: json?.usageMetadata?.trafficType,
+		});
+		if (served) {
+			servedServiceTier = served;
+		}
+	}
+
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
 		usedProvider,
@@ -10613,6 +10767,7 @@ chat.openapi(completions, async (c) => {
 			audioInputTokens,
 			cachedAudioInputTokens,
 			explicitCacheUsed,
+			servedServiceTier,
 		},
 		finishReason === "content_filter",
 	);
@@ -10842,6 +10997,7 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
+		serviceTier: servedServiceTier,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,

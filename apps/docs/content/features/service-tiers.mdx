@@ -1,0 +1,85 @@
+---
+title: Service Tiers
+description: Trade latency against cost on Google models with Flex and Priority processing tiers.
+icon: Gauge
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Service Tiers
+
+Google's Gemini models support selectable **processing tiers** that trade latency
+and availability against price. You pick one per request with the OpenAI-compatible
+`service_tier` parameter, and LLM Gateway routes it to the right place for the
+underlying provider.
+
+| Tier         | `service_tier`            | Cost vs. standard | Latency / availability                      |
+| ------------ | ------------------------- | ----------------- | ------------------------------------------- |
+| Standard     | `default` / `auto` / omit | baseline          | Normal on-demand latency                    |
+| **Flex**     | `flex`                    | **−50%**          | Best-effort; may be preempted under load    |
+| **Priority** | `priority`                | **+80%**          | Prioritized above standard and flex traffic |
+
+## Using the `service_tier` parameter
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "google-vertex/gemini-2.5-pro",
+    "service_tier": "priority",
+    "messages": [
+      { "role": "user", "content": "Summarize this incident report." }
+    ]
+  }'
+```
+
+Accepted values are `flex`, `priority`, and `default`/`auto` (standard). Providers
+that don't support tiers ignore the parameter.
+
+## Supported providers
+
+Service tiers apply to Google's Gemini models. Under the hood the two Google
+integrations expose the feature differently, but the `service_tier` parameter is
+the same for both:
+
+- **Google Vertex AI** (`google-vertex`) — sent as the
+  `X-Vertex-AI-LLM-Shared-Request-Type` request header. Flex and Priority are
+  served only on the **global** endpoint, which is the gateway default.
+- **Gemini Developer API** (`google-ai-studio`) — sent as a `service_tier` field
+  in the request body.
+
+<Callout type="info">
+	Tiers are supported on a **subset** of Gemini models, and the Flex and
+	Priority subsets differ. If a model doesn't support the requested tier, Google
+	either rejects the request (e.g. "Flex API is not supported for model …") or
+	gracefully **downgrades** it to standard processing.
+</Callout>
+
+## Billing follows the served tier
+
+Because Google can downgrade a request, LLM Gateway bills the tier that was
+**actually served**, not the one you requested:
+
+- A `priority` request that runs as priority is billed at +80%.
+- A `flex` request that runs as flex is billed at −50%.
+- A request that Google downgrades to standard is billed at the **standard**
+  rate — you are never charged the premium for a request that didn't run as
+  priority.
+
+The served tier is read back from the provider response — Vertex reports it in
+`usageMetadata.trafficType` (`ON_DEMAND_PRIORITY` / `ON_DEMAND_FLEX` /
+`ON_DEMAND`), and the Gemini Developer API reports it in the
+`x-gemini-service-tier` response header. The multiplier scales per-token costs
+(input, output, cached, and image tokens); flat per-request and web-search fees
+are unaffected.
+
+<Callout type="warn">
+	Image-generation models illustrate why this matters: for
+	`gemini-3-pro-image-preview`, Flex is honored (billed −50%) but Priority is
+	currently downgraded to standard — so a `priority` image request is billed at
+	the standard rate, not the premium.
+</Callout>
+
+You can see per-tier pricing for each model on its
+[model page](https://llmgateway.io/models) under **Processing Tiers**.

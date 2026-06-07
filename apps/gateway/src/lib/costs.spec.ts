@@ -13,12 +13,10 @@ vi.mock("@llmgateway/db", () => ({
 describe("calculateCosts", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
-		vi.mocked(mockGetEffectiveDiscount).mockImplementation(
-			async (_organizationId, _provider, _model, hardcodedDiscount = 0) => ({
-				discount: hardcodedDiscount,
-				source: hardcodedDiscount > 0 ? "hardcoded" : "none",
-			}),
-		);
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
 	});
 
 	it("should calculate costs with provided token counts", async () => {
@@ -357,7 +355,6 @@ describe("calculateCosts", () => {
 			null,
 			"openai",
 			"gpt-4",
-			"0",
 		);
 	});
 
@@ -571,6 +568,154 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(
 			(result.inputCost ?? 0) + (result.outputCost ?? 0),
 		);
+	});
+
+	describe("service tiers (Flex / Priority)", () => {
+		it("applies the Priority multiplier (1.8x) to token costs", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00125 * 1.8); // 0.00225
+			expect(result.outputCost).toBeCloseTo(0.007 * 1.8); // 0.0126
+			expect(result.totalCost).toBeCloseTo((0.00125 + 0.007) * 1.8);
+		});
+
+		it("applies the Flex multiplier (0.5x) to token costs", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00125 * 0.5);
+			expect(result.outputCost).toBeCloseTo(0.007 * 0.5);
+		});
+
+		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: null },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00125);
+			expect(result.outputCost).toBeCloseTo(0.007);
+		});
+
+		it("scales image output cost by the served tier (Flex honored on image model)", async () => {
+			const result = await calculateCosts(
+				"gemini-3-pro-image-preview",
+				"google-vertex",
+				null,
+				1000,
+				2500,
+				null,
+				undefined,
+				null,
+				2,
+				"1K",
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			// image output 2240 tokens * 120e-6 * 0.5 (Flex)
+			expect(result.imageOutputCost).toBeCloseTo(0.2688 * 0.5);
+		});
+
+		it("does not scale flat web-search fees by the tier", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				1, // webSearchCount
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			// token costs scale 1.8x, but the per-search fee stays flat at $0.035
+			expect(result.inputCost).toBeCloseTo(0.00125 * 1.8);
+			expect(result.webSearchCost).toBeCloseTo(0.035);
+		});
+
+		it("ignores the tier for providers without configured service tiers", async () => {
+			const result = await calculateCosts(
+				"gpt-4",
+				"openai",
+				null,
+				100,
+				50,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.001);
+			expect(result.outputCost).toBeCloseTo(0.0015);
+		});
 	});
 
 	it("should use reported image output tokens for gpt-image-2", async () => {

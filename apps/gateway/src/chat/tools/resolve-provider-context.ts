@@ -104,6 +104,7 @@ export interface ProviderContextOptions {
 		| "medium"
 		| "high"
 		| "xhigh"
+		| "max"
 		| undefined;
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;

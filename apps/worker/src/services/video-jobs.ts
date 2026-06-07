@@ -1712,6 +1712,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,
+				endUserSessionId: jobToLog.endUserSessionId,
+				endCustomerWalletId: jobToLog.endCustomerWalletId,
 				duration: Math.max(0, Date.now() - jobToLog.createdAt.getTime()),
 				requestedModel: getFormattedRequestedVideoModel(jobToLog),
 				requestedProvider: jobToLog.requestedProvider,
