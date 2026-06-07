@@ -11,7 +11,6 @@ import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
-	getProratedCreditDelta,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -19,6 +18,7 @@ import {
 import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
 
@@ -88,6 +88,162 @@ function getDevPlanPriceId(
 	};
 	const key = cycle === "annual" ? annualKeys[tier] : monthlyKeys[tier];
 	return process.env[key];
+}
+
+function getStripeId(value: string | { id?: string } | null | undefined) {
+	if (!value) {
+		return null;
+	}
+	if (typeof value === "string") {
+		return value;
+	}
+	return value.id ?? null;
+}
+
+function getInvoicePaymentIntentId(invoice: Stripe.Invoice) {
+	const invoiceWithPaymentIntent = invoice as Stripe.Invoice & {
+		payment_intent?: string | { id?: string } | null;
+	};
+	return getStripeId(invoiceWithPaymentIntent.payment_intent);
+}
+
+async function cleanupFailedUpgradeInvoice(params: {
+	invoiceId: string | null;
+	invoiceItemId: string | null;
+	finalized: boolean;
+}) {
+	const stripe = getStripe();
+	try {
+		if (params.invoiceId) {
+			if (params.finalized) {
+				await stripe.invoices.voidInvoice(params.invoiceId);
+			} else {
+				await stripe.invoices.del(params.invoiceId);
+			}
+			return;
+		}
+
+		if (params.invoiceItemId) {
+			await stripe.invoiceItems.del(params.invoiceItemId);
+		}
+	} catch (cleanupError) {
+		logger.warn("Failed to clean up failed dev plan upgrade invoice", {
+			error:
+				cleanupError instanceof Error
+					? cleanupError.message
+					: String(cleanupError),
+			invoiceId: params.invoiceId,
+			invoiceItemId: params.invoiceItemId,
+		});
+	}
+}
+
+async function collectDevPlanUpgradeCharge(params: {
+	subscription: Stripe.Subscription;
+	organizationId: string;
+	currentTier: DevPlanTier;
+	newTier: DevPlanTier;
+}) {
+	const stripe = getStripe();
+	const customerId = getStripeId(params.subscription.customer);
+
+	if (!customerId) {
+		throw new HTTPException(500, {
+			message: "Subscription customer not found",
+		});
+	}
+
+	const amountCents =
+		(DEV_PLAN_PRICES[params.newTier] - DEV_PLAN_PRICES[params.currentTier]) *
+		100;
+
+	if (amountCents <= 0) {
+		return null;
+	}
+
+	const metadata = {
+		organizationId: params.organizationId,
+		subscriptionType: "dev_plan",
+		devPlanChange: "upgrade",
+		fromTier: params.currentTier,
+		toTier: params.newTier,
+	};
+
+	let invoiceItemId: string | null = null;
+	let invoiceId: string | null = null;
+	let finalized = false;
+
+	try {
+		const invoiceItem = await stripe.invoiceItems.create({
+			customer: customerId,
+			subscription: params.subscription.id,
+			amount: amountCents,
+			currency: "usd",
+			description: `Dev Plan upgrade from ${params.currentTier.toUpperCase()} to ${params.newTier.toUpperCase()}`,
+			metadata,
+		});
+		invoiceItemId = invoiceItem.id ?? null;
+
+		const invoice = await stripe.invoices.create({
+			customer: customerId,
+			subscription: params.subscription.id,
+			collection_method: "charge_automatically",
+			pending_invoice_items_behavior: "include",
+			auto_advance: false,
+			metadata,
+			expand: ["payment_intent"],
+		});
+		if (!invoice.id) {
+			throw new HTTPException(500, {
+				message: "Upgrade invoice was not created",
+			});
+		}
+		invoiceId = invoice.id;
+
+		const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id, {
+			auto_advance: false,
+			expand: ["payment_intent"],
+		});
+		if (!finalizedInvoice.id) {
+			throw new HTTPException(500, {
+				message: "Upgrade invoice was not finalized",
+			});
+		}
+		finalized = true;
+
+		const paidInvoice = await stripe.invoices.pay(finalizedInvoice.id, {
+			off_session: true,
+			expand: ["payment_intent"],
+		});
+
+		if (paidInvoice.status !== "paid") {
+			throw new HTTPException(402, {
+				message:
+					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
+
+		return {
+			amount: amountCents / 100,
+			invoiceId: paidInvoice.id ?? invoiceId,
+			paymentIntentId: getInvoicePaymentIntentId(paidInvoice),
+		};
+	} catch (error) {
+		await cleanupFailedUpgradeInvoice({
+			invoiceId,
+			invoiceItemId,
+			finalized,
+		});
+
+		if (error instanceof HTTPException) {
+			throw error;
+		}
+
+		throw new HTTPException(402, {
+			message:
+				"Upgrade payment could not be collected. Update your payment method and try again.",
+		});
+	}
 }
 
 // Get or create personal organization for user
@@ -655,6 +811,7 @@ devPlans.openapi(changeTier, async (c) => {
 	}
 
 	const currentTier: DevPlanTier = personalOrg.devPlan;
+	const subscriptionId = personalOrg.devPlanStripeSubscriptionId;
 
 	// Preserve the subscriber's existing billing cadence so an annual
 	// subscriber doesn't silently get switched to monthly when changing tier.
@@ -671,39 +828,48 @@ devPlans.openapi(changeTier, async (c) => {
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
 
 	try {
-		const subscription = await getStripe().subscriptions.retrieve(
-			personalOrg.devPlanStripeSubscriptionId,
-		);
+		const subscription =
+			await getStripe().subscriptions.retrieve(subscriptionId);
 
-		// Upgrades are charged a prorated amount synchronously (and rejected if
-		// the payment method can't cover it — otherwise Stripe would leave the
-		// subscription on the higher price while we never collect). Downgrades
-		// use `none`: the subscriber keeps the current (higher) tier's credits
-		// for the rest of the billing cycle and there is no refund — the lower
-		// price simply takes effect at the next renewal.
-		const updated = await getStripe().subscriptions.update(
-			personalOrg.devPlanStripeSubscriptionId,
-			{
-				items: [
-					{
-						id: subscription.items.data[0].id,
-						price: newPriceId,
-					},
-				],
-				// Downgrades use "none" so the user is not refunded or credited for
-				// the current period (no refund) — the lower price applies from the
-				// next invoice onward.
-				proration_behavior: isUpgrade ? "always_invoice" : "none",
-				payment_behavior: isUpgrade
-					? "error_if_incomplete"
-					: "allow_incomplete",
-				metadata: {
-					...subscription.metadata,
-					devPlan: newTier,
-					devPlanCycle: existingCycle,
+		if (
+			isUpgrade &&
+			subscription.status !== "active" &&
+			subscription.status !== "trialing"
+		) {
+			throw new HTTPException(402, {
+				message:
+					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
+
+		const subscriptionItemId = subscription.items.data[0]?.id;
+		const currentPriceId = subscription.items.data[0]?.price.id;
+
+		if (!subscriptionItemId || !currentPriceId) {
+			throw new HTTPException(500, {
+				message: "Subscription item not found",
+			});
+		}
+
+		// Tier changes suppress Stripe's default time-based proration. Upgrades
+		// collect the full tier-price difference after Stripe accepts the new
+		// subscription price; downgrades keep the current cycle's credits and
+		// issue no refund.
+		const updated = await getStripe().subscriptions.update(subscriptionId, {
+			items: [
+				{
+					id: subscriptionItemId,
+					price: newPriceId,
 				},
+			],
+			proration_behavior: "none",
+			payment_behavior: "allow_incomplete",
+			metadata: {
+				...subscription.metadata,
+				devPlan: newTier,
+				devPlanCycle: existingCycle,
 			},
-		);
+		});
 
 		if (
 			isUpgrade &&
@@ -716,39 +882,45 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
+		const paidUpgrade = isUpgrade
+			? await collectDevPlanUpgradeCharge({
+					subscription: updated,
+					organizationId: personalOrg.id,
+					currentTier,
+					newTier,
+				}).catch(async (error: unknown) => {
+					try {
+						await getStripe().subscriptions.update(subscriptionId, {
+							items: [
+								{
+									id: subscriptionItemId,
+									price: currentPriceId,
+								},
+							],
+							proration_behavior: "none",
+							payment_behavior: "allow_incomplete",
+							metadata: {
+								...subscription.metadata,
+								devPlan: currentTier,
+								devPlanCycle: existingCycle,
+							},
+						});
+					} catch (rollbackError) {
+						logger.error(
+							"Failed to roll back dev plan tier after upgrade payment failure",
+							rollbackError instanceof Error
+								? rollbackError
+								: new Error(String(rollbackError)),
+						);
+					}
+
+					throw error;
+				})
+			: null;
+
 		if (isUpgrade) {
-			// Only update local DB after Stripe confirms the upgrade is paid/active.
-			//
-			// Credits track prorated dollars: a mid-cycle upgrade grants only the
-			// prorated difference between the two tiers' allotments for the
-			// remaining part of the billing period, mirroring the prorated amount
-			// Stripe charges. Granting the full new-tier allotment on every
-			// upgrade would let a user upgrade cheaply near the end of a cycle to
-			// receive a near-full fresh allotment. Clamp to the new tier's full
-			// allotment so a carried-over higher limit (e.g. credits kept from a
-			// prior downgrade) can never push the balance above the tier cap.
-			const subscriptionItem = updated.items.data[0];
-			const periodStart = subscriptionItem.current_period_start;
-			const periodEnd = subscriptionItem.current_period_end;
-			const nowSeconds = Math.floor(Date.now() / 1000);
-			const periodLength = periodEnd - periodStart;
-			const remainingFraction =
-				periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
+			const newCreditsLimit = getDevPlanCreditsLimit(newTier);
 
-			const creditDelta = getProratedCreditDelta(
-				currentTier,
-				newTier,
-				remainingFraction,
-			);
-			const currentLimit = parseFloat(personalOrg.devPlanCreditsLimit ?? "0");
-			const newCreditsLimit = Math.min(
-				getDevPlanCreditsLimit(newTier),
-				Math.max(0, currentLimit + creditDelta),
-			);
-
-			// The upgrade's proration invoice fires `invoice.payment_succeeded`,
-			// which records the `dev_plan_upgrade` transaction (with the amount
-			// collected) — so we don't record one here to avoid double-counting.
 			await db
 				.update(tables.organization)
 				.set({
@@ -756,6 +928,31 @@ devPlans.openapi(changeTier, async (c) => {
 					devPlanCreditsLimit: newCreditsLimit.toString(),
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
+
+			if (paidUpgrade) {
+				const existingUpgradeTransaction = await db.query.transaction.findFirst(
+					{
+						where: {
+							stripeInvoiceId: {
+								eq: paidUpgrade.invoiceId,
+							},
+						},
+					},
+				);
+
+				if (!existingUpgradeTransaction) {
+					await db.insert(tables.transaction).values({
+						organizationId: personalOrg.id,
+						type: "dev_plan_upgrade",
+						amount: paidUpgrade.amount.toString(),
+						currency: "USD",
+						status: "completed",
+						stripePaymentIntentId: paidUpgrade.paymentIntentId,
+						stripeInvoiceId: paidUpgrade.invoiceId,
+						description: `Changed from ${currentTier} to ${newTier} plan`,
+					});
+				}
+			}
 		} else {
 			// Downgrade: keep the current cycle's credits (limit and used) intact;
 			// the lower tier — and its smaller allotment — takes effect at the

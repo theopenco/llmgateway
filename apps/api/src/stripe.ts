@@ -2039,14 +2039,19 @@ export async function handleInvoicePaymentSucceeded(
 		organization.devPlan !== "none";
 
 	// Stripe fires `invoice.payment_succeeded` both for true period renewals
-	// (`subscription_cycle`) and for the proration invoice generated when a
-	// user changes tier mid-cycle (`subscription_update`). Only a real cycle
-	// renewal should reset the credit allotment. Treating a proration invoice
-	// as a renewal lets a user downgrade and then upgrade to repeatedly
-	// refresh a full fresh credit balance — so we gate the credit reset on the
-	// billing reason.
+	// (`subscription_cycle`) and for one-off invoices generated when a user
+	// changes tier mid-cycle. Only a real cycle renewal should reset the credit
+	// allotment. Treating an upgrade invoice as a renewal lets a user downgrade
+	// then upgrade to repeatedly refresh a full fresh credit balance — so we
+	// gate the credit reset on the billing reason.
 	const isDevPlanRenewal =
 		isDevPlanSubscription && invoice.billing_reason === "subscription_cycle";
+	const isDevPlanUpgradeInvoice =
+		isDevPlanSubscription &&
+		(invoice.billing_reason === "subscription_update" ||
+			(invoice.billing_reason === "manual" &&
+				metadata?.subscriptionType === "dev_plan" &&
+				metadata?.devPlanChange === "upgrade"));
 
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}`,
@@ -2117,16 +2122,12 @@ export async function handleInvoicePaymentSucceeded(
 				organization.devPlan ?? "unknown",
 			);
 		}
-	} else if (
-		isDevPlanSubscription &&
-		invoice.billing_reason === "subscription_update"
-	) {
-		// Proration invoice from a mid-cycle upgrade. The change-tier endpoint
-		// already adjusted `devPlanCreditsLimit` (prorated); here we record the
-		// upgrade — with the amount actually collected — as the single canonical
-		// `dev_plan_upgrade` transaction (change-tier deliberately does not record
-		// one for upgrades, to avoid double-counting). We do NOT reset
-		// `devPlanCreditsUsed` or grant a fresh allotment.
+	} else if (isDevPlanUpgradeInvoice) {
+		// Invoice from a mid-cycle upgrade. The change-tier endpoint already
+		// adjusted the org's tier/limit and normally records the transaction
+		// synchronously; this webhook path is the fallback if the process exits
+		// after Stripe collects payment but before the local insert. We do NOT
+		// reset `devPlanCreditsUsed`.
 		await db.insert(tables.transaction).values({
 			organizationId,
 			type: "dev_plan_upgrade",
@@ -2135,11 +2136,14 @@ export async function handleInvoicePaymentSucceeded(
 			status: "completed",
 			stripePaymentIntentId: (invoice as any).payment_intent,
 			stripeInvoiceId: invoice.id,
-			description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+			description:
+				metadata?.fromTier && metadata?.toTier
+					? `Changed from ${metadata.fromTier} to ${metadata.toTier} plan`
+					: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
 		});
 
 		logger.info(
-			`Recorded dev plan upgrade proration invoice for organization ${organizationId}; credits left unchanged`,
+			`Recorded dev plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
 		);
 	} else if (isDevPlanSubscription) {
 		// Any other dev-plan invoice (e.g. `manual`, or a `subscription_create`
