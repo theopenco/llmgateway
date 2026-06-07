@@ -157,7 +157,6 @@ function priceToNumber(price?: string): number | undefined {
 	return price === undefined ? undefined : Number(price);
 }
 
-// Helper to format prices using any provider discount while reusing shared formatPrice logic.
 function getMappingPriceInfo(
 	mapping: ProviderModelMapping | undefined,
 	field: PriceField,
@@ -190,30 +189,13 @@ function getMappingPriceInfo(
 		return { label: "Free", original: "Free" };
 	}
 
-	const discount = priceToNumber(mapping.discount);
-
 	// Request price is a flat per-request fee, not per-token
 	if (field === "request") {
 		const original = `$${basePrice.toFixed(3)}/req`;
-		if (discount && discount > 0) {
-			const discountedPrice = basePrice * (1 - discount);
-			const discounted = `$${discountedPrice.toFixed(3)}/req`;
-			return { label: discounted, original, discounted };
-		}
 		return { label: original, original };
 	}
 
 	const original = formatPrice(basePrice);
-
-	// Apply discount if present
-	if (discount && discount > 0) {
-		const discounted = formatPrice(basePrice * (1 - discount));
-		return {
-			label: discounted,
-			original,
-			discounted,
-		};
-	}
 
 	return { label: original, original };
 }
@@ -243,7 +225,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 	let maxOutput: number | undefined;
 	const capabilitySet = new Set<string>();
 
-	const applyDiscount = (price: string | undefined, discount?: string) => {
+	const readPrice = (price: string | undefined) => {
 		if (price === undefined) {
 			return undefined;
 		}
@@ -251,14 +233,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 		if (!Number.isFinite(priceNum)) {
 			return undefined;
 		}
-		if (priceNum === 0) {
-			return 0;
-		}
-		const discountNum = discount === undefined ? 0 : Number(discount);
-		if (!Number.isFinite(discountNum) || discountNum <= 0) {
-			return priceNum;
-		}
-		return priceNum * (1 - discountNum);
+		return priceNum;
 	};
 
 	for (const mapping of model.providers) {
@@ -269,7 +244,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			continue;
 		}
 
-		const effectiveInput = applyDiscount(mapping.inputPrice, mapping.discount);
+		const effectiveInput = readPrice(mapping.inputPrice);
 		if (
 			effectiveInput !== undefined &&
 			(minInputPrice === undefined || effectiveInput < minInputPrice)
@@ -277,10 +252,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minInputPrice = effectiveInput;
 		}
 
-		const effectiveOutput = applyDiscount(
-			mapping.outputPrice,
-			mapping.discount,
-		);
+		const effectiveOutput = readPrice(mapping.outputPrice);
 		if (
 			effectiveOutput !== undefined &&
 			(minOutputPrice === undefined || effectiveOutput < minOutputPrice)
@@ -288,10 +260,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minOutputPrice = effectiveOutput;
 		}
 
-		const effectiveCached = applyDiscount(
-			mapping.cachedInputPrice,
-			mapping.discount,
-		);
+		const effectiveCached = readPrice(mapping.cachedInputPrice);
 		if (
 			effectiveCached !== undefined &&
 			(minCachedInputPrice === undefined ||
@@ -301,10 +270,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 		}
 
 		// Track image generation pricing
-		const effectiveRequest = applyDiscount(
-			mapping.requestPrice,
-			mapping.discount,
-		);
+		const effectiveRequest = readPrice(mapping.requestPrice);
 		if (
 			effectiveRequest !== undefined &&
 			(minRequestPrice === undefined || effectiveRequest < minRequestPrice)
@@ -312,10 +278,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minRequestPrice = effectiveRequest;
 		}
 
-		const effectiveImageInput = applyDiscount(
-			mapping.imageInputPrice,
-			mapping.discount,
-		);
+		const effectiveImageInput = readPrice(mapping.imageInputPrice);
 		if (
 			effectiveImageInput !== undefined &&
 			(minImageInputPrice === undefined ||
@@ -324,10 +287,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minImageInputPrice = effectiveImageInput;
 		}
 
-		const effectiveImageOutput = applyDiscount(
-			mapping.imageOutputPrice,
-			mapping.discount,
-		);
+		const effectiveImageOutput = readPrice(mapping.imageOutputPrice);
 		if (
 			effectiveImageOutput !== undefined &&
 			(minImageOutputPrice === undefined ||

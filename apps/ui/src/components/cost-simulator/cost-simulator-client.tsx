@@ -92,10 +92,8 @@ function getImagePrice(mapping: ProviderModelMapping): {
 	pricePerImage: number;
 	resolutions: string[];
 	getPrice: (res: string) => number;
-	discount: number;
 	pricingType: "per-request" | "per-token";
 } {
-	const discount = Number(mapping.discount ?? "0");
 	const requestPriceNum = Number(mapping.requestPrice ?? "0");
 	const imageOutputPriceNum = Number(mapping.imageOutputPrice ?? "0");
 
@@ -104,7 +102,6 @@ function getImagePrice(mapping: ProviderModelMapping): {
 			pricePerImage: requestPriceNum,
 			resolutions: [],
 			getPrice: () => requestPriceNum,
-			discount,
 			pricingType: "per-request",
 		};
 	}
@@ -119,7 +116,6 @@ function getImagePrice(mapping: ProviderModelMapping): {
 			pricePerImage: getPrice(resolutions[0] ?? "1K"),
 			resolutions,
 			getPrice,
-			discount,
 			pricingType: "per-token",
 		};
 	}
@@ -128,7 +124,6 @@ function getImagePrice(mapping: ProviderModelMapping): {
 		pricePerImage: 0,
 		resolutions: [],
 		getPrice: () => 0,
-		discount: 0,
 		pricingType: "per-request",
 	};
 }
@@ -290,7 +285,6 @@ function TextSimulator() {
 	const cachedInputPricePerToken = mapping?.cachedInputPrice
 		? Number(mapping.cachedInputPrice)
 		: inputPricePerToken * 0.1;
-	const discount = Number(mapping?.discount ?? "0");
 
 	const dailyRequests = dailyVolumeSteps[volumeIndex];
 	const monthlyRequests = dailyRequests * 30;
@@ -325,9 +319,7 @@ function TextSimulator() {
 		const baseMonthly = basePerRequest * monthlyRequests;
 		const competitorMonthly = baseMonthly * 1.055;
 
-		// LLM Gateway: same base cost, but with provider discount if available
-		const gatewayPerRequest =
-			discount > 0 ? basePerRequest * (1 - discount) : basePerRequest;
+		const gatewayPerRequest = basePerRequest;
 		const gatewayMonthly = gatewayPerRequest * monthlyRequests;
 
 		const savingsVsCompetitor = competitorMonthly - gatewayMonthly;
@@ -349,7 +341,6 @@ function TextSimulator() {
 		inputPricePerToken,
 		outputPricePerToken,
 		cachedInputPricePerToken,
-		discount,
 		monthlyRequests,
 		avgInputTokens,
 		avgOutputTokens,
@@ -420,7 +411,6 @@ function TextSimulator() {
 								<p className="text-xs text-muted-foreground mt-2">
 									{formatPrice(inputPricePerToken)}/M input &middot;{" "}
 									{formatPrice(outputPricePerToken)}/M output
-									{discount > 0 ? ` · ${discount * 100}% discount` : ""}
 								</p>
 							)}
 						</div>
@@ -552,9 +542,6 @@ function TextSimulator() {
 						</p>
 						<p className="text-lg text-green-600/80 dark:text-green-400/80 mt-2 font-medium">
 							{costs.savingsPercent}% less than other gateways
-							{discount > 0
-								? ` (includes ${discount * 100}% provider discount)`
-								: ""}
 						</p>
 						<div className="mt-4">
 							<p className="text-xs text-muted-foreground">Annual savings</p>
@@ -599,7 +586,6 @@ function TextSimulator() {
 								<span className="text-green-600 dark:text-green-400">
 									With caching ({cacheHitRate}% @{" "}
 									{formatPrice(cachedInputPricePerToken)}/M)
-									{discount > 0 ? ` + ${discount * 100}% off` : ""}
 								</span>
 								<span className="font-mono font-medium text-green-600 dark:text-green-400">
 									{formatCurrency(costs.gatewayPerRequest)}
@@ -688,25 +674,20 @@ function ImageSimulator() {
 				? imagePrice.getPrice(validResolution)
 				: imagePrice.pricePerImage;
 
-		const hasDiscount = imagePrice.discount > 0;
-		const discountedPrice = hasDiscount
-			? pricePerImage * (1 - imagePrice.discount)
-			: pricePerImage;
-
-		const dailyCost = discountedPrice * imagesPerDay;
+		const dailyCost = pricePerImage * imagesPerDay;
 		const monthlyCost = dailyCost * 30;
 		const competitorMonthly = monthlyCost * 1.055;
 		const savings = competitorMonthly - monthlyCost;
 
 		return {
 			pricePerImage,
-			discountedPrice,
+			discountedPrice: pricePerImage,
 			dailyCost,
 			monthlyCost,
 			competitorMonthly,
 			savings,
 			yearlySavings: savings * 12,
-			hasDiscount,
+			hasDiscount: false,
 		};
 	}, [imagePrice, validResolution, imagesPerDay]);
 
@@ -728,9 +709,6 @@ function ImageSimulator() {
 							/>
 							{mapping && (
 								<p className="text-xs text-muted-foreground mt-2">
-									{imagePrice?.discount
-										? ` · ${imagePrice.discount * 100}% discount`
-										: ""}
 									{imagePrice?.pricingType === "per-request"
 										? ` · $${imagePrice.pricePerImage.toFixed(3)}/image`
 										: ""}
@@ -833,16 +811,6 @@ function ImageSimulator() {
 									${costs.pricePerImage.toFixed(4)}
 								</span>
 							</div>
-							{costs.hasDiscount && imagePrice && (
-								<div className="flex items-center justify-between text-sm">
-									<span className="text-green-600 dark:text-green-400">
-										After {imagePrice.discount * 100}% discount
-									</span>
-									<span className="font-mono text-green-600 dark:text-green-400">
-										${costs.discountedPrice.toFixed(4)}
-									</span>
-								</div>
-							)}
 							<div className="flex items-center justify-between text-sm">
 								<span className="text-muted-foreground">Daily cost</span>
 								<span className="font-mono">

@@ -123,11 +123,6 @@ export interface ProviderRegion {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
-	 * Discount multiplier (0-1) for this region.
-	 * When absent, falls back to the mapping-level discount.
-	 */
-	discount?: Price;
-	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
 	 */
@@ -259,10 +254,6 @@ export interface ProviderModelMapping {
 	 * "default_video", and "4k_video" to per-second pricing.
 	 */
 	perSecondPrice?: Record<string, Price>;
-	/**
-	 * Discount multiplier (0-1), where 0.5 = 50% off
-	 */
-	discount?: Price;
 	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.

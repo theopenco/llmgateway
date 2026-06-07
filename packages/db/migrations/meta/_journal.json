@@ -1069,8 +1069,22 @@
     {
       "idx": 152,
       "version": "8",
-      "when": 1780861518317,
-      "tag": "1780861518_fearless_the_stranger",
+      "when": 1780857793050,
+      "tag": "1780857793_free_longshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "8",
+      "when": 1780859140522,
+      "tag": "1780859140_wild_blink",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "8",
+      "when": 1780861860340,
+      "tag": "1780861860_tearful_inertia",
       "breakpoints": true
     }
   ]

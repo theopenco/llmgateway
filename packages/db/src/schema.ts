@@ -1221,6 +1221,12 @@ export const log = pgTable(
 		index("log_project_id_session_id_idx")
 			.on(table.projectId, table.sessionId, table.createdAt)
 			.where(sql`session_id IS NOT NULL`),
+		index("log_end_customer_wallet_id_created_at_idx")
+			.on(table.endCustomerWalletId, table.createdAt)
+			.where(sql`end_customer_wallet_id IS NOT NULL`),
+		index("log_end_user_session_id_created_at_idx")
+			.on(table.endUserSessionId, table.createdAt)
+			.where(sql`end_user_session_id IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
@@ -1778,7 +1784,6 @@ export const modelProviderMapping = pgTable(
 		jsonOutputSchema: boolean().default(false).notNull(),
 		webSearch: boolean().default(false).notNull(),
 		webSearchPrice: decimal(),
-		discount: decimal().default("0").notNull(),
 		stability: text({
 			enum: ["stable", "beta", "unstable", "experimental"],
 		})

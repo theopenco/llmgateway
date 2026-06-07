@@ -222,12 +222,9 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					?.providers.find(
 						(provider) => provider.providerId === mapping.providerId,
 					) ?? null;
-			const globalDiscount = getGlobalDiscount(mapping.providerId, model.id);
-			// Global discount takes precedence over hardcoded mapping discount
-			const effectiveDiscount = globalDiscount ?? mapping.discount;
 			return {
 				...mapping,
-				discount: effectiveDiscount,
+				discount: getGlobalDiscount(mapping.providerId, model.id),
 				audio: sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				imageOutputPrice:
