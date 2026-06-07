@@ -315,7 +315,7 @@ export const completionsRequestSchema = z.object({
 		.optional()
 		.openapi({
 			description:
-				"Processing tier for the request. For Google Vertex AI, `flex` selects Flex PayGo (lower cost, best-effort latency) and `priority` selects Priority PayGo (premium low-latency). `auto`/`default` use the standard on-demand tier. Ignored by providers that don't support tiers.",
+				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error.",
 			example: "flex",
 		}),
 	free_models_only: z.boolean().optional().default(false).openapi({

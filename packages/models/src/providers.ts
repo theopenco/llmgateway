@@ -49,8 +49,8 @@ export interface ProviderRegionConfig {
 /**
  * A selectable processing tier offered by a provider that trades latency
  * against price relative to the standard on-demand rate. Selected per-request
- * via the OpenAI-compatible `service_tier` field. Currently used by Google
- * Vertex AI and OpenAI (Flex / Priority PayGo).
+ * via the OpenAI-compatible `service_tier` field. Currently used by OpenAI,
+ * Google Vertex AI, and Google AI Studio.
  */
 export interface ServiceTier {
 	/** Value the client passes via `service_tier` to select this tier (e.g. "flex", "priority") */
@@ -59,7 +59,7 @@ export interface ServiceTier {
 	name: string;
 	/**
 	 * Multiplier applied to the standard input/output token prices for this
-	 * tier. 0.5 means 50% cheaper, 1.8 means an 80% premium. Multipliers are
+	 * tier. 0.5 means 50% cheaper, 2.5 means 2.5x standard pricing. Multipliers are
 	 * uniform for provider tiers that publish a tier-wide multiplier.
 	 */
 	multiplier: number;
