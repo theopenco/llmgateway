@@ -123,6 +123,7 @@ export interface ProviderContextOptions {
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
 	providerCacheControlEnabled: boolean;
+	service_tier?: "auto" | "default" | "flex" | "priority";
 }
 
 interface ProjectInfo {
@@ -490,6 +491,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_retention,
 		options.providerCacheControlEnabled,
 		options.n,
+		options.service_tier,
 	);
 
 	// Post-validation of max_tokens in request body

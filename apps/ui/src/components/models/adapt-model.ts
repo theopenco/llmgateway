@@ -107,6 +107,13 @@ export function adaptProviderMapping(
 			color: p.providerInfo?.color ?? null,
 			website: p.providerInfo?.website ?? null,
 			announcement: null,
+			serviceTiers:
+				p.providerInfo?.serviceTiers?.map((tier) => ({
+					id: tier.id,
+					name: tier.name,
+					multiplier: tier.multiplier,
+					description: tier.description,
+				})) ?? null,
 			status: "active" as const,
 		},
 	};

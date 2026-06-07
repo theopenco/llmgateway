@@ -14,6 +14,12 @@ export interface ApiProvider {
 	color: string | null;
 	website: string | null;
 	announcement: string | null;
+	serviceTiers?: Array<{
+		id: string;
+		name: string;
+		multiplier: number;
+		description?: string;
+	}> | null;
 	status: "active" | "inactive";
 }
 

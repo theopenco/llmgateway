@@ -766,6 +766,34 @@ function logVertexTrafficType(
 	});
 }
 
+function readServiceTierValue(value: unknown): string | undefined {
+	if (typeof value === "object" && value !== null && "service_tier" in value) {
+		const record = value as Record<string, unknown>;
+		return typeof record.service_tier === "string"
+			? record.service_tier
+			: undefined;
+	}
+	return undefined;
+}
+
+function resolveOpenAIServiceTier(
+	data: unknown,
+): "flex" | "priority" | null | undefined {
+	const serviceTier =
+		readServiceTierValue(data) ??
+		(typeof data === "object" && data !== null && "response" in data
+			? readServiceTierValue((data as Record<string, unknown>).response)
+			: undefined);
+	if (serviceTier === undefined) {
+		return undefined;
+	}
+	const normalized = serviceTier.toLowerCase();
+	if (normalized === "flex" || normalized === "priority") {
+		return normalized;
+	}
+	return null;
+}
+
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
@@ -4843,6 +4871,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_retention,
 			providerCacheControlEnabled,
 			n,
+			service_tier,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -5047,6 +5076,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlEnabled,
+				service_tier,
 			},
 		);
 	}
@@ -7629,6 +7659,13 @@ chat.openapi(completions, async (c) => {
 											completion_tokens: usage.output_tokens,
 											total_tokens: estimatedPromptTokens + usage.output_tokens,
 										};
+									}
+								}
+
+								if (usedProvider === "openai") {
+									const served = resolveOpenAIServiceTier(data);
+									if (served !== undefined) {
+										servedServiceTier = served;
 									}
 								}
 
@@ -10597,6 +10634,12 @@ chat.openapi(completions, async (c) => {
 		: 0;
 
 	logVertexTrafficType(usedProvider, service_tier, json);
+	if (usedProvider === "openai") {
+		const served = resolveOpenAIServiceTier(json);
+		if (served !== undefined) {
+			servedServiceTier = served;
+		}
+	}
 	{
 		const served = resolveServedServiceTier({
 			trafficType: json?.usageMetadata?.trafficType,

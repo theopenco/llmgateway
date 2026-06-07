@@ -226,6 +226,7 @@ export interface BaseRequestBody {
 	frequency_penalty?: number;
 	presence_penalty?: number;
 	stream?: boolean;
+	service_tier?: "auto" | "default" | "flex" | "priority";
 }
 
 export interface OpenAIRequestBody extends BaseRequestBody {
@@ -272,6 +273,7 @@ export type OpenAIResponsesInputItem =
 export interface OpenAIResponsesRequestBody {
 	model: string;
 	input: OpenAIResponsesInputItem[];
+	service_tier?: "auto" | "default" | "flex" | "priority";
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	reasoning: {

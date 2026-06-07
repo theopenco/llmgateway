@@ -38,11 +38,12 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 		price: string | null | undefined,
 		discount?: string | null,
 		align: "center" | "end" = "center",
+		multiplier = 1,
 	) => {
 		if (price === null || price === undefined) {
 			return "—";
 		}
-		const priceNum = parseFloat(price);
+		const priceNum = parseFloat(price) * multiplier;
 		const discountNum = discount ? parseFloat(discount) : 0;
 		const originalPrice = parseFloat((priceNum * 1e6).toFixed(4));
 		if (discountNum > 0) {

@@ -50,6 +50,7 @@ async function prepareOpenAITextRequest(options: {
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
+	serviceTier?: "flex" | "priority";
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -81,6 +82,9 @@ async function prepareOpenAITextRequest(options: {
 		options.useResponsesApi ?? false,
 		options.promptCacheKey,
 		options.promptCacheRetention,
+		true,
+		undefined,
+		options.serviceTier,
 	);
 }
 
@@ -427,6 +431,34 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 		})) as any;
 
 		expect(requestBody.prompt_cache_retention).toBe("24h");
+	});
+});
+
+describe("prepareRequestBody - OpenAI service tiers", () => {
+	test("should forward service_tier to OpenAI chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("flex");
+	});
+
+	test("should forward service_tier to OpenAI Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			useResponsesApi: true,
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should not forward service_tier to Azure", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
 	});
 });
 

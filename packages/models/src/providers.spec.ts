@@ -8,9 +8,14 @@ describe("getServiceTier", () => {
 		expect(getServiceTier("google-vertex", "priority")?.multiplier).toBe(1.8);
 	});
 
+	it("returns the configured OpenAI Flex / Priority tiers", () => {
+		expect(getServiceTier("openai", "flex")?.multiplier).toBe(0.5);
+		expect(getServiceTier("openai", "priority")?.multiplier).toBe(2.5);
+	});
+
 	it("returns undefined for unknown tiers or providers without tiers", () => {
 		expect(getServiceTier("google-vertex", "nope")).toBeUndefined();
-		expect(getServiceTier("openai", "priority")).toBeUndefined();
+		expect(getServiceTier("anthropic", "priority")).toBeUndefined();
 	});
 });
 

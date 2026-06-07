@@ -58,6 +58,7 @@ function PriceCell({
 	discount,
 	unit,
 	formatPrice,
+	multiplier = 1,
 }: {
 	label: string;
 	price: string | null | undefined;
@@ -67,8 +68,13 @@ function PriceCell({
 		price: string | null | undefined,
 		discount?: string | null,
 	) => string | React.JSX.Element;
+	multiplier?: number;
 }) {
-	const formatted = formatPrice(price, discount);
+	const adjustedPrice =
+		price !== null && price !== undefined && multiplier !== 1
+			? String(Number(price) * multiplier)
+			: price;
+	const formatted = formatPrice(adjustedPrice, discount);
 	return (
 		<div className="text-center">
 			<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">
@@ -503,6 +509,7 @@ export function ProviderSection({
 		price: string | null | undefined,
 		discount?: string | null,
 		align?: "center" | "end",
+		multiplier?: number,
 	) => string | React.JSX.Element;
 	copyToClipboard: (text: string) => void;
 	copiedModel: string | null;
@@ -510,7 +517,14 @@ export function ProviderSection({
 }) {
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
+	const [selectedServiceTierId, setSelectedServiceTierId] =
+		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const serviceTiers = providerInfo.serviceTiers ?? [];
+	const selectedServiceTier = serviceTiers.find(
+		(tier) => tier.id === selectedServiceTierId,
+	);
+	const serviceTierMultiplier = selectedServiceTier?.multiplier ?? 1;
 	const providerModelId = activeMapping.region
 		? `${providerId}/${modelId}:${activeMapping.region}`
 		: `${providerId}/${modelId}`;
@@ -757,33 +771,86 @@ export function ProviderSection({
 						</div>
 					</div>
 				) : (
-					<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
-						<div className="bg-background p-2">
-							<PriceCell
-								label="Input"
-								price={activeMapping.inputPrice}
-								discount={activeMapping.discount}
-								unit="/M tokens"
-								formatPrice={formatPrice}
-							/>
-						</div>
-						<div className="bg-background p-2">
-							<PriceCell
-								label="Cached"
-								price={activeMapping.cachedInputPrice}
-								discount={activeMapping.discount}
-								unit="/M tokens"
-								formatPrice={formatPrice}
-							/>
-						</div>
-						<div className="bg-background p-2">
-							<PriceCell
-								label="Output"
-								price={activeMapping.outputPrice}
-								discount={activeMapping.discount}
-								unit="/M tokens"
-								formatPrice={formatPrice}
-							/>
+					<div className="space-y-2">
+						{serviceTiers.length > 0 && (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="flex items-center justify-between gap-2 mb-2">
+									<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+										Service Tier
+									</div>
+									<div className="text-[10px] text-muted-foreground/70">
+										{serviceTierMultiplier === 1
+											? "Standard pricing"
+											: `${serviceTierMultiplier}x pricing`}
+									</div>
+								</div>
+								<div className="grid grid-cols-3 gap-1">
+									<button
+										type="button"
+										onClick={() => setSelectedServiceTierId("standard")}
+										className={cn(
+											"rounded border px-2 py-1 text-xs font-medium transition-colors",
+											selectedServiceTierId === "standard"
+												? "border-border bg-background text-foreground shadow-sm"
+												: "border-transparent text-muted-foreground hover:text-foreground",
+										)}
+									>
+										Standard
+									</button>
+									{serviceTiers.map((tier) => (
+										<button
+											key={tier.id}
+											type="button"
+											onClick={() => setSelectedServiceTierId(tier.id)}
+											className={cn(
+												"rounded border px-2 py-1 text-xs font-medium transition-colors",
+												selectedServiceTierId === tier.id
+													? "border-border bg-background text-foreground shadow-sm"
+													: "border-transparent text-muted-foreground hover:text-foreground",
+											)}
+										>
+											{tier.name}
+										</button>
+									))}
+								</div>
+								{selectedServiceTier?.description && (
+									<div className="mt-2 text-xs text-muted-foreground">
+										{selectedServiceTier.description}
+									</div>
+								)}
+							</div>
+						)}
+						<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
+							<div className="bg-background p-2">
+								<PriceCell
+									label="Input"
+									price={activeMapping.inputPrice}
+									discount={activeMapping.discount}
+									unit="/M tokens"
+									formatPrice={formatPrice}
+									multiplier={serviceTierMultiplier}
+								/>
+							</div>
+							<div className="bg-background p-2">
+								<PriceCell
+									label="Cached"
+									price={activeMapping.cachedInputPrice}
+									discount={activeMapping.discount}
+									unit="/M tokens"
+									formatPrice={formatPrice}
+									multiplier={serviceTierMultiplier}
+								/>
+							</div>
+							<div className="bg-background p-2">
+								<PriceCell
+									label="Output"
+									price={activeMapping.outputPrice}
+									discount={activeMapping.discount}
+									unit="/M tokens"
+									formatPrice={formatPrice}
+									multiplier={serviceTierMultiplier}
+								/>
+							</div>
 						</div>
 					</div>
 				)}
@@ -830,6 +897,7 @@ export function ProviderSection({
 															tier.inputPrice,
 															discountNum > 0 ? String(discountNum) : null,
 															"end",
+															serviceTierMultiplier,
 														)}
 													</div>
 													{hasCached && (
@@ -841,6 +909,7 @@ export function ProviderSection({
 																			? String(discountNum)
 																			: null,
 																		"end",
+																		serviceTierMultiplier,
 																	)
 																: "—"}
 														</div>
@@ -850,6 +919,7 @@ export function ProviderSection({
 															tier.outputPrice,
 															discountNum > 0 ? String(discountNum) : null,
 															"end",
+															serviceTierMultiplier,
 														)}
 													</div>
 												</div>

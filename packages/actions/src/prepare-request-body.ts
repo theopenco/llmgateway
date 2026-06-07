@@ -731,6 +731,7 @@ export async function prepareRequestBody(
 	prompt_cache_retention?: PromptCacheRetention,
 	providerCacheControlEnabled = true,
 	n?: number,
+	service_tier?: "auto" | "default" | "flex" | "priority",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 
@@ -1271,6 +1272,9 @@ export async function prepareRequestBody(
 				};
 
 				if (usedProvider === "openai") {
+					if (service_tier === "flex" || service_tier === "priority") {
+						responsesBody.service_tier = service_tier;
+					}
 					if (prompt_cache_key !== undefined) {
 						responsesBody.prompt_cache_key = prompt_cache_key;
 					}
@@ -1355,6 +1359,9 @@ export async function prepareRequestBody(
 			} else {
 				// Use regular chat completions format
 				if (usedProvider === "openai") {
+					if (service_tier === "flex" || service_tier === "priority") {
+						requestBody.service_tier = service_tier;
+					}
 					if (prompt_cache_key !== undefined) {
 						requestBody.prompt_cache_key = prompt_cache_key;
 					}
