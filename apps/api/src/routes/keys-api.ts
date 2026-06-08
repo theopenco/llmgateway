@@ -401,7 +401,7 @@ const createPlatformKeySchema = z.object({
 		.min(1)
 		.max(255)
 		.optional()
-		.default("LLM SDK platform secret"),
+		.default("SDK platform secret"),
 });
 
 async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
@@ -483,7 +483,7 @@ const listPlatformKeys = createRoute({
 					}),
 				},
 			},
-			description: "List LLM SDK platform keys for a project.",
+			description: "List SDK platform keys for a project.",
 		},
 	},
 });
@@ -546,7 +546,7 @@ const createPlatformKey = createRoute({
 					}),
 				},
 			},
-			description: "LLM SDK platform key created successfully.",
+			description: "SDK platform key created successfully.",
 		},
 	},
 });
@@ -619,7 +619,7 @@ const deletePlatformKey = createRoute({
 					}),
 				},
 			},
-			description: "LLM SDK platform key deleted successfully.",
+			description: "SDK platform key deleted successfully.",
 		},
 	},
 });

@@ -102,7 +102,7 @@ describe("keys route", () => {
 		expect(json.apiKeys[1].description).toBe("Test API Key");
 	});
 
-	test("POST /keys/platform creates an LLM SDK platform secret", async () => {
+	test("POST /keys/platform creates an SDK platform secret", async () => {
 		const res = await app.request("/keys/platform", {
 			method: "POST",
 			headers: {
@@ -132,7 +132,7 @@ describe("keys route", () => {
 		expect(platformKey?.token).toBe(json.platformKey.token);
 	});
 
-	test("GET /keys/platform lists masked LLM SDK platform secrets", async () => {
+	test("GET /keys/platform lists masked SDK platform secrets", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "test-platform-key-id",
 			token: "sk_test_platform_secret",

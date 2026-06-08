@@ -242,8 +242,7 @@ projects.openapi(updateProject, async (c) => {
 		projectUserOrg?.role !== "admin"
 	) {
 		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can update LLM SDK settings",
+			message: "Only organization owners and admins can update SDK settings",
 		});
 	}
 

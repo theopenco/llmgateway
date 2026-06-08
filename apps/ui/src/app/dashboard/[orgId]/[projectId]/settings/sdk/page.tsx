@@ -1,4 +1,4 @@
-import { LlmSdkSettings } from "@/components/settings/llm-sdk-settings";
+import { SdkSettings } from "@/components/settings/sdk-settings";
 import {
 	Card,
 	CardContent,
@@ -10,7 +10,7 @@ import { fetchServerData } from "@/lib/server-api";
 
 import type { Project } from "@/lib/types";
 
-export default async function LlmSdkPage({
+export default async function SdkPage({
 	params,
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
@@ -33,9 +33,7 @@ export default async function LlmSdkPage({
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="mx-auto max-w-3xl space-y-6">
 					<div className="flex items-center justify-between">
-						<h2 className="text-3xl font-bold tracking-tight">
-							LLM SDK Settings
-						</h2>
+						<h2 className="text-3xl font-bold tracking-tight">SDK</h2>
 					</div>
 					<Card>
 						<CardHeader>
@@ -47,7 +45,7 @@ export default async function LlmSdkPage({
 						</CardHeader>
 						<CardContent>
 							{projectData?.project ? (
-								<LlmSdkSettings
+								<SdkSettings
 									initialProject={projectData.project}
 									orgId={orgId}
 									projectId={projectId}

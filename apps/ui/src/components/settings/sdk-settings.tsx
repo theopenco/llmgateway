@@ -26,7 +26,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { Project } from "@/lib/types";
 
-interface LlmSdkSettingsProps {
+interface SdkSettingsProps {
 	initialProject: Project;
 	orgId: string;
 	projectId: string;
@@ -50,11 +50,11 @@ function normalizeOrigins(value: string) {
 	return Array.from(normalizedOrigins);
 }
 
-export function LlmSdkSettings({
+export function SdkSettings({
 	initialProject,
 	orgId,
 	projectId,
-}: LlmSdkSettingsProps) {
+}: SdkSettingsProps) {
 	const { toast } = useToast();
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -132,12 +132,12 @@ export function LlmSdkSettings({
 			});
 			toast({
 				title: "Settings saved",
-				description: "LLM SDK project settings have been updated.",
+				description: "SDK project settings have been updated.",
 			});
 		} catch {
 			toast({
 				title: "Error",
-				description: "Failed to save LLM SDK settings.",
+				description: "Failed to save SDK settings.",
 				variant: "destructive",
 			});
 		}
@@ -148,7 +148,7 @@ export function LlmSdkSettings({
 			const response = await createPlatformKey.mutateAsync({
 				body: {
 					projectId,
-					description: "LLM SDK platform secret",
+					description: "SDK platform secret",
 				},
 			});
 			setCreatedToken(response.platformKey.token);

@@ -44,12 +44,12 @@ Your backend ──(secret key sk_)──▶ POST /v1/sessions ──▶ ephemer
 1. In the dashboard, open your project and **enable end-user sessions** (sets `endUserEnabled` on the project). Optionally set a **markup percent** and an **allowed-origins** list.
 2. Create a **platform secret key** (`sk_…`, an API key of type `platform_secret`) for that project. Keep it server-side.
 
-## Create an LLM SDK platform secret key
+## Create an SDK platform secret key
 
 LLM SDK sessions use a project-scoped **platform secret key** that starts with `sk_`. This is different from a regular gateway API key (`llmgtwy_…`) and must only be used from your backend.
 
 1. Open the LLM Gateway dashboard and select the project you want to embed.
-2. Go to **Settings → LLM SDK Settings**.
+2. Go to **Settings → SDK**.
 3. Enable **End-user sessions**.
 4. Add any allowed browser origins, such as `https://app.example.com`.
 5. Click **Create Secret Key** and copy the `sk_…` value immediately.
