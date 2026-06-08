@@ -40,7 +40,13 @@ function normalizeOrigins(value: string) {
 	const normalizedOrigins = new Set<string>();
 
 	for (const origin of origins) {
-		const url = new URL(origin);
+		let url: URL;
+		try {
+			url = new URL(origin);
+		} catch {
+			throw new Error(`Invalid allowed origin: ${origin}`);
+		}
+
 		if (url.protocol !== "https:" && url.protocol !== "http:") {
 			throw new Error("Origins must use http or https.");
 		}
@@ -48,6 +54,34 @@ function normalizeOrigins(value: string) {
 	}
 
 	return Array.from(normalizedOrigins);
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+	if (error instanceof Error && error.message) {
+		return error.message;
+	}
+
+	if (typeof error !== "object" || error === null) {
+		return fallback;
+	}
+
+	const record = error as Record<string, unknown>;
+	if (typeof record.message === "string" && record.message) {
+		return record.message;
+	}
+
+	if (typeof record.error === "string" && record.error) {
+		return record.error;
+	}
+
+	if (typeof record.data === "object" && record.data !== null) {
+		const data = record.data as Record<string, unknown>;
+		if (typeof data.message === "string" && data.message) {
+			return data.message;
+		}
+	}
+
+	return fallback;
 }
 
 export function SdkSettings({
@@ -99,6 +133,11 @@ export function SdkSettings({
 	const platformKeys = useMemo(
 		() => platformKeysQuery.data?.platformKeys ?? [],
 		[platformKeysQuery.data],
+	);
+	const platformKeysError = platformKeysQuery.error as unknown;
+	const platformKeysErrorMessage = getErrorMessage(
+		platformKeysError,
+		"Failed to load platform secret keys.",
 	);
 
 	const saveSettings = async () => {
@@ -189,12 +228,20 @@ export function SdkSettings({
 		}
 	};
 
-	const copyCreatedToken = () => {
-		void navigator.clipboard.writeText(createdToken);
-		toast({
-			title: "Secret key copied",
-			description: "The platform secret key has been copied.",
-		});
+	const copyCreatedToken = async () => {
+		try {
+			await navigator.clipboard.writeText(createdToken);
+			toast({
+				title: "Secret key copied",
+				description: "The platform secret key has been copied.",
+			});
+		} catch {
+			toast({
+				title: "Error",
+				description: "Failed to copy platform secret key.",
+				variant: "destructive",
+			});
+		}
 	};
 
 	return (
@@ -291,7 +338,7 @@ export function SdkSettings({
 								type="button"
 								variant="outline"
 								size="icon"
-								onClick={copyCreatedToken}
+								onClick={() => void copyCreatedToken()}
 							>
 								<Copy className="h-4 w-4" />
 								<span className="sr-only">Copy secret key</span>
@@ -307,13 +354,13 @@ export function SdkSettings({
 					{platformKeysQuery.isLoading && (
 						<p className="text-muted-foreground text-sm">Loading keys...</p>
 					)}
-					{platformKeysQuery.error && (
+					{platformKeysError ? (
 						<p className="text-destructive text-sm">
-							Only organization owners and admins can manage platform keys.
+							{platformKeysErrorMessage}
 						</p>
-					)}
+					) : null}
 					{!platformKeysQuery.isLoading &&
-						!platformKeysQuery.error &&
+						!platformKeysError &&
 						platformKeys.length === 0 && (
 							<p className="text-muted-foreground text-sm">
 								No platform secret keys yet.

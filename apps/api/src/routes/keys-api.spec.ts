@@ -184,13 +184,33 @@ describe("keys route", () => {
 		expect(platformKey?.status).toBe("deleted");
 	});
 
-	test("POST /keys/platform rejects organization developers", async () => {
+	test("GET/POST/DELETE /keys/platform rejects organization developers", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "test-developer-platform-key-id",
+			token: "sk_test_developer_platform_secret",
+			projectId: "test-project-id",
+			description: "Developer Platform Secret",
+			keyType: "platform_secret",
+			createdBy: "test-user-id",
+		});
+
 		await db
 			.update(tables.userOrganization)
 			.set({ role: "developer" })
 			.where(eq(tables.userOrganization.id, "test-user-org-id"));
 
-		const res = await app.request("/keys/platform", {
+		const getRes = await app.request(
+			"/keys/platform?projectId=test-project-id",
+			{
+				headers: {
+					Cookie: token,
+				},
+			},
+		);
+
+		expect(getRes.status).toBe(403);
+
+		const postRes = await app.request("/keys/platform", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -202,7 +222,19 @@ describe("keys route", () => {
 			}),
 		});
 
-		expect(res.status).toBe(403);
+		expect(postRes.status).toBe(403);
+
+		const deleteRes = await app.request(
+			"/keys/platform/test-developer-platform-key-id",
+			{
+				method: "DELETE",
+				headers: {
+					Cookie: token,
+				},
+			},
+		);
+
+		expect(deleteRes.status).toBe(403);
 	});
 
 	test("PATCH /keys/api/{id}", async () => {

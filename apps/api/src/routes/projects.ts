@@ -246,7 +246,8 @@ projects.openapi(updateProject, async (c) => {
 		});
 	}
 
-	const updateData: any = {};
+	const updateData: Partial<typeof tables.project.$inferInsert> = {};
+	let normalizedAllowedOrigins: string[] | undefined;
 
 	if (name !== undefined) {
 		updateData.name = name;
@@ -277,7 +278,8 @@ projects.openapi(updateProject, async (c) => {
 	}
 
 	if (allowedOrigins !== undefined) {
-		updateData.allowedOrigins = normalizeAllowedOrigins(allowedOrigins);
+		normalizedAllowedOrigins = normalizeAllowedOrigins(allowedOrigins);
+		updateData.allowedOrigins = normalizedAllowedOrigins;
 	}
 
 	const [updatedProject] = await db
@@ -339,8 +341,7 @@ projects.openapi(updateProject, async (c) => {
 			new: String(endUserMarkupPercent),
 		};
 	}
-	if (allowedOrigins !== undefined) {
-		const normalizedAllowedOrigins = normalizeAllowedOrigins(allowedOrigins);
+	if (normalizedAllowedOrigins !== undefined) {
 		const previousAllowedOrigins = project.allowedOrigins ?? [];
 		if (
 			JSON.stringify(normalizedAllowedOrigins) !==
