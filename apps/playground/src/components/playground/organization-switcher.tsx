@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsUpDown, Check, User, Building2 } from "lucide-react";
+import { ChevronsUpDown, Check, Sparkles, Building2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -55,10 +55,10 @@ export function OrganizationSwitcher({
 				{selectedOrganization ? (
 					<Building2 className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
 				) : (
-					<User className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+					<Sparkles className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
 				)}
 				<span className="truncate">
-					{selectedOrganization ? selectedOrganization.name : "Personal"}
+					{selectedOrganization ? selectedOrganization.name : "Chat plan"}
 				</span>
 				<ChevronsUpDown className="ml-auto h-4 w-4 flex-shrink-0 opacity-50" />
 			</Button>
@@ -76,10 +76,10 @@ export function OrganizationSwitcher({
 						{selectedOrganization ? (
 							<Building2 className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
 						) : (
-							<User className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+							<Sparkles className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
 						)}
 						<span className="truncate">
-							{selectedOrganization ? selectedOrganization.name : "Personal"}
+							{selectedOrganization ? selectedOrganization.name : "Chat plan"}
 						</span>
 						<ChevronsUpDown className="ml-auto h-4 w-4 flex-shrink-0 opacity-50" />
 					</Button>
@@ -89,8 +89,8 @@ export function OrganizationSwitcher({
 						onSelect={() => handleSelectOrganization(null)}
 						className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent focus:bg-accent data-[highlighted]:bg-accent"
 					>
-						<User className="mr-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />
-						<span className="truncate">Personal</span>
+						<Sparkles className="mr-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+						<span className="truncate">Chat plan</span>
 						{!selectedOrganization ? (
 							<Check className="ml-auto h-4 w-4 flex-shrink-0" />
 						) : null}

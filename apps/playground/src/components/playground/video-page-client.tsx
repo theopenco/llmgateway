@@ -60,7 +60,7 @@ interface VideoPageClientProps {
 export default function VideoPageClient({
 	models,
 	providers,
-	organizations: _organizations,
+	organizations,
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
@@ -861,9 +861,28 @@ export default function VideoPageClient({
 		[activeItems, galleryItems, pathname, router],
 	);
 
+	const chatPlanCreditsRemaining =
+		selectedOrganization?.chatPlan && selectedOrganization.chatPlan !== "none"
+			? Number(selectedOrganization.chatPlanCreditsLimit ?? "0") -
+				Number(selectedOrganization.chatPlanCreditsUsed ?? "0")
+			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1
+		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
 		: false;
+
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(params.toString() ? `/video?${params.toString()}` : "/video");
+		},
+		[router, searchParams],
+	);
 
 	return (
 		<SidebarProvider>
@@ -872,7 +891,9 @@ export default function VideoPageClient({
 					galleryItems={galleryItems}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
+					organizations={organizations}
 					selectedOrganization={selectedOrganization}
+					onSelectOrganization={handleSelectOrganization}
 					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
@@ -943,7 +964,11 @@ export default function VideoPageClient({
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id}
+			/>
 		</SidebarProvider>
 	);
 }

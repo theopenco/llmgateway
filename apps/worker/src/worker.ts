@@ -36,6 +36,8 @@ import {
 	assertSafeWebhookUrl,
 	calculateFees,
 	isCreditTopUpAmountInRange,
+	isPremiumModel,
+	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
 } from "@llmgateway/shared";
 
@@ -98,7 +100,7 @@ const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
-// Embeddable SDK: emit a wallet.low_balance webhook when a wallet's balance
+// LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
 const WALLET_LOW_BALANCE_THRESHOLD = 1;
 const AUTO_TOPUP_DISABLE_AFTER_DAYS = 7;
@@ -225,6 +227,7 @@ const schema = z.object({
 		.nullable(),
 	trace_id: z.string().nullable(),
 	unified_finish_reason: z.string().nullable(),
+	source: z.string().nullable(),
 });
 
 export async function acquireLock(key: string): Promise<boolean> {
@@ -700,7 +703,7 @@ export async function batchProcessLogs(): Promise<void> {
 	}
 
 	const deductedOrgIds: string[] = [];
-	// Embeddable SDK: wallets that crossed below the low-balance threshold this
+	// LLM SDK: wallets that crossed below the low-balance threshold this
 	// batch — webhooks are enqueued after the transaction commits.
 	const walletLowBalanceEvents: Array<{
 		projectId: string;
@@ -749,6 +752,7 @@ export async function batchProcessLogs(): Promise<void> {
 					error_details: log.errorDetails,
 					trace_id: log.traceId,
 					unified_finish_reason: log.unifiedFinishReason,
+					source: log.source,
 				})
 				.from(log)
 				.leftJoin(tables.project, eq(tables.project.id, log.projectId))
@@ -766,18 +770,31 @@ export async function batchProcessLogs(): Promise<void> {
 				`Processing ${unprocessedLogs.rows.length} logs for credit deduction and API key usage`,
 			);
 
-			// Group logs by organization and api key to calculate total costs
-			// Use Decimal.js to avoid floating point rounding errors
-			const orgCosts = new Map<string, Decimal>();
+			// Group logs by organization and api key to calculate total costs.
+			// We split per-org costs into a chat bucket and a default bucket so
+			// the deduction step below can prefer chat-plan credits for requests
+			// originating from chat.llmgateway.io (matching how users mentally
+			// account for their plans), and dev-plan credits everywhere else.
+			// Use Decimal.js to avoid floating point rounding errors.
+			interface OrgCostBuckets {
+				chat: Decimal;
+				other: Decimal;
+				chatPremium: Decimal;
+				otherPremium: Decimal;
+			}
+			const orgCosts = new Map<string, OrgCostBuckets>();
 			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const endUserSessionEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const logIds: string[] = [];
-			// Embeddable SDK: end-user wallet costs are accumulated separately and
+			// LLM SDK: end-user wallet costs are accumulated separately and
 			// debited from wallet.balance (not organization.credits). Keyed by
 			// walletId; we keep a representative logId per wallet to link the
 			// usage_debit ledger row back to a gateway log.
 			const walletCosts = new Map<string, Decimal>();
 			const walletLogIds = new Map<string, string>();
+
+			const isChatSource = (source: string | null | undefined) =>
+				source === "chat.llmgateway.io";
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
@@ -838,7 +855,7 @@ export async function batchProcessLogs(): Promise<void> {
 						apiKeyEvents.set(row.api_key_id, existingEvents);
 					}
 
-					// Embeddable SDK: end-user session traffic debits the wallet, not
+					// LLM SDK: end-user session traffic debits the wallet, not
 					// the developer's org credits. Always full-cost (credits mode).
 					if (row.end_customer_wallet_id) {
 						const currentWalletCost =
@@ -854,25 +871,37 @@ export async function batchProcessLogs(): Promise<void> {
 						continue;
 					}
 
+					const sourceBucket = isChatSource(row.source) ? "chat" : "other";
+
+					const addToBucket = (amount: Decimal, premium: boolean) => {
+						const existing = orgCosts.get(row.organization_id) ?? {
+							chat: new Decimal(0),
+							other: new Decimal(0),
+							chatPremium: new Decimal(0),
+							otherPremium: new Decimal(0),
+						};
+						existing[sourceBucket] = existing[sourceBucket].plus(amount);
+						if (premium) {
+							const premiumBucket =
+								sourceBucket === "chat" ? "chatPremium" : "otherPremium";
+							existing[premiumBucket] = existing[premiumBucket].plus(amount);
+						}
+						orgCosts.set(row.organization_id, existing);
+					};
+
 					// Deduct organization credits based on mode:
 					// - Credits mode: deduct full cost (includes request cost + storage cost)
 					// - API keys mode: only deduct storage cost (data retention billing)
 					if (row.used_mode === "credits") {
-						// In credits mode, deduct the full cost
-						const currentOrgCost =
-							orgCosts.get(row.organization_id) ?? new Decimal(0);
-						orgCosts.set(row.organization_id, currentOrgCost.plus(apiKeyCost));
+						addToBucket(
+							apiKeyCost,
+							Boolean(row.used_model && isPremiumModel(row.used_model)),
+						);
 					} else if (row.used_mode === "api-keys") {
-						// In API keys mode, only deduct storage cost (data retention billing)
 						if (row.data_storage_cost) {
 							const storageCost = new Decimal(row.data_storage_cost);
 							if (storageCost.greaterThan(0)) {
-								const currentOrgCost =
-									orgCosts.get(row.organization_id) ?? new Decimal(0);
-								orgCosts.set(
-									row.organization_id,
-									currentOrgCost.plus(storageCost),
-								);
+								addToBucket(storageCost, false);
 							}
 						}
 					}
@@ -881,95 +910,216 @@ export async function batchProcessLogs(): Promise<void> {
 				logIds.push(row.id);
 			}
 
-			// Batch update organization credits within the same transaction
-			// Also calculate referral earnings (1% of spent credits)
-			// Dev plan credits are deducted first, then regular credits
+			// Batch update organization credits within the same transaction.
+			// Also calculate referral earnings (1% of spent credits).
+			//
+			// Deduction order is source-aware:
+			//   • chat.llmgateway.io requests → chat plan → dev plan → regular
+			//   • everything else → dev plan → chat plan → regular
+			// The non-preferred plan acts as a fallback if the preferred plan's
+			// cycle credits are exhausted, so a single org with both plans gets
+			// the same total spend ceiling regardless of source.
 			const referralEarnings = new Map<string, Decimal>();
 
-			for (const [orgId, totalCost] of orgCosts.entries()) {
-				if (totalCost.greaterThan(0)) {
-					let remainingCost = totalCost;
+			interface PlanPool {
+				kind: "chat" | "dev";
+				remaining: Decimal;
+				premiumCreditsUsed?: Decimal;
+				premiumWeekStart?: Date | null;
+			}
 
-					// Fetch the organization to check for dev plan
-					const org = await tx.query.organization.findFirst({
-						where: { id: { eq: orgId } },
-					});
+			const deductFromPlanPool = async (
+				orgId: string,
+				pool: PlanPool,
+				amount: Decimal,
+				premiumAmount: Decimal,
+			) => {
+				const amountStr = amount.toString();
+				if (pool.kind === "chat") {
+					await tx
+						.update(organization)
+						.set({
+							chatPlanCreditsUsed: sql`${organization.chatPlanCreditsUsed} + ${amountStr}`,
+						})
+						.where(eq(organization.id, orgId));
+					logger.debug(
+						`Deducted ${amountStr} chat plan credits from organization ${orgId}`,
+					);
+				} else {
+					const weekExpired = isPremiumWeekExpired(pool.premiumWeekStart);
+					const now = new Date();
+					const premiumAmountStr = premiumAmount.toString();
 
-					// First, try to deduct from dev plan credits if available
-					if (org && org.devPlan !== "none") {
-						const devPlanCreditsLimit = new Decimal(
-							org.devPlanCreditsLimit || "0",
-						);
-						const devPlanCreditsUsed = new Decimal(
-							org.devPlanCreditsUsed || "0",
-						);
-						const devPlanRemaining =
-							devPlanCreditsLimit.minus(devPlanCreditsUsed);
-
-						if (devPlanRemaining.greaterThan(0)) {
-							const deductFromDevPlan = Decimal.min(
-								remainingCost,
-								devPlanRemaining,
-							);
-							const deductNumber = deductFromDevPlan.toNumber();
-
+					if (premiumAmount.greaterThan(0)) {
+						if (weekExpired) {
 							await tx
 								.update(organization)
 								.set({
-									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${deductNumber}`,
+									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									devPlanPremiumCreditsUsed: premiumAmountStr,
+									devPlanPremiumWeekStart: now,
 								})
 								.where(eq(organization.id, orgId));
-
-							logger.debug(
-								`Deducted ${deductNumber} dev plan credits from organization ${orgId}`,
-							);
-
-							remainingCost = remainingCost.minus(deductFromDevPlan);
+							pool.premiumCreditsUsed = premiumAmount;
+							pool.premiumWeekStart = now;
+						} else {
+							await tx
+								.update(organization)
+								.set({
+									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									devPlanPremiumCreditsUsed: sql`${organization.devPlanPremiumCreditsUsed} + ${premiumAmountStr}`,
+								})
+								.where(eq(organization.id, orgId));
+							pool.premiumCreditsUsed = (
+								pool.premiumCreditsUsed ?? new Decimal(0)
+							).plus(premiumAmount);
 						}
-					}
-
-					// Deduct any remaining cost from regular credits
-					if (remainingCost.greaterThan(0)) {
-						const costNumber = remainingCost.toNumber();
+					} else if (weekExpired && pool.premiumWeekStart) {
 						await tx
 							.update(organization)
 							.set({
-								credits: sql`${organization.credits} - ${costNumber}`,
+								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+								devPlanPremiumCreditsUsed: "0",
+								devPlanPremiumWeekStart: now,
 							})
 							.where(eq(organization.id, orgId));
-
-						deductedOrgIds.push(orgId);
-
-						logger.debug(
-							`Deducted ${costNumber} regular credits from organization ${orgId}`,
-						);
+						pool.premiumCreditsUsed = new Decimal(0);
+						pool.premiumWeekStart = now;
+					} else {
+						await tx
+							.update(organization)
+							.set({
+								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+							})
+							.where(eq(organization.id, orgId));
 					}
+					logger.debug(
+						`Deducted ${amountStr} dev plan credits from organization ${orgId}`,
+					);
+				}
+				pool.remaining = pool.remaining.minus(amount);
+			};
 
-					// Check if this org was referred and calculate 1% referral earnings
-					// Based on total cost (both dev plan and regular credits)
-					const referral = await tx.query.referral.findFirst({
-						where: {
-							referredOrganizationId: { eq: orgId },
-						},
-					});
+			for (const [orgId, buckets] of orgCosts.entries()) {
+				const totalCost = buckets.chat.plus(buckets.other);
+				if (totalCost.lessThanOrEqualTo(0)) {
+					continue;
+				}
 
-					if (referral) {
-						const earnings = totalCost.times(0.01);
-						const currentEarnings =
-							referralEarnings.get(referral.referrerOrganizationId) ??
-							new Decimal(0);
-						referralEarnings.set(
-							referral.referrerOrganizationId,
-							currentEarnings.plus(earnings),
-						);
+				const org = await tx.query.organization.findFirst({
+					where: { id: { eq: orgId } },
+				});
+
+				const chatPool: PlanPool | null =
+					org && org.chatPlan !== "none"
+						? {
+								kind: "chat",
+								remaining: new Decimal(org.chatPlanCreditsLimit || "0").minus(
+									new Decimal(org.chatPlanCreditsUsed || "0"),
+								),
+							}
+						: null;
+
+				const devPool: PlanPool | null =
+					org && org.devPlan !== "none"
+						? {
+								kind: "dev",
+								remaining: new Decimal(org.devPlanCreditsLimit || "0").minus(
+									new Decimal(org.devPlanCreditsUsed || "0"),
+								),
+								premiumCreditsUsed: new Decimal(
+									org.devPlanPremiumCreditsUsed || "0",
+								),
+								premiumWeekStart: org.devPlanPremiumWeekStart,
+							}
+						: null;
+
+				const drainBucket = async (
+					bucketCost: Decimal,
+					premiumCost: Decimal,
+					preferred: PlanPool | null,
+					fallback: PlanPool | null,
+				): Promise<Decimal> => {
+					let remaining = bucketCost;
+					let remainingPremium = premiumCost;
+					for (const pool of [preferred, fallback]) {
+						if (!pool || remaining.lessThanOrEqualTo(0)) {
+							continue;
+						}
+						if (pool.remaining.lessThanOrEqualTo(0)) {
+							continue;
+						}
+						const take = Decimal.min(remaining, pool.remaining);
+						const premiumTake =
+							pool.kind === "dev"
+								? Decimal.min(remainingPremium, take)
+								: new Decimal(0);
+						await deductFromPlanPool(orgId, pool, take, premiumTake);
+						remaining = remaining.minus(take);
+						remainingPremium = remainingPremium.minus(premiumTake);
 					}
+					return remaining;
+				};
+
+				const remainingFromChat = buckets.chat.greaterThan(0)
+					? await drainBucket(
+							buckets.chat,
+							buckets.chatPremium,
+							chatPool,
+							devPool,
+						)
+					: new Decimal(0);
+
+				const remainingFromOther = buckets.other.greaterThan(0)
+					? await drainBucket(
+							buckets.other,
+							buckets.otherPremium,
+							devPool,
+							chatPool,
+						)
+					: new Decimal(0);
+
+				const remainingCost = remainingFromChat.plus(remainingFromOther);
+
+				if (remainingCost.greaterThan(0)) {
+					const costStr = remainingCost.toString();
+					await tx
+						.update(organization)
+						.set({
+							credits: sql`${organization.credits} - ${costStr}`,
+						})
+						.where(eq(organization.id, orgId));
+
+					deductedOrgIds.push(orgId);
+
+					logger.debug(
+						`Deducted ${costStr} regular credits from organization ${orgId}`,
+					);
+				}
+
+				// 1% referral earnings on the full charge regardless of which pool paid.
+				const referral = await tx.query.referral.findFirst({
+					where: {
+						referredOrganizationId: { eq: orgId },
+					},
+				});
+
+				if (referral) {
+					const earnings = totalCost.times(0.01);
+					const currentEarnings =
+						referralEarnings.get(referral.referrerOrganizationId) ??
+						new Decimal(0);
+					referralEarnings.set(
+						referral.referrerOrganizationId,
+						currentEarnings.plus(earnings),
+					);
 				}
 			}
 
 			// deductedOrgIds is populated inside the loop above — only orgs
 			// with actual regular-credit deductions are included.
 
-			// Embeddable SDK: debit end-user wallets and append usage_debit ledger
+			// LLM SDK: debit end-user wallets and append usage_debit ledger
 			// rows. Kept fully separate from the org-credit path above so normal
 			// developer traffic is untouched.
 			for (const [walletId, totalCost] of walletCosts.entries()) {
@@ -1028,17 +1178,17 @@ export async function batchProcessLogs(): Promise<void> {
 			// Apply referral earnings to referrer organizations
 			for (const [referrerOrgId, earnings] of referralEarnings.entries()) {
 				if (earnings.greaterThan(0)) {
-					const earningsNumber = earnings.toNumber();
+					const earningsStr = earnings.toString();
 					await tx
 						.update(organization)
 						.set({
-							credits: sql`${organization.credits} + ${earningsNumber}`,
-							referralEarnings: sql`${organization.referralEarnings} + ${earningsNumber}`,
+							credits: sql`${organization.credits} + ${earningsStr}`,
+							referralEarnings: sql`${organization.referralEarnings} + ${earningsStr}`,
 						})
 						.where(eq(organization.id, referrerOrgId));
 
 					logger.info(
-						`Added ${earningsNumber} referral credits to organization ${referrerOrgId}`,
+						`Added ${earningsStr} referral credits to organization ${referrerOrgId}`,
 					);
 				}
 			}
@@ -1163,7 +1313,7 @@ export async function batchProcessLogs(): Promise<void> {
 			void checkLowBalanceAlerts(deductedOrgIds);
 		}
 
-		// Embeddable SDK: enqueue end-user wallet low-balance webhooks (best-effort).
+		// LLM SDK: enqueue end-user wallet low-balance webhooks (best-effort).
 		for (const ev of walletLowBalanceEvents) {
 			try {
 				await enqueueWebhookDeliveries({
@@ -1806,7 +1956,7 @@ async function runDataRetentionLoop() {
 }
 
 /**
- * Embeddable SDK: deactivate expired end-user session tokens so they stop
+ * LLM SDK: deactivate expired end-user session tokens so they stop
  * authenticating and don't accumulate.
  */
 async function cleanupExpiredEndUserSessions(): Promise<void> {
@@ -1866,7 +2016,7 @@ const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
 
 /**
- * Embeddable SDK: deliver queued platform webhook events with an HMAC signature,
+ * LLM SDK: deliver queued platform webhook events with an HMAC signature,
  * retrying with exponential backoff. The signature header is
  * `X-LLMGateway-Signature: t=<unix>,v1=<hex hmac of "t.body">`, which
  * `@llmgateway/server`'s `webhooks.constructEvent` verifies.
@@ -2023,7 +2173,7 @@ async function runWebhookDeliveryLoop() {
 const AUTO_PAYOUT_MIN_AMOUNT = 25;
 
 /**
- * Embeddable SDK: automatically pay out accrued developer margin to onboarded
+ * LLM SDK: automatically pay out accrued developer margin to onboarded
  * connected accounts above a threshold, via Stripe Connect transfers.
  */
 async function processMarginPayouts(): Promise<void> {

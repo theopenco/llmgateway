@@ -444,7 +444,7 @@ export const ChatSidebar = function ChatSidebar({
 	const pathname = usePathname();
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
-	const showOrganizationSwitcher = pathname === "/";
+	const showOrganizationSwitcher = pathname === "/" || pathname === "/group";
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
@@ -758,6 +758,12 @@ export const ChatSidebar = function ChatSidebar({
 								<span className="text-lg font-bold tracking-tight">
 									LLM Gateway
 								</span>
+								<Badge
+									variant="secondary"
+									className="group-data-[collapsible=icon]:hidden"
+								>
+									Chat
+								</Badge>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -782,7 +788,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Chat"
 							isActive={pathname === "/"}
 						>
-							<Link href="/">
+							<Link href="/" prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -794,7 +800,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Group Chat"
 							isActive={pathname === "/group"}
 						>
-							<Link href="/group">
+							<Link href="/group" prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -806,7 +812,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Image Studio"
 							isActive={pathname === "/image"}
 						>
-							<Link href="/image">
+							<Link href="/image" prefetch={true}>
 								<ImagePlus className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -818,7 +824,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Video Studio"
 							isActive={pathname === "/video"}
 						>
-							<Link href="/video">
+							<Link href="/video" prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
 							</Link>
@@ -830,7 +836,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Canvas"
 							isActive={pathname === "/canvas"}
 						>
-							<Link href="/canvas">
+							<Link href="/canvas" prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>
@@ -926,8 +932,13 @@ export const ChatSidebar = function ChatSidebar({
 			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
-						organization={organization}
+						organization={
+							!selectedOrganization || selectedOrganization.isChat
+								? organization
+								: selectedOrganization
+						}
 						isLoading={isOrgLoading}
+						isChatPlanOrg={!selectedOrganization || selectedOrganization.isChat}
 					/>
 				</div>
 				<SidebarMenu>

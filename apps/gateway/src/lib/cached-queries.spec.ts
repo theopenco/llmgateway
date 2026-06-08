@@ -160,6 +160,23 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 			expect(result).toBeUndefined();
 		});
+
+		it("should return undefined for platform secret tokens", async () => {
+			const platformSecretToken = "sk-test-platform-secret-cached-queries";
+			await db.insert(apiKey).values({
+				id: "test-platform-secret-cached-queries",
+				token: platformSecretToken,
+				projectId: testProjectId,
+				description: "Test Platform Secret",
+				status: "active",
+				createdBy: testUserId,
+				keyType: "platform_secret",
+			});
+
+			const result = await findApiKeyByToken(platformSecretToken);
+
+			expect(result).toBeUndefined();
+		});
 	});
 
 	describe("findProjectById", () => {

@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
+import { getOrCreateChatOrg } from "@/utils/personal-org.js";
+
 import { db, tables, shortid, desc, eq, and } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -99,6 +101,54 @@ playground.openapi(ensureKey, async (c) => {
 	});
 
 	return c.json({ ok: true, token: key.token });
+});
+
+const getChatOrg = createRoute({
+	method: "get",
+	path: "/chat-org",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						organizationId: z.string(),
+						projectId: z.string(),
+					}),
+				},
+			},
+			description:
+				"Ensures the user's dedicated Chat organization (and a default project) and returns their ids. This is the playground's billing home.",
+		},
+	},
+});
+
+playground.openapi(getChatOrg, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const chatOrg = await getOrCreateChatOrg(user);
+
+	let project = await db.query.project.findFirst({
+		where: {
+			organizationId: { eq: chatOrg.id },
+			status: { eq: "active" },
+		},
+	});
+
+	if (!project) {
+		[project] = await db
+			.insert(tables.project)
+			.values({
+				name: "Default Project",
+				organizationId: chatOrg.id,
+				mode: "credits",
+			})
+			.returning();
+	}
+
+	return c.json({ organizationId: chatOrg.id, projectId: project.id });
 });
 
 const getKey = createRoute({

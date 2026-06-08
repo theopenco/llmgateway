@@ -376,7 +376,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	// Embeddable SDK: ephemeral end-user sessions bill the bound wallet instead
+	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
 	// of the developer's org credits. No-op for normal keys.
 	const { project, organization } = await applyEndUserSession(
 		c,

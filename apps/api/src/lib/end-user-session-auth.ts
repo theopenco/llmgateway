@@ -5,7 +5,7 @@ import { db } from "@llmgateway/db";
 import type { Context, Next } from "hono";
 
 /**
- * Embeddable SDK: authentication for browser requests bearing an ephemeral
+ * LLM SDK: authentication for browser requests bearing an ephemeral
  * end-user session token (`es_…`). Validates the token + expiry, loads the bound
  * wallet, and stashes the resolved session on the context. Shared by the wallet
  * endpoints and the session-refresh endpoint.

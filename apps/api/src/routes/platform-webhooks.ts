@@ -10,7 +10,7 @@ import { assertSafeWebhookUrl } from "@llmgateway/shared";
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — manage developer webhook endpoints (platform secret key
+ * LLM SDK — manage developer webhook endpoints (platform secret key
  * auth). LLM Gateway POSTs signed events (wallet.credited, wallet.low_balance)
  * to these. The signing secret is returned only once, at creation.
  */

@@ -598,8 +598,32 @@ describe("calculateCosts", () => {
 
 		it("applies the Flex multiplier (0.5x) to token costs", async () => {
 			const result = await calculateCosts(
-				"gemini-2.5-pro",
+				"gemini-3.5-flash",
 				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.0015 * 0.5);
+			expect(result.outputCost).toBeCloseTo(0.0063 * 0.5);
+		});
+
+		it("applies Google AI Studio Flex multipliers to configured models", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-ai-studio",
 				null,
 				1000,
 				700,
@@ -618,6 +642,41 @@ describe("calculateCosts", () => {
 			);
 			expect(result.inputCost).toBeCloseTo(0.00125 * 0.5);
 			expect(result.outputCost).toBeCloseTo(0.007 * 0.5);
+			expect(result.totalCost).toBeCloseTo((0.00125 + 0.007) * 0.5);
+		});
+
+		it("applies model-specific OpenAI Priority multipliers", async () => {
+			const result = await calculateCosts(
+				"gpt-5.4",
+				"openai",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			const standardInputCost = 800 * 2.5e-6;
+			const standardCachedInputCost = 200 * 0.25e-6;
+			const standardOutputCost = 700 * 15e-6;
+			const standardCost =
+				standardInputCost + standardCachedInputCost + standardOutputCost;
+			expect(result.inputCost).toBeCloseTo(standardInputCost * 2, 8);
+			expect(result.cachedInputCost).toBeCloseTo(
+				standardCachedInputCost * 2,
+				8,
+			);
+			expect(result.outputCost).toBeCloseTo(standardOutputCost * 2, 8);
+			expect(result.totalCost).toBeCloseTo(standardCost * 2, 8);
 		});
 
 		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
@@ -695,6 +754,30 @@ describe("calculateCosts", () => {
 
 		it("ignores the tier for providers without configured service tiers", async () => {
 			const result = await calculateCosts(
+				"claude-3-5-sonnet-20241022",
+				"anthropic",
+				null,
+				100,
+				50,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.0003);
+			expect(result.outputCost).toBeCloseTo(0.00075);
+		});
+
+		it("ignores the tier for model mappings without configured service tier support", async () => {
+			const result = await calculateCosts(
 				"gpt-4",
 				"openai",
 				null,
@@ -715,6 +798,54 @@ describe("calculateCosts", () => {
 			);
 			expect(result.inputCost).toBeCloseTo(0.001);
 			expect(result.outputCost).toBeCloseTo(0.0015);
+		});
+
+		it("ignores Google AI Studio tiers for unsupported model mappings", async () => {
+			const result = await calculateCosts(
+				"gemini-3.1-flash-image-preview",
+				"google-ai-studio",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00025);
+			expect(result.outputCost).toBeCloseTo(0.00105);
+		});
+
+		it("ignores Google Vertex tiers outside the global endpoint", async () => {
+			const result = await calculateCosts(
+				"gemini-3.5-flash",
+				"google-vertex",
+				"us-central1",
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.0015);
+			expect(result.outputCost).toBeCloseTo(0.0063);
 		});
 	});
 

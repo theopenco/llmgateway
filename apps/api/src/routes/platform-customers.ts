@@ -9,7 +9,7 @@ import { db, inArray, sql, tables } from "@llmgateway/db";
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — per-end-customer analytics for the developer's backend
+ * LLM SDK — per-end-customer analytics for the developer's backend
  * (authenticated with the platform secret key). Lets developers list their
  * end-users with wallet balances and lifetime spend, and drill into one
  * customer's usage ledger.

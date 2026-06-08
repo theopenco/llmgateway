@@ -378,6 +378,76 @@ const updateApiKeyUsageLimitSchema = z
 	})
 	.strict();
 
+const platformKeySchema = z.object({
+	id: z.string(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+	description: z.string(),
+	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	projectId: z.string(),
+	createdBy: z.string(),
+	maskedToken: z.string(),
+});
+
+const listPlatformKeysQuerySchema = z.object({
+	projectId: z.string().trim().min(1),
+});
+
+const createPlatformKeySchema = z.object({
+	projectId: z.string().trim().min(1),
+	description: z
+		.string()
+		.trim()
+		.min(1)
+		.max(255)
+		.optional()
+		.default("SDK platform secret"),
+});
+
+async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
+	const project = await db.query.project.findFirst({
+		where: {
+			id: { eq: projectId },
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (!project || project.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
+
+	const userOrg = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: project.organizationId },
+		},
+	});
+
+	if (!userOrg) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	if (userOrg.role !== "owner" && userOrg.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can manage platform keys",
+		});
+	}
+
+	if (!project.organization) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	return project;
+}
+
 export const iamRuleTypeEnum = z.enum([
 	"allow_models",
 	"deny_models",
@@ -396,6 +466,216 @@ export const iamRuleValueSchema = z.object({
 	maxInputPrice: z.number().optional(),
 	maxOutputPrice: z.number().optional(),
 	ipCidrs: z.array(z.string()).optional(),
+});
+
+const listPlatformKeys = createRoute({
+	method: "get",
+	path: "/platform",
+	request: {
+		query: listPlatformKeysQuerySchema,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						platformKeys: z.array(platformKeySchema).openapi({}),
+					}),
+				},
+			},
+			description: "List SDK platform keys for a project.",
+		},
+	},
+});
+
+keysApi.openapi(listPlatformKeys, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId } = c.req.valid("query");
+	await assertPlatformKeyAdminAccess(user.id, projectId);
+
+	const platformKeys = await db.query.apiKey.findMany({
+		where: {
+			projectId: { eq: projectId },
+			keyType: { eq: "platform_secret" },
+			status: { ne: "deleted" },
+		},
+	});
+
+	return c.json({
+		platformKeys: platformKeys.map((platformKey) => ({
+			id: platformKey.id,
+			createdAt: platformKey.createdAt,
+			updatedAt: platformKey.updatedAt,
+			description: platformKey.description,
+			status: platformKey.status,
+			projectId: platformKey.projectId,
+			createdBy: platformKey.createdBy,
+			maskedToken: maskToken(platformKey.token),
+		})),
+	});
+});
+
+const createPlatformKey = createRoute({
+	method: "post",
+	path: "/platform",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createPlatformKeySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						platformKey: platformKeySchema
+							.extend({
+								token: z.string(),
+							})
+							.openapi({}),
+					}),
+				},
+			},
+			description: "SDK platform key created successfully.",
+		},
+	},
+});
+
+keysApi.openapi(createPlatformKey, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId, description } = c.req.valid("json");
+	const project = await assertPlatformKeyAdminAccess(user.id, projectId);
+	const token = `sk_${shortid(40)}`;
+
+	const [platformKey] = await db
+		.insert(tables.apiKey)
+		.values({
+			token,
+			projectId,
+			description,
+			keyType: "platform_secret",
+			createdBy: user.id,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId: project.organizationId,
+		userId: user.id,
+		action: "api_key.create",
+		resourceType: "api_key",
+		resourceId: platformKey.id,
+		metadata: {
+			resourceName: description,
+			projectId,
+			keyType: "platform_secret",
+		},
+	});
+
+	return c.json({
+		platformKey: {
+			id: platformKey.id,
+			createdAt: platformKey.createdAt,
+			updatedAt: platformKey.updatedAt,
+			description: platformKey.description,
+			status: platformKey.status,
+			projectId: platformKey.projectId,
+			createdBy: platformKey.createdBy,
+			maskedToken: maskToken(token),
+			token,
+		},
+	});
+});
+
+const deletePlatformKey = createRoute({
+	method: "delete",
+	path: "/platform/{id}",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "SDK platform key deleted successfully.",
+		},
+	},
+});
+
+keysApi.openapi(deletePlatformKey, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.param();
+
+	const platformKey = await db.query.apiKey.findFirst({
+		where: {
+			id: { eq: id },
+			keyType: { eq: "platform_secret" },
+			status: { ne: "deleted" },
+		},
+	});
+
+	if (!platformKey) {
+		throw new HTTPException(404, {
+			message: "Platform key not found",
+		});
+	}
+
+	const project = await assertPlatformKeyAdminAccess(
+		user.id,
+		platformKey.projectId,
+	);
+
+	await db
+		.update(tables.apiKey)
+		.set({
+			status: "deleted",
+		})
+		.where(eq(tables.apiKey.id, id));
+
+	await logAuditEvent({
+		organizationId: project.organizationId,
+		userId: user.id,
+		action: "api_key.delete",
+		resourceType: "api_key",
+		resourceId: id,
+		metadata: {
+			resourceName: platformKey.description,
+			projectId: platformKey.projectId,
+			keyType: "platform_secret",
+		},
+	});
+
+	return c.json({
+		message: "Platform key deleted successfully",
+	});
 });
 
 function isValidCidr(cidr: string): boolean {
@@ -553,7 +833,7 @@ export async function createApiKeyForProject(
 			projectId: { eq: projectId },
 			status: { ne: "deleted" },
 			// Only count developer keys toward the per-project cap; platform and
-			// hidden embeddable-SDK aggregate keys are excluded.
+			// hidden LLM SDK aggregate keys are excluded.
 			keyType: { eq: "user" },
 		},
 	});
@@ -737,7 +1017,7 @@ keysApi.openapi(list, async (c) => {
 			projectId: {
 				in: projectId ? [projectId] : projectIds,
 			},
-			// Hide platform and embeddable-SDK aggregate keys from the dashboard —
+			// Hide platform and LLM SDK aggregate keys from the dashboard —
 			// only show developer-created keys.
 			keyType: { eq: "user" },
 			...(shouldFilterByCreator && {

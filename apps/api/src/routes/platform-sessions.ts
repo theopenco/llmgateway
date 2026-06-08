@@ -11,7 +11,7 @@ import type { AuthenticatedPlatformKey } from "@/lib/platform-secret-auth.js";
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — platform session endpoints.
+ * LLM SDK — platform session endpoints.
  *
  * These are authenticated with a developer **secret key** (`sk_…`, an apiKey row
  * with keyType="platform_secret"), NOT a dashboard session. They let a

@@ -49,8 +49,8 @@ export interface ProviderRegionConfig {
 /**
  * A selectable processing tier offered by a provider that trades latency
  * against price relative to the standard on-demand rate. Selected per-request
- * via the OpenAI-compatible `service_tier` field. Currently used by Google
- * Vertex AI (Flex / Priority PayGo).
+ * via the OpenAI-compatible `service_tier` field. Currently used by OpenAI,
+ * Google Vertex AI, and Google AI Studio.
  */
 export interface ServiceTier {
 	/** Value the client passes via `service_tier` to select this tier (e.g. "flex", "priority") */
@@ -59,8 +59,8 @@ export interface ServiceTier {
 	name: string;
 	/**
 	 * Multiplier applied to the standard input/output token prices for this
-	 * tier. 0.5 means 50% cheaper, 1.8 means an 80% premium. Multipliers are
-	 * uniform across all Gemini 2.5 models on Vertex.
+	 * tier. 0.5 means 50% cheaper, 2.5 means 2.5x standard pricing. Multipliers are
+	 * uniform for provider tiers that publish a tier-wide multiplier.
 	 */
 	multiplier: number;
 	/** Short description of the latency/availability trade-off */
@@ -182,6 +182,22 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for slower responses and occasional resource unavailability.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 2.5,
+				description:
+					"Premium low-latency tier with faster, more consistent processing.",
+			},
+		],
 	},
 	{
 		id: "anthropic",
@@ -229,6 +245,22 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://ai.google.com",
 		announcement: null,
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for variable latency and best-effort availability.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.8,
+				description:
+					"Premium low-latency tier prioritized above standard and flex traffic, at an 80% premium.",
+			},
+		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -535,7 +567,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.5,
+		priority: 2,
 	},
 	{
 		id: "alibaba",
@@ -619,7 +651,7 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_AWS_BEDROCK_REGION",
 			},
 		},
-		priority: 1.5,
+		priority: 2,
 		streaming: true,
 		cancellation: true,
 		color: "#FF9900",
@@ -724,7 +756,7 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
-		priority: 1.5,
+		priority: 2,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		headquarters: "US",
@@ -1074,7 +1106,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.5,
+		priority: 2,
 	},
 	{
 		id: "embercloud",

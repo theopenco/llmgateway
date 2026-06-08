@@ -11,12 +11,36 @@ export {
 } from "./fees.js";
 
 export {
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
 	DEV_PLAN_PRICES,
 	type DevPlanCycle,
 	type DevPlanTier,
 	getDevPlanCreditsLimit,
+	getDevPlanPremiumWeeklyLimit,
+	getRemainingPremiumWeeklyAllowance,
 	getProratedCreditDelta,
+	isPremiumWeekExpired,
 } from "./dev-plans.js";
+
+export {
+	CHAT_PLAN_PRICES,
+	CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS,
+	type ChatPlanCycle,
+	type ChatPlanTier,
+	CHAT_PLAN_CREDITS_MULTIPLIERS,
+	getChatPlanCreditsLimit,
+	getChatPlanCreditsMultiplier,
+	getChatPlanCreditsMultipliers,
+	isChatPlanModelAllowed,
+} from "./chat-plans.js";
+
+export {
+	getModelCategory,
+	isPremiumModel,
+	type ModelCategory,
+	PREMIUM_MODEL_IDS,
+} from "./model-categories.js";
 
 export {
 	HealthChecker,

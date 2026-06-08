@@ -1371,6 +1371,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.4",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "2.5e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.25e-6",
@@ -1437,6 +1439,7 @@ export const openaiModels = [
 				providerId: "openai",
 				test: "skip",
 				externalId: "gpt-5.4-pro",
+				serviceTiers: ["flex"],
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
 				requestPrice: "0",
@@ -1486,6 +1489,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.4-mini",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "0.75e-6",
 				outputPrice: "4.5e-6",
 				cachedInputPrice: "0.075e-6",
@@ -1537,6 +1542,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.4-nano",
+				serviceTiers: ["flex"],
 				inputPrice: "0.2e-6",
 				outputPrice: "1.25e-6",
 				cachedInputPrice: "0.02e-6",
@@ -1588,6 +1594,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.5",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "5.0e-6",
 				outputPrice: "30.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1654,6 +1661,7 @@ export const openaiModels = [
 				providerId: "openai",
 				test: "skip",
 				externalId: "gpt-5.5-pro",
+				serviceTiers: ["flex"],
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
 				requestPrice: "0",
@@ -1731,6 +1739,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.3-codex",
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",

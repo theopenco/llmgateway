@@ -590,7 +590,12 @@ function getAvailableCredits(
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
-	return regularCredits + devPlanCreditsRemaining;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	return regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 }
 
 function hasSufficientVideoGenerationBalance(
@@ -675,7 +680,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	// Embeddable SDK: ephemeral end-user sessions bill the bound wallet. No-op
+	// LLM SDK: ephemeral end-user sessions bill the bound wallet. No-op
 	// for normal keys.
 	const { project, organization } = await applyEndUserSession(
 		c,
@@ -2218,7 +2223,7 @@ async function requireVideoJobForProject(
 		});
 	}
 
-	// Embeddable SDK: an ephemeral end-user session may only read jobs owned by
+	// LLM SDK: an ephemeral end-user session may only read jobs owned by
 	// its own wallet. End-users share a project, so a project-only scope would
 	// leak other end-users' jobs. (Normal developer keys pass null and see all
 	// project jobs, as before.)

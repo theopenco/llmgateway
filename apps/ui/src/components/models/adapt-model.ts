@@ -31,6 +31,17 @@ export function adaptProviderMapping(
 	p: ProviderWithInfo,
 	modelId: string,
 ): { provider: ApiModelProviderMapping; providerInfo: ApiProvider } {
+	const supportedServiceTierIds = new Set(p.serviceTiers ?? []);
+	const serviceTiers =
+		p.providerInfo?.serviceTiers
+			?.filter((tier) => supportedServiceTierIds.has(tier.id))
+			.map((tier) => ({
+				id: tier.id,
+				name: tier.name,
+				multiplier: p.serviceTierMultipliers?.[tier.id] ?? tier.multiplier,
+				description: tier.description,
+			})) ?? null;
+
 	return {
 		provider: {
 			id: `${p.providerId}-${modelId}-${p.region ?? ""}`,
@@ -90,6 +101,7 @@ export function adaptProviderMapping(
 								: null,
 					}))
 				: null,
+			serviceTiers: p.serviceTiers ?? null,
 			discount: p.discount ?? null,
 			stability: p.stability ?? null,
 			supportedParameters: p.supportedParameters ?? null,
@@ -107,6 +119,7 @@ export function adaptProviderMapping(
 			color: p.providerInfo?.color ?? null,
 			website: p.providerInfo?.website ?? null,
 			announcement: null,
+			serviceTiers,
 			status: "active" as const,
 		},
 	};

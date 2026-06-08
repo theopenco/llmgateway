@@ -5,7 +5,7 @@ import { db } from "@llmgateway/db";
 import type { Context, Next } from "hono";
 
 /**
- * Embeddable SDK: authentication for a developer's backend using a platform
+ * LLM SDK: authentication for a developer's backend using a platform
  * **secret key** (`sk_…`, an apiKey row with keyType="platform_secret"). Shared
  * by the session-mint, wallet-management, customer-analytics, and Connect-payout
  * endpoints. Mirrors the v1-master.ts token-auth pattern.

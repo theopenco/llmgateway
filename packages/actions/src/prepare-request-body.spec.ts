@@ -50,6 +50,7 @@ async function prepareOpenAITextRequest(options: {
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
+	serviceTier?: "flex" | "priority";
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -81,6 +82,9 @@ async function prepareOpenAITextRequest(options: {
 		options.useResponsesApi ?? false,
 		options.promptCacheKey,
 		options.promptCacheRetention,
+		true,
+		undefined,
+		options.serviceTier,
 	);
 }
 
@@ -430,6 +434,43 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 	});
 });
 
+describe("prepareRequestBody - OpenAI service tiers", () => {
+	test("should forward service_tier to OpenAI chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("flex");
+	});
+
+	test("should forward service_tier to OpenAI Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			useResponsesApi: true,
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should not forward service_tier to unsupported OpenAI models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("should not forward service_tier to Azure", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - reasoning_effort none", () => {
 	async function prepare(options: {
 		provider: Parameters<typeof prepareRequestBody>[0];
@@ -649,6 +690,88 @@ describe("prepareRequestBody - Google AI Studio", () => {
 				expected,
 			);
 		}
+	});
+
+	test('preserves "max" effort natively for adaptive Anthropic models', async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.output_config.effort).toBe("max");
+	});
+
+	test('preserves "max" effort natively for adaptive Anthropic models on Bedrock', async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+			type: "adaptive",
+		});
+		expect(requestBody.additionalModelRequestFields.output_config.effort).toBe(
+			"max",
+		);
+	});
+
+	test('aliases "max" effort to "high" for providers without a max tier', async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			null,
+			"gemini-2.5-pro",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"max", // reasoning_effort
+			true,
+			false,
+		)) as any;
+
+		// "max" has no Google tier, so it aliases to "high" (24576) rather than
+		// falling through to the medium default (8192).
+		expect(requestBody.generationConfig.thinkingConfig.thinkingBudget).toBe(
+			24576,
+		);
 	});
 
 	test("should not set thinkingBudget when reasoning_effort is not provided", async () => {

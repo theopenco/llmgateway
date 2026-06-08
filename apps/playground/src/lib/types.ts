@@ -76,7 +76,14 @@ export interface Organization {
 	createdAt: string;
 	updatedAt: string;
 	name: string;
+	isPersonal: boolean;
+	isChat: boolean;
 	credits: string;
+	chatPlan?: "none" | "starter" | "plus" | "pro";
+	chatPlanCreditsLimit?: string | null;
+	chatPlanCreditsUsed?: string | null;
+	chatPlanCancelled?: boolean | null;
+	chatPlanExpiresAt?: string | null;
 	plan: "free" | "pro" | "enterprise";
 	planExpiresAt: string | null;
 	retentionLevel: "retain" | "none";

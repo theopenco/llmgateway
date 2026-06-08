@@ -25,6 +25,7 @@
 		"seed": "pnpm --filter db seed",
 		"setup": "pnpm build:core && docker compose down -v && docker compose up -d && sleep 5 && pnpm push-test && pnpm push-dev && pnpm seed",
 		"sync": "pnpm push-dev; pnpm push-test",
+		"stripe:listen": "stripe listen --api-key \"$(grep -E '^STRIPE_SECRET_KEY=' .env | head -1 | cut -d= -f2-)\" --forward-to localhost:4002/stripe/webhook",
 		"test:e2e": "pnpm build:core && E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
 		"test:unit": "pnpm build:core && vitest run --no-file-parallelism"
 	},

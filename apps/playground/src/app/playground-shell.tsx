@@ -71,7 +71,7 @@ export async function renderPlaygroundShell({
 	}
 
 	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
-	const organizations = (
+	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
 		"organizations" in initialOrganizationsData
@@ -79,6 +79,21 @@ export async function renderPlaygroundShell({
 					.organizations
 			: []
 	) as Organization[];
+
+	// The dedicated Chat org backs the "Personal" context
+	// (selectedOrganization === null): generation, billing, and top-ups all run
+	// under it. It is created on demand and never appears in the org switcher,
+	// which lists real dashboard orgs for shared-chat views only.
+	const chatOrgData = await fetchServerData("GET", "/playground/chat-org");
+	const chatOrg =
+		chatOrgData &&
+		typeof chatOrgData === "object" &&
+		"organizationId" in chatOrgData
+			? (chatOrgData as { organizationId: string; projectId: string })
+			: null;
+	const organizations = allOrganizations.filter(
+		(o) => !o.isPersonal && !o.isChat,
+	);
 
 	if (
 		orgShareView &&
@@ -123,9 +138,13 @@ export async function renderPlaygroundShell({
 	const selectedOrganization =
 		(orgId ? organizations.find((o) => o.id === orgId) : null) ?? null;
 
-	const projectOrg = selectedOrganization ?? organizations[0] ?? null;
+	// Personal context (no org selected): generation + billing run under the
+	// dedicated Chat org, so resolve its project instead of falling back to the
+	// first dashboard org — that fallback silently billed the wrong organization.
+	const projectOrgId =
+		selectedOrganization?.id ?? chatOrg?.organizationId ?? null;
 
-	if (!initialProjectsData && projectOrg?.id) {
+	if (!initialProjectsData && projectOrgId) {
 		try {
 			initialProjectsData = (await fetchServerData(
 				"GET",
@@ -133,7 +152,7 @@ export async function renderPlaygroundShell({
 				{
 					params: {
 						path: {
-							id: projectOrg.id,
+							id: projectOrgId,
 						},
 					},
 				},
@@ -141,7 +160,7 @@ export async function renderPlaygroundShell({
 		} catch (error) {
 			console.warn(
 				"Failed to fetch projects for organization:",
-				projectOrg?.id,
+				projectOrgId,
 				error,
 			);
 		}
@@ -159,12 +178,16 @@ export async function renderPlaygroundShell({
 		if (projectId && !selectedProject && projectId.length > 0) {
 			notFound();
 		}
-	} else if (projectOrg?.id) {
-		const cookieName = `llmgateway-last-used-project-${projectOrg.id}`;
+	} else if (projectOrgId) {
+		const cookieName = `llmgateway-last-used-project-${projectOrgId}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
 			selectedProject = projects.find((p) => p.id === lastUsed) ?? null;
 		}
+	}
+	// In the personal (chat) context, prefer the chat org's resolved project.
+	if (!selectedProject && !selectedOrganization && chatOrg) {
+		selectedProject = projects.find((p) => p.id === chatOrg.projectId) ?? null;
 	}
 	selectedProject ??= projects[0] ?? null;
 
@@ -181,9 +204,9 @@ export async function renderPlaygroundShell({
 
 	return (
 		<>
-			{projectOrg?.id && selectedProject?.id ? (
+			{projectOrgId && selectedProject?.id ? (
 				<LastUsedProjectTracker
-					orgId={projectOrg.id}
+					orgId={projectOrgId}
 					projectId={selectedProject.id}
 				/>
 			) : null}

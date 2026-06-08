@@ -17,6 +17,62 @@ export function getDevPlanCreditsLimit(tier: DevPlanTier): number {
 }
 
 /**
+ * Weekly fair-use allowance for premium-category models per tier.
+ * Premium models (frontier flagships) are subject to this weekly cap in
+ * addition to the monthly credit allowance.
+ */
+export const DEV_PLAN_PREMIUM_WEEKLY_LIMITS: Record<DevPlanTier, number> = {
+	lite: 10,
+	pro: 50,
+	max: 140,
+};
+
+export function getDevPlanPremiumWeeklyLimit(tier: DevPlanTier): number {
+	return DEV_PLAN_PREMIUM_WEEKLY_LIMITS[tier];
+}
+
+export const DEV_PLAN_PREMIUM_WEEK_LENGTH_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Returns true when the stored premium-week start is older than the rolling
+ * 7-day window (or absent), meaning the premium usage counter should be
+ * reset before the next deduction or check.
+ */
+export function isPremiumWeekExpired(
+	weekStart: Date | null | undefined,
+	now: Date = new Date(),
+): boolean {
+	if (!weekStart) {
+		return true;
+	}
+	return (
+		now.getTime() - new Date(weekStart).getTime() >=
+		DEV_PLAN_PREMIUM_WEEK_LENGTH_MS
+	);
+}
+
+/**
+ * Returns the remaining premium allowance for the current weekly window.
+ * If the stored week has expired, the full per-tier limit is available.
+ */
+export function getRemainingPremiumWeeklyAllowance(
+	tier: DevPlanTier,
+	creditsUsed: string | number | null | undefined,
+	weekStart: Date | null | undefined,
+	now: Date = new Date(),
+): number {
+	const limit = getDevPlanPremiumWeeklyLimit(tier);
+	if (isPremiumWeekExpired(weekStart, now)) {
+		return limit;
+	}
+	const used =
+		typeof creditsUsed === "string"
+			? parseFloat(creditsUsed)
+			: (creditsUsed ?? 0);
+	return Math.max(0, limit - used);
+}
+
+/**
  * Prorated credit delta for a mid-cycle tier change.
  *
  * Credits track prorated dollars: changing tier part-way through a billing

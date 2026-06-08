@@ -160,6 +160,7 @@ export async function findApiKeyByToken(
 					and(
 						eq(apiKeyTable.token, token),
 						ne(apiKeyTable.keyType, "end_user_customer"),
+						ne(apiKeyTable.keyType, "platform_secret"),
 					),
 				)
 				.limit(1);
@@ -305,7 +306,12 @@ export async function findOrganizationById(
 		const devPlanCreditsLimit = parseFloat(org.devPlanCreditsLimit || "0");
 		const devPlanCreditsRemaining =
 			org.devPlan !== "none" ? devPlanCreditsLimit - devPlanCreditsUsed : 0;
-		const totalCredits = regularCredits + devPlanCreditsRemaining;
+		const chatPlanCreditsUsed = parseFloat(org.chatPlanCreditsUsed || "0");
+		const chatPlanCreditsLimit = parseFloat(org.chatPlanCreditsLimit || "0");
+		const chatPlanCreditsRemaining =
+			org.chatPlan !== "none" ? chatPlanCreditsLimit - chatPlanCreditsUsed : 0;
+		const totalCredits =
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 		if (totalCredits <= 0) {
 			return await findOrganizationByIdUncached(id);
