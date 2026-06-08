@@ -133,6 +133,10 @@ const PROJECT_SETTINGS = [
 		label: "Preferences",
 	},
 	{
+		href: "settings/embeddable",
+		label: "Embeddable",
+	},
+	{
 		href: "settings/routing",
 		label: "Routing",
 	},

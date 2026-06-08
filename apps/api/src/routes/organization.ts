@@ -78,6 +78,9 @@ const projectSchema = z.object({
 	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	endUserEnabled: z.boolean(),
+	endUserMarkupPercent: z.string(),
+	allowedOrigins: z.array(z.string()).nullable(),
 });
 
 const createOrganizationSchema = z.object({

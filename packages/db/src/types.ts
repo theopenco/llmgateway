@@ -196,15 +196,7 @@ export type SerializedOrganization = Omit<
 	chatPlanExpiresAt: string | null;
 };
 
-export type SerializedProject = Omit<
-	Project,
-	| "createdAt"
-	| "updatedAt"
-	// Embeddable SDK internals — not part of the dashboard-facing API surface.
-	| "endUserEnabled"
-	| "endUserMarkupPercent"
-	| "allowedOrigins"
-> & {
+export type SerializedProject = Omit<Project, "createdAt" | "updatedAt"> & {
 	createdAt: string;
 	updatedAt: string;
 };

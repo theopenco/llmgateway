@@ -102,6 +102,109 @@ describe("keys route", () => {
 		expect(json.apiKeys[1].description).toBe("Test API Key");
 	});
 
+	test("POST /keys/platform creates an embeddable platform secret", async () => {
+		const res = await app.request("/keys/platform", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				projectId: "test-project-id",
+				description: "Embeddable test secret",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.platformKey.token.startsWith("sk_")).toBe(true);
+		expect(json.platformKey.maskedToken.startsWith("sk_")).toBe(true);
+		expect(json.platformKey.description).toBe("Embeddable test secret");
+
+		const platformKey = await db.query.apiKey.findFirst({
+			where: {
+				id: {
+					eq: json.platformKey.id,
+				},
+			},
+		});
+		expect(platformKey?.keyType).toBe("platform_secret");
+		expect(platformKey?.token).toBe(json.platformKey.token);
+	});
+
+	test("GET /keys/platform lists masked embeddable platform secrets", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "test-platform-key-id",
+			token: "sk_test_platform_secret",
+			projectId: "test-project-id",
+			description: "Platform Secret",
+			keyType: "platform_secret",
+			createdBy: "test-user-id",
+		});
+
+		const res = await app.request("/keys/platform?projectId=test-project-id", {
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.platformKeys).toHaveLength(1);
+		expect(json.platformKeys[0].id).toBe("test-platform-key-id");
+		expect(json.platformKeys[0].maskedToken).toContain("sk_test_plat");
+		expect(json.platformKeys[0].token).toBeUndefined();
+	});
+
+	test("DELETE /keys/platform/{id} revokes a platform secret", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "test-platform-key-id",
+			token: "sk_test_platform_secret",
+			projectId: "test-project-id",
+			description: "Platform Secret",
+			keyType: "platform_secret",
+			createdBy: "test-user-id",
+		});
+
+		const res = await app.request("/keys/platform/test-platform-key-id", {
+			method: "DELETE",
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const platformKey = await db.query.apiKey.findFirst({
+			where: {
+				id: {
+					eq: "test-platform-key-id",
+				},
+			},
+		});
+		expect(platformKey?.status).toBe("deleted");
+	});
+
+	test("POST /keys/platform rejects organization developers", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "developer" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/platform", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				projectId: "test-project-id",
+				description: "Developer secret",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+	});
+
 	test("PATCH /keys/api/{id}", async () => {
 		const res = await app.request("/keys/api/test-api-key-id", {
 			method: "PATCH",
