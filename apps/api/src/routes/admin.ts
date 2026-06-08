@@ -25,6 +25,7 @@ import {
 	lt,
 	lte,
 	ne,
+	notInArray,
 	or,
 	sql,
 	tables,
@@ -7249,12 +7250,43 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	const search = query.search ?? "";
 	const { from, to } = query;
 
-	const whereClause = search
+	// Alibaba's region=null "root" mapping is virtual: the stats calculator
+	// aggregates all regional traffic up into it, so it duplicates the regional
+	// rows' stats and double-counts in the totals. Each Alibaba region is the
+	// relevant unit, so hide these virtual roots from the list and totals.
+	// Other providers (e.g. AWS Bedrock) keep their root mapping.
+	const alibabaMappings = await db
+		.select({
+			id: tables.modelProviderMapping.id,
+			modelId: tables.modelProviderMapping.modelId,
+			region: tables.modelProviderMapping.region,
+		})
+		.from(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.providerId, "alibaba"));
+
+	const alibabaModelsWithRegions = new Set(
+		alibabaMappings.filter((m) => m.region).map((m) => m.modelId),
+	);
+	const virtualRootMappingIds = alibabaMappings
+		.filter((m) => !m.region && alibabaModelsWithRegions.has(m.modelId))
+		.map((m) => m.id);
+
+	const excludeVirtualRoots =
+		virtualRootMappingIds.length > 0
+			? notInArray(tables.modelProviderMapping.id, virtualRootMappingIds)
+			: undefined;
+
+	const searchClause = search
 		? or(
 				sql`${tables.modelProviderMapping.modelId} ILIKE ${"%" + search + "%"}`,
 				sql`${tables.modelProviderMapping.providerId} ILIKE ${"%" + search + "%"}`,
 			)
 		: undefined;
+
+	const whereClause =
+		searchClause && excludeVirtualRoots
+			? and(searchClause, excludeVirtualRoots)
+			: (searchClause ?? excludeVirtualRoots);
 
 	const dateRange = (() => {
 		if (!(from && to)) {
@@ -7368,6 +7400,12 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				.where(
 					and(
 						historySearchClause,
+						virtualRootMappingIds.length > 0
+							? notInArray(
+									modelProviderMappingHistory.modelProviderMappingId,
+									virtualRootMappingIds,
+								)
+							: undefined,
 						gte(
 							modelProviderMappingHistory.minuteTimestamp,
 							dateRange.startDate,
