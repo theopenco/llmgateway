@@ -106,4 +106,4 @@ There's a complete, runnable Next.js example — backend session route, provider
 
 ➡️ **[theopenco/llmgateway-templates → templates/embeddable-credits](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)**
 
-Full reference is in the [LLM SDK docs](https://docs.llmgateway.io/features/llm-sdk). Enable end-user sessions on your project, create a platform secret key, and you can be live in an afternoon.
+Full reference is in the [LLM SDK docs](https://docs.llmgateway.io/features/llm-sdk). In the dashboard, open your project's **Settings → SDK** to enable end-user sessions and create a platform secret key — and you can be live in an afternoon.
