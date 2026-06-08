@@ -84,6 +84,10 @@ export default function InactivePlanChooser({
 					);
 				})}
 			</div>
+			<p className="mx-auto max-w-2xl text-center text-xs leading-relaxed text-muted-foreground">
+				Need company or address details on your invoice? Update billing settings
+				before purchase. An invoice is emailed automatically after payment.
+			</p>
 		</div>
 	);
 }

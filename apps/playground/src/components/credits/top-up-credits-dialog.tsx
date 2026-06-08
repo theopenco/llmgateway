@@ -323,6 +323,7 @@ function AmountStep({
 						) : null}
 					</div>
 				)}
+				<InvoiceSettingsNote />
 			</div>
 			<DialogFooter className="flex flex-col gap-3 sm:flex-col">
 				<div className="flex justify-end gap-2">
@@ -543,6 +544,7 @@ function PaymentStep({
 				<p className="text-xs text-muted-foreground">
 					International cards are subject to an additional 1.5% processing fee.
 				</p>
+				<InvoiceSettingsNote />
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -762,6 +764,7 @@ function ConfirmPaymentStep({
 						<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
 					)}
 				</div>
+				<InvoiceSettingsNote />
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -787,5 +790,14 @@ function ConfirmPaymentStep({
 				</DialogFooter>
 			</form>
 		</>
+	);
+}
+
+function InvoiceSettingsNote() {
+	return (
+		<p className="rounded-lg bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+			Need company or address details on your invoice? Update billing settings
+			before purchase. An invoice is emailed automatically after payment.
+		</p>
 	);
 }

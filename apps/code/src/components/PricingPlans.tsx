@@ -208,6 +208,10 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 				Usage is metered at each provider&apos;s published per-token rate. Every
 				request shows its dollar value in your dashboard in real time.
 			</p>
+			<p className="mx-auto mt-2 max-w-2xl text-center text-xs leading-relaxed text-muted-foreground">
+				Need company or address details on your invoice? Update billing settings
+				before purchase. An invoice is emailed automatically after payment.
+			</p>
 		</div>
 	);
 }

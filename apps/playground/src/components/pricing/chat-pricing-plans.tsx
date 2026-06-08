@@ -382,6 +382,10 @@ export function ChatPricingPlans({
 				Pay-as-you-go credits stay available — chat plan credits drain first on
 				requests from the chat app.
 			</p>
+			<p className="mx-auto mt-2 max-w-2xl text-center text-xs leading-relaxed text-muted-foreground">
+				Need company or address details on your invoice? Update billing settings
+				before purchase. An invoice is emailed automatically after payment.
+			</p>
 		</div>
 	);
 }
