@@ -444,7 +444,7 @@ export const ChatSidebar = function ChatSidebar({
 	const pathname = usePathname();
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
-	const showOrganizationSwitcher = pathname === "/";
+	const showOrganizationSwitcher = pathname === "/" || pathname === "/group";
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
@@ -758,6 +758,12 @@ export const ChatSidebar = function ChatSidebar({
 								<span className="text-lg font-bold tracking-tight">
 									LLM Gateway
 								</span>
+								<Badge
+									variant="secondary"
+									className="group-data-[collapsible=icon]:hidden"
+								>
+									Chat
+								</Badge>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

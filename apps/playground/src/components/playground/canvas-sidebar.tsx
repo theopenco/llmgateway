@@ -43,19 +43,31 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { OrganizationSwitcher } from "./organization-switcher";
+
 import type { Organization } from "@/lib/types";
 
 interface CanvasSidebarProps {
+	organizations: Organization[];
 	selectedOrganization: Organization | null;
+	onSelectOrganization: (organization: Organization | null) => void;
 	className?: string;
 	onNewCanvas?: () => void;
 }
 
 export function CanvasSidebar({
+	organizations,
 	selectedOrganization,
+	onSelectOrganization,
 	className,
 	onNewCanvas,
 }: CanvasSidebarProps) {
+	const switcherOrganizations = organizations.filter(
+		(org) => !org.isPersonal && !org.isChat,
+	);
+	const switcherSelectedOrganization =
+		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
+		null;
 	const router = useRouter();
 	const posthog = usePostHog();
 	const { user, isLoading: isUserLoading } = useUser();
@@ -161,6 +173,12 @@ export function CanvasSidebar({
 								<span className="text-lg font-bold tracking-tight">
 									LLM Gateway
 								</span>
+								<Badge
+									variant="secondary"
+									className="group-data-[collapsible=icon]:hidden"
+								>
+									Chat
+								</Badge>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -237,7 +255,19 @@ export function CanvasSidebar({
 				</SidebarMenu>
 			</SidebarHeader>
 
-			<SidebarContent className="px-2 py-4" />
+			<SidebarContent className="px-2 py-4">
+				{switcherOrganizations.length > 0 ? (
+					<SidebarMenu className="group-data-[collapsible=icon]:hidden">
+						<SidebarMenuItem>
+							<OrganizationSwitcher
+								organizations={switcherOrganizations}
+								selectedOrganization={switcherSelectedOrganization}
+								onSelectOrganization={onSelectOrganization}
+							/>
+						</SidebarMenuItem>
+					</SidebarMenu>
+				) : null}
+			</SidebarContent>
 
 			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">

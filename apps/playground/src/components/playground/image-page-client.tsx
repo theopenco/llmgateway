@@ -44,7 +44,7 @@ interface ImagePageClientProps {
 export default function ImagePageClient({
 	models,
 	providers,
-	organizations: _organizations,
+	organizations,
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
@@ -718,6 +718,20 @@ export default function ImagePageClient({
 		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
 		: false;
 
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(params.toString() ? `/image?${params.toString()}` : "/image");
+		},
+		[router, searchParams],
+	);
+
 	return (
 		<SidebarProvider>
 			<div className="flex h-dvh w-full">
@@ -725,7 +739,9 @@ export default function ImagePageClient({
 					galleryItems={galleryItems}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
+					organizations={organizations}
 					selectedOrganization={selectedOrganization}
+					onSelectOrganization={handleSelectOrganization}
 					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
