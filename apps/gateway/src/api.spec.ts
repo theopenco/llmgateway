@@ -144,6 +144,140 @@ describe("api", () => {
 		expect(logs[0].finishReason).toBe("stop");
 	});
 
+	test("/v1/chat/completions rejects unsupported service tiers", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-unsupported-service-tier",
+			token: "real-token-unsupported-service-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-unsupported-service-tier",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error).toMatchObject({
+			type: "invalid_request_error",
+			param: "service_tier",
+			code: "unsupported_service_tier",
+		});
+		expect(json.error.message).toContain(
+			"Service tier 'priority' is not available for model openai/gpt-4o.",
+		);
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].finishReason).toBe("client_error");
+		expect(logs[0].hasError).toBe(true);
+		expect(logs[0].serviceTier).toBeNull();
+		expect(logs[0].errorDetails?.statusCode).toBe(400);
+		expect(logs[0].errorDetails?.cause).toBe("unsupported_service_tier");
+		expect(logs[0].errorDetails?.responseText).toContain(
+			"Service tier 'priority' is not available",
+		);
+	});
+
+	test("/v1/chat/completions rejects Vertex service tiers outside the global endpoint", async () => {
+		const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-nonglobal-service-tier",
+				token: "real-token-nonglobal-service-tier",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-nonglobal-service-tier",
+				token: "google-test-key",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-nonglobal-service-tier",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/gemini-3.5-flash",
+					service_tier: "priority",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error).toMatchObject({
+				type: "invalid_request_error",
+				param: "service_tier",
+				code: "unsupported_service_tier",
+			});
+		} finally {
+			if (originalVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+		}
+	});
+
+	test("/v1/chat/completions preserves nested OpenAI Responses service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-nested-service-tier",
+			token: "real-token-nested-service-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-nested-service-tier",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-nested-service-tier",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].serviceTier).toBe("priority");
+	});
+
 	test("/v1/chat/completions forwards generated request id upstream", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-generated-request-id",
@@ -536,7 +670,7 @@ describe("api", () => {
 
 		expect(res.status).toBe(403);
 		const json = await res.json();
-		expect(json.message).toContain(
+		expect(json.error.message).toContain(
 			"Provider openai is in the denied providers list",
 		);
 	});
@@ -573,7 +707,9 @@ describe("api", () => {
 
 		expect(res.status).toBe(402);
 		const json = await res.json();
-		expect(json.message).toBe("Organization org-id has insufficient credits");
+		expect(json.error.message).toBe(
+			"Organization org-id has insufficient credits",
+		);
 	});
 
 	test("/v1/embeddings hybrid fallback requires credits", async () => {
@@ -607,7 +743,7 @@ describe("api", () => {
 
 		expect(res.status).toBe(402);
 		const json = await res.json();
-		expect(json.message).toBe(
+		expect(json.error.message).toBe(
 			"No API key set for provider and organization has insufficient credits",
 		);
 	});
@@ -647,7 +783,9 @@ describe("api", () => {
 
 		expect(res.status).toBe(402);
 		const json = await res.json();
-		expect(json.message).toContain("insufficient credits for data retention");
+		expect(json.error.message).toContain(
+			"insufficient credits for data retention",
+		);
 	});
 
 	test("/v1/embeddings google-ai-studio single input", async () => {
@@ -2620,7 +2758,7 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 
 		const json = await res.json();
-		expect(json.message).toContain("does not support reasoning");
+		expect(json.error.message).toContain("does not support reasoning");
 	});
 
 	test("Max tokens validation error when exceeding model limit", async () => {
@@ -2662,9 +2800,11 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 
 		const json = await res.json();
-		expect(json.message).toContain("exceeds the maximum output tokens allowed");
-		expect(json.message).toContain("10000");
-		expect(json.message).toContain("8192");
+		expect(json.error.message).toContain(
+			"exceeds the maximum output tokens allowed",
+		);
+		expect(json.error.message).toContain("10000");
+		expect(json.error.message).toContain("8192");
 	});
 
 	test("Max tokens validation allows valid token count", async () => {
@@ -2733,7 +2873,7 @@ describe("api", () => {
 			"Provider-specific model error:",
 			JSON.stringify(json, null, 2),
 		);
-		expect(json.message).toContain("not supported");
+		expect(json.error.message).toContain("not supported");
 	});
 
 	// invalid model test
@@ -2820,6 +2960,13 @@ describe("api", () => {
 			}),
 		});
 		expect(res.status).toBe(401);
+		const json = await res.json();
+		expect(json.error).toMatchObject({
+			type: "invalid_request_error",
+			param: null,
+			code: "invalid_api_key",
+		});
+		expect(typeof json.error.message).toBe("string");
 	});
 
 	// test for explicitly specifying a provider in the format "provider/model"
@@ -3061,7 +3208,7 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 		const errorMessage = await res.text();
 		expect(errorMessage).toMatchInlineSnapshot(
-			`"{"error":true,"status":400,"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode."}"`,
+			`"{"error":{"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.","type":"invalid_request_error","param":null,"code":null},"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.","status":400}"`,
 		);
 	});
 
@@ -3972,7 +4119,7 @@ describe("api", () => {
 
 				expect(res.status).toBe(402);
 				const json = await res.json();
-				expect(json.message).toBe(
+				expect(json.error.message).toBe(
 					"No API key set for provider and organization has insufficient credits",
 				);
 			} finally {
@@ -4010,7 +4157,7 @@ describe("api", () => {
 
 				expect(res.status).toBe(402);
 				const json = await res.json();
-				expect(json.message).toBe(
+				expect(json.error.message).toBe(
 					"Organization org-id has insufficient credits",
 				);
 			} finally {

@@ -1,7 +1,7 @@
 "use client";
 
 import { format, parseISO } from "date-fns";
-import { BarChart3, Coins, Cpu, Layers } from "lucide-react";
+import { BarChart3, Coins, Cpu, Layers, Server } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -16,6 +16,10 @@ import {
 	YAxis,
 } from "recharts";
 
+import {
+	GlobalStatsRangePicker,
+	resolveGlobalStatsRange,
+} from "@/components/global-stats-range-picker";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -34,16 +38,8 @@ import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
-type Range = "7d" | "30d" | "90d" | "365d";
 type GroupBy = "model" | "source";
-type ModelView = "mapping" | "canonical";
-
-const RANGE_OPTIONS: { value: Range; label: string }[] = [
-	{ value: "7d", label: "Last 7 days" },
-	{ value: "30d", label: "Last 30 days" },
-	{ value: "90d", label: "Last 90 days" },
-	{ value: "365d", label: "Last 365 days" },
-];
+type ModelView = "mapping" | "canonical" | "provider";
 
 const GROUP_OPTIONS: { value: GroupBy; label: string; icon: typeof Cpu }[] = [
 	{ value: "model", label: "By model", icon: Cpu },
@@ -57,6 +53,7 @@ const MODEL_VIEW_OPTIONS: {
 }[] = [
 	{ value: "mapping", label: "Mappings", icon: Layers },
 	{ value: "canonical", label: "Canonical", icon: Cpu },
+	{ value: "provider", label: "Providers", icon: Server },
 ];
 
 // Distinct, color-blind-friendly hues. Repeat for >12 series.
@@ -107,20 +104,15 @@ const timeseriesChartConfig = {
 
 type TimeseriesMetric = keyof typeof timeseriesChartConfig;
 
-const VALID_RANGES: Range[] = ["7d", "30d", "90d", "365d"];
 const VALID_GROUPS: GroupBy[] = ["model", "source"];
 const VALID_METRICS: TimeseriesMetric[] = [
 	"requestCount",
 	"cost",
 	"totalTokens",
 ];
-const VALID_MODEL_VIEWS: ModelView[] = ["mapping", "canonical"];
+const VALID_MODEL_VIEWS: ModelView[] = ["mapping", "canonical", "provider"];
 
 const BREAKDOWN_PAGE_SIZE = 25;
-
-function parseRange(value: string | null): Range {
-	return VALID_RANGES.includes(value as Range) ? (value as Range) : "30d";
-}
 
 function parseGroupBy(value: string | null): GroupBy {
 	return VALID_GROUPS.includes(value as GroupBy) ? (value as GroupBy) : "model";
@@ -215,10 +207,19 @@ export function GlobalStatsClient() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
-	const range = parseRange(searchParams.get("range"));
+	const { from, to } = resolveGlobalStatsRange(searchParams);
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
+
+	const rangeLabel = useMemo(() => {
+		const fromDate = parseISO(from);
+		const toDate = parseISO(to);
+		if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+			return "selected range";
+		}
+		return `${format(fromDate, "MMM d, yyyy")} – ${format(toDate, "MMM d, yyyy")}`;
+	}, [from, to]);
 
 	const updateParam = useCallback(
 		(key: string, value: string) => {
@@ -231,13 +232,15 @@ export function GlobalStatsClient() {
 
 	const [breakdownPage, setBreakdownPage] = useState(1);
 
-	const setRange = useCallback(
-		(value: Range) => {
-			setBreakdownPage(1);
-			updateParam("range", value);
-		},
-		[updateParam],
-	);
+	// The range picker writes from/to directly to the URL, so reset pagination
+	// during render when the selected window changes.
+	const rangeKey = `${from}|${to}`;
+	const [lastRangeKey, setLastRangeKey] = useState(rangeKey);
+	if (rangeKey !== lastRangeKey) {
+		setLastRangeKey(rangeKey);
+		setBreakdownPage(1);
+	}
+
 	const setGroupBy = useCallback(
 		(value: GroupBy) => {
 			setBreakdownPage(1);
@@ -265,7 +268,7 @@ export function GlobalStatsClient() {
 		"get",
 		"/admin/global-stats",
 		{
-			params: { query: { range, groupBy, modelView } },
+			params: { query: { from, to, groupBy, modelView } },
 		},
 	);
 
@@ -319,6 +322,19 @@ export function GlobalStatsClient() {
 		[breakdown, chartMetric],
 	);
 
+	const breakdownNoun =
+		groupBy === "model"
+			? modelView === "provider"
+				? "providers"
+				: "models"
+			: "sources";
+	const breakdownNounSingular =
+		groupBy === "model"
+			? modelView === "provider"
+				? "Provider"
+				: "Model"
+			: "Source";
+
 	const breakdownTotalPages = Math.max(
 		1,
 		Math.ceil(sortedBreakdown.length / BREAKDOWN_PAGE_SIZE),
@@ -360,18 +376,7 @@ export function GlobalStatsClient() {
 							);
 						})}
 					</div>
-					<div className="flex items-center gap-1">
-						{RANGE_OPTIONS.map((opt) => (
-							<Button
-								key={opt.value}
-								variant={range === opt.value ? "default" : "outline"}
-								size="sm"
-								onClick={() => setRange(opt.value)}
-							>
-								{opt.label}
-							</Button>
-						))}
-					</div>
+					<GlobalStatsRangePicker />
 				</div>
 			</header>
 
@@ -412,7 +417,7 @@ export function GlobalStatsClient() {
 					accent="orange"
 				/>
 				<StatCard
-					label={groupBy === "model" ? "Distinct models" : "Distinct sources"}
+					label={`Distinct ${breakdownNoun}`}
 					value={numberFormatter.format(breakdown.length)}
 					subtitle={
 						totals
@@ -421,7 +426,11 @@ export function GlobalStatsClient() {
 					}
 					icon={
 						groupBy === "model" ? (
-							<Cpu className="h-4 w-4" />
+							modelView === "provider" ? (
+								<Server className="h-4 w-4" />
+							) : (
+								<Cpu className="h-4 w-4" />
+							)
 						) : (
 							<Layers className="h-4 w-4" />
 						)
@@ -533,12 +542,12 @@ export function GlobalStatsClient() {
 					<div>
 						<CardTitle>
 							{timeseriesChartConfig[chartMetric].label as string} share —{" "}
-							{groupBy === "model" ? "models" : "sources"}
+							{breakdownNoun}
 						</CardTitle>
 						<CardDescription>
 							{breakdown.length > 10
-								? `Top 10 + Other across the ${range} window.`
-								: `All ${breakdown.length} ${groupBy === "model" ? "models" : "sources"} in the ${range} window.`}
+								? `Top 10 + Other across ${rangeLabel}.`
+								: `All ${breakdown.length} ${breakdownNoun} across ${rangeLabel}.`}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-3">
@@ -640,7 +649,7 @@ export function GlobalStatsClient() {
 								<thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
 									<tr>
 										<th className="px-3 py-2 text-left">
-											{groupBy === "model" ? "Model" : "Source"}
+											{breakdownNounSingular}
 										</th>
 										<th className="px-3 py-2 text-right">
 											{timeseriesChartConfig[chartMetric].label as string}

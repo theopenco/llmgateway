@@ -1,6 +1,14 @@
 "use client";
 
-import { ImagePlus, Loader2, Sparkles, X } from "lucide-react";
+import {
+	Film,
+	ImagePlus,
+	Loader2,
+	Music,
+	Plus,
+	Sparkles,
+	X,
+} from "lucide-react";
 import {
 	type Dispatch,
 	type SetStateAction,
@@ -11,6 +19,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
 	Select,
 	SelectContent,
@@ -43,10 +52,16 @@ interface VideoControlsProps {
 	audioToggleDisabled: boolean;
 	canUseFrameInputs: boolean;
 	canUseReferenceInputs: boolean;
+	canUseReferenceVideoInputs: boolean;
+	canUseReferenceAudioInputs: boolean;
 	frameInputs: VideoFrameInputs;
 	setFrameInputs: Dispatch<SetStateAction<VideoFrameInputs>>;
 	referenceImages: VideoInputImage[];
 	setReferenceImages: Dispatch<SetStateAction<VideoInputImage[]>>;
+	referenceVideos: string[];
+	setReferenceVideos: Dispatch<SetStateAction<string[]>>;
+	referenceAudios: string[];
+	setReferenceAudios: Dispatch<SetStateAction<string[]>>;
 	supportedVideoSizes: VideoSize[];
 	supportedVideoDurations: VideoDuration[];
 	isGenerating: boolean;
@@ -68,10 +83,16 @@ export function VideoControls({
 	audioToggleDisabled,
 	canUseFrameInputs,
 	canUseReferenceInputs,
+	canUseReferenceVideoInputs,
+	canUseReferenceAudioInputs,
 	frameInputs,
 	setFrameInputs,
 	referenceImages,
 	setReferenceImages,
+	referenceVideos,
+	setReferenceVideos,
+	referenceAudios,
+	setReferenceAudios,
 	supportedVideoSizes,
 	supportedVideoDurations,
 	isGenerating,
@@ -82,6 +103,47 @@ export function VideoControls({
 	const dropZoneRef = useRef<HTMLDivElement>(null);
 	const [isDragging, setIsDragging] = useState(false);
 	const [uploadTarget, setUploadTarget] = useState<UploadTarget>("frame-start");
+	const [referenceVideoDraft, setReferenceVideoDraft] = useState("");
+
+	const addReferenceVideo = useCallback(() => {
+		const url = referenceVideoDraft.trim();
+		if (!url || !/^https:\/\//i.test(url)) {
+			return;
+		}
+		setFrameInputs({ start: null, end: null });
+		setReferenceVideos((prev) =>
+			prev.length >= 3 || prev.includes(url) ? prev : [...prev, url],
+		);
+		setReferenceVideoDraft("");
+	}, [referenceVideoDraft, setFrameInputs, setReferenceVideos]);
+
+	const removeReferenceVideo = useCallback(
+		(index: number) => {
+			setReferenceVideos((prev) => prev.filter((_, i) => i !== index));
+		},
+		[setReferenceVideos],
+	);
+
+	const [referenceAudioDraft, setReferenceAudioDraft] = useState("");
+
+	const addReferenceAudio = useCallback(() => {
+		const url = referenceAudioDraft.trim();
+		if (!url || !/^https:\/\//i.test(url)) {
+			return;
+		}
+		setFrameInputs({ start: null, end: null });
+		setReferenceAudios((prev) =>
+			prev.length >= 3 || prev.includes(url) ? prev : [...prev, url],
+		);
+		setReferenceAudioDraft("");
+	}, [referenceAudioDraft, setFrameInputs, setReferenceAudios]);
+
+	const removeReferenceAudio = useCallback(
+		(index: number) => {
+			setReferenceAudios((prev) => prev.filter((_, i) => i !== index));
+		},
+		[setReferenceAudios],
+	);
 
 	const canGenerate = prompt.trim().length > 0 && selectedModels.length > 0;
 	const canAcceptInput = canUseFrameInputs || canUseReferenceInputs;
@@ -125,6 +187,8 @@ export function VideoControls({
 
 				if (target === "frame-start") {
 					setReferenceImages([]);
+					setReferenceVideos([]);
+					setReferenceAudios([]);
 					setFrameInputs((prev) => ({
 						...prev,
 						start: nextImage,
@@ -134,6 +198,8 @@ export function VideoControls({
 
 				if (target === "frame-end") {
 					setReferenceImages([]);
+					setReferenceVideos([]);
+					setReferenceAudios([]);
 					setFrameInputs((prev) => ({
 						...prev,
 						end: nextImage,
@@ -162,6 +228,8 @@ export function VideoControls({
 			defaultUploadTarget,
 			setFrameInputs,
 			setReferenceImages,
+			setReferenceVideos,
+			setReferenceAudios,
 		],
 	);
 
@@ -365,6 +433,50 @@ export function VideoControls({
 							))}
 						</div>
 					)}
+					{referenceVideos.length > 0 && (
+						<div className="flex flex-wrap gap-2 px-3 pt-3">
+							{referenceVideos.map((url, index) => (
+								<div
+									key={`${url}-${index}`}
+									className="group relative flex max-w-[220px] items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2 pr-6 text-xs"
+									title={url}
+								>
+									<Film className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<span className="truncate">Reference video {index + 1}</span>
+									<button
+										type="button"
+										aria-label="Remove reference video"
+										onClick={() => removeReferenceVideo(index)}
+										className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground"
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+							))}
+						</div>
+					)}
+					{referenceAudios.length > 0 && (
+						<div className="flex flex-wrap gap-2 px-3 pt-3">
+							{referenceAudios.map((url, index) => (
+								<div
+									key={`${url}-${index}`}
+									className="group relative flex max-w-[220px] items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2 pr-6 text-xs"
+									title={url}
+								>
+									<Music className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<span className="truncate">Reference audio {index + 1}</span>
+									<button
+										type="button"
+										aria-label="Remove reference audio"
+										onClick={() => removeReferenceAudio(index)}
+										className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground"
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+							))}
+						</div>
+					)}
 					<Textarea
 						ref={textareaRef}
 						value={prompt}
@@ -432,6 +544,72 @@ export function VideoControls({
 							? "Reference"
 							: `${referenceImages.length}/3 refs`}
 					</Button>
+					{canUseReferenceVideoInputs && (
+						<div className="flex items-center gap-1.5">
+							<Input
+								value={referenceVideoDraft}
+								onChange={(e) => setReferenceVideoDraft(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										addReferenceVideo();
+									}
+								}}
+								placeholder="Reference video URL (https://)"
+								disabled={isGenerating || referenceVideos.length >= 3}
+								className="h-8 w-[220px] text-sm"
+							/>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={addReferenceVideo}
+								disabled={
+									isGenerating ||
+									referenceVideos.length >= 3 ||
+									!/^https:\/\//i.test(referenceVideoDraft.trim())
+								}
+								title="Add an HTTPS reference video URL"
+							>
+								<Plus className="mr-1.5 h-4 w-4" />
+								{referenceVideos.length === 0
+									? "Video"
+									: `${referenceVideos.length}/3 videos`}
+							</Button>
+						</div>
+					)}
+					{canUseReferenceAudioInputs && (
+						<div className="flex items-center gap-1.5">
+							<Input
+								value={referenceAudioDraft}
+								onChange={(e) => setReferenceAudioDraft(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										addReferenceAudio();
+									}
+								}}
+								placeholder="Reference audio URL (https://)"
+								disabled={isGenerating || referenceAudios.length >= 3}
+								className="h-8 w-[220px] text-sm"
+							/>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={addReferenceAudio}
+								disabled={
+									isGenerating ||
+									referenceAudios.length >= 3 ||
+									!/^https:\/\//i.test(referenceAudioDraft.trim())
+								}
+								title="Add an HTTPS reference audio URL"
+							>
+								<Plus className="mr-1.5 h-4 w-4" />
+								{referenceAudios.length === 0
+									? "Audio ref"
+									: `${referenceAudios.length}/3 audio`}
+							</Button>
+						</div>
+					)}
 					<Select
 						value={videoSize}
 						onValueChange={(val) => setVideoSize(val as VideoSize)}

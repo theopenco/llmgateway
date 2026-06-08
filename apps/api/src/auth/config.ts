@@ -5,13 +5,14 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
+import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
-import { db, eq, tables, shortid } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 
@@ -933,23 +934,12 @@ The LLM Gateway Team`.trim();
 					const activeOrganizations = userOrganizations.filter(
 						(uo) => uo.organization?.status !== "deleted",
 					);
-
-					if (activeOrganizations.length > 0) {
-						// User already has an organization, nothing to do
-						return;
-					}
-
-					// For self-hosted installations, automatically verify the user's email
-					if (!isHosted) {
-						await db
-							.update(tables.user)
-							.set({ emailVerified: true })
-							.where(eq(tables.user.id, userId));
-
-						logger.info("Automatically verified email for self-hosted user", {
-							userId,
-						});
-					}
+					const hasActiveDashboardOrganization = activeOrganizations.some(
+						(uo) => uo.organization && !uo.organization.isPersonal,
+					);
+					const hasActivePersonalOrganization = activeOrganizations.some(
+						(uo) => uo.organization?.isPersonal === true,
+					);
 
 					// DevPass (code app) signups get a personal organization instead of
 					// the shared "Default Organization" used by the main LLM Gateway
@@ -965,78 +955,46 @@ The LLM Gateway Team`.trim();
 							id: userId,
 							email: newSession.user.email,
 						});
+						if (
+							hasActivePersonalOrganization ||
+							hasActiveDashboardOrganization
+						) {
+							return;
+						}
+					} else if (hasActiveDashboardOrganization) {
+						return;
 					} else {
-						// Perform all DB operations in a single transaction for atomicity
-						await db.transaction(async (tx) => {
-							// Create a default organization
-							const [organization] = await tx
-								.insert(tables.organization)
-								.values({
-									name: "Default Organization",
-									billingEmail: newSession.user.email,
-								})
-								.returning();
+						const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
+						const referralMatch = cookieHeader.match(
+							/llmgateway_referral=([^;]+)/,
+						);
 
-							// Link user to organization
-							await tx.insert(tables.userOrganization).values({
-								userId,
-								organizationId: organization.id,
-							});
+						await getOrCreateDefaultOrganization(
+							{
+								id: userId,
+								email: newSession.user.email,
+							},
+							{
+								referralOrganizationId: referralMatch
+									? decodeURIComponent(referralMatch[1])
+									: null,
+							},
+						);
 
-							// Create a default project with hybrid mode
-							const [project] = await tx
-								.insert(tables.project)
-								.values({
-									name: "Default Project",
-									organizationId: organization.id,
-									mode: "hybrid",
-								})
-								.returning();
+						if (activeOrganizations.length > 0) {
+							return;
+						}
+					}
 
-							// Auto-create an API key for the playground to use
-							// Generate a token with a prefix for better identification
-							const prefix =
-								process.env.NODE_ENV === "development"
-									? `llmgdev_`
-									: "llmgtwy_";
-							const token = prefix + shortid(40);
+					// For self-hosted installations, automatically verify the user's email
+					if (!isHosted) {
+						await db
+							.update(tables.user)
+							.set({ emailVerified: true })
+							.where(eq(tables.user.id, userId));
 
-							await tx.insert(tables.apiKey).values({
-								projectId: project.id,
-								token: token,
-								description: "Auto-generated playground key",
-								usageLimit: null, // No limit for playground key
-								createdBy: userId,
-							});
-
-							// Handle referral if cookie is present
-							const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
-							const referralMatch = cookieHeader.match(
-								/llmgateway_referral=([^;]+)/,
-							);
-							if (referralMatch) {
-								const referrerOrgId = decodeURIComponent(referralMatch[1]);
-								// Verify the referrer organization exists and is active
-								const referrerOrg = await tx.query.organization.findFirst({
-									where: {
-										id: { eq: referrerOrgId },
-										status: { eq: "active" },
-									},
-								});
-
-								if (referrerOrg) {
-									// Create the referral record
-									await tx.insert(tables.referral).values({
-										referrerOrganizationId: referrerOrgId,
-										referredOrganizationId: organization.id,
-									});
-
-									logger.info("Created referral record", {
-										referrerOrgId,
-										referredOrgId: organization.id,
-									});
-								}
-							}
+						logger.info("Automatically verified email for self-hosted user", {
+							userId,
 						});
 					}
 

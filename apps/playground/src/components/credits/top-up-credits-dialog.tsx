@@ -48,12 +48,16 @@ interface TopUpCreditsDialogProps {
 	children?: React.ReactNode;
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
+	// The org credits should be added to (the playground's Chat org). When
+	// omitted, the API falls back to the user's first organization.
+	organizationId?: string;
 }
 
 export function TopUpCreditsDialog({
 	children,
 	open: controlledOpen,
 	onOpenChange: controlledOnOpenChange,
+	organizationId,
 }: TopUpCreditsDialogProps) {
 	const [internalOpen, setInternalOpen] = useState(false);
 	const open = controlledOpen ?? internalOpen;
@@ -117,6 +121,7 @@ export function TopUpCreditsDialog({
 					<AmountStep
 						amount={amount}
 						setAmount={setAmount}
+						organizationId={organizationId}
 						onNext={() => {
 							if (paymentMethodsLoading) {
 								return; // Don't proceed if still loading
@@ -144,6 +149,7 @@ export function TopUpCreditsDialog({
 					<ConfirmPaymentStep
 						amount={amount}
 						paymentMethodId={selectedPaymentMethod!}
+						organizationId={organizationId}
 						onSuccess={handlePaymentSuccess}
 						onBack={() => setStep("select-payment")}
 						onCancel={handleClose}
@@ -157,6 +163,7 @@ export function TopUpCreditsDialog({
 						<Elements stripe={stripe as any}>
 							<PaymentStep
 								amount={amount}
+								organizationId={organizationId}
 								onBack={() => setStep("amount")}
 								onSuccess={handlePaymentSuccess}
 								onCancel={handleClose}
@@ -176,11 +183,13 @@ export function TopUpCreditsDialog({
 function AmountStep({
 	amount,
 	setAmount,
+	organizationId,
 	onNext,
 	onCancel,
 }: {
 	amount: number;
 	setAmount: (amount: number) => void;
+	organizationId?: string;
 	onNext: () => void;
 	onCancel: () => void;
 }) {
@@ -217,7 +226,11 @@ function AmountStep({
 		setCheckoutLoading(true);
 		try {
 			const { checkoutUrl } = await createCheckoutSession({
-				body: { amount, returnUrl: window.location.href.split("?")[0] },
+				body: {
+					amount,
+					returnUrl: window.location.href.split("?")[0],
+					...(organizationId ? { organizationId } : {}),
+				},
 			});
 			window.location.href = checkoutUrl;
 		} catch (error: unknown) {
@@ -376,6 +389,7 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 
 function PaymentStep({
 	amount,
+	organizationId,
 	onBack,
 	onSuccess,
 	onCancel,
@@ -383,6 +397,7 @@ function PaymentStep({
 	setLoading,
 }: {
 	amount: number;
+	organizationId?: string;
 	onBack: () => void;
 	onSuccess: () => Promise<void> | void;
 	onCancel: () => void;
@@ -459,6 +474,7 @@ function PaymentStep({
 				body: {
 					amount,
 					stripePaymentMethodId,
+					...(organizationId ? { organizationId } : {}),
 				},
 			});
 
@@ -650,6 +666,7 @@ function SelectPaymentStep({
 function ConfirmPaymentStep({
 	amount,
 	paymentMethodId,
+	organizationId,
 	onSuccess,
 	onBack,
 	onCancel,
@@ -658,6 +675,7 @@ function ConfirmPaymentStep({
 }: {
 	amount: number;
 	paymentMethodId: string;
+	organizationId?: string;
 	onSuccess: () => Promise<void> | void;
 	onBack: () => void;
 	onCancel: () => void;
@@ -685,7 +703,11 @@ function ConfirmPaymentStep({
 
 		try {
 			await topUpMutation({
-				body: { amount, paymentMethodId },
+				body: {
+					amount,
+					paymentMethodId,
+					...(organizationId ? { organizationId } : {}),
+				},
 			});
 			await onSuccess();
 		} catch (error: any) {

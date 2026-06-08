@@ -1176,10 +1176,6 @@ function generateSeedModelProviderMappings() {
 					p.webSearchPrice !== undefined && p.webSearchPrice !== null
 						? String(p.webSearchPrice)
 						: null,
-				discount:
-					p.discount !== undefined && p.discount !== null
-						? String(p.discount)
-						: "0",
 				stability: p.stability ?? "stable",
 				supportedParameters: p.supportedParameters ?? null,
 				test: p.test ?? null,
@@ -1912,6 +1908,40 @@ async function seed() {
 		currency: "USD",
 		status: "completed",
 		description: "Test credit top-up for referral eligibility",
+	});
+
+	const devpassRenewalCreatedAt = daysAgo(6);
+	await upsert(tables.transaction, {
+		id: "test-devpass-renewal-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassRenewalCreatedAt,
+		updatedAt: devpassRenewalCreatedAt,
+		type: "dev_plan_renewal",
+		amount: "79",
+		creditAmount: String(getDevPlanCreditsLimit("pro")),
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_renewal",
+		stripeInvoiceId: "in_seed_devpass_renewal",
+		description: "Seeded DevPass Pro renewal for admin dashboard",
+	});
+
+	const devpassRefundCreatedAt = new Date();
+	await upsert(tables.transaction, {
+		id: "test-devpass-refund-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassRefundCreatedAt,
+		updatedAt: devpassRefundCreatedAt,
+		type: "credit_refund",
+		amount: "15",
+		creditAmount: "0",
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_renewal",
+		stripeRefundId: "re_seed_devpass_refund",
+		relatedTransactionId: "test-devpass-renewal-transaction-id",
+		refundReason: "requested_by_customer",
+		description: "Seeded DevPass refund for admin dashboard",
 	});
 
 	// ── Bulk seed data for admin dashboard ──

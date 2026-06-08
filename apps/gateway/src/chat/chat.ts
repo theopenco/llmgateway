@@ -28,12 +28,18 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import {
+	assertOriginAllowed,
+	loadEndUserWallet,
+	withCreditsMode,
+	withWalletCredits,
+} from "@/lib/end-user-session.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
 } from "@/lib/gcp-token.js";
-import { throwIamException, validateModelAccess } from "@/lib/iam.js";
+import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
@@ -65,9 +71,11 @@ import {
 import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
+	applyGoogleServiceTier,
 	getCheapestFromAvailableProviders,
 	getProviderEndpoint,
 	getProviderHeaders,
+	resolveServedServiceTier,
 	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
@@ -115,11 +123,14 @@ import {
 	providers,
 	resolveVertexTokenType,
 	type VertexTokenType,
+	supportsServiceTier,
 	type WebSearchTool,
 	expandAllProviderRegions,
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
+	getProviderEnvValue,
 } from "@llmgateway/models";
+import { isChatPlanModelAllowed } from "@llmgateway/shared";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -171,6 +182,7 @@ import {
 } from "./tools/reasoning-details.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import {
+	assertDevPlanPremiumCapNotExceeded,
 	formatUsedModelForDisplay,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
@@ -700,6 +712,160 @@ function isGoogleCompatibleProvider(provider: string): boolean {
 	);
 }
 
+function isVertexCompatibleProvider(provider: string): boolean {
+	return provider === "google-vertex" || provider === "quartz";
+}
+
+/**
+ * Dev-only verification log confirming a requested processing tier reached the
+ * provider. AI Studio reports the served tier in the `x-gemini-service-tier`
+ * response header; Vertex reports it in `usageMetadata.trafficType` (logged
+ * separately once the response body is parsed).
+ */
+function logServiceTierRequest(
+	provider: string,
+	serviceTier: string | undefined,
+	res: Response | undefined,
+): void {
+	if (
+		process.env.NODE_ENV === "production" ||
+		(serviceTier !== "flex" && serviceTier !== "priority") ||
+		!isGoogleCompatibleProvider(provider)
+	) {
+		return;
+	}
+	logger.debug("service_tier request sent", {
+		provider,
+		requestedServiceTier: serviceTier,
+		transport: isVertexCompatibleProvider(provider)
+			? "X-Vertex-AI-LLM-Shared-Request-Type header"
+			: "service_tier body field",
+		servedServiceTier: res?.headers.get("x-gemini-service-tier") ?? null,
+		status: res?.status,
+	});
+}
+
+/**
+ * Dev-only verification log for the served Vertex tier. Vertex echoes the
+ * applied tier in `usageMetadata.trafficType` (ON_DEMAND_PRIORITY /
+ * ON_DEMAND_FLEX, or plain ON_DEMAND when downgraded under load).
+ */
+function logVertexTrafficType(
+	provider: string,
+	serviceTier: string | undefined,
+	data: { usageMetadata?: { trafficType?: string } } | undefined,
+): void {
+	const trafficType = data?.usageMetadata?.trafficType;
+	if (
+		process.env.NODE_ENV === "production" ||
+		(serviceTier !== "flex" && serviceTier !== "priority") ||
+		!isVertexCompatibleProvider(provider) ||
+		!trafficType
+	) {
+		return;
+	}
+	logger.debug("service_tier served (vertex trafficType)", {
+		provider,
+		requestedServiceTier: serviceTier,
+		trafficType,
+		downgraded: trafficType === "ON_DEMAND",
+	});
+}
+
+function readServiceTierValue(value: unknown): string | undefined {
+	if (typeof value !== "object" || value === null) {
+		return undefined;
+	}
+
+	const record = value as Record<string, unknown>;
+	if (typeof record.service_tier === "string") {
+		return record.service_tier;
+	}
+
+	if (typeof record.response === "object" && record.response !== null) {
+		return readServiceTierValue(record.response);
+	}
+
+	return undefined;
+}
+
+function resolveOpenAIServiceTier(
+	data: unknown,
+): "flex" | "priority" | null | undefined {
+	const serviceTier = readServiceTierValue(data);
+	if (serviceTier === undefined) {
+		return undefined;
+	}
+	const normalized = serviceTier.toLowerCase();
+	if (normalized === "flex" || normalized === "priority") {
+		return normalized;
+	}
+	return null;
+}
+
+function getForwardedServiceTier(
+	model: string,
+	provider: Provider,
+	region: string | undefined,
+	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
+	configIndex?: number,
+): "flex" | "priority" | undefined {
+	if (serviceTier !== "flex" && serviceTier !== "priority") {
+		return undefined;
+	}
+	const effectiveRegion =
+		provider === "google-vertex"
+			? (region ??
+				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				"global")
+			: region;
+	return supportsServiceTier(
+		model,
+		provider,
+		serviceTier,
+		effectiveRegion ?? null,
+	)
+		? serviceTier
+		: undefined;
+}
+
+function isRequestedServiceTier(
+	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
+): serviceTier is "flex" | "priority" {
+	return serviceTier === "flex" || serviceTier === "priority";
+}
+
+function providerMatchesRequestedProvider(
+	mapping: ProviderModelMapping,
+	requestedProvider: Provider | undefined,
+): boolean {
+	return (
+		!requestedProvider ||
+		requestedProvider === "llmgateway" ||
+		mapping.providerId === requestedProvider
+	);
+}
+
+function mappingSupportsRequestedServiceTier(
+	model: string,
+	mapping: ProviderModelMapping,
+	serviceTier: "flex" | "priority",
+	configIndex?: number,
+): boolean {
+	const effectiveRegion =
+		mapping.providerId === "google-vertex"
+			? (mapping.region ??
+				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				"global")
+			: mapping.region;
+	return supportsServiceTier(
+		model,
+		mapping.providerId,
+		serviceTier,
+		effectiveRegion ?? null,
+	);
+}
+
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
@@ -1169,6 +1335,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		service_tier,
 		web_search,
 		plugins,
 		n,
@@ -1508,8 +1675,16 @@ chat.openapi(completions, async (c) => {
 
 	assertApiKeyWithinUsageLimits(apiKey);
 
+	// Embeddable SDK: ephemeral end-user session tokens are bound to one wallet.
+	// Validate expiry + load the wallet now; below we present an "effective"
+	// project (forced credits mode) and organization (credits mirror the wallet
+	// balance) so the existing credit-gating logic bills the wallet, while the
+	// log's endCustomerWalletId redirects the worker's debit to that wallet.
+	// (Shared with embeddings/moderations via apps/gateway/src/lib/end-user-session.ts.)
+	const endUserWallet = (await loadEndUserWallet(apiKey)) ?? undefined;
+
 	// Get the project to determine mode for routing decisions
-	const project = await findProjectById(apiKey.projectId);
+	let project = await findProjectById(apiKey.projectId);
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -1524,6 +1699,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// End-user sessions always bill via wallet credits through llmgateway's own
+	// provider keys — never the developer's BYO keys.
+	if (endUserWallet) {
+		assertOriginAllowed(c, project);
+		project = withCreditsMode(project);
+	}
+
 	const buildFinalResponseMetadata = (discount?: number | null) =>
 		toResponseMetadataExtras({
 			logId: finalLogId,
@@ -1531,6 +1713,8 @@ chat.openapi(completions, async (c) => {
 			projectId: apiKey.projectId,
 			discount: discount ?? null,
 		});
+
+	let configIndex = 0; // Index for round-robin environment variables
 
 	// Filter region candidates based on available keys.
 	// - credits mode: only keep regions with env keys (base key → default region only)
@@ -1585,8 +1769,142 @@ chat.openapi(completions, async (c) => {
 		allModelProviders = filterHybridRegions(allModelProviders);
 	}
 
+	if (isRequestedServiceTier(service_tier)) {
+		const serviceTierCandidateProviders = modelInfo.providers.filter(
+			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
+		);
+		const serviceTierSupportedProviders = serviceTierCandidateProviders.filter(
+			(mapping) =>
+				mappingSupportsRequestedServiceTier(
+					modelInfo.id,
+					mapping,
+					service_tier,
+					configIndex,
+				),
+		);
+
+		if (serviceTierSupportedProviders.length === 0) {
+			const scopedModel =
+				requestedProvider &&
+				requestedProvider !== "llmgateway" &&
+				requestedProvider !== "custom"
+					? `${requestedProvider}/${modelInfo.id}`
+					: modelInfo.id;
+			const errorMessage = `Service tier '${service_tier}' is not available for model ${scopedModel}.`;
+
+			try {
+				await _insertLog(
+					{
+						...createLogEntry(
+							requestId,
+							project,
+							apiKey,
+							undefined,
+							"",
+							undefined,
+							"llmgateway",
+							requestedModel,
+							requestedProvider,
+							messages as any[],
+							temperature,
+							max_tokens,
+							top_p,
+							frequency_penalty,
+							presence_penalty,
+							reasoning_effort,
+							reasoning_max_tokens,
+							effort as "low" | "medium" | "high" | undefined,
+							response_format,
+							tools,
+							tool_choice,
+							source,
+							customHeaders,
+							debugMode,
+							userAgent,
+							image_config,
+						),
+						...(logIdOverride ? { id: logIdOverride } : {}),
+						responsesApiData,
+						content: null,
+						responseSize: 0,
+						finishReason: "client_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: !!stream,
+						canceled: false,
+						errorDetails: {
+							statusCode: 400,
+							statusText: "Bad Request",
+							responseText: JSON.stringify({
+								message: errorMessage,
+								service_tier,
+								model: scopedModel,
+							}),
+							cause: "unsupported_service_tier",
+						},
+						duration: 0,
+						timeToFirstToken: null,
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						serviceTier: null,
+						dataStorageCost: "0",
+					},
+					{ syncInsert: syncLogInsert },
+				);
+			} catch (error) {
+				logger.error("Failed to log unsupported service tier rejection", {
+					error: toError(error),
+				});
+			}
+
+			return c.json(
+				{
+					error: {
+						message: errorMessage,
+						type: "invalid_request_error",
+						param: "service_tier",
+						code: "unsupported_service_tier",
+					},
+				},
+				400,
+			);
+		}
+
+		const supportsRequestedTier = (mapping: ProviderModelMapping) =>
+			providerMatchesRequestedProvider(mapping, requestedProvider) &&
+			mappingSupportsRequestedServiceTier(
+				modelInfo.id,
+				mapping,
+				service_tier,
+				configIndex,
+			);
+		modelInfo = {
+			...modelInfo,
+			providers: modelInfo.providers.filter(supportsRequestedTier),
+		};
+		routingExpandedModelProviders = routingExpandedModelProviders.filter(
+			supportsRequestedTier,
+		);
+		allModelProviders = allModelProviders.filter(supportsRequestedTier);
+	}
+
 	// Fetch organization for coding model restriction check and credit validation
-	const organization = await findOrganizationById(project.organizationId);
+	let organization = await findOrganizationById(project.organizationId);
 
 	if (!organization) {
 		throw new HTTPException(500, {
@@ -1598,6 +1916,14 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
 		});
+	}
+
+	// End-user session: present the wallet balance as the organization's credits
+	// so all downstream credit-gating evaluates the wallet, not the developer's
+	// org. The real organization.credits row is never touched — the worker debits
+	// the wallet (see apps/gateway/src/lib/end-user-session.ts).
+	if (endUserWallet) {
+		organization = withWalletCredits(organization, endUserWallet);
 	}
 
 	const routingCfg = await getResolvedRoutingConfig(
@@ -1615,7 +1941,13 @@ chat.openapi(completions, async (c) => {
 		devPlan: organization.devPlan,
 		devPlanCreditsLimit: organization.devPlanCreditsLimit,
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
+		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
+		devPlanPremiumWeekStart: organization.devPlanPremiumWeekStart,
 		devPlanExpiresAt: organization.devPlanExpiresAt,
+		chatPlan: organization.chatPlan,
+		chatPlanCreditsLimit: organization.chatPlanCreditsLimit,
+		chatPlanCreditsUsed: organization.chatPlanCreditsUsed,
+		chatPlanExpiresAt: organization.chatPlanExpiresAt,
 	};
 
 	// Run guardrails check for enterprise organizations
@@ -1818,6 +2150,20 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Chat plan Starter tier is restricted to non-premium models. Plus and Pro
+	// tiers have access to everything. This applies to all requests on a
+	// personal org with chatPlan === "starter" — there's no per-request
+	// "promote to regular credits" path, so an unrestricted Starter would
+	// silently burn dev-plan/regular credits instead of nudging the upgrade.
+	const isStarterChatPlan = Boolean(
+		organization?.isPersonal && organization.chatPlan === "starter",
+	);
+	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
+		throw new HTTPException(403, {
+			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at chat.llmgateway.io/pricing to access frontier models.`,
+		});
+	}
+
 	// Validate model capabilities (JSON output, reasoning, tools, web search, documents)
 	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
 		response_format,
@@ -1842,6 +2188,12 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+	// The processing tier the provider actually served (Flex / Priority),
+	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
+	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
+	// this served tier (not the requested one) since Google downgrades
+	// unsupported tiers to standard. Null = standard / no tier.
+	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
@@ -1860,8 +2212,8 @@ chat.openapi(completions, async (c) => {
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
 	const clientIp = getClientIpFromRequest(c);
-	const iamValidation = await validateModelAccess(
-		apiKey.id,
+	const iamValidation = await validateRequestModelAccess(
+		apiKey,
 		modelInfo.id,
 		requestedProvider,
 		modelInfo,
@@ -1917,9 +2269,22 @@ chat.openapi(completions, async (c) => {
 		(usedProvider === "llmgateway" && usedInternalModel === "auto") ||
 		usedInternalModel === "auto"
 	) {
-		// Reuse the prompt-token estimate computed earlier so auto-routing can
-		// react to large prompts when picking a model.
-		const estimatedInputTokens = routingPromptTokens;
+		// Auto-routing and the context-window check below should react to image
+		// payloads, not just text (issue #2112). Recompute the estimate with an
+		// image-aware count instead of reusing the text-only routingPromptTokens.
+		// requestedModel may be "auto" here, in which case no per-model image
+		// table is found and the shared default per-image token count is used.
+		// This is kept separate from routingPromptTokens, which stays text-only:
+		// that value backs the billing-fallback usage numbers and image input is
+		// priced separately via imageInputCost in costs.ts (counting images
+		// there would double count).
+		let estimatedInputTokens = 0;
+		if (messages && messages.length > 0) {
+			estimatedInputTokens = encodeChatMessages(messages, requestedModel);
+		}
+		if (tools && tools.length > 0) {
+			estimatedInputTokens += Math.round(JSON.stringify(tools).length / 4);
+		}
 
 		// Estimate the full context needed based on the request
 		let requiredContextSize = estimatedInputTokens;
@@ -1986,6 +2351,16 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Starter chat plan can't reach blocked frontier models. Enforce it
+			// during auto-selection too, otherwise an "auto" request would skip
+			// the pre-routing check above and resolve to a blocked model.
+			if (
+				isStarterChatPlan &&
+				!isChatPlanModelAllowed("starter", modelDef.id)
+			) {
+				continue;
+			}
+
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
 			if (free_models_only) {
@@ -2009,8 +2384,8 @@ chat.openapi(completions, async (c) => {
 			// Validate IAM rules for this candidate model and filter providers.
 			// We must re-evaluate per model because iamAllowedProviders was computed
 			// for the "auto" model which only has the "llmgateway" provider.
-			const candidateIam = await validateModelAccess(
-				apiKey.id,
+			const candidateIam = await validateRequestModelAccess(
+				apiKey,
 				modelDef.id,
 				undefined,
 				modelDef,
@@ -2272,8 +2647,8 @@ chat.openapi(completions, async (c) => {
 		// shortcut.  The original iamAllowedProviders was computed for the "auto"
 		// model (which only has the "llmgateway" provider) and is not meaningful
 		// for the resolved model.
-		const resolvedIamValidation = await validateModelAccess(
-			apiKey.id,
+		const resolvedIamValidation = await validateRequestModelAccess(
+			apiKey,
 			modelInfo.id,
 			undefined,
 			modelInfo,
@@ -3381,7 +3756,6 @@ chat.openapi(completions, async (c) => {
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let usedApiKeyHash: string | undefined;
-	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
 	// ID for tracked-key health attribution. Equal to providerKey.id when the
 	// DB-provided key is what's actually sent. Cleared when a region-specific
@@ -3455,14 +3829,24 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 	} else if (project.mode === "credits") {
-		// Check both regular credits AND dev plan credits
+		// Check regular credits, dev plan credits, and chat plan credits.
+		assertDevPlanPremiumCapNotExceeded(
+			organization,
+			(finalModelInfo ?? modelInfo) as ModelDefinition,
+		);
 		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
 			organization.devPlan !== "none"
 				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
-		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+		const chatPlanCreditsRemaining =
+			organization.chatPlan !== "none"
+				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+					parseFloat(organization.chatPlanCreditsUsed ?? "0")
+				: 0;
+		const totalAvailableCredits =
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 		// We trust the bare `modelInfo.free` flag here: free models are always
 		// marked explicitly in the catalog, so a `free: true` model is intended
@@ -3471,6 +3855,18 @@ chat.openapi(completions, async (c) => {
 			totalAvailableCredits <= 0 &&
 			!((finalModelInfo ?? modelInfo) as ModelDefinition).free
 		) {
+			if (
+				organization.chatPlan !== "none" &&
+				chatPlanCreditsRemaining <= 0 &&
+				devPlanCreditsRemaining <= 0
+			) {
+				const renewalDate = organization.chatPlanExpiresAt
+					? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+					: "your next billing date";
+				throw new HTTPException(402, {
+					message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				});
+			}
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 				const renewalDate = organization.devPlanExpiresAt
 					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
@@ -3561,19 +3957,41 @@ chat.openapi(completions, async (c) => {
 			}
 		} else {
 			// No API key available, fall back to credits
-			// Check both regular credits AND dev plan credits
+			// Check regular credits, dev plan credits, and chat plan credits.
+			assertDevPlanPremiumCapNotExceeded(
+				organization,
+				(finalModelInfo ?? modelInfo) as ModelDefinition,
+			);
 			const regularCredits = parseFloat(organization.credits ?? "0");
 			const devPlanCreditsRemaining =
 				organization.devPlan !== "none"
 					? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 						parseFloat(organization.devPlanCreditsUsed ?? "0")
 					: 0;
-			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+			const chatPlanCreditsRemaining =
+				organization.chatPlan !== "none"
+					? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+						parseFloat(organization.chatPlanCreditsUsed ?? "0")
+					: 0;
+			const totalAvailableCredits =
+				regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 			if (
 				totalAvailableCredits <= 0 &&
 				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition)
 			) {
+				if (
+					organization.chatPlan !== "none" &&
+					chatPlanCreditsRemaining <= 0 &&
+					devPlanCreditsRemaining <= 0
+				) {
+					const renewalDate = organization.chatPlanExpiresAt
+						? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+						: "your next billing date";
+					throw new HTTPException(402, {
+						message: `No API key set for provider. Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					});
+				}
 				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 					const renewalDate = organization.devPlanExpiresAt
 						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
@@ -3738,7 +4156,13 @@ chat.openapi(completions, async (c) => {
 				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
-		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+		const chatPlanCreditsRemaining =
+			organization.chatPlan !== "none"
+				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+					parseFloat(organization.chatPlanCreditsUsed ?? "0")
+				: 0;
+		const totalAvailableCredits =
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 		if (totalAvailableCredits <= 0) {
 			throw new HTTPException(402, {
@@ -4053,6 +4477,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_key,
 			prompt_cache_retention,
 			n,
+			service_tier,
 		};
 
 		if (stream) {
@@ -4758,6 +5183,13 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_retention,
 			providerCacheControlEnabled,
 			n,
+			getForwardedServiceTier(
+				usedInternalModel,
+				usedProvider,
+				usedRegion,
+				service_tier,
+				configIndex,
+			),
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -4962,6 +5394,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlEnabled,
+				service_tier,
 			},
 		);
 	}
@@ -5189,7 +5622,7 @@ chat.openapi(completions, async (c) => {
 						image_config?.image_quality,
 						null,
 						null,
-						{ explicitCacheUsed },
+						{ explicitCacheUsed, servedServiceTier },
 						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -5358,12 +5791,20 @@ chat.openapi(completions, async (c) => {
 					}
 
 					try {
+						const forwardedServiceTier = getForwardedServiceTier(
+							usedInternalModel,
+							usedProvider,
+							usedRegion,
+							service_tier,
+							configIndex,
+						);
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							webSearchEnabled: !!webSearchTool,
 							// Same resolved token type as the endpoint so header auth and
 							// the `?key=` query param never disagree.
 							tokenType: resolveActiveVertexTokenType(),
+							serviceTier: forwardedServiceTier,
 						});
 						headers["Content-Type"] = "application/json";
 
@@ -5389,6 +5830,14 @@ chat.openapi(completions, async (c) => {
 								: "structured-outputs-2025-11-13";
 						}
 
+						// For the Gemini Developer API the processing tier is a body
+						// field; Vertex uses a header set above in getProviderHeaders.
+						applyGoogleServiceTier(
+							requestBody,
+							usedProvider,
+							forwardedServiceTier,
+						);
+
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
 							requestCanBeCanceled ? controller : undefined,
@@ -5400,6 +5849,13 @@ chat.openapi(completions, async (c) => {
 							headers,
 							body: JSON.stringify(requestBody),
 							signal: fetchSignal,
+						});
+
+						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
+						// AI Studio reports the served tier in a response header; Vertex
+						// reports it later in usageMetadata.trafficType (set below).
+						servedServiceTier = resolveServedServiceTier({
+							serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
 						});
 					} catch (error) {
 						// Clean up the event listeners
@@ -5628,6 +6084,10 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchTool ? 1 : null, // Bill for web search if it was enabled
 									project.organizationId,
+									undefined, // imageQuality
+									null, // reportedImageInputTokens
+									null, // reportedImageOutputTokens
+									{ servedServiceTier },
 								);
 							}
 
@@ -6098,7 +6558,7 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										undefined,
+										{ servedServiceTier },
 										true,
 									)
 								: null;
@@ -6639,6 +7099,10 @@ chat.openapi(completions, async (c) => {
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
 				let rawUpstreamData = ""; // Raw data received from upstream provider
+				// Raw upstream chunk that carried a finish_reason signalling an upstream
+				// failure (e.g. "error"), preserved so the log shows the actual provider
+				// payload rather than only our synthesized error message.
+				let upstreamErrorChunkRaw: string | null = null;
 				const isAwsBedrock = usedProvider === "aws-bedrock";
 				const taggedReasoningStreamState = {
 					inReasoning: false,
@@ -7064,6 +7528,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 											explicitCacheUsed,
+											servedServiceTier,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -7451,6 +7916,27 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
+								// A chunk whose finish_reason signals an upstream failure (e.g.
+								// Embercloud's "error") is not a valid OpenAI completion chunk —
+								// "error" is not a valid OpenAI finish_reason. Capture the
+								// terminal finish reason and raw payload for the error event and
+								// logging, but skip this chunk entirely otherwise: it is not
+								// forwarded to the client and must not feed content/token/cost
+								// accumulation, since the client never receives it.
+								const isUpstreamErrorChunk =
+									transformedData.choices?.some(
+										(choice: { finish_reason?: string | null }) =>
+											choice?.finish_reason === "error",
+									) ?? false;
+								if (isUpstreamErrorChunk) {
+									finishReason = "error";
+									sawProviderTerminalEvent = true;
+									upstreamErrorChunkRaw = JSON.stringify(data);
+									processedLength = eventEnd;
+									searchStart = eventEnd;
+									continue;
+								}
+
 								if (splitTaggedReasoning) {
 									const deltaContent =
 										transformedData.choices?.[0]?.delta?.content;
@@ -7508,6 +7994,13 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
+								if (usedProvider === "openai") {
+									const served = resolveOpenAIServiceTier(data);
+									if (served !== undefined) {
+										servedServiceTier = served;
+									}
+								}
+
 								// For Google providers, add usage information when available
 								if (isGoogleCompatibleProvider(usedProvider)) {
 									const usage = extractTokenUsage(
@@ -7516,6 +8009,26 @@ chat.openapi(completions, async (c) => {
 										fullContent,
 										imageByteSize,
 									);
+
+									logVertexTrafficType(
+										usedProvider,
+										getForwardedServiceTier(
+											usedInternalModel,
+											usedProvider,
+											usedRegion,
+											service_tier,
+											configIndex,
+										),
+										data,
+									);
+									{
+										const served = resolveServedServiceTier({
+											trafficType: data?.usageMetadata?.trafficType,
+										});
+										if (served) {
+											servedServiceTier = served;
+										}
+									}
 
 									// If we have usage data from Google, add it to the streaming chunk
 									if (
@@ -8225,6 +8738,14 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 
+					// A finish_reason that itself signals an upstream failure (e.g.
+					// Embercloud emits finish_reason "error" with a null content delta and
+					// no error event/HTTP error) is a hard error in its own right. Treat it
+					// as an upstream error regardless of whether any partial content
+					// arrived, instead of inferring failure from an empty response.
+					const hasUpstreamErrorFinishReason =
+						!streamingError && finishReason === "error";
+
 					// Check if the response finished successfully but has no content, tokens, or tool calls
 					// This indicates an empty response which should be marked as an error
 					// Do this check BEFORE sending usage chunks to ensure proper event ordering
@@ -8235,6 +8756,7 @@ chat.openapi(completions, async (c) => {
 					);
 					const hasEmptyResponse =
 						!streamingError &&
+						!hasUpstreamErrorFinishReason &&
 						finishReason &&
 						finishReason !== "incomplete" &&
 						!isContentFilterStreamingResponse &&
@@ -8247,28 +8769,51 @@ chat.openapi(completions, async (c) => {
 						| Awaited<ReturnType<typeof calculateCosts>>
 						| undefined;
 
-					if (hasEmptyResponse) {
-						logger.warn("[streaming] Empty response detected", {
-							provider: usedProvider,
-							model: usedInternalModel,
-							finishReason,
-							calculatedCompletionTokens,
-							calculatedReasoningTokens,
-							fullContentLength: fullContent?.length ?? 0,
-							fullContentTrimmed: fullContent?.trim()?.length ?? 0,
-							streamingToolCallsCount: streamingToolCalls?.length ?? 0,
-							promptTokens,
-							completionTokens,
-							totalTokens,
-							reasoningTokens,
-							unifiedFinishReason: getUnifiedFinishReason(
-								"upstream_error",
-								usedProvider,
-							),
-						});
-						const errorMessage =
-							"Response finished successfully but returned no content or tool calls";
-						streamingError = errorMessage;
+					if (hasUpstreamErrorFinishReason || hasEmptyResponse) {
+						const errorMessage = hasUpstreamErrorFinishReason
+							? `Upstream provider terminated the stream with finish_reason "${finishReason}"`
+							: "Response finished successfully but returned no content or tool calls";
+						logger.warn(
+							hasUpstreamErrorFinishReason
+								? "[streaming] Upstream error finish_reason"
+								: "[streaming] Empty response detected",
+							{
+								provider: usedProvider,
+								model: usedInternalModel,
+								finishReason,
+								calculatedCompletionTokens,
+								calculatedReasoningTokens,
+								fullContentLength: fullContent?.length ?? 0,
+								fullContentTrimmed: fullContent?.trim()?.length ?? 0,
+								streamingToolCallsCount: streamingToolCalls?.length ?? 0,
+								promptTokens,
+								completionTokens,
+								totalTokens,
+								reasoningTokens,
+								unifiedFinishReason: getUnifiedFinishReason(
+									"upstream_error",
+									usedProvider,
+								),
+							},
+						);
+						// For an explicit upstream error finish_reason, preserve the raw
+						// provider chunk as responseText so the log reflects what the
+						// upstream actually sent, not just our synthesized message.
+						streamingError = hasUpstreamErrorFinishReason
+							? {
+									message: errorMessage,
+									type: "upstream_error",
+									code: "upstream_finish_reason_error",
+									details: {
+										statusCode: 502,
+										statusText: "Upstream Stream Error",
+										responseText: upstreamErrorChunkRaw ?? errorMessage,
+										timestamp: new Date().toISOString(),
+										provider: usedProvider,
+										model: usedInternalModel,
+									},
+								}
+							: errorMessage;
 						finishReason = "upstream_error";
 
 						// Send error event to client using writeSSEAndCache to cache the error
@@ -8395,6 +8940,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 											explicitCacheUsed,
+											servedServiceTier,
 										},
 										finishReason === "content_filter",
 									);
@@ -8727,6 +9273,7 @@ chat.openapi(completions, async (c) => {
 										audioInputTokens,
 										cachedAudioInputTokens,
 										explicitCacheUsed,
+										servedServiceTier,
 									},
 									finishReason === "content_filter",
 								));
@@ -8901,6 +9448,7 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
+						serviceTier: servedServiceTier,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -9086,12 +9634,20 @@ chat.openapi(completions, async (c) => {
 		res = undefined;
 
 		try {
+			const forwardedServiceTier = getForwardedServiceTier(
+				usedInternalModel,
+				usedProvider,
+				usedRegion,
+				service_tier,
+				configIndex,
+			);
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
 				// Same resolved token type as the endpoint so header auth and the
 				// `?key=` query param never disagree.
 				tokenType: resolveActiveVertexTokenType(),
+				serviceTier: forwardedServiceTier,
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";
@@ -9132,6 +9688,10 @@ chat.openapi(completions, async (c) => {
 						routingCfg,
 					);
 
+			// For the Gemini Developer API the processing tier is a body field;
+			// Vertex uses a header set above in getProviderHeaders.
+			applyGoogleServiceTier(requestBody, usedProvider, forwardedServiceTier);
+
 			res = await fetch(url, {
 				method: "POST",
 				headers,
@@ -9140,6 +9700,13 @@ chat.openapi(completions, async (c) => {
 						? requestBody
 						: JSON.stringify(requestBody),
 				signal: fetchSignal,
+			});
+
+			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
+			// AI Studio reports the served tier in a response header; Vertex reports
+			// it later in usageMetadata.trafficType (set below).
+			servedServiceTier = resolveServedServiceTier({
+				serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
 			});
 		} catch (error) {
 			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
@@ -9414,6 +9981,10 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					webSearchTool ? 1 : null, // Bill for web search if it was enabled
 					project.organizationId,
+					undefined, // imageQuality
+					null, // reportedImageInputTokens
+					null, // reportedImageOutputTokens
+					{ servedServiceTier },
 				);
 			}
 
@@ -9775,7 +10346,7 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							undefined,
+							{ servedServiceTier },
 							true,
 						)
 					: null;
@@ -10414,6 +10985,32 @@ chat.openapi(completions, async (c) => {
 		? parseInt(contentLengthHeader, 10)
 		: 0;
 
+	logVertexTrafficType(
+		usedProvider,
+		getForwardedServiceTier(
+			usedInternalModel,
+			usedProvider,
+			usedRegion,
+			service_tier,
+			configIndex,
+		),
+		json,
+	);
+	if (usedProvider === "openai") {
+		const served = resolveOpenAIServiceTier(json);
+		if (served !== undefined) {
+			servedServiceTier = served;
+		}
+	}
+	{
+		const served = resolveServedServiceTier({
+			trafficType: json?.usageMetadata?.trafficType,
+		});
+		if (served) {
+			servedServiceTier = served;
+		}
+	}
+
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
 		usedProvider,
@@ -10564,6 +11161,7 @@ chat.openapi(completions, async (c) => {
 			audioInputTokens,
 			cachedAudioInputTokens,
 			explicitCacheUsed,
+			servedServiceTier,
 		},
 		finishReason === "content_filter",
 	);
@@ -10639,6 +11237,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
 		audioInputTokens,
+		usedProvider === "openai" ? readServiceTierValue(json) : undefined,
 	);
 	const transformedMetadata =
 		transformedResponse.metadata &&
@@ -10793,6 +11392,7 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
+		serviceTier: servedServiceTier,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,

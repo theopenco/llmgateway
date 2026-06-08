@@ -123,11 +123,6 @@ export interface ProviderRegion {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
-	 * Discount multiplier (0-1) for this region.
-	 * When absent, falls back to the mapping-level discount.
-	 */
-	discount?: Price;
-	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
 	 */
@@ -260,10 +255,6 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
-	 * Discount multiplier (0-1), where 0.5 = 50% off
-	 */
-	discount?: Price;
-	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.
@@ -327,6 +318,23 @@ export interface ProviderModelMapping {
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;
+	/**
+	 * Provider service tier IDs supported by this specific model mapping.
+	 * Provider definitions own the tier metadata and default multipliers;
+	 * mappings opt in to the subset actually supported by the upstream model.
+	 */
+	serviceTiers?: string[];
+	/**
+	 * Optional per-tier multiplier overrides for provider/model combinations whose
+	 * tier pricing differs from the provider default while still being expressed
+	 * as a multiplier over this mapping's standard token prices.
+	 */
+	serviceTierMultipliers?: Partial<Record<string, number>>;
+	/**
+	 * Regions where the mapping supports service tiers. When omitted, the mapping
+	 * supports its service tiers across all regions.
+	 */
+	serviceTierRegions?: string[];
 	/**
 	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
 	 * (multiple completion choices per request) natively. When true, the gateway

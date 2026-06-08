@@ -27,6 +27,10 @@ import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
+import {
+	buildAnthropicErrorBody,
+	buildOpenAIErrorBody,
+} from "./lib/error-response.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
@@ -35,6 +39,8 @@ import { responses } from "./responses/responses.js";
 import { videosRoute } from "./videos/route.js";
 
 import type { ServerTypes } from "./vars.js";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const config = {
 	servers: [
@@ -117,6 +123,22 @@ app.use("*", async (c, next) => {
 	return await next();
 });
 
+// Renders a gateway-level error in a provider-compatible shape. The Anthropic
+// `/v1/messages` endpoint expects Anthropic's `{ type: "error", error: {...} }`
+// envelope; every other (OpenAI-compatible) endpoint expects OpenAI's
+// `{ error: { message, type, param, code } }` envelope.
+function renderGatewayError(
+	c: Context<ServerTypes>,
+	status: number,
+	message: string,
+) {
+	const jsonStatus = status as ContentfulStatusCode;
+	if (c.req.path.startsWith("/v1/messages")) {
+		return c.json(buildAnthropicErrorBody({ message, status }), jsonStatus);
+	}
+	return c.json(buildOpenAIErrorBody({ message, status }), jsonStatus);
+}
+
 app.onError((error, c) => {
 	if (error instanceof UnsupportedAudioFormatError) {
 		logger.warn("Unsupported audio format", {
@@ -124,26 +146,12 @@ app.onError((error, c) => {
 			format: error.format,
 			providerTarget: error.providerTarget,
 		});
-		return c.json(
-			{
-				error: true,
-				status: 400,
-				message: error.message,
-			},
-			400,
-		);
+		return renderGatewayError(c, 400, error.message);
 	}
 
 	if (error instanceof InvalidFileContentError) {
 		logger.warn("Invalid file content", { message: error.message });
-		return c.json(
-			{
-				error: true,
-				status: 400,
-				message: error.message,
-			},
-			400,
-		);
+		return renderGatewayError(c, 400, error.message);
 	}
 
 	if (error instanceof UnsupportedDocumentFormatError) {
@@ -152,16 +160,7 @@ app.onError((error, c) => {
 			mimeType: error.mimeType,
 			providerTarget: error.providerTarget,
 		});
-		return c.json(
-			{
-				error: true,
-				status: 400,
-				message: error.message,
-				mimeType: error.mimeType,
-				providerTarget: error.providerTarget,
-			},
-			400,
-		);
+		return renderGatewayError(c, 400, error.message);
 	}
 
 	if (error instanceof HTTPException) {
@@ -173,15 +172,7 @@ app.onError((error, c) => {
 			logger.warn("HTTP client error", { status, message: error.message });
 		}
 
-		return c.json(
-			{
-				error: true,
-				status,
-				message: error.message || "An error occurred",
-				...(error.res ? { details: error.res } : {}),
-			},
-			status,
-		);
+		return renderGatewayError(c, status, error.message || "An error occurred");
 	}
 
 	// Handle timeout errors (from AbortSignal.timeout) - these are expected
@@ -192,14 +183,7 @@ app.onError((error, c) => {
 			path: c.req.path,
 			method: c.req.method,
 		});
-		return c.json(
-			{
-				error: true,
-				status: 504,
-				message: "Gateway Timeout",
-			},
-			504,
-		);
+		return renderGatewayError(c, 504, "Gateway Timeout");
 	}
 
 	// Handle client disconnection (AbortError) - the client closed the
@@ -210,26 +194,12 @@ app.onError((error, c) => {
 			path: c.req.path,
 			method: c.req.method,
 		});
-		return c.json(
-			{
-				error: true,
-				status: 499,
-				message: "Client Closed Request",
-			},
-			499 as any,
-		);
+		return renderGatewayError(c, 499, "Client Closed Request");
 	}
 
 	// For any other errors (non-HTTPException), return 500 Internal Server Error
 	logger.error("Unhandled error", toError(error));
-	return c.json(
-		{
-			error: true,
-			status: 500,
-			message: "Internal Server Error",
-		},
-		500,
-	);
+	return renderGatewayError(c, 500, "Internal Server Error");
 });
 
 const root = createRoute({

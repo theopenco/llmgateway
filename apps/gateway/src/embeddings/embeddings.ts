@@ -27,9 +27,10 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
+import { applyEndUserSession } from "@/lib/end-user-session.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
-import { throwIamException, validateModelAccess } from "@/lib/iam.js";
+import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
@@ -247,10 +248,17 @@ function getAvailableCredits(
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
 
 	return {
 		devPlanCreditsRemaining,
-		totalAvailableCredits: regularCredits + devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
 	};
 }
 
@@ -260,8 +268,11 @@ function assertCreditsAvailableForEmbedding(
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
-	const { devPlanCreditsRemaining, totalAvailableCredits } =
-		getAvailableCredits(organization);
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
 
 	if (totalAvailableCredits > 0 || modelDef.free) {
 		return;
@@ -273,6 +284,15 @@ function assertCreditsAvailableForEmbedding(
 			: "your next billing date";
 		throw new HTTPException(402, {
 			message: devPlanCreditLimitMessage(renewalDate),
+		});
+	}
+
+	if (organization.chatPlan !== "none" && chatPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 		});
 	}
 
@@ -518,31 +538,43 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	assertApiKeyWithinUsageLimits(apiKey);
 
-	const project = await findProjectById(apiKey.projectId);
-	if (!project) {
+	const baseProject = await findProjectById(apiKey.projectId);
+	if (!baseProject) {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
 	}
 
-	if (project.status === "deleted") {
+	if (baseProject.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
 
-	const organization = await findOrganizationById(project.organizationId);
-	if (!organization) {
+	const baseOrganization = await findOrganizationById(
+		baseProject.organizationId,
+	);
+	if (!baseOrganization) {
 		throw new HTTPException(500, {
 			message: "Could not find organization",
 		});
 	}
 
-	if (organization.status === "deleted") {
+	if (baseOrganization.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
 		});
 	}
+
+	// Embeddable SDK: ephemeral end-user sessions bill the bound wallet instead
+	// of the developer's org credits (the log's endCustomerWalletId redirects the
+	// worker's debit). For normal keys this is a no-op.
+	const { project, organization } = await applyEndUserSession(
+		c,
+		apiKey,
+		baseProject,
+		baseOrganization,
+	);
 
 	if (organization.isPersonal && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
@@ -552,8 +584,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	}
 
 	const retentionLevel = organization.retentionLevel ?? "none";
-	const iamValidation = await validateModelAccess(
-		apiKey.id,
+	const iamValidation = await validateRequestModelAccess(
+		apiKey,
 		modelDefId,
 		providerId,
 		modelDef,

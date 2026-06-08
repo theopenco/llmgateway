@@ -33,6 +33,7 @@ import {
 	getAvalancheApiBaseUrl,
 	getAvalancheJobsApiBaseUrl,
 	getVideoProxyRedisKey,
+	isContentFilterErrorText,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
 import {
@@ -1719,12 +1720,28 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						]
 					: null;
 
+			const isContentFilterFailure =
+				jobToLog.status === "failed" &&
+				isContentFilterErrorText(
+					[jobToLog.error?.code, jobToLog.error?.message]
+						.filter(Boolean)
+						.join(" "),
+				);
+			const failureFinishReason = isContentFilterFailure
+				? "content_filter"
+				: "upstream_error";
+			const failureUnifiedFinishReason = isContentFilterFailure
+				? UnifiedFinishReason.CONTENT_FILTER
+				: UnifiedFinishReason.UPSTREAM_ERROR;
+
 			await tx.insert(tables.log).values({
 				id: logId,
 				requestId: jobToLog.requestId,
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,
+				endUserSessionId: jobToLog.endUserSessionId,
+				endCustomerWalletId: jobToLog.endCustomerWalletId,
 				duration: Math.max(0, Date.now() - jobToLog.createdAt.getTime()),
 				requestedModel: getFormattedRequestedVideoModel(jobToLog),
 				requestedProvider: jobToLog.requestedProvider,
@@ -1737,11 +1754,11 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						? buildGatewayVideoLogContentUrl(logId)
 						: null,
 				finishReason:
-					jobToLog.status === "completed" ? "completed" : "upstream_error",
+					jobToLog.status === "completed" ? "completed" : failureFinishReason,
 				unifiedFinishReason:
 					jobToLog.status === "completed"
 						? UnifiedFinishReason.COMPLETED
-						: UnifiedFinishReason.UPSTREAM_ERROR,
+						: failureUnifiedFinishReason,
 				hasError: jobToLog.status !== "completed",
 				errorDetails: jobToLog.error
 					? {

@@ -226,6 +226,7 @@ export interface BaseRequestBody {
 	frequency_penalty?: number;
 	presence_penalty?: number;
 	stream?: boolean;
+	service_tier?: "auto" | "default" | "flex" | "priority";
 }
 
 export interface OpenAIRequestBody extends BaseRequestBody {
@@ -272,6 +273,7 @@ export type OpenAIResponsesInputItem =
 export interface OpenAIResponsesRequestBody {
 	model: string;
 	input: OpenAIResponsesInputItem[];
+	service_tier?: "auto" | "default" | "flex" | "priority";
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
 	reasoning: {
@@ -331,6 +333,13 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 export interface GoogleRequestBody {
 	contents: GoogleMessage[];
 	tools?: GoogleTool[];
+	/**
+	 * Processing tier for the Gemini Developer API (google-ai-studio / glacier).
+	 * "flex" / "priority" select Flex / Priority inference. The served tier is
+	 * returned in the `x-gemini-service-tier` response header.
+	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.
+	 */
+	service_tier?: "auto" | "default" | "flex" | "priority";
 	generationConfig?: {
 		temperature?: number;
 		maxOutputTokens?: number;
@@ -376,7 +385,6 @@ export interface ModelWithPricing {
 		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
 		externalId: string;
-		discount?: string;
 		region?: string;
 		stability?: string;
 	}>;
@@ -408,7 +416,14 @@ export type RequestBodyPreparer = (
 	response_format?: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,

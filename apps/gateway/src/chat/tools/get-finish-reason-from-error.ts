@@ -1,5 +1,7 @@
 import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
 
+import { isContentFilterErrorText } from "@llmgateway/shared";
+
 /**
  * Determines the appropriate finish reason based on HTTP status code and error message
  * 5xx status codes indicate upstream provider errors
@@ -31,21 +33,10 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
-	// Azure OpenAI content filter (ResponsibleAIPolicyViolation)
-	if (errorText?.includes("ResponsibleAIPolicyViolation")) {
-		return "content_filter";
-	}
-
-	// ByteDance / DeepSeek provider moderation block
-	if (errorText?.includes("SensitiveContentDetected")) {
-		return "content_filter";
-	}
-
-	// Alibaba / DashScope moderation block
-	if (
-		errorText?.includes("data_inspection_failed") ||
-		errorText?.includes("Input data may contain inappropriate content")
-	) {
+	// Provider content-moderation / safety blocks (Azure ResponsibleAIPolicyViolation,
+	// ByteDance/DeepSeek SensitiveContentDetected, Alibaba data_inspection_failed,
+	// Azure content management policy, OpenAI safety system rejection, etc.)
+	if (isContentFilterErrorText(errorText)) {
 		return "content_filter";
 	}
 
@@ -54,17 +45,6 @@ export function getFinishReasonFromError(
 		statusCode === 403 &&
 		errorText?.includes("Content violates usage guidelines")
 	) {
-		return "content_filter";
-	}
-
-	// Azure OpenAI prompt-side content filter (distinct from ResponsibleAIPolicyViolation,
-	// which fires on the response side and includes inner_error details)
-	if (errorText?.includes("Microsoft's content management policy")) {
-		return "content_filter";
-	}
-
-	// OpenAI safety system rejection (e.g. gpt-image-2 image generation)
-	if (errorText?.includes("Your request was rejected by the safety system")) {
 		return "content_filter";
 	}
 

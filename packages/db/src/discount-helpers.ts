@@ -19,7 +19,6 @@ export interface EffectiveDiscount {
 		| "global_provider_model"
 		| "global_provider"
 		| "global_model"
-		| "hardcoded"
 		| "none";
 	/** The discount record ID if from database */
 	discountId?: string;
@@ -36,7 +35,6 @@ export interface EffectiveDiscount {
  * 4. Global + Provider + Model discount
  * 5. Global + Provider discount
  * 6. Global + Model discount
- * 7. Hardcoded model discount (fallback)
  *
  * Discounts are always keyed by the root model ID — provider-specific model
  * names are reserved for upstream requests and are never persisted as a
@@ -45,14 +43,12 @@ export interface EffectiveDiscount {
  * @param organizationId - The organization ID (null for global only)
  * @param provider - The provider ID
  * @param model - The root model ID (e.g., "gpt-4o-mini")
- * @param hardcodedDiscount - The hardcoded discount from model definition (0-1)
  * @returns The effective discount to apply
  */
 export async function getEffectiveDiscount(
 	organizationId: string | null,
 	provider: string,
 	model: string,
-	hardcodedDiscount: string = "0",
 ): Promise<EffectiveDiscount> {
 	try {
 		const now = new Date();
@@ -186,24 +182,15 @@ export async function getEffectiveDiscount(
 			};
 		}
 
-		// 7. Fall back to hardcoded discount
-		if (Number(hardcodedDiscount) > 0) {
-			return {
-				discount: hardcodedDiscount,
-				source: "hardcoded",
-			};
-		}
-
 		return {
 			discount: "0",
 			source: "none",
 		};
 	} catch (error) {
 		logger.error("Error fetching effective discount:", error as Error);
-		// On error, fall back to hardcoded discount
 		return {
-			discount: hardcodedDiscount,
-			source: "hardcoded",
+			discount: "0",
+			source: "none",
 		};
 	}
 }

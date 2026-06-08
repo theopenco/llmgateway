@@ -1,5 +1,5 @@
 import { models, type ProviderModelMapping } from "./models.js";
-import { providers } from "./providers.js";
+import { providers, type ServiceTier } from "./providers.js";
 import { expandAllProviderRegions } from "./region-helpers.js";
 
 /**
@@ -67,6 +67,94 @@ export function getModelStreamingSupport(
 	// Fall back to provider-level streaming support
 	const providerInfo = providers.find((p) => p.id === providerId);
 	return providerInfo?.streaming === true;
+}
+
+function getProviderMappingForModel(
+	modelName: string,
+	providerId: string,
+	region?: string | null,
+): ProviderModelMapping | undefined {
+	const modelInfo = models.find((m) => m.id === modelName);
+	if (!modelInfo) {
+		return undefined;
+	}
+
+	const expandedProviders = expandAllProviderRegions(
+		modelInfo.providers as ProviderModelMapping[],
+	);
+	const providerEntries = expandedProviders.filter(
+		(p) => p.providerId === providerId,
+	);
+	const isBaseEntry = (p: ProviderModelMapping) =>
+		p.region === undefined || p.region === null;
+	const hasRegionalEntries = providerEntries.some((p) => !isBaseEntry(p));
+
+	if (region !== null && region !== undefined) {
+		const regionalEntry = providerEntries.find((p) => p.region === region);
+		if (regionalEntry) {
+			return regionalEntry;
+		}
+		if (!hasRegionalEntries) {
+			return providerEntries.find(isBaseEntry);
+		}
+		return undefined;
+	}
+
+	return providerEntries.find(isBaseEntry) ?? providerEntries[0];
+}
+
+export function getSupportedServiceTiers(
+	modelName: string,
+	providerId: string,
+	region?: string | null,
+): ServiceTier[] {
+	const providerDefinition = providers.find((p) => p.id === providerId);
+	const providerTiers = providerDefinition?.serviceTiers ?? [];
+	if (providerTiers.length === 0) {
+		return [];
+	}
+
+	const providerMapping = getProviderMappingForModel(
+		modelName,
+		providerId,
+		region,
+	);
+	const supportedTierIds = providerMapping?.serviceTiers;
+	if (!supportedTierIds || supportedTierIds.length === 0) {
+		return [];
+	}
+
+	const serviceTierRegions = providerMapping.serviceTierRegions;
+	if (serviceTierRegions && serviceTierRegions.length > 0) {
+		const effectiveRegion =
+			region ?? (serviceTierRegions.includes("global") ? "global" : undefined);
+		if (!effectiveRegion || !serviceTierRegions.includes(effectiveRegion)) {
+			return [];
+		}
+	}
+
+	const supportedTierIdSet = new Set(supportedTierIds);
+	return providerTiers
+		.filter((tier) => supportedTierIdSet.has(tier.id))
+		.map((tier) => ({
+			...tier,
+			multiplier:
+				providerMapping.serviceTierMultipliers?.[tier.id] ?? tier.multiplier,
+		}));
+}
+
+export function supportsServiceTier(
+	modelName: string,
+	providerId: string,
+	tierId: string | null | undefined,
+	region?: string | null,
+): boolean {
+	if (!tierId) {
+		return false;
+	}
+	return getSupportedServiceTiers(modelName, providerId, region).some(
+		(tier) => tier.id === tierId,
+	);
 }
 
 // OpenAI prompt_cache_retention="24h" eligibility per

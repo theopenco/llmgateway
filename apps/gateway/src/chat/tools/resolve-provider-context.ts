@@ -29,6 +29,12 @@ import {
 	type VertexTokenType,
 	type WebSearchTool,
 } from "@llmgateway/models";
+import {
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	type DevPlanTier,
+	getRemainingPremiumWeeklyAllowance,
+	isPremiumModel,
+} from "@llmgateway/shared";
 
 import { getProviderEnv } from "./get-provider-env.js";
 
@@ -100,6 +106,7 @@ export interface ProviderContextOptions {
 		| "medium"
 		| "high"
 		| "xhigh"
+		| "max"
 		| undefined;
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;
@@ -125,6 +132,7 @@ export interface ProviderContextOptions {
 	excludedProviderKeyIds?: ReadonlySet<string>;
 	n?: number;
 	providerCacheControlEnabled: boolean;
+	service_tier?: "auto" | "default" | "flex" | "priority";
 }
 
 interface ProjectInfo {
@@ -138,7 +146,56 @@ interface OrgInfo {
 	devPlan: string;
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
+	devPlanPremiumCreditsUsed: string | null;
+	devPlanPremiumWeekStart: Date | null;
 	devPlanExpiresAt: Date | null;
+	chatPlan: string;
+	chatPlanCreditsLimit: string | null;
+	chatPlanCreditsUsed: string | null;
+	chatPlanExpiresAt: Date | null;
+}
+
+/**
+ * Throws when a DevPass subscriber has exhausted the weekly fair-use
+ * allowance for premium-tier models. No-op for non-DevPass orgs and
+ * non-premium models.
+ */
+export function assertDevPlanPremiumCapNotExceeded(
+	organization: Pick<
+		OrgInfo,
+		"devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
+	>,
+	modelInfo: Pick<ModelDefinition, "id">,
+): void {
+	if (organization.devPlan === "none") {
+		return;
+	}
+	if (!isPremiumModel(modelInfo.id)) {
+		return;
+	}
+	const tier = organization.devPlan as DevPlanTier;
+	const remaining = getRemainingPremiumWeeklyAllowance(
+		tier,
+		organization.devPlanPremiumCreditsUsed,
+		organization.devPlanPremiumWeekStart,
+	);
+	if (remaining > 0) {
+		return;
+	}
+	const weekStart = organization.devPlanPremiumWeekStart
+		? new Date(organization.devPlanPremiumWeekStart)
+		: new Date();
+	const resetAt = new Date(
+		weekStart.getTime() + DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	);
+	const msUntilReset = Math.max(0, resetAt.getTime() - Date.now());
+	const daysUntilReset = Math.max(
+		1,
+		Math.ceil(msUntilReset / (24 * 60 * 60 * 1000)),
+	);
+	throw new HTTPException(402, {
+		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Upgrade for a higher allowance, or use any standard model now. Resets in ${daysUntilReset} day${daysUntilReset === 1 ? "" : "s"}.`,
+	});
 }
 
 // Mirrors the initial credit gate in chat.ts so retry/fallback paths that
@@ -152,15 +209,34 @@ function assertOrganizationHasCreditsForEnvFallback(
 	if (modelInfo.free) {
 		return;
 	}
+	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
 	const regularCredits = parseFloat(organization.credits ?? "0");
 	const devPlanCreditsRemaining =
 		organization.devPlan !== "none"
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
-	const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	const totalAvailableCredits =
+		regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 	if (totalAvailableCredits > 0) {
 		return;
+	}
+	if (
+		organization.chatPlan !== "none" &&
+		chatPlanCreditsRemaining <= 0 &&
+		devPlanCreditsRemaining <= 0
+	) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		});
 	}
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 		const renewalDate = organization.devPlanExpiresAt
@@ -507,6 +583,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_retention,
 		options.providerCacheControlEnabled,
 		options.n,
+		options.service_tier,
 	);
 
 	// Post-validation of max_tokens in request body

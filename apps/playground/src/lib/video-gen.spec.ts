@@ -5,6 +5,9 @@ import {
 	getSupportedVideoRequestOptions,
 	getSupportedVideoSizesForSelection,
 	getNormalizedVideoRequestSelection,
+	supportsVideoReferenceInput,
+	supportsVideoReferenceVideoInput,
+	supportsVideoReferenceAudioInput,
 } from "./video-gen";
 
 import type { ApiModel, ApiModelProviderMapping } from "./fetch-models";
@@ -202,5 +205,86 @@ describe("getSupportedVideoSizesForSelection", () => {
 		);
 
 		expect(frameSizes).toEqual(textSizes);
+	});
+});
+
+describe("Seedance 2.0 reference capabilities", () => {
+	function makeSeedanceMapping(
+		overrides: Partial<ApiModelProviderMapping> = {},
+	): ApiModelProviderMapping {
+		return makeMapping({
+			modelId: "seedance-2-0",
+			providerId: "bytedance",
+			externalId: "dreamina-seedance-2-0-260128",
+			supportedVideoSizes: ["1280x720", "720x1280", "1920x1080", "1080x1920"],
+			supportedVideoDurationsSeconds: [5, 10],
+			supportedVideoDurationsSecondsImageToVideo: null,
+			...overrides,
+		});
+	}
+
+	test("supportsVideoReferenceInput is true for Seedance 2.0", () => {
+		expect(supportsVideoReferenceInput("seedance-2-0")).toBe(true);
+		expect(supportsVideoReferenceInput("seedance-2-0-fast")).toBe(true);
+		expect(supportsVideoReferenceInput("bytedance/seedance-2-0")).toBe(true);
+		expect(supportsVideoReferenceInput("bytedance/seedance-1-5-pro")).toBe(
+			false,
+		);
+	});
+
+	test("supportsVideoReferenceVideoInput is restricted to Seedance 2.0 bytedance", () => {
+		expect(supportsVideoReferenceVideoInput("seedance-2-0")).toBe(true);
+		expect(
+			supportsVideoReferenceVideoInput("bytedance/seedance-2-0-fast"),
+		).toBe(true);
+		expect(supportsVideoReferenceVideoInput("google-vertex/seedance-2-0")).toBe(
+			false,
+		);
+		expect(supportsVideoReferenceVideoInput("veo-3.1-generate-preview")).toBe(
+			false,
+		);
+	});
+
+	test("supportsVideoReferenceAudioInput is restricted to Seedance 2.0 bytedance", () => {
+		expect(supportsVideoReferenceAudioInput("seedance-2-0")).toBe(true);
+		expect(
+			supportsVideoReferenceAudioInput("bytedance/seedance-2-0-fast"),
+		).toBe(true);
+		expect(supportsVideoReferenceAudioInput("google-vertex/seedance-2-0")).toBe(
+			false,
+		);
+		expect(supportsVideoReferenceAudioInput("veo-3.1-generate-preview")).toBe(
+			false,
+		);
+	});
+
+	test("reference mode is supported for Seedance 2.0 mappings", () => {
+		const model = makeModel([makeSeedanceMapping()], "seedance-2-0");
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-2-0"],
+			"reference",
+			true,
+		);
+
+		expect(options.sizes).toContain("1280x720");
+		expect(options.sizes).toContain("1920x1080");
+		expect(options.durations).toContain(10);
+	});
+
+	test("reference mode is rejected for non-2.0 bytedance models", () => {
+		const model = makeModel(
+			[makeSeedanceMapping({ modelId: "seedance-1-5-pro" })],
+			"seedance-1-5-pro",
+		);
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-1-5-pro"],
+			"reference",
+			true,
+		);
+
+		expect(options.sizes).toHaveLength(0);
+		expect(options.durations).toHaveLength(0);
 	});
 });
