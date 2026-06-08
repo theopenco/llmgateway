@@ -118,6 +118,9 @@ const createChatSchema = z.object({
 	webSearch: z.boolean().optional().default(false),
 	comparisonEnabled: z.boolean().optional().default(false),
 	parentChatId: z.string().trim().min(1).optional(),
+	// Organization context the chat is created under (the dedicated Chat org for
+	// the "Chat plan" context, or a real org). Used to separate chat history.
+	organizationId: z.string().trim().min(1).optional(),
 });
 
 const updateChatSchema = z.object({
@@ -204,10 +207,35 @@ function getForkedChatTitle(title: string) {
 	return `${base.slice(0, maxTitleLength - suffix.length)}${suffix}`;
 }
 
+// Build a chat-history org filter for the authenticated user. When an
+// organizationId is provided we scope to that org; for the dedicated Chat org
+// (the "Chat plan" context) we also include legacy rows with no org assigned so
+// existing history keeps showing in the default context.
+async function buildChatOrgFilter(organizationId: string | undefined) {
+	if (!organizationId) {
+		return undefined;
+	}
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+	});
+	if (!org || org.isChat) {
+		return or(
+			eq(tables.chat.organizationId, organizationId),
+			isNull(tables.chat.organizationId),
+		);
+	}
+	return eq(tables.chat.organizationId, organizationId);
+}
+
 // List user's chats
 const listChats = createRoute({
 	method: "get",
 	path: "/",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -227,6 +255,9 @@ chats.openapi(listChats, async (c) => {
 	if (!user) {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
+
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildChatOrgFilter(organizationId);
 
 	// Get user's chats with message counts in a single query
 	const chatsWithCount = await db
@@ -272,6 +303,7 @@ chats.openapi(listChats, async (c) => {
 				eq(tables.chat.userId, user.id),
 				eq(tables.chat.status, "active"),
 				isNull(tables.chat.parentChatId),
+				orgFilter,
 			),
 		)
 		.groupBy(
@@ -559,6 +591,7 @@ chats.openapi(createChat, async (c) => {
 			title: body.title,
 			model: body.model,
 			userId: user.id,
+			organizationId: body.organizationId ?? null,
 			webSearch: body.webSearch ?? false,
 			comparisonEnabled: body.comparisonEnabled ?? false,
 			parentChatId: body.parentChatId ?? null,

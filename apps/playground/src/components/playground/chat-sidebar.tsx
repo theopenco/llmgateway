@@ -503,8 +503,13 @@ export const ChatSidebar = function ChatSidebar({
 	const { organization, isLoading: isOrgLoading } = useOrganization();
 	const { theme, setTheme, systemTheme } = useTheme();
 
-	// Use real chat data from API
-	const { data: chatsData, isLoading: isChatsLoading } = useChats();
+	// Resolve the org context for chat history: the selected org, or the
+	// dedicated Chat org (backing the "Chat plan" context) when none is selected.
+	const resolvedOrgId = selectedOrganization?.id ?? organization?.id;
+
+	// Use real chat data from API, scoped to the resolved organization context.
+	const { data: chatsData, isLoading: isChatsLoading } =
+		useChats(resolvedOrgId);
 	const deleteChat = useDeleteChat();
 	const updateChat = useUpdateChat();
 

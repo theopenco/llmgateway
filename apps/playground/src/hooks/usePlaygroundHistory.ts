@@ -2,11 +2,14 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/lib/fetch-client";
 
-export function useImageHistory(enabled = true) {
+export function useImageHistory(enabled = true, organizationId?: string) {
 	const api = useApi();
-	return api.useQuery("get", "/playground/image-history", undefined, {
-		enabled,
-	});
+	return api.useQuery(
+		"get",
+		"/playground/image-history",
+		{ params: { query: organizationId ? { organizationId } : {} } },
+		{ enabled },
+	);
 }
 
 export function useSaveImageHistory() {
@@ -45,11 +48,14 @@ export function useDeleteImageHistory() {
 	});
 }
 
-export function useVideoHistory(enabled = true) {
+export function useVideoHistory(enabled = true, organizationId?: string) {
 	const api = useApi();
-	return api.useQuery("get", "/playground/video-history", undefined, {
-		enabled,
-	});
+	return api.useQuery(
+		"get",
+		"/playground/video-history",
+		{ params: { query: organizationId ? { organizationId } : {} } },
+		{ enabled },
+	);
 }
 
 export function useSaveVideoHistory() {

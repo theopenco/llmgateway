@@ -4,9 +4,29 @@ import { HTTPException } from "hono/http-exception";
 
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
-import { db, tables, shortid, desc, eq, and } from "@llmgateway/db";
+import { db, tables, shortid, desc, eq, and, or, isNull } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
+import type { SQL, Column } from "@llmgateway/db";
+
+// Build an org filter for playground history. When an organizationId is given we
+// scope to it; for the dedicated Chat org (the "Chat plan" context) we also
+// include legacy rows with no org so existing history keeps showing there.
+async function buildHistoryOrgFilter(
+	column: Column,
+	organizationId: string | undefined,
+): Promise<SQL | undefined> {
+	if (!organizationId) {
+		return undefined;
+	}
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+	});
+	if (!org || org.isChat) {
+		return or(eq(column, organizationId), isNull(column));
+	}
+	return eq(column, organizationId);
+}
 
 const COOKIE_NAME = "llmgateway_playground_key";
 
@@ -222,6 +242,11 @@ const videoHistoryItemSchema = z.object({
 const listImageHistory = createRoute({
 	method: "get",
 	path: "/image-history",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -241,10 +266,16 @@ playground.openapi(listImageHistory, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildHistoryOrgFilter(
+		tables.playgroundImageHistory.organizationId,
+		organizationId,
+	);
+
 	const rows = await db
 		.select()
 		.from(tables.playgroundImageHistory)
-		.where(eq(tables.playgroundImageHistory.userId, user.id))
+		.where(and(eq(tables.playgroundImageHistory.userId, user.id), orgFilter))
 		.orderBy(desc(tables.playgroundImageHistory.createdAt));
 
 	return c.json({
@@ -269,6 +300,7 @@ const saveImageHistory = createRoute({
 				"application/json": {
 					schema: z.object({
 						prompt: z.string().min(1),
+						organizationId: z.string().trim().min(1).optional(),
 						inputImages: z
 							.array(z.object({ dataUrl: z.string(), mediaType: z.string() }))
 							.optional(),
@@ -302,6 +334,7 @@ playground.openapi(saveImageHistory, async (c) => {
 		.insert(tables.playgroundImageHistory)
 		.values({
 			userId: user.id,
+			organizationId: body.organizationId ?? null,
 			prompt: body.prompt,
 			inputImages: body.inputImages ?? null,
 			models: body.models,
@@ -432,6 +465,11 @@ playground.openapi(renameImageHistory, async (c) => {
 const listVideoHistory = createRoute({
 	method: "get",
 	path: "/video-history",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -451,10 +489,16 @@ playground.openapi(listVideoHistory, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildHistoryOrgFilter(
+		tables.playgroundVideoHistory.organizationId,
+		organizationId,
+	);
+
 	const rows = await db
 		.select()
 		.from(tables.playgroundVideoHistory)
-		.where(eq(tables.playgroundVideoHistory.userId, user.id))
+		.where(and(eq(tables.playgroundVideoHistory.userId, user.id), orgFilter))
 		.orderBy(desc(tables.playgroundVideoHistory.createdAt));
 
 	return c.json({
@@ -480,6 +524,7 @@ const saveVideoHistory = createRoute({
 				"application/json": {
 					schema: z.object({
 						prompt: z.string().min(1),
+						organizationId: z.string().trim().min(1).optional(),
 						frameInputs: z
 							.object({
 								start: z
@@ -523,6 +568,7 @@ playground.openapi(saveVideoHistory, async (c) => {
 		.insert(tables.playgroundVideoHistory)
 		.values({
 			userId: user.id,
+			organizationId: body.organizationId ?? null,
 			prompt: body.prompt,
 			frameInputs: body.frameInputs ?? null,
 			referenceImages: body.referenceImages ?? null,

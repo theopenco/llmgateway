@@ -142,8 +142,10 @@ export default function VideoPageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	// DB-persisted history
-	const { data: historyData, isLoading: isHistoryLoading } =
-		useVideoHistory(isAuthenticated);
+	const { data: historyData, isLoading: isHistoryLoading } = useVideoHistory(
+		isAuthenticated,
+		selectedOrganization?.id,
+	);
 	const { mutate: saveVideoHistory } = useSaveVideoHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
@@ -199,6 +201,7 @@ export default function VideoPageClient({
 					{
 						body: {
 							prompt: item.prompt,
+							organizationId: selectedOrganization?.id,
 							frameInputs: item.frameInputs,
 							referenceImages: item.referenceImages,
 							models: item.models.map((m) => ({

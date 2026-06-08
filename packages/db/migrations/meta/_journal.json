@@ -1100,6 +1100,13 @@
       "when": 1780938386974,
       "tag": "1780938386_unusual_mad_thinker",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "8",
+      "when": 1780949651464,
+      "tag": "1780949651_narrow_skullbuster",
+      "breakpoints": true
     }
   ]
 }
