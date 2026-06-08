@@ -7249,12 +7249,29 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	const search = query.search ?? "";
 	const { from, to } = query;
 
-	const whereClause = search
+	const alibabaRegionalMapping = aliasedTable(
+		tables.modelProviderMapping,
+		"alibaba_regional_mapping",
+	);
+	const visibleMappingClause = or(
+		ne(tables.modelProviderMapping.providerId, "alibaba"),
+		isNotNull(tables.modelProviderMapping.region),
+		sql`NOT EXISTS (
+			SELECT 1
+			FROM ${alibabaRegionalMapping}
+			WHERE ${alibabaRegionalMapping.providerId} = ${tables.modelProviderMapping.providerId}
+				AND ${alibabaRegionalMapping.modelId} = ${tables.modelProviderMapping.modelId}
+				AND ${alibabaRegionalMapping.externalId} = ${tables.modelProviderMapping.externalId}
+				AND ${alibabaRegionalMapping.region} IS NOT NULL
+		)`,
+	);
+	const searchClause = search
 		? or(
 				sql`${tables.modelProviderMapping.modelId} ILIKE ${"%" + search + "%"}`,
 				sql`${tables.modelProviderMapping.providerId} ILIKE ${"%" + search + "%"}`,
 			)
 		: undefined;
+	const whereClause = and(visibleMappingClause, searchClause);
 
 	const dateRange = (() => {
 		if (!(from && to)) {
@@ -7276,13 +7293,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 
 		return { startDate, endDateExclusive };
 	})();
-
-	const historySearchClause = search
-		? or(
-				sql`${modelProviderMappingHistory.modelId} ILIKE ${"%" + search + "%"}`,
-				sql`${modelProviderMappingHistory.providerId} ILIKE ${"%" + search + "%"}`,
-			)
-		: undefined;
 
 	const statsJoin = dateRange
 		? db
@@ -7319,7 +7329,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				.from(modelProviderMappingHistory)
 				.where(
 					and(
-						historySearchClause,
 						gte(
 							modelProviderMappingHistory.minuteTimestamp,
 							dateRange.startDate,
@@ -7365,9 +7374,16 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						),
 				})
 				.from(modelProviderMappingHistory)
+				.innerJoin(
+					tables.modelProviderMapping,
+					eq(
+						modelProviderMappingHistory.modelProviderMappingId,
+						tables.modelProviderMapping.id,
+					),
+				)
 				.where(
 					and(
-						historySearchClause,
+						whereClause,
 						gte(
 							modelProviderMappingHistory.minuteTimestamp,
 							dateRange.startDate,
