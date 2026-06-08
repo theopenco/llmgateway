@@ -25,6 +25,7 @@ import {
 	lt,
 	lte,
 	ne,
+	notInArray,
 	or,
 	sql,
 	tables,
@@ -7201,6 +7202,13 @@ const modelProviderMappingsListSchema = z.object({
 	totalCost: z.number(),
 });
 
+const providersWithHiddenRootMappings = providers
+	.filter(
+		(provider) =>
+			provider.regionConfig && !provider.regionConfig.pinDefaultRegion,
+	)
+	.map((provider) => provider.id);
+
 const getModelProviderMappings = createRoute({
 	method: "get",
 	path: "/model-provider-mappings",
@@ -7249,22 +7257,28 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	const search = query.search ?? "";
 	const { from, to } = query;
 
-	const alibabaRegionalMapping = aliasedTable(
+	const concreteRegionalMapping = aliasedTable(
 		tables.modelProviderMapping,
-		"alibaba_regional_mapping",
+		"concrete_regional_mapping",
 	);
-	const visibleMappingClause = or(
-		ne(tables.modelProviderMapping.providerId, "alibaba"),
-		isNotNull(tables.modelProviderMapping.region),
-		sql`NOT EXISTS (
-			SELECT 1
-			FROM ${alibabaRegionalMapping}
-			WHERE ${alibabaRegionalMapping.providerId} = ${tables.modelProviderMapping.providerId}
-				AND ${alibabaRegionalMapping.modelId} = ${tables.modelProviderMapping.modelId}
-				AND ${alibabaRegionalMapping.externalId} = ${tables.modelProviderMapping.externalId}
-				AND ${alibabaRegionalMapping.region} IS NOT NULL
-		)`,
-	);
+	const visibleMappingClause =
+		providersWithHiddenRootMappings.length === 0
+			? undefined
+			: or(
+					notInArray(
+						tables.modelProviderMapping.providerId,
+						providersWithHiddenRootMappings,
+					),
+					isNotNull(tables.modelProviderMapping.region),
+					sql`NOT EXISTS (
+						SELECT 1
+						FROM ${concreteRegionalMapping}
+						WHERE ${concreteRegionalMapping.providerId} = ${tables.modelProviderMapping.providerId}
+							AND ${concreteRegionalMapping.modelId} = ${tables.modelProviderMapping.modelId}
+							AND ${concreteRegionalMapping.externalId} = ${tables.modelProviderMapping.externalId}
+							AND ${concreteRegionalMapping.region} IS NOT NULL
+					)`,
+				);
 	const searchClause = search
 		? or(
 				sql`${tables.modelProviderMapping.modelId} ILIKE ${"%" + search + "%"}`,
