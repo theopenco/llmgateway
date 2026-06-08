@@ -54,6 +54,7 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
 
 import type { Organization } from "@/lib/types";
@@ -61,6 +62,7 @@ import type { VideoGalleryItem } from "@/lib/video-gen";
 
 interface VideoSidebarProps {
 	galleryItems: VideoGalleryItem[];
+	isHistoryLoading?: boolean;
 	onNewChat: () => void;
 	onItemClick: (itemId: string) => void;
 	organizations: Organization[];
@@ -361,6 +363,7 @@ function groupItemsByDate(items: VideoGalleryItem[]) {
 
 export function VideoSidebar({
 	galleryItems,
+	isHistoryLoading = false,
 	onNewChat,
 	onItemClick,
 	organizations,
@@ -704,7 +707,9 @@ export function VideoSidebar({
 					aria-hidden={isHistoryHidden}
 					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
 				>
-					{galleryItems.length === 0 ? (
+					{isHistoryLoading && galleryItems.length === 0 ? (
+						<HistorySkeleton withThumbnail />
+					) : galleryItems.length === 0 ? (
 						<div className="flex flex-col items-center justify-center py-8 text-center">
 							<Film className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">

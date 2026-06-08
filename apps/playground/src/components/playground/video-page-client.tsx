@@ -142,7 +142,8 @@ export default function VideoPageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	// DB-persisted history
-	const { data: historyData } = useVideoHistory(isAuthenticated);
+	const { data: historyData, isLoading: isHistoryLoading } =
+		useVideoHistory(isAuthenticated);
 	const { mutate: saveVideoHistory } = useSaveVideoHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
@@ -924,6 +925,7 @@ export default function VideoPageClient({
 			<div className="flex h-dvh w-full">
 				<VideoSidebar
 					galleryItems={galleryItems}
+					isHistoryLoading={isHistoryLoading}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
 					organizations={organizations}

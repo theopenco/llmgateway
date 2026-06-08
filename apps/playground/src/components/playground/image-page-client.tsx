@@ -171,7 +171,8 @@ export default function ImagePageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	// DB-persisted history
-	const { data: historyData } = useImageHistory(isAuthenticated);
+	const { data: historyData, isLoading: isHistoryLoading } =
+		useImageHistory(isAuthenticated);
 	const { mutate: saveImageHistory } = useSaveImageHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
@@ -737,6 +738,7 @@ export default function ImagePageClient({
 			<div className="flex h-dvh w-full">
 				<ImageSidebar
 					galleryItems={galleryItems}
+					isHistoryLoading={isHistoryLoading}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
 					organizations={organizations}
