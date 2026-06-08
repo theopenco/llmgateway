@@ -188,6 +188,7 @@ describe("platform sessions", () => {
 			},
 			body: JSON.stringify({ customer: "live-customer" }),
 		});
+		expect(liveRes.status).toBe(201);
 		const liveSession = (await liveRes.json()) as SessionResponse;
 
 		// PLATFORM_SECRET is a test key; the wallet belongs to a live customer.
@@ -217,6 +218,13 @@ describe("platform sessions", () => {
 
 	test("test keys are rejected from Connect routes", async () => {
 		const res = await app.request("/v1/connect/status", {
+			headers: { Authorization: `Bearer ${PLATFORM_SECRET}` },
+		});
+		expect(res.status).toBe(403);
+	});
+
+	test("test keys are rejected from webhook-endpoint management", async () => {
+		const res = await app.request("/v1/webhooks", {
 			headers: { Authorization: `Bearer ${PLATFORM_SECRET}` },
 		});
 		expect(res.status).toBe(403);
