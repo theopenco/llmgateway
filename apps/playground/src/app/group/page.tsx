@@ -93,15 +93,14 @@ export default async function GroupPage({
 	const organizations = allOrganizations.filter(
 		(o) => !o.isChat && !o.isPersonal,
 	);
-	// Mirror the chat page: in the personal context no dashboard org is selected
-	// (selectedOrganization === null) so the "Chat plan" billing context shows,
-	// while generation, billing, and projects all run under the dedicated Chat org.
 	const selectedOrganization =
-		(orgId ? organizations.find((o) => o.id === orgId) : null) ?? null;
-	const projectOrgId = selectedOrganization?.id ?? chatOrg?.id ?? null;
+		(orgId ? organizations.find((o) => o.id === orgId) : null) ??
+		chatOrg ??
+		organizations[0] ??
+		null;
 
-	// Ensure we have projects for the resolved billing org (when orgId not provided)
-	if (!initialProjectsData && projectOrgId) {
+	// Ensure we have projects for the selected organization (when orgId not provided)
+	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
 				"GET",
@@ -109,7 +108,7 @@ export default async function GroupPage({
 				{
 					params: {
 						path: {
-							id: projectOrgId,
+							id: selectedOrganization.id,
 						},
 					},
 				},
@@ -117,7 +116,7 @@ export default async function GroupPage({
 		} catch (error) {
 			console.warn(
 				"Failed to fetch projects for organization:",
-				projectOrgId,
+				selectedOrganization?.id,
 				error,
 			);
 		}
@@ -132,9 +131,9 @@ export default async function GroupPage({
 		if (projectId && !selectedProject && projectId.length > 0) {
 			notFound();
 		}
-	} else if (projectOrgId) {
+	} else if (selectedOrganization?.id) {
 		const cookieStore = await cookies();
-		const cookieName = `llmgateway-last-used-project-${projectOrgId}`;
+		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
 			selectedProject = projects.find((p) => p.id === lastUsed) ?? null;
@@ -144,9 +143,9 @@ export default async function GroupPage({
 
 	return (
 		<>
-			{projectOrgId && selectedProject?.id ? (
+			{selectedOrganization?.id && selectedProject?.id ? (
 				<LastUsedProjectTracker
-					orgId={projectOrgId}
+					orgId={selectedOrganization.id}
 					projectId={selectedProject.id}
 				/>
 			) : null}
