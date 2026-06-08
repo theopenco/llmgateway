@@ -19,7 +19,7 @@ interface RateLimitMatch {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
-	enforcement: string;
+	enforcement: "per_org" | "global";
 }
 
 /**

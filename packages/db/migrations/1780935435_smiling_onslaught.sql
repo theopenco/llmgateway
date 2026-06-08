@@ -1,1 +1,0 @@
-ALTER TABLE "rate_limit" ADD COLUMN "enforcement" text DEFAULT 'per_org' NOT NULL;

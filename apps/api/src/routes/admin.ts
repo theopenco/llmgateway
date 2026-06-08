@@ -3276,6 +3276,12 @@ const createRateLimitBodySchema = z.object({
 	reason: z.string().nullable().optional(),
 });
 
+// Org-specific limits are always enforced per-org, so they don't expose the
+// enforcement choice.
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
+	enforcement: true,
+});
+
 // --- Global Rate Limits ---
 
 const getGlobalRateLimits = createRoute({
@@ -3383,7 +3389,7 @@ const createOrganizationRateLimit = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: createRateLimitBodySchema.openapi({}),
+					schema: createOrganizationRateLimitBodySchema.openapi({}),
 				},
 			},
 		},

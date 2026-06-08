@@ -1,0 +1,2 @@
+ALTER TABLE "rate_limit" ADD COLUMN "enforcement" text DEFAULT 'per_org' NOT NULL;--> statement-breakpoint
+ALTER TABLE "rate_limit" ADD CONSTRAINT "rate_limit_enforcement_check" CHECK ("enforcement" IN ('per_org', 'global'));

@@ -34,7 +34,6 @@ type RateLimitEnforcement = "per_org" | "global";
 interface RateLimitFormProps {
 	providers: Array<{ id: string; name: string }>;
 	mappings: RateLimitModelMapping[];
-	// When true, expose the per-org vs shared enforcement choice (global limits only).
 	showEnforcement?: boolean;
 	onSubmit: (data: {
 		provider: string | null;
