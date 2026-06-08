@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Info, Sparkles } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 import { CodePlanTracker } from "@/components/LandingTracker";
@@ -215,12 +215,9 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 
 function InvoiceInfoLabel() {
 	return (
-		<div className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
-			<Info className="mt-0.5 h-3 w-3 shrink-0" />
-			<span>
-				Need company/address details on your invoice? Update billing settings
-				before purchase. We email the invoice automatically after payment.
-			</span>
-		</div>
+		<p className="mt-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Info, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -389,12 +389,9 @@ export function ChatPricingPlans({
 
 function InvoiceInfoLabel() {
 	return (
-		<div className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
-			<Info className="mt-0.5 h-3 w-3 shrink-0" />
-			<span>
-				Need company/address details on your invoice? Update billing settings
-				before purchase. We email the invoice automatically after payment.
-			</span>
-		</div>
+		<p className="mt-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }

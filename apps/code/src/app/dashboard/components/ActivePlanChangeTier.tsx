@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowRight, ArrowUp, Info, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Loader2 } from "lucide-react";
 
 import {
 	AlertDialog,
@@ -133,13 +133,10 @@ export default function ActivePlanChangeTier({
 														</>
 													)}
 												</span>
-												<span className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed">
-													<Info className="mt-0.5 h-3 w-3 shrink-0" />
-													<span>
-														Need company/address details on your invoice? Update
-														billing settings before confirming. We email the
-														invoice automatically after payment.
-													</span>
+												<span className="mt-3 block text-center text-[11px] leading-relaxed">
+													Need company/address details on your invoice? Update
+													billing settings before confirming. We email the
+													invoice automatically after payment.
 												</span>
 											</AlertDialogDescription>
 										</AlertDialogHeader>

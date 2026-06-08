@@ -5,7 +5,7 @@ import {
 	useStripe as useStripeElements,
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditCard, ExternalLink, Info, Plus } from "lucide-react";
+import { CreditCard, ExternalLink, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -795,12 +795,9 @@ function ConfirmPaymentStep({
 
 function InvoiceSettingsNote() {
 	return (
-		<div className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
-			<Info className="mt-0.5 h-3 w-3 shrink-0" />
-			<span>
-				Need company/address details on your invoice? Update billing settings
-				before purchase. We email the invoice automatically after payment.
-			</span>
-		</div>
+		<p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }

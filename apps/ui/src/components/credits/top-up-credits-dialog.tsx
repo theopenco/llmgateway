@@ -8,7 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
-import { ChevronDown, CreditCard, Info, Lock, Plus } from "lucide-react";
+import { ChevronDown, CreditCard, Lock, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
@@ -1234,23 +1234,20 @@ function InvoiceSettingsNote({
 	organizationId: string | undefined;
 }) {
 	return (
-		<div className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
-			<Info className="mt-0.5 h-3 w-3 shrink-0" />
-			<span>
-				Need company/address details on your invoice?{" "}
-				{organizationId ? (
-					<Link
-						href={`/dashboard/${organizationId}/org/preferences`}
-						className="font-medium underline underline-offset-2 hover:text-foreground"
-					>
-						Update billing settings
-					</Link>
-				) : (
-					"Update billing settings"
-				)}{" "}
-				before purchase. We email the invoice automatically after payment.
-			</span>
-		</div>
+		<p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice?{" "}
+			{organizationId ? (
+				<Link
+					href={`/dashboard/${organizationId}/org/preferences`}
+					className="font-medium underline underline-offset-2 hover:text-foreground"
+				>
+					Update billing settings
+				</Link>
+			) : (
+				"Update billing settings"
+			)}{" "}
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }
 

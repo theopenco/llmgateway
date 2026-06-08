@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Info, Loader2 } from "lucide-react";
+import { ArrowRight, Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -91,12 +91,9 @@ export default function InactivePlanChooser({
 
 function InvoiceInfoLabel() {
 	return (
-		<div className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
-			<Info className="mt-0.5 h-3 w-3 shrink-0" />
-			<span>
-				Need company/address details on your invoice? Update billing settings
-				before purchase. We email the invoice automatically after payment.
-			</span>
-		</div>
+		<p className="mt-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }
