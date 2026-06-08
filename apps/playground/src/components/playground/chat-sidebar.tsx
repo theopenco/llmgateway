@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import {
@@ -495,6 +495,12 @@ export const ChatSidebar = function ChatSidebar({
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	// Preserve the selected organization across playground navigation so users
+	// don't have to re-pick their org on every page.
+	const orgIdParam = searchParams.get("orgId");
+	const withOrg = (path: string) =>
+		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
 	const showOrganizationSwitcher = pathname === "/" || pathname === "/group";
@@ -799,7 +805,7 @@ export const ChatSidebar = function ChatSidebar({
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
-							<Link href="/" prefetch={true}>
+							<Link href={withOrg("/")} prefetch={true}>
 								<div className="flex aspect-square size-8 items-center justify-center">
 									<Logo className="size-6" />
 								</div>
@@ -849,7 +855,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Chat"
 							isActive={pathname === "/"}
 						>
-							<Link href="/" prefetch={true}>
+							<Link href={withOrg("/")} prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -861,7 +867,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Group Chat"
 							isActive={pathname === "/group"}
 						>
-							<Link href="/group" prefetch={true}>
+							<Link href={withOrg("/group")} prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -873,7 +879,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Image Studio"
 							isActive={pathname === "/image"}
 						>
-							<Link href="/image" prefetch={true}>
+							<Link href={withOrg("/image")} prefetch={true}>
 								<ImagePlus className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -885,7 +891,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Video Studio"
 							isActive={pathname === "/video"}
 						>
-							<Link href="/video" prefetch={true}>
+							<Link href={withOrg("/video")} prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
 							</Link>
@@ -897,7 +903,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Canvas"
 							isActive={pathname === "/canvas"}
 						>
-							<Link href="/canvas" prefetch={true}>
+							<Link href={withOrg("/canvas")} prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>
