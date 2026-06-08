@@ -31,6 +31,7 @@ import {
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import {
 	assertOriginAllowed,
+	assertTestWalletModelAllowed,
 	loadEndUserWallet,
 	withCreditsMode,
 	withWalletCredits,
@@ -48,6 +49,7 @@ import {
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
+	createSessionProviderStore,
 	getPreferredProvider,
 	resolvePreferredProvider,
 	setPreferredProvider,
@@ -365,7 +367,6 @@ async function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
-		sessionId?: string;
 		routingConfig?: ResolvedRoutingConfig;
 		organizationId: string;
 	},
@@ -1711,6 +1712,12 @@ chat.openapi(completions, async (c) => {
 	// (Shared with embeddings/moderations via apps/gateway/src/lib/end-user-session.ts.)
 	const endUserWallet = (await loadEndUserWallet(apiKey)) ?? undefined;
 
+	// Test-mode end-user wallets are funded by Stripe-sandbox top-ups, so they may
+	// only spend on free models — force free-models-only auto routing for them, and
+	// reject explicitly-requested paid models below once `modelInfo` is resolved.
+	const effectiveFreeModelsOnly =
+		free_models_only || endUserWallet?.mode === "test";
+
 	// Get the project to determine mode for routing decisions
 	let project = await findProjectById(apiKey.projectId);
 
@@ -1962,6 +1969,22 @@ chat.openapi(completions, async (c) => {
 		project.id,
 		organization.plan,
 	);
+
+	// Sticky-session routing: when the request carries a session id and the
+	// project has session stickiness enabled, provider selection is scored
+	// normally and then pinned for the session via this store. The store is
+	// keyed per (org, model, session); creating it lazily per model id keeps the
+	// final routing decision pinned without affecting region sub-selection.
+	const sessionStickyEnabled = Boolean(sessionId) && routingCfg.session.enabled;
+	const createSessionStore = (modelId: string) =>
+		sessionStickyEnabled && sessionId
+			? createSessionProviderStore(
+					project.organizationId,
+					modelId,
+					sessionId,
+					routingCfg.session.ttlSeconds,
+				)
+			: undefined;
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -2405,7 +2428,7 @@ chat.openapi(completions, async (c) => {
 
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
-			if (free_models_only) {
+			if (effectiveFreeModelsOnly) {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
@@ -2432,6 +2455,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 				modelDef,
 				clientIp,
+				{ autoRouting: true },
 			);
 			if (!candidateIam.allowed) {
 				continue;
@@ -2617,7 +2641,6 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
-						sessionId,
 						routingConfig: routingCfg,
 						organizationId: project.organizationId,
 					},
@@ -2630,7 +2653,7 @@ chat.openapi(completions, async (c) => {
 					metricsMap,
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
-					sessionId,
+					sessionProviderStore: createSessionStore(selectedModel.id),
 					routingConfig: routingCfg,
 					organizationId: project.organizationId,
 					providerDiscountResolver,
@@ -2653,7 +2676,7 @@ chat.openapi(completions, async (c) => {
 				usedExternalId = selectedProviders[0].externalId;
 			}
 		} else {
-			if (free_models_only) {
+			if (effectiveFreeModelsOnly) {
 				// If free_models_only is true but no suitable model found, return error
 				throw new HTTPException(400, {
 					message:
@@ -2703,6 +2726,7 @@ chat.openapi(completions, async (c) => {
 			undefined,
 			modelInfo,
 			clientIp,
+			{ autoRouting: true },
 		);
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
@@ -2733,6 +2757,11 @@ chat.openapi(completions, async (c) => {
 		usedInternalModel = "custom";
 		usedExternalId = "custom";
 	}
+
+	// Wall for sandbox wallets: a test-mode end-user wallet may only spend on free
+	// models. Auto routing already filtered to free models above; this rejects an
+	// explicitly-requested (or custom) paid model with a pointer to the auto route.
+	assertTestWalletModelAllowed(endUserWallet, modelInfo);
 
 	// When a specific provider is requested and it has multiple mappings (for example,
 	// regional variants), pick the best eligible mapping up front so the request and
@@ -2855,7 +2884,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
-							sessionId,
+							sessionProviderStore: createSessionStore(modelInfo.id),
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,
@@ -3054,7 +3083,7 @@ chat.openapi(completions, async (c) => {
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
 								promptTokens: routingPromptTokens,
-								sessionId,
+								sessionProviderStore: createSessionStore(modelWithPricing.id),
 								routingConfig: routingCfg,
 								organizationId: project.organizationId,
 								providerDiscountResolver,
@@ -3236,7 +3265,6 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
-									sessionId,
 									routingConfig: routingCfg,
 									organizationId: project.organizationId,
 								},
@@ -3268,7 +3296,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
-									sessionId,
+									sessionProviderStore: createSessionStore(modelWithPricing.id),
 									routingConfig: routingCfg,
 									organizationId: project.organizationId,
 									providerDiscountResolver,
@@ -3462,7 +3490,6 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
-							sessionId,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 						},
@@ -3475,7 +3502,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
-						sessionId,
+						sessionProviderStore: createSessionStore(modelWithPricing.id),
 						routingConfig: routingCfg,
 						organizationId: project.organizationId,
 						providerDiscountResolver,
@@ -3484,14 +3511,17 @@ chat.openapi(completions, async (c) => {
 
 				if (cheapestResult) {
 					// Apply provider preference hysteresis to reduce unnecessary switching.
-					// Skip for exploration requests — they exist to refresh per-provider metrics.
+					// Skip for exploration requests — they exist to refresh per-provider
+					// metrics — and for sticky sessions, which already pin the provider
+					// per-session via the session store inside provider selection.
 					let selectedProvider = cheapestResult.provider;
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
 
 					if (
 						hysteresisSelectionReason !== "random-exploration" &&
-						routingCfg.sticky.enabled
+						routingCfg.sticky.enabled &&
+						!sessionStickyEnabled
 					) {
 						const preferred = await getPreferredProvider(
 							project.organizationId,
@@ -3713,10 +3743,11 @@ chat.openapi(completions, async (c) => {
 							output?: string[];
 						},
 						{
+							// No session store here: this call only computes scores for
+							// routing metadata and must not re-pin the session.
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
-							sessionId,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,

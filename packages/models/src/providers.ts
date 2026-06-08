@@ -398,7 +398,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.9,
+		priority: 0.1,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",

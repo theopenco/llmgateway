@@ -47,10 +47,21 @@ Before you write any code, configure the project you want to embed:
 2. Go to **Settings → SDK** and turn on **End-user sessions**.
 3. _(Optional)_ Set a **markup percent** — the margin you earn on every top-up.
 4. Add the browser origins allowed to call the gateway, one per line (e.g. `https://app.example.com`), then click **Save Settings**.
-5. Under **Platform Secret Keys**, click **Create Secret Key** and copy the `sk_…` value immediately.
+5. Under **Platform Secret Keys**, click **Create Live Key** (or **Create Test Key**) and copy the `sk_…` value immediately.
 6. Store it as a server-side environment variable, for example `LLMGATEWAY_SECRET_KEY`.
 
 The platform secret key (`sk_…`) is different from a regular gateway API key (`llmgtwy_…`): it mints end-user sessions and must only ever be used from your backend.
+
+<Callout>
+	**Test mode.** A `sk_test_…` key is a sandbox key: end-user wallet top-ups go
+	through Stripe's sandbox (use Stripe [test cards](https://docs.stripe.com/testing),
+	no real charges), and its wallets are fully segregated from live ones — the same
+	end-user gets independent test and live wallets. To keep sandbox money from
+	buying real inference, **test-mode wallets can only call free models**: use the
+	`auto` route (it picks a free model automatically) or a free model id; paid
+	models return a `403`. Pair a test secret key on your backend with `test` on
+	`<LLMGatewayProvider>` (see below) — the two must match.
+</Callout>
 
 <Callout type="warn">
 	The platform secret key is shown only once. Do not put it in frontend code,
@@ -163,6 +174,13 @@ The headless client also exposes `chat()`, `image()`, `embeddings()`, `getBalanc
 `<BuyCredits amount={10} />` creates a Stripe PaymentIntent scoped to the user's wallet, renders Stripe's `PaymentElement`, and confirms the payment. Once LLM Gateway's webhook processes it, the wallet is credited the **net** amount (after your markup) and your margin accrues to your organization.
 
 `@llmgateway/elements` bundles LLM Gateway's browser-safe Stripe publishable keys. Pass `test` to `<LLMGatewayProvider>` while developing to use Stripe test mode; omit it or pass `false` for live payments. You never need to provide LLM Gateway's Stripe publishable key yourself, and the end-user never sees your `sk_…` secret key.
+
+<Callout type="warn">
+	The frontend `test` flag and the backend secret key must be in the same mode.
+	A `sk_test_…` key creates the top-up PaymentIntent in the Stripe sandbox, which
+	only a sandbox publishable key (`test`) can confirm — mixing a test key with a
+	live provider (or vice versa) makes `<BuyCredits>` fail to confirm.
+</Callout>
 
 ## Managing wallets & customers (server-side)
 

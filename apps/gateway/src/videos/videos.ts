@@ -19,7 +19,10 @@ import {
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { applyEndUserSession } from "@/lib/end-user-session.js";
+import {
+	applyEndUserSession,
+	assertTestWalletModelAllowed,
+} from "@/lib/end-user-session.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
@@ -567,6 +570,7 @@ interface RequestContext {
 	apiKey: GatewayApiKey;
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
+	wallet: InferSelectModel<typeof tables.wallet> | null;
 	requestId: string;
 	routingCfg: ResolvedRoutingConfig;
 }
@@ -719,7 +723,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet. No-op
 	// for normal keys.
-	const { project, organization } = await applyEndUserSession(
+	const { project, organization, wallet } = await applyEndUserSession(
 		c,
 		apiKey,
 		baseProject,
@@ -736,6 +740,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		apiKey,
 		project,
 		organization,
+		wallet,
 		requestId,
 		routingCfg,
 	};
@@ -3546,7 +3551,7 @@ async function getAvalancheImageUrl(
 
 videos.openapi(createVideo, async (c) => {
 	const { rawBody, request } = await parseJsonBody(c);
-	const { apiKey, project, organization, requestId, routingCfg } =
+	const { apiKey, project, organization, wallet, requestId, routingCfg } =
 		await requireRequestContext(c);
 
 	if (organization.isPersonal && organization.devPlan !== "none") {
@@ -3581,6 +3586,10 @@ videos.openapi(createVideo, async (c) => {
 			message: `Model ${normalizedModel} not found`,
 		});
 	}
+
+	// Sandbox wallets can only spend on free models (none for video), so reject
+	// paid video generation from test-mode end-user sessions.
+	assertTestWalletModelAllowed(wallet, modelInfo);
 
 	if (
 		"imageInputRequired" in modelInfo &&

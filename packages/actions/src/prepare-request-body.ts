@@ -1774,7 +1774,10 @@ export async function prepareRequestBody(
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					// The model decides whether to engage thinking based on prompt complexity.
-					requestBody.thinking = { type: "adaptive" };
+					// `display: "summarized"` is required on Opus 4.7/4.8 to receive readable
+					// thinking text — their default flipped to "omitted" (empty thinking,
+					// signature only), unlike Opus 4.6 which defaults to "summarized".
+					requestBody.thinking = { type: "adaptive", display: "summarized" };
 					if (effort === undefined && reasoning_effort) {
 						const mapEffort = (
 							e: typeof reasoning_effort,
@@ -2190,8 +2193,12 @@ export async function prepareRequestBody(
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					requestBody.additionalModelRequestFields ??= {};
+					// `display: "summarized"` is required on Opus 4.7/4.8 to receive
+					// readable thinking text — their default flipped to "omitted"
+					// (empty thinking, signature only), unlike Opus 4.6.
 					requestBody.additionalModelRequestFields.thinking = {
 						type: "adaptive",
+						display: "summarized",
 					};
 					const mapEffort = (
 						e: typeof reasoning_effort,

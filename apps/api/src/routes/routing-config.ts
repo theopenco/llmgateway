@@ -167,6 +167,8 @@ const stickySchema = z
 const sessionSchema = z
 	.object({
 		enabled: z.boolean().optional(),
+		ttlSeconds: z.number().int().min(1).max(86_400).optional(),
+		uptimeThreshold: z.number().min(0).max(100).optional(),
 	})
 	.strict();
 
@@ -242,6 +244,8 @@ const resolvedConfigSchema = z.object({
 	}),
 	session: z.object({
 		enabled: z.boolean(),
+		ttlSeconds: z.number(),
+		uptimeThreshold: z.number(),
 	}),
 	providerPriorities: z.record(z.string(), z.number()),
 });
@@ -503,6 +507,8 @@ const getDefaults = createRoute({
 						}),
 						session: z.object({
 							enabled: z.boolean(),
+							ttlSeconds: z.number(),
+							uptimeThreshold: z.number(),
 						}),
 						providerPriorities: z.record(z.string(), z.number()),
 					}),

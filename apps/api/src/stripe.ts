@@ -24,7 +24,7 @@ import {
 
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
-import { getStripe } from "./routes/payments.js";
+import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
@@ -91,6 +91,7 @@ export async function ensureStripeCustomer(
  */
 export async function ensureEndCustomerStripeCustomer(
 	endCustomerId: string,
+	mode: StripeMode = "live",
 ): Promise<string> {
 	// Claim the row under a lock so two concurrent top-ups for the same customer
 	// can't each create a Stripe customer (orphaning one). The second caller
@@ -111,7 +112,7 @@ export async function ensureEndCustomerStripeCustomer(
 			return endCustomer.stripeCustomerId;
 		}
 
-		const customer = await getStripe().customers.create({
+		const customer = await getStripe(mode).customers.create({
 			email: endCustomer.email ?? undefined,
 			name: endCustomer.name ?? undefined,
 			metadata: {
@@ -247,6 +248,73 @@ const webhookHandler = createRoute({
 	},
 });
 
+/**
+ * Verify a Stripe webhook signature against the live secret, then the sandbox
+ * secret. Whichever verifies wins; if both are configured and neither matches,
+ * the last error is rethrown so the handler returns 400.
+ */
+function constructWebhookEvent(
+	body: string,
+	sig: string,
+): { event: Stripe.Event; mode: StripeMode } {
+	const secrets: ReadonlyArray<[StripeMode, string | undefined]> = [
+		["live", process.env.STRIPE_WEBHOOK_SECRET],
+		["test", process.env.STRIPE_WEBHOOK_SECRET_TEST],
+	];
+	let lastError: Error | undefined;
+	for (const [mode, secret] of secrets) {
+		if (!secret) {
+			continue;
+		}
+		try {
+			return {
+				event: getStripe(mode).webhooks.constructEvent(body, sig, secret),
+				mode,
+			};
+		} catch (err) {
+			lastError = err instanceof Error ? err : new Error(String(err));
+		}
+	}
+	throw lastError ?? new Error("No Stripe webhook secret configured");
+}
+
+/**
+ * Test-mode (sandbox) webhook events are only ever legitimate for LLM SDK
+ * end-user wallet top-ups. Route them to the SDK handlers only — never the live
+ * org billing handlers (credit top-ups, subscriptions, invoices) — even if the
+ * test webhook endpoint is configured to forward broader event types. The
+ * `payment_intent.*` handlers already gate on `kind === "end_user_topup"`, and
+ * `charge.refunded` is restricted to end-user top-up refunds here.
+ */
+async function handleTestModeWebhookEvent(event: Stripe.Event): Promise<void> {
+	switch (event.type) {
+		case "payment_intent.succeeded": {
+			const pi = event.data.object;
+			if (pi.metadata?.kind === "end_user_topup") {
+				await handleEndUserTopUpSucceeded(pi);
+			} else {
+				logger.warn("Ignoring non-SDK test-mode payment_intent.succeeded", {
+					paymentIntentId: pi.id,
+				});
+			}
+			break;
+		}
+		case "payment_intent.payment_failed": {
+			const pi = event.data.object;
+			logger.info("Test-mode payment intent failed", {
+				paymentIntentId: pi.id,
+				kind: pi.metadata?.kind,
+			});
+			break;
+		}
+		case "charge.refunded":
+			await handleChargeRefunded(event, { endUserOnly: true });
+			break;
+		default:
+			logger.info(`Ignoring test-mode event: ${event.type}`);
+	}
+}
+
 stripeRoutes.openapi(webhookHandler, async (c) => {
 	const sig = c.req.header("stripe-signature");
 
@@ -258,14 +326,24 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 	try {
 		const body = await c.req.raw.text();
-		const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
-		const event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
+		// Verify against the live secret first, then the sandbox secret. Stripe
+		// signs test-mode events (from LLM SDK test secret keys topping up via the
+		// sandbox) with STRIPE_WEBHOOK_SECRET_TEST, delivered to the same endpoint.
+		const { event, mode } = constructWebhookEvent(body, sig);
 
 		logger.info("Stripe webhook received", {
 			eventId: event.id,
 			eventType: event.type,
+			mode,
 		});
+
+		// Sandbox events must never reach the live org billing handlers — only the
+		// SDK end-user wallet flow operates in test mode.
+		if (mode === "test") {
+			await handleTestModeWebhookEvent(event);
+			return c.json({ received: true });
+		}
 
 		switch (event.type) {
 			case "payment_intent.succeeded":
@@ -1825,6 +1903,11 @@ async function handleEndUserTopUpSucceeded(
 		return;
 	}
 
+	// Test-mode top-ups are Stripe-sandbox payments: never accrue real, payable
+	// developer margin. Persist zero on the ledger row too, so a later refund
+	// (which claws back the ledger's developerMargin) can't erase live earnings.
+	const accruedMargin = wallet.mode === "test" ? 0 : developerMargin;
+
 	// Credit the wallet, write the ledger row, and accrue the developer margin
 	// atomically. The ledger insert hits the unique index first, so a concurrent
 	// duplicate delivery rolls the whole transaction back instead of double-
@@ -1849,7 +1932,7 @@ async function handleEndUserTopUpSucceeded(
 				balanceAfter: updated.balance,
 				grossPaid: String(grossPaid),
 				platformFee: String(platformFee),
-				developerMargin: String(developerMargin),
+				developerMargin: String(accruedMargin),
 				netCredited: String(netCredited),
 				stripePaymentIntentId: paymentIntent.id,
 				description: "End-user credit top-up",
@@ -1857,19 +1940,19 @@ async function handleEndUserTopUpSucceeded(
 
 			// Accrue the developer's margin to their org (settled out-of-band / via
 			// Stripe Connect) and record it in the org's transaction history.
-			if (developerMargin > 0) {
+			if (accruedMargin > 0) {
 				await tx
 					.update(tables.organization)
 					.set({
-						endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${developerMargin}`,
+						endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${accruedMargin}`,
 					})
 					.where(eq(tables.organization.id, wallet.organizationId));
 
 				await tx.insert(tables.transaction).values({
 					organizationId: wallet.organizationId,
 					type: "end_user_margin_accrual",
-					amount: String(developerMargin),
-					creditAmount: String(developerMargin),
+					amount: String(accruedMargin),
+					creditAmount: String(accruedMargin),
 					status: "completed",
 					stripePaymentIntentId: paymentIntent.id,
 					description: `End-user top-up margin (wallet ${walletId})`,
@@ -1897,25 +1980,30 @@ async function handleEndUserTopUpSucceeded(
 		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee})`,
 	);
 
-	// Notify the developer's webhook endpoints (best-effort).
-	try {
-		await enqueueWebhookDeliveries({
-			projectId: wallet.projectId,
-			eventType: "wallet.credited",
-			data: {
+	// Notify the developer's webhook endpoints (best-effort). Skip for test-mode
+	// wallets: webhook endpoints are live-only (test keys can't manage them), so
+	// delivering sandbox top-up events to the developer's real consumers would
+	// be misleading.
+	if (wallet.mode !== "test") {
+		try {
+			await enqueueWebhookDeliveries({
+				projectId: wallet.projectId,
+				eventType: "wallet.credited",
+				data: {
+					walletId,
+					endCustomerId: wallet.endCustomerId,
+					netCredited,
+					grossPaid,
+					balance: updated.balance,
+					currency: wallet.currency,
+				},
+			});
+		} catch (err) {
+			logger.warn("Failed to enqueue wallet.credited webhook", {
 				walletId,
-				endCustomerId: wallet.endCustomerId,
-				netCredited,
-				grossPaid,
-				balance: updated.balance,
-				currency: wallet.currency,
-			},
-		});
-	} catch (err) {
-		logger.warn("Failed to enqueue wallet.credited webhook", {
-			walletId,
-			error: err instanceof Error ? err.message : String(err),
-		});
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
 	}
 }
 
@@ -2260,6 +2348,18 @@ async function handlePaymentIntentFailed(
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
 
+	// LLM SDK end-user wallet top-ups are not org credit purchases. A failed one
+	// (e.g. a Stripe sandbox decline-test card during development) must not mutate
+	// the developer org's billing state — payment-failure rows, failure counts,
+	// or dunning emails. Just log it and stop.
+	if (metadata?.kind === "end_user_topup") {
+		logger.info("End-user top-up payment failed", {
+			walletId: metadata.walletId,
+			paymentIntentId: paymentIntent.id,
+		});
+		return;
+	}
+
 	const result = await resolveOrganizationFromStripeEvent({
 		metadata,
 		customer: paymentIntent.customer as string,
@@ -2431,7 +2531,10 @@ async function handlePaymentIntentFailed(
 	}
 }
 
-async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
+async function handleChargeRefunded(
+	event: Stripe.ChargeRefundedEvent,
+	options: { endUserOnly?: boolean } = {},
+) {
 	const charge = event.data.object;
 	const { payment_intent } = charge;
 
@@ -2450,6 +2553,15 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 	});
 	if (walletTopUp) {
 		await handleEndUserTopUpRefunded(walletTopUp);
+		return;
+	}
+
+	// In test (sandbox) mode only end-user top-up refunds are valid; never touch
+	// live org refund state for a non-SDK sandbox charge.
+	if (options.endUserOnly) {
+		logger.info("Ignoring non-SDK test-mode charge.refunded", {
+			paymentIntentId: payment_intent as string,
+		});
 		return;
 	}
 
