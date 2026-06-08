@@ -13,6 +13,7 @@ import {
 	type PromptCacheRetention,
 	type ProviderRequestBody,
 	supportsOpenAIExtendedPromptCache,
+	supportsServiceTier,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
@@ -709,7 +710,14 @@ export async function prepareRequestBody(
 	response_format: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max",
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
@@ -731,8 +739,19 @@ export async function prepareRequestBody(
 	prompt_cache_retention?: PromptCacheRetention,
 	providerCacheControlEnabled = true,
 	n?: number,
+	service_tier?: "auto" | "default" | "flex" | "priority",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+	const supportedServiceTier =
+		(service_tier === "flex" || service_tier === "priority") &&
+		supportsServiceTier(
+			usedInternalModel,
+			usedProvider,
+			service_tier,
+			usedRegion,
+		)
+			? service_tier
+			: undefined;
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
@@ -750,6 +769,19 @@ export async function prepareRequestBody(
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
+
+	// `max` is Anthropic's top effort tier (above `xhigh`). Providers without a
+	// native `max` level treat it as an alias for `high` (e.g. OpenAI, Google,
+	// DeepSeek). Anthropic-family branches use `reasoning_effort` directly and
+	// handle `max` natively, so they intentionally do not use this alias.
+	const genericReasoningEffort:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| undefined = reasoning_effort === "max" ? "high" : reasoning_effort;
 
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (
@@ -1330,12 +1362,15 @@ export async function prepareRequestBody(
 					model: usedExternalId,
 					input: transformedMessages,
 					reasoning: {
-						effort: reasoning_effort ?? defaultEffort,
+						effort: genericReasoningEffort ?? defaultEffort,
 						summary: "detailed",
 					},
 				};
 
 				if (usedProvider === "openai") {
+					if (supportedServiceTier) {
+						responsesBody.service_tier = supportedServiceTier;
+					}
 					if (prompt_cache_key !== undefined) {
 						responsesBody.prompt_cache_key = prompt_cache_key;
 					}
@@ -1420,6 +1455,9 @@ export async function prepareRequestBody(
 			} else {
 				// Use regular chat completions format
 				if (usedProvider === "openai") {
+					if (supportedServiceTier) {
+						requestBody.service_tier = supportedServiceTier;
+					}
 					if (prompt_cache_key !== undefined) {
 						requestBody.prompt_cache_key = prompt_cache_key;
 					}
@@ -1500,7 +1538,7 @@ export async function prepareRequestBody(
 					requestBody.presence_penalty = presence_penalty;
 				}
 				if (reasoning_effort !== undefined) {
-					requestBody.reasoning_effort = reasoning_effort;
+					requestBody.reasoning_effort = genericReasoningEffort;
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;
@@ -1589,6 +1627,8 @@ export async function prepareRequestBody(
 						return 4000;
 					case "xhigh":
 						return 16000;
+					case "max":
+						return 32000;
 					default:
 						return 2000; // medium or undefined
 				}
@@ -1814,6 +1854,8 @@ export async function prepareRequestBody(
 									return "high";
 								case "xhigh":
 									return "xhigh";
+								case "max":
+									return "max";
 								default:
 									return "high";
 							}
@@ -2229,6 +2271,8 @@ export async function prepareRequestBody(
 								return "high";
 							case "xhigh":
 								return "xhigh";
+							case "max":
+								return "max";
 							default:
 								return "high";
 						}
@@ -2256,6 +2300,8 @@ export async function prepareRequestBody(
 								return 4000;
 							case "xhigh":
 								return 16000;
+							case "max":
+								return 32000;
 							default:
 								return 2000;
 						}
@@ -2426,7 +2472,7 @@ export async function prepareRequestBody(
 						// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
 							reasoning_max_tokens;
-					} else if (reasoning_effort !== undefined) {
+					} else if (genericReasoningEffort !== undefined) {
 						const getThinkingBudget = (effort: string) => {
 							switch (effort) {
 								case "minimal":
@@ -2443,7 +2489,7 @@ export async function prepareRequestBody(
 							}
 						};
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
-							getThinkingBudget(reasoning_effort);
+							getThinkingBudget(genericReasoningEffort);
 					}
 				}
 			}
@@ -2566,7 +2612,7 @@ export async function prepareRequestBody(
 				requestBody.presence_penalty = presence_penalty;
 			}
 			if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = reasoning_effort;
+				requestBody.reasoning_effort = genericReasoningEffort;
 			}
 			break;
 		}
@@ -2674,7 +2720,7 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = reasoning_effort;
+					requestBody.reasoning_effort = genericReasoningEffort;
 				}
 			}
 			if (usedProvider === "minimax" && supportsReasoning) {

@@ -8,5 +8,5 @@ export const size = ogSize;
 export const contentType = ogContentType;
 
 export default async function EmbeddingModelsOgImage() {
-	return generateCategoryOgImage("embedding");
+	return await generateCategoryOgImage("embedding");
 }

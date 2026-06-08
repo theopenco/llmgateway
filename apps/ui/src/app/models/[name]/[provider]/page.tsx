@@ -106,7 +106,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 	const providerMapping = {
 		...staticProviderMapping,
-		discount: globalDiscount ?? staticProviderMapping.discount,
+		discount: globalDiscount,
 	};
 
 	const bannerDiscount: DiscountData | null = (() => {
@@ -428,7 +428,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								providerMappings.map((p) => ({
 									...p,
 									providerInfo,
-									discount: globalDiscount ?? p.discount,
+									discount: globalDiscount,
 								})),
 							)}
 						/>

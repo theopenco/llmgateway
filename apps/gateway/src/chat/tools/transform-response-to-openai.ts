@@ -358,6 +358,7 @@ export function transformResponseToOpenai(
 	cacheCreation5mTokens: number | null = null,
 	cacheCreation1hTokens: number | null = null,
 	audioInputTokens: number | null = null,
+	serviceTier?: string,
 ) {
 	let transformedResponse = json;
 
@@ -1321,6 +1322,14 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
+	}
+
+	if (
+		serviceTier !== undefined &&
+		transformedResponse &&
+		typeof transformedResponse === "object"
+	) {
+		transformedResponse.service_tier = serviceTier;
 	}
 
 	return transformedResponse;

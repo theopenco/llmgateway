@@ -18,6 +18,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
+	findEffectiveDiscount,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -28,12 +29,18 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import {
+	assertOriginAllowed,
+	loadEndUserWallet,
+	withCreditsMode,
+	withWalletCredits,
+} from "@/lib/end-user-session.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
 } from "@/lib/gcp-token.js";
-import { throwIamException, validateModelAccess } from "@/lib/iam.js";
+import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
@@ -65,10 +72,12 @@ import {
 import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
+	applyGoogleServiceTier,
 	getCheapestFromAvailableProviders,
+	getDiscountedProviderSelectionPrice,
 	getProviderEndpoint,
 	getProviderHeaders,
-	getProviderSelectionPrice,
+	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
@@ -113,11 +122,14 @@ import {
 	type ProviderModelMapping,
 	type ProviderRequestBody,
 	providers,
+	supportsServiceTier,
 	type WebSearchTool,
 	expandAllProviderRegions,
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
+	getProviderEnvValue,
 } from "@llmgateway/models";
+import { isChatPlanModelAllowed } from "@llmgateway/shared";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -169,6 +181,7 @@ import {
 } from "./tools/reasoning-details.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import {
+	assertDevPlanPremiumCapNotExceeded,
 	formatUsedModelForDisplay,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
@@ -333,7 +346,16 @@ function preferConcreteRegionalMappings(
 	);
 }
 
-function collapseProvidersToBestRegionPerProvider(
+function createProviderDiscountResolver(organizationId: string) {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
+			.discount;
+}
+
+async function collapseProvidersToBestRegionPerProvider(
 	candidates: ProviderModelMapping[],
 	model: ModelDefinition & {
 		id: string;
@@ -345,8 +367,9 @@ function collapseProvidersToBestRegionPerProvider(
 		promptTokens?: number;
 		sessionId?: string;
 		routingConfig?: ResolvedRoutingConfig;
+		organizationId: string;
 	},
-): ProviderModelMapping[] {
+): Promise<ProviderModelMapping[]> {
 	const providersById = new Map<string, ProviderModelMapping[]>();
 
 	for (const candidate of candidates) {
@@ -355,19 +378,28 @@ function collapseProvidersToBestRegionPerProvider(
 		providersById.set(candidate.providerId, providerCandidates);
 	}
 
-	return Array.from(providersById.values()).map((providerCandidates) => {
-		if (providerCandidates.length === 1) {
-			return providerCandidates[0];
-		}
+	const collapsedProviders = await Promise.all(
+		Array.from(providersById.values()).map(async (providerCandidates) => {
+			if (providerCandidates.length === 1) {
+				return providerCandidates[0];
+			}
 
-		const bestCandidate = getCheapestFromAvailableProviders(
-			providerCandidates,
-			model,
-			options,
-		);
+			const bestCandidate = await getCheapestFromAvailableProviders(
+				providerCandidates,
+				model,
+				{
+					...options,
+					providerDiscountResolver: createProviderDiscountResolver(
+						options.organizationId,
+					),
+				},
+			);
 
-		return bestCandidate?.provider ?? providerCandidates[0];
-	});
+			return bestCandidate?.provider ?? providerCandidates[0];
+		}),
+	);
+
+	return collapsedProviders;
 }
 
 function resolveRegionFromProviderKey(
@@ -611,13 +643,15 @@ function getContentFilterRoutingDecision(
 	};
 }
 
-function addContentFilterRoutingMetadata(
+async function addContentFilterRoutingMetadata(
 	routingMetadata: RoutingMetadata,
 	contentFilterMatched: boolean,
 	excludedProviders: ProviderModelMapping[],
 	modelId: string | undefined,
 	metricsMap: Map<string, ProviderMetrics>,
-): RoutingMetadata {
+	organizationId: string,
+	providerDiscountResolver: ReturnType<typeof createProviderDiscountResolver>,
+): Promise<RoutingMetadata> {
 	if (!contentFilterMatched) {
 		return routingMetadata;
 	}
@@ -630,23 +664,31 @@ function addContentFilterRoutingMetadata(
 		excludedProviders.length === 0 || !modelId
 			? routingMetadata.providerScores
 			: [
-					...excludedProviders.map((provider) => {
-						const metrics = metricsMap.get(
-							metricsKey(modelId, provider.providerId, provider.region),
-						);
+					...(await Promise.all(
+						excludedProviders.map(async (provider) => {
+							const metrics = metricsMap.get(
+								metricsKey(modelId, provider.providerId, provider.region),
+							);
+							const { price, discount } =
+								await getDiscountedProviderSelectionPrice(provider, modelId, {
+									organizationId,
+									providerDiscountResolver,
+								});
 
-						return {
-							providerId: provider.providerId,
-							region: provider.region,
-							score: -1,
-							uptime: metrics?.uptime ?? 0,
-							latency: metrics?.averageLatency ?? 0,
-							throughput: metrics?.throughput ?? 0,
-							price: getProviderSelectionPrice(provider).toNumber(),
-							contentFilterProvider: true,
-							excludedByContentFilter: true,
-						};
-					}),
+							return {
+								providerId: provider.providerId,
+								region: provider.region,
+								score: -1,
+								uptime: metrics?.uptime ?? 0,
+								latency: metrics?.averageLatency ?? 0,
+								throughput: metrics?.throughput ?? 0,
+								price: price.toNumber(),
+								discount: discount.toNumber(),
+								contentFilterProvider: true,
+								excludedByContentFilter: true,
+							};
+						}),
+					)),
 					...routingMetadata.providerScores,
 				];
 
@@ -695,6 +737,160 @@ function isGoogleCompatibleProvider(provider: string): boolean {
 		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
+	);
+}
+
+function isVertexCompatibleProvider(provider: string): boolean {
+	return provider === "google-vertex" || provider === "quartz";
+}
+
+/**
+ * Dev-only verification log confirming a requested processing tier reached the
+ * provider. AI Studio reports the served tier in the `x-gemini-service-tier`
+ * response header; Vertex reports it in `usageMetadata.trafficType` (logged
+ * separately once the response body is parsed).
+ */
+function logServiceTierRequest(
+	provider: string,
+	serviceTier: string | undefined,
+	res: Response | undefined,
+): void {
+	if (
+		process.env.NODE_ENV === "production" ||
+		(serviceTier !== "flex" && serviceTier !== "priority") ||
+		!isGoogleCompatibleProvider(provider)
+	) {
+		return;
+	}
+	logger.debug("service_tier request sent", {
+		provider,
+		requestedServiceTier: serviceTier,
+		transport: isVertexCompatibleProvider(provider)
+			? "X-Vertex-AI-LLM-Shared-Request-Type header"
+			: "service_tier body field",
+		servedServiceTier: res?.headers.get("x-gemini-service-tier") ?? null,
+		status: res?.status,
+	});
+}
+
+/**
+ * Dev-only verification log for the served Vertex tier. Vertex echoes the
+ * applied tier in `usageMetadata.trafficType` (ON_DEMAND_PRIORITY /
+ * ON_DEMAND_FLEX, or plain ON_DEMAND when downgraded under load).
+ */
+function logVertexTrafficType(
+	provider: string,
+	serviceTier: string | undefined,
+	data: { usageMetadata?: { trafficType?: string } } | undefined,
+): void {
+	const trafficType = data?.usageMetadata?.trafficType;
+	if (
+		process.env.NODE_ENV === "production" ||
+		(serviceTier !== "flex" && serviceTier !== "priority") ||
+		!isVertexCompatibleProvider(provider) ||
+		!trafficType
+	) {
+		return;
+	}
+	logger.debug("service_tier served (vertex trafficType)", {
+		provider,
+		requestedServiceTier: serviceTier,
+		trafficType,
+		downgraded: trafficType === "ON_DEMAND",
+	});
+}
+
+function readServiceTierValue(value: unknown): string | undefined {
+	if (typeof value !== "object" || value === null) {
+		return undefined;
+	}
+
+	const record = value as Record<string, unknown>;
+	if (typeof record.service_tier === "string") {
+		return record.service_tier;
+	}
+
+	if (typeof record.response === "object" && record.response !== null) {
+		return readServiceTierValue(record.response);
+	}
+
+	return undefined;
+}
+
+function resolveOpenAIServiceTier(
+	data: unknown,
+): "flex" | "priority" | null | undefined {
+	const serviceTier = readServiceTierValue(data);
+	if (serviceTier === undefined) {
+		return undefined;
+	}
+	const normalized = serviceTier.toLowerCase();
+	if (normalized === "flex" || normalized === "priority") {
+		return normalized;
+	}
+	return null;
+}
+
+function getForwardedServiceTier(
+	model: string,
+	provider: Provider,
+	region: string | undefined,
+	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
+	configIndex?: number,
+): "flex" | "priority" | undefined {
+	if (serviceTier !== "flex" && serviceTier !== "priority") {
+		return undefined;
+	}
+	const effectiveRegion =
+		provider === "google-vertex"
+			? (region ??
+				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				"global")
+			: region;
+	return supportsServiceTier(
+		model,
+		provider,
+		serviceTier,
+		effectiveRegion ?? null,
+	)
+		? serviceTier
+		: undefined;
+}
+
+function isRequestedServiceTier(
+	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
+): serviceTier is "flex" | "priority" {
+	return serviceTier === "flex" || serviceTier === "priority";
+}
+
+function providerMatchesRequestedProvider(
+	mapping: ProviderModelMapping,
+	requestedProvider: Provider | undefined,
+): boolean {
+	return (
+		!requestedProvider ||
+		requestedProvider === "llmgateway" ||
+		mapping.providerId === requestedProvider
+	);
+}
+
+function mappingSupportsRequestedServiceTier(
+	model: string,
+	mapping: ProviderModelMapping,
+	serviceTier: "flex" | "priority",
+	configIndex?: number,
+): boolean {
+	const effectiveRegion =
+		mapping.providerId === "google-vertex"
+			? (mapping.region ??
+				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				"global")
+			: mapping.region;
+	return supportsServiceTier(
+		model,
+		mapping.providerId,
+		serviceTier,
+		effectiveRegion ?? null,
 	);
 }
 
@@ -1167,6 +1363,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		service_tier,
 		web_search,
 		plugins,
 		n,
@@ -1506,8 +1703,16 @@ chat.openapi(completions, async (c) => {
 
 	assertApiKeyWithinUsageLimits(apiKey);
 
+	// LLM SDK: ephemeral end-user session tokens are bound to one wallet.
+	// Validate expiry + load the wallet now; below we present an "effective"
+	// project (forced credits mode) and organization (credits mirror the wallet
+	// balance) so the existing credit-gating logic bills the wallet, while the
+	// log's endCustomerWalletId redirects the worker's debit to that wallet.
+	// (Shared with embeddings/moderations via apps/gateway/src/lib/end-user-session.ts.)
+	const endUserWallet = (await loadEndUserWallet(apiKey)) ?? undefined;
+
 	// Get the project to determine mode for routing decisions
-	const project = await findProjectById(apiKey.projectId);
+	let project = await findProjectById(apiKey.projectId);
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -1522,6 +1727,17 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// End-user sessions always bill via wallet credits through llmgateway's own
+	// provider keys — never the developer's BYO keys.
+	if (endUserWallet) {
+		assertOriginAllowed(c, project);
+		project = withCreditsMode(project);
+	}
+
+	const providerDiscountResolver = createProviderDiscountResolver(
+		project.organizationId,
+	);
+
 	const buildFinalResponseMetadata = (discount?: number | null) =>
 		toResponseMetadataExtras({
 			logId: finalLogId,
@@ -1529,6 +1745,8 @@ chat.openapi(completions, async (c) => {
 			projectId: apiKey.projectId,
 			discount: discount ?? null,
 		});
+
+	let configIndex = 0; // Index for round-robin environment variables
 
 	// Filter region candidates based on available keys.
 	// - credits mode: only keep regions with env keys (base key → default region only)
@@ -1583,8 +1801,142 @@ chat.openapi(completions, async (c) => {
 		allModelProviders = filterHybridRegions(allModelProviders);
 	}
 
+	if (isRequestedServiceTier(service_tier)) {
+		const serviceTierCandidateProviders = modelInfo.providers.filter(
+			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
+		);
+		const serviceTierSupportedProviders = serviceTierCandidateProviders.filter(
+			(mapping) =>
+				mappingSupportsRequestedServiceTier(
+					modelInfo.id,
+					mapping,
+					service_tier,
+					configIndex,
+				),
+		);
+
+		if (serviceTierSupportedProviders.length === 0) {
+			const scopedModel =
+				requestedProvider &&
+				requestedProvider !== "llmgateway" &&
+				requestedProvider !== "custom"
+					? `${requestedProvider}/${modelInfo.id}`
+					: modelInfo.id;
+			const errorMessage = `Service tier '${service_tier}' is not available for model ${scopedModel}.`;
+
+			try {
+				await _insertLog(
+					{
+						...createLogEntry(
+							requestId,
+							project,
+							apiKey,
+							undefined,
+							"",
+							undefined,
+							"llmgateway",
+							requestedModel,
+							requestedProvider,
+							messages as any[],
+							temperature,
+							max_tokens,
+							top_p,
+							frequency_penalty,
+							presence_penalty,
+							reasoning_effort,
+							reasoning_max_tokens,
+							effort as "low" | "medium" | "high" | undefined,
+							response_format,
+							tools,
+							tool_choice,
+							source,
+							customHeaders,
+							debugMode,
+							userAgent,
+							image_config,
+						),
+						...(logIdOverride ? { id: logIdOverride } : {}),
+						responsesApiData,
+						content: null,
+						responseSize: 0,
+						finishReason: "client_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: !!stream,
+						canceled: false,
+						errorDetails: {
+							statusCode: 400,
+							statusText: "Bad Request",
+							responseText: JSON.stringify({
+								message: errorMessage,
+								service_tier,
+								model: scopedModel,
+							}),
+							cause: "unsupported_service_tier",
+						},
+						duration: 0,
+						timeToFirstToken: null,
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						serviceTier: null,
+						dataStorageCost: "0",
+					},
+					{ syncInsert: syncLogInsert },
+				);
+			} catch (error) {
+				logger.error("Failed to log unsupported service tier rejection", {
+					error: toError(error),
+				});
+			}
+
+			return c.json(
+				{
+					error: {
+						message: errorMessage,
+						type: "invalid_request_error",
+						param: "service_tier",
+						code: "unsupported_service_tier",
+					},
+				},
+				400,
+			);
+		}
+
+		const supportsRequestedTier = (mapping: ProviderModelMapping) =>
+			providerMatchesRequestedProvider(mapping, requestedProvider) &&
+			mappingSupportsRequestedServiceTier(
+				modelInfo.id,
+				mapping,
+				service_tier,
+				configIndex,
+			);
+		modelInfo = {
+			...modelInfo,
+			providers: modelInfo.providers.filter(supportsRequestedTier),
+		};
+		routingExpandedModelProviders = routingExpandedModelProviders.filter(
+			supportsRequestedTier,
+		);
+		allModelProviders = allModelProviders.filter(supportsRequestedTier);
+	}
+
 	// Fetch organization for coding model restriction check and credit validation
-	const organization = await findOrganizationById(project.organizationId);
+	let organization = await findOrganizationById(project.organizationId);
 
 	if (!organization) {
 		throw new HTTPException(500, {
@@ -1596,6 +1948,14 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
 		});
+	}
+
+	// End-user session: present the wallet balance as the organization's credits
+	// so all downstream credit-gating evaluates the wallet, not the developer's
+	// org. The real organization.credits row is never touched — the worker debits
+	// the wallet (see apps/gateway/src/lib/end-user-session.ts).
+	if (endUserWallet) {
+		organization = withWalletCredits(organization, endUserWallet);
 	}
 
 	const routingCfg = await getResolvedRoutingConfig(
@@ -1613,7 +1973,13 @@ chat.openapi(completions, async (c) => {
 		devPlan: organization.devPlan,
 		devPlanCreditsLimit: organization.devPlanCreditsLimit,
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
+		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
+		devPlanPremiumWeekStart: organization.devPlanPremiumWeekStart,
 		devPlanExpiresAt: organization.devPlanExpiresAt,
+		chatPlan: organization.chatPlan,
+		chatPlanCreditsLimit: organization.chatPlanCreditsLimit,
+		chatPlanCreditsUsed: organization.chatPlanCreditsUsed,
+		chatPlanExpiresAt: organization.chatPlanExpiresAt,
 	};
 
 	// Run guardrails check for enterprise organizations
@@ -1816,6 +2182,20 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Chat plan Starter tier is restricted to non-premium models. Plus and Pro
+	// tiers have access to everything. This applies to all requests on a
+	// personal org with chatPlan === "starter" — there's no per-request
+	// "promote to regular credits" path, so an unrestricted Starter would
+	// silently burn dev-plan/regular credits instead of nudging the upgrade.
+	const isStarterChatPlan = Boolean(
+		organization?.isPersonal && organization.chatPlan === "starter",
+	);
+	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
+		throw new HTTPException(403, {
+			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at chat.llmgateway.io/pricing to access frontier models.`,
+		});
+	}
+
 	// Validate model capabilities (JSON output, reasoning, tools, web search, documents)
 	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
 		response_format,
@@ -1840,6 +2220,12 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+	// The processing tier the provider actually served (Flex / Priority),
+	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
+	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
+	// this served tier (not the requested one) since Google downgrades
+	// unsupported tiers to standard. Null = standard / no tier.
+	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
@@ -1858,8 +2244,8 @@ chat.openapi(completions, async (c) => {
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
 	const clientIp = getClientIpFromRequest(c);
-	const iamValidation = await validateModelAccess(
-		apiKey.id,
+	const iamValidation = await validateRequestModelAccess(
+		apiKey,
 		modelInfo.id,
 		requestedProvider,
 		modelInfo,
@@ -1997,6 +2383,26 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Skip models that can't emit text. Auto routes chat completions, so
+			// audio/video/embedding/image-only output models (e.g. tts-1) must never
+			// be candidates — they fail upstream on /v1/chat/completions. This guard
+			// also applies on the audio-input path below, where the allowlist check
+			// is intentionally relaxed.
+			const candidateOutput = (modelDef as ModelDefinition).output;
+			if (candidateOutput && !candidateOutput.includes("text")) {
+				continue;
+			}
+
+			// Starter chat plan can't reach blocked frontier models. Enforce it
+			// during auto-selection too, otherwise an "auto" request would skip
+			// the pre-routing check above and resolve to a blocked model.
+			if (
+				isStarterChatPlan &&
+				!isChatPlanModelAllowed("starter", modelDef.id)
+			) {
+				continue;
+			}
+
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
 			if (free_models_only) {
@@ -2020,8 +2426,8 @@ chat.openapi(completions, async (c) => {
 			// Validate IAM rules for this candidate model and filter providers.
 			// We must re-evaluate per model because iamAllowedProviders was computed
 			// for the "auto" model which only has the "llmgateway" provider.
-			const candidateIam = await validateModelAccess(
-				apiKey.id,
+			const candidateIam = await validateRequestModelAccess(
+				apiKey,
 				modelDef.id,
 				undefined,
 				modelDef,
@@ -2170,10 +2576,15 @@ chat.openapi(completions, async (c) => {
 			if (suitableProviders.length > 0) {
 				// Find the cheapest among the suitable providers for this model
 				for (const provider of suitableProviders) {
-					const totalPrice =
-						(Number(provider.inputPrice ?? "0") +
-							Number(provider.outputPrice ?? "0")) /
-						2;
+					const { price } = await getDiscountedProviderSelectionPrice(
+						provider,
+						modelDef.id,
+						{
+							organizationId: project.organizationId,
+							providerDiscountResolver,
+						},
+					);
+					const totalPrice = price.toNumber();
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
@@ -2199,7 +2610,7 @@ chat.openapi(completions, async (c) => {
 				routingCfg,
 			);
 			providerAgnosticSelectedProviders =
-				collapseProvidersToBestRegionPerProvider(
+				await collapseProvidersToBestRegionPerProvider(
 					selectedProviders,
 					selectedModel,
 					{
@@ -2208,10 +2619,11 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						sessionId,
 						routingConfig: routingCfg,
+						organizationId: project.organizationId,
 					},
 				);
 
-			const cheapestResult = getCheapestFromAvailableProviders(
+			const cheapestResult = await getCheapestFromAvailableProviders(
 				providerAgnosticSelectedProviders,
 				selectedModel,
 				{
@@ -2220,6 +2632,8 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					sessionId,
 					routingConfig: routingCfg,
+					organizationId: project.organizationId,
+					providerDiscountResolver,
 				},
 			);
 
@@ -2283,8 +2697,8 @@ chat.openapi(completions, async (c) => {
 		// shortcut.  The original iamAllowedProviders was computed for the "auto"
 		// model (which only has the "llmgateway" provider) and is not meaningful
 		// for the resolved model.
-		const resolvedIamValidation = await validateModelAccess(
-			apiKey.id,
+		const resolvedIamValidation = await validateRequestModelAccess(
+			apiKey,
 			modelInfo.id,
 			undefined,
 			modelInfo,
@@ -2431,7 +2845,7 @@ chat.openapi(completions, async (c) => {
 						metricsCombinations,
 						routingCfg,
 					);
-					const bestRegionResult = getCheapestFromAvailableProviders(
+					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
 						modelInfo as ModelDefinition & {
 							id: string;
@@ -2443,6 +2857,8 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							sessionId,
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -2631,7 +3047,7 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 
-						const cheapestResult = getCheapestFromAvailableProviders(
+						const cheapestResult = await getCheapestFromAvailableProviders(
 							candidatesForRouting,
 							modelWithPricing,
 							{
@@ -2640,21 +3056,31 @@ chat.openapi(completions, async (c) => {
 								promptTokens: routingPromptTokens,
 								sessionId,
 								routingConfig: routingCfg,
+								organizationId: project.organizationId,
+								providerDiscountResolver,
 							},
 						);
 
 						const originalProviderInfo = modelInfo.providers.find(
 							(p) => p.providerId === requestedProvider,
 						);
-						const originalProviderPrice = originalProviderInfo
-							? Number(originalProviderInfo.inputPrice ?? "0") +
-								Number(originalProviderInfo.outputPrice ?? "0")
-							: 0;
+						const {
+							price: originalProviderPrice,
+							discount: originalProviderDiscount,
+						} = await getDiscountedProviderSelectionPrice(
+							originalProviderInfo,
+							modelWithPricing.id,
+							{
+								organizationId: project.organizationId,
+								providerDiscountResolver,
+							},
+						);
 
 						const originalProviderScore = {
 							providerId: requestedProvider,
 							score: -1,
-							price: originalProviderPrice,
+							price: originalProviderPrice.toNumber(),
+							discount: originalProviderDiscount.toNumber(),
 							rate_limited: true as const,
 						};
 
@@ -2803,7 +3229,7 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 						const providerAgnosticCandidates =
-							collapseProvidersToBestRegionPerProvider(
+							await collapseProvidersToBestRegionPerProvider(
 								uptimeFallbackCandidates,
 								modelWithPricing,
 								{
@@ -2812,6 +3238,7 @@ chat.openapi(completions, async (c) => {
 									promptTokens: routingPromptTokens,
 									sessionId,
 									routingConfig: routingCfg,
+									organizationId: project.organizationId,
 								},
 							);
 
@@ -2834,7 +3261,7 @@ chat.openapi(completions, async (c) => {
 						// Only proceed with fallback if there are providers with better uptime
 						// Otherwise stick with the original provider
 						if (betterUptimeProviders.length > 0) {
-							const cheapestResult = getCheapestFromAvailableProviders(
+							const cheapestResult = await getCheapestFromAvailableProviders(
 								betterUptimeProviders,
 								modelWithPricing,
 								{
@@ -2843,6 +3270,8 @@ chat.openapi(completions, async (c) => {
 									promptTokens: routingPromptTokens,
 									sessionId,
 									routingConfig: routingCfg,
+									organizationId: project.organizationId,
+									providerDiscountResolver,
 								},
 							);
 
@@ -2850,16 +3279,24 @@ chat.openapi(completions, async (c) => {
 							const originalProviderInfo = modelInfo.providers.find(
 								(p) => p.providerId === requestedProvider,
 							);
-							const originalProviderPrice = originalProviderInfo
-								? Number(originalProviderInfo.inputPrice ?? "0") +
-									Number(originalProviderInfo.outputPrice ?? "0")
-								: 0;
+							const {
+								price: originalProviderPrice,
+								discount: originalProviderDiscount,
+							} = await getDiscountedProviderSelectionPrice(
+								originalProviderInfo,
+								modelWithPricing.id,
+								{
+									organizationId: project.organizationId,
+									providerDiscountResolver,
+								},
+							);
 
 							// Create score entry for the original requested provider
 							const originalProviderScore = {
 								providerId: requestedProvider,
 								score: -1, // Negative score indicates this provider was skipped due to low uptime
-								price: originalProviderPrice,
+								price: originalProviderPrice.toNumber(),
+								discount: originalProviderDiscount.toNumber(),
 								uptime: currentUptime,
 								latency: metrics.averageLatency,
 								throughput: metrics.throughput,
@@ -3018,7 +3455,7 @@ chat.openapi(completions, async (c) => {
 					routingCfg,
 				);
 				const providerAgnosticCandidates =
-					collapseProvidersToBestRegionPerProvider(
+					await collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
 						modelWithPricing,
 						{
@@ -3027,10 +3464,11 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							sessionId,
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
 						},
 					);
 
-				const cheapestResult = getCheapestFromAvailableProviders(
+				const cheapestResult = await getCheapestFromAvailableProviders(
 					providerAgnosticCandidates,
 					modelWithPricing,
 					{
@@ -3039,6 +3477,8 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						sessionId,
 						routingConfig: routingCfg,
+						organizationId: project.organizationId,
+						providerDiscountResolver,
 					},
 				);
 
@@ -3092,7 +3532,7 @@ chat.openapi(completions, async (c) => {
 					usedInternalModel = modelWithPricing.id;
 					usedExternalId = selectedProvider.externalId;
 					usedRegion = selectedProvider.region;
-					routingMetadata = addContentFilterRoutingMetadata(
+					routingMetadata = await addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
 							selectedProvider: usedProvider,
@@ -3103,6 +3543,8 @@ chat.openapi(completions, async (c) => {
 						contentFilterRoutingExcludedProviders,
 						modelWithPricing.id,
 						metricsMap,
+						project.organizationId,
+						providerDiscountResolver,
 					);
 					// Annotate rate-limited providers in routing metadata
 					if (rateLimitedProviderIds.size > 0) {
@@ -3117,13 +3559,20 @@ chat.openapi(completions, async (c) => {
 								const providerInfo = modelInfo.providers.find(
 									(p) => p.providerId === rlProviderId,
 								);
+								const { price, discount } =
+									await getDiscountedProviderSelectionPrice(
+										providerInfo,
+										modelWithPricing.id,
+										{
+											organizationId: project.organizationId,
+											providerDiscountResolver,
+										},
+									);
 								routingMetadata.providerScores.push({
 									providerId: rlProviderId,
 									score: -1,
-									price: providerInfo
-										? Number(providerInfo.inputPrice ?? "0") +
-											Number(providerInfo.outputPrice ?? "0")
-										: 0,
+									price: price.toNumber(),
+									discount: discount.toNumber(),
 									rate_limited: true,
 								});
 							}
@@ -3257,7 +3706,7 @@ chat.openapi(completions, async (c) => {
 			selectionReason === "direct-provider-specified" &&
 			directProviderRegionWasExplicit
 				? null
-				: getCheapestFromAvailableProviders(
+				: await getCheapestFromAvailableProviders(
 						routingMetadataProviders,
 						modelInfo as ModelDefinition & {
 							id: string;
@@ -3269,31 +3718,45 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							sessionId,
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
+							providerDiscountResolver,
 						},
 					);
 
 		const allProviderScores =
 			weightedScores?.metadata.providerScores ??
-			routingMetadataProviders.map((p) => {
-				const metrics = metricsMap.get(
-					metricsKey(baseModelId, p.providerId, p.region),
-				);
-				return {
-					providerId: p.providerId,
-					region: p.region,
-					score:
-						selectionReason === "direct-provider-specified" &&
-						directProviderRegionWasExplicit
-							? 1
-							: 0,
-					price: getProviderSelectionPrice(p).toNumber(),
-					uptime: metrics?.uptime ?? 0,
-					latency: metrics?.averageLatency ?? 0,
-					throughput: metrics?.throughput ?? 0,
-				};
-			});
+			(await Promise.all(
+				routingMetadataProviders.map(async (p) => {
+					const metrics = metricsMap.get(
+						metricsKey(baseModelId, p.providerId, p.region),
+					);
+					const { price, discount } = await getDiscountedProviderSelectionPrice(
+						p,
+						baseModelId,
+						{
+							organizationId: project.organizationId,
+							providerDiscountResolver,
+						},
+					);
 
-		routingMetadata = addContentFilterRoutingMetadata(
+					return {
+						providerId: p.providerId,
+						region: p.region,
+						score:
+							selectionReason === "direct-provider-specified" &&
+							directProviderRegionWasExplicit
+								? 1
+								: 0,
+						price: price.toNumber(),
+						discount: discount.toNumber(),
+						uptime: metrics?.uptime ?? 0,
+						latency: metrics?.averageLatency ?? 0,
+						throughput: metrics?.throughput ?? 0,
+					};
+				}),
+			));
+
+		routingMetadata = await addContentFilterRoutingMetadata(
 			{
 				availableProviders: routingMetadataProviders.map((p) => p.providerId),
 				selectedProvider: usedProvider,
@@ -3305,6 +3768,8 @@ chat.openapi(completions, async (c) => {
 			contentFilterRoutingExcludedProviders,
 			baseModelId,
 			metricsMap,
+			project.organizationId,
+			providerDiscountResolver,
 		);
 	}
 
@@ -3392,7 +3857,6 @@ chat.openapi(completions, async (c) => {
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let usedApiKeyHash: string | undefined;
-	let configIndex = 0; // Index for round-robin environment variables
 	let envVarName: string | undefined; // Environment variable name for health tracking
 	// ID for tracked-key health attribution. Equal to providerKey.id when the
 	// DB-provided key is what's actually sent. Cleared when a region-specific
@@ -3466,14 +3930,24 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 	} else if (project.mode === "credits") {
-		// Check both regular credits AND dev plan credits
+		// Check regular credits, dev plan credits, and chat plan credits.
+		assertDevPlanPremiumCapNotExceeded(
+			organization,
+			(finalModelInfo ?? modelInfo) as ModelDefinition,
+		);
 		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
 			organization.devPlan !== "none"
 				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
-		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+		const chatPlanCreditsRemaining =
+			organization.chatPlan !== "none"
+				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+					parseFloat(organization.chatPlanCreditsUsed ?? "0")
+				: 0;
+		const totalAvailableCredits =
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 		// We trust the bare `modelInfo.free` flag here: free models are always
 		// marked explicitly in the catalog, so a `free: true` model is intended
@@ -3482,6 +3956,18 @@ chat.openapi(completions, async (c) => {
 			totalAvailableCredits <= 0 &&
 			!((finalModelInfo ?? modelInfo) as ModelDefinition).free
 		) {
+			if (
+				organization.chatPlan !== "none" &&
+				chatPlanCreditsRemaining <= 0 &&
+				devPlanCreditsRemaining <= 0
+			) {
+				const renewalDate = organization.chatPlanExpiresAt
+					? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+					: "your next billing date";
+				throw new HTTPException(402, {
+					message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				});
+			}
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 				const renewalDate = organization.devPlanExpiresAt
 					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
@@ -3572,19 +4058,41 @@ chat.openapi(completions, async (c) => {
 			}
 		} else {
 			// No API key available, fall back to credits
-			// Check both regular credits AND dev plan credits
+			// Check regular credits, dev plan credits, and chat plan credits.
+			assertDevPlanPremiumCapNotExceeded(
+				organization,
+				(finalModelInfo ?? modelInfo) as ModelDefinition,
+			);
 			const regularCredits = parseFloat(organization.credits ?? "0");
 			const devPlanCreditsRemaining =
 				organization.devPlan !== "none"
 					? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 						parseFloat(organization.devPlanCreditsUsed ?? "0")
 					: 0;
-			const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+			const chatPlanCreditsRemaining =
+				organization.chatPlan !== "none"
+					? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+						parseFloat(organization.chatPlanCreditsUsed ?? "0")
+					: 0;
+			const totalAvailableCredits =
+				regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 			if (
 				totalAvailableCredits <= 0 &&
 				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition)
 			) {
+				if (
+					organization.chatPlan !== "none" &&
+					chatPlanCreditsRemaining <= 0 &&
+					devPlanCreditsRemaining <= 0
+				) {
+					const renewalDate = organization.chatPlanExpiresAt
+						? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+						: "your next billing date";
+					throw new HTTPException(402, {
+						message: `No API key set for provider. Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+					});
+				}
 				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 					const renewalDate = organization.devPlanExpiresAt
 						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
@@ -3749,7 +4257,13 @@ chat.openapi(completions, async (c) => {
 				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 					parseFloat(organization.devPlanCreditsUsed ?? "0")
 				: 0;
-		const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+		const chatPlanCreditsRemaining =
+			organization.chatPlan !== "none"
+				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+					parseFloat(organization.chatPlanCreditsUsed ?? "0")
+				: 0;
+		const totalAvailableCredits =
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 		if (totalAvailableCredits <= 0) {
 			throw new HTTPException(402, {
@@ -3932,6 +4446,8 @@ chat.openapi(completions, async (c) => {
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
 	let splitTaggedReasoning =
 		selectedProviderMapping?.splitTaggedReasoning === true;
+	let healStreamingJsonOutput =
+		selectedProviderMapping?.healStreamingJsonOutput === true;
 
 	// Check if messages contain existing tool calls or tool results
 	// If so, use Chat Completions API instead of Responses API
@@ -4040,6 +4556,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_key,
 			prompt_cache_retention,
 			n,
+			service_tier,
 		};
 
 		if (stream) {
@@ -4745,6 +5262,13 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_retention,
 			providerCacheControlEnabled,
 			n,
+			getForwardedServiceTier(
+				usedInternalModel,
+				usedProvider,
+				usedRegion,
+				service_tier,
+				configIndex,
+			),
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -4949,6 +5473,7 @@ chat.openapi(completions, async (c) => {
 				),
 				n,
 				providerCacheControlEnabled,
+				service_tier,
 			},
 		);
 	}
@@ -5008,6 +5533,7 @@ chat.openapi(completions, async (c) => {
 		}
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
+		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
 		temperature = ctx.temperature;
 		max_tokens = ctx.max_tokens;
 		top_p = ctx.top_p;
@@ -5176,7 +5702,7 @@ chat.openapi(completions, async (c) => {
 						image_config?.image_quality,
 						null,
 						null,
-						{ explicitCacheUsed },
+						{ explicitCacheUsed, servedServiceTier },
 						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -5345,9 +5871,17 @@ chat.openapi(completions, async (c) => {
 					}
 
 					try {
+						const forwardedServiceTier = getForwardedServiceTier(
+							usedInternalModel,
+							usedProvider,
+							usedRegion,
+							service_tier,
+							configIndex,
+						);
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							webSearchEnabled: !!webSearchTool,
+							serviceTier: forwardedServiceTier,
 						});
 						headers["Content-Type"] = "application/json";
 
@@ -5373,6 +5907,14 @@ chat.openapi(completions, async (c) => {
 								: "structured-outputs-2025-11-13";
 						}
 
+						// For the Gemini Developer API the processing tier is a body
+						// field; Vertex uses a header set above in getProviderHeaders.
+						applyGoogleServiceTier(
+							requestBody,
+							usedProvider,
+							forwardedServiceTier,
+						);
+
 						// Create a combined signal for both timeout and cancellation
 						const fetchSignal = createStreamingCombinedSignal(
 							requestCanBeCanceled ? controller : undefined,
@@ -5384,6 +5926,13 @@ chat.openapi(completions, async (c) => {
 							headers,
 							body: JSON.stringify(requestBody),
 							signal: fetchSignal,
+						});
+
+						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
+						// AI Studio reports the served tier in a response header; Vertex
+						// reports it later in usageMetadata.trafficType (set below).
+						servedServiceTier = resolveServedServiceTier({
+							serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
 						});
 					} catch (error) {
 						// Clean up the event listeners
@@ -5612,6 +6161,10 @@ chat.openapi(completions, async (c) => {
 									inputImageCount,
 									webSearchTool ? 1 : null, // Bill for web search if it was enabled
 									project.organizationId,
+									undefined, // imageQuality
+									null, // reportedImageInputTokens
+									null, // reportedImageOutputTokens
+									{ servedServiceTier },
 								);
 							}
 
@@ -6082,7 +6635,7 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										undefined,
+										{ servedServiceTier },
 										true,
 									)
 								: null;
@@ -6657,7 +7210,8 @@ chat.openapi(completions, async (c) => {
 						(usedProvider === "aws-bedrock" &&
 							response_format?.type === "json_object") ||
 						usedProvider === "novita" ||
-						splitTaggedReasoning);
+						splitTaggedReasoning ||
+						healStreamingJsonOutput);
 
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
@@ -7052,6 +7606,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 											explicitCacheUsed,
+											servedServiceTier,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -7517,6 +8072,13 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
+								if (usedProvider === "openai") {
+									const served = resolveOpenAIServiceTier(data);
+									if (served !== undefined) {
+										servedServiceTier = served;
+									}
+								}
+
 								// For Google providers, add usage information when available
 								if (isGoogleCompatibleProvider(usedProvider)) {
 									const usage = extractTokenUsage(
@@ -7525,6 +8087,26 @@ chat.openapi(completions, async (c) => {
 										fullContent,
 										imageByteSize,
 									);
+
+									logVertexTrafficType(
+										usedProvider,
+										getForwardedServiceTier(
+											usedInternalModel,
+											usedProvider,
+											usedRegion,
+											service_tier,
+											configIndex,
+										),
+										data,
+									);
+									{
+										const served = resolveServedServiceTier({
+											trafficType: data?.usageMetadata?.trafficType,
+										});
+										if (served) {
+											servedServiceTier = served;
+										}
+									}
 
 									// If we have usage data from Google, add it to the streaming chunk
 									if (
@@ -8436,6 +9018,7 @@ chat.openapi(completions, async (c) => {
 											audioInputTokens,
 											cachedAudioInputTokens,
 											explicitCacheUsed,
+											servedServiceTier,
 										},
 										finishReason === "content_filter",
 									);
@@ -8768,6 +9351,7 @@ chat.openapi(completions, async (c) => {
 										audioInputTokens,
 										cachedAudioInputTokens,
 										explicitCacheUsed,
+										servedServiceTier,
 									},
 									finishReason === "content_filter",
 								));
@@ -8942,6 +9526,7 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
+						serviceTier: servedServiceTier,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -9127,9 +9712,17 @@ chat.openapi(completions, async (c) => {
 		res = undefined;
 
 		try {
+			const forwardedServiceTier = getForwardedServiceTier(
+				usedInternalModel,
+				usedProvider,
+				usedRegion,
+				service_tier,
+				configIndex,
+			);
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
+				serviceTier: forwardedServiceTier,
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";
@@ -9170,6 +9763,10 @@ chat.openapi(completions, async (c) => {
 						routingCfg,
 					);
 
+			// For the Gemini Developer API the processing tier is a body field;
+			// Vertex uses a header set above in getProviderHeaders.
+			applyGoogleServiceTier(requestBody, usedProvider, forwardedServiceTier);
+
 			res = await fetch(url, {
 				method: "POST",
 				headers,
@@ -9178,6 +9775,13 @@ chat.openapi(completions, async (c) => {
 						? requestBody
 						: JSON.stringify(requestBody),
 				signal: fetchSignal,
+			});
+
+			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
+			// AI Studio reports the served tier in a response header; Vertex reports
+			// it later in usageMetadata.trafficType (set below).
+			servedServiceTier = resolveServedServiceTier({
+				serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
 			});
 		} catch (error) {
 			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
@@ -9452,6 +10056,10 @@ chat.openapi(completions, async (c) => {
 					inputImageCount,
 					webSearchTool ? 1 : null, // Bill for web search if it was enabled
 					project.organizationId,
+					undefined, // imageQuality
+					null, // reportedImageInputTokens
+					null, // reportedImageOutputTokens
+					{ servedServiceTier },
 				);
 			}
 
@@ -9813,7 +10421,7 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							undefined,
+							{ servedServiceTier },
 							true,
 						)
 					: null;
@@ -10452,6 +11060,32 @@ chat.openapi(completions, async (c) => {
 		? parseInt(contentLengthHeader, 10)
 		: 0;
 
+	logVertexTrafficType(
+		usedProvider,
+		getForwardedServiceTier(
+			usedInternalModel,
+			usedProvider,
+			usedRegion,
+			service_tier,
+			configIndex,
+		),
+		json,
+	);
+	if (usedProvider === "openai") {
+		const served = resolveOpenAIServiceTier(json);
+		if (served !== undefined) {
+			servedServiceTier = served;
+		}
+	}
+	{
+		const served = resolveServedServiceTier({
+			trafficType: json?.usageMetadata?.trafficType,
+		});
+		if (served) {
+			servedServiceTier = served;
+		}
+	}
+
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
 		usedProvider,
@@ -10602,6 +11236,7 @@ chat.openapi(completions, async (c) => {
 			audioInputTokens,
 			cachedAudioInputTokens,
 			explicitCacheUsed,
+			servedServiceTier,
 		},
 		finishReason === "content_filter",
 	);
@@ -10677,6 +11312,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
 		audioInputTokens,
+		usedProvider === "openai" ? readServiceTierValue(json) : undefined,
 	);
 	const transformedMetadata =
 		transformedResponse.metadata &&
@@ -10831,6 +11467,7 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
+		serviceTier: servedServiceTier,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,

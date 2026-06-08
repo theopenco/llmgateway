@@ -144,6 +144,140 @@ describe("api", () => {
 		expect(logs[0].finishReason).toBe("stop");
 	});
 
+	test("/v1/chat/completions rejects unsupported service tiers", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-unsupported-service-tier",
+			token: "real-token-unsupported-service-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-unsupported-service-tier",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error).toMatchObject({
+			type: "invalid_request_error",
+			param: "service_tier",
+			code: "unsupported_service_tier",
+		});
+		expect(json.error.message).toContain(
+			"Service tier 'priority' is not available for model openai/gpt-4o.",
+		);
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].finishReason).toBe("client_error");
+		expect(logs[0].hasError).toBe(true);
+		expect(logs[0].serviceTier).toBeNull();
+		expect(logs[0].errorDetails?.statusCode).toBe(400);
+		expect(logs[0].errorDetails?.cause).toBe("unsupported_service_tier");
+		expect(logs[0].errorDetails?.responseText).toContain(
+			"Service tier 'priority' is not available",
+		);
+	});
+
+	test("/v1/chat/completions rejects Vertex service tiers outside the global endpoint", async () => {
+		const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-nonglobal-service-tier",
+				token: "real-token-nonglobal-service-tier",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-nonglobal-service-tier",
+				token: "google-test-key",
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-nonglobal-service-tier",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/gemini-3.5-flash",
+					service_tier: "priority",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error).toMatchObject({
+				type: "invalid_request_error",
+				param: "service_tier",
+				code: "unsupported_service_tier",
+			});
+		} finally {
+			if (originalVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+		}
+	});
+
+	test("/v1/chat/completions preserves nested OpenAI Responses service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-nested-service-tier",
+			token: "real-token-nested-service-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-nested-service-tier",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-nested-service-tier",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].serviceTier).toBe("priority");
+	});
+
 	test("/v1/chat/completions forwards generated request id upstream", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-generated-request-id",

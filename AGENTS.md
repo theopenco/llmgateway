@@ -62,6 +62,7 @@ Caveat: if you run multiple git worktrees (e.g. conductor workspaces), only one 
 - `TEST_MODELS` - Run tests only for specific models (comma-separated list of `provider/model-id` pairs)
   Example: `TEST_MODELS="openai/gpt-4o-mini,anthropic/claude-3-5-sonnet-20241022" pnpm test:e2e`
   This is useful for quick testing as the full e2e suite can take too long with all models.
+  `TEST_MODELS` always overrides provider mappings marked with `test: "skip"`. For example, `TEST_MODELS="anthropic/claude-opus-4-6"` will include that Anthropic mapping even if it is skipped by default, so metadata-driven e2e assertions such as `reasoningOutput` still apply.
 - `FULL_MODE` - Include free models in tests (default: only paid models)
 - `LOG_MODE` - Enable detailed logging of responses
 
@@ -133,12 +134,14 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 ### Database Operations
 
+- Use the local `migrations` skill for database migration generation, review, edits, and merge conflicts.
 - Use Drizzle ORM with latest object syntax
 - The schema uses camelCase in TypeScript but the actual database columns are snake_case (configured via Drizzle's `casing: "snake_case"`). When writing raw SQL, always use snake_case column names (e.g. `user_id`, not `userId`).
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
-- For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
-- Always sync schema with `pnpm run setup` after table/column changes
-- Never write migrations manually, only edit generated migration files if specifically asked
+- For schema changes: edit `packages/db/src/schema.ts`, then generate migration artifacts with `pnpm migrations`
+- If generated migration SQL needs adaptation, edit only the generated `.sql` file. Never manually edit snapshot JSON or journal files.
+- Always sync schema with `pnpm run setup` after table/column changes when local database state needs to be refreshed
+- Never write migrations manually from scratch
 - **NEVER resolve merge conflicts in migration files, journal files, or snapshot files manually.** When merging with main and migration conflicts occur, ALWAYS follow this exact procedure:
   1. **Before merging**, reset migrations: `git restore --source=origin/main packages/db/migrations/`
   2. **After merging**, regenerate migrations: `pnpm migrations`

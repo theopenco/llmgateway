@@ -221,6 +221,23 @@ export function Hero({ providerId }: HeroProps) {
 									</>
 								)}
 							</div>
+							{provider.additionalLinks &&
+								provider.additionalLinks.length > 0 && (
+									<div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-sm text-muted-foreground">
+										{provider.additionalLinks.map((additionalLink) => (
+											<a
+												key={additionalLink.link}
+												href={additionalLink.link}
+												target="_blank"
+												rel="noopener noreferrer"
+												className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+											>
+												{additionalLink.desc}
+												<ExternalLink className="h-3 w-3" />
+											</a>
+										))}
+									</div>
+								)}
 						</div>
 					)}
 

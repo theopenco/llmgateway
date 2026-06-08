@@ -204,10 +204,20 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 					);
 				})}
 			</div>
-			<p className="mt-6 text-center text-xs text-muted-foreground">
+			<InvoiceInfoLabel />
+			<p className="mt-3 text-center text-xs text-muted-foreground">
 				Usage is metered at each provider&apos;s published per-token rate. Every
 				request shows its dollar value in your dashboard in real time.
 			</p>
 		</div>
+	);
+}
+
+function InvoiceInfoLabel() {
+	return (
+		<p className="mx-auto mt-4 max-w-2xl text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }

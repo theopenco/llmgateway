@@ -84,6 +84,7 @@ type PriceField =
 	| "imageInputPrice";
 
 type ProviderWithInfo = ProviderModelMapping & {
+	discount?: string | null;
 	providerInfo?: (typeof providerDefinitions)[number];
 };
 

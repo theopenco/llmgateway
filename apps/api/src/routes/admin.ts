@@ -25,6 +25,7 @@ import {
 	lt,
 	lte,
 	ne,
+	notInArray,
 	or,
 	sql,
 	tables,
@@ -38,7 +39,11 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
-import { DEV_PLAN_PRICES } from "@llmgateway/shared";
+import {
+	DEV_PLAN_PRICES,
+	type DevPlanTier,
+	getDevPlanPremiumWeeklyLimit,
+} from "@llmgateway/shared";
 import {
 	getResendClient,
 	fromEmail,
@@ -3248,6 +3253,7 @@ const rateLimitSchema = z.object({
 	model: z.string().nullable(),
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
+	enforcement: z.enum(["per_org", "global"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -3266,7 +3272,14 @@ const createRateLimitBodySchema = z.object({
 		.number()
 		.int("Limit must be a whole number")
 		.min(1, "Limit must be at least 1"),
+	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	reason: z.string().nullable().optional(),
+});
+
+// Org-specific limits are always enforced per-org, so they don't expose the
+// enforcement choice.
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
+	enforcement: true,
 });
 
 // --- Global Rate Limits ---
@@ -3376,7 +3389,7 @@ const createOrganizationRateLimit = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: createRateLimitBodySchema.openapi({}),
+					schema: createOrganizationRateLimitBodySchema.openapi({}),
 				},
 			},
 		},
@@ -3435,6 +3448,7 @@ function formatRateLimit(r: {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	enforcement: string;
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -3449,6 +3463,8 @@ function formatRateLimit(r: {
 		model: r.model,
 		limitType,
 		maxRequests,
+		enforcement:
+			r.enforcement === "global" ? ("global" as const) : ("per_org" as const),
 		reason: r.reason,
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),
@@ -3489,6 +3505,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			model,
 			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
 			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			enforcement: body.enforcement,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()
@@ -4004,7 +4021,6 @@ const modelStatsSchema = z.object({
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
-	discount: z.string().nullable(),
 	updatedAt: z.string(),
 });
 
@@ -4151,9 +4167,6 @@ admin.openapi(getModelStats, async (c) => {
 					sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
 						"request_price",
 					),
-				discount: sql<string>`MAX(${tables.modelProviderMapping.discount})`.as(
-					"discount",
-				),
 			})
 			.from(tables.modelProviderMapping)
 			.where(eq(tables.modelProviderMapping.status, "active"))
@@ -4242,7 +4255,6 @@ admin.openapi(getModelStats, async (c) => {
 				inputPrice: pricingSub.inputPrice,
 				outputPrice: pricingSub.outputPrice,
 				requestPrice: pricingSub.requestPrice,
-				discount: pricingSub.discount,
 				updatedAt: tables.model.updatedAt,
 			})
 			.from(tables.model);
@@ -4292,7 +4304,6 @@ admin.openapi(getModelStats, async (c) => {
 				inputPrice: r.inputPrice ?? null,
 				outputPrice: r.outputPrice ?? null,
 				requestPrice: r.requestPrice ?? null,
-				discount: r.discount ?? null,
 				updatedAt: r.updatedAt.toISOString(),
 			})),
 			total,
@@ -4327,9 +4338,6 @@ admin.openapi(getModelStats, async (c) => {
 				sql<string>`MIN(${tables.modelProviderMapping.requestPrice})`.as(
 					"request_price",
 				),
-			discount: sql<string>`MAX(${tables.modelProviderMapping.discount})`.as(
-				"discount",
-			),
 		})
 		.from(tables.modelProviderMapping)
 		.where(eq(tables.modelProviderMapping.status, "active"))
@@ -4385,7 +4393,6 @@ admin.openapi(getModelStats, async (c) => {
 			inputPrice: pricingSub.inputPrice,
 			outputPrice: pricingSub.outputPrice,
 			requestPrice: pricingSub.requestPrice,
-			discount: pricingSub.discount,
 			updatedAt: tables.model.updatedAt,
 		})
 		.from(tables.model)
@@ -4417,7 +4424,6 @@ admin.openapi(getModelStats, async (c) => {
 			inputPrice: r.inputPrice ?? null,
 			outputPrice: r.outputPrice ?? null,
 			requestPrice: r.requestPrice ?? null,
-			discount: r.discount ?? null,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total,
@@ -7208,6 +7214,13 @@ const modelProviderMappingsListSchema = z.object({
 	totalCost: z.number(),
 });
 
+const providersWithHiddenRootMappings = providers
+	.filter(
+		(provider) =>
+			provider.regionConfig && !provider.regionConfig.pinDefaultRegion,
+	)
+	.map((provider) => provider.id);
+
 const getModelProviderMappings = createRoute({
 	method: "get",
 	path: "/model-provider-mappings",
@@ -7256,12 +7269,35 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	const search = query.search ?? "";
 	const { from, to } = query;
 
-	const whereClause = search
+	const concreteRegionalMapping = aliasedTable(
+		tables.modelProviderMapping,
+		"concrete_regional_mapping",
+	);
+	const visibleMappingClause =
+		providersWithHiddenRootMappings.length === 0
+			? undefined
+			: or(
+					notInArray(
+						tables.modelProviderMapping.providerId,
+						providersWithHiddenRootMappings,
+					),
+					isNotNull(tables.modelProviderMapping.region),
+					sql`NOT EXISTS (
+						SELECT 1
+						FROM ${tables.modelProviderMapping} ${concreteRegionalMapping}
+						WHERE ${concreteRegionalMapping.providerId} = ${tables.modelProviderMapping.providerId}
+							AND ${concreteRegionalMapping.modelId} = ${tables.modelProviderMapping.modelId}
+							AND ${concreteRegionalMapping.externalId} = ${tables.modelProviderMapping.externalId}
+							AND ${concreteRegionalMapping.region} IS NOT NULL
+					)`,
+				);
+	const searchClause = search
 		? or(
 				sql`${tables.modelProviderMapping.modelId} ILIKE ${"%" + search + "%"}`,
 				sql`${tables.modelProviderMapping.providerId} ILIKE ${"%" + search + "%"}`,
 			)
 		: undefined;
+	const whereClause = and(visibleMappingClause, searchClause);
 
 	const dateRange = (() => {
 		if (!(from && to)) {
@@ -7283,13 +7319,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 
 		return { startDate, endDateExclusive };
 	})();
-
-	const historySearchClause = search
-		? or(
-				sql`${modelProviderMappingHistory.modelId} ILIKE ${"%" + search + "%"}`,
-				sql`${modelProviderMappingHistory.providerId} ILIKE ${"%" + search + "%"}`,
-			)
-		: undefined;
 
 	const statsJoin = dateRange
 		? db
@@ -7326,7 +7355,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				.from(modelProviderMappingHistory)
 				.where(
 					and(
-						historySearchClause,
 						gte(
 							modelProviderMappingHistory.minuteTimestamp,
 							dateRange.startDate,
@@ -7372,9 +7400,16 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						),
 				})
 				.from(modelProviderMappingHistory)
+				.innerJoin(
+					tables.modelProviderMapping,
+					eq(
+						modelProviderMappingHistory.modelProviderMappingId,
+						tables.modelProviderMapping.id,
+					),
+				)
 				.where(
 					and(
-						historySearchClause,
+						whereClause,
 						gte(
 							modelProviderMappingHistory.minuteTimestamp,
 							dateRange.startDate,
@@ -8742,6 +8777,9 @@ const devpassSubscriberSchema = z.object({
 	hasPaymentIssue: z.boolean(),
 	creditsUsed: z.string(),
 	creditsLimit: z.string(),
+	premiumCreditsUsed: z.string(),
+	premiumCreditsLimit: z.string(),
+	premiumWeekStart: z.string().nullable(),
 	utilizationPct: z.number().nullable(),
 	cycleStart: z.string().nullable(),
 	cycleDaysIn: z.number().nullable(),
@@ -9358,6 +9396,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tier: tables.organization.devPlan,
 			creditsUsed: tables.organization.devPlanCreditsUsed,
 			creditsLimit: tables.organization.devPlanCreditsLimit,
+			premiumCreditsUsed: tables.organization.devPlanPremiumCreditsUsed,
+			premiumWeekStart: tables.organization.devPlanPremiumWeekStart,
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
@@ -9635,6 +9675,12 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const marginNum = Number(row.margin ?? 0);
 		const marginPct = mrrNum > 0 ? (marginNum / mrrNum) * 100 : null;
 
+		const premiumCreditsLimitNum =
+			tier === "none" ? 0 : getDevPlanPremiumWeeklyLimit(tier as DevPlanTier);
+		const premiumWeekStart = row.premiumWeekStart
+			? new Date(row.premiumWeekStart).toISOString()
+			: null;
+
 		return {
 			id: row.id,
 			name: row.name,
@@ -9647,6 +9693,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			hasPaymentIssue,
 			creditsUsed: String(row.creditsUsed),
 			creditsLimit: String(row.creditsLimit),
+			premiumCreditsUsed: String(row.premiumCreditsUsed ?? "0"),
+			premiumCreditsLimit: String(premiumCreditsLimitNum),
+			premiumWeekStart,
 			utilizationPct,
 			cycleStart: cycleStart ? cycleStart.toISOString() : null,
 			cycleDaysIn,
@@ -10311,6 +10360,11 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 
+	const premiumCreditsLimitNum =
+		org.devPlan === "none"
+			? 0
+			: getDevPlanPremiumWeeklyLimit(org.devPlan as DevPlanTier);
+
 	const subscriber = {
 		id: org.id,
 		name: org.name,
@@ -10323,6 +10377,11 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		hasPaymentIssue,
 		creditsUsed: String(org.devPlanCreditsUsed),
 		creditsLimit: String(org.devPlanCreditsLimit),
+		premiumCreditsUsed: String(org.devPlanPremiumCreditsUsed ?? "0"),
+		premiumCreditsLimit: String(premiumCreditsLimitNum),
+		premiumWeekStart: org.devPlanPremiumWeekStart
+			? org.devPlanPremiumWeekStart.toISOString()
+			: null,
 		utilizationPct,
 		cycleStart: org.devPlanBillingCycleStart
 			? org.devPlanBillingCycleStart.toISOString()

@@ -44,6 +44,11 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+} from "@llmgateway/models";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -149,6 +154,7 @@ export interface LogCardData {
 	audioInputCost?: number | string | null;
 	discount?: number | null;
 	pricingTier?: string | null;
+	serviceTier?: string | null;
 	dataStorageCost?: number | string | null;
 	createdAt: string | Date;
 	requestId?: string | null;
@@ -1037,6 +1043,25 @@ export function LogCard({
 											<>
 												<div>Pricing Tier</div>
 												<div>{log.pricingTier}</div>
+											</>
+										)}
+										{log.serviceTier && (
+											<>
+												<div>Service Tier</div>
+												<div>
+													<span className="capitalize">{log.serviceTier}</span>
+													{(() => {
+														const tier = getServiceTier(
+															log.usedProvider ?? "",
+															log.serviceTier,
+														);
+														return tier ? (
+															<span className="ml-1 text-muted-foreground">
+																({formatServiceTierMultiplier(tier.multiplier)})
+															</span>
+														) : null;
+													})()}
+												</div>
 											</>
 										)}
 									</div>

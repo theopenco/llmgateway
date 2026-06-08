@@ -1,6 +1,10 @@
 import { Decimal } from "decimal.js";
 
-import { type ProviderMetrics, metricsKey } from "@llmgateway/db";
+import {
+	getEffectiveDiscount,
+	type ProviderMetrics,
+	metricsKey,
+} from "@llmgateway/db";
 import {
 	getProviderDefinition,
 	type AvailableModelProvider,
@@ -20,6 +24,7 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	latency?: number;
 	throughput?: number;
 	cacheSupported?: boolean;
+	discount?: Decimal;
 }
 
 function calculateUptimePenalty(uptime: number, threshold: number): number {
@@ -86,6 +91,7 @@ export interface RoutingMetadata {
 		price: number;
 		priority?: number;
 		cacheSupported?: boolean;
+		discount?: number;
 		// Populated after retry loop if this provider was attempted and failed
 		failed?: boolean;
 		status_code?: number;
@@ -151,6 +157,11 @@ export interface ProviderSelectionOptions {
 	 */
 	sessionId?: string;
 	routingConfig?: ResolvedRoutingConfig;
+	organizationId?: string | null;
+	providerDiscountResolver?: (
+		provider: AvailableModelProvider,
+		modelId: string,
+	) => Promise<string | null | undefined> | string | null | undefined;
 }
 
 /**
@@ -241,7 +252,7 @@ function providerSupportsCaching(
 export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
-	resolution: "default" | "hd" | "1080p" | "4k";
+	resolution: "default" | "hd" | "1080p" | "4k" | "720p" | "480p";
 }
 
 function getPerSecondBillingKeys(
@@ -265,6 +276,18 @@ function getPerSecondBillingKeys(
 			: ["1080p_video", "hd_video", "default_video", "1080p", "hd", "default"];
 	}
 
+	if (videoPricing.resolution === "720p") {
+		return videoPricing.includeAudio
+			? ["720p_audio", "default_audio", "720p", "default"]
+			: ["720p_video", "default_video", "720p", "default"];
+	}
+
+	if (videoPricing.resolution === "480p") {
+		return videoPricing.includeAudio
+			? ["480p_audio", "default_audio", "480p", "default"]
+			: ["480p_video", "default_video", "480p", "default"];
+	}
+
 	return videoPricing.includeAudio
 		? ["default_audio", "default"]
 		: ["default_video", "default"];
@@ -274,17 +297,11 @@ export function getProviderSelectionPrice(
 	providerInfo:
 		| Pick<
 				ProviderModelMapping,
-				| "discount"
-				| "inputPrice"
-				| "outputPrice"
-				| "perSecondPrice"
-				| "requestPrice"
+				"inputPrice" | "outputPrice" | "perSecondPrice" | "requestPrice"
 		  >
 		| undefined,
 	videoPricing?: VideoPricingContext,
 ): Decimal {
-	const discount = providerInfo?.discount ?? "0";
-	const discountMultiplier = new Decimal(1).minus(discount);
 	const inputPrice = providerInfo?.inputPrice;
 	const outputPrice = providerInfo?.outputPrice;
 	const requestPrice = providerInfo?.requestPrice;
@@ -298,32 +315,112 @@ export function getProviderSelectionPrice(
 		for (const billingKey of getPerSecondBillingKeys(videoPricing)) {
 			const perSecondPrice = providerInfo.perSecondPrice[billingKey];
 			if (perSecondPrice !== undefined) {
-				return new Decimal(perSecondPrice)
-					.times(videoPricing.durationSeconds)
-					.times(discountMultiplier);
+				return new Decimal(perSecondPrice).times(videoPricing.durationSeconds);
 			}
 		}
 	}
 
 	if (hasPositiveTokenPrice) {
-		return new Decimal(inputPrice ?? "0")
-			.plus(outputPrice ?? "0")
-			.div(2)
-			.times(discountMultiplier);
+		return new Decimal(inputPrice ?? "0").plus(outputPrice ?? "0").div(2);
 	}
 
 	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
-		return new Decimal(requestPrice).times(discountMultiplier);
+		return new Decimal(requestPrice);
 	}
 
 	if (hasAnyTokenPrice) {
-		return new Decimal(inputPrice ?? "0")
-			.plus(outputPrice ?? "0")
-			.div(2)
-			.times(discountMultiplier);
+		return new Decimal(inputPrice ?? "0").plus(outputPrice ?? "0").div(2);
 	}
 
 	return new Decimal(0);
+}
+
+type ProviderSelectionPriceInfo = AvailableModelProvider &
+	Pick<
+		ProviderModelMapping,
+		"inputPrice" | "outputPrice" | "perSecondPrice" | "requestPrice"
+	>;
+
+export async function getDiscountedProviderSelectionPrice(
+	providerInfo: ProviderSelectionPriceInfo | undefined,
+	modelId: string,
+	options?: Pick<
+		ProviderSelectionOptions,
+		"organizationId" | "providerDiscountResolver"
+	> & {
+		videoPricing?: VideoPricingContext;
+	},
+): Promise<{ price: Decimal; discount: Decimal }> {
+	const basePrice = getProviderSelectionPrice(
+		providerInfo,
+		options?.videoPricing,
+	);
+	const discount = providerInfo
+		? await getProviderSelectionDiscount(providerInfo, modelId, options)
+		: new Decimal(0);
+
+	return {
+		price: basePrice.times(new Decimal(1).minus(discount)),
+		discount,
+	};
+}
+
+function providerSelectionKey(provider: AvailableModelProvider): string {
+	return `${provider.providerId}:${provider.region ?? ""}`;
+}
+
+async function getProviderSelectionDiscount(
+	provider: AvailableModelProvider,
+	modelId: string,
+	options?: ProviderSelectionOptions,
+): Promise<Decimal> {
+	const discount =
+		options?.providerDiscountResolver !== undefined
+			? await options.providerDiscountResolver(provider, modelId)
+			: options?.organizationId !== undefined
+				? (
+						await getEffectiveDiscount(
+							options.organizationId,
+							provider.providerId,
+							modelId,
+						)
+					).discount
+				: "0";
+	const parsedDiscount = new Decimal(discount ?? "0");
+
+	if (parsedDiscount.lte(0) || parsedDiscount.gt(1)) {
+		return new Decimal(0);
+	}
+
+	return parsedDiscount;
+}
+
+async function getProviderSelectionPrices<T extends AvailableModelProvider>(
+	providers: T[],
+	modelWithPricing: ModelWithPricing & { id: string },
+	videoPricing: VideoPricingContext | undefined,
+	options?: ProviderSelectionOptions,
+): Promise<Map<string, { price: Decimal; discount: Decimal }>> {
+	const providerPrices = await Promise.all(
+		providers.map(async (provider) => {
+			const providerInfo = findProviderMapping(
+				modelWithPricing.providers,
+				provider,
+			);
+			const { price, discount } = await getDiscountedProviderSelectionPrice(
+				providerInfo,
+				modelWithPricing.id,
+				{
+					...options,
+					videoPricing,
+				},
+			);
+
+			return [providerSelectionKey(provider), { price, discount }] as const;
+		}),
+	);
+
+	return new Map(providerPrices);
 }
 
 /**
@@ -335,13 +432,13 @@ export function getProviderSelectionPrice(
  * @param options - Optional settings including metricsMap and isStreaming flag
  * @returns Best provider and routing metadata, or null if none available
  */
-export function getCheapestFromAvailableProviders<
+export async function getCheapestFromAvailableProviders<
 	T extends AvailableModelProvider,
 >(
 	availableModelProviders: T[],
 	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
 	options?: ProviderSelectionOptions,
-): ProviderSelectionResult<T> | null {
+): Promise<ProviderSelectionResult<T> | null> {
 	const metricsMap = options?.metricsMap;
 	const isStreaming = options?.isStreaming ?? false;
 	const videoPricing = options?.videoPricing;
@@ -385,6 +482,13 @@ export function getCheapestFromAvailableProviders<
 		return null;
 	}
 
+	const providerSelectionPrices = await getProviderSelectionPrices(
+		stableProviders,
+		modelWithPricing,
+		videoPricing,
+		options,
+	);
+
 	// Sticky routing: when a session id is provided (and session stickiness is
 	// enabled for the project), pin the session to a single provider via
 	// rendezvous hashing. Bypasses scoring and exploration so the upstream
@@ -421,14 +525,17 @@ export function getCheapestFromAvailableProviders<
 						uptime: metrics?.uptime,
 						latency: metrics?.averageLatency,
 						throughput: metrics?.throughput,
-						price: getProviderSelectionPrice(
-							providerInfo,
-							videoPricing,
+						price: (
+							providerSelectionPrices.get(providerSelectionKey(provider))
+								?.price ?? getProviderSelectionPrice(providerInfo, videoPricing)
 						).toNumber(),
 						priority,
 						cacheSupported: providerSupportsCaching(
 							providerInfo as ProviderModelMapping | undefined,
 						),
+						discount: providerSelectionPrices
+							.get(providerSelectionKey(provider))
+							?.discount.toNumber(),
 					};
 				}),
 			},
@@ -468,14 +575,17 @@ export function getCheapestFromAvailableProviders<
 						uptime: metrics?.uptime,
 						latency: metrics?.averageLatency,
 						throughput: metrics?.throughput,
-						price: getProviderSelectionPrice(
-							providerInfo,
-							videoPricing,
+						price: (
+							providerSelectionPrices.get(providerSelectionKey(provider))
+								?.price ?? getProviderSelectionPrice(providerInfo, videoPricing)
 						).toNumber(),
 						priority,
 						cacheSupported: providerSupportsCaching(
 							providerInfo as ProviderModelMapping | undefined,
 						),
+						discount: providerSelectionPrices
+							.get(providerSelectionKey(provider))
+							?.discount.toNumber(),
 					};
 				}),
 			},
@@ -489,6 +599,7 @@ export function getCheapestFromAvailableProviders<
 			modelWithPricing,
 			videoPricing,
 			cfg,
+			providerSelectionPrices,
 		);
 	}
 
@@ -509,6 +620,7 @@ export function getCheapestFromAvailableProviders<
 			modelWithPricing,
 			videoPricing,
 			cfg,
+			providerSelectionPrices,
 		);
 	}
 
@@ -520,7 +632,12 @@ export function getCheapestFromAvailableProviders<
 			modelWithPricing.providers,
 			provider,
 		);
-		const price = getProviderSelectionPrice(providerInfo, videoPricing);
+		const resolvedPrice = providerSelectionPrices.get(
+			providerSelectionKey(provider),
+		);
+		const price =
+			resolvedPrice?.price ??
+			getProviderSelectionPrice(providerInfo, videoPricing);
 
 		const mKey = metricsKey(
 			modelWithPricing.id,
@@ -533,6 +650,7 @@ export function getCheapestFromAvailableProviders<
 			provider,
 			score: new Decimal(0), // Will be calculated below
 			price,
+			discount: resolvedPrice?.discount,
 			uptime: metrics?.uptime,
 			latency: metrics?.averageLatency,
 			throughput: metrics?.throughput,
@@ -666,6 +784,7 @@ export function getCheapestFromAvailableProviders<
 				price: p.price.toNumber(), // Keep full precision for very small prices
 				priority,
 				cacheSupported: p.cacheSupported,
+				discount: p.discount?.toNumber(),
 			};
 		}),
 	};
@@ -684,6 +803,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 	modelWithPricing: ModelWithPricing & { id: string; output?: string[] },
 	videoPricing: VideoPricingContext | undefined,
 	cfg: ResolvedRoutingConfig,
+	providerSelectionPrices: Map<string, { price: Decimal; discount: Decimal }>,
 ): ProviderSelectionResult<T> {
 	let cheapestProvider = stableProviders[0];
 	let lowestEffectivePrice: Decimal | null = null;
@@ -694,6 +814,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 		price: Decimal;
 		effectivePrice: Decimal;
 		priority: number;
+		discount?: Decimal;
 	}> = [];
 
 	for (const provider of stableProviders) {
@@ -701,7 +822,12 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			modelWithPricing.providers,
 			provider,
 		);
-		const totalPrice = getProviderSelectionPrice(providerInfo, videoPricing);
+		const resolvedPrice = providerSelectionPrices.get(
+			providerSelectionKey(provider),
+		);
+		const totalPrice =
+			resolvedPrice?.price ??
+			getProviderSelectionPrice(providerInfo, videoPricing);
 
 		// Apply provider priority: lower priority = effectively higher price
 		const priority = getEffectivePriority(provider.providerId, cfg);
@@ -713,6 +839,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			price: totalPrice,
 			effectivePrice,
 			priority,
+			discount: resolvedPrice?.discount,
 		});
 
 		if (
@@ -734,6 +861,7 @@ function selectByPriceOnly<T extends AvailableModelProvider>(
 			score: 0,
 			price: p.price.toNumber(),
 			priority: p.priority,
+			discount: p.discount?.toNumber(),
 		})),
 	};
 

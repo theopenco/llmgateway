@@ -13,6 +13,7 @@ export async function createGlobalRateLimit(body: {
 	model?: string | null;
 	limitType: "rpm" | "rpd";
 	maxRequests: number;
+	enforcement?: "per_org" | "global";
 	reason?: string | null;
 }) {
 	const $api = await createServerApiClient();

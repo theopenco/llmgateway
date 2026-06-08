@@ -8,5 +8,5 @@ export const size = ogSize;
 export const contentType = ogContentType;
 
 export default async function ReasoningModelsOgImage() {
-	return generateCategoryOgImage("reasoning");
+	return await generateCategoryOgImage("reasoning");
 }

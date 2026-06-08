@@ -68,6 +68,7 @@ export default async function GlobalRateLimitsPage() {
 		model: string | null;
 		limitType: "rpm" | "rpd";
 		maxRequests: number;
+		enforcement?: "per_org" | "global";
 		reason: string | null;
 	}): Promise<{ success: boolean; error?: string }> {
 		"use server";
@@ -78,6 +79,7 @@ export default async function GlobalRateLimitsPage() {
 				model: data.model,
 				limitType: data.limitType,
 				maxRequests: data.maxRequests,
+				enforcement: data.enforcement,
 				reason: data.reason,
 			});
 
@@ -130,6 +132,7 @@ export default async function GlobalRateLimitsPage() {
 					<RateLimitForm
 						providers={options.providers}
 						mappings={options.mappings}
+						showEnforcement
 						onSubmit={handleCreateRateLimit}
 					/>
 				)}
@@ -142,6 +145,7 @@ export default async function GlobalRateLimitsPage() {
 							<TableHead>Provider</TableHead>
 							<TableHead>Model</TableHead>
 							<TableHead>Limit</TableHead>
+							<TableHead>Enforcement</TableHead>
 							<TableHead>Reason</TableHead>
 							<TableHead>Created</TableHead>
 							<TableHead className="w-[50px]" />
@@ -151,7 +155,7 @@ export default async function GlobalRateLimitsPage() {
 						{rateLimits.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={6}
+									colSpan={7}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
@@ -187,6 +191,13 @@ export default async function GlobalRateLimitsPage() {
 											{rateLimit.limitType.toUpperCase()}
 										</span>
 									</TableCell>
+									<TableCell>
+										{rateLimit.enforcement === "global" ? (
+											<Badge variant="default">Global (shared)</Badge>
+										) : (
+											<Badge variant="outline">Per-org</Badge>
+										)}
+									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">
 										{rateLimit.reason ?? "\u2014"}
 									</TableCell>
@@ -218,8 +229,12 @@ export default async function GlobalRateLimitsPage() {
 						broader ones
 					</li>
 					<li>
-						Rate limits are enforced per organization - each org gets their own
-						counter
+						<strong>Per-organization</strong> enforcement gives each org its own
+						counter (e.g. 10 RPM per org)
+					</li>
+					<li>
+						<strong>Global (shared)</strong> enforcement uses a single counter
+						across all orgs combined (e.g. 10 RPM total platform-wide)
 					</li>
 					<li>
 						Caps can be defined as requests per minute (RPM) or per day (RPD)

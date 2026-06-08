@@ -95,9 +95,8 @@ function getCheapestProvider(
 		if (!hasPricing(p)) {
 			return Infinity;
 		}
-		const discount = Number(p.discount ?? "0");
-		const inPrice = Number(p.inputPrice ?? "0") * (1 - discount);
-		const outPrice = Number(p.outputPrice ?? "0") * (1 - discount);
+		const inPrice = Number(p.inputPrice ?? "0");
+		const outPrice = Number(p.outputPrice ?? "0");
 		const inCost = inPrice * inputTokens;
 		const outCost = outPrice * outputTokens;
 		return inCost + outCost;
@@ -260,11 +259,8 @@ export function TokenCostCalculatorClient() {
 			const officialOutputCost = row.outputTokens * officialOutputPrice;
 			const officialCost = officialInputCost + officialOutputCost;
 
-			const cheapestDiscount = Number(cheapestMapping?.discount ?? "0");
-			const cheapestInputPrice =
-				Number(cheapestMapping?.inputPrice ?? "0") * (1 - cheapestDiscount);
-			const cheapestOutputPrice =
-				Number(cheapestMapping?.outputPrice ?? "0") * (1 - cheapestDiscount);
+			const cheapestInputPrice = Number(cheapestMapping?.inputPrice ?? "0");
+			const cheapestOutputPrice = Number(cheapestMapping?.outputPrice ?? "0");
 			const gatewayInputCost = row.inputTokens * cheapestInputPrice;
 			const gatewayOutputCost = row.outputTokens * cheapestOutputPrice;
 			const gatewayCost = gatewayInputCost + gatewayOutputCost;
@@ -581,26 +577,19 @@ function ModelRowCard({
 					<div className="flex items-center justify-between sm:justify-start gap-4">
 						<div>
 							<p className="text-[11px] font-medium text-green-600 dark:text-green-400 uppercase tracking-wider">
-								LLM Gateway ({getProviderName(cheapestMapping.providerId)}
-								{cheapestMapping.discount &&
-								Number(cheapestMapping.discount) !== 0
-									? ` · ${Number(cheapestMapping.discount) * 100}% off`
-									: ""}
-								)
+								LLM Gateway ({getProviderName(cheapestMapping.providerId)})
 							</p>
 							<p className="text-sm font-mono mt-0.5">
 								<span className="text-green-600 dark:text-green-400">
 									{formatPricePerMillion(
-										Number(cheapestMapping.inputPrice ?? "0") *
-											(1 - Number(cheapestMapping.discount ?? "0")),
+										Number(cheapestMapping.inputPrice ?? "0"),
 									)}
 									/M in
 								</span>
 								{" · "}
 								<span className="text-green-600 dark:text-green-400">
 									{formatPricePerMillion(
-										Number(cheapestMapping.outputPrice ?? "0") *
-											(1 - Number(cheapestMapping.discount ?? "0")),
+										Number(cheapestMapping.outputPrice ?? "0"),
 									)}
 									/M out
 								</span>

@@ -2,10 +2,22 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { and, db, eq, inArray, isNull, sql, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	enqueueWebhookDeliveries,
+	eq,
+	inArray,
+	isNull,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	type ChatPlanCycle,
+	type ChatPlanTier,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -14,6 +26,9 @@ import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe } from "./routes/payments.js";
 import {
+	notifyChatPlanCancelled,
+	notifyChatPlanRenewed,
+	notifyChatPlanSubscribed,
 	notifyCreditsPurchased,
 	notifyDevPlanCancelled,
 	notifyDevPlanRenewed,
@@ -68,6 +83,51 @@ export async function ensureStripeCustomer(
 	}
 
 	return stripeCustomerId;
+}
+
+/**
+ * LLM SDK: ensure the end-customer has its own Stripe customer, separate
+ * from the developer's org customer, so cards and receipts are per-end-user.
+ */
+export async function ensureEndCustomerStripeCustomer(
+	endCustomerId: string,
+): Promise<string> {
+	// Claim the row under a lock so two concurrent top-ups for the same customer
+	// can't each create a Stripe customer (orphaning one). The second caller
+	// blocks until the first commits, then sees the persisted id.
+	return await db.transaction(async (tx) => {
+		const [endCustomer] = await tx
+			.select()
+			.from(tables.endCustomer)
+			.where(eq(tables.endCustomer.id, endCustomerId))
+			.for("update")
+			.limit(1);
+
+		if (!endCustomer) {
+			throw new Error(`End customer not found: ${endCustomerId}`);
+		}
+
+		if (endCustomer.stripeCustomerId) {
+			return endCustomer.stripeCustomerId;
+		}
+
+		const customer = await getStripe().customers.create({
+			email: endCustomer.email ?? undefined,
+			name: endCustomer.name ?? undefined,
+			metadata: {
+				endCustomerId,
+				projectId: endCustomer.projectId,
+				organizationId: endCustomer.organizationId,
+			},
+		});
+
+		await tx
+			.update(tables.endCustomer)
+			.set({ stripeCustomerId: customer.id })
+			.where(eq(tables.endCustomer.id, endCustomerId));
+
+		return customer.id;
+	});
 }
 
 /**
@@ -223,6 +283,9 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "invoice.payment_succeeded":
 				await handleInvoicePaymentSucceeded(event);
 				break;
+			case "invoice.paid":
+				await handleInvoicePaymentSucceeded(event);
+				break;
 			case "invoice.payment_failed":
 				await handleInvoicePaymentFailed(event);
 				break;
@@ -316,10 +379,200 @@ async function getSubscriptionCardFingerprint(
 
 export type FinalizeDevPlanResult =
 	| { status: "ok"; subscriptionId: string }
+	| {
+			status: "requires_action";
+			subscriptionId: string;
+			clientSecret: string;
+			paymentMethodId?: string;
+	  }
+	| {
+			status: "payment_pending";
+			subscriptionId: string;
+			subscriptionStatus?: string;
+			invoiceId?: string;
+			invoiceStatus?: string | null;
+			paymentIntentStatus?: string;
+			hasClientSecret?: boolean;
+	  }
 	| { status: "duplicate_card"; conflictingOrgId: string }
 	| { status: "already_processed"; subscriptionId: string | null }
 	| { status: "no_payment_method" }
 	| { status: "invalid_session"; reason: string };
+
+function isStripePaymentIntent(value: unknown): value is Stripe.PaymentIntent {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	return (value as { object?: unknown }).object === "payment_intent";
+}
+
+function getSubscriptionPaymentIntent(
+	subscription: Stripe.Subscription,
+): Stripe.PaymentIntent | null {
+	const latestInvoice = subscription.latest_invoice;
+	if (
+		!latestInvoice ||
+		typeof latestInvoice === "string" ||
+		!("payment_intent" in latestInvoice)
+	) {
+		return null;
+	}
+
+	const { payment_intent: paymentIntent } = latestInvoice as {
+		payment_intent?: unknown;
+	};
+	if (!paymentIntent || typeof paymentIntent === "string") {
+		return null;
+	}
+
+	return isStripePaymentIntent(paymentIntent) ? paymentIntent : null;
+}
+
+function getInvoiceConfirmationClientSecret(
+	invoice: Stripe.Invoice,
+): string | null {
+	const confirmationSecret = invoice.confirmation_secret;
+	return confirmationSecret?.client_secret ?? null;
+}
+
+async function getPaymentIntentFromInvoicePayments(
+	invoice: Stripe.Invoice,
+): Promise<Stripe.PaymentIntent | null> {
+	let invoicePayments = invoice.payments?.data ?? [];
+	if (invoicePayments.length === 0) {
+		const listedPayments = await getStripe().invoicePayments.list({
+			invoice: invoice.id,
+			limit: 10,
+		});
+		invoicePayments = listedPayments.data;
+	}
+
+	for (const invoicePayment of invoicePayments) {
+		const paymentIntent = invoicePayment.payment.payment_intent;
+		if (!paymentIntent) {
+			continue;
+		}
+		if (typeof paymentIntent !== "string") {
+			if (isStripePaymentIntent(paymentIntent)) {
+				return paymentIntent;
+			}
+			continue;
+		}
+		const retrieved = await getStripe().paymentIntents.retrieve(paymentIntent);
+		return isStripePaymentIntent(retrieved) ? retrieved : null;
+	}
+
+	return null;
+}
+
+async function getSubscriptionInvoice(
+	subscription: Stripe.Subscription,
+): Promise<Stripe.Invoice | null> {
+	const latestInvoice = subscription.latest_invoice;
+	if (!latestInvoice) {
+		return null;
+	}
+	if (typeof latestInvoice !== "string") {
+		return latestInvoice;
+	}
+
+	return await getStripe().invoices.retrieve(latestInvoice, {
+		expand: ["payment_intent"],
+	});
+}
+
+async function getSubscriptionPaymentConfirmation(
+	subscription: Stripe.Subscription,
+): Promise<{
+	paymentIntent: Stripe.PaymentIntent | null;
+	clientSecret: string | null;
+	invoice: Stripe.Invoice | null;
+}> {
+	const invoice = await getSubscriptionInvoice(subscription);
+	if (!invoice) {
+		return { paymentIntent: null, clientSecret: null, invoice: null };
+	}
+
+	let paymentIntent = getSubscriptionPaymentIntent(subscription);
+	if (!paymentIntent) {
+		const { payment_intent: invoicePaymentIntent } = invoice as {
+			payment_intent?: unknown;
+		};
+		if (
+			invoicePaymentIntent &&
+			typeof invoicePaymentIntent !== "string" &&
+			isStripePaymentIntent(invoicePaymentIntent)
+		) {
+			paymentIntent = invoicePaymentIntent;
+		}
+	}
+	paymentIntent ??= await getPaymentIntentFromInvoicePayments(invoice);
+
+	return {
+		paymentIntent,
+		clientSecret:
+			paymentIntent?.client_secret ??
+			getInvoiceConfirmationClientSecret(invoice),
+		invoice,
+	};
+}
+
+function getPaymentPendingResult({
+	subscription,
+	invoice,
+	paymentIntent,
+	clientSecret,
+}: {
+	subscription: Stripe.Subscription;
+	invoice: Stripe.Invoice | null;
+	paymentIntent: Stripe.PaymentIntent | null;
+	clientSecret: string | null;
+}): FinalizeDevPlanResult {
+	logger.info("Dev plan subscription payment is pending", {
+		subscriptionId: subscription.id,
+		subscriptionStatus: subscription.status,
+		invoiceId: invoice?.id,
+		invoiceStatus: invoice?.status,
+		paymentIntentId: paymentIntent?.id,
+		paymentIntentStatus: paymentIntent?.status,
+		hasClientSecret: Boolean(clientSecret),
+	});
+
+	return {
+		status: "payment_pending",
+		subscriptionId: subscription.id,
+		subscriptionStatus: subscription.status,
+		invoiceId: invoice?.id,
+		invoiceStatus: invoice?.status,
+		paymentIntentStatus: paymentIntent?.status,
+		hasClientSecret: Boolean(clientSecret),
+	};
+}
+
+async function findDevPlanSubscriptionForSetupSession(
+	customerId: string,
+	sessionId: string,
+): Promise<Stripe.Subscription | null> {
+	const subscriptions = await getStripe().subscriptions.list({
+		customer: customerId,
+		status: "all",
+		limit: 100,
+	});
+	const existing = subscriptions.data.find(
+		(subscription) => subscription.metadata?.setupSessionId === sessionId,
+	);
+	if (!existing) {
+		return null;
+	}
+
+	return await getStripe().subscriptions.retrieve(existing.id, {
+		expand: ["latest_invoice.payment_intent"],
+	});
+}
+
+function shouldForceDevPlan3dsChallenge(): boolean {
+	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
+}
 
 async function resolvePaymentMethodFromSetupSession(
 	session: Stripe.Checkout.Session,
@@ -478,24 +731,81 @@ export async function finalizeDevPlanSetupSession(
 	// writer has filled in devPlanStripeSubscriptionId yet — the loser then
 	// reports already_processed so it doesn't double-insert the transaction
 	// row or re-send notifications.
-	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
-	const subscription = await getStripe().subscriptions.create(
-		{
-			customer: stripeCustomerId,
-			items: [{ price: priceId }],
-			default_payment_method: paymentMethod.id,
-			payment_behavior: "error_if_incomplete",
-			metadata: {
-				organizationId,
-				subscriptionType: "dev_plan",
-				devPlan: devPlanTier,
-				devPlanCycle,
-				userEmail: userEmail ?? "",
-			},
-			expand: ["latest_invoice"],
-		},
-		{ idempotencyKey: stripeIdempotencyKey },
+	const existingSubscription = await findDevPlanSubscriptionForSetupSession(
+		stripeCustomerId,
+		sessionId,
 	);
+	const stripeIdempotencyKey = `devpass-sub:${organizationId}:${sessionId}`;
+	const subscription =
+		existingSubscription ??
+		(await getStripe().subscriptions.create(
+			{
+				customer: stripeCustomerId,
+				items: [{ price: priceId }],
+				default_payment_method: paymentMethod.id,
+				payment_behavior: "default_incomplete",
+				...(shouldForceDevPlan3dsChallenge()
+					? {
+							payment_settings: {
+								payment_method_options: {
+									card: {
+										request_three_d_secure: "challenge" as const,
+									},
+								},
+							},
+						}
+					: {}),
+				metadata: {
+					organizationId,
+					subscriptionType: "dev_plan",
+					devPlan: devPlanTier,
+					devPlanCycle,
+					setupSessionId: sessionId,
+					userEmail: userEmail ?? "",
+				},
+				expand: ["latest_invoice.payment_intent"],
+			},
+			{ idempotencyKey: stripeIdempotencyKey },
+		));
+
+	const { paymentIntent, clientSecret, invoice } =
+		await getSubscriptionPaymentConfirmation(subscription);
+	if (
+		clientSecret &&
+		((paymentIntent &&
+			(paymentIntent.status === "requires_action" ||
+				paymentIntent.status === "requires_confirmation" ||
+				paymentIntent.status === "requires_payment_method")) ||
+			(!paymentIntent &&
+				(subscription.status === "incomplete" ||
+					subscription.status === "past_due")))
+	) {
+		return {
+			status: "requires_action",
+			subscriptionId: subscription.id,
+			clientSecret,
+			paymentMethodId: paymentMethod.id,
+		};
+	}
+	if (paymentIntent && paymentIntent.status !== "succeeded") {
+		return getPaymentPendingResult({
+			subscription,
+			invoice,
+			paymentIntent,
+			clientSecret,
+		});
+	}
+	if (
+		!paymentIntent &&
+		(subscription.status === "incomplete" || subscription.status === "past_due")
+	) {
+		return getPaymentPendingResult({
+			subscription,
+			invoice,
+			paymentIntent,
+			clientSecret,
+		});
+	}
 
 	const creditsLimit = getDevPlanCreditsLimit(devPlanTier);
 
@@ -626,6 +936,28 @@ export async function finalizeDevPlanSetupSession(
 	return { status: "ok", subscriptionId: subscription.id };
 }
 
+/**
+ * Same one-card-one-org policy as DevPass — cancels a chat plan subscription
+ * that was rejected because the card already activated a chat plan on another
+ * organization.
+ */
+async function rejectDuplicateChatPlanSubscription(
+	subscriptionId: string,
+	reason: string,
+) {
+	try {
+		await getStripe().subscriptions.cancel(subscriptionId, {
+			invoice_now: false,
+			prorate: false,
+		});
+	} catch (error) {
+		logger.error(
+			`Failed to cancel duplicate chat plan subscription ${subscriptionId}: ${reason}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
+}
+
 async function handleCheckoutSessionCompleted(
 	event: Stripe.CheckoutSessionCompletedEvent,
 ) {
@@ -690,12 +1022,165 @@ async function handleCheckoutSessionCompleted(
 	const devPlanCycle: DevPlanCycle =
 		metadata?.devPlanCycle === "annual" ? "annual" : "monthly";
 
+	// Check if this is a chat plan subscription
+	const isChatPlan = metadata?.subscriptionType === "chat_plan";
+	const chatPlanTier = metadata?.chatPlan as ChatPlanTier | undefined;
+	// Chat plans are monthly only.
+	const chatPlanCycle: ChatPlanCycle = "monthly";
+
 	logger.info(
-		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlan: ${isDevPlan}`,
+		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, isDevPlan: ${isDevPlan}, isChatPlan: ${isChatPlan}`,
 	);
 
 	try {
-		if (isDevPlan && devPlanTier) {
+		if (isChatPlan && chatPlanTier) {
+			// Same card-fingerprint dedupe as dev plans — prevents a single card
+			// from claiming the included chat plan allowance across multiple orgs.
+			const fingerprint = subscriptionId
+				? await getSubscriptionCardFingerprint(subscriptionId)
+				: null;
+
+			if (fingerprint) {
+				const conflictingOrg = await db.query.organization.findFirst({
+					where: {
+						chatPlanCardFingerprint: { eq: fingerprint },
+						id: { ne: organizationId },
+					},
+				});
+
+				if (conflictingOrg) {
+					logger.warn(
+						`Rejecting duplicate chat plan subscription ${subscriptionId} for organization ${organizationId}: card fingerprint already claimed by organization ${conflictingOrg.id}`,
+					);
+					await rejectDuplicateChatPlanSubscription(
+						subscriptionId!,
+						"duplicate_card_fingerprint",
+					);
+					posthog.capture({
+						distinctId: "organization",
+						event: "chat_plan_blocked_duplicate_card",
+						groups: {
+							organization: organizationId,
+						},
+						properties: {
+							organization: organizationId,
+							conflictingOrganization: conflictingOrg.id,
+							subscriptionId,
+						},
+					});
+					return;
+				}
+			}
+
+			const creditsLimit = getChatPlanCreditsLimit(chatPlanTier);
+
+			await db
+				.update(tables.organization)
+				.set({
+					chatPlan: chatPlanTier,
+					chatPlanCreditsLimit: creditsLimit.toString(),
+					chatPlanCreditsUsed: "0",
+					chatPlanBillingCycleStart: new Date(),
+					chatPlanStripeSubscriptionId: subscriptionId,
+					chatPlanCancelled: false,
+					chatPlanCycle,
+					chatPlanCardFingerprint: fingerprint,
+				})
+				.where(eq(tables.organization.id, organizationId));
+
+			logger.info(
+				`Successfully activated chat plan ${chatPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
+			);
+
+			const stripeInvoiceId = session.invoice as string | undefined;
+			const existing = stripeInvoiceId
+				? await db.query.transaction.findFirst({
+						where: {
+							stripeInvoiceId: {
+								eq: stripeInvoiceId,
+							},
+						},
+					})
+				: null;
+
+			if (!existing) {
+				const [transaction] = await db
+					.insert(tables.transaction)
+					.values({
+						organizationId,
+						type: "chat_plan_start",
+						amount: ((session.amount_total ?? 0) / 100).toString(),
+						creditAmount: creditsLimit.toString(),
+						currency: (session.currency ?? "USD").toUpperCase(),
+						status: "completed",
+						stripeInvoiceId: stripeInvoiceId,
+						description: `Chat Plan ${chatPlanTier.toUpperCase()} started via Stripe Checkout`,
+					})
+					.returning();
+
+				try {
+					await generateAndEmailInvoice({
+						invoiceNumber: transaction.id,
+						invoiceDate: new Date(),
+						organizationName: organization.name,
+						billingEmail: organization.billingEmail,
+						billingCompany: organization.billingCompany,
+						billingAddress: organization.billingAddress,
+						billingTaxId: organization.billingTaxId,
+						billingNotes: organization.billingNotes,
+						lineItems: [
+							{
+								description: `Chat Plan ${chatPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+								amount: (session.amount_total ?? 0) / 100,
+							},
+						],
+						currency: (session.currency ?? "USD").toUpperCase(),
+					});
+				} catch (e) {
+					logger.error(
+						"Invoice email failed (chat plan checkout); suppressing webhook failure",
+						e as Error,
+					);
+				}
+			}
+
+			posthog.groupIdentify({
+				groupType: "organization",
+				groupKey: organizationId,
+				properties: {
+					name: organization.name,
+				},
+			});
+			posthog.capture({
+				distinctId: "organization",
+				event: "chat_plan_started",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					chatPlan: chatPlanTier,
+					creditsLimit: creditsLimit,
+					organization: organizationId,
+					subscriptionId: subscriptionId,
+					source: "stripe_checkout",
+				},
+			});
+
+			const subscribedEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (subscribedEmail) {
+				const subscribedUser = await db.query.user.findFirst({
+					where: { email: { eq: subscribedEmail } },
+				});
+				await notifyChatPlanSubscribed(
+					subscribedEmail,
+					subscribedUser?.name,
+					chatPlanTier,
+					chatPlanCycle,
+				);
+			}
+		} else if (isDevPlan && devPlanTier) {
 			// DevPass activations are now finalized via the setup-mode branch
 			// above (see finalizeDevPlanSetupSession). This subscription-mode
 			// branch only runs for legacy in-flight sessions created before
@@ -712,6 +1197,8 @@ async function handleCheckoutSessionCompleted(
 					devPlan: devPlanTier,
 					devPlanCreditsLimit: creditsLimit.toString(),
 					devPlanCreditsUsed: "0",
+					devPlanPremiumCreditsUsed: "0",
+					devPlanPremiumWeekStart: new Date(),
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
 					devPlanCancelled: false,
@@ -1287,11 +1774,271 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 	);
 }
 
+/**
+ * LLM SDK: credit an end-user wallet after a successful top-up payment.
+ * Idempotent on wallet_ledger.stripePaymentIntentId. Splits the charge into the
+ * net credited to the wallet, the developer's margin (accrued to the developer
+ * org), and the platform fee — all carried in the PaymentIntent metadata that
+ * /v1/wallet/top-up set.
+ */
+async function handleEndUserTopUpSucceeded(
+	paymentIntent: Stripe.PaymentIntent,
+) {
+	const md = paymentIntent.metadata;
+	const walletId = md.walletId;
+	const netCredited = Number(md.netCredited);
+	const developerMargin = Number(md.developerMargin ?? "0");
+	const platformFee = Number(md.platformFee ?? "0");
+	const grossPaid = paymentIntent.amount / 100;
+
+	if (!walletId || !Number.isFinite(netCredited) || netCredited <= 0) {
+		logger.error("Invalid end_user_topup metadata", {
+			paymentIntentId: paymentIntent.id,
+			metadata: md,
+		});
+		return;
+	}
+
+	// Fast-path idempotency: a topup ledger row for this payment intent means we
+	// already processed it (webhook re-delivery). The authoritative guard is the
+	// unique partial index on wallet_ledger(stripePaymentIntentId) WHERE
+	// type='topup', enforced inside the transaction below to close the race
+	// between concurrent deliveries.
+	const existing = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: paymentIntent.id },
+			type: { eq: "topup" },
+		},
+	});
+	if (existing) {
+		logger.info(
+			`Skipping duplicate end-user top-up for wallet ${walletId} (ledger ${existing.id} already processed)`,
+		);
+		return;
+	}
+
+	const wallet = await db.query.wallet.findFirst({
+		where: { id: { eq: walletId } },
+	});
+	if (!wallet) {
+		logger.error(`Wallet not found for end-user top-up: ${walletId}`);
+		return;
+	}
+
+	// Credit the wallet, write the ledger row, and accrue the developer margin
+	// atomically. The ledger insert hits the unique index first, so a concurrent
+	// duplicate delivery rolls the whole transaction back instead of double-
+	// crediting.
+	let newBalance: string;
+	try {
+		newBalance = await db.transaction(async (tx) => {
+			// Lock + credit the wallet first; a concurrent duplicate delivery blocks
+			// on this row, then fails the ledger insert below on the unique index.
+			const [updated] = await tx
+				.update(tables.wallet)
+				.set({ balance: sql`${tables.wallet.balance} + ${netCredited}` })
+				.where(eq(tables.wallet.id, walletId))
+				.returning();
+
+			await tx.insert(tables.walletLedger).values({
+				walletId,
+				endCustomerId: wallet.endCustomerId,
+				organizationId: wallet.organizationId,
+				type: "topup",
+				amount: String(netCredited),
+				balanceAfter: updated.balance,
+				grossPaid: String(grossPaid),
+				platformFee: String(platformFee),
+				developerMargin: String(developerMargin),
+				netCredited: String(netCredited),
+				stripePaymentIntentId: paymentIntent.id,
+				description: "End-user credit top-up",
+			});
+
+			// Accrue the developer's margin to their org (settled out-of-band / via
+			// Stripe Connect) and record it in the org's transaction history.
+			if (developerMargin > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${developerMargin}`,
+					})
+					.where(eq(tables.organization.id, wallet.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: wallet.organizationId,
+					type: "end_user_margin_accrual",
+					amount: String(developerMargin),
+					creditAmount: String(developerMargin),
+					status: "completed",
+					stripePaymentIntentId: paymentIntent.id,
+					description: `End-user top-up margin (wallet ${walletId})`,
+				});
+			}
+
+			return updated.balance;
+		});
+	} catch (err) {
+		const code =
+			(err as { code?: string; cause?: { code?: string } })?.code ??
+			(err as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			logger.info(
+				`Skipping duplicate end-user top-up for wallet ${walletId} (concurrent delivery for ${paymentIntent.id})`,
+			);
+			return;
+		}
+		throw err;
+	}
+
+	const updated = { balance: newBalance };
+
+	logger.info(
+		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee})`,
+	);
+
+	// Notify the developer's webhook endpoints (best-effort).
+	try {
+		await enqueueWebhookDeliveries({
+			projectId: wallet.projectId,
+			eventType: "wallet.credited",
+			data: {
+				walletId,
+				endCustomerId: wallet.endCustomerId,
+				netCredited,
+				grossPaid,
+				balance: updated.balance,
+				currency: wallet.currency,
+			},
+		});
+	} catch (err) {
+		logger.warn("Failed to enqueue wallet.credited webhook", {
+			walletId,
+			error: err instanceof Error ? err.message : String(err),
+		});
+	}
+}
+
+/**
+ * LLM SDK: reverse an end-user wallet top-up on refund. Idempotent on a
+ * reversal ledger row. The wallet debit is clamped to the current balance (the
+ * end-user may have already spent some), and the developer's accrued margin is
+ * clawed back (clamped at zero).
+ */
+async function handleEndUserTopUpRefunded(
+	topUp: typeof tables.walletLedger.$inferSelect,
+) {
+	if (!topUp.stripePaymentIntentId) {
+		return;
+	}
+
+	const alreadyReversed = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: topUp.stripePaymentIntentId },
+			type: { eq: "reversal" },
+		},
+	});
+	if (alreadyReversed) {
+		logger.info(
+			`Skipping duplicate end-user refund for wallet ${topUp.walletId}`,
+		);
+		return;
+	}
+
+	const credited = Number(topUp.netCredited ?? "0");
+	const developerMargin = Number(topUp.developerMargin ?? "0");
+
+	// Debit the wallet, write the reversal ledger row, and claw back the margin
+	// atomically. The ledger insert hits the unique partial index
+	// (wallet_ledger_reversal_payment_intent_unique), so a concurrent / re-
+	// delivered charge.refunded rolls the whole transaction back instead of
+	// double-reversing. The wallet is locked + re-read inside the transaction so
+	// the balance clamp can't go stale against a concurrent debit.
+	let reversal: number;
+	try {
+		reversal = await db.transaction(async (tx) => {
+			const [wallet] = await tx
+				.select()
+				.from(tables.wallet)
+				.where(eq(tables.wallet.id, topUp.walletId))
+				.for("update")
+				.limit(1);
+			if (!wallet) {
+				logger.error(`Wallet not found for end-user refund: ${topUp.walletId}`);
+				return 0;
+			}
+
+			const currentBalance = Number(wallet.balance ?? "0");
+			const amount = Math.min(credited, Math.max(currentBalance, 0));
+
+			const [updated] = await tx
+				.update(tables.wallet)
+				.set({ balance: sql`${tables.wallet.balance} - ${amount}` })
+				.where(eq(tables.wallet.id, topUp.walletId))
+				.returning();
+
+			await tx.insert(tables.walletLedger).values({
+				walletId: topUp.walletId,
+				endCustomerId: topUp.endCustomerId,
+				organizationId: topUp.organizationId,
+				type: "reversal",
+				amount: String(-amount),
+				balanceAfter: updated.balance,
+				stripePaymentIntentId: topUp.stripePaymentIntentId,
+				description: "End-user top-up refund",
+			});
+
+			if (developerMargin > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						endUserMarginBalance: sql`GREATEST(${tables.organization.endUserMarginBalance} - ${developerMargin}, 0)`,
+					})
+					.where(eq(tables.organization.id, topUp.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: topUp.organizationId,
+					type: "end_user_refund",
+					amount: String(developerMargin),
+					creditAmount: String(developerMargin),
+					status: "completed",
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description: `End-user top-up refund margin claw-back (wallet ${topUp.walletId})`,
+				});
+			}
+
+			return amount;
+		});
+	} catch (err) {
+		const code =
+			(err as { code?: string; cause?: { code?: string } })?.code ??
+			(err as { cause?: { code?: string } })?.cause?.code;
+		if (code === "23505") {
+			logger.info(
+				`Skipping duplicate end-user refund for wallet ${topUp.walletId} (concurrent delivery for ${topUp.stripePaymentIntentId})`,
+			);
+			return;
+		}
+		throw err;
+	}
+
+	logger.info(
+		`Reversed ${reversal} from end-user wallet ${topUp.walletId} on refund`,
+	);
+}
+
 async function handlePaymentIntentSucceeded(
 	event: Stripe.PaymentIntentSucceededEvent,
 ) {
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
+
+	// LLM SDK end-user wallet top-ups are handled separately and bill an
+	// end-user wallet, not the developer's org credits.
+	if (paymentIntent.metadata.kind === "end_user_topup") {
+		await handleEndUserTopUpSucceeded(paymentIntent);
+		return;
+	}
 
 	// payment_intent.succeeded also fires for subscription invoice payments;
 	// only credit top-up payment intents set baseAmount in metadata.
@@ -1693,6 +2440,19 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		return;
 	}
 
+	// LLM SDK: end-user wallet top-up refund. Reverse the credited amount
+	// (clamped to the wallet's current balance) and write a reversal ledger row.
+	const walletTopUp = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: payment_intent as string },
+			type: { eq: "topup" },
+		},
+	});
+	if (walletTopUp) {
+		await handleEndUserTopUpRefunded(walletTopUp);
+		return;
+	}
+
 	// Stripe v18 removed `invoice` from the typed Charge surface, but the
 	// field is still present on the underlying object for invoice-driven
 	// charges (subscriptions). Fall back to it to locate dev_plan_start /
@@ -1963,9 +2723,9 @@ async function handleSetupIntentSucceeded(
 	});
 }
 
-export async function handleInvoicePaymentSucceeded(
-	event: Stripe.InvoicePaymentSucceededEvent,
-) {
+export async function handleInvoicePaymentSucceeded(event: {
+	data: { object: Stripe.Invoice };
+}) {
 	const invoice = event.data.object;
 	const { customer, metadata } = invoice;
 	const subscription = (invoice as any).subscription;
@@ -2034,9 +2794,33 @@ export async function handleInvoicePaymentSucceeded(
 		}
 	}
 
+	const isChatPlanSubscription =
+		organization.chatPlanStripeSubscriptionId === subscriptionId &&
+		organization.chatPlan !== "none";
+
 	const isDevPlanSubscription =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
+	let subscriptionMetadata: Stripe.Metadata | undefined;
+	if (
+		organization.devPlan === "none" &&
+		organization.devPlanStripeSubscriptionId !== subscriptionId
+	) {
+		const stripeSubscription =
+			await getStripe().subscriptions.retrieve(subscriptionId);
+		subscriptionMetadata = stripeSubscription.metadata;
+	}
+	subscriptionMetadata ??= {};
+	const initialDevPlanTier = subscriptionMetadata.devPlan as
+		| DevPlanTier
+		| undefined;
+	const initialDevPlanCycle: DevPlanCycle =
+		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
+	const isInitialDevPlanSubscription =
+		subscriptionMetadata.subscriptionType === "dev_plan" &&
+		!!initialDevPlanTier &&
+		organization.devPlan === "none" &&
+		organization.devPlanStripeSubscriptionId !== subscriptionId;
 
 	// Stripe fires `invoice.payment_succeeded` both for true period renewals
 	// (`subscription_cycle`) and for the proration invoice generated when a
@@ -2048,11 +2832,177 @@ export async function handleInvoicePaymentSucceeded(
 	const isDevPlanRenewal =
 		isDevPlanSubscription && invoice.billing_reason === "subscription_cycle";
 
+	// Same billing-reason gate as dev plans: only reset chat plan credits on a
+	// true cycle renewal, not on mid-cycle tier-change proration invoices.
+	const isChatPlanRenewal =
+		isChatPlanSubscription && invoice.billing_reason === "subscription_cycle";
+
 	logger.info(
-		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}`,
+		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}, isChatPlanRenewal: ${isChatPlanRenewal}`,
 	);
 
-	if (isDevPlanRenewal) {
+	if (isInitialDevPlanSubscription && initialDevPlanTier) {
+		const creditsLimit = getDevPlanCreditsLimit(initialDevPlanTier);
+		const fingerprint = await getSubscriptionCardFingerprint(subscriptionId);
+
+		const claimed = await db
+			.update(tables.organization)
+			.set({
+				devPlan: initialDevPlanTier,
+				devPlanCreditsLimit: creditsLimit.toString(),
+				devPlanCreditsUsed: "0",
+				devPlanBillingCycleStart: new Date(),
+				devPlanStripeSubscriptionId: subscriptionId,
+				devPlanCancelled: false,
+				devPlanCycle: initialDevPlanCycle,
+				devPlanCardFingerprint: fingerprint,
+			})
+			.where(
+				and(
+					eq(tables.organization.id, organizationId),
+					isNull(tables.organization.devPlanStripeSubscriptionId),
+				),
+			)
+			.returning({ id: tables.organization.id });
+
+		if (claimed.length === 0) {
+			logger.info(
+				`Skipping initial DevPass invoice ${invoice.id}: subscription ${subscriptionId} was already activated`,
+			);
+			return;
+		}
+
+		const [transaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_start",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as { payment_intent?: string | null })
+					.payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${initialDevPlanTier.toUpperCase()} started via Stripe Checkout`,
+			})
+			.returning();
+
+		try {
+			await generateAndEmailInvoice({
+				invoiceNumber: transaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				billingEmail: organization.billingEmail,
+				billingCompany: organization.billingCompany,
+				billingAddress: organization.billingAddress,
+				billingTaxId: organization.billingTaxId,
+				billingNotes: organization.billingNotes,
+				lineItems: [
+					{
+						description: `Dev Plan ${initialDevPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (initial DevPass invoice); suppressing failure",
+				e as Error,
+			);
+		}
+
+		posthog.groupIdentify({
+			groupType: "organization",
+			groupKey: organizationId,
+			properties: { name: organization.name },
+		});
+		posthog.capture({
+			distinctId: "organization",
+			event: "dev_plan_started",
+			groups: { organization: organizationId },
+			properties: {
+				devPlan: initialDevPlanTier,
+				creditsLimit,
+				organization: organizationId,
+				subscriptionId,
+				source: "stripe_invoice",
+			},
+		});
+
+		const subscribedEmail =
+			subscriptionMetadata.userEmail || organization.billingEmail;
+		if (subscribedEmail) {
+			const subscribedUser = await db.query.user.findFirst({
+				where: { email: { eq: subscribedEmail } },
+			});
+			await notifyDevPlanSubscribed(
+				subscribedEmail,
+				subscribedUser?.name,
+				initialDevPlanTier,
+				initialDevPlanCycle,
+			);
+		}
+
+		logger.info(
+			`Activated initial DevPass subscription ${subscriptionId} for organization ${organizationId} from invoice ${invoice.id}`,
+		);
+	} else if (isChatPlanRenewal) {
+		const creditsLimit = getChatPlanCreditsLimit(
+			organization.chatPlan as ChatPlanTier,
+		);
+
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "chat_plan_renewal",
+			amount: (invoice.amount_paid / 100).toString(),
+			creditAmount: creditsLimit.toString(),
+			currency: invoice.currency.toUpperCase(),
+			status: "completed",
+			stripePaymentIntentId: (invoice as any).payment_intent,
+			stripeInvoiceId: invoice.id,
+			description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewed`,
+		});
+
+		await db
+			.update(tables.organization)
+			.set({
+				chatPlanCreditsUsed: "0",
+				chatPlanBillingCycleStart: new Date(),
+				chatPlanCancelled: false,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		logger.info(
+			`Chat plan ${organization.chatPlan} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
+		);
+
+		posthog.capture({
+			distinctId: "organization",
+			event: "chat_plan_renewed",
+			groups: {
+				organization: organizationId,
+			},
+			properties: {
+				chatPlan: organization.chatPlan,
+				creditsLimit: creditsLimit,
+				organization: organizationId,
+				source: "stripe_invoice",
+			},
+		});
+
+		if (organization.billingEmail) {
+			const renewedUser = await db.query.user.findFirst({
+				where: { email: { eq: organization.billingEmail } },
+			});
+			await notifyChatPlanRenewed(
+				organization.billingEmail,
+				renewedUser?.name,
+				organization.chatPlan ?? "unknown",
+			);
+		}
+	} else if (isDevPlanRenewal) {
 		// Handle dev plan renewal - reset credits
 		const creditsLimit = getDevPlanCreditsLimit(
 			organization.devPlan as DevPlanTier,
@@ -2081,6 +3031,8 @@ export async function handleInvoicePaymentSucceeded(
 			.set({
 				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
+				devPlanPremiumCreditsUsed: "0",
+				devPlanPremiumWeekStart: new Date(),
 				devPlanCreditsFrozen: false,
 				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanBillingCycleStart: new Date(),
@@ -2307,6 +3259,55 @@ async function restoreDevPlanCredits(
 	);
 }
 
+async function freezeChatPlanCredits(
+	organizationId: string,
+	organization: { chatPlanCreditsUsed: string | null },
+	reason: string,
+) {
+	// Mirror of freezeDevPlanCredits — caps the chat plan credit limit at
+	// what's already been used so the gateway's `limit - used` balance check
+	// returns 0 during dunning, without revoking the tier metadata.
+	const used = organization.chatPlanCreditsUsed ?? "0";
+	await db
+		.update(tables.organization)
+		.set({
+			chatPlanCreditsLimit: used,
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.warn(
+		`Froze chat plan credits for organization ${organizationId} (reason: ${reason}); credits limit set to ${used}`,
+	);
+}
+
+async function restoreChatPlanCredits(
+	organizationId: string,
+	organization: {
+		chatPlan: ChatPlanTier | "none" | null;
+		chatPlanCreditsLimit: string | null;
+	},
+	reason: string,
+) {
+	if (!organization.chatPlan || organization.chatPlan === "none") {
+		return;
+	}
+	const expectedLimit = getChatPlanCreditsLimit(organization.chatPlan);
+	const currentLimit = parseFloat(organization.chatPlanCreditsLimit ?? "0");
+	if (currentLimit >= expectedLimit) {
+		return;
+	}
+	await db
+		.update(tables.organization)
+		.set({
+			chatPlanCreditsLimit: expectedLimit.toString(),
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	logger.info(
+		`Restored chat plan credits for organization ${organizationId} (reason: ${reason}); credits limit raised from ${currentLimit} to ${expectedLimit}`,
+	);
+}
+
 async function handleInvoicePaymentFailed(
 	event: Stripe.InvoicePaymentFailedEvent,
 ) {
@@ -2360,11 +3361,14 @@ async function handleInvoicePaymentFailed(
 
 	const { organizationId, organization } = result;
 
+	const isChatPlan =
+		organization.chatPlanStripeSubscriptionId === subscriptionId &&
+		organization.chatPlan !== "none";
 	const isDevPlan =
 		organization.devPlanStripeSubscriptionId === subscriptionId &&
 		organization.devPlan !== "none";
 
-	if (!isDevPlan) {
+	if (!isDevPlan && !isChatPlan) {
 		// Pro subscription failures are tracked via payment_intent.payment_failed
 		// (with email throttling). Nothing extra to do here.
 		return;
@@ -2399,11 +3403,19 @@ async function handleInvoicePaymentFailed(
 		return;
 	}
 
-	await freezeDevPlanCredits(
-		organizationId,
-		organization,
-		`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
-	);
+	if (isChatPlan) {
+		await freezeChatPlanCredits(
+			organizationId,
+			organization,
+			`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
+		);
+	} else {
+		await freezeDevPlanCredits(
+			organizationId,
+			organization,
+			`invoice.payment_failed (invoice ${invoice.id}, status ${liveSubscription.status})`,
+		);
+	}
 }
 
 export async function handleSubscriptionUpdated(
@@ -2431,6 +3443,11 @@ export async function handleSubscriptionUpdated(
 
 	const { organizationId, organization } = result;
 
+	// Check if this is a chat plan subscription
+	const isChatPlan =
+		metadata?.subscriptionType === "chat_plan" ||
+		organization.chatPlanStripeSubscriptionId === subscription.id;
+
 	// Check if this is a dev plan subscription
 	const isDevPlan =
 		metadata?.subscriptionType === "dev_plan" ||
@@ -2444,7 +3461,87 @@ export async function handleSubscriptionUpdated(
 	// Check if subscription is active and organization was previously cancelled
 	const isSubscriptionActive = !cancelAtPeriodEnd;
 
-	if (isDevPlan) {
+	if (isChatPlan) {
+		const wasChatPlanCancelled = organization.chatPlanCancelled;
+
+		if (!isSubscriptionActive && !wasChatPlanCancelled) {
+			await db.insert(tables.transaction).values({
+				organizationId,
+				type: "chat_plan_cancel",
+				currency: "USD",
+				status: "completed",
+				stripeInvoiceId: subscription.latest_invoice as string,
+				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} cancelled`,
+			});
+
+			const cancelEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (cancelEmail) {
+				const cancelUser = await db.query.user.findFirst({
+					where: { email: { eq: cancelEmail } },
+				});
+				await notifyChatPlanCancelled(
+					cancelEmail,
+					cancelUser?.name,
+					organization.chatPlan ?? "unknown",
+				);
+			}
+		}
+
+		await db
+			.update(tables.organization)
+			.set({
+				chatPlanExpiresAt: expiresAt,
+				chatPlanCancelled: !isSubscriptionActive,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		const nonActiveStatuses: Stripe.Subscription.Status[] = [
+			"past_due",
+			"unpaid",
+			"incomplete",
+			"incomplete_expired",
+		];
+		if (nonActiveStatuses.includes(subscription.status)) {
+			await freezeChatPlanCredits(
+				organizationId,
+				organization,
+				`subscription.updated status=${subscription.status}`,
+			);
+		} else if (
+			subscription.status === "active" ||
+			subscription.status === "trialing"
+		) {
+			await restoreChatPlanCredits(
+				organizationId,
+				organization,
+				`subscription.updated status=${subscription.status}`,
+			);
+		}
+
+		if (isSubscriptionActive && wasChatPlanCancelled) {
+			posthog.capture({
+				distinctId: "organization",
+				event: "chat_plan_reactivated",
+				groups: {
+					organization: organizationId,
+				},
+				properties: {
+					chatPlan: organization.chatPlan,
+					organization: organizationId,
+					source: "stripe_subscription_updated",
+				},
+			});
+			logger.info(
+				`Reactivated chat plan subscription for organization ${organizationId}`,
+			);
+		}
+
+		logger.info(
+			`Updated chat plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
+		);
+	} else if (isDevPlan) {
 		// Handle dev plan subscription update
 		const wasDevPlanCancelled = organization.devPlanCancelled;
 
@@ -2619,12 +3716,71 @@ async function handleSubscriptionDeleted(
 
 	const { organizationId, organization } = result;
 
+	// Check if this is a chat plan subscription
+	const isChatPlan =
+		metadata?.subscriptionType === "chat_plan" ||
+		organization.chatPlanStripeSubscriptionId === subscription.id;
+
 	// Check if this is a dev plan subscription
 	const isDevPlan =
 		metadata?.subscriptionType === "dev_plan" ||
 		organization.devPlanStripeSubscriptionId === subscription.id;
 
-	if (isDevPlan) {
+	if (isChatPlan) {
+		const previousChatPlan = organization.chatPlan;
+
+		await db.insert(tables.transaction).values({
+			organizationId,
+			type: "chat_plan_end",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: subscription.latest_invoice as string,
+			description: `Chat Plan ${previousChatPlan?.toUpperCase()} ended`,
+		});
+
+		await db
+			.update(tables.organization)
+			.set({
+				chatPlan: "none",
+				chatPlanCreditsLimit: "0",
+				chatPlanCreditsUsed: "0",
+				chatPlanStripeSubscriptionId: null,
+				chatPlanExpiresAt: null,
+				chatPlanCancelled: false,
+				chatPlanBillingCycleStart: null,
+				// Release the card so the dedupe query no longer matches this
+				// ended org and the same card can claim a new chat plan.
+				chatPlanCardFingerprint: null,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		await sendTransactionalEmail({
+			to: organization.billingEmail,
+			subject: "Your LLMGateway Chat Plan Has Been Cancelled",
+			html: generateSubscriptionCancelledEmailHtml(organization.name),
+		});
+
+		logger.info(
+			`Sent chat plan cancelled email to ${organization.billingEmail} for organization ${organizationId}`,
+		);
+
+		posthog.capture({
+			distinctId: "organization",
+			event: "chat_plan_ended",
+			groups: {
+				organization: organizationId,
+			},
+			properties: {
+				previousChatPlan: previousChatPlan,
+				organization: organizationId,
+				source: "stripe_subscription_deleted",
+			},
+		});
+
+		logger.info(
+			`Ended chat plan ${previousChatPlan} for organization ${organizationId}`,
+		);
+	} else if (isDevPlan) {
 		// Handle dev plan subscription deletion
 		const previousDevPlan = organization.devPlan;
 
@@ -2645,6 +3801,8 @@ async function handleSubscriptionDeleted(
 				devPlan: "none",
 				devPlanCreditsLimit: "0",
 				devPlanCreditsUsed: "0",
+				devPlanPremiumCreditsUsed: "0",
+				devPlanPremiumWeekStart: null,
 				devPlanCreditsFrozen: false,
 				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanStripeSubscriptionId: null,

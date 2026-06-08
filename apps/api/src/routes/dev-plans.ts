@@ -303,9 +303,26 @@ const finalize = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						status: z.enum(["ok", "already_processed"]),
-					}),
+					schema: z.union([
+						z.object({
+							status: z.enum(["ok", "already_processed"]),
+						}),
+						z.object({
+							status: z.literal("requires_action"),
+							subscriptionId: z.string(),
+							clientSecret: z.string(),
+							paymentMethodId: z.string().optional(),
+						}),
+						z.object({
+							status: z.literal("payment_pending"),
+							subscriptionId: z.string(),
+							subscriptionStatus: z.string().optional(),
+							invoiceId: z.string().optional(),
+							invoiceStatus: z.string().nullable().optional(),
+							paymentIntentStatus: z.string().optional(),
+							hasClientSecret: z.boolean().optional(),
+						}),
+					]),
 				},
 			},
 			description: "Dev plan subscription finalized",
@@ -365,6 +382,29 @@ devPlans.openapi(finalize, async (c) => {
 		case "ok":
 		case "already_processed":
 			return c.json({ status: result.status }, 200);
+		case "requires_action":
+			return c.json(
+				{
+					status: result.status,
+					subscriptionId: result.subscriptionId,
+					clientSecret: result.clientSecret,
+					paymentMethodId: result.paymentMethodId,
+				},
+				200,
+			);
+		case "payment_pending":
+			return c.json(
+				{
+					status: result.status,
+					subscriptionId: result.subscriptionId,
+					subscriptionStatus: result.subscriptionStatus,
+					invoiceId: result.invoiceId,
+					invoiceStatus: result.invoiceStatus,
+					paymentIntentStatus: result.paymentIntentStatus,
+					hasClientSecret: result.hasClientSecret,
+				},
+				200,
+			);
 		case "duplicate_card":
 			return c.json(
 				{

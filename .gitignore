@@ -9,6 +9,7 @@ apps/**/*.js
 .pnpm-store/
 .idea/
 openapi.json
+**/src/lib/api/v1.d.ts
 .DS_Store
 .envrc
 llmgateway_data

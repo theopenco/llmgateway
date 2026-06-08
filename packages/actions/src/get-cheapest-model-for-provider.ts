@@ -69,14 +69,9 @@ export function getCheapestModelForProvider(
 	let lowestPrice: Decimal | null = null;
 
 	for (const { provider: providerInfo } of modelsToConsider) {
-		const discount = new Decimal(
-			(providerInfo as ProviderModelMapping).discount ?? "0",
-		);
-		const discountMultiplier = new Decimal(1).minus(discount);
 		const totalPrice = new Decimal(providerInfo.inputPrice!)
 			.plus(providerInfo.outputPrice!)
-			.div(2)
-			.times(discountMultiplier);
+			.div(2);
 		if (lowestPrice === null || totalPrice.lt(lowestPrice)) {
 			lowestPrice = totalPrice;
 			cheapestModel = providerInfo.externalId;

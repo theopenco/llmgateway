@@ -100,7 +100,6 @@ export function CostCalculator() {
 	const cachedInputPricePerToken = mapping?.cachedInputPrice
 		? Number(mapping.cachedInputPrice)
 		: inputPricePerToken * 0.1;
-	const discount = Number(mapping?.discount ?? "0");
 
 	const dailyRequests = dailyVolumeSteps[volumeIndex];
 	const monthlyRequests = dailyRequests * 30;
@@ -118,9 +117,7 @@ export function CostCalculator() {
 		const baseMonthly = basePerRequest * monthlyRequests;
 		const competitorCost = baseMonthly * (1 + COMPETITOR_FEE);
 
-		const gatewayPerRequest =
-			discount > 0 ? basePerRequest * (1 - discount) : basePerRequest;
-		const gatewayCost = gatewayPerRequest * monthlyRequests;
+		const gatewayCost = basePerRequest * monthlyRequests;
 
 		const competitorSavings = competitorCost - gatewayCost;
 		const savingsPercent =
@@ -138,7 +135,6 @@ export function CostCalculator() {
 		inputPricePerToken,
 		outputPricePerToken,
 		cachedInputPricePerToken,
-		discount,
 		monthlyRequests,
 		avgInputTokens,
 		avgOutputTokens,
@@ -187,7 +183,6 @@ export function CostCalculator() {
 											{formatPrice(inputPricePerToken)}
 											/M input &middot; {formatPrice(outputPricePerToken)}/M
 											output
-											{discount > 0 ? ` · ${discount * 100}% discount` : ""}
 										</p>
 									)}
 								</div>
@@ -305,7 +300,6 @@ export function CostCalculator() {
 										</p>
 										<p className="text-xs text-muted-foreground mt-1">
 											No markup
-											{discount > 0 ? `, ${discount * 100}% off` : ""}
 										</p>
 									</div>
 								</div>

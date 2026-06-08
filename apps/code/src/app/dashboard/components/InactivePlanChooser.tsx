@@ -84,6 +84,16 @@ export default function InactivePlanChooser({
 					);
 				})}
 			</div>
+			<InvoiceInfoLabel />
 		</div>
+	);
+}
+
+function InvoiceInfoLabel() {
+	return (
+		<p className="mx-auto mt-4 max-w-2xl text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }
