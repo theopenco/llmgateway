@@ -101,6 +101,14 @@ const listModels = createRoute({
 				.transform((val) => val === "true")
 				.describe("Exclude deprecated models from the response")
 				.openapi({ example: "false" }),
+			no_training: z
+				.string()
+				.optional()
+				.transform((val) => val === "true")
+				.describe(
+					"Only return models and provider mappings whose provider does not train on API data",
+				)
+				.openapi({ example: "false" }),
 		}),
 	},
 	responses: {
@@ -120,36 +128,59 @@ modelsApi.openapi(listModels, async (c) => {
 		const query = c.req.valid("query");
 		const includeDeactivated = query.include_deactivated || false;
 		const excludeDeprecated = query.exclude_deprecated || false;
+		const noTraining = query.no_training || false;
 		const currentDate = new Date();
 
+		// Set of provider ids that do not train on API data
+		const noTrainingProviderIds = new Set(
+			providers
+				.filter((p) => p.dataPolicy?.apiTraining === false)
+				.map((p) => p.id),
+		);
+
 		// Filter models based on deactivation and deprecation status of their provider mappings
-		const filteredModels = modelsList.filter((model: ModelDefinition) => {
-			// Check if all provider mappings are deactivated
-			const allDeactivated = model.providers.every(
-				(provider) =>
-					(provider as ProviderModelMapping).deactivatedAt &&
-					currentDate > (provider as ProviderModelMapping).deactivatedAt!,
-			);
+		const deactivationFilteredModels = modelsList.filter(
+			(model: ModelDefinition) => {
+				// Check if all provider mappings are deactivated
+				const allDeactivated = model.providers.every(
+					(provider) =>
+						(provider as ProviderModelMapping).deactivatedAt &&
+						currentDate > (provider as ProviderModelMapping).deactivatedAt!,
+				);
 
-			// Filter out models where all providers are deactivated (unless explicitly included)
-			if (!includeDeactivated && allDeactivated) {
-				return false;
-			}
+				// Filter out models where all providers are deactivated (unless explicitly included)
+				if (!includeDeactivated && allDeactivated) {
+					return false;
+				}
 
-			// Check if all provider mappings are deprecated
-			const allDeprecated = model.providers.every(
-				(provider) =>
-					(provider as ProviderModelMapping).deprecatedAt &&
-					currentDate > (provider as ProviderModelMapping).deprecatedAt!,
-			);
+				// Check if all provider mappings are deprecated
+				const allDeprecated = model.providers.every(
+					(provider) =>
+						(provider as ProviderModelMapping).deprecatedAt &&
+						currentDate > (provider as ProviderModelMapping).deprecatedAt!,
+				);
 
-			// Filter out models where all providers are deprecated if requested
-			if (excludeDeprecated && allDeprecated) {
-				return false;
-			}
+				// Filter out models where all providers are deprecated if requested
+				if (excludeDeprecated && allDeprecated) {
+					return false;
+				}
 
-			return true;
-		});
+				return true;
+			},
+		);
+
+		// When requested, keep only provider mappings whose provider does not
+		// train on API data, and drop models left with no eligible mappings.
+		const filteredModels = noTraining
+			? deactivationFilteredModels
+					.map((model: ModelDefinition) => ({
+						...model,
+						providers: model.providers.filter((provider) =>
+							noTrainingProviderIds.has(provider.providerId),
+						),
+					}))
+					.filter((model) => model.providers.length > 0)
+			: deactivationFilteredModels;
 
 		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
