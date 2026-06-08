@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 
 import {
 	db,
@@ -207,26 +208,6 @@ function getForkedChatTitle(title: string) {
 	return `${base.slice(0, maxTitleLength - suffix.length)}${suffix}`;
 }
 
-// Build a chat-history org filter for the authenticated user. When an
-// organizationId is provided we scope to that org; for the dedicated Chat org
-// (the "Chat plan" context) we also include legacy rows with no org assigned so
-// existing history keeps showing in the default context.
-async function buildChatOrgFilter(organizationId: string | undefined) {
-	if (!organizationId) {
-		return undefined;
-	}
-	const org = await db.query.organization.findFirst({
-		where: { id: { eq: organizationId } },
-	});
-	if (!org || org.isChat) {
-		return or(
-			eq(tables.chat.organizationId, organizationId),
-			isNull(tables.chat.organizationId),
-		);
-	}
-	return eq(tables.chat.organizationId, organizationId);
-}
-
 // List user's chats
 const listChats = createRoute({
 	method: "get",
@@ -257,7 +238,10 @@ chats.openapi(listChats, async (c) => {
 	}
 
 	const { organizationId } = c.req.valid("query");
-	const orgFilter = await buildChatOrgFilter(organizationId);
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.chat.organizationId,
+		organizationId,
+	);
 
 	// Get user's chats with message counts in a single query
 	const chatsWithCount = await db

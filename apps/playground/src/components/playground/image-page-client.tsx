@@ -221,7 +221,7 @@ export default function ImagePageClient({
 					{
 						body: {
 							prompt: item.prompt,
-							organizationId: selectedOrganization?.id,
+							organizationId: item.organizationId,
 							inputImages: item.inputImages,
 							models: item.models.map((m) => ({
 								modelId: m.modelId,
@@ -441,6 +441,7 @@ export default function ImagePageClient({
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				organizationId: selectedOrganization?.id,
 				inputImages:
 					inputImages.length > 0
 						? inputImages.map((img) => ({

@@ -11323,6 +11323,10 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			and(
 				eq(tables.organization.isChat, true),
 				ne(tables.organization.chatPlan, "none"),
+				or(
+					isNull(tables.organization.chatPlanExpiresAt),
+					sql`${tables.organization.chatPlanExpiresAt} > NOW()`,
+				)!,
 			),
 		);
 	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
@@ -11803,7 +11807,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 	const now = new Date();
 
 	const org = await db.query.organization.findFirst({
-		where: { id: { eq: orgId } },
+		where: { id: { eq: orgId }, isChat: { eq: true } },
 	});
 
 	if (!org) {

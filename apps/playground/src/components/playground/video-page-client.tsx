@@ -201,7 +201,7 @@ export default function VideoPageClient({
 					{
 						body: {
 							prompt: item.prompt,
-							organizationId: selectedOrganization?.id,
+							organizationId: item.organizationId,
 							frameInputs: item.frameInputs,
 							referenceImages: item.referenceImages,
 							models: item.models.map((m) => ({
@@ -632,6 +632,7 @@ export default function VideoPageClient({
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				organizationId: selectedOrganization?.id,
 				frameInputs:
 					frameInputs.start || frameInputs.end ? { ...frameInputs } : undefined,
 				referenceImages:

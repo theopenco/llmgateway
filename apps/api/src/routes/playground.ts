@@ -2,31 +2,12 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
+import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
-import { db, tables, shortid, desc, eq, and, or, isNull } from "@llmgateway/db";
+import { db, tables, shortid, desc, eq, and } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
-import type { SQL, Column } from "@llmgateway/db";
-
-// Build an org filter for playground history. When an organizationId is given we
-// scope to it; for the dedicated Chat org (the "Chat plan" context) we also
-// include legacy rows with no org so existing history keeps showing there.
-async function buildHistoryOrgFilter(
-	column: Column,
-	organizationId: string | undefined,
-): Promise<SQL | undefined> {
-	if (!organizationId) {
-		return undefined;
-	}
-	const org = await db.query.organization.findFirst({
-		where: { id: { eq: organizationId } },
-	});
-	if (!org || org.isChat) {
-		return or(eq(column, organizationId), isNull(column));
-	}
-	return eq(column, organizationId);
-}
 
 const COOKIE_NAME = "llmgateway_playground_key";
 
@@ -267,7 +248,7 @@ playground.openapi(listImageHistory, async (c) => {
 	}
 
 	const { organizationId } = c.req.valid("query");
-	const orgFilter = await buildHistoryOrgFilter(
+	const orgFilter = await buildOrgHistoryFilter(
 		tables.playgroundImageHistory.organizationId,
 		organizationId,
 	);
@@ -490,7 +471,7 @@ playground.openapi(listVideoHistory, async (c) => {
 	}
 
 	const { organizationId } = c.req.valid("query");
-	const orgFilter = await buildHistoryOrgFilter(
+	const orgFilter = await buildOrgHistoryFilter(
 		tables.playgroundVideoHistory.organizationId,
 		organizationId,
 	);
