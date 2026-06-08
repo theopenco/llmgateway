@@ -189,6 +189,28 @@ describe("getEffectiveRateLimit", () => {
 
 		expect(result.rpmShared).toBe(true);
 		expect(result.rpdShared).toBe(false);
+		expect(result.rpmProvider).toBe("openai");
+		expect(result.rpmModel).toBe("gpt-4o");
+	});
+
+	it("surfaces wildcard target for a shared model-only limit", async () => {
+		createQueryMock([
+			{
+				id: "rl-shared-wildcard",
+				organizationId: null,
+				provider: null,
+				model: "gpt-4o",
+				maxRpm: 10,
+				maxRpd: null,
+				enforcement: "global",
+			},
+		]);
+
+		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.rpmShared).toBe(true);
+		expect(result.rpmProvider).toBeNull();
+		expect(result.rpmModel).toBe("gpt-4o");
 	});
 
 	it("keeps a global limit per-org when enforcement is per_org", async () => {
@@ -207,6 +229,9 @@ describe("getEffectiveRateLimit", () => {
 		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
 
 		expect(result.rpmShared).toBe(false);
+		// Non-shared limits don't surface a target; they key per request.
+		expect(result.rpmProvider).toBeUndefined();
+		expect(result.rpmModel).toBeUndefined();
 	});
 
 	it("propagates database errors so callers can apply SWR fallback", async () => {

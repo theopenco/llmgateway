@@ -41,6 +41,12 @@ export interface ProviderRateLimitResult {
 	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
 }
 
+// Sentinels for shared limits whose matched row left a dimension as a wildcard,
+// so every matching request collapses onto one shared counter for that row.
+const SHARED_ORG = "__global__";
+const ALL_PROVIDERS = "__all_providers__";
+const ALL_MODELS = "__all_models__";
+
 function getProviderRateLimitKey(
 	organizationId: string,
 	provider: string,
@@ -48,6 +54,32 @@ function getProviderRateLimitKey(
 	window: ProviderRateLimitWindow,
 ): string {
 	return `rate_limit:provider_cap:${providerRateLimitWindows[window].redisSuffix}:${organizationId}:${provider}:${model}`;
+}
+
+/**
+ * Build the Redis key for a window. Shared limits key by the matched row's
+ * target (collapsing wildcard dimensions onto a sentinel) so a single counter
+ * spans all orgs and all requests the row covers; per-org limits key by the
+ * org and the concrete request provider/model.
+ */
+function buildProviderRateLimitKey(
+	window: ProviderRateLimitWindow,
+	organizationId: string,
+	provider: string,
+	model: string,
+	shared: boolean | undefined,
+	matchedProvider: string | null | undefined,
+	matchedModel: string | null | undefined,
+): string {
+	if (!shared) {
+		return getProviderRateLimitKey(organizationId, provider, model, window);
+	}
+	return getProviderRateLimitKey(
+		SHARED_ORG,
+		matchedProvider ?? ALL_PROVIDERS,
+		matchedModel ?? ALL_MODELS,
+		window,
+	);
 }
 
 async function readWindowState(
@@ -173,14 +205,25 @@ async function getProviderRateLimitStates(
 	);
 	const now = Date.now();
 
-	// Global limits configured for shared enforcement use a fixed org segment so
-	// every org shares a single sliding window; per-org limits key by the org id.
-	const rpmOrg = effectiveRateLimit.rpmShared ? "__global__" : organizationId;
-	const rpdOrg = effectiveRateLimit.rpdShared ? "__global__" : organizationId;
-
 	const keys = {
-		rpm: getProviderRateLimitKey(rpmOrg, provider, model, "rpm"),
-		rpd: getProviderRateLimitKey(rpdOrg, provider, model, "rpd"),
+		rpm: buildProviderRateLimitKey(
+			"rpm",
+			organizationId,
+			provider,
+			model,
+			effectiveRateLimit.rpmShared,
+			effectiveRateLimit.rpmProvider,
+			effectiveRateLimit.rpmModel,
+		),
+		rpd: buildProviderRateLimitKey(
+			"rpd",
+			organizationId,
+			provider,
+			model,
+			effectiveRateLimit.rpdShared,
+			effectiveRateLimit.rpdProvider,
+			effectiveRateLimit.rpdModel,
+		),
 	};
 	const limits = {
 		rpm: await readWindowState(
