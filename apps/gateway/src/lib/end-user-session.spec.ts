@@ -145,6 +145,33 @@ describe("validateEndUserSessionModelAccess", () => {
 			reason: "Model session-model is not in the allowed models list",
 		});
 	});
+
+	it("allows an auto-routing candidate when the scope includes 'auto'", () => {
+		expect(
+			validateEndUserSessionModelAccess(
+				makeSessionApiKey(["auto"]),
+				sessionModel.id,
+				sessionModel,
+				{ autoRouting: true },
+			),
+		).toEqual({
+			allowed: true,
+			allowedProviders: ["openai", "anthropic"],
+		});
+	});
+
+	it("still denies a concrete model scoped to 'auto' on an explicit (non-auto) request", () => {
+		expect(
+			validateEndUserSessionModelAccess(
+				makeSessionApiKey(["auto"]),
+				sessionModel.id,
+				sessionModel,
+			),
+		).toMatchObject({
+			allowed: false,
+			reason: "Model session-model is not in the allowed models list",
+		});
+	});
 });
 
 describe("assertTestWalletModelAllowed", () => {

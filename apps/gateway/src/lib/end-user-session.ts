@@ -107,6 +107,7 @@ export function validateEndUserSessionModelAccess(
 	apiKey: GatewayApiKey,
 	requestedModel: string,
 	activeModelInfo?: ModelDefinition,
+	options: { autoRouting?: boolean } = {},
 ): {
 	allowed: boolean;
 	reason?: string;
@@ -123,7 +124,14 @@ export function validateEndUserSessionModelAccess(
 		return { allowed: false, reason: `Model ${requestedModel} not found` };
 	}
 
-	if (!scopeModels.includes(modelDef.id)) {
+	// A session scoped to "auto" delegates model choice to the gateway's
+	// auto-router, so the concrete model it resolves to (e.g. a free model for a
+	// sandbox wallet) is allowed even though it isn't literally listed in scope.
+	const scopeAllows =
+		scopeModels.includes(modelDef.id) ||
+		(options.autoRouting === true && scopeModels.includes("auto"));
+
+	if (!scopeAllows) {
 		return {
 			allowed: false,
 			reason: `Model ${modelDef.id} is not in the allowed models list`,

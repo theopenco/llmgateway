@@ -2439,6 +2439,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 				modelDef,
 				clientIp,
+				{ autoRouting: true },
 			);
 			if (!candidateIam.allowed) {
 				continue;
@@ -2710,6 +2711,7 @@ chat.openapi(completions, async (c) => {
 			undefined,
 			modelInfo,
 			clientIp,
+			{ autoRouting: true },
 		);
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
