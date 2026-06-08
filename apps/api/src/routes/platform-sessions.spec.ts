@@ -165,4 +165,60 @@ describe("platform sessions", () => {
 		});
 		expect(liveWallet?.mode).toBe("live");
 	});
+
+	async function createLiveKey() {
+		await db.insert(tables.apiKey).values({
+			id: "test-live-platform-key-id",
+			token: "sk_live_platform",
+			projectId: "test-project-id",
+			description: "Live platform secret",
+			keyType: "platform_secret",
+			createdBy: "test-user-id",
+		});
+	}
+
+	test("a test key cannot read or credit a live wallet (cross-mode)", async () => {
+		await createLiveKey();
+
+		const liveRes = await app.request("/v1/sessions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer sk_live_platform",
+			},
+			body: JSON.stringify({ customer: "live-customer" }),
+		});
+		const liveSession = (await liveRes.json()) as SessionResponse;
+
+		// PLATFORM_SECRET is a test key; the wallet belongs to a live customer.
+		const retrieve = await app.request(`/v1/wallets/${liveSession.walletId}`, {
+			headers: { Authorization: `Bearer ${PLATFORM_SECRET}` },
+		});
+		expect(retrieve.status).toBe(404);
+
+		const credit = await app.request(
+			`/v1/wallets/${liveSession.walletId}/credit`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${PLATFORM_SECRET}`,
+				},
+				body: JSON.stringify({ amount: 5 }),
+			},
+		);
+		expect(credit.status).toBe(404);
+
+		const liveWallet = await db.query.wallet.findFirst({
+			where: { id: { eq: liveSession.walletId } },
+		});
+		expect(liveWallet?.balance).toBe("0");
+	});
+
+	test("test keys are rejected from Connect routes", async () => {
+		const res = await app.request("/v1/connect/status", {
+			headers: { Authorization: `Bearer ${PLATFORM_SECRET}` },
+		});
+		expect(res.status).toBe(403);
+	});
 });

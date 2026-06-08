@@ -1852,6 +1852,11 @@ async function handleEndUserTopUpSucceeded(
 		return;
 	}
 
+	// Test-mode top-ups are Stripe-sandbox payments: never accrue real, payable
+	// developer margin. Persist zero on the ledger row too, so a later refund
+	// (which claws back the ledger's developerMargin) can't erase live earnings.
+	const accruedMargin = wallet.mode === "test" ? 0 : developerMargin;
+
 	// Credit the wallet, write the ledger row, and accrue the developer margin
 	// atomically. The ledger insert hits the unique index first, so a concurrent
 	// duplicate delivery rolls the whole transaction back instead of double-
@@ -1876,29 +1881,27 @@ async function handleEndUserTopUpSucceeded(
 				balanceAfter: updated.balance,
 				grossPaid: String(grossPaid),
 				platformFee: String(platformFee),
-				developerMargin: String(developerMargin),
+				developerMargin: String(accruedMargin),
 				netCredited: String(netCredited),
 				stripePaymentIntentId: paymentIntent.id,
 				description: "End-user credit top-up",
 			});
 
 			// Accrue the developer's margin to their org (settled out-of-band / via
-			// Stripe Connect) and record it in the org's transaction history. Skip
-			// for test-mode wallets: their top-ups are Stripe-sandbox payments, so
-			// accruing real, payable margin from them would be a sandbox-to-cash leak.
-			if (developerMargin > 0 && wallet.mode !== "test") {
+			// Stripe Connect) and record it in the org's transaction history.
+			if (accruedMargin > 0) {
 				await tx
 					.update(tables.organization)
 					.set({
-						endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${developerMargin}`,
+						endUserMarginBalance: sql`${tables.organization.endUserMarginBalance} + ${accruedMargin}`,
 					})
 					.where(eq(tables.organization.id, wallet.organizationId));
 
 				await tx.insert(tables.transaction).values({
 					organizationId: wallet.organizationId,
 					type: "end_user_margin_accrual",
-					amount: String(developerMargin),
-					creditAmount: String(developerMargin),
+					amount: String(accruedMargin),
+					creditAmount: String(accruedMargin),
 					status: "completed",
 					stripePaymentIntentId: paymentIntent.id,
 					description: `End-user top-up margin (wallet ${walletId})`,

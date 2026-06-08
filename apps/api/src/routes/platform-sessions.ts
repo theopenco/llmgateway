@@ -323,16 +323,17 @@ const walletResponse = z.object({
  */
 async function loadWalletForPlatform(
 	walletId: string,
-	organizationId: string,
-	projectId: string,
+	platformKey: AuthenticatedPlatformKey,
 ) {
 	const wallet = await db.query.wallet.findFirst({
 		where: { id: { eq: walletId } },
 	});
 	if (
 		!wallet ||
-		wallet.organizationId !== organizationId ||
-		wallet.projectId !== projectId
+		wallet.organizationId !== platformKey.organizationId ||
+		wallet.projectId !== platformKey.projectId ||
+		// A test key must not read or credit live wallets, and vice versa.
+		wallet.mode !== platformKey.mode
 	) {
 		throw new HTTPException(404, {
 			message: "Wallet not found in this project",
@@ -359,11 +360,7 @@ platformSessions.openapi(retrieveWallet, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { id } = c.req.param();
-	const wallet = await loadWalletForPlatform(
-		id,
-		platformKey.organizationId,
-		platformKey.projectId,
-	);
+	const wallet = await loadWalletForPlatform(id, platformKey);
 	return c.json({
 		id: wallet.id,
 		endCustomerId: wallet.endCustomerId,
@@ -406,11 +403,7 @@ platformSessions.openapi(creditWallet, async (c) => {
 	const { id } = c.req.param();
 	const { amount, reason } = c.req.valid("json");
 
-	const wallet = await loadWalletForPlatform(
-		id,
-		platformKey.organizationId,
-		platformKey.projectId,
-	);
+	const wallet = await loadWalletForPlatform(id, platformKey);
 
 	// Balance bump + ledger row must commit together.
 	const updated = await db.transaction(async (tx) => {
