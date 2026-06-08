@@ -1,5 +1,5 @@
 /**
- * Embeddable SDK: shared helpers for billing requests authenticated with an
+ * LLM SDK: shared helpers for billing requests authenticated with an
  * ephemeral end-user session token (`es_…`) to the bound wallet instead of the
  * developer's organization credits.
  *

@@ -100,7 +100,7 @@ const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
-// Embeddable SDK: emit a wallet.low_balance webhook when a wallet's balance
+// LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
 const WALLET_LOW_BALANCE_THRESHOLD = 1;
 const AUTO_TOPUP_DISABLE_AFTER_DAYS = 7;
@@ -703,7 +703,7 @@ export async function batchProcessLogs(): Promise<void> {
 	}
 
 	const deductedOrgIds: string[] = [];
-	// Embeddable SDK: wallets that crossed below the low-balance threshold this
+	// LLM SDK: wallets that crossed below the low-balance threshold this
 	// batch — webhooks are enqueued after the transaction commits.
 	const walletLowBalanceEvents: Array<{
 		projectId: string;
@@ -786,7 +786,7 @@ export async function batchProcessLogs(): Promise<void> {
 			const apiKeyEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const endUserSessionEvents = new Map<string, ApiKeyUsageEvent[]>();
 			const logIds: string[] = [];
-			// Embeddable SDK: end-user wallet costs are accumulated separately and
+			// LLM SDK: end-user wallet costs are accumulated separately and
 			// debited from wallet.balance (not organization.credits). Keyed by
 			// walletId; we keep a representative logId per wallet to link the
 			// usage_debit ledger row back to a gateway log.
@@ -855,7 +855,7 @@ export async function batchProcessLogs(): Promise<void> {
 						apiKeyEvents.set(row.api_key_id, existingEvents);
 					}
 
-					// Embeddable SDK: end-user session traffic debits the wallet, not
+					// LLM SDK: end-user session traffic debits the wallet, not
 					// the developer's org credits. Always full-cost (credits mode).
 					if (row.end_customer_wallet_id) {
 						const currentWalletCost =
@@ -1119,7 +1119,7 @@ export async function batchProcessLogs(): Promise<void> {
 			// deductedOrgIds is populated inside the loop above — only orgs
 			// with actual regular-credit deductions are included.
 
-			// Embeddable SDK: debit end-user wallets and append usage_debit ledger
+			// LLM SDK: debit end-user wallets and append usage_debit ledger
 			// rows. Kept fully separate from the org-credit path above so normal
 			// developer traffic is untouched.
 			for (const [walletId, totalCost] of walletCosts.entries()) {
@@ -1313,7 +1313,7 @@ export async function batchProcessLogs(): Promise<void> {
 			void checkLowBalanceAlerts(deductedOrgIds);
 		}
 
-		// Embeddable SDK: enqueue end-user wallet low-balance webhooks (best-effort).
+		// LLM SDK: enqueue end-user wallet low-balance webhooks (best-effort).
 		for (const ev of walletLowBalanceEvents) {
 			try {
 				await enqueueWebhookDeliveries({
@@ -1956,7 +1956,7 @@ async function runDataRetentionLoop() {
 }
 
 /**
- * Embeddable SDK: deactivate expired end-user session tokens so they stop
+ * LLM SDK: deactivate expired end-user session tokens so they stop
  * authenticating and don't accumulate.
  */
 async function cleanupExpiredEndUserSessions(): Promise<void> {
@@ -2016,7 +2016,7 @@ const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
 
 /**
- * Embeddable SDK: deliver queued platform webhook events with an HMAC signature,
+ * LLM SDK: deliver queued platform webhook events with an HMAC signature,
  * retrying with exponential backoff. The signature header is
  * `X-LLMGateway-Signature: t=<unix>,v1=<hex hmac of "t.body">`, which
  * `@llmgateway/server`'s `webhooks.constructEvent` verifies.
@@ -2173,7 +2173,7 @@ async function runWebhookDeliveryLoop() {
 const AUTO_PAYOUT_MIN_AMOUNT = 25;
 
 /**
- * Embeddable SDK: automatically pay out accrued developer margin to onboarded
+ * LLM SDK: automatically pay out accrued developer margin to onboarded
  * connected accounts above a threshold, via Stripe Connect transfers.
  */
 async function processMarginPayouts(): Promise<void> {

@@ -322,7 +322,7 @@ export const transaction = pgTable(
 				"chat_plan_cancel",
 				"chat_plan_end",
 				"chat_plan_renewal",
-				// Embeddable SDK end-user wallet flows.
+				// LLM SDK end-user wallet flows.
 				"end_user_topup",
 				"end_user_margin_accrual",
 				"end_user_refund",
@@ -773,7 +773,7 @@ export const walletLedger = pgTable(
 	],
 );
 
-// Embeddable SDK: a developer's registered webhook endpoint. LLM Gateway POSTs
+// LLM SDK: a developer's registered webhook endpoint. LLM Gateway POSTs
 // signed events (wallet.credited, wallet.low_balance, …) here so the developer's
 // backend can react. The signing secret is shown once at creation.
 export const webhookEndpoint = pgTable(
@@ -1255,12 +1255,12 @@ export const videoJob = pgTable(
 		apiKeyId: text()
 			.notNull()
 			.references(() => apiKey.id, { onDelete: "cascade" }),
-		// Embeddable SDK: for jobs created under an end-user session, the
+		// LLM SDK: for jobs created under an end-user session, the
 		// concrete session id and owning wallet. Null for normal developer keys.
 		endUserSessionId: text().references(() => endUserSession.id, {
 			onDelete: "set null",
 		}),
-		// Embeddable SDK: for jobs created under an end-user session, the
+		// LLM SDK: for jobs created under an end-user session, the
 		// owning wallet. Null for normal developer keys. Read routes enforce that a
 		// session may only access its own wallet's jobs (per-end-user isolation
 		// within a shared project).

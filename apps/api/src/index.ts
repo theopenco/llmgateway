@@ -76,7 +76,7 @@ const corsAllowList = process.env.ORIGIN_URLS?.split(",") ?? [
 	"http://localhost:3006",
 ];
 
-// Embeddable SDK endpoints are called cross-origin from arbitrary developer
+// LLM SDK endpoints are called cross-origin from arbitrary developer
 // frontends with a bearer session token (no cookies), so they reflect the
 // request origin. The per-project `allowedOrigins` allowlist is enforced
 // server-side in the end-user session middleware / gateway handler.

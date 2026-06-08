@@ -1673,7 +1673,7 @@ chat.openapi(completions, async (c) => {
 
 	assertApiKeyWithinUsageLimits(apiKey);
 
-	// Embeddable SDK: ephemeral end-user session tokens are bound to one wallet.
+	// LLM SDK: ephemeral end-user session tokens are bound to one wallet.
 	// Validate expiry + load the wallet now; below we present an "effective"
 	// project (forced credits mode) and organization (credits mirror the wallet
 	// balance) so the existing credit-gating logic bills the wallet, while the

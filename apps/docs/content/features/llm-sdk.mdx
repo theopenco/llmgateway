@@ -1,14 +1,14 @@
 ---
-title: Embeddable SDK
+title: LLM SDK
 description: Embed AI and in-app credit purchases into your app like Stripe + Stripe Elements. Your end-users get their own wallet, buy credits, and chat with any model — billed through LLM Gateway, with your markup as margin.
 icon: Wallet
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Embeddable SDK
+# LLM SDK
 
-The Embeddable SDK lets you drop **AI + in-app credit purchases** into your product the same way Stripe Elements lets you drop in payments. Your end-users get their **own wallet**, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record; you set a markup and keep the margin.
+The LLM SDK lets you drop **AI + in-app credit purchases** into your product the same way Stripe Elements lets you drop in payments. Your end-users get their **own wallet**, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record; you set a markup and keep the margin.
 
 It ships as three packages:
 
@@ -19,9 +19,9 @@ It ships as three packages:
 | `@llmgateway/elements` | React                     | Drop-in `<Chat/>`, `<BuyCredits/>`, `<CreditBalance/>` + hooks                       |
 
 <Callout type="info">
-	A complete, runnable Next.js example lives in the templates repo:
-	[**theopenco/llmgateway-templates →
-	templates/embeddable-credits**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits).
+	A complete, runnable Next.js example lives in the templates repo: [**LLM SDK
+	credits
+	template**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits).
 </Callout>
 
 ## How it works
@@ -44,12 +44,12 @@ Your backend ──(secret key sk_)──▶ POST /v1/sessions ──▶ ephemer
 1. In the dashboard, open your project and **enable end-user sessions** (sets `endUserEnabled` on the project). Optionally set a **markup percent** and an **allowed-origins** list.
 2. Create a **platform secret key** (`sk_…`, an API key of type `platform_secret`) for that project. Keep it server-side.
 
-## Create a platform secret key
+## Create an LLM SDK platform secret key
 
-Embeddable sessions use a project-scoped **platform secret key** that starts with `sk_`. This is different from a regular gateway API key (`llmgtwy_…`) and must only be used from your backend.
+LLM SDK sessions use a project-scoped **platform secret key** that starts with `sk_`. This is different from a regular gateway API key (`llmgtwy_…`) and must only be used from your backend.
 
 1. Open the LLM Gateway dashboard and select the project you want to embed.
-2. Go to **Settings → Embeddable**.
+2. Go to **Settings → LLM SDK Settings**.
 3. Enable **End-user sessions**.
 4. Add any allowed browser origins, such as `https://app.example.com`.
 5. Click **Create Secret Key** and copy the `sk_…` value immediately.
@@ -229,4 +229,4 @@ const payout = await lg.connect.payout(); // transfer the accrued margin out
 
 The end-to-end Next.js app — backend session route, provider, chat, and buy-credits — is in the templates repo:
 
-➡️ [**theopenco/llmgateway-templates → templates/embeddable-credits**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)
+➡️ [**LLM SDK credits template**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)

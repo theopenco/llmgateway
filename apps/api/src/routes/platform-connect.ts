@@ -11,7 +11,7 @@ import { logger } from "@llmgateway/logger";
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — developer margin payouts via Stripe Connect.
+ * LLM SDK — developer margin payouts via Stripe Connect.
  *
  * End-user top-ups are collected on LLM Gateway's Stripe account; the developer's
  * markup accrues to `organization.endUserMarginBalance`. These endpoints let the

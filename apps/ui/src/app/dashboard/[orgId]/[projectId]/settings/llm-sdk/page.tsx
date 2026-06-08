@@ -1,4 +1,4 @@
-import { EmbeddableSettings } from "@/components/settings/embeddable-settings";
+import { LlmSdkSettings } from "@/components/settings/llm-sdk-settings";
 import {
 	Card,
 	CardContent,
@@ -10,7 +10,7 @@ import { fetchServerData } from "@/lib/server-api";
 
 import type { Project } from "@/lib/types";
 
-export default async function EmbeddablePage({
+export default async function LlmSdkPage({
 	params,
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
@@ -33,11 +33,13 @@ export default async function EmbeddablePage({
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="mx-auto max-w-3xl space-y-6">
 					<div className="flex items-center justify-between">
-						<h2 className="text-3xl font-bold tracking-tight">Embeddable</h2>
+						<h2 className="text-3xl font-bold tracking-tight">
+							LLM SDK Settings
+						</h2>
 					</div>
 					<Card>
 						<CardHeader>
-							<CardTitle>Embeddable SDK</CardTitle>
+							<CardTitle>LLM SDK</CardTitle>
 							<CardDescription>
 								Configure end-user sessions and platform secret keys for this
 								project.
@@ -45,7 +47,7 @@ export default async function EmbeddablePage({
 						</CardHeader>
 						<CardContent>
 							{projectData?.project ? (
-								<EmbeddableSettings
+								<LlmSdkSettings
 									initialProject={projectData.project}
 									orgId={orgId}
 									projectId={projectId}

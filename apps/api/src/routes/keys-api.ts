@@ -401,7 +401,7 @@ const createPlatformKeySchema = z.object({
 		.min(1)
 		.max(255)
 		.optional()
-		.default("Embeddable platform secret"),
+		.default("LLM SDK platform secret"),
 });
 
 async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
@@ -483,7 +483,7 @@ const listPlatformKeys = createRoute({
 					}),
 				},
 			},
-			description: "List embeddable platform keys for a project.",
+			description: "List LLM SDK platform keys for a project.",
 		},
 	},
 });
@@ -546,7 +546,7 @@ const createPlatformKey = createRoute({
 					}),
 				},
 			},
-			description: "Embeddable platform key created successfully.",
+			description: "LLM SDK platform key created successfully.",
 		},
 	},
 });
@@ -619,7 +619,7 @@ const deletePlatformKey = createRoute({
 					}),
 				},
 			},
-			description: "Embeddable platform key deleted successfully.",
+			description: "LLM SDK platform key deleted successfully.",
 		},
 	},
 });
@@ -833,7 +833,7 @@ export async function createApiKeyForProject(
 			projectId: { eq: projectId },
 			status: { ne: "deleted" },
 			// Only count developer keys toward the per-project cap; platform and
-			// hidden embeddable-SDK aggregate keys are excluded.
+			// hidden LLM SDK aggregate keys are excluded.
 			keyType: { eq: "user" },
 		},
 	});
@@ -1017,7 +1017,7 @@ keysApi.openapi(list, async (c) => {
 			projectId: {
 				in: projectId ? [projectId] : projectIds,
 			},
-			// Hide platform and embeddable-SDK aggregate keys from the dashboard —
+			// Hide platform and LLM SDK aggregate keys from the dashboard —
 			// only show developer-created keys.
 			keyType: { eq: "user" },
 			...(shouldFilterByCreator && {

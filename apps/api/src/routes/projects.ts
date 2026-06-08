@@ -243,7 +243,7 @@ projects.openapi(updateProject, async (c) => {
 	) {
 		throw new HTTPException(403, {
 			message:
-				"Only organization owners and admins can update embeddable settings",
+				"Only organization owners and admins can update LLM SDK settings",
 		});
 	}
 

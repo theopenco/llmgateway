@@ -133,8 +133,8 @@ const PROJECT_SETTINGS = [
 		label: "Preferences",
 	},
 	{
-		href: "settings/embeddable",
-		label: "Embeddable",
+		href: "settings/llm-sdk",
+		label: "LLM SDK Settings",
 	},
 	{
 		href: "settings/routing",

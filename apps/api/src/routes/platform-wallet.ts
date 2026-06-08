@@ -17,7 +17,7 @@ import {
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — end-user wallet endpoints, authenticated with the browser's
+ * LLM SDK — end-user wallet endpoints, authenticated with the browser's
  * **ephemeral session token** (`es_…`). These let the end-user check their
  * balance and buy credits in-app. The session is bound to exactly one wallet.
  */

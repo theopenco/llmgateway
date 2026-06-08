@@ -86,7 +86,7 @@ export async function ensureStripeCustomer(
 }
 
 /**
- * Embeddable SDK: ensure the end-customer has its own Stripe customer, separate
+ * LLM SDK: ensure the end-customer has its own Stripe customer, separate
  * from the developer's org customer, so cards and receipts are per-end-user.
  */
 export async function ensureEndCustomerStripeCustomer(
@@ -1775,7 +1775,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 }
 
 /**
- * Embeddable SDK: credit an end-user wallet after a successful top-up payment.
+ * LLM SDK: credit an end-user wallet after a successful top-up payment.
  * Idempotent on wallet_ledger.stripePaymentIntentId. Splits the charge into the
  * net credited to the wallet, the developer's margin (accrued to the developer
  * org), and the platform fee — all carried in the PaymentIntent metadata that
@@ -1920,7 +1920,7 @@ async function handleEndUserTopUpSucceeded(
 }
 
 /**
- * Embeddable SDK: reverse an end-user wallet top-up on refund. Idempotent on a
+ * LLM SDK: reverse an end-user wallet top-up on refund. Idempotent on a
  * reversal ledger row. The wallet debit is clamped to the current balance (the
  * end-user may have already spent some), and the developer's accrued margin is
  * clawed back (clamped at zero).
@@ -2033,7 +2033,7 @@ async function handlePaymentIntentSucceeded(
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
 
-	// Embeddable SDK end-user wallet top-ups are handled separately and bill an
+	// LLM SDK end-user wallet top-ups are handled separately and bill an
 	// end-user wallet, not the developer's org credits.
 	if (paymentIntent.metadata.kind === "end_user_topup") {
 		await handleEndUserTopUpSucceeded(paymentIntent);
@@ -2440,7 +2440,7 @@ async function handleChargeRefunded(event: Stripe.ChargeRefundedEvent) {
 		return;
 	}
 
-	// Embeddable SDK: end-user wallet top-up refund. Reverse the credited amount
+	// LLM SDK: end-user wallet top-up refund. Reverse the credited amount
 	// (clamped to the wallet's current balance) and write a reversal ledger row.
 	const walletTopUp = await db.query.walletLedger.findFirst({
 		where: {

@@ -26,7 +26,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { Project } from "@/lib/types";
 
-interface EmbeddableSettingsProps {
+interface LlmSdkSettingsProps {
 	initialProject: Project;
 	orgId: string;
 	projectId: string;
@@ -50,11 +50,11 @@ function normalizeOrigins(value: string) {
 	return Array.from(normalizedOrigins);
 }
 
-export function EmbeddableSettings({
+export function LlmSdkSettings({
 	initialProject,
 	orgId,
 	projectId,
-}: EmbeddableSettingsProps) {
+}: LlmSdkSettingsProps) {
 	const { toast } = useToast();
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -132,12 +132,12 @@ export function EmbeddableSettings({
 			});
 			toast({
 				title: "Settings saved",
-				description: "Embeddable project settings have been updated.",
+				description: "LLM SDK project settings have been updated.",
 			});
 		} catch {
 			toast({
 				title: "Error",
-				description: "Failed to save embeddable settings.",
+				description: "Failed to save LLM SDK settings.",
 				variant: "destructive",
 			});
 		}
@@ -148,7 +148,7 @@ export function EmbeddableSettings({
 			const response = await createPlatformKey.mutateAsync({
 				body: {
 					projectId,
-					description: "Embeddable platform secret",
+					description: "LLM SDK platform secret",
 				},
 			});
 			setCreatedToken(response.platformKey.token);

@@ -3,7 +3,7 @@ id: blog-embeddable-ai-credits
 slug: embeddable-ai-credits-stripe-for-ai
 date: 2026-06-07
 title: "Stripe for AI: Embed AI + Credit Purchases in Your App"
-summary: Our new Embeddable SDK lets your end-users buy credits inside your app and chat with any model — billed through LLM Gateway, with your markup as margin. Here's how it works and how to ship it in ~40 lines.
+summary: Our new LLM SDK lets your end-users buy credits inside your app and chat with any model — billed through LLM Gateway, with your markup as margin. Here's how it works and how to ship it in ~40 lines.
 categories: ["Engineering"]
 image:
   src: "/blog/embeddable-ai-credits.png"
@@ -14,7 +14,7 @@ image:
 
 If you're building an AI feature into your product, you hit the same two problems fast: **how do your users pay for the AI they use**, and **how do you not rebuild billing, wallets, and model plumbing from scratch?**
 
-Today we're shipping the **Embeddable SDK** — think Stripe + Stripe Elements, but for AI. Your end-users get their own wallet, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours.
+Today we're shipping the **LLM SDK** — think Stripe + Stripe Elements, but for AI. Your end-users get their own wallet, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours.
 
 ## The model: platform wallets
 
@@ -105,4 +105,4 @@ There's a complete, runnable Next.js example — backend session route, provider
 
 ➡️ **[theopenco/llmgateway-templates → templates/embeddable-credits](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)**
 
-Full reference is in the [Embeddable SDK docs](https://docs.llmgateway.io/features/embeddable-sdk). Enable end-user sessions on your project, create a platform secret key, and you can be live in an afternoon.
+Full reference is in the [LLM SDK docs](https://docs.llmgateway.io/features/llm-sdk). Enable end-user sessions on your project, create a platform secret key, and you can be live in an afternoon.
