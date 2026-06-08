@@ -27,7 +27,10 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { applyEndUserSession } from "@/lib/end-user-session.js";
+import {
+	applyEndUserSession,
+	assertTestWalletModelAllowed,
+} from "@/lib/end-user-session.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -567,12 +570,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
 	// of the developer's org credits (the log's endCustomerWalletId redirects the
 	// worker's debit). For normal keys this is a no-op.
-	const { project, organization } = await applyEndUserSession(
+	const { project, organization, wallet } = await applyEndUserSession(
 		c,
 		apiKey,
 		baseProject,
 		baseOrganization,
 	);
+
+	// Sandbox wallets can only spend on free models (none for embeddings today),
+	// so this rejects paid embedding requests from test-mode end-user sessions.
+	assertTestWalletModelAllowed(wallet, modelDef);
 
 	if (organization.isPersonal && organization.devPlan !== "none") {
 		throw new HTTPException(403, {

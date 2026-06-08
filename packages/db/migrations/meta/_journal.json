@@ -1093,6 +1093,13 @@
       "when": 1780871693664,
       "tag": "1780871693_shallow_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "8",
+      "when": 1780934407915,
+      "tag": "1780934407_gifted_wild_pack",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,8 @@
  */
 import { HTTPException } from "hono/http-exception";
 
+import { isModelTrulyFree } from "@/chat/tools/is-model-truly-free.js";
+
 import {
 	models,
 	type ModelDefinition,
@@ -75,6 +77,28 @@ export async function loadEndUserWallet(
 		});
 	}
 	return wallet;
+}
+
+/**
+ * `test`-mode end-user wallets are funded by Stripe-sandbox top-ups, so they
+ * must only ever spend on free models — otherwise sandbox money would pay for
+ * real provider calls. Throws 403 (pointing at the `auto` route) for any paid
+ * model. No-op for live wallets and normal developer keys.
+ */
+export function assertTestWalletModelAllowed(
+	wallet: Wallet | null | undefined,
+	modelDef: ModelDefinition | undefined,
+): void {
+	if (!wallet || wallet.mode !== "test") {
+		return;
+	}
+	if (modelDef && isModelTrulyFree(modelDef)) {
+		return;
+	}
+	throw new HTTPException(403, {
+		message:
+			'Test-mode wallets can only use free models. Use the "auto" route or a free model id to test sandbox payments.',
+	});
 }
 
 export function validateEndUserSessionModelAccess(

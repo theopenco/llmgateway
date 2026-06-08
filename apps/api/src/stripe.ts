@@ -24,7 +24,7 @@ import {
 
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
-import { getStripe } from "./routes/payments.js";
+import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
@@ -91,6 +91,7 @@ export async function ensureStripeCustomer(
  */
 export async function ensureEndCustomerStripeCustomer(
 	endCustomerId: string,
+	mode: StripeMode = "live",
 ): Promise<string> {
 	// Claim the row under a lock so two concurrent top-ups for the same customer
 	// can't each create a Stripe customer (orphaning one). The second caller
@@ -111,7 +112,7 @@ export async function ensureEndCustomerStripeCustomer(
 			return endCustomer.stripeCustomerId;
 		}
 
-		const customer = await getStripe().customers.create({
+		const customer = await getStripe(mode).customers.create({
 			email: endCustomer.email ?? undefined,
 			name: endCustomer.name ?? undefined,
 			metadata: {
@@ -247,6 +248,30 @@ const webhookHandler = createRoute({
 	},
 });
 
+/**
+ * Verify a Stripe webhook signature against the live secret, then the sandbox
+ * secret. Whichever verifies wins; if both are configured and neither matches,
+ * the last error is rethrown so the handler returns 400.
+ */
+function constructWebhookEvent(body: string, sig: string): Stripe.Event {
+	const secrets: ReadonlyArray<[StripeMode, string | undefined]> = [
+		["live", process.env.STRIPE_WEBHOOK_SECRET],
+		["test", process.env.STRIPE_WEBHOOK_SECRET_TEST],
+	];
+	let lastError: Error | undefined;
+	for (const [mode, secret] of secrets) {
+		if (!secret) {
+			continue;
+		}
+		try {
+			return getStripe(mode).webhooks.constructEvent(body, sig, secret);
+		} catch (err) {
+			lastError = err instanceof Error ? err : new Error(String(err));
+		}
+	}
+	throw lastError ?? new Error("No Stripe webhook secret configured");
+}
+
 stripeRoutes.openapi(webhookHandler, async (c) => {
 	const sig = c.req.header("stripe-signature");
 
@@ -258,9 +283,11 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 	try {
 		const body = await c.req.raw.text();
-		const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
-		const event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
+		// Verify against the live secret first, then the sandbox secret. Stripe
+		// signs test-mode events (from LLM SDK test secret keys topping up via the
+		// sandbox) with STRIPE_WEBHOOK_SECRET_TEST, delivered to the same endpoint.
+		const event = constructWebhookEvent(body, sig);
 
 		logger.info("Stripe webhook received", {
 			eventId: event.id,
@@ -1856,8 +1883,10 @@ async function handleEndUserTopUpSucceeded(
 			});
 
 			// Accrue the developer's margin to their org (settled out-of-band / via
-			// Stripe Connect) and record it in the org's transaction history.
-			if (developerMargin > 0) {
+			// Stripe Connect) and record it in the org's transaction history. Skip
+			// for test-mode wallets: their top-ups are Stripe-sandbox payments, so
+			// accruing real, payable margin from them would be a sandbox-to-cash leak.
+			if (developerMargin > 0 && wallet.mode !== "test") {
 				await tx
 					.update(tables.organization)
 					.set({

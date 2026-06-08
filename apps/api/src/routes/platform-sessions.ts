@@ -111,6 +111,7 @@ async function ensureCustomerAndWallet(
 		where: {
 			projectId: { eq: platformKey.projectId },
 			externalId: { eq: externalId },
+			mode: { eq: platformKey.mode },
 		},
 	});
 
@@ -122,6 +123,7 @@ async function ensureCustomerAndWallet(
 					organizationId: platformKey.organizationId,
 					projectId: platformKey.projectId,
 					externalId,
+					mode: platformKey.mode,
 					email,
 					name,
 				})
@@ -136,6 +138,7 @@ async function ensureCustomerAndWallet(
 				where: {
 					projectId: { eq: platformKey.projectId },
 					externalId: { eq: externalId },
+					mode: { eq: platformKey.mode },
 				},
 			});
 		}
@@ -161,6 +164,7 @@ async function ensureCustomerAndWallet(
 					endCustomerId: endCustomer.id,
 					projectId: platformKey.projectId,
 					organizationId: platformKey.organizationId,
+					mode: platformKey.mode,
 				})
 				.returning();
 		} catch (err) {
@@ -245,7 +249,10 @@ platformSessions.openapi(createSession, async (c) => {
 	const ttl = ttlSeconds ?? DEFAULT_TTL_SECONDS;
 	const ttlMs = ttl * 1000;
 	const expiresAt = new Date(Date.now() + ttlMs);
-	const token = EPHEMERAL_PREFIX + shortid(40);
+	// Tag test-mode sessions in the token (cosmetic — the authoritative mode is
+	// read from the bound wallet), mirroring Stripe's `es_test_…` convention.
+	const token =
+		(platformKey.mode === "test" ? "es_test_" : EPHEMERAL_PREFIX) + shortid(40);
 
 	// Store the session model allowlist directly on end_user_session. The gateway
 	// applies this before falling back to API-key IAM rules for developer keys.

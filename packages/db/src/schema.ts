@@ -604,6 +604,12 @@ export const endCustomer = pgTable(
 		externalId: text().notNull(),
 		email: text(),
 		name: text(),
+		// `test` end-customers belong to a developer's Stripe-sandbox (test-mode
+		// secret key) and are fully segregated from `live` ones, so the same
+		// externalId can have an independent test and live wallet.
+		mode: text({ enum: ["live", "test"] })
+			.notNull()
+			.default("live"),
 		// Each end-customer is the merchant-of-record customer for their own
 		// top-ups (separate Stripe customer from the developer's org).
 		stripeCustomerId: text().unique(),
@@ -618,6 +624,7 @@ export const endCustomer = pgTable(
 		uniqueIndex("end_customer_project_id_external_id_unique").on(
 			table.projectId,
 			table.externalId,
+			table.mode,
 		),
 		index("end_customer_organization_id_idx").on(table.organizationId),
 		index("end_customer_project_id_idx").on(table.projectId),
@@ -649,6 +656,12 @@ export const wallet = pgTable(
 		organizationId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
+		// Denormalized from end_customer for fast gateway gating: `test` wallets are
+		// funded by Stripe-sandbox top-ups, so the gateway only lets them spend on
+		// free models and the top-up webhook never accrues real developer margin.
+		mode: text({ enum: ["live", "test"] })
+			.notNull()
+			.default("live"),
 		balance: decimal().notNull().default("0"),
 		currency: text().notNull().default("USD"),
 		// Optional per-wallet markup override; falls back to project.endUserMarkupPercent.

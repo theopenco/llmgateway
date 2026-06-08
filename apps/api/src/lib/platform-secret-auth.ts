@@ -10,11 +10,23 @@ import type { Context, Next } from "hono";
  * by the session-mint, wallet-management, customer-analytics, and Connect-payout
  * endpoints. Mirrors the v1-master.ts token-auth pattern.
  */
+export type PlatformMode = "live" | "test";
+
+/**
+ * Derive the Stripe mode from a platform secret key token. `sk_test_…` keys are
+ * sandbox; everything else (including legacy `sk_…` keys minted before the
+ * live/test split) is live.
+ */
+export function platformKeyMode(token: string): PlatformMode {
+	return token.startsWith("sk_test_") ? "test" : "live";
+}
+
 export interface AuthenticatedPlatformKey {
 	apiKeyId: string;
 	projectId: string;
 	organizationId: string;
 	createdBy: string;
+	mode: PlatformMode;
 }
 
 declare module "hono" {
@@ -73,6 +85,7 @@ export async function platformSecretAuth(c: Context, next: Next) {
 		projectId: row.projectId,
 		organizationId: row.project.organizationId,
 		createdBy: row.createdBy,
+		mode: platformKeyMode(row.token),
 	});
 
 	await next();

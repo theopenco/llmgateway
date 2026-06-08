@@ -31,6 +31,7 @@ import {
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import {
 	assertOriginAllowed,
+	assertTestWalletModelAllowed,
 	loadEndUserWallet,
 	withCreditsMode,
 	withWalletCredits,
@@ -1711,6 +1712,12 @@ chat.openapi(completions, async (c) => {
 	// (Shared with embeddings/moderations via apps/gateway/src/lib/end-user-session.ts.)
 	const endUserWallet = (await loadEndUserWallet(apiKey)) ?? undefined;
 
+	// Test-mode end-user wallets are funded by Stripe-sandbox top-ups, so they may
+	// only spend on free models — force free-models-only auto routing for them, and
+	// reject explicitly-requested paid models below once `modelInfo` is resolved.
+	const effectiveFreeModelsOnly =
+		free_models_only || endUserWallet?.mode === "test";
+
 	// Get the project to determine mode for routing decisions
 	let project = await findProjectById(apiKey.projectId);
 
@@ -2395,7 +2402,7 @@ chat.openapi(completions, async (c) => {
 
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
-			if (free_models_only) {
+			if (effectiveFreeModelsOnly) {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
@@ -2643,7 +2650,7 @@ chat.openapi(completions, async (c) => {
 				usedExternalId = selectedProviders[0].externalId;
 			}
 		} else {
-			if (free_models_only) {
+			if (effectiveFreeModelsOnly) {
 				// If free_models_only is true but no suitable model found, return error
 				throw new HTTPException(400, {
 					message:
@@ -2723,6 +2730,11 @@ chat.openapi(completions, async (c) => {
 		usedInternalModel = "custom";
 		usedExternalId = "custom";
 	}
+
+	// Wall for sandbox wallets: a test-mode end-user wallet may only spend on free
+	// models. Auto routing already filtered to free models above; this rejects an
+	// explicitly-requested (or custom) paid model with a pointer to the auto route.
+	assertTestWalletModelAllowed(endUserWallet, modelInfo);
 
 	// When a specific provider is requested and it has multiple mappings (for example,
 	// regional variants), pick the best eligible mapping up front so the request and

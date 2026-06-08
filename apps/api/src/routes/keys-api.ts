@@ -4,6 +4,7 @@ import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
+import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -387,6 +388,7 @@ const platformKeySchema = z.object({
 	projectId: z.string(),
 	createdBy: z.string(),
 	maskedToken: z.string(),
+	mode: z.enum(["live", "test"]),
 });
 
 const listPlatformKeysQuerySchema = z.object({
@@ -402,6 +404,10 @@ const createPlatformKeySchema = z.object({
 		.max(255)
 		.optional()
 		.default("SDK platform secret"),
+	// Mint a Stripe-sandbox (test-mode) secret key. Sessions and wallets minted
+	// from it are fully segregated from live data and can only spend on free
+	// models, so developers can test top-ups without real charges.
+	test: z.boolean().optional().default(false),
 });
 
 async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
@@ -517,6 +523,7 @@ keysApi.openapi(listPlatformKeys, async (c) => {
 			projectId: platformKey.projectId,
 			createdBy: platformKey.createdBy,
 			maskedToken: maskToken(platformKey.token),
+			mode: platformKeyMode(platformKey.token),
 		})),
 	});
 });
@@ -559,9 +566,9 @@ keysApi.openapi(createPlatformKey, async (c) => {
 		});
 	}
 
-	const { projectId, description } = c.req.valid("json");
+	const { projectId, description, test } = c.req.valid("json");
 	const project = await assertPlatformKeyAdminAccess(user.id, projectId);
-	const token = `sk_${shortid(40)}`;
+	const token = `sk_${test ? "test" : "live"}_${shortid(40)}`;
 
 	const [platformKey] = await db
 		.insert(tables.apiKey)
@@ -597,6 +604,7 @@ keysApi.openapi(createPlatformKey, async (c) => {
 			projectId: platformKey.projectId,
 			createdBy: platformKey.createdBy,
 			maskedToken: maskToken(token),
+			mode: platformKeyMode(token),
 			token,
 		},
 	});
