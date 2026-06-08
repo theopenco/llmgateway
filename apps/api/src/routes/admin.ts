@@ -40,6 +40,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
 import {
+	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
 	type DevPlanTier,
 	getDevPlanPremiumWeeklyLimit,
@@ -10434,6 +10435,1613 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"subscription_start",
 					"subscription_cancel",
 					"subscription_end",
+				]),
+			),
+		)
+		.orderBy(desc(tables.transaction.createdAt))
+		.limit(100);
+
+	const paymentFailures = await db
+		.select({
+			id: tables.paymentFailure.id,
+			createdAt: tables.paymentFailure.createdAt,
+			amount: tables.paymentFailure.amount,
+			currency: tables.paymentFailure.currency,
+			declineCode: tables.paymentFailure.declineCode,
+			failureMessage: tables.paymentFailure.failureMessage,
+			source: tables.paymentFailure.source,
+		})
+		.from(tables.paymentFailure)
+		.where(eq(tables.paymentFailure.organizationId, orgId))
+		.orderBy(desc(tables.paymentFailure.createdAt))
+		.limit(50);
+
+	return c.json({
+		subscriber,
+		transactions: transactions.map((t) => ({
+			id: t.id,
+			createdAt: t.createdAt.toISOString(),
+			type: t.type,
+			amount: t.amount ?? null,
+			creditAmount: t.creditAmount ?? null,
+			currency: t.currency,
+			status: t.status,
+			description: t.description ?? null,
+		})),
+		paymentFailures: paymentFailures.map((p) => ({
+			id: p.id,
+			createdAt: p.createdAt.toISOString(),
+			amount: p.amount ?? null,
+			currency: p.currency,
+			declineCode: p.declineCode ?? null,
+			failureMessage: p.failureMessage ?? null,
+			source: p.source ?? null,
+		})),
+	});
+});
+
+// =============================================================================
+// Chat Plans admin routes
+// =============================================================================
+
+const chatPlansTierSchema = z.enum(["starter", "plus", "pro", "none"]);
+const chatPlansStatusSchema = z.enum([
+	"active",
+	"cancelled_pending",
+	"expired",
+	"churned",
+]);
+
+const chatPlansSubscriberSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	billingEmail: z.string(),
+	ownerUserId: z.string().nullable(),
+	ownerName: z.string().nullable(),
+	ownerEmail: z.string().nullable(),
+	tier: chatPlansTierSchema,
+	status: chatPlansStatusSchema,
+	hasPaymentIssue: z.boolean(),
+	creditsUsed: z.string(),
+	creditsLimit: z.string(),
+	utilizationPct: z.number().nullable(),
+	cycleStart: z.string().nullable(),
+	cycleDaysIn: z.number().nullable(),
+	expiresAt: z.string().nullable(),
+	cancelled: z.boolean(),
+	mrr: z.number(),
+	realCost: z.number(),
+	margin: z.number(),
+	marginPct: z.number().nullable(),
+	allTimeRevenue: z.number(),
+	allTimeCost: z.number(),
+	allTimeMargin: z.number(),
+	subscribedSince: z.string().nullable(),
+	tierChanges: z.number(),
+	lastPaymentFailureAt: z.string().nullable(),
+	createdAt: z.string(),
+});
+
+const chatPlansKpisSchema = z.object({
+	activeByTier: z.object({
+		starter: z.number(),
+		plus: z.number(),
+		pro: z.number(),
+	}),
+	totalActive: z.number(),
+	cancelledPending: z.number(),
+	churned: z.number(),
+	grossMrr: z.number(),
+	committedMrr: z.number(),
+	startsThisMonth: z.number(),
+	endsThisMonth: z.number(),
+	netNewThisMonth: z.number(),
+	refundsThisMonth: z.number(),
+	refundedAmountThisMonth: z.number(),
+	weightedAvgUtilization: z.number(),
+	totalRealCostCycle: z.number(),
+	totalMrrCycle: z.number(),
+	totalMargin: z.number(),
+	marginPct: z.number().nullable(),
+});
+
+const chatPlansListSchema = z.object({
+	subscribers: z.array(chatPlansSubscriberSchema),
+	total: z.number(),
+	kpis: chatPlansKpisSchema,
+	limit: z.number(),
+	offset: z.number(),
+});
+
+const chatPlansSortBySchema = z.enum([
+	"name",
+	"billingEmail",
+	"tier",
+	"createdAt",
+	"cycleStart",
+	"expiresAt",
+	"subscribedSince",
+	"utilizationPct",
+	"realCost",
+	"margin",
+	"mrr",
+	"creditsUsed",
+	"allTimeRevenue",
+	"allTimeCost",
+	"allTimeMargin",
+]);
+
+const chatPlansUtilizationSchema = z.enum(["low", "healthy", "high", "over"]);
+
+const getChatPlansSubscribers = createRoute({
+	method: "get",
+	path: "/chat-plans",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			search: z.string().optional(),
+			tier: chatPlansTierSchema.optional(),
+			status: chatPlansStatusSchema.optional(),
+			utilization: chatPlansUtilizationSchema.optional(),
+			marginNegative: z.coerce.boolean().optional(),
+			showChurned: z.coerce.boolean().default(false).optional(),
+			sortBy: chatPlansSortBySchema.default("subscribedSince").optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatPlansListSchema.openapi({}),
+				},
+			},
+			description: "List of Chat Plan subscribers.",
+		},
+	},
+});
+
+const chatPlansTransactionSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	type: z.string(),
+	amount: z.string().nullable(),
+	creditAmount: z.string().nullable(),
+	currency: z.string(),
+	status: z.string(),
+	description: z.string().nullable(),
+});
+
+const chatPlansPaymentFailureSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	amount: z.string().nullable(),
+	currency: z.string(),
+	declineCode: z.string().nullable(),
+	failureMessage: z.string().nullable(),
+	source: z.string().nullable(),
+});
+
+const chatPlansDetailSchema = z.object({
+	subscriber: chatPlansSubscriberSchema,
+	transactions: z.array(chatPlansTransactionSchema),
+	paymentFailures: z.array(chatPlansPaymentFailureSchema),
+});
+
+const getChatPlansSubscriber = createRoute({
+	method: "get",
+	path: "/chat-plans/{orgId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatPlansDetailSchema.openapi({}),
+				},
+			},
+			description: "Chat Plan subscriber detail.",
+		},
+		404: {
+			description: "Subscriber not found.",
+		},
+	},
+});
+
+const chatPlansTimeseriesPointSchema = z.object({
+	date: z.string(),
+	revenue: z.number(),
+	cost: z.number(),
+	margin: z.number(),
+});
+
+const chatPlansTimeseriesSchema = z.object({
+	data: z.array(chatPlansTimeseriesPointSchema),
+	totals: z.object({
+		revenue: z.number(),
+		cost: z.number(),
+		margin: z.number(),
+	}),
+	range: z.object({
+		from: z.string(),
+		to: z.string(),
+	}),
+});
+
+const getChatPlansTimeseries = createRoute({
+	method: "get",
+	path: "/chat-plans/timeseries",
+	request: {
+		query: z.object({
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatPlansTimeseriesSchema.openapi({}),
+				},
+			},
+			description: "Chat Plan revenue/cost/margin per day.",
+		},
+	},
+});
+
+const chatPlansUsageRowSchema = z.object({
+	id: z.string(),
+	requestCount: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+});
+
+const chatPlansUsageSchema = z.object({
+	models: z.array(chatPlansUsageRowSchema),
+	providers: z.array(chatPlansUsageRowSchema),
+	sources: z.array(chatPlansUsageRowSchema),
+	range: z.object({
+		from: z.string(),
+		to: z.string(),
+	}),
+});
+
+const getChatPlansUsage = createRoute({
+	method: "get",
+	path: "/chat-plans/usage",
+	request: {
+		query: z.object({
+			from: z.string().optional(),
+			to: z.string().optional(),
+			limit: z.coerce.number().int().min(1).max(50).default(10).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: chatPlansUsageSchema.openapi({}),
+				},
+			},
+			description: "Chat Plan usage breakdown by model, provider, and source.",
+		},
+	},
+});
+
+const CHAT_PLAN_TX_TYPES = [
+	"chat_plan_start",
+	"chat_plan_upgrade",
+	"chat_plan_downgrade",
+	"chat_plan_renewal",
+] as const;
+
+function chatTierPriceOf(tier: string): number {
+	if (tier === "starter" || tier === "plus" || tier === "pro") {
+		return CHAT_PLAN_PRICES[tier];
+	}
+	return 0;
+}
+
+function deriveChatStatus(
+	tier: string,
+	cancelled: boolean,
+	expiresAt: Date | null,
+	now: Date,
+): "active" | "cancelled_pending" | "expired" | "churned" {
+	if (tier === "none") {
+		return "churned";
+	}
+	if (expiresAt && expiresAt.getTime() <= now.getTime()) {
+		return "expired";
+	}
+	if (cancelled) {
+		return "cancelled_pending";
+	}
+	return "active";
+}
+
+admin.openapi(getChatPlansSubscribers, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	const offset = query.offset ?? 0;
+	const search = query.search;
+	const tierFilter = query.tier;
+	const statusFilter = query.status;
+	const utilizationFilter = query.utilization;
+	const marginNegative = query.marginNegative ?? false;
+	const showChurned = query.showChurned ?? false;
+	const sortBy = query.sortBy ?? "subscribedSince";
+	const sortOrder = query.sortOrder ?? "desc";
+
+	const now = new Date();
+	const monthStart = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+	);
+
+	// Subquery: real provider cost in current cycle, per org
+	const realCostSub = db
+		.select({
+			organizationId: tables.project.organizationId,
+			realCost:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+					"real_cost",
+				),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.project.organizationId, tables.organization.id),
+				isNotNull(tables.organization.chatPlanBillingCycleStart),
+				sql`${projectHourlyStats.hourTimestamp} >= ${tables.organization.chatPlanBillingCycleStart}`,
+			),
+		)
+		.groupBy(tables.project.organizationId)
+		.as("real_cost_sub");
+
+	const subscribedSinceSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			firstStart: sql<string>`MIN(${tables.transaction.createdAt})`.as(
+				"first_start",
+			),
+		})
+		.from(tables.transaction)
+		.where(eq(tables.transaction.type, "chat_plan_start"))
+		.groupBy(tables.transaction.organizationId)
+		.as("subscribed_since_sub");
+
+	const tierChangesSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			count: sql<number>`COUNT(*)`.as("tier_change_count"),
+		})
+		.from(tables.transaction)
+		.where(
+			inArray(tables.transaction.type, [
+				"chat_plan_upgrade",
+				"chat_plan_downgrade",
+			]),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("tier_changes_sub");
+
+	const lastPaymentFailureSub = db
+		.select({
+			organizationId: tables.paymentFailure.organizationId,
+			lastFailureAt: sql<string>`MAX(${tables.paymentFailure.createdAt})`.as(
+				"last_failure_at",
+			),
+		})
+		.from(tables.paymentFailure)
+		.groupBy(tables.paymentFailure.organizationId)
+		.as("last_payment_failure_sub");
+
+	const ownerSub = db
+		.select({
+			organizationId: tables.userOrganization.organizationId,
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(eq(tables.userOrganization.role, "owner"))
+		.as("owner_sub");
+
+	// All-time provider cost per org: every project, every cycle, no status or
+	// billing-cycle window. Scoped to chat orgs so the aggregation doesn't scan
+	// every org's hourly stats.
+	const allTimeCostSub = db
+		.select({
+			organizationId: tables.project.organizationId,
+			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				"all_time_cost",
+			),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.project.organizationId, tables.organization.id),
+				eq(tables.organization.isChat, true),
+			),
+		)
+		.groupBy(tables.project.organizationId)
+		.as("all_time_cost_sub");
+
+	// All-time Chat Plan revenue per org: sum of completed chat plan payments
+	// (`amount` = actual dollars paid). Deduplicated by invoice with the same
+	// NOT EXISTS guard as the timeseries endpoint — the first invoice of a
+	// subscription inserts BOTH a `chat_plan_start` and a `chat_plan_renewal`
+	// row, which would otherwise double-count.
+	const allTimeRevenueSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			revenue:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"all_time_revenue",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.transaction.organizationId, tables.organization.id),
+				eq(tables.organization.isChat, true),
+			),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} dup
+					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
+						AND dup.stripe_invoice_id IS NOT NULL
+						AND dup.organization_id = ${tables.transaction.organizationId}
+						AND dup.id <> ${tables.transaction.id}
+						AND dup.status = 'completed'
+						AND dup.amount IS NOT NULL
+						AND dup.type IN (
+							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
+						)
+						AND (
+							dup.created_at < ${tables.transaction.createdAt}
+							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
+						)
+				)`,
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("all_time_revenue_sub");
+
+	// Refunds against Chat Plan payments per org, netted out of revenue.
+	const allTimeRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"chat_all_time_refund_original_tx",
+	);
+	const allTimeRefundSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			refund:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"all_time_refund",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			allTimeRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, allTimeRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.transaction.organizationId, tables.organization.id),
+				eq(tables.organization.isChat, true),
+			),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				inArray(allTimeRefundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("chat_all_time_refund_sub");
+
+	const tierPriceExpr = sql<number>`CASE
+		WHEN ${tables.organization.chatPlan} = 'starter' THEN ${CHAT_PLAN_PRICES.starter}
+		WHEN ${tables.organization.chatPlan} = 'plus' THEN ${CHAT_PLAN_PRICES.plus}
+		WHEN ${tables.organization.chatPlan} = 'pro' THEN ${CHAT_PLAN_PRICES.pro}
+		ELSE 0
+	END`;
+
+	const utilizationExpr = sql<number | null>`CASE
+		WHEN CAST(${tables.organization.chatPlanCreditsLimit} AS NUMERIC) > 0
+		THEN (CAST(${tables.organization.chatPlanCreditsUsed} AS NUMERIC)
+			/ CAST(${tables.organization.chatPlanCreditsLimit} AS NUMERIC)) * 100
+		ELSE NULL
+	END`;
+
+	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+	const marginExpr = sql<number>`(${tierPriceExpr}) - COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+
+	const allTimeCostExpr = sql<number>`COALESCE(CAST(${allTimeCostSub.cost} AS NUMERIC), 0)`;
+	const allTimeRevenueExpr = sql<number>`(COALESCE(CAST(${allTimeRevenueSub.revenue} AS NUMERIC), 0) - COALESCE(CAST(${allTimeRefundSub.refund} AS NUMERIC), 0))`;
+	const allTimeMarginExpr = sql<number>`(${allTimeRevenueExpr}) - (${allTimeCostExpr})`;
+
+	const conditions = [];
+
+	// Chat Plan scope: subscribers (chatPlan != 'none') OR (showChurned && has
+	// past chat_plan_start). Chat plans live on the dedicated Chat org, so
+	// restrict to isChat=true.
+	conditions.push(eq(tables.organization.isChat, true));
+	if (showChurned) {
+		conditions.push(
+			or(
+				ne(tables.organization.chatPlan, "none"),
+				isNotNull(subscribedSinceSub.firstStart),
+			)!,
+		);
+	} else {
+		conditions.push(ne(tables.organization.chatPlan, "none"));
+	}
+
+	if (tierFilter) {
+		conditions.push(eq(tables.organization.chatPlan, tierFilter));
+	}
+
+	if (statusFilter === "active") {
+		conditions.push(ne(tables.organization.chatPlan, "none"));
+		conditions.push(eq(tables.organization.chatPlanCancelled, false));
+		conditions.push(
+			or(
+				isNull(tables.organization.chatPlanExpiresAt),
+				sql`${tables.organization.chatPlanExpiresAt} > NOW()`,
+			)!,
+		);
+	} else if (statusFilter === "cancelled_pending") {
+		conditions.push(ne(tables.organization.chatPlan, "none"));
+		conditions.push(eq(tables.organization.chatPlanCancelled, true));
+		conditions.push(
+			or(
+				isNull(tables.organization.chatPlanExpiresAt),
+				sql`${tables.organization.chatPlanExpiresAt} > NOW()`,
+			)!,
+		);
+	} else if (statusFilter === "expired") {
+		conditions.push(ne(tables.organization.chatPlan, "none"));
+		conditions.push(isNotNull(tables.organization.chatPlanExpiresAt));
+		conditions.push(sql`${tables.organization.chatPlanExpiresAt} <= NOW()`);
+	} else if (statusFilter === "churned") {
+		conditions.push(eq(tables.organization.chatPlan, "none"));
+		conditions.push(isNotNull(subscribedSinceSub.firstStart));
+	}
+
+	if (utilizationFilter === "low") {
+		conditions.push(sql`${utilizationExpr} < 20`);
+	} else if (utilizationFilter === "healthy") {
+		conditions.push(sql`${utilizationExpr} >= 20 AND ${utilizationExpr} <= 80`);
+	} else if (utilizationFilter === "high") {
+		conditions.push(sql`${utilizationExpr} > 80 AND ${utilizationExpr} <= 100`);
+	} else if (utilizationFilter === "over") {
+		conditions.push(sql`${utilizationExpr} > 100`);
+	}
+
+	if (marginNegative) {
+		conditions.push(sql`${marginExpr} < 0`);
+	}
+
+	if (search) {
+		const searchLower = search.toLowerCase();
+		conditions.push(
+			or(
+				sql`LOWER(${tables.organization.name}) LIKE ${`%${searchLower}%`}`,
+				sql`LOWER(${tables.organization.billingEmail}) LIKE ${`%${searchLower}%`}`,
+				sql`${tables.organization.id} LIKE ${`%${search}%`}`,
+				sql`LOWER(${ownerSub.userEmail}) LIKE ${`%${searchLower}%`}`,
+			)!,
+		);
+	}
+
+	const whereClause = and(...conditions);
+
+	const orderFn = sortOrder === "asc" ? asc : desc;
+	const sortColumnMap = {
+		name: tables.organization.name,
+		billingEmail: tables.organization.billingEmail,
+		tier: tables.organization.chatPlan,
+		createdAt: tables.organization.createdAt,
+		cycleStart: tables.organization.chatPlanBillingCycleStart,
+		expiresAt: tables.organization.chatPlanExpiresAt,
+		subscribedSince: sql`${subscribedSinceSub.firstStart}`,
+		utilizationPct: sql`${utilizationExpr}`,
+		realCost: sql`${realCostExpr}`,
+		margin: sql`${marginExpr}`,
+		mrr: sql`${tierPriceExpr}`,
+		creditsUsed: sql`CAST(${tables.organization.chatPlanCreditsUsed} AS NUMERIC)`,
+		allTimeRevenue: sql`${allTimeRevenueExpr}`,
+		allTimeCost: sql`${allTimeCostExpr}`,
+		allTimeMargin: sql`${allTimeMarginExpr}`,
+	} as const;
+	const sortColumn = sortColumnMap[sortBy];
+
+	const baseSelect = db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			billingEmail: tables.organization.billingEmail,
+			tier: tables.organization.chatPlan,
+			creditsUsed: tables.organization.chatPlanCreditsUsed,
+			creditsLimit: tables.organization.chatPlanCreditsLimit,
+			cycleStart: tables.organization.chatPlanBillingCycleStart,
+			expiresAt: tables.organization.chatPlanExpiresAt,
+			cancelled: tables.organization.chatPlanCancelled,
+			createdAt: tables.organization.createdAt,
+			paymentFailureCount: tables.organization.paymentFailureCount,
+			utilizationPct: utilizationExpr,
+			mrr: tierPriceExpr,
+			realCost: realCostExpr,
+			margin: marginExpr,
+			allTimeRevenue: allTimeRevenueExpr,
+			allTimeCost: allTimeCostExpr,
+			allTimeMargin: allTimeMarginExpr,
+			subscribedSince: subscribedSinceSub.firstStart,
+			tierChanges: sql<number>`COALESCE(${tierChangesSub.count}, 0)`,
+			lastPaymentFailureAt: lastPaymentFailureSub.lastFailureAt,
+			ownerUserId: ownerSub.userId,
+			ownerName: ownerSub.userName,
+			ownerEmail: ownerSub.userEmail,
+		})
+		.from(tables.organization)
+		.leftJoin(
+			realCostSub,
+			eq(tables.organization.id, realCostSub.organizationId),
+		)
+		.leftJoin(
+			subscribedSinceSub,
+			eq(tables.organization.id, subscribedSinceSub.organizationId),
+		)
+		.leftJoin(
+			tierChangesSub,
+			eq(tables.organization.id, tierChangesSub.organizationId),
+		)
+		.leftJoin(
+			lastPaymentFailureSub,
+			eq(tables.organization.id, lastPaymentFailureSub.organizationId),
+		)
+		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId))
+		.leftJoin(
+			allTimeCostSub,
+			eq(tables.organization.id, allTimeCostSub.organizationId),
+		)
+		.leftJoin(
+			allTimeRevenueSub,
+			eq(tables.organization.id, allTimeRevenueSub.organizationId),
+		)
+		.leftJoin(
+			allTimeRefundSub,
+			eq(tables.organization.id, allTimeRefundSub.organizationId),
+		);
+
+	const rows = await baseSelect
+		.where(whereClause)
+		.orderBy(orderFn(sortColumn))
+		.limit(limit)
+		.offset(offset);
+
+	const countSelect = db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(tables.organization)
+		.leftJoin(
+			realCostSub,
+			eq(tables.organization.id, realCostSub.organizationId),
+		)
+		.leftJoin(
+			subscribedSinceSub,
+			eq(tables.organization.id, subscribedSinceSub.organizationId),
+		)
+		.leftJoin(
+			tierChangesSub,
+			eq(tables.organization.id, tierChangesSub.organizationId),
+		)
+		.leftJoin(
+			lastPaymentFailureSub,
+			eq(tables.organization.id, lastPaymentFailureSub.organizationId),
+		)
+		.leftJoin(ownerSub, eq(tables.organization.id, ownerSub.organizationId));
+
+	const [countRow] = await countSelect.where(whereClause);
+	const total = Number(countRow?.count ?? 0);
+
+	const activeRows = await db
+		.select({
+			tier: tables.organization.chatPlan,
+			cancelled: tables.organization.chatPlanCancelled,
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(tables.organization)
+		.where(
+			and(
+				eq(tables.organization.isChat, true),
+				ne(tables.organization.chatPlan, "none"),
+				or(
+					isNull(tables.organization.chatPlanExpiresAt),
+					sql`${tables.organization.chatPlanExpiresAt} > NOW()`,
+				)!,
+			),
+		)
+		.groupBy(
+			tables.organization.chatPlan,
+			tables.organization.chatPlanCancelled,
+		);
+
+	const activeByTier = { starter: 0, plus: 0, pro: 0 };
+	const cancellingByTier = { starter: 0, plus: 0, pro: 0 };
+	for (const r of activeRows) {
+		const tierKey = r.tier as keyof typeof activeByTier;
+		if (tierKey in activeByTier) {
+			const n = Number(r.count);
+			activeByTier[tierKey] += n;
+			if (r.cancelled) {
+				cancellingByTier[tierKey] += n;
+			}
+		}
+	}
+	const totalActive =
+		activeByTier.starter + activeByTier.plus + activeByTier.pro;
+	const starterMrr = activeByTier.starter * CHAT_PLAN_PRICES.starter;
+	const plusMrr = activeByTier.plus * CHAT_PLAN_PRICES.plus;
+	const proMrr = activeByTier.pro * CHAT_PLAN_PRICES.pro;
+	const grossMrr = starterMrr + plusMrr + proMrr;
+	const cancellingStarterMrr =
+		cancellingByTier.starter * CHAT_PLAN_PRICES.starter;
+	const cancellingPlusMrr = cancellingByTier.plus * CHAT_PLAN_PRICES.plus;
+	const cancellingProMrr = cancellingByTier.pro * CHAT_PLAN_PRICES.pro;
+	const cancellingMrr =
+		cancellingStarterMrr + cancellingPlusMrr + cancellingProMrr;
+	const committedMrr = grossMrr - cancellingMrr;
+	const cancelledPending =
+		cancellingByTier.starter + cancellingByTier.plus + cancellingByTier.pro;
+
+	const [churnedRow] = await db
+		.select({
+			count: sql<number>`COUNT(DISTINCT ${tables.transaction.organizationId})`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "chat_plan_start"),
+				eq(tables.organization.isChat, true),
+				eq(tables.organization.chatPlan, "none"),
+			),
+		);
+	const churned = Number(churnedRow?.count ?? 0);
+
+	const [startsRow] = await db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.type, "chat_plan_start"),
+				gte(tables.transaction.createdAt, monthStart),
+			),
+		);
+	const startsThisMonth = Number(startsRow?.count ?? 0);
+
+	const [endsRow] = await db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(tables.transaction)
+		.where(
+			and(
+				inArray(tables.transaction.type, ["chat_plan_cancel", "chat_plan_end"]),
+				gte(tables.transaction.createdAt, monthStart),
+			),
+		);
+	const endsThisMonth = Number(endsRow?.count ?? 0);
+
+	const refundOriginalTx = aliasedTable(
+		tables.transaction,
+		"chat_refund_original_tx",
+	);
+	const [refundsRow] = await db
+		.select({
+			count: sql<number>`COUNT(*)`,
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			refundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, refundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, monthStart),
+				eq(tables.organization.isChat, true),
+				inArray(refundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
+			),
+		);
+	const refundsThisMonth = Number(refundsRow?.count ?? 0);
+	const refundedAmountThisMonth = Number(refundsRow?.total ?? 0);
+
+	const [utilRow] = await db
+		.select({
+			totalUsed: sql<string>`COALESCE(SUM(CAST(${tables.organization.chatPlanCreditsUsed} AS NUMERIC)), 0)`,
+			totalLimit: sql<string>`COALESCE(SUM(CAST(${tables.organization.chatPlanCreditsLimit} AS NUMERIC)), 0)`,
+		})
+		.from(tables.organization)
+		.where(
+			and(
+				eq(tables.organization.isChat, true),
+				ne(tables.organization.chatPlan, "none"),
+				or(
+					isNull(tables.organization.chatPlanExpiresAt),
+					sql`${tables.organization.chatPlanExpiresAt} > NOW()`,
+				)!,
+			),
+		);
+	const totalUsed = Number(utilRow?.totalUsed ?? 0);
+	const totalLimit = Number(utilRow?.totalLimit ?? 0);
+	const weightedAvgUtilization =
+		totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+
+	const [universeRow] = await db
+		.select({
+			totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
+			totalMrr: sql<string>`COALESCE(SUM(${tierPriceExpr}), 0)`,
+		})
+		.from(tables.organization)
+		.leftJoin(
+			realCostSub,
+			eq(tables.organization.id, realCostSub.organizationId),
+		)
+		.where(
+			and(
+				eq(tables.organization.isChat, true),
+				ne(tables.organization.chatPlan, "none"),
+			),
+		);
+	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
+	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
+	const totalMargin = totalMrrCycle - totalRealCostCycle;
+
+	const subscribers = rows.map((row) => {
+		const tier = row.tier;
+		const cancelled = row.cancelled;
+		const expiresAt = row.expiresAt;
+		const status = deriveChatStatus(tier, cancelled, expiresAt, now);
+
+		const cycleStart = row.cycleStart;
+		const cycleDaysIn = cycleStart
+			? Math.max(
+					0,
+					Math.floor(
+						(now.getTime() - cycleStart.getTime()) / (1000 * 60 * 60 * 24),
+					),
+				)
+			: null;
+
+		const utilizationPctRaw = row.utilizationPct;
+		const utilizationPct =
+			utilizationPctRaw === null || utilizationPctRaw === undefined
+				? null
+				: Number(utilizationPctRaw);
+
+		const lastPaymentFailureAt = row.lastPaymentFailureAt
+			? new Date(row.lastPaymentFailureAt).toISOString()
+			: null;
+		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+
+		const mrrNum = Number(row.mrr ?? 0);
+		const marginNum = Number(row.margin ?? 0);
+		const marginPct = mrrNum > 0 ? (marginNum / mrrNum) * 100 : null;
+
+		return {
+			id: row.id,
+			name: row.name,
+			billingEmail: row.billingEmail,
+			ownerUserId: row.ownerUserId ?? null,
+			ownerName: row.ownerName ?? null,
+			ownerEmail: row.ownerEmail ?? null,
+			tier,
+			status,
+			hasPaymentIssue,
+			creditsUsed: String(row.creditsUsed),
+			creditsLimit: String(row.creditsLimit),
+			utilizationPct,
+			cycleStart: cycleStart ? cycleStart.toISOString() : null,
+			cycleDaysIn,
+			expiresAt: expiresAt ? expiresAt.toISOString() : null,
+			cancelled,
+			mrr: mrrNum,
+			realCost: Number(row.realCost ?? 0),
+			margin: marginNum,
+			marginPct,
+			allTimeRevenue: Number(row.allTimeRevenue ?? 0),
+			allTimeCost: Number(row.allTimeCost ?? 0),
+			allTimeMargin: Number(row.allTimeMargin ?? 0),
+			subscribedSince: row.subscribedSince
+				? new Date(row.subscribedSince).toISOString()
+				: null,
+			tierChanges: Number(row.tierChanges ?? 0),
+			lastPaymentFailureAt,
+			createdAt: row.createdAt.toISOString(),
+		};
+	});
+
+	const kpiMarginPct =
+		totalMrrCycle > 0 ? (totalMargin / totalMrrCycle) * 100 : null;
+
+	return c.json({
+		subscribers,
+		total,
+		kpis: {
+			activeByTier,
+			totalActive,
+			cancelledPending,
+			churned,
+			grossMrr,
+			committedMrr,
+			startsThisMonth,
+			endsThisMonth,
+			netNewThisMonth: startsThisMonth - endsThisMonth,
+			refundsThisMonth,
+			refundedAmountThisMonth,
+			weightedAvgUtilization,
+			totalRealCostCycle,
+			totalMrrCycle,
+			totalMargin,
+			marginPct: kpiMarginPct,
+		},
+		limit,
+		offset,
+	});
+});
+
+// Registered before the `/chat-plans/{orgId}` handler below: Hono matches
+// routes in registration order, so the literal `/chat-plans/timeseries` path
+// must be declared first or it would be captured as `orgId="timeseries"`.
+admin.openapi(getChatPlansTimeseries, async (c) => {
+	const query = c.req.valid("query");
+	const now = new Date();
+
+	let startDate: Date;
+	let endDate: Date;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00.000Z");
+		endDate = new Date(query.to + "T23:59:59.999Z");
+	} else {
+		const [oldest] = await db
+			.select({
+				minDate: sql<string>`MIN(${tables.transaction.createdAt})`.as(
+					"min_date",
+				),
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "chat_plan_start"),
+					eq(tables.organization.isChat, true),
+				),
+			);
+		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(now);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	if (endDate.getTime() < startDate.getTime()) {
+		endDate = new Date(startDate);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	// Revenue per day from completed Chat Plan transactions, scoped to chat orgs.
+	// Sums `amount` (actual dollars paid). Deduplicated by (stripe_invoice_id,
+	// organization_id): the first invoice of every subscription triggers both a
+	// `chat_plan_start` and a `chat_plan_renewal` row for the same invoice.
+	const revenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.isChat, true),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} dup
+					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
+						AND dup.stripe_invoice_id IS NOT NULL
+						AND dup.organization_id = ${tables.transaction.organizationId}
+						AND dup.id <> ${tables.transaction.id}
+						AND dup.status = 'completed'
+						AND dup.amount IS NOT NULL
+						AND dup.type IN (
+							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
+						)
+						AND (
+							dup.created_at < ${tables.transaction.createdAt}
+							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
+						)
+				)`,
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Refunds per day for Chat Plan transactions, netted out of revenue.
+	const originalTx = aliasedTable(tables.transaction, "chat_original_tx");
+	const refundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			originalTx,
+			eq(tables.transaction.relatedTransactionId, originalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.isChat, true),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+				inArray(originalTx.type, [...CHAT_PLAN_TX_TYPES]),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// Provider cost per day for projects belonging to orgs that are or were ever
+	// on a Chat Plan (currently chatPlan != 'none' OR have a historical
+	// chat_plan_start), scoped to chat orgs.
+	const costPerDay = await db
+		.select({
+			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.organization.isChat, true),
+				gte(projectHourlyStats.hourTimestamp, startDate),
+				lte(projectHourlyStats.hourTimestamp, endDate),
+				or(
+					ne(tables.organization.chatPlan, "none"),
+					sql`EXISTS (
+						SELECT 1 FROM ${tables.transaction} t
+						WHERE t.organization_id = ${tables.organization.id}
+						AND t.type = 'chat_plan_start'
+					)`,
+				)!,
+			),
+		)
+		.groupBy(sql`DATE(${projectHourlyStats.hourTimestamp})`)
+		.orderBy(asc(sql`DATE(${projectHourlyStats.hourTimestamp})`));
+
+	const revenueMap = new Map<string, number>();
+	for (const row of revenuePerDay) {
+		revenueMap.set(row.date, Number(row.total));
+	}
+	const refundMap = new Map<string, number>();
+	for (const row of refundsPerDay) {
+		refundMap.set(row.date, Number(row.total));
+	}
+	const costMap = new Map<string, number>();
+	for (const row of costPerDay) {
+		costMap.set(row.date, Number(row.total));
+	}
+
+	const data: Array<{
+		date: string;
+		revenue: number;
+		cost: number;
+		margin: number;
+	}> = [];
+
+	const cursor = new Date(
+		Date.UTC(
+			startDate.getUTCFullYear(),
+			startDate.getUTCMonth(),
+			startDate.getUTCDate(),
+		),
+	);
+	const lastDay = Date.UTC(
+		endDate.getUTCFullYear(),
+		endDate.getUTCMonth(),
+		endDate.getUTCDate(),
+	);
+
+	let totalRevenue = 0;
+	let totalCost = 0;
+
+	while (cursor.getTime() <= lastDay) {
+		const iso = cursor.toISOString().slice(0, 10);
+		const revenue = (revenueMap.get(iso) ?? 0) - (refundMap.get(iso) ?? 0);
+		const cost = costMap.get(iso) ?? 0;
+		const margin = revenue - cost;
+		data.push({ date: iso, revenue, cost, margin });
+		totalRevenue += revenue;
+		totalCost += cost;
+		cursor.setUTCDate(cursor.getUTCDate() + 1);
+	}
+
+	return c.json({
+		data,
+		totals: {
+			revenue: totalRevenue,
+			cost: totalCost,
+			margin: totalRevenue - totalCost,
+		},
+		range: {
+			from: startDate.toISOString().slice(0, 10),
+			to: endDate.toISOString().slice(0, 10),
+		},
+	});
+});
+
+admin.openapi(getChatPlansUsage, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 10;
+	const now = new Date();
+
+	let startDate: Date;
+	let endDate: Date;
+	if (query.from && query.to) {
+		startDate = new Date(query.from + "T00:00:00.000Z");
+		endDate = new Date(query.to + "T23:59:59.999Z");
+	} else {
+		startDate = new Date(now);
+		startDate.setUTCDate(startDate.getUTCDate() - 30);
+		startDate.setUTCHours(0, 0, 0, 0);
+		endDate = new Date(now);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	if (endDate.getTime() < startDate.getTime()) {
+		endDate = new Date(startDate);
+		endDate.setUTCHours(23, 59, 59, 999);
+	}
+
+	// Filter: only chat orgs that are or were ever on a Chat Plan. Mirrors the
+	// cost-per-day query in /chat-plans/timeseries.
+	const chatPlanOrgFilter = and(
+		eq(tables.organization.isChat, true),
+		or(
+			ne(tables.organization.chatPlan, "none"),
+			sql`EXISTS (
+				SELECT 1 FROM ${tables.transaction} t
+				WHERE t.organization_id = ${tables.organization.id}
+				AND t.type = 'chat_plan_start'
+			)`,
+		)!,
+	);
+
+	const projectModelWhere = and(
+		gte(projectHourlyModelStats.hourTimestamp, startDate),
+		lte(projectHourlyModelStats.hourTimestamp, endDate),
+		chatPlanOrgFilter,
+	);
+
+	const modelRows = await db
+		.select({
+			id: projectHourlyModelStats.usedModel,
+			requestCount:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				"cost",
+			),
+		})
+		.from(projectHourlyModelStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyModelStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(projectModelWhere)
+		.groupBy(projectHourlyModelStats.usedModel)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.limit(limit);
+
+	const providerRows = await db
+		.select({
+			id: projectHourlyModelStats.usedProvider,
+			requestCount:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+				"cost",
+			),
+		})
+		.from(projectHourlyModelStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyModelStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(projectModelWhere)
+		.groupBy(projectHourlyModelStats.usedProvider)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`))
+		.limit(limit);
+
+	const projectSourceWhere = and(
+		gte(projectHourlySourceStats.hourTimestamp, startDate),
+		lte(projectHourlySourceStats.hourTimestamp, endDate),
+		chatPlanOrgFilter,
+	);
+
+	const sourceRows = await db
+		.select({
+			id: projectHourlySourceStats.source,
+			requestCount:
+				sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+				"cost",
+			),
+		})
+		.from(projectHourlySourceStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlySourceStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(projectSourceWhere)
+		.groupBy(projectHourlySourceStats.source)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`))
+		.limit(limit);
+
+	const mapRow = (r: {
+		id: string | null;
+		requestCount: number;
+		totalTokens: number;
+		cost: number;
+	}) => ({
+		id: r.id ?? "unknown",
+		requestCount: Number(r.requestCount),
+		totalTokens: Number(r.totalTokens),
+		cost: Number(r.cost),
+	});
+
+	return c.json({
+		models: modelRows.map(mapRow),
+		providers: providerRows.map(mapRow),
+		sources: sourceRows.map(mapRow),
+		range: {
+			from: startDate.toISOString().slice(0, 10),
+			to: endDate.toISOString().slice(0, 10),
+		},
+	});
+});
+
+admin.openapi(getChatPlansSubscriber, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const now = new Date();
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const owner = await db
+		.select({
+			userId: tables.user.id,
+			userName: tables.user.name,
+			userEmail: tables.user.email,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
+		.where(
+			and(
+				eq(tables.userOrganization.organizationId, orgId),
+				eq(tables.userOrganization.role, "owner"),
+			),
+		)
+		.limit(1);
+
+	const [firstStartRow] = await db
+		.select({
+			firstStart: sql<string>`MIN(${tables.transaction.createdAt})`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "chat_plan_start"),
+			),
+		);
+
+	if (org.chatPlan === "none" && !firstStartRow?.firstStart) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const [tierChangesRow] = await db
+		.select({
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				inArray(tables.transaction.type, [
+					"chat_plan_upgrade",
+					"chat_plan_downgrade",
+				]),
+			),
+		);
+
+	const [realCostRow] = org.chatPlanBillingCycleStart
+		? await db
+				.select({
+					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+				})
+				.from(projectHourlyStats)
+				.innerJoin(
+					tables.project,
+					eq(projectHourlyStats.projectId, tables.project.id),
+				)
+				.where(
+					and(
+						eq(tables.project.organizationId, orgId),
+						gte(
+							projectHourlyStats.hourTimestamp,
+							org.chatPlanBillingCycleStart,
+						),
+					),
+				)
+		: [{ total: "0" }];
+
+	const realCost = Number(realCostRow?.total ?? 0);
+	const mrr = chatTierPriceOf(org.chatPlan);
+	const margin = mrr - realCost;
+
+	const [allTimeCostRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.where(eq(tables.project.organizationId, orgId));
+	const allTimeCost = Number(allTimeCostRow?.total ?? 0);
+
+	const [allTimeRevenueRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${tables.transaction} dup
+					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
+						AND dup.stripe_invoice_id IS NOT NULL
+						AND dup.organization_id = ${tables.transaction.organizationId}
+						AND dup.id <> ${tables.transaction.id}
+						AND dup.status = 'completed'
+						AND dup.amount IS NOT NULL
+						AND dup.type IN (
+							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
+						)
+						AND (
+							dup.created_at < ${tables.transaction.createdAt}
+							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
+						)
+				)`,
+			),
+		);
+
+	const detailRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"chat_detail_refund_original_tx",
+	);
+	const [allTimeRefundRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			detailRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, detailRefundOriginalTx.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				inArray(detailRefundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
+			),
+		);
+
+	const allTimeRevenue =
+		Number(allTimeRevenueRow?.total ?? 0) -
+		Number(allTimeRefundRow?.total ?? 0);
+	const allTimeMargin = allTimeRevenue - allTimeCost;
+
+	const status = deriveChatStatus(
+		org.chatPlan,
+		org.chatPlanCancelled,
+		org.chatPlanExpiresAt,
+		now,
+	);
+	const utilizationPct =
+		Number(org.chatPlanCreditsLimit) > 0
+			? (Number(org.chatPlanCreditsUsed) / Number(org.chatPlanCreditsLimit)) *
+				100
+			: null;
+	const cycleDaysIn = org.chatPlanBillingCycleStart
+		? Math.max(
+				0,
+				Math.floor(
+					(now.getTime() - org.chatPlanBillingCycleStart.getTime()) /
+						(1000 * 60 * 60 * 24),
+				),
+			)
+		: null;
+
+	const [lastFailureRow] = await db
+		.select({
+			lastFailureAt: sql<string>`MAX(${tables.paymentFailure.createdAt})`,
+		})
+		.from(tables.paymentFailure)
+		.where(eq(tables.paymentFailure.organizationId, orgId));
+
+	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+
+	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
+
+	const subscriber = {
+		id: org.id,
+		name: org.name,
+		billingEmail: org.billingEmail,
+		ownerUserId: owner[0]?.userId ?? null,
+		ownerName: owner[0]?.userName ?? null,
+		ownerEmail: owner[0]?.userEmail ?? null,
+		tier: org.chatPlan,
+		status,
+		hasPaymentIssue,
+		creditsUsed: String(org.chatPlanCreditsUsed),
+		creditsLimit: String(org.chatPlanCreditsLimit),
+		utilizationPct,
+		cycleStart: org.chatPlanBillingCycleStart
+			? org.chatPlanBillingCycleStart.toISOString()
+			: null,
+		cycleDaysIn,
+		expiresAt: org.chatPlanExpiresAt
+			? org.chatPlanExpiresAt.toISOString()
+			: null,
+		cancelled: org.chatPlanCancelled,
+		mrr,
+		realCost,
+		margin,
+		marginPct,
+		allTimeRevenue,
+		allTimeCost,
+		allTimeMargin,
+		subscribedSince: firstStartRow?.firstStart
+			? new Date(firstStartRow.firstStart).toISOString()
+			: null,
+		tierChanges: Number(tierChangesRow?.count ?? 0),
+		lastPaymentFailureAt: lastFailureRow?.lastFailureAt
+			? new Date(lastFailureRow.lastFailureAt).toISOString()
+			: null,
+		createdAt: org.createdAt.toISOString(),
+	};
+
+	const transactions = await db
+		.select({
+			id: tables.transaction.id,
+			createdAt: tables.transaction.createdAt,
+			type: tables.transaction.type,
+			amount: tables.transaction.amount,
+			creditAmount: tables.transaction.creditAmount,
+			currency: tables.transaction.currency,
+			status: tables.transaction.status,
+			description: tables.transaction.description,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				inArray(tables.transaction.type, [
+					"chat_plan_start",
+					"chat_plan_upgrade",
+					"chat_plan_downgrade",
+					"chat_plan_cancel",
+					"chat_plan_end",
+					"chat_plan_renewal",
 				]),
 			),
 		)
