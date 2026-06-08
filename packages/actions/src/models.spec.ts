@@ -689,6 +689,28 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(store.value).toEqual({ providerId: "openai", region: undefined });
 		});
 
+		it("pins the full weighted-score winner, not merely the cheapest provider", async () => {
+			// openai is ~5x cheaper, but its uptime is poor. The full weighted
+			// score (price + uptime + throughput + priority, not price alone) makes
+			// the more expensive deepseek the winner — and that is what gets pinned.
+			const store = createMemoryStore();
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(50, 100),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("deepseek");
+			expect(store.value).toEqual({
+				providerId: "deepseek",
+				region: undefined,
+			});
+		});
+
 		it("keeps the session on its pinned provider even when a cheaper one is available", async () => {
 			// Previously pinned to the more expensive deepseek.
 			const store = createMemoryStore({ providerId: "deepseek" });
