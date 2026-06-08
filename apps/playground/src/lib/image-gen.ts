@@ -78,13 +78,21 @@ export function getModelImageConfig(model: string) {
 
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
-		: isSeedream
-			? (["2K", "4K"] as const)
-			: isGemini31FlashImage
-				? (["0.5K", "1K", "2K", "4K"] as const)
-				: (["1K", "2K", "4K"] as const);
+		: isReve
+			? (["2K"] as const)
+			: isSeedream
+				? (["2K", "4K"] as const)
+				: isGemini31FlashImage
+					? (["0.5K", "1K", "2K", "4K"] as const)
+					: (["1K", "2K", "4K"] as const);
 
-	const defaultSize = isGptImage ? "1024x1024" : isSeedream ? "2K" : "1K";
+	const defaultSize = isGptImage
+		? "1024x1024"
+		: isReve
+			? "2K"
+			: isSeedream
+				? "2K"
+				: "1K";
 
 	const supportsQuality = isGptImage;
 	const availableQualities = isGptImage
@@ -103,6 +111,7 @@ export function getModelImageConfig(model: string) {
 		isSeedream,
 		isGemini31FlashImage,
 		isGptImage,
+		isReve,
 		availableSizes,
 		defaultSize,
 		supportsQuality,
