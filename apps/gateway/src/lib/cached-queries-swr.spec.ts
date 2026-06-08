@@ -7,6 +7,7 @@ import {
 	eq,
 	apiKey,
 	apiKeyIamRule,
+	discount,
 	organization,
 	project,
 	providerKey,
@@ -19,6 +20,7 @@ import {
 	findActiveIamRules,
 	findActiveProviderKeys,
 	findApiKeyByToken,
+	findEffectiveDiscount,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
@@ -35,6 +37,7 @@ const testApiKeyToken = "sk-test-swr-token";
 const testProviderKeyOpenAi = "test-provider-key-swr-openai";
 const testProviderKeyAnthropic = "test-provider-key-swr-anthropic";
 const testIamRuleId = "test-iam-rule-swr";
+const testDiscountId = "test-discount-swr";
 
 async function flushDrizzleCache(): Promise<void> {
 	const keys = await redisClient.keys("drizzle:cache:*");
@@ -62,6 +65,7 @@ describe("cached-queries SWR integration", () => {
 		await db.delete(apiKeyIamRule);
 		await db.delete(apiKey);
 		await db.delete(providerKey);
+		await db.delete(discount).where(eq(discount.id, testDiscountId));
 		await db.delete(userOrganization);
 		await db.delete(project);
 		await db.delete(organization).where(eq(organization.id, testOrgId));
@@ -139,6 +143,15 @@ describe("cached-queries SWR integration", () => {
 			ruleValue: { models: ["gpt-4"] },
 			status: "active",
 		});
+
+		await db.insert(discount).values({
+			id: testDiscountId,
+			organizationId: testOrgId,
+			provider: "openai",
+			model: "gpt-4",
+			discountPercent: "0.25",
+			reason: "SWR test discount",
+		});
 	});
 
 	afterEach(async () => {
@@ -146,6 +159,7 @@ describe("cached-queries SWR integration", () => {
 		await db.delete(apiKeyIamRule);
 		await db.delete(apiKey);
 		await db.delete(providerKey);
+		await db.delete(discount).where(eq(discount.id, testDiscountId));
 		await db.delete(userOrganization);
 		await db.delete(project);
 		await db.delete(organization).where(eq(organization.id, testOrgId));
@@ -238,6 +252,17 @@ describe("cached-queries SWR integration", () => {
 			);
 			expect(mirror).not.toBeNull();
 		});
+
+		it("findEffectiveDiscount primes mirror at discount:{org}:{provider}:{model}", async () => {
+			const result = await findEffectiveDiscount(testOrgId, "openai", "gpt-4");
+			expect(result.discount).toBe("0.25");
+			expect(result.source).toBe("org_provider_model");
+
+			const mirror = await redisClient.get(
+				`${SWR_PREFIX}discount:${testOrgId}:openai:gpt-4`,
+			);
+			expect(mirror).not.toBeNull();
+		});
 	});
 
 	describe("fallback when DB fails", () => {
@@ -293,6 +318,21 @@ describe("cached-queries SWR integration", () => {
 
 			selectSpy.mockRestore();
 			selectUncachedSpy.mockRestore();
+		});
+
+		it("returns effective discount SWR mirror when DB errors", async () => {
+			await findEffectiveDiscount(testOrgId, "openai", "gpt-4");
+			await flushDrizzleCache();
+
+			const selectSpy = vi.spyOn(cdb, "select").mockImplementation(() => {
+				throw new Error("postgres unavailable");
+			});
+
+			const result = await findEffectiveDiscount(testOrgId, "openai", "gpt-4");
+			expect(result.discount).toBe("0.25");
+			expect(result.source).toBe("org_provider_model");
+
+			selectSpy.mockRestore();
 		});
 	});
 

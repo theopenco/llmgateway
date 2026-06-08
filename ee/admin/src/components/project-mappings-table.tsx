@@ -81,7 +81,7 @@ function SortableHeader({
 	basePath: string;
 }) {
 	const isActive = currentSortBy === sortKey;
-	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
+	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const href = `${basePath}?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}&window=${pageWindow}`;
 

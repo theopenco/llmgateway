@@ -253,6 +253,83 @@ describe("activity endpoint", () => {
 		expect(Array.isArray(data.activity)).toBe(true);
 	});
 
+	test("GET /activity should include end-user customer keys in api key breakdown", async () => {
+		const today = new Date();
+
+		await db.insert(tables.endCustomer).values({
+			id: "test-end-customer-id",
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			externalId: "customer-a",
+		});
+
+		await db.insert(tables.wallet).values({
+			id: "test-wallet-id",
+			endCustomerId: "test-end-customer-id",
+			projectId: "test-project-id",
+			organizationId: "test-org-id",
+		});
+
+		await db.insert(tables.apiKey).values({
+			id: "test-end-user-customer-key-id",
+			token: "euck_test-token",
+			projectId: "test-project-id",
+			description: "Embedded end-user: customer-a",
+			keyType: "end_user_customer",
+			endCustomerWalletId: "test-wallet-id",
+			createdBy: "test-user-id",
+		});
+
+		await db.insert(tables.log).values({
+			id: "end-user-customer-log",
+			requestId: "end-user-customer-log",
+			createdAt: today,
+			updatedAt: today,
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			apiKeyId: "test-end-user-customer-key-id",
+			endCustomerWalletId: "test-wallet-id",
+			endCustomerId: "test-end-customer-id",
+			duration: 100,
+			requestedModel: "gpt-4",
+			requestedProvider: "openai",
+			usedModel: "gpt-4",
+			usedProvider: "openai",
+			responseSize: 1000,
+			promptTokens: "11",
+			completionTokens: "22",
+			totalTokens: "33",
+			cost: 0.12,
+			messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+			mode: "credits",
+			usedMode: "credits",
+		});
+
+		await aggregateLogsForTesting();
+
+		const res = await app.request("/activity?days=7&groupBy=apiKey", {
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		const breakdowns = data.activity.flatMap(
+			(row: { apiKeyBreakdown: Array<{ id: string; description: string }> }) =>
+				row.apiKeyBreakdown,
+		);
+
+		expect(breakdowns).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "test-end-user-customer-key-id",
+					description: "Embedded end-user: customer-a",
+				}),
+			]),
+		);
+	});
+
 	test("GET /activity should require authentication", async () => {
 		const res = await app.request("/activity?days=7");
 		expect(res.status).toBe(401);

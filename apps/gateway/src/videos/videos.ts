@@ -12,20 +12,23 @@ import {
 import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
+	findEffectiveDiscount,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { validateModelAccess } from "@/lib/iam.js";
+import { applyEndUserSession } from "@/lib/end-user-session.js";
+import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 
 import {
 	getCheapestFromAvailableProviders,
+	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
-	getProviderSelectionPrice,
 	processImageUrl,
 	type RoutingMetadata,
 	type VideoPricingContext,
@@ -74,6 +77,15 @@ import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 import type { Context } from "hono";
 
+function createProviderDiscountResolver(organizationId: string) {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
+			.discount;
+}
+
 const TERMINAL_VIDEO_STATUSES = new Set([
 	"completed",
 	"failed",
@@ -83,11 +95,39 @@ const TERMINAL_VIDEO_STATUSES = new Set([
 const MIN_VIDEO_GENERATION_BALANCE = 1;
 const DEFAULT_VIDEO_SIZE = "1280x720";
 const SUPPORTED_VIDEO_SIZES = {
+	"848x480": {
+		size: "848x480",
+		width: 848,
+		height: 480,
+		resolution: "480p",
+		orientation: "landscape",
+	},
+	"854x480": {
+		size: "854x480",
+		width: 854,
+		height: 480,
+		resolution: "480p",
+		orientation: "landscape",
+	},
+	"480x854": {
+		size: "480x854",
+		width: 480,
+		height: 854,
+		resolution: "480p",
+		orientation: "portrait",
+	},
 	"1280x720": {
 		size: "1280x720",
 		width: 1280,
 		height: 720,
 		resolution: "720p",
+		orientation: "landscape",
+	},
+	"1696x960": {
+		size: "1696x960",
+		width: 1696,
+		height: 960,
+		resolution: "960p",
 		orientation: "landscape",
 	},
 	"720x1280": {
@@ -161,6 +201,60 @@ const videoImageInputSchema = z
 
 const videoReferenceImagesSchema = z.array(videoImageInputSchema).min(1).max(3);
 
+const referenceVideoUrlSchema = z
+	.string()
+	.url()
+	.refine((value) => /^https:\/\//i.test(value), {
+		message: "Reference video URL must be an HTTPS URL",
+	});
+
+const videoReferenceVideoInputSchema = z
+	.union([
+		referenceVideoUrlSchema,
+		z.object({
+			video_url: referenceVideoUrlSchema,
+		}),
+	])
+	.openapi({
+		description:
+			"Reference video input for omni-reference video generation. Must be a publicly reachable HTTPS URL; base64 data URLs are not supported for videos.",
+		example: {
+			video_url: "https://example.com/reference-motion.mp4",
+		},
+	});
+
+const videoReferenceVideosSchema = z
+	.array(videoReferenceVideoInputSchema)
+	.min(1)
+	.max(3);
+
+const referenceAudioUrlSchema = z
+	.string()
+	.url()
+	.refine((value) => /^https:\/\//i.test(value), {
+		message: "Reference audio URL must be an HTTPS URL",
+	});
+
+const videoReferenceAudioInputSchema = z
+	.union([
+		referenceAudioUrlSchema,
+		z.object({
+			audio_url: referenceAudioUrlSchema,
+		}),
+	])
+	.openapi({
+		description:
+			"Reference audio input for omni-reference video generation. Must be a publicly reachable HTTPS URL; base64 data URLs are not supported for audio.",
+		example: {
+			audio_url: "https://example.com/reference-track.mp3",
+		},
+	});
+
+const videoReferenceAudiosSchema = z
+	.array(videoReferenceAudioInputSchema)
+	.min(1)
+	.max(3);
+
 const createVideoRequestSchema = z
 	.object({
 		model: z.string().default("veo-3.1-generate-preview").openapi({
@@ -223,6 +317,24 @@ const createVideoRequestSchema = z
 				},
 			],
 		}),
+		reference_videos: videoReferenceVideosSchema.optional().openapi({
+			description:
+				"One to three reference videos (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.0 models and can be combined with reference_images.",
+			example: [
+				{
+					video_url: "https://example.com/reference-motion.mp4",
+				},
+			],
+		}),
+		reference_audios: videoReferenceAudiosSchema.optional().openapi({
+			description:
+				"One to three reference audio clips (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.0 models and can be combined with reference_images and reference_videos.",
+			example: [
+				{
+					audio_url: "https://example.com/reference-track.mp3",
+				},
+			],
+		}),
 	})
 	.superRefine((value, ctx) => {
 		const hasCallbackUrl = value.callback_url !== undefined;
@@ -248,8 +360,7 @@ const createVideoRequestSchema = z
 		if (value.size !== undefined && !(value.size in SUPPORTED_VIDEO_SIZES)) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
-				message:
-					"size must be one of 1280x720, 720x1280, 1920x1080, 1080x1920, 3840x2160, 2160x3840, 1792x1024, or 1024x1792",
+				message: `size must be one of ${Object.keys(SUPPORTED_VIDEO_SIZES).join(", ")}`,
 				path: ["size"],
 			});
 		}
@@ -258,7 +369,9 @@ const createVideoRequestSchema = z
 			value.image !== undefined || value.last_frame !== undefined;
 		const hasReferenceInput =
 			value.reference_images !== undefined ||
-			value.input_reference !== undefined;
+			value.input_reference !== undefined ||
+			value.reference_videos !== undefined ||
+			value.reference_audios !== undefined;
 
 		if (value.last_frame !== undefined && value.image === undefined) {
 			ctx.addIssue({
@@ -451,7 +564,7 @@ type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
 type LogRecord = InferSelectModel<typeof tables.log>;
 
 interface RequestContext {
-	apiKey: InferSelectModel<typeof tables.apiKey>;
+	apiKey: GatewayApiKey;
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
 	requestId: string;
@@ -514,7 +627,12 @@ function getAvailableCredits(
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
-	return regularCredits + devPlanCreditsRemaining;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	return regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 }
 
 function hasSufficientVideoGenerationBalance(
@@ -571,31 +689,42 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 
 	assertApiKeyWithinUsageLimits(apiKey);
 
-	const project = await findProjectById(apiKey.projectId);
-	if (!project) {
+	const baseProject = await findProjectById(apiKey.projectId);
+	if (!baseProject) {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
 	}
 
-	if (project.status === "deleted") {
+	if (baseProject.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
 
-	const organization = await findOrganizationById(project.organizationId);
-	if (!organization) {
+	const baseOrganization = await findOrganizationById(
+		baseProject.organizationId,
+	);
+	if (!baseOrganization) {
 		throw new HTTPException(500, {
 			message: "Could not find organization",
 		});
 	}
 
-	if (organization.status === "deleted") {
+	if (baseOrganization.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
 		});
 	}
+
+	// LLM SDK: ephemeral end-user sessions bill the bound wallet. No-op
+	// for normal keys.
+	const { project, organization } = await applyEndUserSession(
+		c,
+		apiKey,
+		baseProject,
+		baseOrganization,
+	);
 
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	const routingCfg = await getResolvedRoutingConfig(
@@ -700,6 +829,13 @@ function isSoraVideoModelName(externalId: string): boolean {
 	return externalId === "sora-2" || externalId === "sora-2-pro";
 }
 
+function isBytedanceReferenceModel(externalId: string): boolean {
+	return (
+		externalId === "dreamina-seedance-2-0-260128" ||
+		externalId === "dreamina-seedance-2-0-fast-260128"
+	);
+}
+
 function isGoogleVertexVideoProvider(providerId: string): boolean {
 	return providerId === "google-vertex";
 }
@@ -710,6 +846,8 @@ function getVideoProviderConstraintReasons(
 	videoDurationSeconds: number,
 	inputMode: VideoInputMode,
 	inputImageCount: number,
+	referenceVideoCount: number,
+	referenceAudioCount: number,
 	includeAudio: boolean,
 ): string[] {
 	const reasons: string[] = [];
@@ -774,15 +912,26 @@ function getVideoProviderConstraintReasons(
 		!isSoraVideoModelName(provider.externalId) &&
 		inputMode === "frames" &&
 		!isGoogleVertexVideoProvider(provider.providerId) &&
-		provider.providerId !== "avalanche"
+		provider.providerId !== "avalanche" &&
+		provider.providerId !== "xai"
 	) {
 		reasons.push(
-			"frame inputs are currently only supported through google-vertex or avalanche",
+			"frame inputs are currently only supported through google-vertex, avalanche, or xai",
 		);
 	}
 
 	if (inputMode === "reference") {
 		if (isSoraVideoModelName(provider.externalId)) {
+			if (referenceVideoCount > 0) {
+				reasons.push(
+					"Sora models do not support reference videos. Use reference_images with exactly one image.",
+				);
+			}
+			if (referenceAudioCount > 0) {
+				reasons.push(
+					"Sora models do not support reference audio. Use reference_images with exactly one image.",
+				);
+			}
 			if (inputImageCount !== 1) {
 				reasons.push(
 					"Sora reference-image video generation supports exactly 1 input image",
@@ -790,6 +939,28 @@ function getVideoProviderConstraintReasons(
 			}
 
 			return reasons;
+		}
+
+		if (provider.providerId === "bytedance") {
+			if (!isBytedanceReferenceModel(provider.externalId)) {
+				reasons.push(
+					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+				);
+			}
+
+			return reasons;
+		}
+
+		if (referenceVideoCount > 0) {
+			reasons.push(
+				"reference videos are currently only supported on bytedance Seedance 2.0 models",
+			);
+		}
+
+		if (referenceAudioCount > 0) {
+			reasons.push(
+				"reference audio is currently only supported on bytedance Seedance 2.0 models",
+			);
 		}
 
 		if (isGoogleVertexVideoProvider(provider.providerId)) {
@@ -827,6 +998,8 @@ function formatVideoProviderConstraintSummary(
 	videoDurationSeconds: number,
 	inputMode: VideoInputMode,
 	inputImageCount: number,
+	referenceVideoCount: number,
+	referenceAudioCount: number,
 	includeAudio: boolean,
 ): string {
 	const providerSummaries = providers.map((provider) => {
@@ -836,6 +1009,8 @@ function formatVideoProviderConstraintSummary(
 			videoDurationSeconds,
 			inputMode,
 			inputImageCount,
+			referenceVideoCount,
+			referenceAudioCount,
 			includeAudio,
 		);
 		return `${provider.providerId}: ${reasons.join("; ")}`;
@@ -856,6 +1031,8 @@ function getEligibleVideoProviderMappings(
 	videoDurationSeconds: number,
 	inputMode: VideoInputMode,
 	inputImageCount: number,
+	referenceVideoCount: number,
+	referenceAudioCount: number,
 	includeAudio: boolean,
 ): ProviderModelMapping[] {
 	const now = new Date();
@@ -886,6 +1063,8 @@ function getEligibleVideoProviderMappings(
 				videoDurationSeconds,
 				inputMode,
 				inputImageCount,
+				referenceVideoCount,
+				referenceAudioCount,
 				includeAudio,
 			).length === 0
 		);
@@ -900,6 +1079,8 @@ function getEligibleVideoProviderMappings(
 				videoDurationSeconds,
 				inputMode,
 				inputImageCount,
+				referenceVideoCount,
+				referenceAudioCount,
 				includeAudio,
 			),
 		});
@@ -977,6 +1158,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "xai":
+			return "https://api.x.ai";
 		case "bytedance":
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
@@ -1370,6 +1553,8 @@ async function resolveVideoExecution(
 	videoDurationSeconds: number,
 	inputMode: VideoInputMode,
 	inputImageCount: number,
+	referenceVideoCount: number,
+	referenceAudioCount: number,
 	includeAudio: boolean,
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
@@ -1378,6 +1563,8 @@ async function resolveVideoExecution(
 	xNoFallbackHeaderSet: boolean,
 	routingCfg: ResolvedRoutingConfig,
 ): Promise<ResolvedVideoExecution> {
+	const providerDiscountResolver =
+		createProviderDiscountResolver(organizationId);
 	const videoPricing: VideoPricingContext = {
 		durationSeconds: videoDurationSeconds,
 		includeAudio,
@@ -1386,9 +1573,13 @@ async function resolveVideoExecution(
 				? "4k"
 				: videoSize.resolution === "1080p"
 					? "1080p"
-					: videoSize.resolution === "hd"
-						? "hd"
-						: "default",
+					: videoSize.resolution === "720p"
+						? "720p"
+						: videoSize.resolution === "480p"
+							? "480p"
+							: videoSize.resolution === "hd"
+								? "hd"
+								: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
@@ -1397,6 +1588,8 @@ async function resolveVideoExecution(
 		videoDurationSeconds,
 		inputMode,
 		inputImageCount,
+		referenceVideoCount,
+		referenceAudioCount,
 		includeAudio,
 	);
 	const configuredEligibleMappings: ProviderModelMapping[] = [];
@@ -1446,6 +1639,8 @@ async function resolveVideoExecution(
 						videoDurationSeconds,
 						inputMode,
 						inputImageCount,
+						referenceVideoCount,
+						referenceAudioCount,
 						includeAudio,
 					),
 				});
@@ -1514,7 +1709,7 @@ async function resolveVideoExecution(
 				});
 
 				if (betterMappings.length > 0) {
-					const betterResult = getCheapestFromAvailableProviders(
+					const betterResult = await getCheapestFromAvailableProviders(
 						betterMappings,
 						modelInfo,
 						{
@@ -1522,6 +1717,8 @@ async function resolveVideoExecution(
 							isStreaming: false,
 							videoPricing,
 							routingConfig: routingCfg,
+							organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -1529,12 +1726,16 @@ async function resolveVideoExecution(
 						const originalMapping = configuredEligibleMappings.find(
 							(provider) => provider.providerId === requestedProvider,
 						);
-						const originalPrice = originalMapping
-							? getProviderSelectionPrice(
-									originalMapping,
+						const { price: originalPrice, discount: originalDiscount } =
+							await getDiscountedProviderSelectionPrice(
+								originalMapping,
+								modelInfo.id,
+								{
+									organizationId,
 									videoPricing,
-								).toNumber()
-							: 0;
+									providerDiscountResolver,
+								},
+							);
 						routingMetadata = {
 							...betterResult.metadata,
 							selectionReason: "low-uptime-fallback",
@@ -1544,7 +1745,8 @@ async function resolveVideoExecution(
 								{
 									providerId: requestedProvider,
 									score: -1,
-									price: originalPrice,
+									price: originalPrice.toNumber(),
+									discount: originalDiscount.toNumber(),
 									uptime: requestedUptime,
 									latency: requestedMetrics?.averageLatency,
 									throughput: requestedMetrics?.throughput,
@@ -1579,7 +1781,7 @@ async function resolveVideoExecution(
 		}
 
 		if (!routingMetadata) {
-			const cheapestResult = getCheapestFromAvailableProviders(
+			const cheapestResult = await getCheapestFromAvailableProviders(
 				configuredEligibleMappings,
 				modelInfo,
 				{
@@ -1587,6 +1789,8 @@ async function resolveVideoExecution(
 					isStreaming: false,
 					videoPricing,
 					routingConfig: routingCfg,
+					organizationId,
+					providerDiscountResolver,
 				},
 			);
 			if (cheapestResult) {
@@ -1627,11 +1831,26 @@ async function resolveVideoExecution(
 			: configuredEligibleMappings.length === 1
 				? "single-provider-available"
 				: "fallback-first-available",
-		providerScores: configuredEligibleMappings.map((provider) => ({
-			providerId: provider.providerId,
-			score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
-			price: getProviderSelectionPrice(provider, videoPricing).toNumber(),
-		})),
+		providerScores: await Promise.all(
+			configuredEligibleMappings.map(async (provider) => {
+				const { price, discount } = await getDiscountedProviderSelectionPrice(
+					provider,
+					modelInfo.id,
+					{
+						organizationId,
+						videoPricing,
+						providerDiscountResolver,
+					},
+				);
+
+				return {
+					providerId: provider.providerId,
+					score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
+					price: price.toNumber(),
+					discount: discount.toNumber(),
+				};
+			}),
+		),
 		...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 	};
 
@@ -1704,6 +1923,7 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 		case "generating":
 			return "in_progress";
 		case "completed":
+		case "done":
 		case "succeeded":
 		case "success":
 			return "completed";
@@ -1776,6 +1996,7 @@ function extractContentUrl(body: Record<string, unknown>): string | null {
 		body.url,
 		body.video_url,
 		body.output_url,
+		body.video,
 		body.content,
 		body.output,
 	];
@@ -2034,6 +2255,7 @@ function getGoogleVertexInlineVideo(
 async function requireVideoJobForProject(
 	projectId: string,
 	videoId: string,
+	sessionWalletId: string | null = null,
 ): Promise<VideoJobRecord> {
 	const job = await db
 		.select()
@@ -2048,6 +2270,16 @@ async function requireVideoJobForProject(
 		.then((rows) => rows[0]);
 
 	if (!job) {
+		throw new HTTPException(404, {
+			message: "Video not found",
+		});
+	}
+
+	// LLM SDK: an ephemeral end-user session may only read jobs owned by
+	// its own wallet. End-users share a project, so a project-only scope would
+	// leak other end-users' jobs. (Normal developer keys pass null and see all
+	// project jobs, as before.)
+	if (sessionWalletId && job.endCustomerWalletId !== sessionWalletId) {
 		throw new HTTPException(404, {
 			message: "Video not found",
 		});
@@ -2148,7 +2380,7 @@ async function streamVideoFromUrl(
 }
 
 function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
-	return job.usedProvider === "openai";
+	return job.usedProvider === "openai" || job.usedProvider === "xai";
 }
 
 async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
@@ -2393,6 +2625,7 @@ function extractUpstreamVideoId(body: Record<string, unknown>): string | null {
 	for (const value of [
 		body.name,
 		body.id,
+		body.request_id,
 		body.video_id,
 		body.task_id,
 		body.job_id,
@@ -2840,6 +3073,8 @@ async function createBytedanceVideoJob(
 	firstFrameInput: VideoImageInput | undefined,
 	processedFirstFrame: ProcessedVideoImageInput | null,
 	processedReferenceImages: ProcessedVideoImageInput[],
+	referenceVideoUrls: string[],
+	referenceAudioUrls: string[],
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
@@ -2859,6 +3094,7 @@ async function createBytedanceVideoJob(
 			image_url: {
 				url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
 			},
+			role: "first_frame",
 		});
 	}
 
@@ -2869,8 +3105,29 @@ async function createBytedanceVideoJob(
 				image_url: {
 					url: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
 				},
+				role: "reference_image",
 			});
 		}
+	}
+
+	for (const referenceVideoUrl of referenceVideoUrls) {
+		content.push({
+			type: "video_url",
+			video_url: {
+				url: referenceVideoUrl,
+			},
+			role: "reference_video",
+		});
+	}
+
+	for (const referenceAudioUrl of referenceAudioUrls) {
+		content.push({
+			type: "audio_url",
+			audio_url: {
+				url: referenceAudioUrl,
+			},
+			role: "reference_audio",
+		});
 	}
 
 	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
@@ -2923,6 +3180,67 @@ async function createBytedanceVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+async function createXaiVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		prompt,
+		size: videoSize.size,
+		duration: durationSeconds,
+	};
+
+	if (processedFirstFrame) {
+		upstreamRequest.image = {
+			url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
+		};
+	}
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/v1/videos/generations",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("xai", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "xAI video response did not include a request id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -2934,6 +3252,8 @@ async function createUpstreamVideoJob(
 	firstFrameInput: VideoImageInput | undefined,
 	lastFrameInput: VideoImageInput | undefined,
 	referenceImageInputs: VideoImageInput[],
+	referenceVideoUrls: string[],
+	referenceAudioUrls: string[],
 	processedFirstFrame: ProcessedVideoImageInput | null,
 	processedLastFrame: ProcessedVideoImageInput | null,
 	processedReferenceImages: ProcessedVideoImageInput[],
@@ -2946,6 +3266,15 @@ async function createUpstreamVideoJob(
 	upstreamResponse: Record<string, unknown>;
 }> {
 	switch (providerContext.providerId) {
+		case "xai":
+			return await createXaiVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				processedFirstFrame,
+			);
 		case "openai":
 			return await createOpenAIVideoJob(
 				providerContext,
@@ -2986,6 +3315,8 @@ async function createUpstreamVideoJob(
 				firstFrameInput,
 				processedFirstFrame,
 				processedReferenceImages,
+				referenceVideoUrls,
+				referenceAudioUrls,
 			);
 		case "google-vertex":
 			return await createGoogleVertexVideoJob(
@@ -3048,12 +3379,42 @@ function getVideoInputMode(
 
 	if (
 		request.reference_images !== undefined ||
-		request.input_reference !== undefined
+		request.input_reference !== undefined ||
+		request.reference_videos !== undefined ||
+		request.reference_audios !== undefined
 	) {
 		return "reference";
 	}
 
 	return "none";
+}
+
+function getVideoReferenceVideoInputs(
+	request: z.infer<typeof createVideoRequestSchema>,
+): string[] {
+	if (!request.reference_videos) {
+		return [];
+	}
+
+	return request.reference_videos.map((referenceVideo) =>
+		typeof referenceVideo === "string"
+			? referenceVideo
+			: referenceVideo.video_url,
+	);
+}
+
+function getVideoReferenceAudioInputs(
+	request: z.infer<typeof createVideoRequestSchema>,
+): string[] {
+	if (!request.reference_audios) {
+		return [];
+	}
+
+	return request.reference_audios.map((referenceAudio) =>
+		typeof referenceAudio === "string"
+			? referenceAudio
+			: referenceAudio.audio_url,
+	);
 }
 
 function getVideoInputImageCount(
@@ -3199,6 +3560,8 @@ videos.openapi(createVideo, async (c) => {
 	const firstFrameInput = getVideoFirstFrameInput(request);
 	const lastFrameInput = getVideoLastFrameInput(request);
 	const referenceImageInputs = getVideoReferenceImageInputs(request);
+	const referenceVideoInputs = getVideoReferenceVideoInputs(request);
+	const referenceAudioInputs = getVideoReferenceAudioInputs(request);
 	const inputMode = getVideoInputMode(request);
 	const inputImageCount = getVideoInputImageCount(
 		inputMode,
@@ -3218,14 +3581,25 @@ videos.openapi(createVideo, async (c) => {
 			message: `Model ${normalizedModel} not found`,
 		});
 	}
+
+	if (
+		"imageInputRequired" in modelInfo &&
+		modelInfo.imageInputRequired &&
+		inputMode === "none"
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${normalizedModel} requires an input image. Please provide an image using the "image" field.`,
+		});
+	}
+
 	const videoSize = getVideoSizeConfig(request.size);
 	const videoDurationSeconds = getVideoDurationSeconds(
 		modelInfo,
 		request.seconds,
 	);
 
-	const iamValidation = await validateModelAccess(
-		apiKey.id,
+	const iamValidation = await validateRequestModelAccess(
+		apiKey,
 		normalizedModel,
 		requestedProvider,
 		modelInfo,
@@ -3251,6 +3625,8 @@ videos.openapi(createVideo, async (c) => {
 		videoDurationSeconds,
 		inputMode,
 		inputImageCount,
+		referenceVideoInputs.length,
+		referenceAudioInputs.length,
 		request.audio,
 		project,
 		organization.id,
@@ -3399,6 +3775,8 @@ videos.openapi(createVideo, async (c) => {
 				firstFrameInput,
 				lastFrameInput,
 				referenceImageInputs,
+				referenceVideoInputs,
+				referenceAudioInputs,
 				processedFirstFrame,
 				processedLastFrameInput,
 				processedReferenceImages,
@@ -3526,6 +3904,10 @@ videos.openapi(createVideo, async (c) => {
 			organizationId: organization.id,
 			projectId: project.id,
 			apiKeyId: apiKey.id,
+			// Owner for per-end-user logging/isolation; null for normal developer
+			// keys.
+			endUserSessionId: apiKey.endUserSession?.id ?? null,
+			endCustomerWalletId: apiKey.endCustomerWalletId ?? null,
 			mode: project.mode,
 			usedMode: selectedProviderContext.usedMode,
 			model: normalizedModel,
@@ -3584,9 +3966,13 @@ videos.openapi(createVideo, async (c) => {
 });
 
 videos.openapi(getVideo, async (c) => {
-	const { project } = await requireRequestContext(c);
+	const { project, apiKey } = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(project.id, videoId);
+	const job = await requireVideoJobForProject(
+		project.id,
+		videoId,
+		apiKey.endCustomerWalletId ?? null,
+	);
 	return c.json(await serializeVideoJob(job));
 });
 
@@ -3668,9 +4054,13 @@ videos.openapi(getVideoLogContent, async (c) => {
 });
 
 videos.openapi(getVideoContent, async (c) => {
-	const { project } = await requireRequestContext(c);
+	const { project, apiKey } = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(project.id, videoId);
+	const job = await requireVideoJobForProject(
+		project.id,
+		videoId,
+		apiKey.endCustomerWalletId ?? null,
+	);
 
 	if (job.status !== "completed") {
 		throw new HTTPException(409, {

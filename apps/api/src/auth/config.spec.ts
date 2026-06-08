@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 import { apiAuth, isClientJsonError, redisClient } from "./config.js";
 
@@ -230,6 +230,83 @@ describe("API auth hooks functionality", () => {
 
 		expect(project).not.toBeNull();
 		expect(project?.mode).toBe("credits");
+	});
+
+	test("should create default organization when DevPass user signs in to main app", async () => {
+		const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
+		const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
+		const email = `test-devpass-main-${Date.now()}@example.com`;
+		const password = "Password123!";
+
+		const signUpResponse = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-up/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Origin: codeUrl,
+					"CF-Connecting-IP": `192.168.31.${Math.floor(Math.random() * 255)}`,
+				},
+				body: JSON.stringify({ email, password, name: "Dev User" }),
+			}),
+		);
+
+		expect(signUpResponse.status).toBe(200);
+
+		const user = await db.query.user.findFirst({
+			where: {
+				email: {
+					eq: email,
+				},
+			},
+		});
+
+		expect(user).not.toBeNull();
+
+		await db
+			.update(tables.user)
+			.set({ emailVerified: true })
+			.where(eq(tables.user.id, user!.id));
+
+		const signInResponse = await apiAuth.handler(
+			new Request("http://localhost:4002/auth/sign-in/email", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Origin: uiUrl,
+				},
+				body: JSON.stringify({ email, password }),
+			}),
+		);
+
+		expect(signInResponse.status).toBe(200);
+
+		const userOrganizations = await db.query.userOrganization.findMany({
+			where: {
+				userId: {
+					eq: user!.id,
+				},
+			},
+			with: {
+				organization: true,
+			},
+		});
+
+		const organizations = userOrganizations
+			.map((uo) => uo.organization)
+			.filter((org) => org?.status !== "deleted");
+
+		expect(organizations).toHaveLength(2);
+		expect(
+			organizations.some(
+				(org) => org?.name === "Personal" && org.isPersonal === true,
+			),
+		).toBe(true);
+		expect(
+			organizations.some(
+				(org) =>
+					org?.name === "Default Organization" && org.isPersonal === false,
+			),
+		).toBe(true);
 	});
 
 	test("should automatically verify email for self-hosted installations", async () => {

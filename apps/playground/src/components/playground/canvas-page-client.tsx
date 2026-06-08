@@ -13,7 +13,7 @@ import {
 	Play,
 	Square,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
 	memo,
 	type RefObject,
@@ -240,6 +240,7 @@ const CanvasPromptInput = memo(function CanvasPromptInput({
 export default function CanvasPageClient({
 	models,
 	providers,
+	organizations,
 	selectedOrganization,
 	selectedProject,
 	initialModelPreference,
@@ -274,6 +275,23 @@ export default function CanvasPageClient({
 
 	const { user, isLoading: isUserLoading } = useUser();
 	const pathname = usePathname();
+	const router = useRouter();
+	const searchParams = useSearchParams();
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(
+				params.toString() ? `/canvas?${params.toString()}` : "/canvas",
+			);
+		},
+		[router, searchParams],
+	);
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 	const ensuredProjectRef = useRef<string | null>(null);
@@ -583,7 +601,9 @@ export default function CanvasPageClient({
 			<SidebarProvider>
 				<div className="flex h-dvh w-full">
 					<CanvasSidebar
+						organizations={organizations}
 						selectedOrganization={selectedOrganization}
+						onSelectOrganization={handleSelectOrganization}
 						onNewCanvas={handleNewCanvas}
 					/>
 					<div className="flex min-w-0 flex-1 flex-col">

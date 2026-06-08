@@ -54,6 +54,8 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { OrganizationSwitcher } from "./organization-switcher";
+
 import type { GalleryItem } from "@/lib/image-gen";
 import type { Organization } from "@/lib/types";
 
@@ -61,7 +63,9 @@ interface ImageSidebarProps {
 	galleryItems: GalleryItem[];
 	onNewChat: () => void;
 	onItemClick: (itemId: string) => void;
+	organizations: Organization[];
 	selectedOrganization: Organization | null;
+	onSelectOrganization: (organization: Organization | null) => void;
 	currentItemId?: string | null;
 	className?: string;
 }
@@ -335,10 +339,18 @@ export function ImageSidebar({
 	galleryItems,
 	onNewChat,
 	onItemClick,
-	selectedOrganization: _selectedOrganization,
+	organizations,
+	selectedOrganization,
+	onSelectOrganization,
 	currentItemId,
 	className,
 }: ImageSidebarProps) {
+	const switcherOrganizations = organizations.filter(
+		(org) => !org.isPersonal && !org.isChat,
+	);
+	const switcherSelectedOrganization =
+		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
+		null;
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
 	const router = useRouter();
 	const pathname = usePathname();
@@ -566,6 +578,12 @@ export function ImageSidebar({
 								<span className="text-lg font-bold tracking-tight">
 									LLM Gateway
 								</span>
+								<Badge
+									variant="secondary"
+									className="group-data-[collapsible=icon]:hidden"
+								>
+									Chat
+								</Badge>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -585,7 +603,7 @@ export function ImageSidebar({
 							tooltip="Chat"
 							isActive={pathname === "/"}
 						>
-							<Link href="/">
+							<Link href="/" prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -597,7 +615,7 @@ export function ImageSidebar({
 							tooltip="Group Chat"
 							isActive={pathname === "/group"}
 						>
-							<Link href="/group">
+							<Link href="/group" prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -609,7 +627,7 @@ export function ImageSidebar({
 							tooltip="Image Studio"
 							isActive={pathname === "/image"}
 						>
-							<Link href="/image">
+							<Link href="/image" prefetch={true}>
 								<ImageIcon className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -621,7 +639,7 @@ export function ImageSidebar({
 							tooltip="Video Studio"
 							isActive={pathname === "/video"}
 						>
-							<Link href="/video">
+							<Link href="/video" prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
 							</Link>
@@ -633,7 +651,7 @@ export function ImageSidebar({
 							tooltip="Canvas"
 							isActive={pathname === "/canvas"}
 						>
-							<Link href="/canvas">
+							<Link href="/canvas" prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>
@@ -645,6 +663,17 @@ export function ImageSidebar({
 			<SidebarContent className="overflow-hidden pb-2">
 				<div>
 					<div className="mx-2 mb-2 border-t border-sidebar-border" />
+					{switcherOrganizations.length > 0 ? (
+						<SidebarMenu className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
+							<SidebarMenuItem>
+								<OrganizationSwitcher
+									organizations={switcherOrganizations}
+									selectedOrganization={switcherSelectedOrganization}
+									onSelectOrganization={onSelectOrganization}
+								/>
+							</SidebarMenuItem>
+						</SidebarMenu>
+					) : null}
 				</div>
 				<div
 					ref={listContainerRef}
@@ -678,8 +707,9 @@ export function ImageSidebar({
 			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
-						organization={organization}
+						organization={switcherSelectedOrganization ?? organization}
 						isLoading={isOrgLoading}
+						isChatPlanOrg={!switcherSelectedOrganization}
 					/>
 				</div>
 				<SidebarMenu>

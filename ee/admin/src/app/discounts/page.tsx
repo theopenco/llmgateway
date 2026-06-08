@@ -164,8 +164,7 @@ export default async function GlobalDiscountsPage() {
 										<Tag className="h-8 w-8 text-muted-foreground/50" />
 										<p>No global discounts configured</p>
 										<p className="text-xs">
-											Global discounts apply to all organizations and override
-											hardcoded model discounts
+											Global discounts apply to all organizations
 										</p>
 									</div>
 								</TableCell>
@@ -233,9 +232,7 @@ export default async function GlobalDiscountsPage() {
 						Global discounts apply to ALL organizations unless overridden by
 						org-specific discounts
 					</li>
-					<li>
-						They take precedence over hardcoded model discounts in the codebase
-					</li>
+					<li>They are applied automatically to API usage</li>
 					<li>
 						More specific discounts (provider + model) take precedence over
 						broader ones

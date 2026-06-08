@@ -10,6 +10,7 @@ import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
+import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { xaiModels } from "./models/xai.js";
@@ -122,11 +123,6 @@ export interface ProviderRegion {
 	 * When absent, falls back to the mapping-level pricingTiers.
 	 */
 	pricingTiers?: PricingTier[];
-	/**
-	 * Discount multiplier (0-1) for this region.
-	 * When absent, falls back to the mapping-level discount.
-	 */
-	discount?: Price;
 	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
@@ -272,10 +268,6 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
-	 * Discount multiplier (0-1), where 0.5 = 50% off
-	 */
-	discount?: Price;
-	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.
@@ -340,6 +332,23 @@ export interface ProviderModelMapping {
 	 */
 	supportsResponsesApi?: boolean;
 	/**
+	 * Provider service tier IDs supported by this specific model mapping.
+	 * Provider definitions own the tier metadata and default multipliers;
+	 * mappings opt in to the subset actually supported by the upstream model.
+	 */
+	serviceTiers?: string[];
+	/**
+	 * Optional per-tier multiplier overrides for provider/model combinations whose
+	 * tier pricing differs from the provider default while still being expressed
+	 * as a multiplier over this mapping's standard token prices.
+	 */
+	serviceTierMultipliers?: Partial<Record<string, number>>;
+	/**
+	 * Regions where the mapping supports service tiers. When omitted, the mapping
+	 * supports its service tiers across all regions.
+	 */
+	serviceTierRegions?: string[];
+	/**
 	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
 	 * (multiple completion choices per request) natively. When true, the gateway
 	 * forwards `n` to the upstream provider; when false/unset, requests with
@@ -380,6 +389,13 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports JSON output mode for this provider
 	 */
 	jsonOutput?: boolean;
+	/**
+	 * Whether JSON-mode streaming output for this provider mapping should be
+	 * buffered and healed before being sent downstream. Use this for providers
+	 * that support JSON mode but may stream reasoning or explanatory text as
+	 * content before the final JSON object.
+	 */
+	healStreamingJsonOutput?: boolean;
 	/**
 	 * Whether this provider supports JSON schema output mode (json_schema response format)
 	 */
@@ -570,5 +586,6 @@ export const models = [
 	...alibabaModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...nvidiaModels,
 	...zaiModels,
 ] as const satisfies ModelDefinition[];

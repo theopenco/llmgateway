@@ -3,12 +3,15 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
+import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const user = new OpenAPIHono<ServerTypes>();
+
+const USERNAME_REGEX = /^[a-z0-9_-]{3,30}$/;
 
 const publicUserSchema = z.object({
 	id: z.string(),
@@ -17,6 +20,11 @@ const publicUserSchema = z.object({
 	onboardingCompleted: z.boolean(),
 	emailVerified: z.boolean(),
 	isAdmin: z.boolean(),
+	username: z.string().nullable(),
+	profilePublic: z.boolean(),
+	bio: z.string().nullable(),
+	githubUsername: z.string().nullable(),
+	xUsername: z.string().nullable(),
 	accounts: z.array(
 		z.object({
 			providerId: z.string(),
@@ -38,6 +46,28 @@ async function getUserAuthInfo(userId: string) {
 		accounts: accounts.map((a) => ({ providerId: a.providerId })),
 		hasPasskeys: passkeys.length > 0,
 		hasCredentialAccount: accounts.some((a) => a.providerId === "credential"),
+	};
+}
+
+function toPublicUser(
+	userRecord: typeof tables.user.$inferSelect,
+	authInfo: { accounts: { providerId: string }[]; hasPasskeys: boolean },
+	isAdmin: boolean,
+): z.infer<typeof publicUserSchema> {
+	return {
+		id: userRecord.id,
+		email: userRecord.email,
+		name: userRecord.name,
+		onboardingCompleted: userRecord.onboardingCompleted,
+		emailVerified: userRecord.emailVerified,
+		isAdmin,
+		username: userRecord.username,
+		profilePublic: userRecord.profilePublic,
+		bio: userRecord.bio,
+		githubUsername: userRecord.githubUsername,
+		xUsername: userRecord.xUsername,
+		accounts: authInfo.accounts,
+		hasPasskeys: authInfo.hasPasskeys,
 	};
 }
 
@@ -97,22 +127,30 @@ user.openapi(get, async (c) => {
 	const isAdmin = isAdminEmail(user.email);
 
 	return c.json({
-		user: {
-			id: user.id,
-			email: user.email,
-			name: user.name,
-			onboardingCompleted: user.onboardingCompleted,
-			emailVerified: user.emailVerified,
-			isAdmin,
-			accounts: authInfo.accounts,
-			hasPasskeys: authInfo.hasPasskeys,
-		},
+		user: toPublicUser(user, authInfo, isAdmin),
 	});
 });
 
 const updateUserSchema = z.object({
 	name: z.string().optional(),
 	email: z.string().email("Invalid email address").optional(),
+	username: z
+		.string()
+		.transform((v) => v.trim().toLowerCase())
+		.pipe(
+			z
+				.string()
+				.regex(
+					USERNAME_REGEX,
+					"Username must be 3-30 characters using lowercase letters, numbers, hyphens or underscores",
+				),
+		)
+		.nullable()
+		.optional(),
+	profilePublic: z.boolean().optional(),
+	bio: z.string().max(280).nullable().optional(),
+	githubUsername: z.string().max(100).nullable().optional(),
+	xUsername: z.string().max(100).nullable().optional(),
 });
 
 const completeOnboardingSchema = z.object({});
@@ -256,6 +294,37 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
+	// Resolve the final state. `username` is only present in updateData when the
+	// client explicitly sends it (including null to clear it); otherwise the
+	// existing value is kept.
+	const finalUsername =
+		"username" in updateData ? updateData.username : userRecord.username;
+	const finalProfilePublic =
+		updateData.profilePublic ?? userRecord.profilePublic;
+
+	// A username is required before a profile can be public. Validate the final
+	// state so clearing the username can't leave a public profile without one.
+	if (finalProfilePublic && !finalUsername) {
+		throw new HTTPException(400, {
+			message: "Choose a username before making your profile public",
+		});
+	}
+
+	// Enforce username uniqueness (case-insensitive, excluding the current user).
+	if (updateData.username) {
+		const existing = await db.query.user.findFirst({
+			where: {
+				username: updateData.username,
+				id: { ne: authUser.id },
+			},
+		});
+		if (existing) {
+			throw new HTTPException(400, {
+				message: "That username is already taken",
+			});
+		}
+	}
+
 	const [updatedUser] = await db
 		.update(tables.user)
 		.set({
@@ -272,16 +341,7 @@ user.openapi(updateUser, async (c) => {
 	const isAdmin = isAdminEmail(updatedUser.email);
 
 	return c.json({
-		user: {
-			id: updatedUser.id,
-			email: updatedUser.email,
-			name: updatedUser.name,
-			onboardingCompleted: updatedUser.onboardingCompleted,
-			emailVerified: updatedUser.emailVerified,
-			isAdmin,
-			accounts: authInfo.accounts,
-			hasPasskeys: authInfo.hasPasskeys,
-		},
+		user: toPublicUser(updatedUser, authInfo, isAdmin),
 		message: "User updated successfully",
 	});
 });
@@ -514,18 +574,49 @@ user.openapi(completeOnboarding, async (c) => {
 	const isAdmin = isAdminEmail(updatedUser.email);
 
 	return c.json({
-		user: {
-			id: updatedUser.id,
-			email: updatedUser.email,
-			name: updatedUser.name,
-			onboardingCompleted: updatedUser.onboardingCompleted,
-			emailVerified: updatedUser.emailVerified,
-			isAdmin,
-			accounts: authInfo.accounts,
-			hasPasskeys: authInfo.hasPasskeys,
-		},
+		user: toPublicUser(updatedUser, authInfo, isAdmin),
 		message: "Onboarding completed successfully",
 	});
+});
+
+const getProfile = createRoute({
+	method: "get",
+	path: "/profile",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ profile: profileSchema }),
+				},
+			},
+			description: "The authenticated user's DevPass profile data.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Unauthorized.",
+		},
+	},
+});
+
+user.openapi(getProfile, async (c) => {
+	const authUser = c.get("user");
+
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const profile = await computeProfileData(authUser.id);
+
+	if (!profile) {
+		throw new HTTPException(404, { message: "User not found" });
+	}
+
+	return c.json({ profile }, 200);
 });
 
 const getFavorites = createRoute({

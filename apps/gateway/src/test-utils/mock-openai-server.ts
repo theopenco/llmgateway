@@ -721,6 +721,9 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 			output_tokens: 20,
 			total_tokens: 30,
 		},
+		...(typeof body.service_tier === "string"
+			? { service_tier: body.service_tier }
+			: {}),
 		status: "completed",
 	};
 

@@ -172,7 +172,7 @@ const convertToApiModel = (
 										: null,
 							}))
 						: null,
-					discount: map.discount?.toString() ?? null,
+					discount: null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
 					deprecatedAt: map.deprecatedAt?.toISOString() ?? null,
