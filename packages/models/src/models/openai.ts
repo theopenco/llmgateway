@@ -1,5 +1,41 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Built-in voices for the legacy tts-1 / tts-1-hd models. The first entry
+ * ("alloy") is the default when the caller omits `voice`.
+ */
+const OPENAI_TTS_VOICES = [
+	"alloy",
+	"ash",
+	"coral",
+	"echo",
+	"fable",
+	"nova",
+	"onyx",
+	"sage",
+	"shimmer",
+];
+
+/**
+ * Built-in voices for gpt-4o-mini-tts, which supports a broader catalog than
+ * the legacy tts-1 models.
+ */
+const OPENAI_GPT4O_MINI_TTS_VOICES = [
+	"alloy",
+	"ash",
+	"ballad",
+	"cedar",
+	"coral",
+	"echo",
+	"fable",
+	"marin",
+	"nova",
+	"onyx",
+	"sage",
+	"shimmer",
+	"verse",
+];
+
 export const openaiModels = [
 	{
 		id: "gpt-4o-mini",
@@ -2069,6 +2105,83 @@ export const openaiModels = [
 				tools: false,
 				jsonOutput: false,
 				embeddings: true,
+			},
+		],
+	},
+	{
+		id: "tts-1",
+		name: "TTS-1",
+		description:
+			"OpenAI text-to-speech model optimized for real-time use. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2023-11-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "tts-1",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputCharacterPrice: "15e-6",
+				requestPrice: "0",
+				contextSize: 4096,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "tts-1-hd",
+		name: "TTS-1 HD",
+		description:
+			"OpenAI text-to-speech model optimized for quality. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2023-11-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "tts-1-hd",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputCharacterPrice: "30e-6",
+				requestPrice: "0",
+				contextSize: 4096,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "gpt-4o-mini-tts",
+		name: "GPT-4o Mini TTS",
+		description:
+			"OpenAI text-to-speech model with steerable delivery via instructions. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2025-03-20"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-4o-mini-tts",
+				// Token-billed; the gateway requests stream_format=sse so the
+				// speech.audio.done event reports usage (the binary response has none).
+				inputPrice: "0.6e-6",
+				outputPrice: "12.0e-6",
+				outputAudioPrice: "12.0e-6",
+				requestPrice: "0",
+				contextSize: 2000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_GPT4O_MINI_TTS_VOICES,
 			},
 		],
 	},

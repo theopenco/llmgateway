@@ -22,7 +22,9 @@ const modelSchema = z.object({
 	family: z.string(),
 	architecture: z.object({
 		input_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
-		output_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
+		output_modalities: z.array(
+			z.enum(["text", "image", "video", "embedding", "audio"]),
+		),
 		tokenizer: z.string().optional(),
 	}),
 	top_provider: z.object({
@@ -194,8 +196,13 @@ modelsApi.openapi(listModels, async (c) => {
 			}
 
 			// Determine output modalities from model definition or default to text only
-			const outputModalities: ("text" | "image" | "video" | "embedding")[] =
-				model.output ?? ["text"];
+			const outputModalities: (
+				| "text"
+				| "image"
+				| "video"
+				| "embedding"
+				| "audio"
+			)[] = model.output ?? ["text"];
 
 			const firstProviderWithPricing = model.providers.find(
 				(p: ProviderModelMapping) =>

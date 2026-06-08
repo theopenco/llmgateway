@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b413ab7c-09be-4257-95a0-48cb07a25203",
-  "prevId": "0d356979-3ce8-4142-89c9-2f244b10edad",
+  "id": "1140601b-0452-45bb-9308-658f36a1be05",
+  "prevId": "4a80c082-f90a-40b8-b5fc-3dd8f1e22860",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -13995,6 +13995,22 @@
       "generated": null,
       "identity": null,
       "name": "max_rpd",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "rate_limit"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'per_org'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "enforcement",
       "entityType": "columns",
       "schema": "public",
       "table": "rate_limit"

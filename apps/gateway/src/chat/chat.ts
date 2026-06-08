@@ -2390,6 +2390,16 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Skip models that can't emit text. Auto routes chat completions, so
+			// audio/video/embedding/image-only output models (e.g. tts-1) must never
+			// be candidates — they fail upstream on /v1/chat/completions. This guard
+			// also applies on the audio-input path below, where the allowlist check
+			// is intentionally relaxed.
+			const candidateOutput = (modelDef as ModelDefinition).output;
+			if (candidateOutput && !candidateOutput.includes("text")) {
+				continue;
+			}
+
 			// Starter chat plan can't reach blocked frontier models. Enforce it
 			// during auto-selection too, otherwise an "auto" request would skip
 			// the pre-routing check above and resolve to a blocked model.

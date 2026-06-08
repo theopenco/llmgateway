@@ -3253,6 +3253,7 @@ const rateLimitSchema = z.object({
 	model: z.string().nullable(),
 	limitType: z.enum(["rpm", "rpd"]),
 	maxRequests: z.number(),
+	enforcement: z.enum(["per_org", "global"]),
 	reason: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
@@ -3271,7 +3272,14 @@ const createRateLimitBodySchema = z.object({
 		.number()
 		.int("Limit must be a whole number")
 		.min(1, "Limit must be at least 1"),
+	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	reason: z.string().nullable().optional(),
+});
+
+// Org-specific limits are always enforced per-org, so they don't expose the
+// enforcement choice.
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
+	enforcement: true,
 });
 
 // --- Global Rate Limits ---
@@ -3381,7 +3389,7 @@ const createOrganizationRateLimit = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: createRateLimitBodySchema.openapi({}),
+					schema: createOrganizationRateLimitBodySchema.openapi({}),
 				},
 			},
 		},
@@ -3440,6 +3448,7 @@ function formatRateLimit(r: {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	enforcement: string;
 	reason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
@@ -3454,6 +3463,8 @@ function formatRateLimit(r: {
 		model: r.model,
 		limitType,
 		maxRequests,
+		enforcement:
+			r.enforcement === "global" ? ("global" as const) : ("per_org" as const),
 		reason: r.reason,
 		createdAt: r.createdAt.toISOString(),
 		updatedAt: r.updatedAt.toISOString(),
@@ -3494,6 +3505,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 			model,
 			maxRpm: body.limitType === "rpm" ? body.maxRequests : null,
 			maxRpd: body.limitType === "rpd" ? body.maxRequests : null,
+			enforcement: body.enforcement,
 			reason: body.reason ?? null,
 		})
 		.onConflictDoNothing()

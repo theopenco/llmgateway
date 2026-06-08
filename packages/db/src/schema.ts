@@ -2361,6 +2361,11 @@ export const rateLimit = pgTable(
 		maxRpm: integer(),
 		// Maximum requests per day
 		maxRpd: integer(),
+		// How the counter is bucketed across orgs (only meaningful for global rows):
+		// "per_org" = each org gets its own counter (default), "global" = single shared counter
+		enforcement: text({ enum: ["per_org", "global"] })
+			.notNull()
+			.default("per_org"),
 		// Optional metadata
 		reason: text(),
 	},

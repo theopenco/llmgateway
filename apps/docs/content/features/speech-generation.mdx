@@ -1,0 +1,102 @@
+---
+title: Speech Generation
+description: Generate speech (text-to-speech) using Gemini and OpenAI models through the OpenAI-compatible audio API
+icon: Volume2
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Speech Generation
+
+LLMGateway supports text-to-speech (TTS) through the OpenAI-compatible
+**`/v1/audio/speech`** endpoint, powered by Google Gemini and OpenAI speech
+models.
+
+## Available Models
+
+Browse all speech generation models, with up-to-date pricing, on the
+[models page](https://llmgateway.io/models?filters=1&audioGeneration=true).
+
+<Callout type="info">
+	Billing varies by model family. Some models are billed on token usage reported
+	by the provider (input text tokens and output audio tokens), while others are
+	billed on input character count (those return audio bytes without usage data).
+	See the [models
+	page](https://llmgateway.io/models?filters=1&audioGeneration=true) for each
+	model's exact pricing.
+</Callout>
+
+## Parameters
+
+| Parameter         | Type   | Default  | Description                                                                                                |
+| ----------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `model`           | string | required | The speech model to use                                                                                    |
+| `input`           | string | required | The text to synthesize into speech                                                                         |
+| `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini) or `alloy` (OpenAI)                                          |
+| `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. Gemini: `wav` (default), `pcm` |
+| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                         |
+| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                 |
+
+<Callout type="info">
+	Gemini speech models return raw PCM audio. LLMGateway wraps it in a WAV
+	container by default (`response_format: "wav"`), or returns the raw 16-bit
+	little-endian PCM at 24&nbsp;kHz when `response_format: "pcm"` is requested.
+	Other formats such as `mp3` are only available on the OpenAI models, which
+	return the audio already encoded in the requested format.
+</Callout>
+
+## curl
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/audio/speech" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-flash-preview-tts",
+    "input": "Hello, welcome to LLM Gateway!",
+    "voice": "Kore"
+  }' \
+  --output speech.wav
+```
+
+## OpenAI SDK
+
+Works with the standard OpenAI client library — just point the base URL to
+LLMGateway.
+
+```ts
+import OpenAI from "openai";
+import { writeFileSync } from "fs";
+
+const openai = new OpenAI({
+	apiKey: process.env.LLM_GATEWAY_API_KEY,
+	baseURL: "https://api.llmgateway.io/v1",
+});
+
+const response = await openai.audio.speech.create({
+	model: "gemini-2.5-flash-preview-tts",
+	voice: "Kore",
+	input: "Hello, welcome to LLM Gateway!",
+});
+
+const buffer = Buffer.from(await response.arrayBuffer());
+writeFileSync("speech.wav", buffer);
+```
+
+## Streaming
+
+<Callout type="info">
+	Streaming speech responses (chunked audio or `stream_format: "sse"`) are not
+	supported yet. The endpoint always returns the complete audio file in a single
+	response, so there is no low-latency, play-as-you-go output for now.
+</Callout>
+
+## Voices
+
+Gemini exposes 30 prebuilt voices. A few common ones:
+`Kore`, `Puck`, `Zephyr`, `Charon`, `Fenrir`, `Leda`, `Orus`, `Aoede`. When
+`voice` is omitted on a Gemini model, `Kore` is used.
+
+OpenAI voices include `alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`,
+`nova`, `onyx`, `sage`, `shimmer`, and `verse`. When `voice` is omitted on an
+OpenAI model, `alloy` is used.

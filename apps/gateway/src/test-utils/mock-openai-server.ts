@@ -1127,6 +1127,52 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v1/audio/speech", async (c) => {
+	const body = await c.req.json();
+	const input = typeof body.input === "string" ? body.input : "";
+
+	const statusTrigger = extractStatusCodeTrigger(input);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (input.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const format =
+		typeof body.response_format === "string" ? body.response_format : "mp3";
+	const contentTypes: Record<string, string> = {
+		mp3: "audio/mpeg",
+		opus: "audio/opus",
+		aac: "audio/aac",
+		flac: "audio/flac",
+		wav: "audio/wav",
+		pcm: "audio/pcm",
+	};
+	// Deterministic mock audio payload (not a real encoded stream).
+	const audio = Buffer.from("MOCK_OPENAI_AUDIO");
+
+	// gpt-4o-mini-tts requests stream_format=sse: emit audio deltas followed by a
+	// done event carrying token usage, mirroring OpenAI's SSE schema.
+	if (body.stream_format === "sse") {
+		const half = Math.ceil(audio.length / 2);
+		const delta1 = audio.subarray(0, half).toString("base64");
+		const delta2 = audio.subarray(half).toString("base64");
+		const usage = { input_tokens: 7, output_tokens: 42, total_tokens: 49 };
+		const sse =
+			`data: ${JSON.stringify({ type: "speech.audio.delta", audio: delta1 })}\n\n` +
+			`data: ${JSON.stringify({ type: "speech.audio.delta", audio: delta2 })}\n\n` +
+			`data: ${JSON.stringify({ type: "speech.audio.done", usage })}\n\n`;
+		return c.body(sse, 200, { "Content-Type": "text/event-stream" });
+	}
+
+	return c.body(audio, 200, {
+		"Content-Type": contentTypes[format] ?? "audio/mpeg",
+	});
+});
+
 mockOpenAIServer.post("/v1/embeddings", async (c) => {
 	const body = await c.req.json();
 	const inputs = Array.isArray(body.input) ? body.input : [body.input];
@@ -1354,6 +1400,39 @@ async function handleGoogleGenerateContent(c: Context) {
 			},
 		});
 	}
+	// Speech generation: when the caller requests AUDIO output, return an
+	// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+	const responseModalities: string[] =
+		body.generationConfig?.responseModalities ?? [];
+	if (responseModalities.includes("AUDIO")) {
+		// 8 samples of 16-bit silence as a deterministic PCM payload.
+		const pcm = Buffer.alloc(16);
+		return c.json({
+			candidates: [
+				{
+					content: {
+						parts: [
+							{
+								inlineData: {
+									mimeType: "audio/L16;codec=pcm;rate=24000",
+									data: pcm.toString("base64"),
+								},
+							},
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					index: 0,
+				},
+			],
+			usageMetadata: {
+				promptTokenCount: 5,
+				candidatesTokenCount: 42,
+				totalTokenCount: 47,
+			},
+		});
+	}
+
 	const userMessage =
 		body.contents?.find?.((entry: any) => entry.role === "user")?.parts?.[0]
 			?.text ?? "";
