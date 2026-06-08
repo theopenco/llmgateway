@@ -926,8 +926,9 @@ export const ChatSidebar = function ChatSidebar({
 			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
-						organization={organization}
+						organization={selectedOrganization ?? organization}
 						isLoading={isOrgLoading}
+						isChatPlanOrg={!selectedOrganization}
 					/>
 				</div>
 				<SidebarMenu>
