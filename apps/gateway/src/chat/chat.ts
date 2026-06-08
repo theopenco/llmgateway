@@ -161,10 +161,7 @@ import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.j
 import { getProviderEnv } from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
-import {
-	isModelFreeForTestWallet,
-	isModelTrulyFree,
-} from "./tools/is-model-truly-free.js";
+import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
 import {
 	getAudioFormatsFromMessages,
@@ -2403,17 +2400,10 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
-			// When free_models_only is true, only consider models marked as free.
-			// Test-mode end-user wallets need the stricter "every provider mapping is
-			// free" check so auto never resolves to a paid provider of a free model
-			// (which the post-resolution wall would then reject). Otherwise, only
-			// consider hardcoded allowed models.
+			// When free_models_only is true, only consider models marked as free
+			// Otherwise, only consider hardcoded allowed models
 			if (effectiveFreeModelsOnly) {
-				const isFree =
-					endUserWallet?.mode === "test"
-						? isModelFreeForTestWallet(modelDef)
-						: "free" in modelDef && Boolean(modelDef.free);
-				if (!isFree) {
+				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
 			} else if (

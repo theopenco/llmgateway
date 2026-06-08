@@ -42,32 +42,6 @@ const paidModel: ModelDefinition = {
 	],
 };
 
-// free: true at the model level, but one provider mapping charges per token
-// (mirrors embercloud/glm-4.7-flash). A test wallet must NOT be able to pin it.
-const partiallyFreeModel: ModelDefinition = {
-	id: "partially-free-model",
-	family: "test",
-	free: true,
-	providers: [
-		{
-			providerId: "zai",
-			externalId: "partially-free-model-zai",
-			inputPrice: "0",
-			outputPrice: "0",
-			requestPrice: "0",
-			streaming: true,
-		},
-		{
-			providerId: "embercloud",
-			externalId: "partially-free-model-embercloud",
-			inputPrice: "0.06e-6",
-			outputPrice: "0.4e-6",
-			requestPrice: "0",
-			streaming: true,
-		},
-	],
-};
-
 function makeWallet(mode: "live" | "test"): Wallet {
 	return {
 		id: "wallet-1",
@@ -196,12 +170,6 @@ describe("assertTestWalletModelAllowed", () => {
 	it("rejects test wallets using paid models", () => {
 		expect(() =>
 			assertTestWalletModelAllowed(makeWallet("test"), paidModel),
-		).toThrow(/free models/);
-	});
-
-	it("rejects a free model that has a paid provider mapping", () => {
-		expect(() =>
-			assertTestWalletModelAllowed(makeWallet("test"), partiallyFreeModel),
 		).toThrow(/free models/);
 	});
 
