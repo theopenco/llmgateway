@@ -12,6 +12,7 @@ import {
 import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
+	findEffectiveDiscount,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
@@ -75,6 +76,15 @@ import {
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 import type { Context } from "hono";
+
+function createProviderDiscountResolver(organizationId: string) {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
+			.discount;
+}
 
 const TERMINAL_VIDEO_STATUSES = new Set([
 	"completed",
@@ -1523,6 +1533,8 @@ async function resolveVideoExecution(
 	xNoFallbackHeaderSet: boolean,
 	routingCfg: ResolvedRoutingConfig,
 ): Promise<ResolvedVideoExecution> {
+	const providerDiscountResolver =
+		createProviderDiscountResolver(organizationId);
 	const videoPricing: VideoPricingContext = {
 		durationSeconds: videoDurationSeconds,
 		includeAudio,
@@ -1672,6 +1684,7 @@ async function resolveVideoExecution(
 							videoPricing,
 							routingConfig: routingCfg,
 							organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -1686,6 +1699,7 @@ async function resolveVideoExecution(
 								{
 									organizationId,
 									videoPricing,
+									providerDiscountResolver,
 								},
 							);
 						routingMetadata = {
@@ -1742,6 +1756,7 @@ async function resolveVideoExecution(
 					videoPricing,
 					routingConfig: routingCfg,
 					organizationId,
+					providerDiscountResolver,
 				},
 			);
 			if (cheapestResult) {
@@ -1790,6 +1805,7 @@ async function resolveVideoExecution(
 					{
 						organizationId,
 						videoPricing,
+						providerDiscountResolver,
 					},
 				);
 

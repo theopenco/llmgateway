@@ -18,6 +18,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
+	findEffectiveDiscount,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -345,6 +346,15 @@ function preferConcreteRegionalMappings(
 	);
 }
 
+function createProviderDiscountResolver(organizationId: string) {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
+			.discount;
+}
+
 async function collapseProvidersToBestRegionPerProvider(
 	candidates: ProviderModelMapping[],
 	model: ModelDefinition & {
@@ -377,7 +387,12 @@ async function collapseProvidersToBestRegionPerProvider(
 			const bestCandidate = await getCheapestFromAvailableProviders(
 				providerCandidates,
 				model,
-				options,
+				{
+					...options,
+					providerDiscountResolver: createProviderDiscountResolver(
+						options.organizationId,
+					),
+				},
 			);
 
 			return bestCandidate?.provider ?? providerCandidates[0];
@@ -635,6 +650,7 @@ async function addContentFilterRoutingMetadata(
 	modelId: string | undefined,
 	metricsMap: Map<string, ProviderMetrics>,
 	organizationId: string,
+	providerDiscountResolver: ReturnType<typeof createProviderDiscountResolver>,
 ): Promise<RoutingMetadata> {
 	if (!contentFilterMatched) {
 		return routingMetadata;
@@ -656,6 +672,7 @@ async function addContentFilterRoutingMetadata(
 							const { price, discount } =
 								await getDiscountedProviderSelectionPrice(provider, modelId, {
 									organizationId,
+									providerDiscountResolver,
 								});
 
 							return {
@@ -1717,6 +1734,10 @@ chat.openapi(completions, async (c) => {
 		project = withCreditsMode(project);
 	}
 
+	const providerDiscountResolver = createProviderDiscountResolver(
+		project.organizationId,
+	);
+
 	const buildFinalResponseMetadata = (discount?: number | null) =>
 		toResponseMetadataExtras({
 			logId: finalLogId,
@@ -2545,10 +2566,15 @@ chat.openapi(completions, async (c) => {
 			if (suitableProviders.length > 0) {
 				// Find the cheapest among the suitable providers for this model
 				for (const provider of suitableProviders) {
-					const totalPrice =
-						(Number(provider.inputPrice ?? "0") +
-							Number(provider.outputPrice ?? "0")) /
-						2;
+					const { price } = await getDiscountedProviderSelectionPrice(
+						provider,
+						modelDef.id,
+						{
+							organizationId: project.organizationId,
+							providerDiscountResolver,
+						},
+					);
+					const totalPrice = price.toNumber();
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
@@ -2597,6 +2623,7 @@ chat.openapi(completions, async (c) => {
 					sessionId,
 					routingConfig: routingCfg,
 					organizationId: project.organizationId,
+					providerDiscountResolver,
 				},
 			);
 
@@ -2821,6 +2848,7 @@ chat.openapi(completions, async (c) => {
 							sessionId,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -3019,21 +3047,30 @@ chat.openapi(completions, async (c) => {
 								sessionId,
 								routingConfig: routingCfg,
 								organizationId: project.organizationId,
+								providerDiscountResolver,
 							},
 						);
 
 						const originalProviderInfo = modelInfo.providers.find(
 							(p) => p.providerId === requestedProvider,
 						);
-						const originalProviderPrice = originalProviderInfo
-							? Number(originalProviderInfo.inputPrice ?? "0") +
-								Number(originalProviderInfo.outputPrice ?? "0")
-							: 0;
+						const {
+							price: originalProviderPrice,
+							discount: originalProviderDiscount,
+						} = await getDiscountedProviderSelectionPrice(
+							originalProviderInfo,
+							modelWithPricing.id,
+							{
+								organizationId: project.organizationId,
+								providerDiscountResolver,
+							},
+						);
 
 						const originalProviderScore = {
 							providerId: requestedProvider,
 							score: -1,
-							price: originalProviderPrice,
+							price: originalProviderPrice.toNumber(),
+							discount: originalProviderDiscount.toNumber(),
 							rate_limited: true as const,
 						};
 
@@ -3224,6 +3261,7 @@ chat.openapi(completions, async (c) => {
 									sessionId,
 									routingConfig: routingCfg,
 									organizationId: project.organizationId,
+									providerDiscountResolver,
 								},
 							);
 
@@ -3231,16 +3269,24 @@ chat.openapi(completions, async (c) => {
 							const originalProviderInfo = modelInfo.providers.find(
 								(p) => p.providerId === requestedProvider,
 							);
-							const originalProviderPrice = originalProviderInfo
-								? Number(originalProviderInfo.inputPrice ?? "0") +
-									Number(originalProviderInfo.outputPrice ?? "0")
-								: 0;
+							const {
+								price: originalProviderPrice,
+								discount: originalProviderDiscount,
+							} = await getDiscountedProviderSelectionPrice(
+								originalProviderInfo,
+								modelWithPricing.id,
+								{
+									organizationId: project.organizationId,
+									providerDiscountResolver,
+								},
+							);
 
 							// Create score entry for the original requested provider
 							const originalProviderScore = {
 								providerId: requestedProvider,
 								score: -1, // Negative score indicates this provider was skipped due to low uptime
-								price: originalProviderPrice,
+								price: originalProviderPrice.toNumber(),
+								discount: originalProviderDiscount.toNumber(),
 								uptime: currentUptime,
 								latency: metrics.averageLatency,
 								throughput: metrics.throughput,
@@ -3422,6 +3468,7 @@ chat.openapi(completions, async (c) => {
 						sessionId,
 						routingConfig: routingCfg,
 						organizationId: project.organizationId,
+						providerDiscountResolver,
 					},
 				);
 
@@ -3487,6 +3534,7 @@ chat.openapi(completions, async (c) => {
 						modelWithPricing.id,
 						metricsMap,
 						project.organizationId,
+						providerDiscountResolver,
 					);
 					// Annotate rate-limited providers in routing metadata
 					if (rateLimitedProviderIds.size > 0) {
@@ -3507,6 +3555,7 @@ chat.openapi(completions, async (c) => {
 										modelWithPricing.id,
 										{
 											organizationId: project.organizationId,
+											providerDiscountResolver,
 										},
 									);
 								routingMetadata.providerScores.push({
@@ -3660,6 +3709,7 @@ chat.openapi(completions, async (c) => {
 							sessionId,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -3675,6 +3725,7 @@ chat.openapi(completions, async (c) => {
 						baseModelId,
 						{
 							organizationId: project.organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -3708,6 +3759,7 @@ chat.openapi(completions, async (c) => {
 			baseModelId,
 			metricsMap,
 			project.organizationId,
+			providerDiscountResolver,
 		);
 	}
 
