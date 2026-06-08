@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Sparkles } from "lucide-react";
+import { Check, Info, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 import { CodePlanTracker } from "@/components/LandingTracker";
@@ -200,6 +200,7 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 									</Link>
 								</Button>
 							</CodePlanTracker>
+							<InvoiceInfoLabel />
 						</div>
 					);
 				})}
@@ -208,10 +209,18 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 				Usage is metered at each provider&apos;s published per-token rate. Every
 				request shows its dollar value in your dashboard in real time.
 			</p>
-			<p className="mx-auto mt-2 max-w-2xl text-center text-xs leading-relaxed text-muted-foreground">
-				Need company or address details on your invoice? Update billing settings
-				before purchase. An invoice is emailed automatically after payment.
-			</p>
+		</div>
+	);
+}
+
+function InvoiceInfoLabel() {
+	return (
+		<div className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+			<Info className="mt-0.5 h-3 w-3 shrink-0" />
+			<span>
+				Need company/address details on your invoice? Update billing settings
+				before purchase. We email the invoice automatically after payment.
+			</span>
 		</div>
 	);
 }

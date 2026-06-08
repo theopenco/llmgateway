@@ -5,7 +5,7 @@ import {
 	useStripe as useStripeElements,
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditCard, ExternalLink, Plus } from "lucide-react";
+import { CreditCard, ExternalLink, Info, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -323,7 +323,6 @@ function AmountStep({
 						) : null}
 					</div>
 				)}
-				<InvoiceSettingsNote />
 			</div>
 			<DialogFooter className="flex flex-col gap-3 sm:flex-col">
 				<div className="flex justify-end gap-2">
@@ -362,6 +361,7 @@ function AmountStep({
 					Stripe Checkout supports additional payment methods like Google Pay,
 					Apple Pay, and more.
 				</p>
+				<InvoiceSettingsNote />
 			</DialogFooter>
 		</>
 	);
@@ -544,7 +544,6 @@ function PaymentStep({
 				<p className="text-xs text-muted-foreground">
 					International cards are subject to an additional 1.5% processing fee.
 				</p>
-				<InvoiceSettingsNote />
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -566,6 +565,7 @@ function PaymentStep({
 						{loading ? "Processing..." : `Continue`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote />
 			</form>
 		</>
 	);
@@ -764,7 +764,6 @@ function ConfirmPaymentStep({
 						<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
 					)}
 				</div>
-				<InvoiceSettingsNote />
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -788,6 +787,7 @@ function ConfirmPaymentStep({
 							: `Pay ${feeData ? `$${feeData.totalAmount.toFixed(2)}` : `$${amount}`}`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote />
 			</form>
 		</>
 	);
@@ -795,9 +795,12 @@ function ConfirmPaymentStep({
 
 function InvoiceSettingsNote() {
 	return (
-		<p className="rounded-lg bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-			Need company or address details on your invoice? Update billing settings
-			before purchase. An invoice is emailed automatically after payment.
-		</p>
+		<div className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+			<Info className="mt-0.5 h-3 w-3 shrink-0" />
+			<span>
+				Need company/address details on your invoice? Update billing settings
+				before purchase. We email the invoice automatically after payment.
+			</span>
+		</div>
 	);
 }

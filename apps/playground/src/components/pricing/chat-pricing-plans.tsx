@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Info, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -373,6 +373,7 @@ export function ChatPricingPlans({
 									`Get ${plan.name}`
 								)}
 							</Button>
+							<InvoiceInfoLabel />
 						</div>
 					);
 				})}
@@ -382,10 +383,18 @@ export function ChatPricingPlans({
 				Pay-as-you-go credits stay available — chat plan credits drain first on
 				requests from the chat app.
 			</p>
-			<p className="mx-auto mt-2 max-w-2xl text-center text-xs leading-relaxed text-muted-foreground">
-				Need company or address details on your invoice? Update billing settings
-				before purchase. An invoice is emailed automatically after payment.
-			</p>
+		</div>
+	);
+}
+
+function InvoiceInfoLabel() {
+	return (
+		<div className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+			<Info className="mt-0.5 h-3 w-3 shrink-0" />
+			<span>
+				Need company/address details on your invoice? Update billing settings
+				before purchase. We email the invoice automatically after payment.
+			</span>
 		</div>
 	);
 }

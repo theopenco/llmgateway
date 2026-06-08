@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Loader2 } from "lucide-react";
+import { ArrowRight, Check, Info, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -80,14 +80,23 @@ export default function InactivePlanChooser({
 									"Subscribe"
 								)}
 							</Button>
+							<InvoiceInfoLabel />
 						</div>
 					);
 				})}
 			</div>
-			<p className="mx-auto max-w-2xl text-center text-xs leading-relaxed text-muted-foreground">
-				Need company or address details on your invoice? Update billing settings
-				before purchase. An invoice is emailed automatically after payment.
-			</p>
+		</div>
+	);
+}
+
+function InvoiceInfoLabel() {
+	return (
+		<div className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+			<Info className="mt-0.5 h-3 w-3 shrink-0" />
+			<span>
+				Need company/address details on your invoice? Update billing settings
+				before purchase. We email the invoice automatically after payment.
+			</span>
 		</div>
 	);
 }

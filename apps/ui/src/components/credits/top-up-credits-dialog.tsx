@@ -8,7 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
-import { ChevronDown, CreditCard, Lock, Plus } from "lucide-react";
+import { ChevronDown, CreditCard, Info, Lock, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
@@ -483,8 +483,6 @@ function AmountStep({
 						/>
 					</div>
 				) : null}
-
-				<InvoiceSettingsNote organizationId={organizationId} />
 			</div>
 
 			<DialogFooter className="flex flex-col gap-3 sm:flex-col">
@@ -541,6 +539,8 @@ function AmountStep({
 					<span aria-hidden="true">·</span>
 					<span>Visa · Mastercard · Amex</span>
 				</div>
+
+				<InvoiceSettingsNote organizationId={organizationId} />
 			</DialogFooter>
 		</>
 	);
@@ -755,7 +755,6 @@ function PaymentStep({
 				<p className="text-xs text-muted-foreground">
 					International cards are subject to an additional 1.5% processing fee.
 				</p>
-				<InvoiceSettingsNote organizationId={organizationId} />
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -777,6 +776,7 @@ function PaymentStep({
 						{loading ? "Processing..." : `Continue`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote organizationId={organizationId} />
 			</form>
 		</>
 	);
@@ -1199,7 +1199,6 @@ function ConfirmPaymentStep({
 						<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
 					)}
 				</div>
-				<InvoiceSettingsNote organizationId={organizationId} />
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -1223,6 +1222,7 @@ function ConfirmPaymentStep({
 							: `Pay ${feeData ? `$${feeData.totalAmount.toFixed(2)}` : `$${amount}`}`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote organizationId={organizationId} />
 			</form>
 		</>
 	);
@@ -1234,20 +1234,23 @@ function InvoiceSettingsNote({
 	organizationId: string | undefined;
 }) {
 	return (
-		<p className="rounded-lg bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-			Need company or address details on your invoice?{" "}
-			{organizationId ? (
-				<Link
-					href={`/dashboard/${organizationId}/org/preferences`}
-					className="font-medium underline underline-offset-2 hover:text-foreground"
-				>
-					Update billing settings
-				</Link>
-			) : (
-				"Update billing settings"
-			)}{" "}
-			before purchase. An invoice is emailed automatically after payment.
-		</p>
+		<div className="flex items-start gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
+			<Info className="mt-0.5 h-3 w-3 shrink-0" />
+			<span>
+				Need company/address details on your invoice?{" "}
+				{organizationId ? (
+					<Link
+						href={`/dashboard/${organizationId}/org/preferences`}
+						className="font-medium underline underline-offset-2 hover:text-foreground"
+					>
+						Update billing settings
+					</Link>
+				) : (
+					"Update billing settings"
+				)}{" "}
+				before purchase. We email the invoice automatically after payment.
+			</span>
+		</div>
 	);
 }
 
