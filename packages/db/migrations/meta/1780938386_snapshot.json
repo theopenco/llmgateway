@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "46dfb827-e444-4c5d-8d0c-5bf0509034b6",
+  "id": "4a80c082-f90a-40b8-b5fc-3dd8f1e22860",
   "prevId": "0d356979-3ce8-4142-89c9-2f244b10edad",
   "ddl": [
     {
@@ -21662,13 +21662,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "chat_support_message"
-    },
-    {
-      "value": "\"enforcement\" IN ('per_org', 'global')",
-      "name": "rate_limit_enforcement_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "rate_limit"
     }
   ],
   "renames": []

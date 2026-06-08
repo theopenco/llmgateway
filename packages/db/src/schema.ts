@@ -2357,10 +2357,6 @@ export const rateLimit = pgTable(
 		reason: text(),
 	},
 	(table) => [
-		check(
-			"rate_limit_enforcement_check",
-			sql`${table.enforcement} IN ('per_org', 'global')`,
-		),
 		// One row per org/provider/model combo with both RPM and RPD on the same row.
 		// Coalesce nulls to sentinels so Postgres treats them as equal.
 		uniqueIndex("rate_limit_org_provider_model_unique").using(
