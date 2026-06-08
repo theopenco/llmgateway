@@ -1,5 +1,8 @@
 import { ImageResponse } from "next/og";
 
+import { discountFraction } from "@/lib/discount";
+import { fetchModels } from "@/lib/fetch-models";
+
 import {
 	models as modelDefinitions,
 	type ModelDefinition,
@@ -18,7 +21,7 @@ interface CategoryOgConfig {
 	accentColor: string;
 	accentColorDim: string;
 	iconSvgPath: string;
-	countFilter: (model: ModelDefinition) => boolean;
+	countFilter?: (model: ModelDefinition) => boolean;
 }
 
 export const categoryConfigs: Record<string, CategoryOgConfig> = {
@@ -128,11 +131,26 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Percent" icon path
 		iconSvgPath:
 			"M19 5L5 19 M9 6.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z M20 17.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z",
-		countFilter: () => false,
 	},
 };
 
-export function generateCategoryOgImage(categoryKey: string) {
+async function getCategoryModelCount(
+	categoryKey: string,
+	config: CategoryOgConfig,
+): Promise<number> {
+	if (categoryKey === "discounted") {
+		const models = await fetchModels();
+		return models.filter((model) =>
+			model.mappings.some((mapping) => discountFraction(mapping.discount) > 0),
+		).length;
+	}
+
+	return config.countFilter
+		? modelDefinitions.filter(config.countFilter).length
+		: 0;
+}
+
+export async function generateCategoryOgImage(categoryKey: string) {
 	const config = categoryConfigs[categoryKey];
 	if (!config) {
 		return new ImageResponse(
@@ -159,7 +177,7 @@ export function generateCategoryOgImage(categoryKey: string) {
 		);
 	}
 
-	const modelCount = modelDefinitions.filter(config.countFilter).length;
+	const modelCount = await getCategoryModelCount(categoryKey, config);
 
 	return new ImageResponse(
 		(

@@ -66,6 +66,7 @@ interface VideoControlsProps {
 	supportedVideoDurations: VideoDuration[];
 	isGenerating: boolean;
 	onGenerate: () => void;
+	imageInputRequired?: boolean;
 }
 
 type UploadTarget = "frame-start" | "frame-end" | "reference";
@@ -97,6 +98,7 @@ export function VideoControls({
 	supportedVideoDurations,
 	isGenerating,
 	onGenerate,
+	imageInputRequired,
 }: VideoControlsProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -145,7 +147,12 @@ export function VideoControls({
 		[setReferenceAudios],
 	);
 
-	const canGenerate = prompt.trim().length > 0 && selectedModels.length > 0;
+	const hasImageInput = !!frameInputs.start;
+	const missingRequiredImage = imageInputRequired && !hasImageInput;
+	const canGenerate =
+		prompt.trim().length > 0 &&
+		selectedModels.length > 0 &&
+		!missingRequiredImage;
 	const canAcceptInput = canUseFrameInputs || canUseReferenceInputs;
 	const defaultUploadTarget: UploadTarget = !canUseReferenceInputs
 		? frameInputs.start
@@ -510,40 +517,44 @@ export function VideoControls({
 						<ImagePlus className="mr-1.5 h-4 w-4" />
 						{frameInputs.start ? "Replace first" : "First frame"}
 					</Button>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={() => openFilePicker("frame-end")}
-						disabled={isGenerating || !canUseFrameInputs}
-						title={
-							!canUseFrameInputs
-								? "Frame input not supported by selected model"
-								: undefined
-						}
-					>
-						<ImagePlus className="mr-1.5 h-4 w-4" />
-						{frameInputs.end ? "Replace last" : "Last frame"}
-					</Button>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={() => openFilePicker("reference")}
-						disabled={
-							isGenerating ||
-							!canUseReferenceInputs ||
-							referenceImages.length >= 3
-						}
-						title={
-							!canUseReferenceInputs
-								? "Reference images not supported by selected model"
-								: undefined
-						}
-					>
-						<ImagePlus className="mr-1.5 h-4 w-4" />
-						{referenceImages.length === 0
-							? "Reference"
-							: `${referenceImages.length}/3 refs`}
-					</Button>
+					{!imageInputRequired && (
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => openFilePicker("frame-end")}
+							disabled={isGenerating || !canUseFrameInputs}
+							title={
+								!canUseFrameInputs
+									? "Frame input not supported by selected model"
+									: undefined
+							}
+						>
+							<ImagePlus className="mr-1.5 h-4 w-4" />
+							{frameInputs.end ? "Replace last" : "Last frame"}
+						</Button>
+					)}
+					{!imageInputRequired && (
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => openFilePicker("reference")}
+							disabled={
+								isGenerating ||
+								!canUseReferenceInputs ||
+								referenceImages.length >= 3
+							}
+							title={
+								!canUseReferenceInputs
+									? "Reference images not supported by selected model"
+									: undefined
+							}
+						>
+							<ImagePlus className="mr-1.5 h-4 w-4" />
+							{referenceImages.length === 0
+								? "Reference"
+								: `${referenceImages.length}/3 refs`}
+						</Button>
+					)}
 					{canUseReferenceVideoInputs && (
 						<div className="flex items-center gap-1.5">
 							<Input
@@ -666,6 +677,11 @@ export function VideoControls({
 						<span>Audio</span>
 					</label>
 					<div className="flex-1" />
+					{missingRequiredImage && (
+						<p className="text-sm text-destructive">
+							This model requires a start frame image
+						</p>
+					)}
 					<Button
 						onClick={onGenerate}
 						disabled={isGenerating || !canGenerate}

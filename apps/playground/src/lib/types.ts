@@ -57,6 +57,7 @@ export interface ComboboxModel {
 	imageGen?: boolean;
 	supportsVideoAudio?: boolean;
 	supportsVideoWithoutAudio?: boolean;
+	imageInputRequired?: boolean;
 }
 
 export interface Project {

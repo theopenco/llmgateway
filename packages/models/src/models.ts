@@ -10,6 +10,7 @@ import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
+import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { xaiModels } from "./models/xai.js";
@@ -170,6 +171,18 @@ export interface ProviderModelMapping {
 	 * Price per output token in USD
 	 */
 	outputPrice?: Price;
+	/**
+	 * Price per output audio token in USD (for speech generation / text-to-speech
+	 * models where audio output is billed separately from text). When unset,
+	 * audio output tokens fall back to `outputPrice`.
+	 */
+	outputAudioPrice?: Price;
+	/**
+	 * Price per input character in USD. Used by speech generation models that
+	 * bill on input characters rather than tokens (e.g. OpenAI `tts-1`), since
+	 * the OpenAI speech endpoint returns audio bytes without token usage.
+	 */
+	inputCharacterPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
@@ -377,6 +390,13 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutput?: boolean;
 	/**
+	 * Whether JSON-mode streaming output for this provider mapping should be
+	 * buffered and healed before being sent downstream. Use this for providers
+	 * that support JSON mode but may stream reasoning or explanatory text as
+	 * content before the final JSON object.
+	 */
+	healStreamingJsonOutput?: boolean;
+	/**
 	 * Whether this provider supports JSON schema output mode (json_schema response format)
 	 */
 	jsonOutputSchema?: boolean;
@@ -429,6 +449,17 @@ export interface ProviderModelMapping {
 	 * and pricing is computed against input tokens only (no completion tokens).
 	 */
 	embeddings?: boolean;
+	/**
+	 * Whether this model uses a dedicated speech generation API.
+	 * When true, requests are routed to the gateway's /v1/audio/speech endpoint
+	 * which returns binary audio rather than a chat completion.
+	 */
+	speechGenerations?: boolean;
+	/**
+	 * Prebuilt voices supported for speech generation models. The first entry is
+	 * used as the default when the caller does not specify a `voice`.
+	 */
+	supportedVoices?: string[];
 	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
@@ -507,7 +538,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding")[];
+	output?: ("text" | "image" | "video" | "embedding" | "audio")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -555,5 +586,6 @@ export const models = [
 	...alibabaModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...nvidiaModels,
 	...zaiModels,
 ] as const satisfies ModelDefinition[];

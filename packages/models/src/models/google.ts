@@ -1,5 +1,42 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Prebuilt voices supported by the Gemini text-to-speech models. The first
+ * entry ("Kore") is used as the default when the caller omits `voice`.
+ */
+const GEMINI_TTS_VOICES = [
+	"Kore",
+	"Puck",
+	"Zephyr",
+	"Charon",
+	"Fenrir",
+	"Leda",
+	"Orus",
+	"Aoede",
+	"Callirrhoe",
+	"Autonoe",
+	"Enceladus",
+	"Iapetus",
+	"Umbriel",
+	"Algieba",
+	"Despina",
+	"Erinome",
+	"Algenib",
+	"Rasalgethi",
+	"Laomedeia",
+	"Achernar",
+	"Alnilam",
+	"Schedar",
+	"Gacrux",
+	"Pulcherrima",
+	"Achird",
+	"Zubenelgenubi",
+	"Vindemiatrix",
+	"Sadachbia",
+	"Sadaltager",
+	"Sulafat",
+];
+
 export const googleModels = [
 	{
 		id: "gemini-2.5-pro",
@@ -2080,6 +2117,58 @@ export const googleModels = [
 				tools: false,
 				jsonOutput: false,
 				embeddings: true,
+			},
+		],
+	},
+	{
+		id: "gemini-2.5-flash-preview-tts",
+		name: "Gemini 2.5 Flash Preview TTS",
+		description:
+			"Gemini 2.5 Flash text-to-speech model. Generates natural, controllable single-speaker audio from text via the /v1/audio/speech endpoint.",
+		family: "google",
+		output: ["audio"],
+		releasedAt: new Date("2025-05-20"),
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				externalId: "gemini-2.5-flash-preview-tts",
+				inputPrice: "0.5e-6",
+				outputPrice: "10.0e-6",
+				outputAudioPrice: "10.0e-6",
+				requestPrice: "0",
+				contextSize: 8000,
+				maxOutput: 16000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: GEMINI_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "gemini-2.5-pro-preview-tts",
+		name: "Gemini 2.5 Pro Preview TTS",
+		description:
+			"Gemini 2.5 Pro text-to-speech model. Generates high-quality, controllable single-speaker audio from text via the /v1/audio/speech endpoint.",
+		family: "google",
+		output: ["audio"],
+		releasedAt: new Date("2025-05-20"),
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				externalId: "gemini-2.5-pro-preview-tts",
+				inputPrice: "1.0e-6",
+				outputPrice: "20.0e-6",
+				outputAudioPrice: "20.0e-6",
+				requestPrice: "0",
+				contextSize: 8000,
+				maxOutput: 16000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: GEMINI_TTS_VOICES,
 			},
 		],
 	},
