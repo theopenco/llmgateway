@@ -480,15 +480,80 @@ describe("getCheapestFromAvailableProviders", () => {
 
 		function createMemoryStore(
 			initial: SessionProviderEntry | null = null,
-		): SessionProviderStore & { value: SessionProviderEntry | null } {
+		): SessionProviderStore & {
+			value: SessionProviderEntry | null;
+			setCalls: SessionProviderEntry[];
+		} {
 			const store = {
 				value: initial,
+				setCalls: [] as SessionProviderEntry[],
 				get: async () => store.value,
 				set: async (providerId: string, region?: string) => {
 					store.value = { providerId, region };
+					store.setCalls.push({ providerId, region });
 				},
 			};
 			return store;
+		}
+
+		// openai is priced ~5x cheaper than deepseek, so with equal priority and
+		// equal metrics the weighted-score winner is always openai. This lets the
+		// tests assert that stickiness keeps a session on a *more expensive*
+		// provider once pinned.
+		const stickyModel = {
+			id: "sticky-routing-model",
+			name: "Sticky Routing Model",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					externalId: "sticky-openai",
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					streaming: true as const,
+				},
+				{
+					providerId: "deepseek" as const,
+					externalId: "sticky-deepseek",
+					inputPrice: "5.0e-6",
+					outputPrice: "10.0e-6",
+					streaming: true as const,
+				},
+			],
+		};
+
+		// Neutralize per-provider priority defaults (deepseek ships with priority 2)
+		// so these tests isolate price + uptime behavior from priority bias.
+		const equalPriority = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, deepseek: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		function stickyMetrics(openaiUptime: number, deepseekUptime: number) {
+			return new Map([
+				[
+					metricsKey(stickyModel.id, "openai", undefined),
+					{
+						modelId: stickyModel.id,
+						providerId: "openai",
+						uptime: openaiUptime,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				],
+				[
+					metricsKey(stickyModel.id, "deepseek", undefined),
+					{
+						modelId: stickyModel.id,
+						providerId: "deepseek",
+						uptime: deepseekUptime,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				],
+			]);
 		}
 
 		it("scores the best provider, pins it, and reuses it on the next request", async () => {
@@ -605,6 +670,219 @@ describe("getCheapestFromAvailableProviders", () => {
 				"definitely-not-a-real-provider",
 			);
 			expect(store.value?.providerId).toBe(result?.provider.providerId);
+		});
+
+		it("uses the weighted-score winner for a new session and persists it", async () => {
+			const store = createMemoryStore();
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 99),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+			expect(store.value).toEqual({ providerId: "openai", region: undefined });
+		});
+
+		it("keeps the session on its pinned provider even when a cheaper one is available", async () => {
+			// Previously pinned to the more expensive deepseek.
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 99),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			// Cheaper openai exists, but stickiness keeps the cache warm on deepseek.
+			expect(result?.provider.providerId).toBe("deepseek");
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+		});
+
+		it("refreshes the pin (its TTL) on reuse", async () => {
+			const store = createMemoryStore({ providerId: "deepseek" });
+			await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 99),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(store.setCalls).toEqual([
+				{ providerId: "deepseek", region: undefined },
+			]);
+		});
+
+		it("re-pins to the best provider when the pinned one's uptime is too low", async () => {
+			// deepseek is pinned but its uptime fell below the 85% session threshold.
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 50),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+			expect(store.value).toEqual({ providerId: "openai", region: undefined });
+		});
+
+		it("keeps the pin when uptime is exactly at the threshold", async () => {
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 85),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("deepseek");
+		});
+
+		it("honors a custom session uptime threshold", async () => {
+			const strictThreshold = resolveRoutingConfig(
+				{
+					providerPriorities: { openai: 1, deepseek: 1 },
+					session: { uptimeThreshold: 95 },
+				},
+				buildProviderPriorityDefaults(),
+			);
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 90), // 90 < 95 → re-pin
+					routingConfig: strictThreshold,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+		});
+
+		it("ignores the saved provider and the store when stickiness is disabled", async () => {
+			const disabled = resolveRoutingConfig(
+				{
+					providerPriorities: { openai: 1, deepseek: 1 },
+					session: { enabled: false },
+				},
+				buildProviderPriorityDefaults(),
+			);
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 99),
+					routingConfig: disabled,
+					sessionProviderStore: store,
+				},
+			);
+
+			// Falls back to the weighted winner and never touches the store.
+			expect(result?.provider.providerId).toBe("openai");
+			expect(result?.metadata.selectionReason).not.toBe("session-sticky");
+			expect(store.setCalls).toEqual([]);
+			expect(store.value).toEqual({ providerId: "deepseek" });
+		});
+
+		it("reuses the pinned region and re-pins when the saved region is gone", async () => {
+			// Same provider, two regions; r1 is cheaper than r2.
+			const regionModel = {
+				id: "sticky-region-model",
+				name: "Sticky Region Model",
+				family: "openai" as const,
+				providers: [
+					{
+						providerId: "openai" as const,
+						externalId: "sticky-r1",
+						region: "r1",
+						inputPrice: "1.0e-6",
+						outputPrice: "2.0e-6",
+						streaming: true as const,
+					},
+					{
+						providerId: "openai" as const,
+						externalId: "sticky-r2",
+						region: "r2",
+						inputPrice: "5.0e-6",
+						outputPrice: "10.0e-6",
+						streaming: true as const,
+					},
+				],
+			};
+			const regionMetrics = new Map([
+				[
+					metricsKey(regionModel.id, "openai", "r1"),
+					{
+						modelId: regionModel.id,
+						providerId: "openai",
+						region: "r1",
+						uptime: 99,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				],
+				[
+					metricsKey(regionModel.id, "openai", "r2"),
+					{
+						modelId: regionModel.id,
+						providerId: "openai",
+						region: "r2",
+						uptime: 99,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				],
+			]);
+
+			// Pinned to the pricier r2 → stays on r2.
+			const pinned = createMemoryStore({ providerId: "openai", region: "r2" });
+			const reused = await getCheapestFromAvailableProviders(
+				regionModel.providers,
+				regionModel,
+				{
+					metricsMap: regionMetrics,
+					routingConfig: equalPriority,
+					sessionProviderStore: pinned,
+				},
+			);
+			expect(reused?.provider.region).toBe("r2");
+
+			// Saved region no longer offered → re-pin to the best region (r1).
+			const stale = createMemoryStore({ providerId: "openai", region: "gone" });
+			const repinned = await getCheapestFromAvailableProviders(
+				regionModel.providers,
+				regionModel,
+				{
+					metricsMap: regionMetrics,
+					routingConfig: equalPriority,
+					sessionProviderStore: stale,
+				},
+			);
+			expect(repinned?.provider.region).toBe("r1");
+			expect(stale.value).toEqual({ providerId: "openai", region: "r1" });
 		});
 	});
 
