@@ -2292,6 +2292,18 @@ async function handlePaymentIntentFailed(
 	const paymentIntent = event.data.object;
 	const { metadata, amount } = paymentIntent;
 
+	// LLM SDK end-user wallet top-ups are not org credit purchases. A failed one
+	// (e.g. a Stripe sandbox decline-test card during development) must not mutate
+	// the developer org's billing state — payment-failure rows, failure counts,
+	// or dunning emails. Just log it and stop.
+	if (metadata?.kind === "end_user_topup") {
+		logger.info("End-user top-up payment failed", {
+			walletId: metadata.walletId,
+			paymentIntentId: paymentIntent.id,
+		});
+		return;
+	}
+
 	const result = await resolveOrganizationFromStripeEvent({
 		metadata,
 		customer: paymentIntent.customer as string,

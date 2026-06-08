@@ -13,7 +13,7 @@
  */
 import { HTTPException } from "hono/http-exception";
 
-import { isModelTrulyFree } from "@/chat/tools/is-model-truly-free.js";
+import { isModelFreeForTestWallet } from "@/chat/tools/is-model-truly-free.js";
 
 import {
 	models,
@@ -81,9 +81,11 @@ export async function loadEndUserWallet(
 
 /**
  * `test`-mode end-user wallets are funded by Stripe-sandbox top-ups, so they
- * must only ever spend on free models — otherwise sandbox money would pay for
- * real provider calls. Throws 403 (pointing at the `auto` route) for any paid
- * model. No-op for live wallets and normal developer keys.
+ * must only ever spend on models whose every provider mapping is free —
+ * otherwise sandbox money would pay for real provider calls (including via a
+ * pinned paid provider of an otherwise-free model, or downstream fallback).
+ * Throws 403 (pointing at the `auto` route) otherwise. No-op for live wallets
+ * and normal developer keys.
  */
 export function assertTestWalletModelAllowed(
 	wallet: Wallet | null | undefined,
@@ -92,7 +94,7 @@ export function assertTestWalletModelAllowed(
 	if (!wallet || wallet.mode !== "test") {
 		return;
 	}
-	if (modelDef && isModelTrulyFree(modelDef)) {
+	if (modelDef && isModelFreeForTestWallet(modelDef)) {
 		return;
 	}
 	throw new HTTPException(403, {
