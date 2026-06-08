@@ -138,6 +138,43 @@ describe("checkProviderRateLimit", () => {
 		}
 	});
 
+	it("keys the counter per-org by default", async () => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+			maxRpm: 100,
+			maxRpd: 0,
+			rpmSource: "global_provider_model",
+			rpdSource: "none",
+			rpmRateLimitId: "rl-rpm",
+		});
+		vi.mocked(redis.zcard).mockResolvedValueOnce(0);
+
+		await checkProviderRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(vi.mocked(redis.zadd).mock.calls[0][0]).toBe(
+			"rate_limit:provider_cap:rpm:org-1:openai:gpt-4o",
+		);
+	});
+
+	it("shares one counter across all orgs when enforcement is global", async () => {
+		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
+			maxRpm: 100,
+			maxRpd: 0,
+			rpmSource: "global_provider_model",
+			rpdSource: "none",
+			rpmRateLimitId: "rl-rpm",
+			rpmShared: true,
+		});
+		vi.mocked(redis.zcard).mockResolvedValue(0);
+
+		await checkProviderRateLimit("org-1", "openai", "gpt-4o");
+		await checkProviderRateLimit("org-2", "openai", "gpt-4o");
+
+		// Both orgs write to the same shared key rather than per-org keys.
+		const sharedKey = "rate_limit:provider_cap:rpm:__global__:openai:gpt-4o";
+		expect(vi.mocked(redis.zadd).mock.calls[0][0]).toBe(sharedKey);
+		expect(vi.mocked(redis.zadd).mock.calls[1][0]).toBe(sharedKey);
+	});
+
 	it("fails open on Redis errors", async () => {
 		vi.mocked(mockCachedQueries.findEffectiveRateLimit).mockResolvedValue({
 			maxRpm: 100,

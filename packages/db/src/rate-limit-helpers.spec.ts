@@ -35,6 +35,8 @@ describe("getEffectiveRateLimit", () => {
 			maxRpd: 0,
 			rpmSource: "none",
 			rpdSource: "none",
+			rpmShared: false,
+			rpdShared: false,
 		});
 	});
 
@@ -58,6 +60,8 @@ describe("getEffectiveRateLimit", () => {
 			rpmSource: "global_provider_model",
 			rpdSource: "none",
 			rpmRateLimitId: "rl-rpm",
+			rpmShared: false,
+			rpdShared: false,
 		});
 	});
 
@@ -106,6 +110,8 @@ describe("getEffectiveRateLimit", () => {
 			rpdSource: "org_provider_model",
 			rpmRateLimitId: "org-rpm",
 			rpdRateLimitId: "org-rpd",
+			rpmShared: false,
+			rpdShared: false,
 		});
 	});
 
@@ -128,6 +134,8 @@ describe("getEffectiveRateLimit", () => {
 			maxRpd: 0,
 			rpmSource: "none",
 			rpdSource: "none",
+			rpmShared: false,
+			rpdShared: false,
 		});
 	});
 
@@ -159,7 +167,46 @@ describe("getEffectiveRateLimit", () => {
 			rpmSource: "none",
 			rpdSource: "global_provider",
 			rpdRateLimitId: "global-rpd",
+			rpmShared: false,
+			rpdShared: false,
 		});
+	});
+
+	it("marks a global limit as shared when enforcement is global", async () => {
+		createQueryMock([
+			{
+				id: "rl-shared",
+				organizationId: null,
+				provider: "openai",
+				model: "gpt-4o",
+				maxRpm: 10,
+				maxRpd: null,
+				enforcement: "global",
+			},
+		]);
+
+		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.rpmShared).toBe(true);
+		expect(result.rpdShared).toBe(false);
+	});
+
+	it("keeps a global limit per-org when enforcement is per_org", async () => {
+		createQueryMock([
+			{
+				id: "rl-perorg",
+				organizationId: null,
+				provider: "openai",
+				model: "gpt-4o",
+				maxRpm: 10,
+				maxRpd: null,
+				enforcement: "per_org",
+			},
+		]);
+
+		const result = await getEffectiveRateLimit("org-1", "openai", "gpt-4o");
+
+		expect(result.rpmShared).toBe(false);
 	});
 
 	it("propagates database errors so callers can apply SWR fallback", async () => {

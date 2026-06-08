@@ -29,15 +29,19 @@ import { getProviderIcon } from "@llmgateway/shared";
 import type { RateLimitModelMapping } from "@/lib/types";
 
 type RateLimitType = "rpm" | "rpd";
+type RateLimitEnforcement = "per_org" | "global";
 
 interface RateLimitFormProps {
 	providers: Array<{ id: string; name: string }>;
 	mappings: RateLimitModelMapping[];
+	// When true, expose the per-org vs shared enforcement choice (global limits only).
+	showEnforcement?: boolean;
 	onSubmit: (data: {
 		provider: string | null;
 		model: string | null;
 		limitType: RateLimitType;
 		maxRequests: number;
+		enforcement?: RateLimitEnforcement;
 		reason: string | null;
 	}) => Promise<{ success: boolean; error?: string }>;
 }
@@ -45,6 +49,7 @@ interface RateLimitFormProps {
 export function RateLimitForm({
 	providers,
 	mappings,
+	showEnforcement = false,
 	onSubmit,
 }: RateLimitFormProps) {
 	const router = useRouter();
@@ -55,6 +60,8 @@ export function RateLimitForm({
 	const [provider, setProvider] = useState<string>("__all__");
 	const [model, setModel] = useState<string>("__all__");
 	const [limitType, setLimitType] = useState<RateLimitType>("rpm");
+	const [enforcement, setEnforcement] =
+		useState<RateLimitEnforcement>("per_org");
 	const [maxRequests, setMaxRequests] = useState("");
 	const [reason, setReason] = useState("");
 
@@ -133,6 +140,7 @@ export function RateLimitForm({
 			model: model === "__all__" ? null : model,
 			limitType,
 			maxRequests: parsedLimit,
+			enforcement: showEnforcement ? enforcement : undefined,
 			reason: reason || null,
 		});
 
@@ -143,6 +151,7 @@ export function RateLimitForm({
 			setProvider("__all__");
 			setModel("__all__");
 			setLimitType("rpm");
+			setEnforcement("per_org");
 			setMaxRequests("");
 			setReason("");
 			router.refresh();
@@ -183,6 +192,33 @@ export function RateLimitForm({
 							</SelectContent>
 						</Select>
 					</div>
+
+					{showEnforcement && (
+						<div className="space-y-2">
+							<Label htmlFor="enforcement">Enforcement</Label>
+							<Select
+								value={enforcement}
+								onValueChange={(value) =>
+									setEnforcement(value as RateLimitEnforcement)
+								}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="per_org">Per-organization</SelectItem>
+									<SelectItem value="global">
+										Global (shared across all orgs)
+									</SelectItem>
+								</SelectContent>
+							</Select>
+							<p className="text-xs text-muted-foreground">
+								{enforcement === "per_org"
+									? "Each organization gets its own counter against this limit"
+									: "All organizations share a single counter against this limit"}
+							</p>
+						</div>
+					)}
 
 					<div className="space-y-2">
 						<Label htmlFor="provider">Provider</Label>

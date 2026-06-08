@@ -173,9 +173,14 @@ async function getProviderRateLimitStates(
 	);
 	const now = Date.now();
 
+	// Global limits configured for shared enforcement use a fixed org segment so
+	// every org shares a single sliding window; per-org limits key by the org id.
+	const rpmOrg = effectiveRateLimit.rpmShared ? "__global__" : organizationId;
+	const rpdOrg = effectiveRateLimit.rpdShared ? "__global__" : organizationId;
+
 	const keys = {
-		rpm: getProviderRateLimitKey(organizationId, provider, model, "rpm"),
-		rpd: getProviderRateLimitKey(organizationId, provider, model, "rpd"),
+		rpm: getProviderRateLimitKey(rpmOrg, provider, model, "rpm"),
+		rpd: getProviderRateLimitKey(rpdOrg, provider, model, "rpd"),
 	};
 	const limits = {
 		rpm: await readWindowState(

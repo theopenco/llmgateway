@@ -19,10 +19,15 @@ interface RateLimitMatch {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	enforcement: string;
 }
 
 /**
  * Result of rate limit lookup with precedence information.
+ *
+ * `rpmShared`/`rpdShared` are true when the matched limit is a global row
+ * (organizationId = null) configured for shared enforcement, meaning the
+ * counter is shared across all orgs rather than bucketed per-org.
  */
 export interface EffectiveRateLimit {
 	maxRpm: number;
@@ -31,6 +36,8 @@ export interface EffectiveRateLimit {
 	rpdSource: RateLimitSource;
 	rpmRateLimitId?: string;
 	rpdRateLimitId?: string;
+	rpmShared?: boolean;
+	rpdShared?: boolean;
 }
 
 const rateLimitPrecedence: Array<{
@@ -95,7 +102,12 @@ function pickRateLimitByPrecedence(
 	provider: string,
 	model: string,
 	getLimitValue: (rateLimit: RateLimitMatch) => number | null,
-): { limit: number; source: RateLimitSource; rateLimitId?: string } {
+): {
+	limit: number;
+	source: RateLimitSource;
+	rateLimitId?: string;
+	shared: boolean;
+} {
 	for (const precedence of rateLimitPrecedence) {
 		const match = rateLimits.find(
 			(rateLimit) =>
@@ -107,6 +119,7 @@ function pickRateLimitByPrecedence(
 				limit: getLimitValue(match) ?? 0,
 				source: precedence.source,
 				rateLimitId: match.id,
+				shared: match.organizationId === null && match.enforcement === "global",
 			};
 		}
 	}
@@ -114,6 +127,7 @@ function pickRateLimitByPrecedence(
 	return {
 		limit: 0,
 		source: "none",
+		shared: false,
 	};
 }
 
@@ -146,6 +160,7 @@ export async function getEffectiveRateLimit(
 			model: rateLimitTable.model,
 			maxRpm: rateLimitTable.maxRpm,
 			maxRpd: rateLimitTable.maxRpd,
+			enforcement: rateLimitTable.enforcement,
 		})
 		.from(rateLimitTable)
 		.where(
@@ -186,5 +201,7 @@ export async function getEffectiveRateLimit(
 		rpdSource: rpd.source,
 		rpmRateLimitId: rpm.rateLimitId,
 		rpdRateLimitId: rpd.rateLimitId,
+		rpmShared: rpm.shared,
+		rpdShared: rpd.shared,
 	};
 }
