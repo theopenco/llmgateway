@@ -7272,7 +7272,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					isNotNull(tables.modelProviderMapping.region),
 					sql`NOT EXISTS (
 						SELECT 1
-						FROM ${concreteRegionalMapping}
+						FROM ${tables.modelProviderMapping} ${concreteRegionalMapping}
 						WHERE ${concreteRegionalMapping.providerId} = ${tables.modelProviderMapping.providerId}
 							AND ${concreteRegionalMapping.modelId} = ${tables.modelProviderMapping.modelId}
 							AND ${concreteRegionalMapping.externalId} = ${tables.modelProviderMapping.externalId}
