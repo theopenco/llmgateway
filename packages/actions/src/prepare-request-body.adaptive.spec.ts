@@ -3,7 +3,11 @@ import { describe, expect, test } from "vitest";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
 interface AdaptiveThinkingBody {
-	thinking?: { type: "adaptive" | "enabled"; budget_tokens?: number };
+	thinking?: {
+		type: "adaptive" | "enabled";
+		budget_tokens?: number;
+		display?: "summarized" | "omitted";
+	};
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
 	};
@@ -66,7 +70,10 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 			const body = await buildAnthropicBody(model, {
 				reasoning_effort: "high",
 			});
-			expect(body.thinking).toEqual({ type: "adaptive" });
+			expect(body.thinking).toEqual({
+				type: "adaptive",
+				display: "summarized",
+			});
 			expect(body.output_config?.effort).toBe("high");
 		});
 	}
@@ -75,6 +82,9 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 		const body = await buildAnthropicBody("claude-opus-4-6", {
 			reasoning_max_tokens: 8000,
 		});
-		expect(body.thinking).toEqual({ type: "adaptive" });
+		expect(body.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 	});
 });
