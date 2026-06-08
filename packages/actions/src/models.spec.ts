@@ -15,6 +15,8 @@ import {
 import {
 	getCheapestFromAvailableProviders,
 	getProviderSelectionPrice,
+	type SessionProviderEntry,
+	type SessionProviderStore,
 } from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
@@ -476,7 +478,20 @@ describe("getCheapestFromAvailableProviders", () => {
 				),
 		);
 
-		it("pins the same session to the same provider deterministically", async () => {
+		function createMemoryStore(
+			initial: SessionProviderEntry | null = null,
+		): SessionProviderStore & { value: SessionProviderEntry | null } {
+			const store = {
+				value: initial,
+				get: async () => store.value,
+				set: async (providerId: string, region?: string) => {
+					store.value = { providerId, region };
+				},
+			};
+			return store;
+		}
+
+		it("scores the best provider, pins it, and reuses it on the next request", async () => {
 			if (!modelWithMultipleProviders) {
 				return;
 			}
@@ -487,23 +502,54 @@ describe("getCheapestFromAvailableProviders", () => {
 				return;
 			}
 
+			const store = createMemoryStore();
 			const first = await getCheapestFromAvailableProviders(
 				availableProviders,
 				modelWithMultipleProviders,
-				{ sessionId: "session_abc-123" },
+				{ sessionProviderStore: store },
 			);
 			const second = await getCheapestFromAvailableProviders(
 				availableProviders,
 				modelWithMultipleProviders,
-				{ sessionId: "session_abc-123" },
+				{ sessionProviderStore: store },
 			);
 
 			const regionOf = (p: unknown) =>
 				(p as { region?: string } | undefined)?.region;
 
 			expect(first?.metadata.selectionReason).toBe("session-sticky");
+			// The freshly scored best is persisted to the store.
+			expect(store.value?.providerId).toBe(first?.provider.providerId);
+			// The next request for the same session reuses the pinned provider.
 			expect(second?.provider.providerId).toBe(first?.provider.providerId);
 			expect(regionOf(second?.provider)).toBe(regionOf(first?.provider));
+		});
+
+		it("pins the same provider the weighted algorithm would pick without a session", async () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const withoutSession = await getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+			);
+			const store = createMemoryStore();
+			const withSession = await getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionProviderStore: store },
+			);
+
+			expect(withSession?.provider.providerId).toBe(
+				withoutSession?.provider.providerId,
+			);
 		});
 
 		it("does not pin a session when session stickiness is disabled", async () => {
@@ -521,50 +567,44 @@ describe("getCheapestFromAvailableProviders", () => {
 				{ session: { enabled: false } },
 				buildProviderPriorityDefaults(),
 			);
+			const store = createMemoryStore();
 			const result = await getCheapestFromAvailableProviders(
 				availableProviders,
 				modelWithMultipleProviders,
-				{ sessionId: "session_abc-123", routingConfig: overrides },
+				{ sessionProviderStore: store, routingConfig: overrides },
 			);
 
 			expect(result?.metadata.selectionReason).not.toBe("session-sticky");
+			expect(store.value).toBeNull();
 		});
 
-		it("keeps unrelated sessions on their provider when one provider is removed", async () => {
+		it("re-pins to the current best when the saved provider is gone", async () => {
 			if (!modelWithMultipleProviders) {
 				return;
 			}
 			const availableProviders = modelWithMultipleProviders.providers.filter(
 				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
 			);
-			if (availableProviders.length <= 2) {
+			if (availableProviders.length <= 1) {
 				return;
 			}
 
-			// Find a session pinned to a provider, then drop a *different* provider
-			// and confirm the session stays put (rendezvous hashing property).
-			const sessionId = "session_stable";
-			const pinned = await getCheapestFromAvailableProviders(
+			// Saved provider is not in the available list (e.g. health-filtered),
+			// so the session is re-scored and re-pinned to the current best.
+			const store = createMemoryStore({
+				providerId: "definitely-not-a-real-provider",
+			});
+			const result = await getCheapestFromAvailableProviders(
 				availableProviders,
 				modelWithMultipleProviders,
-				{ sessionId },
-			);
-			const removable = availableProviders.find(
-				(p) => p.providerId !== pinned?.provider.providerId,
-			);
-			const reduced = availableProviders.filter(
-				(p) => p.providerId !== removable?.providerId,
+				{ sessionProviderStore: store },
 			);
 
-			const afterRemoval = await getCheapestFromAvailableProviders(
-				reduced,
-				modelWithMultipleProviders,
-				{ sessionId },
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+			expect(result?.provider.providerId).not.toBe(
+				"definitely-not-a-real-provider",
 			);
-
-			expect(afterRemoval?.provider.providerId).toBe(
-				pinned?.provider.providerId,
-			);
+			expect(store.value?.providerId).toBe(result?.provider.providerId);
 		});
 	});
 
