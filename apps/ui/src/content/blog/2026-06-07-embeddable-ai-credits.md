@@ -56,7 +56,7 @@ export async function POST() {
     customer: { externalId: "user_123" }, // your signed-in user
     scope: { models: ["openai/gpt-4o-mini"] }, // lock down what they can call
   });
-  return Response.json(session); // { sessionToken, walletId, expiresAt }
+  return Response.json(session); // { sessionToken, walletId, endCustomerId, expiresAt, publishableKey }
 }
 ```
 
@@ -93,11 +93,12 @@ export default function App({ session }) {
 
 That's the whole integration. The session token auto-refreshes before it expires, `<BuyCredits>` loads LLM Gateway's bundled Stripe publishable key, confirms the payment, and the balance updates once the webhook credits the wallet. Pass `test` while developing to use Stripe test mode; you don't need to ship a Stripe publishable key of your own for LLM Gateway payments.
 
-## A few engineering details we cared about
+## Safe by default
 
-- **The hot path stays low-cardinality.** Browser sessions live in a dedicated session table, while logs and API-key aggregates use one hidden project-level embedded-session key so end-user traffic does not create one API key per user.
-- **Idempotent top-ups.** Wallet credits are written in a single transaction guarded by a unique index on the payment intent, so a re-delivered Stripe webhook can never double-credit.
-- **Safe by default.** Tokens are short-lived and revocable, scoped to an allow-list of models, bounded by per-session spend caps, and constrained by a per-project origin allowlist. Webhook URLs are validated against SSRF (no private/internal targets), and developer margin payouts reserve funds before transferring so they can't overpay under concurrency.
+- **Your secret key never leaves your server.** The browser only ever holds a short-lived, revocable session token scoped to a single wallet.
+- **Sessions are scoped.** Lock each one to an allow-list of models and an optional per-session spend cap, and restrict which browser origins can reach the gateway.
+- **Top-ups can't double-credit.** A wallet is credited exactly once per payment, even if Stripe re-delivers the webhook.
+- **Webhooks are signed and SSRF-safe.** Events are signed so you can verify them, and only public HTTPS endpoints can be registered.
 
 ## Try it
 

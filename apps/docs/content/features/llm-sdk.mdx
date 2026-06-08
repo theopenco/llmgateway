@@ -39,21 +39,18 @@ Your backend ──(secret key sk_)──▶ POST /v1/sessions ──▶ ephemer
 - The **browser** only ever holds the `es_…` token (and a publishable Stripe key). It calls the gateway directly; usage is billed to that user's wallet.
 - **Markup is applied at top-up time**: if you set a 20% markup and a user buys $10, their wallet is credited the net spend power and your **margin accrues to your organization** for later payout.
 
-## Prerequisites
+## Set up in the dashboard
 
-1. In the dashboard, open your project and **enable end-user sessions** (sets `endUserEnabled` on the project). Optionally set a **markup percent** and an **allowed-origins** list.
-2. Create a **platform secret key** (`sk_…`, an API key of type `platform_secret`) for that project. Keep it server-side.
+Before you write any code, configure the project you want to embed:
 
-## Create an SDK platform secret key
-
-LLM SDK sessions use a project-scoped **platform secret key** that starts with `sk_`. This is different from a regular gateway API key (`llmgtwy_…`) and must only be used from your backend.
-
-1. Open the LLM Gateway dashboard and select the project you want to embed.
-2. Go to **Settings → SDK**.
-3. Enable **End-user sessions**.
-4. Add any allowed browser origins, such as `https://app.example.com`.
-5. Click **Create Secret Key** and copy the `sk_…` value immediately.
+1. Open the LLM Gateway dashboard and select your project.
+2. Go to **Settings → SDK** and turn on **End-user sessions**.
+3. _(Optional)_ Set a **markup percent** — the margin you earn on every top-up.
+4. Add the browser origins allowed to call the gateway, one per line (e.g. `https://app.example.com`), then click **Save Settings**.
+5. Under **Platform Secret Keys**, click **Create Secret Key** and copy the `sk_…` value immediately.
 6. Store it as a server-side environment variable, for example `LLMGATEWAY_SECRET_KEY`.
+
+The platform secret key (`sk_…`) is different from a regular gateway API key (`llmgtwy_…`): it mints end-user sessions and must only ever be used from your backend.
 
 <Callout type="warn">
 	The platform secret key is shown only once. Do not put it in frontend code,
