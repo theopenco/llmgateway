@@ -244,9 +244,9 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro",
-				inputPrice: "2.1e-6",
+				inputPrice: "1.74e-6",
 				cachedInputPrice: "0.2e-6",
-				outputPrice: "4.4e-6",
+				outputPrice: "3.48e-6",
 				requestPrice: "0",
 				contextSize: 163840,
 				maxOutput: 163840,
