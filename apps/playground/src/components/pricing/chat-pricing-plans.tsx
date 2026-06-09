@@ -373,6 +373,7 @@ export function ChatPricingPlans({
 									`Get ${plan.name}`
 								)}
 							</Button>
+							<InvoiceInfoLabel />
 						</div>
 					);
 				})}
@@ -383,5 +384,14 @@ export function ChatPricingPlans({
 				requests from the chat app.
 			</p>
 		</div>
+	);
+}
+
+function InvoiceInfoLabel() {
+	return (
+		<p className="mt-2 text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }

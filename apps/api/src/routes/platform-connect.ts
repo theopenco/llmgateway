@@ -11,7 +11,7 @@ import { logger } from "@llmgateway/logger";
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — developer margin payouts via Stripe Connect.
+ * LLM SDK — developer margin payouts via Stripe Connect.
  *
  * End-user top-ups are collected on LLM Gateway's Stripe account; the developer's
  * markup accrues to `organization.endUserMarginBalance`. These endpoints let the
@@ -23,6 +23,20 @@ import type { ServerTypes } from "@/vars.js";
 export const platformConnect = new OpenAPIHono<ServerTypes>();
 
 platformConnect.use("*", platformSecretAuth);
+
+// Connect onboarding and payouts move real money on the live platform account,
+// and test-mode top-ups never accrue payable margin. Reject test keys outright
+// so a sandbox key can't touch live Connect state or payouts.
+platformConnect.use("*", async (c, next) => {
+	const platformKey = c.get("platformKey");
+	if (platformKey?.mode === "test") {
+		throw new HTTPException(403, {
+			message:
+				"Connect onboarding and payouts are not available in test mode. Use a live secret key.",
+		});
+	}
+	await next();
+});
 
 /** Minimum balance (USD) before a payout can be requested. */
 const MIN_PAYOUT_AMOUNT = 1;

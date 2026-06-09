@@ -178,27 +178,29 @@ For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived
 
 #### How pinning works
 
-When a session id is present, the provider (and region) is chosen **deterministically** using [rendezvous hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing) over the available providers, rather than the weighted score. The same session always maps to the same provider as long as that provider remains available.
+On a session's **first** request the provider is chosen by the normal weighted smart-routing score — the same price-, priority-, uptime-, and throughput-aware algorithm used for non-sticky requests. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
 
-Because the choice is deterministic per session, sticky requests **bypass both the weighted scoring and the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
+Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
 #### Falling back when a provider is down
 
-Stickiness yields only when the pinned provider is effectively unavailable. A session is re-pinned to another provider when its provider:
+An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
 
+- Drops below the session uptime threshold (default 85%),
 - Is filtered out by health checks (e.g. excluded for low uptime), or
 - Fails the request and is dropped by the [automatic retry & fallback](#automatic-retry--fallback) loop.
 
-Rendezvous hashing guarantees a **minimal-disruption** reshuffle: when one provider drops out, only the sessions pinned to that provider move — every other session keeps its provider. When the provider recovers and re-enters the available pool, affected sessions pin back to it.
+Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
 
 The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
 
 <Callout type="info">
-	Sticky routing optimizes for cache locality over per-request price. A session
-	stays on its provider even if a cheaper or faster alternative is momentarily
-	available, since the prompt-cache savings typically outweigh the difference.
-	Requests without a session id are unaffected and continue to use the weighted
-	smart-routing algorithm.
+	Sticky routing optimizes for cache locality over per-request churn. Once a
+	session is pinned it stays on its provider even if a cheaper or faster
+	alternative becomes momentarily available, since the prompt-cache savings
+	typically outweigh the difference — but the initial pick still respects price
+	and priority. Requests without a session id are unaffected and continue to use
+	the weighted smart-routing algorithm.
 </Callout>
 
 ### Provider-Specific Routing

@@ -17,7 +17,7 @@ import {
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — end-user wallet endpoints, authenticated with the browser's
+ * LLM SDK — end-user wallet endpoints, authenticated with the browser's
  * **ephemeral session token** (`es_…`). These let the end-user check their
  * balance and buy credits in-app. The session is bound to exactly one wallet.
  */
@@ -90,9 +90,10 @@ platformWallet.openapi(createTopUp, async (c) => {
 
 	const stripeCustomerId = await ensureEndCustomerStripeCustomer(
 		session.endCustomerId,
+		session.mode,
 	);
 
-	const paymentIntent = await getStripe().paymentIntents.create({
+	const paymentIntent = await getStripe(session.mode).paymentIntents.create({
 		amount: Math.round(feeBreakdown.totalAmount * 100),
 		currency: "usd",
 		description: `Credit top-up for wallet ${session.walletId}`,

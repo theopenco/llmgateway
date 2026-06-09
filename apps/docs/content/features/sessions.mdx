@@ -42,7 +42,7 @@ For the [Anthropic Messages endpoint](/features/anthropic-endpoint) (`/v1/messag
 
 When a model is served by multiple providers, requests are normally scored independently, so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix reach the **same** provider.
 
-With a session id set, LLMGateway pins all requests for that session to a single provider (and region) using deterministic [rendezvous hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing). The session stays on that provider — bypassing the weighted score and the epsilon-greedy exploration — and only moves when its provider leaves the available pool (health filtering or a failed request dropped by retry/fallback). Rendezvous hashing keeps the reshuffle minimal: only sessions pinned to the departed provider move.
+With a session id set, LLMGateway scores the session's first request with the normal weighted smart-routing algorithm (price, priority, uptime, throughput) and then **pins that provider for the session**, reusing it on every subsequent request to keep the prompt cache warm. The session stays on that provider — skipping the epsilon-greedy exploration — and only moves when its provider drops below the session uptime threshold or leaves the available pool (health filtering or a failed request dropped by retry/fallback), at which point the session is re-scored and re-pinned to the current best provider.
 
 See [Routing → Sticky Session Routing](/features/routing) for the full algorithm, fallback behavior, and the `session-sticky` routing-metadata reason.
 

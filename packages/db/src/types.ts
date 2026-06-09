@@ -181,7 +181,7 @@ export type SerializedOrganization = Omit<
 	| "chatPlanExpiresAt"
 	| "chatPlanCardFingerprint"
 	| "lastTopUpAmount"
-	// Embeddable SDK internals — not part of the dashboard-facing API surface.
+	// LLM SDK internals — not part of the dashboard-facing API surface.
 	| "endUserMarginBalance"
 	| "stripeConnectAccountId"
 	| "stripeConnectOnboarded"
@@ -196,15 +196,7 @@ export type SerializedOrganization = Omit<
 	chatPlanExpiresAt: string | null;
 };
 
-export type SerializedProject = Omit<
-	Project,
-	| "createdAt"
-	| "updatedAt"
-	// Embeddable SDK internals — not part of the dashboard-facing API surface.
-	| "endUserEnabled"
-	| "endUserMarkupPercent"
-	| "allowedOrigins"
-> & {
+export type SerializedProject = Omit<Project, "createdAt" | "updatedAt"> & {
 	createdAt: string;
 	updatedAt: string;
 };
@@ -216,7 +208,7 @@ export type SerializedApiKey = Omit<
 	| "createdAt"
 	| "updatedAt"
 	| "currentPeriodStartedAt"
-	// Embeddable SDK internals — hidden aggregate keys aren't surfaced here.
+	// LLM SDK internals — hidden aggregate keys aren't surfaced here.
 	| "keyType"
 	| "endCustomerWalletId"
 	| "expiresAt"

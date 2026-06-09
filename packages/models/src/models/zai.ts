@@ -663,8 +663,12 @@ export const zaiModels = [
 		],
 	},
 	{
-		id: "glm-4.7-flash",
-		name: "GLM-4.7 Flash",
+		// Free GLM-4.7 Flash, served by zai at zero cost. Kept as a separate root
+		// model from the paid embercloud mapping below so `free: true` strictly
+		// implies every provider mapping is free (no free model carries a paid
+		// provider). This is the model end-user test/sandbox wallets can use.
+		id: "glm-4.7-flash-free",
+		name: "GLM-4.7 Flash (Free)",
 		description: "Free, lightweight GLM-4.7 model.",
 		family: "glm",
 		free: true,
@@ -686,6 +690,17 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+		],
+	},
+	{
+		// Paid GLM-4.7 Flash, served by embercloud (PAYG). Not free.
+		id: "glm-4.7-flash",
+		name: "GLM-4.7 Flash",
+		description: "Lightweight, high-speed GLM-4.7 model.",
+		family: "glm",
+		stability: "unstable",
+		releasedAt: new Date("2025-12-22"),
+		providers: [
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.7-flash",

@@ -713,7 +713,10 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false, // isProd
 		)) as any;
 
-		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(requestBody.output_config.effort).toBe("max");
 	});
 
@@ -740,10 +743,65 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
 			type: "adaptive",
+			display: "summarized",
 		});
 		expect(requestBody.additionalModelRequestFields.output_config.effort).toBe(
 			"max",
 		);
+	});
+
+	test('sets display "summarized" for adaptive thinking on Bedrock', async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"high", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+	});
+
+	test('sets display "summarized" for adaptive thinking on Anthropic', async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"high", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 	});
 
 	test('aliases "max" effort to "high" for providers without a max tier', async () => {

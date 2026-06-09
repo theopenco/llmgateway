@@ -74,7 +74,7 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		organizationId: options.project.organizationId,
 		projectId: options.apiKey.projectId,
 		apiKeyId: options.apiKey.id,
-		// Embeddable SDK: session tokens log against the project's stable
+		// LLM SDK: session tokens log against the project's stable
 		// aggregate API key while retaining the concrete browser session and
 		// wallet billing pointer.
 		endUserSessionId: options.apiKey.endUserSession?.id ?? null,

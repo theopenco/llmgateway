@@ -37,6 +37,7 @@ export function mapModels(
 			imageGen: hasImageGen,
 			supportsVideoAudio,
 			supportsVideoWithoutAudio,
+			imageInputRequired: m.imageInputRequired ?? undefined,
 		});
 
 		for (const p of m.mappings) {
@@ -59,6 +60,7 @@ export function mapModels(
 				imageGen: m.output?.includes("image"),
 				supportsVideoAudio: p.supportsVideoAudio ?? undefined,
 				supportsVideoWithoutAudio: p.supportsVideoWithoutAudio ?? undefined,
+				imageInputRequired: m.imageInputRequired ?? undefined,
 			});
 		}
 	}

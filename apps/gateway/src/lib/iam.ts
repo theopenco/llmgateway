@@ -112,11 +112,13 @@ export async function validateRequestModelAccess(
 	requestedProvider?: string,
 	activeModelInfo?: ModelDefinition,
 	clientIp?: string,
+	options: { autoRouting?: boolean } = {},
 ): Promise<IamValidationResult> {
 	const sessionValidation = validateEndUserSessionModelAccess(
 		apiKey,
 		requestedModel,
 		activeModelInfo,
+		options,
 	);
 	if (sessionValidation) {
 		if (

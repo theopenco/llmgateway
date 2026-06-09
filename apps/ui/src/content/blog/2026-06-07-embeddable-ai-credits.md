@@ -3,7 +3,7 @@ id: blog-embeddable-ai-credits
 slug: embeddable-ai-credits-stripe-for-ai
 date: 2026-06-07
 title: "Stripe for AI: Embed AI + Credit Purchases in Your App"
-summary: Our new Embeddable SDK lets your end-users buy credits inside your app and chat with any model — billed through LLM Gateway, with your markup as margin. Here's how it works and how to ship it in ~40 lines.
+summary: Our new LLM SDK lets your end-users buy credits inside your app and chat with any model — billed through LLM Gateway, with your markup as margin. Here's how it works and how to ship it in ~40 lines.
 categories: ["Engineering"]
 image:
   src: "/blog/embeddable-ai-credits.png"
@@ -14,7 +14,11 @@ image:
 
 If you're building an AI feature into your product, you hit the same two problems fast: **how do your users pay for the AI they use**, and **how do you not rebuild billing, wallets, and model plumbing from scratch?**
 
-Today we're shipping the **Embeddable SDK** — think Stripe + Stripe Elements, but for AI. Your end-users get their own wallet, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours.
+Today we're shipping the **LLM SDK** — think Stripe + Stripe Elements, but for AI. Your end-users get their own wallet, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours.
+
+<video src="/blog/llmgateway-topup-flow.webm" controls autoplay muted loop playsinline style="width: 100%; border-radius: 12px; margin: 1.5rem 0;">
+  Your browser does not support the video tag.
+</video>
 
 ## The model: platform wallets
 
@@ -56,7 +60,7 @@ export async function POST() {
     customer: { externalId: "user_123" }, // your signed-in user
     scope: { models: ["openai/gpt-4o-mini"] }, // lock down what they can call
   });
-  return Response.json(session); // { sessionToken, walletId, expiresAt }
+  return Response.json(session); // { sessionToken, walletId, endCustomerId, expiresAt, publishableKey }
 }
 ```
 
@@ -79,7 +83,7 @@ export default function App({ session }) {
     <LLMGatewayProvider
       session={session}
       fetchSession={fetchSession}
-      test={process.env.NODE_ENV !== "production"}
+      mode={process.env.NODE_ENV === "production" ? "prod" : "test"}
     >
       <CreditBalance /> {/* live wallet balance */}
       <BuyCredits amount={10} />{" "}
@@ -91,13 +95,14 @@ export default function App({ session }) {
 }
 ```
 
-That's the whole integration. The session token auto-refreshes before it expires, `<BuyCredits>` loads LLM Gateway's bundled Stripe publishable key, confirms the payment, and the balance updates once the webhook credits the wallet. Pass `test` while developing to use Stripe test mode; you don't need to ship a Stripe publishable key of your own for LLM Gateway payments.
+That's the whole integration. The session token auto-refreshes before it expires, `<BuyCredits>` loads LLM Gateway's bundled Stripe publishable key, confirms the payment, and the balance updates once the webhook credits the wallet. Pass `mode="test"` while developing to use Stripe test mode (`"prod"` is the default); you don't need to ship a Stripe publishable key of your own for LLM Gateway payments.
 
-## A few engineering details we cared about
+## Safe by default
 
-- **The hot path stays low-cardinality.** Browser sessions live in a dedicated session table, while logs and API-key aggregates use one hidden project-level embedded-session key so end-user traffic does not create one API key per user.
-- **Idempotent top-ups.** Wallet credits are written in a single transaction guarded by a unique index on the payment intent, so a re-delivered Stripe webhook can never double-credit.
-- **Safe by default.** Tokens are short-lived and revocable, scoped to an allow-list of models, bounded by per-session spend caps, and constrained by a per-project origin allowlist. Webhook URLs are validated against SSRF (no private/internal targets), and developer margin payouts reserve funds before transferring so they can't overpay under concurrency.
+- **Your secret key never leaves your server.** The browser only ever holds a short-lived, revocable session token scoped to a single wallet.
+- **Sessions are scoped.** Lock each one to an allow-list of models and an optional per-session spend cap, and restrict which browser origins can reach the gateway.
+- **Top-ups can't double-credit.** A wallet is credited exactly once per payment, even if Stripe re-delivers the webhook.
+- **Webhooks are signed and SSRF-safe.** Events are signed so you can verify them, and only public HTTPS endpoints can be registered.
 
 ## Try it
 
@@ -105,4 +110,4 @@ There's a complete, runnable Next.js example — backend session route, provider
 
 ➡️ **[theopenco/llmgateway-templates → templates/embeddable-credits](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)**
 
-Full reference is in the [Embeddable SDK docs](https://docs.llmgateway.io/features/embeddable-sdk). Enable end-user sessions on your project, create a platform secret key, and you can be live in an afternoon.
+Full reference is in the [LLM SDK docs](https://docs.llmgateway.io/features/llm-sdk). In the dashboard, open your project's **Settings → SDK** to enable end-user sessions and create a platform secret key — and you can be live in an afternoon.

@@ -60,7 +60,7 @@ interface VideoPageClientProps {
 export default function VideoPageClient({
 	models,
 	providers,
-	organizations: _organizations,
+	organizations,
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
@@ -142,7 +142,10 @@ export default function VideoPageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	// DB-persisted history
-	const { data: historyData } = useVideoHistory(isAuthenticated);
+	const { data: historyData, isLoading: isHistoryLoading } = useVideoHistory(
+		isAuthenticated,
+		selectedOrganization?.id,
+	);
 	const { mutate: saveVideoHistory } = useSaveVideoHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
@@ -198,6 +201,7 @@ export default function VideoPageClient({
 					{
 						body: {
 							prompt: item.prompt,
+							organizationId: item.organizationId,
 							frameInputs: item.frameInputs,
 							referenceImages: item.referenceImages,
 							models: item.models.map((m) => ({
@@ -274,13 +278,40 @@ export default function VideoPageClient({
 	);
 	const requiresAudioSelection = useMemo(
 		() =>
-			selectedModels.some(
-				(modelId) =>
-					modelId.includes("/") && !modelId.startsWith("google-vertex/"),
-			),
-		[selectedModels],
+			selectedModels.some((modelId) => {
+				if (!modelId.includes("/") || modelId.startsWith("google-vertex/")) {
+					return false;
+				}
+				const model = availableModelsById.get(modelId);
+				if (model && model.supportsVideoAudio === false) {
+					return false;
+				}
+				return true;
+			}),
+		[selectedModels, availableModelsById],
 	);
-	const effectiveAudioEnabled = requiresAudioSelection ? true : audioEnabled;
+	const someModelsRequireImage = useMemo(
+		() =>
+			selectedModels.some((modelId) => {
+				const model = availableModelsById.get(modelId);
+				return model?.imageInputRequired === true;
+			}),
+		[selectedModels, availableModelsById],
+	);
+	const allModelsRequireNoAudio = useMemo(
+		() =>
+			selectedModels.length > 0 &&
+			selectedModels.every((modelId) => {
+				const model = availableModelsById.get(modelId);
+				return model?.supportsVideoAudio === false;
+			}),
+		[selectedModels, availableModelsById],
+	);
+	const effectiveAudioEnabled = allModelsRequireNoAudio
+		? false
+		: requiresAudioSelection
+			? true
+			: audioEnabled;
 
 	useEffect(() => {
 		if (requiresAudioSelection && !audioEnabled) {
@@ -570,6 +601,13 @@ export default function VideoPageClient({
 				return;
 			}
 
+			if (someModelsRequireImage && !frameInputs.start) {
+				toast.error(
+					"Selected model requires an input image. Please add a start frame.",
+				);
+				return;
+			}
+
 			const currentPrompt = effectivePrompt.trim();
 			setIsGenerating(true);
 			posthog.capture("playground_video_generated", {
@@ -594,6 +632,7 @@ export default function VideoPageClient({
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				organizationId: selectedOrganization?.id,
 				frameInputs:
 					frameInputs.start || frameInputs.end ? { ...frameInputs } : undefined,
 				referenceImages:
@@ -767,6 +806,7 @@ export default function VideoPageClient({
 			updateGalleryModel,
 			pathname,
 			router,
+			someModelsRequireImage,
 		],
 	);
 
@@ -870,14 +910,31 @@ export default function VideoPageClient({
 		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
 		: false;
 
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(params.toString() ? `/video?${params.toString()}` : "/video");
+		},
+		[router, searchParams],
+	);
+
 	return (
 		<SidebarProvider>
 			<div className="flex h-dvh w-full">
 				<VideoSidebar
 					galleryItems={galleryItems}
+					isHistoryLoading={isHistoryLoading}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
+					organizations={organizations}
 					selectedOrganization={selectedOrganization}
+					onSelectOrganization={handleSelectOrganization}
 					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
@@ -935,6 +992,7 @@ export default function VideoPageClient({
 						supportedVideoDurations={supportedVideoRequestOptions.durations}
 						isGenerating={isGenerating}
 						onGenerate={generateVideos}
+						imageInputRequired={someModelsRequireImage}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
 						<div className="max-w-6xl mx-auto">

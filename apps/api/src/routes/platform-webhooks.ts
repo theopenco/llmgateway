@@ -10,13 +10,28 @@ import { assertSafeWebhookUrl } from "@llmgateway/shared";
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — manage developer webhook endpoints (platform secret key
+ * LLM SDK — manage developer webhook endpoints (platform secret key
  * auth). LLM Gateway POSTs signed events (wallet.credited, wallet.low_balance)
  * to these. The signing secret is returned only once, at creation.
  */
 export const platformWebhooks = new OpenAPIHono<ServerTypes>();
 
 platformWebhooks.use("*", platformSecretAuth);
+
+// Webhook endpoints are project-level config shared across modes (the rows have
+// no live/test mode and deliveries go to the developer's real consumers), so a
+// test key must not list/create/delete them — otherwise a sandbox key could
+// disrupt live event delivery. Reject test mode outright.
+platformWebhooks.use("*", async (c, next) => {
+	const platformKey = c.get("platformKey");
+	if (platformKey?.mode === "test") {
+		throw new HTTPException(403, {
+			message:
+				"Webhook endpoints cannot be managed with a test secret key. Use a live secret key.",
+		});
+	}
+	await next();
+});
 
 const KNOWN_EVENTS = ["wallet.credited", "wallet.low_balance"] as const;
 

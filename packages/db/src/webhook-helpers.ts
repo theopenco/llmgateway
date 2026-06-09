@@ -2,7 +2,7 @@ import { db } from "./db.js";
 import { platformWebhookDelivery, shortid } from "./schema.js";
 
 /**
- * Embeddable SDK: enqueue a platform webhook event for delivery to every active
+ * LLM SDK: enqueue a platform webhook event for delivery to every active
  * endpoint of a project subscribed to that event type. Best-effort — callers
  * should not fail their main operation if this throws.
  *

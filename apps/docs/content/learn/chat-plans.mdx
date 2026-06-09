@@ -1,0 +1,46 @@
+---
+title: Chat Plans
+description: Monthly subscription plans for the LLM Gateway chat playground
+icon: Sparkles
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+Chat Plans are optional monthly subscriptions for the chat playground. Instead of paying per request from your pay-as-you-go balance, a Chat Plan gives you a pool of monthly credits worth more than you pay — so heavy chat usage costs less.
+
+<ThemedImage
+	alt="Chat plan pricing with Starter, Plus, and Pro tiers"
+	basePath="/learn/chat-plans"
+/>
+
+## Plans
+
+There are three tiers, billed monthly:
+
+| Plan        | Price  | Monthly value   | Models                                                                       |
+| ----------- | ------ | --------------- | ---------------------------------------------------------------------------- |
+| **Starter** | $9/mo  | ~2× the value   | Most chat models — Claude Haiku & Sonnet, GPT-5-mini, Gemini Flash, and more |
+| **Plus**    | $19/mo | ~2.5× the value | Everything in Starter **plus** frontier models                               |
+| **Pro**     | $49/mo | ~3× the value   | All models, highest monthly allowance                                        |
+
+The credit multiplier is tapered: the larger the plan, the more usage value each dollar buys at provider rates.
+
+<Callout type="info">
+	**Frontier models** — flagship models such as Claude Opus, GPT-5, Gemini 2.5
+	Pro, and Grok 4 are included on **Plus** and **Pro**. The Starter plan covers
+	the broad catalog of everyday chat models but does not include these frontier
+	models.
+</Callout>
+
+## How credits work
+
+- **Monthly reset** — Your plan credits refresh at the start of each billing cycle. Unused credits do **not** roll over to the next month.
+- **Plan credits drain first** — Requests made from the chat app draw down your plan's monthly credits before anything else.
+- **Pay-as-you-go fallback** — Once your monthly credits are used up, the chat app falls back to your regular pay-as-you-go balance, which never expires. You can keep chatting without interruption.
+
+## Managing your plan
+
+- Open the **Pricing** page from the chat playground sidebar to compare tiers and subscribe.
+- Your active plan appears in the playground sidebar with a badge, alongside how many credits remain for the cycle.
+- You can upgrade, downgrade, or cancel at any time. Cancelling takes effect at the end of the period you've already paid for — you keep access until then.

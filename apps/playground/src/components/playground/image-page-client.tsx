@@ -44,7 +44,7 @@ interface ImagePageClientProps {
 export default function ImagePageClient({
 	models,
 	providers,
-	organizations: _organizations,
+	organizations,
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
@@ -171,7 +171,10 @@ export default function ImagePageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	// DB-persisted history
-	const { data: historyData } = useImageHistory(isAuthenticated);
+	const { data: historyData, isLoading: isHistoryLoading } = useImageHistory(
+		isAuthenticated,
+		selectedOrganization?.id,
+	);
 	const { mutate: saveImageHistory } = useSaveImageHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
@@ -218,6 +221,7 @@ export default function ImagePageClient({
 					{
 						body: {
 							prompt: item.prompt,
+							organizationId: item.organizationId,
 							inputImages: item.inputImages,
 							models: item.models.map((m) => ({
 								modelId: m.modelId,
@@ -437,6 +441,7 @@ export default function ImagePageClient({
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				organizationId: selectedOrganization?.id,
 				inputImages:
 					inputImages.length > 0
 						? inputImages.map((img) => ({
@@ -718,14 +723,31 @@ export default function ImagePageClient({
 		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
 		: false;
 
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(params.toString() ? `/image?${params.toString()}` : "/image");
+		},
+		[router, searchParams],
+	);
+
 	return (
 		<SidebarProvider>
 			<div className="flex h-dvh w-full">
 				<ImageSidebar
 					galleryItems={galleryItems}
+					isHistoryLoading={isHistoryLoading}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
+					organizations={organizations}
 					selectedOrganization={selectedOrganization}
+					onSelectOrganization={handleSelectOrganization}
 					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">

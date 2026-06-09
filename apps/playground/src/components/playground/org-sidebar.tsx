@@ -421,7 +421,7 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Chat">
-							<Link href="/">
+							<Link href="/" prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -429,7 +429,7 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Group Chat">
-							<Link href="/group">
+							<Link href="/group" prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -437,7 +437,7 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Image Studio">
-							<Link href="/image">
+							<Link href="/image" prefetch={true}>
 								<ImagePlus className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -445,7 +445,7 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Video Studio">
-							<Link href="/video">
+							<Link href="/video" prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
 							</Link>
@@ -453,7 +453,7 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Canvas">
-							<Link href="/canvas">
+							<Link href="/canvas" prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>

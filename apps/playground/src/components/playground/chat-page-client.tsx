@@ -1093,6 +1093,7 @@ export default function ChatPageClient({
 					model: selectedModel,
 					webSearch: webSearchEnabled,
 					comparisonEnabled,
+					organizationId: selectedOrganization?.id ?? chatOrg?.id,
 				},
 			});
 			const newChatId = chatData.chat.id;
@@ -1636,11 +1637,15 @@ export default function ChatPageClient({
 	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
+		// Switching org changes the billing context: chats run under the selected
+		// org's project key. Route to the full chat experience (not the read-only
+		// shared-chats view) so New Chat works and credits resolve to that org.
+		const params = new URLSearchParams();
+		params.set("model", selectedModel);
 		if (org?.id) {
-			router.push(`/org/${org.id}`);
-			return;
+			params.set("orgId", org.id);
 		}
-		router.push("/");
+		router.push(`/?${params.toString()}`);
 	};
 
 	const handleOrganizationCreated = (org: Organization) => {
@@ -2158,6 +2163,8 @@ function ExtraChatPanel({
 				body: {
 					title,
 					model: selectedModel,
+					// Child comparison chats are never listed in history, so they
+					// don't need an organization context.
 					parentChatId: parentId,
 				},
 			});

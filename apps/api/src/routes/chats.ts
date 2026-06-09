@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 
 import {
 	db,
@@ -118,6 +119,9 @@ const createChatSchema = z.object({
 	webSearch: z.boolean().optional().default(false),
 	comparisonEnabled: z.boolean().optional().default(false),
 	parentChatId: z.string().trim().min(1).optional(),
+	// Organization context the chat is created under (the dedicated Chat org for
+	// the "Chat plan" context, or a real org). Used to separate chat history.
+	organizationId: z.string().trim().min(1).optional(),
 });
 
 const updateChatSchema = z.object({
@@ -208,6 +212,11 @@ function getForkedChatTitle(title: string) {
 const listChats = createRoute({
 	method: "get",
 	path: "/",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -227,6 +236,12 @@ chats.openapi(listChats, async (c) => {
 	if (!user) {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
+
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.chat.organizationId,
+		organizationId,
+	);
 
 	// Get user's chats with message counts in a single query
 	const chatsWithCount = await db
@@ -272,6 +287,7 @@ chats.openapi(listChats, async (c) => {
 				eq(tables.chat.userId, user.id),
 				eq(tables.chat.status, "active"),
 				isNull(tables.chat.parentChatId),
+				orgFilter,
 			),
 		)
 		.groupBy(
@@ -559,6 +575,7 @@ chats.openapi(createChat, async (c) => {
 			title: body.title,
 			model: body.model,
 			userId: user.id,
+			organizationId: body.organizationId ?? null,
 			webSearch: body.webSearch ?? false,
 			comparisonEnabled: body.comparisonEnabled ?? false,
 			parentChatId: body.parentChatId ?? null,

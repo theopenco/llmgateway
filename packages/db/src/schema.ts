@@ -322,7 +322,7 @@ export const transaction = pgTable(
 				"chat_plan_cancel",
 				"chat_plan_end",
 				"chat_plan_renewal",
-				// Embeddable SDK end-user wallet flows.
+				// LLM SDK end-user wallet flows.
 				"end_user_topup",
 				"end_user_margin_accrual",
 				"end_user_refund",
@@ -604,6 +604,12 @@ export const endCustomer = pgTable(
 		externalId: text().notNull(),
 		email: text(),
 		name: text(),
+		// `test` end-customers belong to a developer's Stripe-sandbox (test-mode
+		// secret key) and are fully segregated from `live` ones, so the same
+		// externalId can have an independent test and live wallet.
+		mode: text({ enum: ["live", "test"] })
+			.notNull()
+			.default("live"),
 		// Each end-customer is the merchant-of-record customer for their own
 		// top-ups (separate Stripe customer from the developer's org).
 		stripeCustomerId: text().unique(),
@@ -618,6 +624,7 @@ export const endCustomer = pgTable(
 		uniqueIndex("end_customer_project_id_external_id_unique").on(
 			table.projectId,
 			table.externalId,
+			table.mode,
 		),
 		index("end_customer_organization_id_idx").on(table.organizationId),
 		index("end_customer_project_id_idx").on(table.projectId),
@@ -649,6 +656,12 @@ export const wallet = pgTable(
 		organizationId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
+		// Denormalized from end_customer for fast gateway gating: `test` wallets are
+		// funded by Stripe-sandbox top-ups, so the gateway only lets them spend on
+		// free models and the top-up webhook never accrues real developer margin.
+		mode: text({ enum: ["live", "test"] })
+			.notNull()
+			.default("live"),
 		balance: decimal().notNull().default("0"),
 		currency: text().notNull().default("USD"),
 		// Optional per-wallet markup override; falls back to project.endUserMarkupPercent.
@@ -773,7 +786,7 @@ export const walletLedger = pgTable(
 	],
 );
 
-// Embeddable SDK: a developer's registered webhook endpoint. LLM Gateway POSTs
+// LLM SDK: a developer's registered webhook endpoint. LLM Gateway POSTs
 // signed events (wallet.credited, wallet.low_balance, …) here so the developer's
 // backend can react. The signing secret is shown once at creation.
 export const webhookEndpoint = pgTable(
@@ -1257,12 +1270,12 @@ export const videoJob = pgTable(
 		apiKeyId: text()
 			.notNull()
 			.references(() => apiKey.id, { onDelete: "cascade" }),
-		// Embeddable SDK: for jobs created under an end-user session, the
+		// LLM SDK: for jobs created under an end-user session, the
 		// concrete session id and owning wallet. Null for normal developer keys.
 		endUserSessionId: text().references(() => endUserSession.id, {
 			onDelete: "set null",
 		}),
-		// Embeddable SDK: for jobs created under an end-user session, the
+		// LLM SDK: for jobs created under an end-user session, the
 		// owning wallet. Null for normal developer keys. Read routes enforce that a
 		// session may only access its own wallet's jobs (per-end-user isolation
 		// within a shared project).
@@ -1509,6 +1522,13 @@ export const chat = pgTable(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
+		// The organization context the chat was created under. Null means the
+		// default "Chat plan" context (legacy rows are treated as such). Used to
+		// keep chat history separated per selected organization. On org deletion
+		// the chat reverts to the Chat plan context rather than being removed.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
 		model: text().notNull(),
 		status: text({
 			enum: ["active", "archived", "deleted"],
@@ -2350,6 +2370,11 @@ export const rateLimit = pgTable(
 		maxRpm: integer(),
 		// Maximum requests per day
 		maxRpd: integer(),
+		// How the counter is bucketed across orgs (only meaningful for global rows):
+		// "per_org" = each org gets its own counter (default), "global" = single shared counter
+		enforcement: text({ enum: ["per_org", "global"] })
+			.notNull()
+			.default("per_org"),
 		// Optional metadata
 		reason: text(),
 	},
@@ -2955,6 +2980,11 @@ export const playgroundImageHistory = pgTable(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the generation was created under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
 		prompt: text().notNull(),
 		inputImages: jsonb().$type<{ dataUrl: string; mediaType: string }[]>(),
 		models: jsonb().notNull().$type<
@@ -2981,6 +3011,11 @@ export const playgroundVideoHistory = pgTable(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the generation was created under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
 		prompt: text().notNull(),
 		frameInputs: jsonb().$type<{
 			start: { dataUrl: string; mediaType: string } | null;

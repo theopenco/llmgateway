@@ -8,5 +8,5 @@ export const size = ogSize;
 export const contentType = ogContentType;
 
 export default async function TextToImageModelsOgImage() {
-	return generateCategoryOgImage("text-to-image");
+	return await generateCategoryOgImage("text-to-image");
 }

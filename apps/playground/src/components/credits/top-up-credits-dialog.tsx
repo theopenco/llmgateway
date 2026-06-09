@@ -361,6 +361,7 @@ function AmountStep({
 					Stripe Checkout supports additional payment methods like Google Pay,
 					Apple Pay, and more.
 				</p>
+				<InvoiceSettingsNote />
 			</DialogFooter>
 		</>
 	);
@@ -564,6 +565,7 @@ function PaymentStep({
 						{loading ? "Processing..." : `Continue`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote />
 			</form>
 		</>
 	);
@@ -785,7 +787,17 @@ function ConfirmPaymentStep({
 							: `Pay ${feeData ? `$${feeData.totalAmount.toFixed(2)}` : `$${amount}`}`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote />
 			</form>
 		</>
+	);
+}
+
+function InvoiceSettingsNote() {
+	return (
+		<p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }

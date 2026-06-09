@@ -116,4 +116,117 @@ describe("platform sessions", () => {
 			"Embedded end-user: customer-b",
 		]);
 	});
+
+	test("test-mode secret keys mint test-mode sessions and wallets", async () => {
+		const session = await mintSession("customer-a");
+
+		expect(session.sessionToken.startsWith("es_test_")).toBe(true);
+
+		const wallet = await db.query.wallet.findFirst({
+			where: { id: { eq: session.walletId } },
+		});
+		expect(wallet?.mode).toBe("test");
+
+		const endCustomer = await db.query.endCustomer.findFirst({
+			where: { id: { eq: session.endCustomerId } },
+		});
+		expect(endCustomer?.mode).toBe("test");
+	});
+
+	test("live and test keys give the same externalId independent wallets", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "test-live-platform-key-id",
+			token: "sk_live_platform",
+			projectId: "test-project-id",
+			description: "Live platform secret",
+			keyType: "platform_secret",
+			createdBy: "test-user-id",
+		});
+
+		const testSession = await mintSession("shared-customer");
+
+		const liveRes = await app.request("/v1/sessions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer sk_live_platform",
+			},
+			body: JSON.stringify({ customer: "shared-customer" }),
+		});
+		expect(liveRes.status).toBe(201);
+		const liveSession = (await liveRes.json()) as SessionResponse;
+
+		expect(liveSession.sessionToken.startsWith("es_test_")).toBe(false);
+		expect(liveSession.walletId).not.toBe(testSession.walletId);
+		expect(liveSession.endCustomerId).not.toBe(testSession.endCustomerId);
+
+		const liveWallet = await db.query.wallet.findFirst({
+			where: { id: { eq: liveSession.walletId } },
+		});
+		expect(liveWallet?.mode).toBe("live");
+	});
+
+	async function createLiveKey() {
+		await db.insert(tables.apiKey).values({
+			id: "test-live-platform-key-id",
+			token: "sk_live_platform",
+			projectId: "test-project-id",
+			description: "Live platform secret",
+			keyType: "platform_secret",
+			createdBy: "test-user-id",
+		});
+	}
+
+	test("a test key cannot read or credit a live wallet (cross-mode)", async () => {
+		await createLiveKey();
+
+		const liveRes = await app.request("/v1/sessions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer sk_live_platform",
+			},
+			body: JSON.stringify({ customer: "live-customer" }),
+		});
+		expect(liveRes.status).toBe(201);
+		const liveSession = (await liveRes.json()) as SessionResponse;
+
+		// PLATFORM_SECRET is a test key; the wallet belongs to a live customer.
+		const retrieve = await app.request(`/v1/wallets/${liveSession.walletId}`, {
+			headers: { Authorization: `Bearer ${PLATFORM_SECRET}` },
+		});
+		expect(retrieve.status).toBe(404);
+
+		const credit = await app.request(
+			`/v1/wallets/${liveSession.walletId}/credit`,
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${PLATFORM_SECRET}`,
+				},
+				body: JSON.stringify({ amount: 5 }),
+			},
+		);
+		expect(credit.status).toBe(404);
+
+		const liveWallet = await db.query.wallet.findFirst({
+			where: { id: { eq: liveSession.walletId } },
+		});
+		expect(liveWallet?.balance).toBe("0");
+	});
+
+	test("test keys are rejected from Connect routes", async () => {
+		const res = await app.request("/v1/connect/status", {
+			headers: { Authorization: `Bearer ${PLATFORM_SECRET}` },
+		});
+		expect(res.status).toBe(403);
+	});
+
+	test("test keys are rejected from webhook-endpoint management", async () => {
+		const res = await app.request("/v1/webhooks", {
+			headers: { Authorization: `Bearer ${PLATFORM_SECRET}` },
+		});
+		expect(res.status).toBe(403);
+	});
 });

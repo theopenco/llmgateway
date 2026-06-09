@@ -1,0 +1,49 @@
+---
+title: Model Categories & Fair Use
+description: How models are categorized and how premium fair-use caps work
+icon: Layers
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+Every model in the gateway is sorted into a category. Categories power dashboard filtering, analytics, and — for DevPass coding plans — the fair-use limits that keep flagship models available to everyone.
+
+<ThemedImage
+	alt="Model directory with filters for use case and capabilities"
+	basePath="/learn/model-categories"
+/>
+
+## Categories
+
+| Category     | Description                                                                                                                           |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Premium**  | Frontier / flagship models — Anthropic Opus, OpenAI's Pro and reasoning models (o1, o3, GPT-5 Pro), Google Gemini Pro, and xAI Grok 4 |
+| **Standard** | Every other model — the broad catalog of fast, cost-effective everyday models                                                         |
+
+You can browse the full catalog on the [**Supported Models**](https://llmgateway.io/models) page and filter by use case, capabilities, provider, price, and context size.
+
+## Fair-use caps on premium models (DevPass only)
+
+<Callout type="warn">
+	Fair-use caps apply **only to DevPass** — the fixed-price monthly plans for
+	coding tools (Lite, Pro, Max). They do **not** apply to the LLM Gateway API or
+	pay-as-you-go credits: when you call the API directly, premium models are
+	limited only by your credit balance, with no weekly cap.
+</Callout>
+
+Premium models are the most expensive to run, so DevPass plans apply a **weekly fair-use cap** on premium usage. This is a rolling 7-day window that resets continuously — it sits on top of the plan's normal monthly credit allowance.
+
+| DevPass plan | Premium fair-use cap |
+| ------------ | -------------------- |
+| **Lite**     | 10 credits / week    |
+| **Pro**      | 50 credits / week    |
+| **Max**      | 140 credits / week   |
+
+<Callout type="info">
+	Within DevPass, the weekly cap applies only to **premium** models. Standard
+	models are limited only by the plan's credit balance, not by the fair-use
+	window.
+</Callout>
+
+Once a DevPass plan reaches its weekly premium cap, premium requests are paused until the rolling window frees up, while standard models keep working normally. Upgrading the DevPass plan raises the weekly cap.

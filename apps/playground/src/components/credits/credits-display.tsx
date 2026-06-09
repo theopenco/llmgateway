@@ -19,20 +19,24 @@ interface Organization {
 interface CreditsDisplayProps {
 	organization: Organization | null;
 	isLoading?: boolean;
+	// True when showing the dedicated chat-plan ("Chat plan") context rather than a
+	// real dashboard org. The chat plan and its upgrade nudge only apply here.
+	isChatPlanOrg?: boolean;
 }
 
 export function CreditsDisplay({
 	organization,
 	isLoading,
+	isChatPlanOrg = false,
 }: CreditsDisplayProps) {
 	const api = useApi();
 	const planQuery = useQuery({
 		...api.queryOptions("get", "/chat-plans/status"),
-		enabled: Boolean(organization),
+		enabled: Boolean(organization) && isChatPlanOrg,
 		staleTime: 30_000,
 	});
 	const plan = planQuery.data;
-	const hasActivePlan = plan && plan.chatPlan !== "none";
+	const hasActivePlan = isChatPlanOrg && plan && plan.chatPlan !== "none";
 
 	if (isLoading) {
 		return (
@@ -85,27 +89,30 @@ export function CreditsDisplay({
 					</div>
 				</Link>
 			)}
-			<TopUpCreditsDialog organizationId={organization?.id}>
-				<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
-					<div className="flex items-center gap-2">
-						<CreditCard
-							className={`h-4 w-4 ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-500" : "text-muted-foreground"}`}
-						/>
-						<div className="flex flex-col">
-							<span className="text-sm font-medium">
-								{hasActivePlan ? "Pay-as-you-go" : "Credits"}
-							</span>
-							<span
-								className={`text-xs ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-600" : "text-muted-foreground"}`}
-							>
-								${creditsBalance}
-							</span>
+			{/* Pay-as-you-go credits only apply in an organization context. In the
+			    Chat plan context we hide them so users top up / use credits by
+			    switching to an organization instead. */}
+			{!isChatPlanOrg && (
+				<TopUpCreditsDialog organizationId={organization?.id}>
+					<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
+						<div className="flex items-center gap-2">
+							<CreditCard
+								className={`h-4 w-4 ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-500" : "text-muted-foreground"}`}
+							/>
+							<div className="flex flex-col">
+								<span className="text-sm font-medium">Credits</span>
+								<span
+									className={`text-xs ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-600" : "text-muted-foreground"}`}
+								>
+									${creditsBalance}
+								</span>
+							</div>
 						</div>
-					</div>
-					<span className="text-xs text-muted-foreground">Add</span>
-				</button>
-			</TopUpCreditsDialog>
-			{!hasActivePlan && (
+						<span className="text-xs text-muted-foreground">Add</span>
+					</button>
+				</TopUpCreditsDialog>
+			)}
+			{isChatPlanOrg && !hasActivePlan && (
 				<Link
 					href="/pricing"
 					className="group mt-1 flex items-center gap-2.5 rounded-md border border-indigo-500/20 bg-indigo-500/5 px-2 py-2 transition-colors hover:bg-indigo-500/10"
@@ -124,12 +131,12 @@ export function CreditsDisplay({
 					<ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
 				</Link>
 			)}
-			{hasNoCredits && !hasActivePlan && (
+			{!isChatPlanOrg && hasNoCredits && (
 				<div className="mt-1 px-2">
 					<p className="text-xs text-destructive">⚠️ No credits remaining</p>
 				</div>
 			)}
-			{isLowCredits && !hasNoCredits && !hasActivePlan && (
+			{!isChatPlanOrg && isLowCredits && !hasNoCredits && (
 				<div className="mt-1 px-2">
 					<p className="text-xs text-yellow-600">⚡ Low credits remaining</p>
 				</div>

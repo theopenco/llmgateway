@@ -122,6 +122,21 @@ describe("resolveRoutingConfig", () => {
 		expect(resolved.session.enabled).toBe(false);
 	});
 
+	it("defaults session ttl and uptime threshold", () => {
+		const resolved = resolveRoutingConfig(null, providerDefaults);
+		expect(resolved.session.ttlSeconds).toBe(3600);
+		expect(resolved.session.uptimeThreshold).toBe(85);
+	});
+
+	it("clamps session overrides into valid ranges", () => {
+		const resolved = resolveRoutingConfig(
+			{ session: { ttlSeconds: 0, uptimeThreshold: 150 } },
+			providerDefaults,
+		);
+		expect(resolved.session.ttlSeconds).toBe(1);
+		expect(resolved.session.uptimeThreshold).toBe(100);
+	});
+
 	it("clamps timeout overrides down to the infra ceiling", () => {
 		const resolved = resolveRoutingConfig(
 			{

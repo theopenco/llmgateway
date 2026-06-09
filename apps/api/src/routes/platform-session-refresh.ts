@@ -9,7 +9,7 @@ import { db, eq, shortid, tables } from "@llmgateway/db";
 import type { ServerTypes } from "@/vars.js";
 
 /**
- * Embeddable SDK — rotate an end-user session token. Authenticated with the
+ * LLM SDK — rotate an end-user session token. Authenticated with the
  * current (still-valid) ephemeral token. Mints a fresh token bound to the same
  * wallet, copies the IAM scope + spend limit forward, and inactivates the old
  * token so it can't be replayed. The browser client calls this automatically

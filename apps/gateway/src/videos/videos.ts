@@ -12,13 +12,17 @@ import {
 import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
+	findEffectiveDiscount,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { applyEndUserSession } from "@/lib/end-user-session.js";
+import {
+	applyEndUserSession,
+	assertTestWalletModelAllowed,
+} from "@/lib/end-user-session.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
@@ -26,8 +30,8 @@ import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 
 import {
 	getCheapestFromAvailableProviders,
+	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
-	getProviderSelectionPrice,
 	processImageUrl,
 	type RoutingMetadata,
 	type VideoPricingContext,
@@ -78,6 +82,15 @@ import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 import type { Context } from "hono";
 
+function createProviderDiscountResolver(organizationId: string) {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
+			.discount;
+}
+
 const TERMINAL_VIDEO_STATUSES = new Set([
 	"completed",
 	"failed",
@@ -87,11 +100,39 @@ const TERMINAL_VIDEO_STATUSES = new Set([
 const MIN_VIDEO_GENERATION_BALANCE = 1;
 const DEFAULT_VIDEO_SIZE = "1280x720";
 const SUPPORTED_VIDEO_SIZES = {
+	"848x480": {
+		size: "848x480",
+		width: 848,
+		height: 480,
+		resolution: "480p",
+		orientation: "landscape",
+	},
+	"854x480": {
+		size: "854x480",
+		width: 854,
+		height: 480,
+		resolution: "480p",
+		orientation: "landscape",
+	},
+	"480x854": {
+		size: "480x854",
+		width: 480,
+		height: 854,
+		resolution: "480p",
+		orientation: "portrait",
+	},
 	"1280x720": {
 		size: "1280x720",
 		width: 1280,
 		height: 720,
 		resolution: "720p",
+		orientation: "landscape",
+	},
+	"1696x960": {
+		size: "1696x960",
+		width: 1696,
+		height: 960,
+		resolution: "960p",
 		orientation: "landscape",
 	},
 	"720x1280": {
@@ -324,8 +365,7 @@ const createVideoRequestSchema = z
 		if (value.size !== undefined && !(value.size in SUPPORTED_VIDEO_SIZES)) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
-				message:
-					"size must be one of 1280x720, 720x1280, 1920x1080, 1080x1920, 3840x2160, 2160x3840, 1792x1024, or 1024x1792",
+				message: `size must be one of ${Object.keys(SUPPORTED_VIDEO_SIZES).join(", ")}`,
 				path: ["size"],
 			});
 		}
@@ -532,6 +572,7 @@ interface RequestContext {
 	apiKey: GatewayApiKey;
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
+	wallet: InferSelectModel<typeof tables.wallet> | null;
 	requestId: string;
 	routingCfg: ResolvedRoutingConfig;
 }
@@ -712,9 +753,9 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	// Embeddable SDK: ephemeral end-user sessions bill the bound wallet. No-op
+	// LLM SDK: ephemeral end-user sessions bill the bound wallet. No-op
 	// for normal keys.
-	const { project, organization } = await applyEndUserSession(
+	const { project, organization, wallet } = await applyEndUserSession(
 		c,
 		apiKey,
 		baseProject,
@@ -731,6 +772,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		apiKey,
 		project,
 		organization,
+		wallet,
 		requestId,
 		routingCfg,
 	};
@@ -907,10 +949,11 @@ function getVideoProviderConstraintReasons(
 		!isSoraVideoModelName(provider.externalId) &&
 		inputMode === "frames" &&
 		!isGoogleVertexVideoProvider(provider.providerId) &&
-		provider.providerId !== "avalanche"
+		provider.providerId !== "avalanche" &&
+		provider.providerId !== "xai"
 	) {
 		reasons.push(
-			"frame inputs are currently only supported through google-vertex or avalanche",
+			"frame inputs are currently only supported through google-vertex, avalanche, or xai",
 		);
 	}
 
@@ -1152,6 +1195,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "xai":
+			return "https://api.x.ai";
 		case "bytedance":
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
@@ -1570,6 +1615,8 @@ async function resolveVideoExecution(
 	xNoFallbackHeaderSet: boolean,
 	routingCfg: ResolvedRoutingConfig,
 ): Promise<ResolvedVideoExecution> {
+	const providerDiscountResolver =
+		createProviderDiscountResolver(organizationId);
 	const videoPricing: VideoPricingContext = {
 		durationSeconds: videoDurationSeconds,
 		includeAudio,
@@ -1578,9 +1625,13 @@ async function resolveVideoExecution(
 				? "4k"
 				: videoSize.resolution === "1080p"
 					? "1080p"
-					: videoSize.resolution === "hd"
-						? "hd"
-						: "default",
+					: videoSize.resolution === "720p"
+						? "720p"
+						: videoSize.resolution === "480p"
+							? "480p"
+							: videoSize.resolution === "hd"
+								? "hd"
+								: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
@@ -1710,7 +1761,7 @@ async function resolveVideoExecution(
 				});
 
 				if (betterMappings.length > 0) {
-					const betterResult = getCheapestFromAvailableProviders(
+					const betterResult = await getCheapestFromAvailableProviders(
 						betterMappings,
 						modelInfo,
 						{
@@ -1718,6 +1769,8 @@ async function resolveVideoExecution(
 							isStreaming: false,
 							videoPricing,
 							routingConfig: routingCfg,
+							organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -1725,12 +1778,16 @@ async function resolveVideoExecution(
 						const originalMapping = configuredEligibleMappings.find(
 							(provider) => provider.providerId === requestedProvider,
 						);
-						const originalPrice = originalMapping
-							? getProviderSelectionPrice(
-									originalMapping,
+						const { price: originalPrice, discount: originalDiscount } =
+							await getDiscountedProviderSelectionPrice(
+								originalMapping,
+								modelInfo.id,
+								{
+									organizationId,
 									videoPricing,
-								).toNumber()
-							: 0;
+									providerDiscountResolver,
+								},
+							);
 						routingMetadata = {
 							...betterResult.metadata,
 							selectionReason: "low-uptime-fallback",
@@ -1740,7 +1797,8 @@ async function resolveVideoExecution(
 								{
 									providerId: requestedProvider,
 									score: -1,
-									price: originalPrice,
+									price: originalPrice.toNumber(),
+									discount: originalDiscount.toNumber(),
 									uptime: requestedUptime,
 									latency: requestedMetrics?.averageLatency,
 									throughput: requestedMetrics?.throughput,
@@ -1775,7 +1833,7 @@ async function resolveVideoExecution(
 		}
 
 		if (!routingMetadata) {
-			const cheapestResult = getCheapestFromAvailableProviders(
+			const cheapestResult = await getCheapestFromAvailableProviders(
 				configuredEligibleMappings,
 				modelInfo,
 				{
@@ -1783,6 +1841,8 @@ async function resolveVideoExecution(
 					isStreaming: false,
 					videoPricing,
 					routingConfig: routingCfg,
+					organizationId,
+					providerDiscountResolver,
 				},
 			);
 			if (cheapestResult) {
@@ -1823,11 +1883,26 @@ async function resolveVideoExecution(
 			: configuredEligibleMappings.length === 1
 				? "single-provider-available"
 				: "fallback-first-available",
-		providerScores: configuredEligibleMappings.map((provider) => ({
-			providerId: provider.providerId,
-			score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
-			price: getProviderSelectionPrice(provider, videoPricing).toNumber(),
-		})),
+		providerScores: await Promise.all(
+			configuredEligibleMappings.map(async (provider) => {
+				const { price, discount } = await getDiscountedProviderSelectionPrice(
+					provider,
+					modelInfo.id,
+					{
+						organizationId,
+						videoPricing,
+						providerDiscountResolver,
+					},
+				);
+
+				return {
+					providerId: provider.providerId,
+					score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
+					price: price.toNumber(),
+					discount: discount.toNumber(),
+				};
+			}),
+		),
 		...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 	};
 
@@ -1900,6 +1975,7 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 		case "generating":
 			return "in_progress";
 		case "completed":
+		case "done":
 		case "succeeded":
 		case "success":
 			return "completed";
@@ -1972,6 +2048,7 @@ function extractContentUrl(body: Record<string, unknown>): string | null {
 		body.url,
 		body.video_url,
 		body.output_url,
+		body.video,
 		body.content,
 		body.output,
 	];
@@ -2250,7 +2327,7 @@ async function requireVideoJobForProject(
 		});
 	}
 
-	// Embeddable SDK: an ephemeral end-user session may only read jobs owned by
+	// LLM SDK: an ephemeral end-user session may only read jobs owned by
 	// its own wallet. End-users share a project, so a project-only scope would
 	// leak other end-users' jobs. (Normal developer keys pass null and see all
 	// project jobs, as before.)
@@ -2355,7 +2432,7 @@ async function streamVideoFromUrl(
 }
 
 function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
-	return job.usedProvider === "openai";
+	return job.usedProvider === "openai" || job.usedProvider === "xai";
 }
 
 async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
@@ -2600,6 +2677,7 @@ function extractUpstreamVideoId(body: Record<string, unknown>): string | null {
 	for (const value of [
 		body.name,
 		body.id,
+		body.request_id,
 		body.video_id,
 		body.task_id,
 		body.job_id,
@@ -3154,6 +3232,67 @@ async function createBytedanceVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+async function createXaiVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		prompt,
+		size: videoSize.size,
+		duration: durationSeconds,
+	};
+
+	if (processedFirstFrame) {
+		upstreamRequest.image = {
+			url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
+		};
+	}
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/v1/videos/generations",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("xai", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "xAI video response did not include a request id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3179,6 +3318,15 @@ async function createUpstreamVideoJob(
 	upstreamResponse: Record<string, unknown>;
 }> {
 	switch (providerContext.providerId) {
+		case "xai":
+			return await createXaiVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				processedFirstFrame,
+			);
 		case "openai":
 			return await createOpenAIVideoJob(
 				providerContext,
@@ -3450,7 +3598,7 @@ async function getAvalancheImageUrl(
 
 videos.openapi(createVideo, async (c) => {
 	const { rawBody, request } = await parseJsonBody(c);
-	const { apiKey, project, organization, requestId, routingCfg } =
+	const { apiKey, project, organization, wallet, requestId, routingCfg } =
 		await requireRequestContext(c);
 
 	if (organization.isPersonal && organization.devPlan !== "none") {
@@ -3485,6 +3633,21 @@ videos.openapi(createVideo, async (c) => {
 			message: `Model ${normalizedModel} not found`,
 		});
 	}
+
+	// Sandbox wallets can only spend on free models (none for video), so reject
+	// paid video generation from test-mode end-user sessions.
+	assertTestWalletModelAllowed(wallet, modelInfo);
+
+	if (
+		"imageInputRequired" in modelInfo &&
+		modelInfo.imageInputRequired &&
+		inputMode === "none"
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${normalizedModel} requires an input image. Please provide an image using the "image" field.`,
+		});
+	}
+
 	const videoSize = getVideoSizeConfig(request.size);
 	const videoDurationSeconds = getVideoDurationSeconds(
 		modelInfo,
