@@ -8,5 +8,5 @@ export const size = ogSize;
 export const contentType = ogContentType;
 
 export default async function WebSearchModelsOgImage() {
-	return generateCategoryOgImage("web-search");
+	return await generateCategoryOgImage("web-search");
 }

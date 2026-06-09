@@ -186,11 +186,6 @@ export async function syncProvidersAndModels() {
 									mapping.webSearchPrice !== undefined
 										? mapping.webSearchPrice.toString()
 										: null,
-								// NotNull decimal field - use explicit default
-								discount:
-									"discount" in mapping && mapping.discount !== undefined
-										? mapping.discount.toString()
-										: "0",
 								// NotNull enum field - use explicit default
 								stability:
 									"stability" in mapping ? mapping.stability : "stable",
@@ -278,10 +273,6 @@ export async function syncProvidersAndModels() {
 								"webSearchPrice" in mapping &&
 								mapping.webSearchPrice !== undefined
 									? mapping.webSearchPrice.toString()
-									: undefined,
-							discount:
-								"discount" in mapping && mapping.discount !== undefined
-									? mapping.discount.toString()
 									: undefined,
 							stability: "stability" in mapping ? mapping.stability : undefined,
 							supportedParameters:

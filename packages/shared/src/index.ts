@@ -11,14 +11,37 @@ export {
 } from "./fees.js";
 
 export {
-	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
 	DEV_PLAN_PRICES,
 	type DevPlanCycle,
 	type DevPlanTier,
-	getDevPlanAnnualMonthlyPrice,
-	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
+	getDevPlanPremiumWeeklyLimit,
+	getRemainingPremiumWeeklyAllowance,
+	getProratedCreditDelta,
+	isPremiumWeekExpired,
 } from "./dev-plans.js";
+
+export {
+	CHAT_PLAN_PRICES,
+	CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS,
+	type ChatPlanCycle,
+	type ChatPlanTier,
+	CHAT_PLAN_CREDITS_MULTIPLIERS,
+	getChatPlanCreditsLimit,
+	getChatPlanCreditsMultiplier,
+	getChatPlanCreditsMultipliers,
+	isChatPlanModelAllowed,
+} from "./chat-plans.js";
+
+export {
+	getModelCategory,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
+	isPremiumModel,
+	type ModelCategory,
+} from "./model-categories.js";
 
 export {
 	HealthChecker,
@@ -62,9 +85,12 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
+export { isContentFilterErrorText } from "./content-filter.js";
+
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	type TokenEstimateFallback,
 } from "./token-estimate.js";
 
 export {
@@ -92,5 +118,7 @@ export {
 	type RoutingTimeoutsConfig,
 	type RoutingWeightsConfig,
 } from "./routing-config.js";
+
+export { assertSafeWebhookUrl, isPrivateOrReservedIp } from "./url-safety.js";
 
 export * from "./components/ui/index.js";

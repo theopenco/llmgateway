@@ -5,6 +5,8 @@ import {
 	type RoutingStickyConfig,
 } from "@llmgateway/shared/routing-config";
 
+import type { SessionProviderStore } from "@llmgateway/actions";
+
 type StickyCfg = Required<RoutingStickyConfig>;
 
 function getTtl(cfg?: StickyCfg): number {
@@ -90,6 +92,79 @@ export async function setPreferredProvider(
 	} catch (error) {
 		logger.error("Error setting preferred provider in Redis:", error as Error);
 	}
+}
+
+function sessionRedisKey(
+	orgId: string,
+	modelId: string,
+	sessionId: string,
+): string {
+	return `session_provider:${orgId}:${modelId}:${sessionId}`;
+}
+
+async function getSessionProvider(
+	orgId: string,
+	modelId: string,
+	sessionId: string,
+): Promise<PreferredProviderEntry | null> {
+	try {
+		const value = await redisClient.get(
+			sessionRedisKey(orgId, modelId, sessionId),
+		);
+		if (!value) {
+			return null;
+		}
+		return JSON.parse(value) as PreferredProviderEntry;
+	} catch (error) {
+		logger.error("Error getting session provider from Redis:", error as Error);
+		return null;
+	}
+}
+
+async function setSessionProvider(
+	orgId: string,
+	modelId: string,
+	sessionId: string,
+	providerId: string,
+	region: string | undefined,
+	ttlSeconds: number,
+): Promise<void> {
+	try {
+		await redisClient.set(
+			sessionRedisKey(orgId, modelId, sessionId),
+			JSON.stringify({ providerId, region }),
+			"EX",
+			ttlSeconds,
+		);
+	} catch (error) {
+		logger.error("Error setting session provider in Redis:", error as Error);
+	}
+}
+
+/**
+ * Build a session-scoped provider store for sticky routing. The selection logic
+ * in @llmgateway/actions reads/writes the pinned provider through this so the
+ * same session reuses its provider across requests (keeping upstream prompt
+ * caches warm), re-scoring only when the pin is no longer viable.
+ */
+export function createSessionProviderStore(
+	orgId: string,
+	modelId: string,
+	sessionId: string,
+	ttlSeconds: number,
+): SessionProviderStore {
+	return {
+		get: () => getSessionProvider(orgId, modelId, sessionId),
+		set: (providerId, region) =>
+			setSessionProvider(
+				orgId,
+				modelId,
+				sessionId,
+				providerId,
+				region,
+				ttlSeconds,
+			),
+	};
 }
 
 export interface ProviderScoreForHysteresis {

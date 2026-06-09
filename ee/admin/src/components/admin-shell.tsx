@@ -13,6 +13,7 @@ import {
 	Mail,
 	Menu,
 	MessageCircle,
+	MessageSquare,
 	Percent,
 	Server,
 	Sparkles,
@@ -86,6 +87,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
 	const isDevpass = pathname.startsWith("/devpass");
+	const isChatPlans = pathname.startsWith("/chat-plans");
 	const isGlobalStats = pathname.startsWith("/global-stats");
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
@@ -153,6 +155,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isDevpass} size="lg">
 										<Sparkles className="h-4 w-4" />
 										<span>DevPass</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/chat-plans" className="block">
+									<SidebarMenuButton isActive={isChatPlans} size="lg">
+										<MessageSquare className="h-4 w-4" />
+										<span>Chat Plans</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

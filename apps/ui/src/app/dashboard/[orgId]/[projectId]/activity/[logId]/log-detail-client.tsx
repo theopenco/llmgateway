@@ -35,6 +35,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+} from "@llmgateway/models";
+
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 
@@ -200,16 +205,19 @@ function formatDuration(ms: number) {
 
 // Selection reasons where the weighted-score formula is bypassed entirely, so
 // every provider's score is a hardcoded 0 placeholder rather than a real value.
+// "session-sticky" is intentionally excluded: it scores providers with the
+// normal weighted algorithm and pins the result for the session, so the logged
+// scores are real values worth surfacing. The all-zero fallback below hides
+// those scores when they couldn't be computed (no metrics available).
 const SCORE_BYPASSED_SELECTION_REASONS = new Set([
-	"session-sticky",
 	"random-exploration",
 	"price-only-no-metrics",
 ]);
 
 // The per-provider score only carries information when scoring actually ran.
-// Sticky/exploration/price-only paths emit 0 for every provider, and
-// "stable-preferred" can layer on top of a sticky pick (also all zeros), so
-// treat an all-zero set as "scoring did not run" regardless of the reason.
+// Exploration/price-only paths emit 0 for every provider, and "stable-preferred"
+// can layer on top of a sticky pick, so treat an all-zero set as "scoring did
+// not run" regardless of the reason.
 function isProviderScoreMeaningful(
 	selectionReason: string | null | undefined,
 	providerScores: { score: number }[],
@@ -918,6 +926,29 @@ export function LogDetailClient({
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}
+										{log.serviceTier &&
+											(() => {
+												const tierName =
+													log.serviceTier.charAt(0).toUpperCase() +
+													log.serviceTier.slice(1);
+												const tier = getServiceTier(
+													log.usedProvider ?? "",
+													log.serviceTier,
+												);
+												const multiplier = tier
+													? formatServiceTierMultiplier(tier.multiplier)
+													: "";
+												return (
+													<Field
+														label="Service Tier"
+														value={
+															multiplier
+																? `${tierName} (${multiplier})`
+																: tierName
+														}
+													/>
+												);
+											})()}
 									</div>
 								</div>
 								<div className="border-t border-border/50 pt-4">

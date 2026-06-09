@@ -63,6 +63,62 @@ describe("transformResponseToOpenai", () => {
 		});
 	});
 
+	test("preserves returned service_tier", () => {
+		const response = transformResponseToOpenai(
+			"openai",
+			"gpt-5.5",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion",
+				created: 1,
+				model: "gpt-5.5",
+				choices: [
+					{
+						index: 0,
+						message: {
+							role: "assistant",
+							content: "OK",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 1,
+					completion_tokens: 1,
+					total_tokens: 2,
+				},
+			},
+			"OK",
+			null,
+			"stop",
+			1,
+			1,
+			2,
+			null,
+			null,
+			null,
+			[],
+			"openai/gpt-5.5",
+			"openai",
+			"gpt-5.5",
+			null,
+			false,
+			null,
+			null,
+			"req_tier_123",
+			undefined,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			"priority",
+		);
+
+		expect(response.service_tier).toBe("priority");
+	});
+
 	test("strips request-scoped metadata before caching", () => {
 		const response = stripRequestScopedMetadataFromOpenAiResponse({
 			metadata: {

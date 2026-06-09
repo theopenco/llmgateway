@@ -2,6 +2,9 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
+import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
+import { getOrCreateChatOrg } from "@/utils/personal-org.js";
+
 import { db, tables, shortid, desc, eq, and } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -101,6 +104,54 @@ playground.openapi(ensureKey, async (c) => {
 	return c.json({ ok: true, token: key.token });
 });
 
+const getChatOrg = createRoute({
+	method: "get",
+	path: "/chat-org",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						organizationId: z.string(),
+						projectId: z.string(),
+					}),
+				},
+			},
+			description:
+				"Ensures the user's dedicated Chat organization (and a default project) and returns their ids. This is the playground's billing home.",
+		},
+	},
+});
+
+playground.openapi(getChatOrg, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const chatOrg = await getOrCreateChatOrg(user);
+
+	let project = await db.query.project.findFirst({
+		where: {
+			organizationId: { eq: chatOrg.id },
+			status: { eq: "active" },
+		},
+	});
+
+	if (!project) {
+		[project] = await db
+			.insert(tables.project)
+			.values({
+				name: "Default Project",
+				organizationId: chatOrg.id,
+				mode: "credits",
+			})
+			.returning();
+	}
+
+	return c.json({ organizationId: chatOrg.id, projectId: project.id });
+});
+
 const getKey = createRoute({
 	method: "get",
 	path: "/key",
@@ -172,6 +223,11 @@ const videoHistoryItemSchema = z.object({
 const listImageHistory = createRoute({
 	method: "get",
 	path: "/image-history",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -191,10 +247,16 @@ playground.openapi(listImageHistory, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.playgroundImageHistory.organizationId,
+		organizationId,
+	);
+
 	const rows = await db
 		.select()
 		.from(tables.playgroundImageHistory)
-		.where(eq(tables.playgroundImageHistory.userId, user.id))
+		.where(and(eq(tables.playgroundImageHistory.userId, user.id), orgFilter))
 		.orderBy(desc(tables.playgroundImageHistory.createdAt));
 
 	return c.json({
@@ -219,6 +281,7 @@ const saveImageHistory = createRoute({
 				"application/json": {
 					schema: z.object({
 						prompt: z.string().min(1),
+						organizationId: z.string().trim().min(1).optional(),
 						inputImages: z
 							.array(z.object({ dataUrl: z.string(), mediaType: z.string() }))
 							.optional(),
@@ -252,6 +315,7 @@ playground.openapi(saveImageHistory, async (c) => {
 		.insert(tables.playgroundImageHistory)
 		.values({
 			userId: user.id,
+			organizationId: body.organizationId ?? null,
 			prompt: body.prompt,
 			inputImages: body.inputImages ?? null,
 			models: body.models,
@@ -382,6 +446,11 @@ playground.openapi(renameImageHistory, async (c) => {
 const listVideoHistory = createRoute({
 	method: "get",
 	path: "/video-history",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -401,10 +470,16 @@ playground.openapi(listVideoHistory, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.playgroundVideoHistory.organizationId,
+		organizationId,
+	);
+
 	const rows = await db
 		.select()
 		.from(tables.playgroundVideoHistory)
-		.where(eq(tables.playgroundVideoHistory.userId, user.id))
+		.where(and(eq(tables.playgroundVideoHistory.userId, user.id), orgFilter))
 		.orderBy(desc(tables.playgroundVideoHistory.createdAt));
 
 	return c.json({
@@ -430,6 +505,7 @@ const saveVideoHistory = createRoute({
 				"application/json": {
 					schema: z.object({
 						prompt: z.string().min(1),
+						organizationId: z.string().trim().min(1).optional(),
 						frameInputs: z
 							.object({
 								start: z
@@ -473,6 +549,7 @@ playground.openapi(saveVideoHistory, async (c) => {
 		.insert(tables.playgroundVideoHistory)
 		.values({
 			userId: user.id,
+			organizationId: body.organizationId ?? null,
 			prompt: body.prompt,
 			frameInputs: body.frameInputs ?? null,
 			referenceImages: body.referenceImages ?? null,

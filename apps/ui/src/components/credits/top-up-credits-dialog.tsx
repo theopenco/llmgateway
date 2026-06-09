@@ -9,6 +9,7 @@ import {
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
 import { ChevronDown, CreditCard, Lock, Plus } from "lucide-react";
+import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
@@ -538,6 +539,8 @@ function AmountStep({
 					<span aria-hidden="true">·</span>
 					<span>Visa · Mastercard · Amex</span>
 				</div>
+
+				<InvoiceSettingsNote organizationId={organizationId} />
 			</DialogFooter>
 		</>
 	);
@@ -773,6 +776,7 @@ function PaymentStep({
 						{loading ? "Processing..." : `Continue`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote organizationId={organizationId} />
 			</form>
 		</>
 	);
@@ -1218,8 +1222,32 @@ function ConfirmPaymentStep({
 							: `Pay ${feeData ? `$${feeData.totalAmount.toFixed(2)}` : `$${amount}`}`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote organizationId={organizationId} />
 			</form>
 		</>
+	);
+}
+
+function InvoiceSettingsNote({
+	organizationId,
+}: {
+	organizationId: string | undefined;
+}) {
+	return (
+		<p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice?{" "}
+			{organizationId ? (
+				<Link
+					href={`/dashboard/${organizationId}/org/preferences`}
+					className="font-medium underline underline-offset-2 hover:text-foreground"
+				>
+					Update billing settings
+				</Link>
+			) : (
+				"Update billing settings"
+			)}{" "}
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }
 

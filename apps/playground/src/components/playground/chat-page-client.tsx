@@ -17,6 +17,14 @@ import {
 } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { SidebarProvider } from "@/components/ui/sidebar";
 // No local api key. We'll call backend to ensure key cookie exists after login.
 import {
@@ -28,8 +36,10 @@ import {
 	useUpdateMessage,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
+import { useApi } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -269,6 +279,9 @@ export default function ChatPageClient({
 	initialModelPreference,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	// In the personal context selectedOrganization is null; billing + top-ups run
+	// under the dedicated Chat org resolved here.
+	const { organization: chatOrg } = useOrganization();
 	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -331,6 +344,9 @@ export default function ChatPageClient({
 	const [finishReason, setFinishReason] = useState<string | null>(null);
 	const [showTopUp, setShowTopUp] = useState(false);
 	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
+	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
+		null,
+	);
 
 	// MCP servers management
 	const {
@@ -825,6 +841,17 @@ export default function ChatPageClient({
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
+	const api = useApi();
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: !!user, staleTime: 30_000 },
+	);
+	const isChatPlanStatusLoaded = chatPlanStatus !== undefined;
+	const hasChatPlanCredits =
+		isChatPlanStatusLoaded &&
+		Number(chatPlanStatus.chatPlanCreditsRemaining) > 0;
 	const updateMessage = useUpdateMessage();
 	const deleteChat = useDeleteChat();
 	const deleteComparisonChat = useDeleteChat({ silent: true });
@@ -1066,6 +1093,7 @@ export default function ChatPageClient({
 					model: selectedModel,
 					webSearch: webSearchEnabled,
 					comparisonEnabled,
+					organizationId: selectedOrganization?.id ?? chatOrg?.id,
 				},
 			});
 			const newChatId = chatData.chat.id;
@@ -1110,7 +1138,12 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
+		if (
+			selectedOrganization &&
+			Number(selectedOrganization.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
+			!hasChatPlanCredits
+		) {
 			setShowTopUp(true);
 			return undefined;
 		}
@@ -1282,7 +1315,12 @@ export default function ChatPageClient({
 			return;
 		}
 
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
+		if (
+			selectedOrganization &&
+			Number(selectedOrganization.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
+			!hasChatPlanCredits
+		) {
 			setShowTopUp(true);
 			return;
 		}
@@ -1487,6 +1525,12 @@ export default function ChatPageClient({
 
 	const handleSelectModel = useCallback(
 		(model: string) => {
+			const { modelId } = parseModelSelectorValue(model);
+			const def = models.find((m) => m.id === modelId);
+			if (def?.output?.includes("video")) {
+				setPendingVideoModel(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			if (model) {
 				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
@@ -1504,7 +1548,7 @@ export default function ChatPageClient({
 			const qs = currentParams.toString();
 			router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
 		},
-		[pathname, router, comparisonEnabled, extraPanelModels],
+		[pathname, router, comparisonEnabled, extraPanelModels, models],
 	);
 
 	const handleExtraPanelModelChange = useCallback(
@@ -1593,11 +1637,15 @@ export default function ChatPageClient({
 	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
+		// Switching org changes the billing context: chats run under the selected
+		// org's project key. Route to the full chat experience (not the read-only
+		// shared-chats view) so New Chat works and credits resolve to that org.
+		const params = new URLSearchParams();
+		params.set("model", selectedModel);
 		if (org?.id) {
-			router.push(`/org/${org.id}`);
-			return;
+			params.set("orgId", org.id);
 		}
-		router.push("/");
+		router.push(`/?${params.toString()}`);
 	};
 
 	const handleOrganizationCreated = (org: Organization) => {
@@ -1928,6 +1976,7 @@ export default function ChatPageClient({
 												onModelChange={(model) =>
 													handleExtraPanelModelChange(index, model)
 												}
+												onVideoModelSelected={setPendingVideoModel}
 												resetToken={comparisonResetToken}
 												primaryChatId={currentChatId}
 												primaryChatIdRef={chatIdRef}
@@ -1941,8 +1990,52 @@ export default function ChatPageClient({
 					</section>
 				</main>
 			</div>
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id ?? chatOrg?.id}
+			/>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
+			<Dialog
+				open={pendingVideoModel !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPendingVideoModel(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Switch to Video Studio?</DialogTitle>
+						<DialogDescription>
+							{pendingVideoModel
+								? (models.find((m) => m.id === pendingVideoModel)?.name ??
+									pendingVideoModel)
+								: ""}{" "}
+							is a video generation model. Would you like to open it in Video
+							Studio?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setPendingVideoModel(null)}
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={() => {
+								if (pendingVideoModel) {
+									router.push(`/video?model=${pendingVideoModel}`);
+								}
+								setPendingVideoModel(null);
+							}}
+						>
+							Open Video Studio
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</SidebarProvider>
 	);
 }
@@ -1959,6 +2052,7 @@ interface ExtraChatPanelProps {
 		submit: (content: string) => Promise<void> | void,
 	) => void;
 	onModelChange?: (model: string) => void;
+	onVideoModelSelected?: (modelId: string) => void;
 	resetToken: number;
 	primaryChatId: string | null;
 	primaryChatIdRef: React.RefObject<string | null>;
@@ -1980,6 +2074,7 @@ function ExtraChatPanel({
 	setSyncedText,
 	onRegisterExternalSubmit,
 	onModelChange,
+	onVideoModelSelected,
 	resetToken,
 	primaryChatId,
 	primaryChatIdRef,
@@ -1992,10 +2087,18 @@ function ExtraChatPanel({
 	const [selectedModel, setSelectedModel] = useState(initialModel);
 	const handleModelChange = useCallback(
 		(model: string) => {
+			const modelId = model.includes("/")
+				? (model.split("/")[1] ?? model)
+				: model;
+			const def = models.find((m) => m.id === modelId);
+			if (def?.output?.includes("video")) {
+				onVideoModelSelected?.(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			onModelChange?.(model);
 		},
-		[onModelChange],
+		[onModelChange, onVideoModelSelected, models],
 	);
 	const [comparisonChatId, setComparisonChatId] = useState<string | null>(
 		initialChatId,
@@ -2060,6 +2163,8 @@ function ExtraChatPanel({
 				body: {
 					title,
 					model: selectedModel,
+					// Child comparison chats are never listed in history, so they
+					// don't need an organization context.
 					parentChatId: parentId,
 				},
 			});

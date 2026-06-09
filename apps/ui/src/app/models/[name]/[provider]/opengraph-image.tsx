@@ -114,11 +114,11 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			: null;
 		const discounts = await fetchModelDiscounts(decodedName);
 		const effectiveDiscount = selectedMapping
-			? (getEffectiveProviderDiscount(
+			? getEffectiveProviderDiscount(
 					discounts,
 					selectedMapping.providerId,
 					decodedName,
-				) ?? selectedMapping.discount)
+				)
 			: undefined;
 		const discountNum = discountFraction(effectiveDiscount);
 

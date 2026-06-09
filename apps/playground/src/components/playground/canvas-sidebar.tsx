@@ -12,7 +12,7 @@ import {
 	Users,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import { useCallback } from "react";
@@ -43,19 +43,31 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { OrganizationSwitcher } from "./organization-switcher";
+
 import type { Organization } from "@/lib/types";
 
 interface CanvasSidebarProps {
+	organizations: Organization[];
 	selectedOrganization: Organization | null;
+	onSelectOrganization: (organization: Organization | null) => void;
 	className?: string;
 	onNewCanvas?: () => void;
 }
 
 export function CanvasSidebar({
+	organizations,
 	selectedOrganization,
+	onSelectOrganization,
 	className,
 	onNewCanvas,
 }: CanvasSidebarProps) {
+	const switcherOrganizations = organizations.filter(
+		(org) => !org.isPersonal && !org.isChat,
+	);
+	const switcherSelectedOrganization =
+		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
+		null;
 	const router = useRouter();
 	const posthog = usePostHog();
 	const { user, isLoading: isUserLoading } = useUser();
@@ -83,6 +95,12 @@ export function CanvasSidebar({
 	};
 
 	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	// Preserve the selected organization across playground navigation so users
+	// don't have to re-pick their org on every page.
+	const orgIdParam = searchParams.get("orgId");
+	const withOrg = (path: string) =>
+		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
 	const { theme, setTheme, systemTheme } = useTheme();
 	const currentTheme = theme === "system" ? systemTheme : theme;
 	const toggleTheme = useCallback(() => {
@@ -154,13 +172,19 @@ export function CanvasSidebar({
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
-							<Link href="/" prefetch={true}>
+							<Link href={withOrg("/")} prefetch={true}>
 								<div className="flex aspect-square size-8 items-center justify-center">
 									<Logo className="size-6" />
 								</div>
 								<span className="text-lg font-bold tracking-tight">
 									LLM Gateway
 								</span>
+								<Badge
+									variant="secondary"
+									className="group-data-[collapsible=icon]:hidden"
+								>
+									Chat
+								</Badge>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -180,7 +204,7 @@ export function CanvasSidebar({
 							tooltip="Chat"
 							isActive={pathname === "/"}
 						>
-							<Link href="/">
+							<Link href={withOrg("/")} prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -192,7 +216,7 @@ export function CanvasSidebar({
 							tooltip="Group Chat"
 							isActive={pathname === "/group"}
 						>
-							<Link href="/group">
+							<Link href={withOrg("/group")} prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -204,7 +228,7 @@ export function CanvasSidebar({
 							tooltip="Image Studio"
 							isActive={pathname === "/image"}
 						>
-							<Link href="/image">
+							<Link href={withOrg("/image")} prefetch={true}>
 								<ImageIcon className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -216,7 +240,7 @@ export function CanvasSidebar({
 							tooltip="Video Studio"
 							isActive={pathname === "/video"}
 						>
-							<Link href="/video">
+							<Link href={withOrg("/video")} prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
 							</Link>
@@ -228,7 +252,7 @@ export function CanvasSidebar({
 							tooltip="Canvas"
 							isActive={pathname === "/canvas"}
 						>
-							<Link href="/canvas">
+							<Link href={withOrg("/canvas")} prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>
@@ -237,13 +261,26 @@ export function CanvasSidebar({
 				</SidebarMenu>
 			</SidebarHeader>
 
-			<SidebarContent className="px-2 py-4" />
+			<SidebarContent className="px-2 py-4">
+				{switcherOrganizations.length > 0 ? (
+					<SidebarMenu className="group-data-[collapsible=icon]:hidden">
+						<SidebarMenuItem>
+							<OrganizationSwitcher
+								organizations={switcherOrganizations}
+								selectedOrganization={switcherSelectedOrganization}
+								onSelectOrganization={onSelectOrganization}
+							/>
+						</SidebarMenuItem>
+					</SidebarMenu>
+				) : null}
+			</SidebarContent>
 
 			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
-						organization={organization}
+						organization={switcherSelectedOrganization ?? organization}
 						isLoading={isOrgLoading}
+						isChatPlanOrg={!switcherSelectedOrganization}
 					/>
 				</div>
 				<SidebarMenu>

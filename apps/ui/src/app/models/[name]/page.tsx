@@ -104,8 +104,7 @@ export default async function ModelPage({ params }: PageProps) {
 		return {
 			...provider,
 			providerInfo,
-			// Global discount takes precedence over hardcoded
-			discount: globalDiscount ?? provider.discount,
+			discount: globalDiscount,
 		};
 	});
 	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);

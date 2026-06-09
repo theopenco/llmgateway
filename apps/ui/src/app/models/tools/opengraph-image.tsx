@@ -8,5 +8,5 @@ export const size = ogSize;
 export const contentType = ogContentType;
 
 export default async function ToolsModelsOgImage() {
-	return generateCategoryOgImage("tools");
+	return await generateCategoryOgImage("tools");
 }

@@ -133,6 +133,10 @@ const PROJECT_SETTINGS = [
 		label: "Preferences",
 	},
 	{
+		href: "settings/sdk",
+		label: "SDK",
+	},
+	{
 		href: "settings/routing",
 		label: "Routing",
 	},

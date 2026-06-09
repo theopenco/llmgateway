@@ -128,7 +128,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 			{
@@ -163,6 +163,10 @@ export const minimaxModels = [
 				jsonOutputSchema: true,
 			},
 			{
+				// Embercloud's upstream routing for this model is broken: streaming
+				// returns finish_reason "error" with null content, and non-streaming
+				// returns "Temporary routing error (400)". Deactivated until fixed.
+				deactivatedAt: new Date("2026-06-03"),
 				providerId: "embercloud",
 				externalId: "minimax-m2.5",
 				inputPrice: "0.2e-6",
@@ -233,7 +237,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -258,7 +262,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -283,7 +287,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 			{
@@ -325,7 +329,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -351,7 +355,7 @@ export const minimaxModels = [
 				splitTaggedReasoning: true,
 				reasoningOutput: "omit",
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],

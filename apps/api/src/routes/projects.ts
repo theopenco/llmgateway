@@ -23,6 +23,9 @@ const projectSchema = z.object({
 	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	endUserEnabled: z.boolean(),
+	endUserMarkupPercent: z.string(),
+	allowedOrigins: z.array(z.string()).nullable(),
 });
 
 const createProjectSchema = z.object({
@@ -40,7 +43,35 @@ const updateProjectSchema = z.object({
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
+	endUserEnabled: z.boolean().optional(),
+	endUserMarkupPercent: z.number().min(0).max(100).optional(),
+	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
 });
+
+function normalizeAllowedOrigins(origins: string[]) {
+	const normalizedOrigins = new Set<string>();
+
+	for (const origin of origins) {
+		let url: URL;
+		try {
+			url = new URL(origin);
+		} catch {
+			throw new HTTPException(400, {
+				message: `Invalid allowed origin: ${origin}`,
+			});
+		}
+
+		if (url.protocol !== "https:" && url.protocol !== "http:") {
+			throw new HTTPException(400, {
+				message: "Allowed origins must use http or https.",
+			});
+		}
+
+		normalizedOrigins.add(url.origin);
+	}
+
+	return Array.from(normalizedOrigins);
+}
 
 const getProject = createRoute({
 	method: "get",
@@ -163,6 +194,9 @@ projects.openapi(updateProject, async (c) => {
 		cacheDurationSeconds,
 		providerCacheControlEnabled,
 		mode,
+		endUserEnabled,
+		endUserMarkupPercent,
+		allowedOrigins,
 	} = c.req.valid("json");
 
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -195,7 +229,25 @@ projects.openapi(updateProject, async (c) => {
 		});
 	}
 
-	const updateData: any = {};
+	const isUpdatingEndUserSettings =
+		endUserEnabled !== undefined ||
+		endUserMarkupPercent !== undefined ||
+		allowedOrigins !== undefined;
+	const projectUserOrg = userOrgs.find(
+		(userOrg) => userOrg.organizationId === project.organizationId,
+	);
+	if (
+		isUpdatingEndUserSettings &&
+		projectUserOrg?.role !== "owner" &&
+		projectUserOrg?.role !== "admin"
+	) {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can update SDK settings",
+		});
+	}
+
+	const updateData: Partial<typeof tables.project.$inferInsert> = {};
+	let normalizedAllowedOrigins: string[] | undefined;
 
 	if (name !== undefined) {
 		updateData.name = name;
@@ -215,6 +267,19 @@ projects.openapi(updateProject, async (c) => {
 
 	if (mode !== undefined) {
 		updateData.mode = mode;
+	}
+
+	if (endUserEnabled !== undefined) {
+		updateData.endUserEnabled = endUserEnabled;
+	}
+
+	if (endUserMarkupPercent !== undefined) {
+		updateData.endUserMarkupPercent = String(endUserMarkupPercent);
+	}
+
+	if (allowedOrigins !== undefined) {
+		normalizedAllowedOrigins = normalizeAllowedOrigins(allowedOrigins);
+		updateData.allowedOrigins = normalizedAllowedOrigins;
 	}
 
 	const [updatedProject] = await db
@@ -257,6 +322,36 @@ projects.openapi(updateProject, async (c) => {
 	}
 	if (mode !== undefined && mode !== project.mode) {
 		changes.mode = { old: project.mode, new: mode };
+	}
+	if (
+		endUserEnabled !== undefined &&
+		endUserEnabled !== project.endUserEnabled
+	) {
+		changes.endUserEnabled = {
+			old: project.endUserEnabled,
+			new: endUserEnabled,
+		};
+	}
+	if (
+		endUserMarkupPercent !== undefined &&
+		String(endUserMarkupPercent) !== project.endUserMarkupPercent
+	) {
+		changes.endUserMarkupPercent = {
+			old: project.endUserMarkupPercent,
+			new: String(endUserMarkupPercent),
+		};
+	}
+	if (normalizedAllowedOrigins !== undefined) {
+		const previousAllowedOrigins = project.allowedOrigins ?? [];
+		if (
+			JSON.stringify(normalizedAllowedOrigins) !==
+			JSON.stringify(previousAllowedOrigins)
+		) {
+			changes.allowedOrigins = {
+				old: previousAllowedOrigins,
+				new: normalizedAllowedOrigins,
+			};
+		}
 	}
 
 	if (Object.keys(changes).length > 0) {

@@ -140,7 +140,6 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v3.2",
-				discount: "0.2",
 				inputPrice: "0.57e-6",
 				cachedInputPrice: "0.114e-6",
 				outputPrice: "1.71e-6",
@@ -161,6 +160,7 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "bytedance",
@@ -244,9 +244,9 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro",
-				inputPrice: "2.1e-6",
+				inputPrice: "1.74e-6",
 				cachedInputPrice: "0.2e-6",
-				outputPrice: "4.4e-6",
+				outputPrice: "3.48e-6",
 				requestPrice: "0",
 				contextSize: 163840,
 				maxOutput: 163840,
@@ -261,7 +261,6 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-pro",
-				discount: "0.2",
 				inputPrice: "2.4e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "4.8e-6",
@@ -352,7 +351,6 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-flash",
-				discount: "0.2",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.04e-6",
 				outputPrice: "0.4e-6",

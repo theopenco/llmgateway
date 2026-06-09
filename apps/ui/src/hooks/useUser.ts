@@ -1,6 +1,6 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
@@ -28,7 +28,6 @@ export function useUser(options?: UseUserOptions) {
 	const posthog = usePostHog();
 	const router = useRouter();
 	const api = useApi();
-	const pathname = usePathname();
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",
@@ -48,29 +47,6 @@ export function useUser(options?: UseUserOptions) {
 			onboarding_completed: data.user.onboardingCompleted,
 		});
 	}
-
-	// Check for onboarding completion for all authenticated users
-	useEffect(() => {
-		if (!data?.user || isLoading) {
-			return;
-		}
-
-		const currentPath = pathname;
-		const isAuthPage = ["/login", "/signup", "/onboarding"].includes(
-			currentPath,
-		);
-		const isLandingPage = currentPath === "/";
-
-		// Don't redirect if already on auth pages
-		if (isAuthPage || isLandingPage) {
-			return;
-		}
-
-		// Redirect to onboarding if user hasn't completed it
-		if (!data.user.onboardingCompleted) {
-			router.push("/onboarding");
-		}
-	}, [data?.user, isLoading, router, pathname]);
 
 	// Handle existing redirect logic
 	useEffect(() => {
