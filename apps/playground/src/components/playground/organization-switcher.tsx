@@ -41,9 +41,15 @@ export function OrganizationSwitcher({
 		onSelectOrganization(org);
 	};
 
-	const activeClass = selectedOrganization
-		? "bg-accent text-accent-foreground"
-		: "";
+	// The dedicated Chat org backs the "Chat plan" context. Treat it like the
+	// null selection so the trigger shows the Chat plan branding (Sparkles +
+	// "Chat plan") instead of an org icon that looks like a real organization.
+	const isChatPlanContext =
+		!selectedOrganization || selectedOrganization.isChat;
+
+	const activeClass = isChatPlanContext
+		? ""
+		: "bg-accent text-accent-foreground";
 
 	if (!mounted) {
 		return (
@@ -52,13 +58,13 @@ export function OrganizationSwitcher({
 				disabled
 				className={`flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background justify-start ${activeClass}`}
 			>
-				{selectedOrganization ? (
-					<Building2 className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-				) : (
+				{isChatPlanContext ? (
 					<Sparkles className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+				) : (
+					<Building2 className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
 				)}
 				<span className="truncate">
-					{selectedOrganization ? selectedOrganization.name : "Chat plan"}
+					{isChatPlanContext ? "Chat plan" : selectedOrganization!.name}
 				</span>
 				<ChevronsUpDown className="ml-auto h-4 w-4 flex-shrink-0 opacity-50" />
 			</Button>
@@ -73,13 +79,13 @@ export function OrganizationSwitcher({
 						variant="ghost"
 						className={`flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background justify-start ${activeClass}`}
 					>
-						{selectedOrganization ? (
-							<Building2 className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-						) : (
+						{isChatPlanContext ? (
 							<Sparkles className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+						) : (
+							<Building2 className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
 						)}
 						<span className="truncate">
-							{selectedOrganization ? selectedOrganization.name : "Chat plan"}
+							{isChatPlanContext ? "Chat plan" : selectedOrganization!.name}
 						</span>
 						<ChevronsUpDown className="ml-auto h-4 w-4 flex-shrink-0 opacity-50" />
 					</Button>
@@ -91,7 +97,7 @@ export function OrganizationSwitcher({
 					>
 						<Sparkles className="mr-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />
 						<span className="truncate">Chat plan</span>
-						{!selectedOrganization ? (
+						{isChatPlanContext ? (
 							<Check className="ml-auto h-4 w-4 flex-shrink-0" />
 						) : null}
 					</DropdownMenuItem>

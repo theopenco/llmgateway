@@ -19,7 +19,10 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
-import { applyEndUserSession } from "@/lib/end-user-session.js";
+import {
+	applyEndUserSession,
+	assertTestWalletModelAllowed,
+} from "@/lib/end-user-session.js";
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -27,6 +30,7 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
+import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -378,11 +382,21 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
 	// of the developer's org credits. No-op for normal keys.
-	const { project, organization } = await applyEndUserSession(
+	const { project, organization, wallet } = await applyEndUserSession(
 		c,
 		apiKey,
 		baseProject,
 		baseOrganization,
+	);
+
+	// Sandbox wallets can only spend on free models, so reject paid moderation
+	// requests from test-mode end-user sessions.
+	const moderationModelId = upstreamModel.includes("/")
+		? upstreamModel.slice(upstreamModel.lastIndexOf("/") + 1)
+		: upstreamModel;
+	assertTestWalletModelAllowed(
+		wallet,
+		models.find((m) => m.id === moderationModelId),
 	);
 
 	const retentionLevel = organization.retentionLevel ?? "none";

@@ -47,6 +47,7 @@ type ProviderSortBy =
 	| "logsCount"
 	| "errorsCount"
 	| "cachedCount"
+	| "totalCost"
 	| "avgTimeToFirstToken"
 	| "modelCount"
 	| "updatedAt";
@@ -252,7 +253,7 @@ export function ProvidersTable({
 					{sh("Errors", "errorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
-					<TableHead>Cost</TableHead>
+					{sh("Cost", "totalCost")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>

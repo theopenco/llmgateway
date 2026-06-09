@@ -16,6 +16,7 @@ Use this page to:
 
 - Create project-specific API keys
 - Set all-time and recurring spend limits per key
+- Set an expiration (TTL) so a key disables itself automatically
 - Track usage for each key, including the active recurring window
 - Enable or disable keys without deleting them
 - Configure IAM rules for model, provider, and pricing access
@@ -30,6 +31,7 @@ Use this page to:
 Click **Create API Key** and configure:
 
 - **Name**: A label such as `production`, `staging`, or `ci`
+- **Expiration (TTL)**: An optional time-to-live after which the key disables itself
 - **All-time usage limit**: An optional lifetime spend cap for the key
 - **Recurring usage limit**: An optional spend cap that resets on a schedule
 
@@ -41,6 +43,25 @@ Recurring limits support:
 
 This is useful when you want a key to stay below a fixed budget per hour, day,
 week, or month, while still keeping a separate lifetime cap if needed.
+
+## Expiration (TTL)
+
+Turn on **Set expiration (TTL)** when creating a key to give it a limited
+lifetime. Choose a value and a unit — **minutes**, **hours**, or **days** — and
+the key is disabled automatically once that time passes. Leave it off for a key
+that never expires.
+
+Expired keys show an **Expired** indicator in the list and move to the
+**Inactive** tab. To use one again, reactivate it and pick a **new future
+expiration**:
+
+- **Activate** an expired key and you'll be prompted to set a fresh TTL before it
+  comes back online
+- Keys with no TTL, or whose TTL is still in the future, can be enabled and
+  disabled without setting a new expiration
+
+This makes TTL keys ideal for temporary access — short-lived demos, CI runs, or
+contractor keys that should not linger.
 
 ## Usage Limits
 
@@ -81,7 +102,7 @@ Each key in the list shows:
 | ------------------ | ------------------------------------------------------------- |
 | **Name**           | The label you assigned to the key                             |
 | **API Key**        | A masked preview of the key                                   |
-| **Status**         | Whether the key is active or inactive                         |
+| **Status**         | Whether the key is active or inactive, plus its expiry if set |
 | **Created**        | When the key was created                                      |
 | **Usage**          | Total tracked usage for the key                               |
 | **Current Period** | Spend in the active recurring window, if configured           |
@@ -93,7 +114,8 @@ Each key in the list shows:
 For each API key you can:
 
 - **Update limits**: Change all-time or recurring limits
-- **Disable or enable**: Pause usage without deleting the key
+- **Disable or enable**: Pause usage without deleting the key (reactivating an
+  expired key prompts for a new expiration)
 - **Configure IAM rules**: Restrict which models, providers, or pricing tiers the key can use
 - **Open usage details**: Inspect requests and usage tied to that key
 - **Delete**: Permanently remove the key

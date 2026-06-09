@@ -1100,6 +1100,20 @@
       "when": 1780938386974,
       "tag": "1780938386_unusual_mad_thinker",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "8",
+      "when": 1780940524019,
+      "tag": "1780940524_woozy_iron_fist",
+      "breakpoints": true
+    },
+    {
+      "idx": 158,
+      "version": "8",
+      "when": 1780958022850,
+      "tag": "1780958022_easy_wolfsbane",
+      "breakpoints": true
     }
   ]
 }

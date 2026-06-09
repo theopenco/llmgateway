@@ -4,6 +4,7 @@ import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
+import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -302,6 +303,7 @@ const apiKeySchema = z.object({
 	currentPeriodUsage: z.string(),
 	currentPeriodStartedAt: z.date().nullable(),
 	currentPeriodResetAt: z.date().nullable(),
+	expiresAt: z.date().nullable(),
 	projectId: z.string(),
 	createdBy: z.string(),
 	creator: z
@@ -350,6 +352,16 @@ const createApiKeySchema = z
 		usageLimit: createNullableLimitSchema("Usage limit")
 			.optional()
 			.default(null),
+		expiresAt: z
+			.string()
+			.datetime()
+			.nullable()
+			.optional()
+			.default(null)
+			.openapi({
+				description:
+					"ISO 8601 timestamp when the key expires (TTL). The worker disables the key once this time passes; the gateway also rejects it immediately. Omit or null for a key that never expires.",
+			}),
 		...createApiKeyPeriodConfigFieldsSchema,
 	})
 	.superRefine(validateApiKeyPeriodConfig);
@@ -368,6 +380,10 @@ const listApiKeysQuerySchema = z.object({
 // Schema for updating an API key status
 const updateApiKeyStatusSchema = z.object({
 	status: z.enum(["active", "inactive"]),
+	expiresAt: z.string().datetime().nullable().optional().openapi({
+		description:
+			"ISO 8601 timestamp when the key expires (TTL). Required to reactivate a key whose TTL has already passed; pass null to remove the TTL. Omit to leave the existing expiry unchanged.",
+	}),
 });
 
 // Schema for updating an API key usage limit
@@ -387,6 +403,7 @@ const platformKeySchema = z.object({
 	projectId: z.string(),
 	createdBy: z.string(),
 	maskedToken: z.string(),
+	mode: z.enum(["live", "test"]),
 });
 
 const listPlatformKeysQuerySchema = z.object({
@@ -402,6 +419,10 @@ const createPlatformKeySchema = z.object({
 		.max(255)
 		.optional()
 		.default("SDK platform secret"),
+	// Mint a Stripe-sandbox (test-mode) secret key. Sessions and wallets minted
+	// from it are fully segregated from live data and can only spend on free
+	// models, so developers can test top-ups without real charges.
+	test: z.boolean().optional().default(false),
 });
 
 async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
@@ -517,6 +538,7 @@ keysApi.openapi(listPlatformKeys, async (c) => {
 			projectId: platformKey.projectId,
 			createdBy: platformKey.createdBy,
 			maskedToken: maskToken(platformKey.token),
+			mode: platformKeyMode(platformKey.token),
 		})),
 	});
 });
@@ -559,9 +581,9 @@ keysApi.openapi(createPlatformKey, async (c) => {
 		});
 	}
 
-	const { projectId, description } = c.req.valid("json");
+	const { projectId, description, test } = c.req.valid("json");
 	const project = await assertPlatformKeyAdminAccess(user.id, projectId);
-	const token = `sk_${shortid(40)}`;
+	const token = `sk_${test ? "test" : "live"}_${shortid(40)}`;
 
 	const [platformKey] = await db
 		.insert(tables.apiKey)
@@ -597,6 +619,7 @@ keysApi.openapi(createPlatformKey, async (c) => {
 			projectId: platformKey.projectId,
 			createdBy: platformKey.createdBy,
 			maskedToken: maskToken(token),
+			mode: platformKeyMode(token),
 			token,
 		},
 	});
@@ -785,6 +808,7 @@ export interface CreateApiKeyInput {
 	periodUsageLimit?: string | null;
 	periodUsageDurationValue?: number | null;
 	periodUsageDurationUnit?: ApiKeyPeriodDurationUnit | null;
+	expiresAt?: Date | string | null;
 }
 
 export async function createApiKeyForProject(
@@ -800,6 +824,17 @@ export async function createApiKeyForProject(
 		periodUsageDurationValue,
 		periodUsageDurationUnit,
 	} = input;
+
+	const expiresAt =
+		input.expiresAt === undefined || input.expiresAt === null
+			? null
+			: new Date(input.expiresAt);
+
+	if (expiresAt && expiresAt.getTime() <= Date.now()) {
+		throw new HTTPException(400, {
+			message: "Expiration date must be in the future.",
+		});
+	}
 
 	if (!options.skipAccessCheck) {
 		const projectIds = await getUserProjectIds(userId);
@@ -860,6 +895,7 @@ export async function createApiKeyForProject(
 			periodUsageLimit,
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
+			expiresAt,
 			createdBy: userId,
 		})
 		.returning();
@@ -877,6 +913,7 @@ export async function createApiKeyForProject(
 			periodUsageLimit,
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
+			expiresAt: expiresAt?.toISOString() ?? null,
 		},
 	});
 
@@ -1291,7 +1328,7 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status } = c.req.valid("json");
+	const { status, expiresAt: expiresAtInput } = c.req.valid("json");
 
 	// Get the user's projects
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -1364,16 +1401,56 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	// Resolve the effective TTL: an explicit value (or null) overrides, otherwise
+	// keep whatever expiry the key already had.
+	const expiresAtProvided = expiresAtInput !== undefined;
+	const nextExpiresAt = expiresAtProvided
+		? expiresAtInput === null
+			? null
+			: new Date(expiresAtInput)
+		: (apiKey.expiresAt ?? null);
+
+	// Reactivating a key requires its TTL (if any) to point to a future date,
+	// so an expired key can only come back online with a fresh expiry.
+	if (
+		status === "active" &&
+		nextExpiresAt &&
+		nextExpiresAt.getTime() <= Date.now()
+	) {
+		throw new HTTPException(400, {
+			message:
+				"Set a future expiration date to reactivate this API key. Its TTL has already passed.",
+		});
+	}
+
 	// Update the API key status
 	const [updatedApiKey] = await db
 		.update(tables.apiKey)
 		.set({
 			status,
+			...(expiresAtProvided ? { expiresAt: nextExpiresAt } : {}),
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
-	if (apiKey.status !== status) {
+	const statusChanged = apiKey.status !== status;
+	const expiryChanged =
+		expiresAtProvided &&
+		(apiKey.expiresAt?.getTime() ?? null) !==
+			(nextExpiresAt?.getTime() ?? null);
+
+	if (statusChanged || expiryChanged) {
+		const changes: Record<string, { old: unknown; new: unknown }> = {};
+		if (statusChanged) {
+			changes.status = { old: apiKey.status, new: status };
+		}
+		if (expiryChanged) {
+			changes.expiresAt = {
+				old: apiKey.expiresAt?.toISOString() ?? null,
+				new: nextExpiresAt?.toISOString() ?? null,
+			};
+		}
+
 		await logAuditEvent({
 			organizationId: projectOrgId,
 			userId: user.id,
@@ -1382,9 +1459,7 @@ keysApi.openapi(updateStatus, async (c) => {
 			resourceId: id,
 			metadata: {
 				resourceName: apiKey.description,
-				changes: {
-					status: { old: apiKey.status, new: status },
-				},
+				changes,
 			},
 		});
 	}

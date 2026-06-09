@@ -16,6 +16,10 @@ If you're building an AI feature into your product, you hit the same two problem
 
 Today we're shipping the **LLM SDK** — think Stripe + Stripe Elements, but for AI. Your end-users get their own wallet, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours.
 
+<video src="/blog/llmgateway-topup-flow.webm" controls autoplay muted loop playsinline style="width: 100%; border-radius: 12px; margin: 1.5rem 0;">
+  Your browser does not support the video tag.
+</video>
+
 ## The model: platform wallets
 
 Most "add AI to your app" stories assume _you_ eat the model cost and reconcile it later. We wanted the opposite: each of **your** users holds their own balance, tops it up themselves, and is billed per request — while you earn a margin on top.
@@ -79,7 +83,7 @@ export default function App({ session }) {
     <LLMGatewayProvider
       session={session}
       fetchSession={fetchSession}
-      test={process.env.NODE_ENV !== "production"}
+      mode={process.env.NODE_ENV === "production" ? "prod" : "test"}
     >
       <CreditBalance /> {/* live wallet balance */}
       <BuyCredits amount={10} />{" "}
@@ -91,7 +95,7 @@ export default function App({ session }) {
 }
 ```
 
-That's the whole integration. The session token auto-refreshes before it expires, `<BuyCredits>` loads LLM Gateway's bundled Stripe publishable key, confirms the payment, and the balance updates once the webhook credits the wallet. Pass `test` while developing to use Stripe test mode; you don't need to ship a Stripe publishable key of your own for LLM Gateway payments.
+That's the whole integration. The session token auto-refreshes before it expires, `<BuyCredits>` loads LLM Gateway's bundled Stripe publishable key, confirms the payment, and the balance updates once the webhook credits the wallet. Pass `mode="test"` while developing to use Stripe test mode (`"prod"` is the default); you don't need to ship a Stripe publishable key of your own for LLM Gateway payments.
 
 ## Safe by default
 

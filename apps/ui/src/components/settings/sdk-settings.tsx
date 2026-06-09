@@ -182,12 +182,13 @@ export function SdkSettings({
 		}
 	};
 
-	const createSecret = async () => {
+	const createSecret = async (test: boolean) => {
 		try {
 			const response = await createPlatformKey.mutateAsync({
 				body: {
 					projectId,
-					description: "SDK platform secret",
+					description: test ? "SDK test secret" : "SDK platform secret",
+					test,
 				},
 			});
 			setCreatedToken(response.platformKey.token);
@@ -195,8 +196,10 @@ export function SdkSettings({
 				queryKey: platformKeysQueryKey,
 			});
 			toast({
-				title: "Secret key created",
-				description: "Copy the key now. It will not be shown again.",
+				title: test ? "Test secret key created" : "Secret key created",
+				description: test
+					? "Top-ups with this key use the Stripe sandbox. Copy it now — it won't be shown again."
+					: "Copy the key now. It will not be shown again.",
 			});
 		} catch {
 			toast({
@@ -313,14 +316,25 @@ export function SdkSettings({
 							Server-side keys for minting end-user sessions.
 						</p>
 					</div>
-					<Button
-						type="button"
-						onClick={createSecret}
-						disabled={createPlatformKey.isPending}
-					>
-						<KeyRound className="h-4 w-4" />
-						{createPlatformKey.isPending ? "Creating..." : "Create Secret Key"}
-					</Button>
+					<div className="flex gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => void createSecret(true)}
+							disabled={createPlatformKey.isPending}
+						>
+							<KeyRound className="h-4 w-4" />
+							Create Test Key
+						</Button>
+						<Button
+							type="button"
+							onClick={() => void createSecret(false)}
+							disabled={createPlatformKey.isPending}
+						>
+							<KeyRound className="h-4 w-4" />
+							{createPlatformKey.isPending ? "Creating..." : "Create Live Key"}
+						</Button>
+					</div>
 				</div>
 				<Separator />
 
@@ -374,6 +388,11 @@ export function SdkSettings({
 							<div className="min-w-0 space-y-1">
 								<div className="flex items-center gap-2">
 									<p className="font-medium">{platformKey.description}</p>
+									{platformKey.mode === "test" && (
+										<span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+											test
+										</span>
+									)}
 									<span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
 										{platformKey.status}
 									</span>

@@ -398,7 +398,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.9,
+		priority: 0.1,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -1214,6 +1214,37 @@ export const providers: ProviderDefinition[] = [
 			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
 		headquarters: "US",
 		dataPolicy: null,
+	},
+	{
+		id: "elevenlabs",
+		name: "ElevenLabs",
+		description:
+			"ElevenLabs provides lifelike, low-latency text-to-speech models in 70+ languages.",
+		env: {
+			required: {
+				apiKey: "LLM_ELEVENLABS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ELEVENLABS_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: true,
+		color: "#000000",
+		website: "https://elevenlabs.io",
+		announcement: null,
+		termsUrl: "https://elevenlabs.io/terms-of-use",
+		privacyPolicyUrl: "https://elevenlabs.io/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: true,
+			iso27001: false,
+			gdpr: true,
+		},
 	},
 ] as const satisfies ProviderDefinition[];
 

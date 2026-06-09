@@ -136,6 +136,21 @@ export interface ProviderSelectionResult<T extends AvailableModelProvider> {
 	metadata: RoutingMetadata;
 }
 
+export interface SessionProviderEntry {
+	providerId: string;
+	region?: string;
+}
+
+/**
+ * Persistence backend for sticky-session routing. The gateway implements this
+ * with a Redis-backed per-session entry; selection logic stays pure by reading
+ * and writing through these callbacks.
+ */
+export interface SessionProviderStore {
+	get: () => Promise<SessionProviderEntry | null>;
+	set: (providerId: string, region?: string) => Promise<void>;
+}
+
 export interface ProviderSelectionOptions {
 	metricsMap?: Map<string, ProviderMetrics>;
 	isStreaming?: boolean;
@@ -147,58 +162,21 @@ export interface ProviderSelectionOptions {
 	 */
 	promptTokens?: number;
 	/**
-	 * Sticky-routing session identifier. When provided, the provider (and
-	 * region) is chosen deterministically via rendezvous hashing so that all
-	 * requests for the same session pin to the same provider, maximizing
-	 * upstream prompt-cache hits. Price/uptime scoring is bypassed; the session
-	 * only moves to another provider when its pinned provider is no longer in
-	 * the available list (e.g. excluded by health filtering or removed by the
-	 * retry-fallback loop after the provider failed).
+	 * Sticky-routing session store. When provided (and session stickiness is
+	 * enabled), the provider is selected with the normal weighted-score
+	 * algorithm and then persisted for the session: subsequent requests reuse
+	 * the saved provider so the upstream prompt cache stays warm. The pin only
+	 * breaks when the saved provider leaves the available list or its uptime
+	 * drops below the session uptime threshold, at which point the session is
+	 * re-scored and re-pinned to the new best provider.
 	 */
-	sessionId?: string;
+	sessionProviderStore?: SessionProviderStore;
 	routingConfig?: ResolvedRoutingConfig;
 	organizationId?: string | null;
 	providerDiscountResolver?: (
 		provider: AvailableModelProvider,
 		modelId: string,
 	) => Promise<string | null | undefined> | string | null | undefined;
-}
-
-/**
- * FNV-1a 32-bit hash mapped to the unit interval [0, 1). Deterministic across
- * processes, no crypto needed.
- */
-function hashToUnitInterval(input: string): number {
-	let hash = 0x811c9dc5;
-	for (let i = 0; i < input.length; i++) {
-		hash ^= input.charCodeAt(i);
-		hash = Math.imul(hash, 0x01000193);
-	}
-	return (hash >>> 0) / 0xffffffff;
-}
-
-/**
- * Rendezvous (highest-random-weight) hashing: deterministically pick one
- * provider for a session. Unlike modulo hashing, removing a provider only
- * reassigns the sessions that were pinned to it — every other session keeps
- * its provider.
- */
-function selectStickyProvider<T extends AvailableModelProvider>(
-	providers: T[],
-	sessionId: string,
-): T {
-	let best = providers[0];
-	let bestWeight = -1;
-	for (const provider of providers) {
-		const weight = hashToUnitInterval(
-			`${sessionId}|${provider.providerId}|${provider.region ?? ""}`,
-		);
-		if (weight > bestWeight) {
-			bestWeight = weight;
-			best = provider;
-		}
-	}
-	return best;
 }
 
 function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
@@ -424,6 +402,63 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 }
 
 /**
+ * Apply sticky-session routing on top of a freshly computed selection.
+ *
+ * If the session already has a pinned provider that is still available and
+ * healthy (uptime at or above the session threshold), reuse it so the upstream
+ * prompt cache stays warm. Otherwise persist the just-scored best provider so
+ * subsequent requests in this session reuse it. The pin only moves when its
+ * provider leaves the candidate list or its uptime drops too low.
+ */
+async function applySessionSticky<T extends AvailableModelProvider>(
+	naturalResult: ProviderSelectionResult<T>,
+	candidates: T[],
+	store: SessionProviderStore,
+	cfg: ResolvedRoutingConfig,
+	modelId: string,
+	metricsMap: Map<string, ProviderMetrics> | undefined,
+): Promise<ProviderSelectionResult<T>> {
+	const saved = await store.get();
+	if (saved) {
+		const candidate = candidates.find(
+			(c) =>
+				c.providerId === saved.providerId &&
+				(saved.region === undefined || c.region === saved.region),
+		);
+		if (candidate) {
+			const uptime = metricsMap?.get(
+				metricsKey(modelId, candidate.providerId, candidate.region),
+			)?.uptime;
+			if (uptime === undefined || uptime >= cfg.session.uptimeThreshold) {
+				// Re-persist so the pin's TTL keeps refreshing while the session
+				// stays active.
+				await store.set(candidate.providerId, candidate.region);
+				return {
+					provider: candidate,
+					metadata: {
+						...naturalResult.metadata,
+						selectedProvider: candidate.providerId,
+						selectionReason: "session-sticky",
+					},
+				};
+			}
+		}
+	}
+
+	await store.set(
+		naturalResult.provider.providerId,
+		naturalResult.provider.region,
+	);
+	return {
+		provider: naturalResult.provider,
+		metadata: {
+			...naturalResult.metadata,
+			selectionReason: "session-sticky",
+		},
+	};
+}
+
+/**
  * Get the best provider from a list of available model providers.
  * Considers price, uptime, throughput, and latency metrics.
  *
@@ -489,63 +524,22 @@ export async function getCheapestFromAvailableProviders<
 		options,
 	);
 
-	// Sticky routing: when a session id is provided (and session stickiness is
-	// enabled for the project), pin the session to a single provider via
-	// rendezvous hashing. Bypasses scoring and exploration so the upstream
-	// prompt cache stays warm; the session only moves if its provider leaves
-	// the available list (health filtering or retry-fallback exclusion).
-	const sessionId = options?.sessionId?.trim();
-	if (sessionId && cfg.session.enabled) {
-		const stickyProvider = selectStickyProvider(stableProviders, sessionId);
-		return {
-			provider: stickyProvider,
-			metadata: {
-				availableProviders: stableProviders.map((p) => p.providerId),
-				selectedProvider: stickyProvider.providerId,
-				selectionReason: "session-sticky",
-				providerScores: stableProviders.map((provider) => {
-					const providerInfo = findProviderMapping(
-						modelWithPricing.providers,
-						provider,
-					);
-					const providerDef = getProviderDefinition(provider.providerId);
-					const priority = providerDef?.priority ?? 1;
-					const metrics = metricsMap?.get(
-						metricsKey(
-							modelWithPricing.id,
-							provider.providerId,
-							provider.region,
-						),
-					);
-
-					return {
-						providerId: provider.providerId,
-						region: provider.region,
-						score: 0,
-						uptime: metrics?.uptime,
-						latency: metrics?.averageLatency,
-						throughput: metrics?.throughput,
-						price: (
-							providerSelectionPrices.get(providerSelectionKey(provider))
-								?.price ?? getProviderSelectionPrice(providerInfo, videoPricing)
-						).toNumber(),
-						priority,
-						cacheSupported: providerSupportsCaching(
-							providerInfo as ProviderModelMapping | undefined,
-						),
-						discount: providerSelectionPrices
-							.get(providerSelectionKey(provider))
-							?.discount.toNumber(),
-					};
-				}),
-			},
-		};
-	}
+	// Sticky routing: when a session store is provided (and session stickiness
+	// is enabled for the project), the provider is scored with the normal
+	// weighted algorithm below and then pinned for the session via the store.
+	// Exploration is skipped so the deterministic best is what gets persisted.
+	const sessionStore = options?.sessionProviderStore;
+	const sessionSticky = sessionStore !== undefined && cfg.session.enabled;
 
 	// Epsilon-greedy exploration: randomly select a provider some % of the time
 	// (configurable per project via thresholds.explorationRate). Skip during tests
-	// to keep behavior deterministic.
-	if (!isTestProcess() && Math.random() < getExplorationRate(cfg)) {
+	// to keep behavior deterministic, and for sticky sessions where we want the
+	// scored best provider to be the one we pin.
+	if (
+		!sessionSticky &&
+		!isTestProcess() &&
+		Math.random() < getExplorationRate(cfg)
+	) {
 		const randomProvider =
 			stableProviders[Math.floor(Math.random() * stableProviders.length)];
 		return {
@@ -594,13 +588,23 @@ export async function getCheapestFromAvailableProviders<
 
 	// If no metrics provided, fall back to price-only selection
 	if (!metricsMap || metricsMap.size === 0) {
-		return selectByPriceOnly(
+		const priceOnlyResult = selectByPriceOnly(
 			stableProviders,
 			modelWithPricing,
 			videoPricing,
 			cfg,
 			providerSelectionPrices,
 		);
+		return sessionSticky
+			? await applySessionSticky(
+					priceOnlyResult,
+					stableProviders,
+					sessionStore,
+					cfg,
+					modelWithPricing.id,
+					metricsMap,
+				)
+			: priceOnlyResult;
 	}
 
 	// If the project zeroed out every scoring weight, the weighted-score path
@@ -615,13 +619,23 @@ export async function getCheapestFromAvailableProviders<
 		effectiveLatencyWeight +
 		effectiveCacheWeight;
 	if (totalWeight <= 0) {
-		return selectByPriceOnly(
+		const priceOnlyResult = selectByPriceOnly(
 			stableProviders,
 			modelWithPricing,
 			videoPricing,
 			cfg,
 			providerSelectionPrices,
 		);
+		return sessionSticky
+			? await applySessionSticky(
+					priceOnlyResult,
+					stableProviders,
+					sessionStore,
+					cfg,
+					modelWithPricing.id,
+					metricsMap,
+				)
+			: priceOnlyResult;
 	}
 
 	// Calculate scores for each provider
@@ -789,10 +803,21 @@ export async function getCheapestFromAvailableProviders<
 		}),
 	};
 
-	return {
+	const weightedResult = {
 		provider: bestProvider.provider,
 		metadata,
 	};
+
+	return sessionSticky
+		? await applySessionSticky(
+				weightedResult,
+				stableProviders,
+				sessionStore,
+				cfg,
+				modelWithPricing.id,
+				metricsMap,
+			)
+		: weightedResult;
 }
 
 /**

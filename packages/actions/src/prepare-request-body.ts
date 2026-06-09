@@ -1814,21 +1814,21 @@ export async function prepareRequestBody(
 			}
 
 			// Handle tool_choice parameter - transform OpenAI format to Anthropic format
-			if (tool_choice) {
+			if (resolvedToolChoice) {
 				if (
-					typeof tool_choice === "object" &&
-					tool_choice.type === "function"
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
 				) {
 					// Transform OpenAI format to Anthropic format
 					requestBody.tool_choice = {
 						type: "tool",
-						name: tool_choice.function.name,
+						name: resolvedToolChoice.function.name,
 					};
-				} else if (tool_choice === "required") {
+				} else if (resolvedToolChoice === "required") {
 					requestBody.tool_choice = { type: "any" };
-				} else if (tool_choice === "auto") {
+				} else if (resolvedToolChoice === "auto") {
 					// "auto" is the default behavior for Anthropic, omit it
-				} else if (tool_choice === "none") {
+				} else if (resolvedToolChoice === "none") {
 					requestBody.tool_choice = { type: "none" };
 				}
 			}
@@ -1839,7 +1839,10 @@ export async function prepareRequestBody(
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					// The model decides whether to engage thinking based on prompt complexity.
-					requestBody.thinking = { type: "adaptive" };
+					// `display: "summarized"` is required on Opus 4.7/4.8 to receive readable
+					// thinking text — their default flipped to "omitted" (empty thinking,
+					// signature only), unlike Opus 4.6 which defaults to "summarized".
+					requestBody.thinking = { type: "adaptive", display: "summarized" };
 					if (effort === undefined && reasoning_effort) {
 						const mapEffort = (
 							e: typeof reasoning_effort,
@@ -2255,8 +2258,12 @@ export async function prepareRequestBody(
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					requestBody.additionalModelRequestFields ??= {};
+					// `display: "summarized"` is required on Opus 4.7/4.8 to receive
+					// readable thinking text — their default flipped to "omitted"
+					// (empty thinking, signature only), unlike Opus 4.6.
 					requestBody.additionalModelRequestFields.thinking = {
 						type: "adaptive",
+						display: "summarized",
 					};
 					const mapEffort = (
 						e: typeof reasoning_effort,
@@ -2367,23 +2374,27 @@ export async function prepareRequestBody(
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
 			// Map OpenAI tool_choice to Google's toolConfig format
-			if (tool_choice && tools && tools.filter(isFunctionTool).length > 0) {
-				if (tool_choice === "required") {
+			if (
+				resolvedToolChoice &&
+				tools &&
+				tools.filter(isFunctionTool).length > 0
+			) {
+				if (resolvedToolChoice === "required") {
 					requestBody.toolConfig = {
 						functionCallingConfig: { mode: "ANY" },
 					};
-				} else if (tool_choice === "none") {
+				} else if (resolvedToolChoice === "none") {
 					requestBody.toolConfig = {
 						functionCallingConfig: { mode: "NONE" },
 					};
 				} else if (
-					typeof tool_choice === "object" &&
-					tool_choice.type === "function"
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
 				) {
 					requestBody.toolConfig = {
 						functionCallingConfig: {
 							mode: "ANY",
-							allowedFunctionNames: [tool_choice.function.name],
+							allowedFunctionNames: [resolvedToolChoice.function.name],
 						},
 					};
 				}

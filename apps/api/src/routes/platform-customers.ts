@@ -100,7 +100,11 @@ platformCustomers.openapi(listCustomers, async (c) => {
 	const { limit = 50, offset = 0 } = c.req.valid("query");
 
 	const customers = await db.query.endCustomer.findMany({
-		where: { projectId: { eq: platformKey.projectId } },
+		// Scope to the key's mode so a test key never sees live customers/wallets.
+		where: {
+			projectId: { eq: platformKey.projectId },
+			mode: { eq: platformKey.mode },
+		},
 		with: { wallet: true },
 		orderBy: { createdAt: "desc" },
 		limit,
@@ -172,7 +176,11 @@ platformCustomers.openapi(getCustomer, async (c) => {
 	const { id } = c.req.param();
 
 	const cust = await db.query.endCustomer.findFirst({
-		where: { id: { eq: id }, projectId: { eq: platformKey.projectId } },
+		where: {
+			id: { eq: id },
+			projectId: { eq: platformKey.projectId },
+			mode: { eq: platformKey.mode },
+		},
 		with: { wallet: true },
 	});
 	if (!cust) {
