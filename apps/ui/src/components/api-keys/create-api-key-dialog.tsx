@@ -28,6 +28,11 @@ import {
 	buildApiKeyLimitPayload,
 	createApiKeyLimitFormValue,
 } from "./api-key-limit-fields";
+import {
+	ApiKeyTtlFields,
+	buildApiKeyTtlExpiresAt,
+	createApiKeyTtlFormValue,
+} from "./api-key-ttl-fields";
 
 import type { Project } from "@/lib/types";
 import type React from "react";
@@ -53,6 +58,7 @@ export function CreateApiKeyDialog({
 	const [limitValue, setLimitValue] = useState(() =>
 		createApiKeyLimitFormValue(),
 	);
+	const [ttlValue, setTtlValue] = useState(() => createApiKeyTtlFormValue());
 	const [apiKey, setApiKey] = useState("");
 	const api = useApi();
 
@@ -75,11 +81,18 @@ export function CreateApiKeyDialog({
 			return;
 		}
 
+		const { error: ttlError, expiresAt } = buildApiKeyTtlExpiresAt(ttlValue);
+		if (ttlError) {
+			toast({ title: ttlError, variant: "destructive" });
+			return;
+		}
+
 		try {
 			const data = await createApiKeyMutation.mutateAsync({
 				body: {
 					description: name.trim(),
 					projectId: selectedProject.id,
+					expiresAt,
 					...payload,
 				},
 			});
@@ -122,6 +135,7 @@ export function CreateApiKeyDialog({
 			setName("");
 			setApiKey("");
 			setLimitValue(createApiKeyLimitFormValue());
+			setTtlValue(createApiKeyTtlFormValue());
 		}, 300);
 	};
 
@@ -188,6 +202,11 @@ export function CreateApiKeyDialog({
 									required
 								/>
 							</div>
+							<ApiKeyTtlFields
+								idPrefix="create-api-key"
+								value={ttlValue}
+								onChange={setTtlValue}
+							/>
 							<ApiKeyLimitFields
 								idPrefix="create-api-key"
 								value={limitValue}

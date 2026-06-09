@@ -45,6 +45,7 @@ export const zaiModels = [
 				providerId: "together-ai",
 				externalId: "zai-org/GLM-5.1",
 				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
 				requestPrice: "0",
 				contextSize: 202752,

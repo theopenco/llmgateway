@@ -16,6 +16,7 @@ LLM Gateway provides comprehensive API key management with the following feature
 
 - **Basic API Key Management**: Create, list, update, and delete API keys
 - **Usage Limits**: Set lifetime and recurring spending limits on individual API keys
+- **Expiration (TTL)**: Give a key a time-to-live so it disables itself automatically
 - **IAM Rules**: Fine-grained access control for models, providers, and pricing
 - **Usage Tracking**: Monitor API key usage and costs
 - **Status Management**: Enable/disable keys without deletion
@@ -32,7 +33,8 @@ At this time, API keys can only be created via the dashboard.
 4. Provide a description for your key
 5. Optionally set an all-time usage limit
 6. Optionally set a recurring usage limit such as `$10 / day` or `$500 / month`
-7. Click **Create**
+7. Optionally set an expiration (TTL) such as `30 minutes`, `12 hours`, or `7 days`
+8. Click **Create**
 
 <Callout type="warning">
 	API keys are shown in full only once during creation. Make sure to copy and
@@ -56,6 +58,31 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 ## Disabling/Enabling API Keys
 
 You can disable an API key to stop it from being used, but the key is not deleted and can be re-enabled later.
+
+## Expiration (TTL)
+
+You can give an API key a **time-to-live (TTL)** when you create it. Set how long
+the key should live — in **minutes**, **hours**, or **days** — and it will be
+disabled automatically once that time passes. This is ideal for short-lived
+integrations, demos, CI jobs, and temporary access.
+
+- A key works normally until its expiration time
+- Once expired, the gateway rejects requests with that key with a `401 Unauthorized`
+- A background job marks expired keys as **inactive**, so the dashboard reflects
+  the disabled state
+- Keys created without a TTL never expire (the default)
+
+### Reactivating an Expired Key
+
+An expired key is paused, not deleted. To bring it back online you must reactivate
+it **with a new future expiration** — an expired key cannot be re-enabled while its
+TTL is still in the past. Keys that have no TTL, or whose TTL is still in the
+future, can be enabled and disabled freely without setting a new expiration.
+
+<Callout type="info">
+	Expiration is independent of usage limits. A key can hit its TTL before, or
+	instead of, reaching a spend cap.
+</Callout>
 
 ## Usage Limits
 
@@ -144,6 +171,7 @@ Common error scenarios:
 - Provider blocked by IAM rules
 - Pricing limits exceeded
 - API key disabled or deleted
+- API key expired (TTL passed)
 - Usage limit reached
 
 ## Migration from Legacy Keys
