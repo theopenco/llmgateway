@@ -160,6 +160,7 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "bytedance",

@@ -597,6 +597,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "embercloud",
@@ -805,6 +806,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
