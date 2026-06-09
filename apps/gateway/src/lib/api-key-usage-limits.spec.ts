@@ -54,6 +54,43 @@ describe("assertApiKeyWithinUsageLimits", () => {
 		).toThrowError(/current period usage limit/);
 	});
 
+	it("blocks when the key's TTL has passed", () => {
+		expect(() =>
+			assertApiKeyWithinUsageLimits(
+				{
+					...baseApiKey,
+					expiresAt: new Date("2026-03-29T09:00:00.000Z"),
+				},
+				new Date("2026-03-29T12:00:00.000Z"),
+			),
+		).toThrowError(/has expired/);
+	});
+
+	it("allows keys whose TTL is still in the future", () => {
+		expect(() =>
+			assertApiKeyWithinUsageLimits(
+				{
+					...baseApiKey,
+					expiresAt: new Date("2026-03-29T15:00:00.000Z"),
+				},
+				new Date("2026-03-29T12:00:00.000Z"),
+			),
+		).not.toThrow();
+	});
+
+	it("ignores TTL for non-developer key types", () => {
+		expect(() =>
+			assertApiKeyWithinUsageLimits(
+				{
+					...baseApiKey,
+					keyType: "end_user_customer",
+					expiresAt: new Date("2026-03-29T09:00:00.000Z"),
+				},
+				new Date("2026-03-29T12:00:00.000Z"),
+			),
+		).not.toThrow();
+	});
+
 	it("treats expired periods as reset", () => {
 		expect(() =>
 			assertApiKeyWithinUsageLimits(

@@ -97,6 +97,7 @@ const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
+const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
@@ -2012,6 +2013,68 @@ async function runEndUserSessionCleanupLoop() {
 	}
 }
 
+/**
+ * Disable developer API keys whose TTL has passed. The gateway already rejects
+ * expired keys in real time; this persists the "inactive" status so the
+ * dashboard reflects it and the key can be reactivated with a fresh TTL.
+ */
+async function disableExpiredApiKeys(): Promise<void> {
+	const lockAcquired = await acquireLock(API_KEY_EXPIRATION_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		// `lt(expiresAt, now)` naturally skips keys with a NULL expiry (never
+		// expire). Scoped to developer keys; platform/end-user keys have their
+		// own lifecycle.
+		const expired = await db
+			.update(tables.apiKey)
+			.set({ status: "inactive" })
+			.where(
+				and(
+					eq(tables.apiKey.keyType, "user"),
+					eq(tables.apiKey.status, "active"),
+					lt(tables.apiKey.expiresAt, new Date()),
+				),
+			)
+			.returning({ id: tables.apiKey.id });
+
+		if (expired.length > 0) {
+			logger.info(`Disabled ${expired.length} expired API key(s)`);
+		}
+	} finally {
+		await releaseLock(API_KEY_EXPIRATION_LOCK_KEY);
+	}
+}
+
+async function runApiKeyExpirationLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 300 : 60) * 1000; // 5 minutes in prod, 1 minute in dev
+	logger.info(
+		`Starting API key expiration loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await disableExpiredApiKeys();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in API key expiration loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("API key expiration loop stopped");
+	}
+}
+
 const MAX_WEBHOOK_ATTEMPTS = 5;
 const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
 
@@ -2376,6 +2439,9 @@ export async function startWorker() {
 	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",
 	);
+	logger.info(
+		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
+	);
 
 	void runMinutelyHistoryLoop();
 	void runCurrentMinuteHistoryLoop();
@@ -2389,6 +2455,7 @@ export async function startWorker() {
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
 	void runEndUserSessionCleanupLoop();
+	void runApiKeyExpirationLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({
