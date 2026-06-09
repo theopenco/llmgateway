@@ -37,6 +37,7 @@ import { getProviderHeaders } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	ELEVENLABS_VOICE_IDS,
 	getProviderEnvValue,
 	models as modelDefinitions,
 } from "@llmgateway/models";
@@ -150,9 +151,14 @@ function extractUpstreamErrorMessage(value: unknown, fallback: string): string {
 const PROVIDER_BASE_URL_DEFAULTS: Partial<Record<string, string>> = {
 	"google-ai-studio": "https://generativelanguage.googleapis.com",
 	openai: "https://api.openai.com",
+	elevenlabs: "https://api.elevenlabs.io",
 };
 
-const SUPPORTED_PROVIDERS = new Set(["google-ai-studio", "openai"]);
+const SUPPORTED_PROVIDERS = new Set([
+	"google-ai-studio",
+	"openai",
+	"elevenlabs",
+]);
 
 // Response formats Gemini can satisfy. Gemini emits raw PCM, so the gateway can
 // only return PCM directly or wrapped in a WAV container.
@@ -176,6 +182,22 @@ const OPENAI_CONTENT_TYPES: Record<string, string> = {
 	flac: "audio/flac",
 	wav: "audio/wav",
 	pcm: "audio/pcm",
+};
+
+// ElevenLabs returns the audio already encoded in the requested format. It does
+// not support aac/flac, but adds first-class WAV (RIFF-wrapped) output, so the
+// gateway can pass every supported format straight through.
+const ELEVENLABS_RESPONSE_FORMATS = new Set(["mp3", "wav", "pcm", "opus"]);
+
+// Maps the gateway's generic response_format to the concrete ElevenLabs
+// `output_format` query value (codec + sample rate + bitrate). WAV and PCM use
+// 32 kHz — the highest rate available across all paid plans (and free), since
+// the 44.1 kHz WAV/PCM variants are gated behind the Pro tier.
+const ELEVENLABS_OUTPUT_FORMATS: Record<string, string> = {
+	mp3: "mp3_44100_128",
+	wav: "wav_32000",
+	pcm: "pcm_32000",
+	opus: "opus_48000_128",
 };
 
 /**
@@ -420,6 +442,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
 	const isOpenAI = providerId === "openai";
+	const isElevenLabs = providerId === "elevenlabs";
+	// OpenAI and ElevenLabs both return audio already encoded in the requested
+	// format and bill independently of Gemini's inline-PCM path.
+	const isEncodedPassthrough = isOpenAI || isElevenLabs;
 	// OpenAI models split into two billing/transport modes:
 	//   - character-billed (tts-1, tts-1-hd): plain binary response, no usage.
 	//   - token-billed (gpt-4o-mini-tts): request stream_format=sse so the
@@ -442,17 +468,22 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		);
 	}
 
-	const responseFormat = request.response_format ?? (isOpenAI ? "mp3" : "wav");
+	const responseFormat =
+		request.response_format ?? (isEncodedPassthrough ? "mp3" : "wav");
 	const allowedFormats = isOpenAI
 		? OPENAI_RESPONSE_FORMATS
-		: GOOGLE_RESPONSE_FORMATS;
+		: isElevenLabs
+			? ELEVENLABS_RESPONSE_FORMATS
+			: GOOGLE_RESPONSE_FORMATS;
 	if (!allowedFormats.has(responseFormat)) {
 		return c.json(
 			{
 				error: {
 					message: isOpenAI
 						? `Unsupported response_format '${responseFormat}'.`
-						: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
+						: isElevenLabs
+							? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
+							: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
 					type: "invalid_request_error",
 					param: "response_format",
 					code: "unsupported_response_format",
@@ -591,17 +622,27 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					: {}),
 				...(useSse ? { stream_format: "sse" } : {}),
 			}
-		: {
-				contents: [{ role: "user", parts: [{ text: promptText }] }],
-				generationConfig: {
-					responseModalities: ["AUDIO"],
-					speechConfig: {
-						voiceConfig: {
-							prebuiltVoiceConfig: { voiceName: voice },
+		: isElevenLabs
+			? {
+					// The voice id is encoded in the URL path; the output format is a
+					// query param. `speed` is forwarded via voice_settings when set.
+					text: request.input,
+					model_id: upstreamModel,
+					...(request.speed !== undefined
+						? { voice_settings: { speed: request.speed } }
+						: {}),
+				}
+			: {
+					contents: [{ role: "user", parts: [{ text: promptText }] }],
+					generationConfig: {
+						responseModalities: ["AUDIO"],
+						speechConfig: {
+							voiceConfig: {
+								prebuiltVoiceConfig: { voiceName: voice },
+							},
 						},
 					},
-				},
-			};
+				};
 
 	interface SpeechAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -708,9 +749,18 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			PROVIDER_BASE_URL_DEFAULTS[providerId] ??
 			"https://generativelanguage.googleapis.com";
 
+		const elevenLabsOutputFormat =
+			ELEVENLABS_OUTPUT_FORMATS[responseFormat] ?? "mp3_44100_128";
+		// ElevenLabs voices are addressed by id. Resolve our friendly voice name
+		// to the upstream id, falling back to the raw value so callers may also
+		// pass a voice id directly.
+		const elevenLabsVoiceId = ELEVENLABS_VOICE_IDS[voice] ?? voice;
+
 		const upstreamUrl = isOpenAI
 			? `${resolvedBaseUrl}/v1/audio/speech`
-			: `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
+			: isElevenLabs
+				? `${resolvedBaseUrl}/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}?output_format=${elevenLabsOutputFormat}`
+				: `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
 
 		return { providerKey, usedToken, configIndex, envVarName, upstreamUrl };
 	}
@@ -1074,8 +1124,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
 			}
 
-			// OpenAI returns the audio already encoded in the requested format.
-			if (isOpenAI) {
+			// OpenAI and ElevenLabs return the audio already encoded in the
+			// requested format. ElevenLabs bills by input characters, matching the
+			// binary (non-SSE) OpenAI path below.
+			if (isEncodedPassthrough) {
 				let out: Buffer;
 				let contentType: string;
 				let inputCost: number;
@@ -1215,7 +1267,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					outputCost =
 						outputTokens !== null ? outputTokens * outputAudioPrice : 0;
 				} else {
-					// tts-1 / tts-1-hd: binary passthrough billed by input characters.
+					// tts-1 / tts-1-hd and all ElevenLabs models: binary passthrough
+					// billed by input characters.
 					out = Buffer.from(await upstreamResponse.arrayBuffer());
 					contentType =
 						upstreamResponse.headers.get("content-type") ??

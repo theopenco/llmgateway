@@ -1193,6 +1193,37 @@ export const providers: ProviderDefinition[] = [
 			gdpr: true,
 		},
 	},
+	{
+		id: "elevenlabs",
+		name: "ElevenLabs",
+		description:
+			"ElevenLabs provides lifelike, low-latency text-to-speech models in 70+ languages.",
+		env: {
+			required: {
+				apiKey: "LLM_ELEVENLABS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ELEVENLABS_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: true,
+		color: "#000000",
+		website: "https://elevenlabs.io",
+		announcement: null,
+		termsUrl: "https://elevenlabs.io/terms-of-use",
+		privacyPolicyUrl: "https://elevenlabs.io/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: true,
+			iso27001: false,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
