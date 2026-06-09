@@ -1109,6 +1109,20 @@ const globalStatsBreakdownItemSchema = globalStatsMetricsSchema
 	})
 	.openapi({});
 
+// Per-day, per-dimension point. Only the three chartable metrics are returned
+// to keep the payload small; the client picks the top dimensions per metric and
+// collapses the rest into an "Other" bucket.
+const globalStatsTimeseriesBreakdownPointSchema = z
+	.object({
+		date: z.string(),
+		key: z.string(),
+		label: z.string(),
+		requestCount: z.number(),
+		cost: z.number(),
+		totalTokens: z.number(),
+	})
+	.openapi({});
+
 const globalStatsResponseSchema = z.object({
 	start: z.string(),
 	end: z.string(),
@@ -1116,6 +1130,7 @@ const globalStatsResponseSchema = z.object({
 	modelView: globalStatsModelViewSchema,
 	totals: globalStatsMetricsSchema,
 	timeseries: z.array(globalStatsTimeseriesPointSchema),
+	timeseriesBreakdown: z.array(globalStatsTimeseriesBreakdownPointSchema),
 	breakdown: z.array(globalStatsBreakdownItemSchema),
 });
 
@@ -1387,6 +1402,83 @@ admin.openapi(getGlobalStats, async (c) => {
 						};
 					});
 
+	const timeseriesBreakdownRows =
+		groupBy === "model"
+			? await db
+					.select({
+						date: dateExpr,
+						usedModel: globalModelStats.usedModel,
+						usedProvider: globalModelStats.usedProvider,
+						...metricSums,
+					})
+					.from(globalModelStats)
+					.where(
+						and(
+							gte(globalModelStats.dayTimestamp, startDate),
+							lte(globalModelStats.dayTimestamp, endDate),
+						),
+					)
+					.groupBy(
+						globalModelStats.dayTimestamp,
+						globalModelStats.usedModel,
+						globalModelStats.usedProvider,
+					)
+			: await db
+					.select({
+						date: dateExpr,
+						source: globalSourceStats.source,
+						...metricSums,
+					})
+					.from(globalSourceStats)
+					.where(
+						and(
+							gte(globalSourceStats.dayTimestamp, startDate),
+							lte(globalSourceStats.dayTimestamp, endDate),
+						),
+					)
+					.groupBy(globalSourceStats.dayTimestamp, globalSourceStats.source);
+
+	const timeseriesBreakdownMap = new Map<
+		string,
+		z.infer<typeof globalStatsTimeseriesBreakdownPointSchema>
+	>();
+	for (const row of timeseriesBreakdownRows) {
+		let key: string;
+		if (groupBy === "model") {
+			const modelRow = row as (typeof timeseriesBreakdownRows)[number] & {
+				usedModel: string;
+				usedProvider: string;
+			};
+			key =
+				modelView === "canonical"
+					? extractCanonicalModelId(modelRow.usedModel)
+					: modelView === "provider"
+						? modelRow.usedProvider || "unknown"
+						: modelRow.usedModel;
+		} else {
+			key = (
+				row as (typeof timeseriesBreakdownRows)[number] & { source: string }
+			).source;
+		}
+		const mapKey = `${row.date} ${key}`;
+		const existing = timeseriesBreakdownMap.get(mapKey);
+		if (existing) {
+			existing.requestCount += Number(row.requestCount);
+			existing.cost += Number(row.cost);
+			existing.totalTokens += Number(row.totalTokens);
+		} else {
+			timeseriesBreakdownMap.set(mapKey, {
+				date: row.date,
+				key,
+				label: key,
+				requestCount: Number(row.requestCount),
+				cost: Number(row.cost),
+				totalTokens: Number(row.totalTokens),
+			});
+		}
+	}
+	const timeseriesBreakdown = Array.from(timeseriesBreakdownMap.values());
+
 	return c.json({
 		start: startDate.toISOString().split("T")[0],
 		end: endDate.toISOString().split("T")[0],
@@ -1394,6 +1486,7 @@ admin.openapi(getGlobalStats, async (c) => {
 		modelView,
 		totals,
 		timeseries,
+		timeseriesBreakdown,
 		breakdown,
 	});
 });
