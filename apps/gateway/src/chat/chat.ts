@@ -18,6 +18,7 @@ import {
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
+	findEffectiveDiscount,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -30,6 +31,7 @@ import {
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import {
 	assertOriginAllowed,
+	assertTestWalletModelAllowed,
 	loadEndUserWallet,
 	withCreditsMode,
 	withWalletCredits,
@@ -47,6 +49,7 @@ import {
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
+	createSessionProviderStore,
 	getPreferredProvider,
 	resolvePreferredProvider,
 	setPreferredProvider,
@@ -73,10 +76,10 @@ import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 import {
 	applyGoogleServiceTier,
 	getCheapestFromAvailableProviders,
+	getDiscountedProviderSelectionPrice,
 	getProviderEndpoint,
 	getProviderHeaders,
 	resolveServedServiceTier,
-	getProviderSelectionPrice,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
@@ -345,7 +348,16 @@ function preferConcreteRegionalMappings(
 	);
 }
 
-function collapseProvidersToBestRegionPerProvider(
+function createProviderDiscountResolver(organizationId: string) {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
+			.discount;
+}
+
+async function collapseProvidersToBestRegionPerProvider(
 	candidates: ProviderModelMapping[],
 	model: ModelDefinition & {
 		id: string;
@@ -355,10 +367,10 @@ function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
-		sessionId?: string;
 		routingConfig?: ResolvedRoutingConfig;
+		organizationId: string;
 	},
-): ProviderModelMapping[] {
+): Promise<ProviderModelMapping[]> {
 	const providersById = new Map<string, ProviderModelMapping[]>();
 
 	for (const candidate of candidates) {
@@ -367,19 +379,28 @@ function collapseProvidersToBestRegionPerProvider(
 		providersById.set(candidate.providerId, providerCandidates);
 	}
 
-	return Array.from(providersById.values()).map((providerCandidates) => {
-		if (providerCandidates.length === 1) {
-			return providerCandidates[0];
-		}
+	const collapsedProviders = await Promise.all(
+		Array.from(providersById.values()).map(async (providerCandidates) => {
+			if (providerCandidates.length === 1) {
+				return providerCandidates[0];
+			}
 
-		const bestCandidate = getCheapestFromAvailableProviders(
-			providerCandidates,
-			model,
-			options,
-		);
+			const bestCandidate = await getCheapestFromAvailableProviders(
+				providerCandidates,
+				model,
+				{
+					...options,
+					providerDiscountResolver: createProviderDiscountResolver(
+						options.organizationId,
+					),
+				},
+			);
 
-		return bestCandidate?.provider ?? providerCandidates[0];
-	});
+			return bestCandidate?.provider ?? providerCandidates[0];
+		}),
+	);
+
+	return collapsedProviders;
 }
 
 function resolveRegionFromProviderKey(
@@ -623,13 +644,15 @@ function getContentFilterRoutingDecision(
 	};
 }
 
-function addContentFilterRoutingMetadata(
+async function addContentFilterRoutingMetadata(
 	routingMetadata: RoutingMetadata,
 	contentFilterMatched: boolean,
 	excludedProviders: ProviderModelMapping[],
 	modelId: string | undefined,
 	metricsMap: Map<string, ProviderMetrics>,
-): RoutingMetadata {
+	organizationId: string,
+	providerDiscountResolver: ReturnType<typeof createProviderDiscountResolver>,
+): Promise<RoutingMetadata> {
 	if (!contentFilterMatched) {
 		return routingMetadata;
 	}
@@ -642,23 +665,31 @@ function addContentFilterRoutingMetadata(
 		excludedProviders.length === 0 || !modelId
 			? routingMetadata.providerScores
 			: [
-					...excludedProviders.map((provider) => {
-						const metrics = metricsMap.get(
-							metricsKey(modelId, provider.providerId, provider.region),
-						);
+					...(await Promise.all(
+						excludedProviders.map(async (provider) => {
+							const metrics = metricsMap.get(
+								metricsKey(modelId, provider.providerId, provider.region),
+							);
+							const { price, discount } =
+								await getDiscountedProviderSelectionPrice(provider, modelId, {
+									organizationId,
+									providerDiscountResolver,
+								});
 
-						return {
-							providerId: provider.providerId,
-							region: provider.region,
-							score: -1,
-							uptime: metrics?.uptime ?? 0,
-							latency: metrics?.averageLatency ?? 0,
-							throughput: metrics?.throughput ?? 0,
-							price: getProviderSelectionPrice(provider).toNumber(),
-							contentFilterProvider: true,
-							excludedByContentFilter: true,
-						};
-					}),
+							return {
+								providerId: provider.providerId,
+								region: provider.region,
+								score: -1,
+								uptime: metrics?.uptime ?? 0,
+								latency: metrics?.averageLatency ?? 0,
+								throughput: metrics?.throughput ?? 0,
+								price: price.toNumber(),
+								discount: discount.toNumber(),
+								contentFilterProvider: true,
+								excludedByContentFilter: true,
+							};
+						}),
+					)),
 					...routingMetadata.providerScores,
 				];
 
@@ -1681,6 +1712,12 @@ chat.openapi(completions, async (c) => {
 	// (Shared with embeddings/moderations via apps/gateway/src/lib/end-user-session.ts.)
 	const endUserWallet = (await loadEndUserWallet(apiKey)) ?? undefined;
 
+	// Test-mode end-user wallets are funded by Stripe-sandbox top-ups, so they may
+	// only spend on free models — force free-models-only auto routing for them, and
+	// reject explicitly-requested paid models below once `modelInfo` is resolved.
+	const effectiveFreeModelsOnly =
+		free_models_only || endUserWallet?.mode === "test";
+
 	// Get the project to determine mode for routing decisions
 	let project = await findProjectById(apiKey.projectId);
 
@@ -1703,6 +1740,10 @@ chat.openapi(completions, async (c) => {
 		assertOriginAllowed(c, project);
 		project = withCreditsMode(project);
 	}
+
+	const providerDiscountResolver = createProviderDiscountResolver(
+		project.organizationId,
+	);
 
 	const buildFinalResponseMetadata = (discount?: number | null) =>
 		toResponseMetadataExtras({
@@ -1928,6 +1969,22 @@ chat.openapi(completions, async (c) => {
 		project.id,
 		organization.plan,
 	);
+
+	// Sticky-session routing: when the request carries a session id and the
+	// project has session stickiness enabled, provider selection is scored
+	// normally and then pinned for the session via this store. The store is
+	// keyed per (org, model, session); creating it lazily per model id keeps the
+	// final routing decision pinned without affecting region sub-selection.
+	const sessionStickyEnabled = Boolean(sessionId) && routingCfg.session.enabled;
+	const createSessionStore = (modelId: string) =>
+		sessionStickyEnabled && sessionId
+			? createSessionProviderStore(
+					project.organizationId,
+					modelId,
+					sessionId,
+					routingCfg.session.ttlSeconds,
+				)
+			: undefined;
 
 	const retryProjectContext = {
 		mode: project.mode,
@@ -2349,6 +2406,16 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// Skip models that can't emit text. Auto routes chat completions, so
+			// audio/video/embedding/image-only output models (e.g. tts-1) must never
+			// be candidates — they fail upstream on /v1/chat/completions. This guard
+			// also applies on the audio-input path below, where the allowlist check
+			// is intentionally relaxed.
+			const candidateOutput = (modelDef as ModelDefinition).output;
+			if (candidateOutput && !candidateOutput.includes("text")) {
+				continue;
+			}
+
 			// Starter chat plan can't reach blocked frontier models. Enforce it
 			// during auto-selection too, otherwise an "auto" request would skip
 			// the pre-routing check above and resolve to a blocked model.
@@ -2361,7 +2428,7 @@ chat.openapi(completions, async (c) => {
 
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
-			if (free_models_only) {
+			if (effectiveFreeModelsOnly) {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
@@ -2388,6 +2455,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 				modelDef,
 				clientIp,
+				{ autoRouting: true },
 			);
 			if (!candidateIam.allowed) {
 				continue;
@@ -2532,10 +2600,15 @@ chat.openapi(completions, async (c) => {
 			if (suitableProviders.length > 0) {
 				// Find the cheapest among the suitable providers for this model
 				for (const provider of suitableProviders) {
-					const totalPrice =
-						(Number(provider.inputPrice ?? "0") +
-							Number(provider.outputPrice ?? "0")) /
-						2;
+					const { price } = await getDiscountedProviderSelectionPrice(
+						provider,
+						modelDef.id,
+						{
+							organizationId: project.organizationId,
+							providerDiscountResolver,
+						},
+					);
+					const totalPrice = price.toNumber();
 
 					if (totalPrice < lowestPrice) {
 						lowestPrice = totalPrice;
@@ -2561,27 +2634,29 @@ chat.openapi(completions, async (c) => {
 				routingCfg,
 			);
 			providerAgnosticSelectedProviders =
-				collapseProvidersToBestRegionPerProvider(
+				await collapseProvidersToBestRegionPerProvider(
 					selectedProviders,
 					selectedModel,
 					{
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
-						sessionId,
 						routingConfig: routingCfg,
+						organizationId: project.organizationId,
 					},
 				);
 
-			const cheapestResult = getCheapestFromAvailableProviders(
+			const cheapestResult = await getCheapestFromAvailableProviders(
 				providerAgnosticSelectedProviders,
 				selectedModel,
 				{
 					metricsMap,
 					isStreaming: stream,
 					promptTokens: routingPromptTokens,
-					sessionId,
+					sessionProviderStore: createSessionStore(selectedModel.id),
 					routingConfig: routingCfg,
+					organizationId: project.organizationId,
+					providerDiscountResolver,
 				},
 			);
 
@@ -2601,7 +2676,7 @@ chat.openapi(completions, async (c) => {
 				usedExternalId = selectedProviders[0].externalId;
 			}
 		} else {
-			if (free_models_only) {
+			if (effectiveFreeModelsOnly) {
 				// If free_models_only is true but no suitable model found, return error
 				throw new HTTPException(400, {
 					message:
@@ -2651,6 +2726,7 @@ chat.openapi(completions, async (c) => {
 			undefined,
 			modelInfo,
 			clientIp,
+			{ autoRouting: true },
 		);
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
@@ -2681,6 +2757,11 @@ chat.openapi(completions, async (c) => {
 		usedInternalModel = "custom";
 		usedExternalId = "custom";
 	}
+
+	// Wall for sandbox wallets: a test-mode end-user wallet may only spend on free
+	// models. Auto routing already filtered to free models above; this rejects an
+	// explicitly-requested (or custom) paid model with a pointer to the auto route.
+	assertTestWalletModelAllowed(endUserWallet, modelInfo);
 
 	// When a specific provider is requested and it has multiple mappings (for example,
 	// regional variants), pick the best eligible mapping up front so the request and
@@ -2793,7 +2874,7 @@ chat.openapi(completions, async (c) => {
 						metricsCombinations,
 						routingCfg,
 					);
-					const bestRegionResult = getCheapestFromAvailableProviders(
+					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
 						modelInfo as ModelDefinition & {
 							id: string;
@@ -2803,8 +2884,10 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
-							sessionId,
+							sessionProviderStore: createSessionStore(modelInfo.id),
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -2993,30 +3076,40 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 
-						const cheapestResult = getCheapestFromAvailableProviders(
+						const cheapestResult = await getCheapestFromAvailableProviders(
 							candidatesForRouting,
 							modelWithPricing,
 							{
 								metricsMap: allMetricsMap,
 								isStreaming: stream,
 								promptTokens: routingPromptTokens,
-								sessionId,
+								sessionProviderStore: createSessionStore(modelWithPricing.id),
 								routingConfig: routingCfg,
+								organizationId: project.organizationId,
+								providerDiscountResolver,
 							},
 						);
 
 						const originalProviderInfo = modelInfo.providers.find(
 							(p) => p.providerId === requestedProvider,
 						);
-						const originalProviderPrice = originalProviderInfo
-							? Number(originalProviderInfo.inputPrice ?? "0") +
-								Number(originalProviderInfo.outputPrice ?? "0")
-							: 0;
+						const {
+							price: originalProviderPrice,
+							discount: originalProviderDiscount,
+						} = await getDiscountedProviderSelectionPrice(
+							originalProviderInfo,
+							modelWithPricing.id,
+							{
+								organizationId: project.organizationId,
+								providerDiscountResolver,
+							},
+						);
 
 						const originalProviderScore = {
 							providerId: requestedProvider,
 							score: -1,
-							price: originalProviderPrice,
+							price: originalProviderPrice.toNumber(),
+							discount: originalProviderDiscount.toNumber(),
 							rate_limited: true as const,
 						};
 
@@ -3165,15 +3258,15 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 						const providerAgnosticCandidates =
-							collapseProvidersToBestRegionPerProvider(
+							await collapseProvidersToBestRegionPerProvider(
 								uptimeFallbackCandidates,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
-									sessionId,
 									routingConfig: routingCfg,
+									organizationId: project.organizationId,
 								},
 							);
 
@@ -3196,15 +3289,17 @@ chat.openapi(completions, async (c) => {
 						// Only proceed with fallback if there are providers with better uptime
 						// Otherwise stick with the original provider
 						if (betterUptimeProviders.length > 0) {
-							const cheapestResult = getCheapestFromAvailableProviders(
+							const cheapestResult = await getCheapestFromAvailableProviders(
 								betterUptimeProviders,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
-									sessionId,
+									sessionProviderStore: createSessionStore(modelWithPricing.id),
 									routingConfig: routingCfg,
+									organizationId: project.organizationId,
+									providerDiscountResolver,
 								},
 							);
 
@@ -3212,16 +3307,24 @@ chat.openapi(completions, async (c) => {
 							const originalProviderInfo = modelInfo.providers.find(
 								(p) => p.providerId === requestedProvider,
 							);
-							const originalProviderPrice = originalProviderInfo
-								? Number(originalProviderInfo.inputPrice ?? "0") +
-									Number(originalProviderInfo.outputPrice ?? "0")
-								: 0;
+							const {
+								price: originalProviderPrice,
+								discount: originalProviderDiscount,
+							} = await getDiscountedProviderSelectionPrice(
+								originalProviderInfo,
+								modelWithPricing.id,
+								{
+									organizationId: project.organizationId,
+									providerDiscountResolver,
+								},
+							);
 
 							// Create score entry for the original requested provider
 							const originalProviderScore = {
 								providerId: requestedProvider,
 								score: -1, // Negative score indicates this provider was skipped due to low uptime
-								price: originalProviderPrice,
+								price: originalProviderPrice.toNumber(),
+								discount: originalProviderDiscount.toNumber(),
 								uptime: currentUptime,
 								latency: metrics.averageLatency,
 								throughput: metrics.throughput,
@@ -3380,40 +3483,45 @@ chat.openapi(completions, async (c) => {
 					routingCfg,
 				);
 				const providerAgnosticCandidates =
-					collapseProvidersToBestRegionPerProvider(
+					await collapseProvidersToBestRegionPerProvider(
 						routingCandidates,
 						modelWithPricing,
 						{
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
-							sessionId,
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
 						},
 					);
 
-				const cheapestResult = getCheapestFromAvailableProviders(
+				const cheapestResult = await getCheapestFromAvailableProviders(
 					providerAgnosticCandidates,
 					modelWithPricing,
 					{
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
-						sessionId,
+						sessionProviderStore: createSessionStore(modelWithPricing.id),
 						routingConfig: routingCfg,
+						organizationId: project.organizationId,
+						providerDiscountResolver,
 					},
 				);
 
 				if (cheapestResult) {
 					// Apply provider preference hysteresis to reduce unnecessary switching.
-					// Skip for exploration requests — they exist to refresh per-provider metrics.
+					// Skip for exploration requests — they exist to refresh per-provider
+					// metrics — and for sticky sessions, which already pin the provider
+					// per-session via the session store inside provider selection.
 					let selectedProvider = cheapestResult.provider;
 					let hysteresisSelectionReason =
 						cheapestResult.metadata.selectionReason;
 
 					if (
 						hysteresisSelectionReason !== "random-exploration" &&
-						routingCfg.sticky.enabled
+						routingCfg.sticky.enabled &&
+						!sessionStickyEnabled
 					) {
 						const preferred = await getPreferredProvider(
 							project.organizationId,
@@ -3454,7 +3562,7 @@ chat.openapi(completions, async (c) => {
 					usedInternalModel = modelWithPricing.id;
 					usedExternalId = selectedProvider.externalId;
 					usedRegion = selectedProvider.region;
-					routingMetadata = addContentFilterRoutingMetadata(
+					routingMetadata = await addContentFilterRoutingMetadata(
 						{
 							...cheapestResult.metadata,
 							selectedProvider: usedProvider,
@@ -3465,6 +3573,8 @@ chat.openapi(completions, async (c) => {
 						contentFilterRoutingExcludedProviders,
 						modelWithPricing.id,
 						metricsMap,
+						project.organizationId,
+						providerDiscountResolver,
 					);
 					// Annotate rate-limited providers in routing metadata
 					if (rateLimitedProviderIds.size > 0) {
@@ -3479,13 +3589,20 @@ chat.openapi(completions, async (c) => {
 								const providerInfo = modelInfo.providers.find(
 									(p) => p.providerId === rlProviderId,
 								);
+								const { price, discount } =
+									await getDiscountedProviderSelectionPrice(
+										providerInfo,
+										modelWithPricing.id,
+										{
+											organizationId: project.organizationId,
+											providerDiscountResolver,
+										},
+									);
 								routingMetadata.providerScores.push({
 									providerId: rlProviderId,
 									score: -1,
-									price: providerInfo
-										? Number(providerInfo.inputPrice ?? "0") +
-											Number(providerInfo.outputPrice ?? "0")
-										: 0,
+									price: price.toNumber(),
+									discount: discount.toNumber(),
 									rate_limited: true,
 								});
 							}
@@ -3619,43 +3736,58 @@ chat.openapi(completions, async (c) => {
 			selectionReason === "direct-provider-specified" &&
 			directProviderRegionWasExplicit
 				? null
-				: getCheapestFromAvailableProviders(
+				: await getCheapestFromAvailableProviders(
 						routingMetadataProviders,
 						modelInfo as ModelDefinition & {
 							id: string;
 							output?: string[];
 						},
 						{
+							// No session store here: this call only computes scores for
+							// routing metadata and must not re-pin the session.
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
-							sessionId,
 							routingConfig: routingCfg,
+							organizationId: project.organizationId,
+							providerDiscountResolver,
 						},
 					);
 
 		const allProviderScores =
 			weightedScores?.metadata.providerScores ??
-			routingMetadataProviders.map((p) => {
-				const metrics = metricsMap.get(
-					metricsKey(baseModelId, p.providerId, p.region),
-				);
-				return {
-					providerId: p.providerId,
-					region: p.region,
-					score:
-						selectionReason === "direct-provider-specified" &&
-						directProviderRegionWasExplicit
-							? 1
-							: 0,
-					price: getProviderSelectionPrice(p).toNumber(),
-					uptime: metrics?.uptime ?? 0,
-					latency: metrics?.averageLatency ?? 0,
-					throughput: metrics?.throughput ?? 0,
-				};
-			});
+			(await Promise.all(
+				routingMetadataProviders.map(async (p) => {
+					const metrics = metricsMap.get(
+						metricsKey(baseModelId, p.providerId, p.region),
+					);
+					const { price, discount } = await getDiscountedProviderSelectionPrice(
+						p,
+						baseModelId,
+						{
+							organizationId: project.organizationId,
+							providerDiscountResolver,
+						},
+					);
 
-		routingMetadata = addContentFilterRoutingMetadata(
+					return {
+						providerId: p.providerId,
+						region: p.region,
+						score:
+							selectionReason === "direct-provider-specified" &&
+							directProviderRegionWasExplicit
+								? 1
+								: 0,
+						price: price.toNumber(),
+						discount: discount.toNumber(),
+						uptime: metrics?.uptime ?? 0,
+						latency: metrics?.averageLatency ?? 0,
+						throughput: metrics?.throughput ?? 0,
+					};
+				}),
+			));
+
+		routingMetadata = await addContentFilterRoutingMetadata(
 			{
 				availableProviders: routingMetadataProviders.map((p) => p.providerId),
 				selectedProvider: usedProvider,
@@ -3667,6 +3799,8 @@ chat.openapi(completions, async (c) => {
 			contentFilterRoutingExcludedProviders,
 			baseModelId,
 			metricsMap,
+			project.organizationId,
+			providerDiscountResolver,
 		);
 	}
 

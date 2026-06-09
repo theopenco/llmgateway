@@ -37,9 +37,10 @@ export {
 
 export {
 	getModelCategory,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
 	type ModelCategory,
-	PREMIUM_MODEL_IDS,
 } from "./model-categories.js";
 
 export {

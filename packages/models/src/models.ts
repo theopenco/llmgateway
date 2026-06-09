@@ -2,6 +2,7 @@ import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
+import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
@@ -171,6 +172,18 @@ export interface ProviderModelMapping {
 	 * Price per output token in USD
 	 */
 	outputPrice?: Price;
+	/**
+	 * Price per output audio token in USD (for speech generation / text-to-speech
+	 * models where audio output is billed separately from text). When unset,
+	 * audio output tokens fall back to `outputPrice`.
+	 */
+	outputAudioPrice?: Price;
+	/**
+	 * Price per input character in USD. Used by speech generation models that
+	 * bill on input characters rather than tokens (e.g. OpenAI `tts-1`), since
+	 * the OpenAI speech endpoint returns audio bytes without token usage.
+	 */
+	inputCharacterPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
@@ -438,6 +451,17 @@ export interface ProviderModelMapping {
 	 */
 	embeddings?: boolean;
 	/**
+	 * Whether this model uses a dedicated speech generation API.
+	 * When true, requests are routed to the gateway's /v1/audio/speech endpoint
+	 * which returns binary audio rather than a chat completion.
+	 */
+	speechGenerations?: boolean;
+	/**
+	 * Prebuilt voices supported for speech generation models. The first entry is
+	 * used as the default when the caller does not specify a `voice`.
+	 */
+	supportedVoices?: string[];
+	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
 	 * When absent (undefined), the provider uses a single global endpoint.
@@ -515,7 +539,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding")[];
+	output?: ("text" | "image" | "video" | "embedding" | "audio")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -565,4 +589,5 @@ export const models = [
 	...nousresearchModels,
 	...nvidiaModels,
 	...zaiModels,
+	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];

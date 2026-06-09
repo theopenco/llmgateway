@@ -21,20 +21,33 @@ import type {
 	ServerErrorStatusCode,
 } from "hono/utils/http-status";
 
-let _stripe: Stripe | null = null;
+export type StripeMode = "live" | "test";
 
-export function getStripe(): Stripe {
-	if (!_stripe) {
-		if (!process.env.STRIPE_SECRET_KEY) {
+const _stripe: Partial<Record<StripeMode, Stripe>> = {};
+
+/**
+ * Resolve the Stripe client for the given mode. `live` (default) uses
+ * `STRIPE_SECRET_KEY`; `test` uses `STRIPE_SECRET_KEY_TEST` (a Stripe sandbox
+ * secret on the same account), so LLM SDK developers can exercise the full
+ * top-up flow with test cards without a separate staging deployment.
+ */
+export function getStripe(mode: StripeMode = "live"): Stripe {
+	let client = _stripe[mode];
+	if (!client) {
+		const envVar =
+			mode === "test" ? "STRIPE_SECRET_KEY_TEST" : "STRIPE_SECRET_KEY";
+		const secret = process.env[envVar];
+		if (!secret) {
 			throw new Error(
-				"STRIPE_SECRET_KEY environment variable is required for Stripe operations",
+				`${envVar} environment variable is required for Stripe operations`,
 			);
 		}
-		_stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+		client = new Stripe(secret, {
 			apiVersion: "2025-04-30.basil",
 		});
+		_stripe[mode] = client;
 	}
-	return _stripe;
+	return client;
 }
 
 export const payments = new OpenAPIHono<ServerTypes>();

@@ -1093,6 +1093,7 @@ export default function ChatPageClient({
 					model: selectedModel,
 					webSearch: webSearchEnabled,
 					comparisonEnabled,
+					organizationId: selectedOrganization?.id ?? chatOrg?.id,
 				},
 			});
 			const newChatId = chatData.chat.id;
@@ -2162,6 +2163,8 @@ function ExtraChatPanel({
 				body: {
 					title,
 					model: selectedModel,
+					// Child comparison chats are never listed in history, so they
+					// don't need an organization context.
 					parentChatId: parentId,
 				},
 			});

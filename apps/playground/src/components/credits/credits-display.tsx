@@ -89,26 +89,29 @@ export function CreditsDisplay({
 					</div>
 				</Link>
 			)}
-			<TopUpCreditsDialog organizationId={organization?.id}>
-				<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
-					<div className="flex items-center gap-2">
-						<CreditCard
-							className={`h-4 w-4 ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-500" : "text-muted-foreground"}`}
-						/>
-						<div className="flex flex-col">
-							<span className="text-sm font-medium">
-								{hasActivePlan ? "Pay-as-you-go" : "Credits"}
-							</span>
-							<span
-								className={`text-xs ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-600" : "text-muted-foreground"}`}
-							>
-								${creditsBalance}
-							</span>
+			{/* Pay-as-you-go credits only apply in an organization context. In the
+			    Chat plan context we hide them so users top up / use credits by
+			    switching to an organization instead. */}
+			{!isChatPlanOrg && (
+				<TopUpCreditsDialog organizationId={organization?.id}>
+					<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
+						<div className="flex items-center gap-2">
+							<CreditCard
+								className={`h-4 w-4 ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-500" : "text-muted-foreground"}`}
+							/>
+							<div className="flex flex-col">
+								<span className="text-sm font-medium">Credits</span>
+								<span
+									className={`text-xs ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-600" : "text-muted-foreground"}`}
+								>
+									${creditsBalance}
+								</span>
+							</div>
 						</div>
-					</div>
-					<span className="text-xs text-muted-foreground">Add</span>
-				</button>
-			</TopUpCreditsDialog>
+						<span className="text-xs text-muted-foreground">Add</span>
+					</button>
+				</TopUpCreditsDialog>
+			)}
 			{isChatPlanOrg && !hasActivePlan && (
 				<Link
 					href="/pricing"

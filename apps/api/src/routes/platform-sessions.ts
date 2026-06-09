@@ -111,6 +111,7 @@ async function ensureCustomerAndWallet(
 		where: {
 			projectId: { eq: platformKey.projectId },
 			externalId: { eq: externalId },
+			mode: { eq: platformKey.mode },
 		},
 	});
 
@@ -122,6 +123,7 @@ async function ensureCustomerAndWallet(
 					organizationId: platformKey.organizationId,
 					projectId: platformKey.projectId,
 					externalId,
+					mode: platformKey.mode,
 					email,
 					name,
 				})
@@ -136,6 +138,7 @@ async function ensureCustomerAndWallet(
 				where: {
 					projectId: { eq: platformKey.projectId },
 					externalId: { eq: externalId },
+					mode: { eq: platformKey.mode },
 				},
 			});
 		}
@@ -161,6 +164,7 @@ async function ensureCustomerAndWallet(
 					endCustomerId: endCustomer.id,
 					projectId: platformKey.projectId,
 					organizationId: platformKey.organizationId,
+					mode: platformKey.mode,
 				})
 				.returning();
 		} catch (err) {
@@ -245,7 +249,10 @@ platformSessions.openapi(createSession, async (c) => {
 	const ttl = ttlSeconds ?? DEFAULT_TTL_SECONDS;
 	const ttlMs = ttl * 1000;
 	const expiresAt = new Date(Date.now() + ttlMs);
-	const token = EPHEMERAL_PREFIX + shortid(40);
+	// Tag test-mode sessions in the token (cosmetic — the authoritative mode is
+	// read from the bound wallet), mirroring Stripe's `es_test_…` convention.
+	const token =
+		(platformKey.mode === "test" ? "es_test_" : EPHEMERAL_PREFIX) + shortid(40);
 
 	// Store the session model allowlist directly on end_user_session. The gateway
 	// applies this before falling back to API-key IAM rules for developer keys.
@@ -316,16 +323,17 @@ const walletResponse = z.object({
  */
 async function loadWalletForPlatform(
 	walletId: string,
-	organizationId: string,
-	projectId: string,
+	platformKey: AuthenticatedPlatformKey,
 ) {
 	const wallet = await db.query.wallet.findFirst({
 		where: { id: { eq: walletId } },
 	});
 	if (
 		!wallet ||
-		wallet.organizationId !== organizationId ||
-		wallet.projectId !== projectId
+		wallet.organizationId !== platformKey.organizationId ||
+		wallet.projectId !== platformKey.projectId ||
+		// A test key must not read or credit live wallets, and vice versa.
+		wallet.mode !== platformKey.mode
 	) {
 		throw new HTTPException(404, {
 			message: "Wallet not found in this project",
@@ -352,11 +360,7 @@ platformSessions.openapi(retrieveWallet, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { id } = c.req.param();
-	const wallet = await loadWalletForPlatform(
-		id,
-		platformKey.organizationId,
-		platformKey.projectId,
-	);
+	const wallet = await loadWalletForPlatform(id, platformKey);
 	return c.json({
 		id: wallet.id,
 		endCustomerId: wallet.endCustomerId,
@@ -399,11 +403,7 @@ platformSessions.openapi(creditWallet, async (c) => {
 	const { id } = c.req.param();
 	const { amount, reason } = c.req.valid("json");
 
-	const wallet = await loadWalletForPlatform(
-		id,
-		platformKey.organizationId,
-		platformKey.projectId,
-	);
+	const wallet = await loadWalletForPlatform(id, platformKey);
 
 	// Balance bump + ledger row must commit together.
 	const updated = await db.transaction(async (tx) => {

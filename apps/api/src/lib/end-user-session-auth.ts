@@ -16,6 +16,8 @@ export interface AuthenticatedSession {
 	endCustomerId: string;
 	projectId: string;
 	organizationId: string;
+	/** `test` wallets top up against the Stripe sandbox. */
+	mode: "live" | "test";
 	markupPercent: number;
 	/** Origins allowed to call with this session (CORS), from the project. */
 	allowedOrigins: string[] | null;
@@ -102,6 +104,7 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 		endCustomerId: session.wallet.endCustomerId,
 		projectId: session.wallet.projectId,
 		organizationId: session.wallet.organizationId,
+		mode: session.wallet.mode,
 		markupPercent: Number.isFinite(markupPercent) ? markupPercent : 0,
 		allowedOrigins: session.wallet.project?.allowedOrigins ?? null,
 	});

@@ -15,13 +15,17 @@ import {
 	and,
 	asc,
 	eq,
+	gte,
 	getTableName,
 	inArray,
+	isNull,
 	ne,
+	or,
 	cdb as db,
 	db as uncachedDb,
 	apiKey as apiKeyTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
+	discount as discountTable,
 	endCustomer as endCustomerTable,
 	endUserSession as endUserSessionTable,
 	getEffectiveRateLimit,
@@ -42,6 +46,7 @@ import {
 } from "./api-key-health.js";
 
 import type { EffectiveRateLimit } from "@llmgateway/db";
+import type { EffectiveDiscount } from "@llmgateway/db";
 import type { InferSelectModel } from "@llmgateway/db";
 import type {
 	apiKey,
@@ -68,6 +73,7 @@ type Wallet = InferSelectModel<typeof wallet>;
 
 const apiKeyTableName = getTableName(apiKeyTable);
 const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
+const discountTableName = getTableName(discountTable);
 const endCustomerTableName = getTableName(endCustomerTable);
 const endUserSessionTableName = getTableName(endUserSessionTable);
 const organizationTableName = getTableName(organizationTable);
@@ -510,6 +516,149 @@ export async function findEffectiveRateLimit(
 		`rateLimit:${orgPart}:${provider}:${model}`,
 		[rateLimitTableName],
 		() => getEffectiveRateLimit(organizationId, provider, model),
+	);
+}
+
+/**
+ * Get the effective discount for an org/provider/model combination (SWR-cached).
+ * Falls back to the last known Redis value when Postgres is unreachable.
+ */
+export async function findEffectiveDiscount(
+	organizationId: string | null,
+	provider: string,
+	model: string,
+): Promise<EffectiveDiscount> {
+	const orgPart = organizationId ?? "global";
+	return await swrWrap(
+		`discount:${orgPart}:${provider}:${model}`,
+		[discountTableName],
+		async () => {
+			const now = new Date();
+			const notExpiredCondition = or(
+				isNull(discountTable.expiresAt),
+				gte(discountTable.expiresAt, now),
+			);
+
+			const discounts = await db
+				.select({
+					id: discountTable.id,
+					organizationId: discountTable.organizationId,
+					provider: discountTable.provider,
+					model: discountTable.model,
+					discountPercent: discountTable.discountPercent,
+				})
+				.from(discountTable)
+				.where(
+					and(
+						notExpiredCondition,
+						or(
+							isNull(discountTable.organizationId),
+							organizationId
+								? eq(discountTable.organizationId, organizationId)
+								: isNull(discountTable.organizationId),
+						),
+						or(
+							eq(discountTable.provider, provider),
+							isNull(discountTable.provider),
+						),
+						or(eq(discountTable.model, model), isNull(discountTable.model)),
+					),
+				);
+
+			const modelMatches = (discountModel: string | null): boolean =>
+				discountModel !== null && discountModel === model;
+
+			if (organizationId) {
+				const orgProviderModel = discounts.find(
+					(discount) =>
+						discount.organizationId === organizationId &&
+						discount.provider === provider &&
+						modelMatches(discount.model),
+				);
+				if (orgProviderModel) {
+					return {
+						discount: orgProviderModel.discountPercent,
+						source: "org_provider_model",
+						discountId: orgProviderModel.id,
+					};
+				}
+
+				const orgProvider = discounts.find(
+					(discount) =>
+						discount.organizationId === organizationId &&
+						discount.provider === provider &&
+						discount.model === null,
+				);
+				if (orgProvider) {
+					return {
+						discount: orgProvider.discountPercent,
+						source: "org_provider",
+						discountId: orgProvider.id,
+					};
+				}
+
+				const orgModel = discounts.find(
+					(discount) =>
+						discount.organizationId === organizationId &&
+						discount.provider === null &&
+						modelMatches(discount.model),
+				);
+				if (orgModel) {
+					return {
+						discount: orgModel.discountPercent,
+						source: "org_model",
+						discountId: orgModel.id,
+					};
+				}
+			}
+
+			const globalProviderModel = discounts.find(
+				(discount) =>
+					discount.organizationId === null &&
+					discount.provider === provider &&
+					modelMatches(discount.model),
+			);
+			if (globalProviderModel) {
+				return {
+					discount: globalProviderModel.discountPercent,
+					source: "global_provider_model",
+					discountId: globalProviderModel.id,
+				};
+			}
+
+			const globalProvider = discounts.find(
+				(discount) =>
+					discount.organizationId === null &&
+					discount.provider === provider &&
+					discount.model === null,
+			);
+			if (globalProvider) {
+				return {
+					discount: globalProvider.discountPercent,
+					source: "global_provider",
+					discountId: globalProvider.id,
+				};
+			}
+
+			const globalModel = discounts.find(
+				(discount) =>
+					discount.organizationId === null &&
+					discount.provider === null &&
+					modelMatches(discount.model),
+			);
+			if (globalModel) {
+				return {
+					discount: globalModel.discountPercent,
+					source: "global_model",
+					discountId: globalModel.id,
+				};
+			}
+
+			return {
+				discount: "0",
+				source: "none",
+			};
+		},
 	);
 }
 

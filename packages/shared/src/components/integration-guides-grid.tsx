@@ -11,6 +11,7 @@ import {
 	CursorIcon,
 	HermesIcon,
 	KiloCodeIcon,
+	KimiIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -96,6 +97,14 @@ export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
 			"Use LLM Gateway with Kilo Code in VS Code for autonomous AI coding with built-in provider support.",
 		href: "/guides/kilo-code",
 		icon: KiloCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Kimi Code",
+		description:
+			"Use LLM Gateway with Kimi Code CLI for autonomous terminal-based AI coding.",
+		href: "/guides/kimi-code",
+		icon: KimiIcon,
 		comingSoon: false,
 	},
 	{

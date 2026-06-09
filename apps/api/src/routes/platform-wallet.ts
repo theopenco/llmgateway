@@ -90,9 +90,10 @@ platformWallet.openapi(createTopUp, async (c) => {
 
 	const stripeCustomerId = await ensureEndCustomerStripeCustomer(
 		session.endCustomerId,
+		session.mode,
 	);
 
-	const paymentIntent = await getStripe().paymentIntents.create({
+	const paymentIntent = await getStripe(session.mode).paymentIntents.create({
 		amount: Math.round(feeBreakdown.totalAmount * 100),
 		currency: "usd",
 		description: `Credit top-up for wallet ${session.walletId}`,

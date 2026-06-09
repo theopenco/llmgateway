@@ -12,13 +12,17 @@ import {
 import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
+	findEffectiveDiscount,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { applyEndUserSession } from "@/lib/end-user-session.js";
+import {
+	applyEndUserSession,
+	assertTestWalletModelAllowed,
+} from "@/lib/end-user-session.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
@@ -26,8 +30,8 @@ import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 
 import {
 	getCheapestFromAvailableProviders,
+	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
-	getProviderSelectionPrice,
 	processImageUrl,
 	type RoutingMetadata,
 	type VideoPricingContext,
@@ -75,6 +79,15 @@ import {
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 import type { Context } from "hono";
+
+function createProviderDiscountResolver(organizationId: string) {
+	return async (
+		provider: Pick<ProviderModelMapping, "providerId">,
+		modelId: string,
+	) =>
+		(await findEffectiveDiscount(organizationId, provider.providerId, modelId))
+			.discount;
+}
 
 const TERMINAL_VIDEO_STATUSES = new Set([
 	"completed",
@@ -557,6 +570,7 @@ interface RequestContext {
 	apiKey: GatewayApiKey;
 	project: InferSelectModel<typeof tables.project>;
 	organization: InferSelectModel<typeof tables.organization>;
+	wallet: InferSelectModel<typeof tables.wallet> | null;
 	requestId: string;
 	routingCfg: ResolvedRoutingConfig;
 }
@@ -709,7 +723,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 
 	// LLM SDK: ephemeral end-user sessions bill the bound wallet. No-op
 	// for normal keys.
-	const { project, organization } = await applyEndUserSession(
+	const { project, organization, wallet } = await applyEndUserSession(
 		c,
 		apiKey,
 		baseProject,
@@ -726,6 +740,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		apiKey,
 		project,
 		organization,
+		wallet,
 		requestId,
 		routingCfg,
 	};
@@ -1553,6 +1568,8 @@ async function resolveVideoExecution(
 	xNoFallbackHeaderSet: boolean,
 	routingCfg: ResolvedRoutingConfig,
 ): Promise<ResolvedVideoExecution> {
+	const providerDiscountResolver =
+		createProviderDiscountResolver(organizationId);
 	const videoPricing: VideoPricingContext = {
 		durationSeconds: videoDurationSeconds,
 		includeAudio,
@@ -1697,7 +1714,7 @@ async function resolveVideoExecution(
 				});
 
 				if (betterMappings.length > 0) {
-					const betterResult = getCheapestFromAvailableProviders(
+					const betterResult = await getCheapestFromAvailableProviders(
 						betterMappings,
 						modelInfo,
 						{
@@ -1705,6 +1722,8 @@ async function resolveVideoExecution(
 							isStreaming: false,
 							videoPricing,
 							routingConfig: routingCfg,
+							organizationId,
+							providerDiscountResolver,
 						},
 					);
 
@@ -1712,12 +1731,16 @@ async function resolveVideoExecution(
 						const originalMapping = configuredEligibleMappings.find(
 							(provider) => provider.providerId === requestedProvider,
 						);
-						const originalPrice = originalMapping
-							? getProviderSelectionPrice(
-									originalMapping,
+						const { price: originalPrice, discount: originalDiscount } =
+							await getDiscountedProviderSelectionPrice(
+								originalMapping,
+								modelInfo.id,
+								{
+									organizationId,
 									videoPricing,
-								).toNumber()
-							: 0;
+									providerDiscountResolver,
+								},
+							);
 						routingMetadata = {
 							...betterResult.metadata,
 							selectionReason: "low-uptime-fallback",
@@ -1727,7 +1750,8 @@ async function resolveVideoExecution(
 								{
 									providerId: requestedProvider,
 									score: -1,
-									price: originalPrice,
+									price: originalPrice.toNumber(),
+									discount: originalDiscount.toNumber(),
 									uptime: requestedUptime,
 									latency: requestedMetrics?.averageLatency,
 									throughput: requestedMetrics?.throughput,
@@ -1762,7 +1786,7 @@ async function resolveVideoExecution(
 		}
 
 		if (!routingMetadata) {
-			const cheapestResult = getCheapestFromAvailableProviders(
+			const cheapestResult = await getCheapestFromAvailableProviders(
 				configuredEligibleMappings,
 				modelInfo,
 				{
@@ -1770,6 +1794,8 @@ async function resolveVideoExecution(
 					isStreaming: false,
 					videoPricing,
 					routingConfig: routingCfg,
+					organizationId,
+					providerDiscountResolver,
 				},
 			);
 			if (cheapestResult) {
@@ -1810,11 +1836,26 @@ async function resolveVideoExecution(
 			: configuredEligibleMappings.length === 1
 				? "single-provider-available"
 				: "fallback-first-available",
-		providerScores: configuredEligibleMappings.map((provider) => ({
-			providerId: provider.providerId,
-			score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
-			price: getProviderSelectionPrice(provider, videoPricing).toNumber(),
-		})),
+		providerScores: await Promise.all(
+			configuredEligibleMappings.map(async (provider) => {
+				const { price, discount } = await getDiscountedProviderSelectionPrice(
+					provider,
+					modelInfo.id,
+					{
+						organizationId,
+						videoPricing,
+						providerDiscountResolver,
+					},
+				);
+
+				return {
+					providerId: provider.providerId,
+					score: provider.providerId === orderedMappings[0].providerId ? 0 : 1,
+					price: price.toNumber(),
+					discount: discount.toNumber(),
+				};
+			}),
+		),
 		...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 	};
 
@@ -3510,7 +3551,7 @@ async function getAvalancheImageUrl(
 
 videos.openapi(createVideo, async (c) => {
 	const { rawBody, request } = await parseJsonBody(c);
-	const { apiKey, project, organization, requestId, routingCfg } =
+	const { apiKey, project, organization, wallet, requestId, routingCfg } =
 		await requireRequestContext(c);
 
 	if (organization.isPersonal && organization.devPlan !== "none") {
@@ -3545,6 +3586,10 @@ videos.openapi(createVideo, async (c) => {
 			message: `Model ${normalizedModel} not found`,
 		});
 	}
+
+	// Sandbox wallets can only spend on free models (none for video), so reject
+	// paid video generation from test-mode end-user sessions.
+	assertTestWalletModelAllowed(wallet, modelInfo);
 
 	if (
 		"imageInputRequired" in modelInfo &&

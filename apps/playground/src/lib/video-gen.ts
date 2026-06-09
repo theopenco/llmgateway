@@ -57,6 +57,10 @@ export interface VideoGalleryItem {
 	id: string;
 	prompt: string;
 	timestamp: number;
+	// Organization context active when the generation was started. Captured up
+	// front so the saved item is attributed to the right org even if the user
+	// switches organizations while the generation is in flight.
+	organizationId?: string;
 	frameInputs?: VideoFrameInputs;
 	referenceImages?: VideoInputImage[];
 	models: VideoGalleryModelResult[];

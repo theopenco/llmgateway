@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
 
+import { providers } from "@llmgateway/models";
+
 describe("Models API", () => {
 	test("GET /v1/models should return a list of models", async () => {
 		const res = await app.request("/v1/models");
@@ -132,6 +134,45 @@ describe("Models API", () => {
 				expect(isNaN(deprecatedAt.getTime())).toBe(false);
 			}
 		}
+	});
+
+	test("GET /v1/models?no_training=true should only return providers without API training", async () => {
+		const res = await app.request("/v1/models?no_training=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(json.data.length).toBeGreaterThan(0);
+
+		const noTrainingProviderIds = new Set(
+			providers
+				.filter((p) => p.dataPolicy?.apiTraining === false)
+				.map((p) => p.id),
+		);
+
+		for (const model of json.data) {
+			expect(model.providers.length).toBeGreaterThan(0);
+			for (const provider of model.providers) {
+				expect(noTrainingProviderIds.has(provider.providerId)).toBe(true);
+			}
+		}
+	});
+
+	test("GET /v1/models?no_training=true should return fewer providers than unfiltered", async () => {
+		const filteredRes = await app.request("/v1/models?no_training=true");
+		const unfilteredRes = await app.request("/v1/models");
+		expect(filteredRes.status).toBe(200);
+		expect(unfilteredRes.status).toBe(200);
+
+		const filtered = await filteredRes.json();
+		const unfiltered = await unfilteredRes.json();
+
+		const countProviders = (json: any) =>
+			json.data.reduce(
+				(sum: number, model: any) => sum + model.providers.length,
+				0,
+			);
+
+		expect(countProviders(filtered)).toBeLessThan(countProviders(unfiltered));
 	});
 
 	test("GET /v1/models should include proper output modalities for gemini-2.5-flash-image-preview", async () => {

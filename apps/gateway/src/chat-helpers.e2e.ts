@@ -143,10 +143,14 @@ if (hasOnlyModels) {
 export const filteredModels = models
 	// Filter out auto/custom models
 	.filter((model) => !["custom", "auto"].includes(model.id))
-	// Filter out video-only models (they use the /v1/videos endpoint, not chat completions)
+	// Filter out video-only and audio-only models (they use dedicated endpoints —
+	// /v1/videos and /v1/audio/speech — not chat completions)
 	.filter((model) => {
 		const output = (model as ModelDefinition).output;
-		return !output || !output.includes("video") || output.includes("text");
+		if (!output || output.includes("text")) {
+			return true;
+		}
+		return !output.includes("video") && !output.includes("audio");
 	})
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability

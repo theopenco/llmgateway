@@ -13,6 +13,8 @@
  */
 import { HTTPException } from "hono/http-exception";
 
+import { isModelTrulyFree } from "@/chat/tools/is-model-truly-free.js";
+
 import {
 	models,
 	type ModelDefinition,
@@ -77,10 +79,35 @@ export async function loadEndUserWallet(
 	return wallet;
 }
 
+/**
+ * `test`-mode end-user wallets are funded by Stripe-sandbox top-ups, so they
+ * must only ever spend on free models — otherwise sandbox money would pay for
+ * real provider calls. Free models carry only zero-priced provider mappings
+ * (enforced by a catalog invariant test in @llmgateway/models), so the
+ * model-level free check is authoritative. Throws 403 (pointing at the `auto`
+ * route) otherwise. No-op for live wallets and normal developer keys.
+ */
+export function assertTestWalletModelAllowed(
+	wallet: Wallet | null | undefined,
+	modelDef: ModelDefinition | undefined,
+): void {
+	if (!wallet || wallet.mode !== "test") {
+		return;
+	}
+	if (modelDef && isModelTrulyFree(modelDef)) {
+		return;
+	}
+	throw new HTTPException(403, {
+		message:
+			'Test-mode wallets can only use free models. Use the "auto" route or a free model id to test sandbox payments.',
+	});
+}
+
 export function validateEndUserSessionModelAccess(
 	apiKey: GatewayApiKey,
 	requestedModel: string,
 	activeModelInfo?: ModelDefinition,
+	options: { autoRouting?: boolean } = {},
 ): {
 	allowed: boolean;
 	reason?: string;
@@ -97,7 +124,14 @@ export function validateEndUserSessionModelAccess(
 		return { allowed: false, reason: `Model ${requestedModel} not found` };
 	}
 
-	if (!scopeModels.includes(modelDef.id)) {
+	// A session scoped to "auto" delegates model choice to the gateway's
+	// auto-router, so the concrete model it resolves to (e.g. a free model for a
+	// sandbox wallet) is allowed even though it isn't literally listed in scope.
+	const scopeAllows =
+		scopeModels.includes(modelDef.id) ||
+		(options.autoRouting === true && scopeModels.includes("auto"));
+
+	if (!scopeAllows) {
 		return {
 			allowed: false,
 			reason: `Model ${modelDef.id} is not in the allowed models list`,

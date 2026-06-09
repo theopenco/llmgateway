@@ -36,6 +36,7 @@ import {
 	Sparkles,
 	PenTool,
 	Sliders,
+	Volume2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -197,6 +198,13 @@ function computeCapabilities(
 			icon: Video,
 			label: "Video Generation",
 			color: "text-violet-500",
+		});
+	}
+	if (model?.output?.includes("audio")) {
+		capabilities.push({
+			icon: Volume2,
+			label: "Speech Generation",
+			color: "text-rose-500",
 		});
 	}
 	if (model?.output?.includes("embedding")) {
@@ -610,6 +618,7 @@ export function AllModels({
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			videoGeneration: searchParams.get("videoGeneration") === "true",
+			audioGeneration: searchParams.get("audioGeneration") === "true",
 			embedding: searchParams.get("embedding") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
@@ -869,6 +878,12 @@ export function AllModels({
 			if (
 				filters.capabilities.videoGeneration &&
 				!model.output?.includes("video")
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.audioGeneration &&
+				!model.output?.includes("audio")
 			) {
 				return false;
 			}
@@ -1447,6 +1462,13 @@ export function AllModels({
 				color: "text-violet-500",
 			});
 		}
+		if (model?.output?.includes("audio")) {
+			capabilities.push({
+				icon: Volume2,
+				label: "Speech Generation",
+				color: "text-rose-500",
+			});
+		}
 		if (model?.output?.includes("embedding")) {
 			capabilities.push({
 				icon: Boxes,
@@ -1478,6 +1500,7 @@ export function AllModels({
 				jsonOutputSchema: false,
 				imageGeneration: false,
 				videoGeneration: false,
+				audioGeneration: false,
 				embedding: false,
 				webSearch: false,
 				free: false,
@@ -1503,6 +1526,7 @@ export function AllModels({
 			jsonOutputSchema: undefined,
 			imageGeneration: undefined,
 			videoGeneration: undefined,
+			audioGeneration: undefined,
 			embedding: undefined,
 			webSearch: undefined,
 			free: undefined,
@@ -1645,6 +1669,12 @@ export function AllModels({
 									label: "Video Gen",
 									icon: Video,
 									color: "text-violet-500",
+								},
+								{
+									key: "audioGeneration",
+									label: "Speech Gen",
+									icon: Volume2,
+									color: "text-rose-500",
 								},
 								{
 									key: "embedding",

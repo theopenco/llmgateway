@@ -171,7 +171,10 @@ export default function ImagePageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	// DB-persisted history
-	const { data: historyData } = useImageHistory(isAuthenticated);
+	const { data: historyData, isLoading: isHistoryLoading } = useImageHistory(
+		isAuthenticated,
+		selectedOrganization?.id,
+	);
 	const { mutate: saveImageHistory } = useSaveImageHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
@@ -218,6 +221,7 @@ export default function ImagePageClient({
 					{
 						body: {
 							prompt: item.prompt,
+							organizationId: item.organizationId,
 							inputImages: item.inputImages,
 							models: item.models.map((m) => ({
 								modelId: m.modelId,
@@ -437,6 +441,7 @@ export default function ImagePageClient({
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				organizationId: selectedOrganization?.id,
 				inputImages:
 					inputImages.length > 0
 						? inputImages.map((img) => ({
@@ -737,6 +742,7 @@ export default function ImagePageClient({
 			<div className="flex h-dvh w-full">
 				<ImageSidebar
 					galleryItems={galleryItems}
+					isHistoryLoading={isHistoryLoading}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
 					organizations={organizations}
