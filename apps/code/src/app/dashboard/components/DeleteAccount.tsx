@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -44,12 +45,12 @@ export default function DeleteAccount() {
 					<p className="text-sm text-muted-foreground">
 						Billing records of credits you purchased and spent are retained for
 						10 years as required by tax and accounting law. See our{" "}
-						<a
+						<Link
 							href="/legal/privacy"
 							className="underline underline-offset-4 hover:text-foreground"
 						>
 							Privacy Policy
-						</a>{" "}
+						</Link>{" "}
 						for details.
 					</p>
 				</div>
