@@ -4699,7 +4699,10 @@ admin.openapi(getModelDetail, async (c) => {
 		});
 	}
 
-	// Global view
+	// Global view. Aggregate only the deduplicated mapping ids so providers with
+	// regional mappings are not double-counted (see resolveMappingHistoryIds).
+	const dedupedMappingIds = await resolveMappingHistoryIds({ modelId });
+
 	const [mappings, statsRows] = await Promise.all([
 		db
 			.select({
@@ -4768,7 +4771,12 @@ admin.openapi(getModelDetail, async (c) => {
 			.from(modelProviderMappingHistory)
 			.where(
 				and(
-					eq(modelProviderMappingHistory.modelId, modelId),
+					dedupedMappingIds.length > 0
+						? inArray(
+								modelProviderMappingHistory.modelProviderMappingId,
+								dedupedMappingIds,
+							)
+						: sql`false`,
 					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
 				),
 			)
@@ -5443,6 +5451,59 @@ function getHourFloor(date: Date): string {
 	return d.toISOString();
 }
 
+/**
+ * Resolve the set of model_provider_mapping ids whose history rows represent the
+ * deduplicated traffic for the given provider and/or model filters.
+ *
+ * The worker folds regional traffic into the root (region-less) mapping's history
+ * rows while also writing the regional rows, so summing every row for a
+ * provider/model pair would double-count regional requests/tokens/cost. For each
+ * (provider, model) pair, prefer the root mapping (already the full total); fall
+ * back to the regional rows when no root mapping exists.
+ */
+async function resolveMappingHistoryIds(filters: {
+	providerId?: string;
+	modelId?: string;
+}): Promise<string[]> {
+	const mappings = await db
+		.select({
+			id: tables.modelProviderMapping.id,
+			providerId: tables.modelProviderMapping.providerId,
+			modelId: tables.modelProviderMapping.modelId,
+			region: tables.modelProviderMapping.region,
+		})
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				filters.providerId
+					? eq(tables.modelProviderMapping.providerId, filters.providerId)
+					: undefined,
+				filters.modelId
+					? eq(tables.modelProviderMapping.modelId, filters.modelId)
+					: undefined,
+			),
+		);
+
+	const byPair = new Map<string, typeof mappings>();
+	for (const m of mappings) {
+		const key = `${m.providerId} ${m.modelId}`;
+		const list = byPair.get(key) ?? [];
+		list.push(m);
+		byPair.set(key, list);
+	}
+
+	const ids: string[] = [];
+	for (const list of byPair.values()) {
+		const root = list.find((m) => !m.region);
+		if (root) {
+			ids.push(root.id);
+		} else {
+			ids.push(...list.map((m) => m.id));
+		}
+	}
+	return ids;
+}
+
 function mapHistoryRows(
 	rows: {
 		minuteTimestamp: Date;
@@ -5528,7 +5589,15 @@ admin.openapi(getProviderHistory, async (c) => {
 	const startDate = getHistoryStartDate(window);
 
 	// Provider history is derived solely from the per-minute mapping history table,
-	// including cost — never from the project hourly rollup.
+	// including cost — never from the project hourly rollup. Aggregate only the
+	// deduplicated mapping ids so models with regional mappings are not
+	// double-counted (see resolveMappingHistoryIds).
+	const mappingIds = await resolveMappingHistoryIds({ providerId });
+
+	if (mappingIds.length === 0) {
+		return c.json({ data: [] });
+	}
+
 	const rows = await db
 		.select({
 			minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
@@ -5574,7 +5643,7 @@ admin.openapi(getProviderHistory, async (c) => {
 		.from(modelProviderMappingHistory)
 		.where(
 			and(
-				eq(modelProviderMappingHistory.providerId, providerId),
+				inArray(modelProviderMappingHistory.modelProviderMappingId, mappingIds),
 				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
 			),
 		)
@@ -5792,6 +5861,16 @@ admin.openapi(getMappingHistory, async (c) => {
 	// per-minute mapping history table — never from the project hourly rollup
 	// (projectHourlyModelStats), which only covers the live hour and would leave
 	// historical windows empty.
+	//
+	// Regional traffic is folded into the root mapping's history rows, so aggregate
+	// only the deduplicated mapping ids to avoid double-counting (see
+	// resolveMappingHistoryIds).
+	const mappingIds = await resolveMappingHistoryIds({ providerId, modelId });
+
+	if (mappingIds.length === 0) {
+		return c.json({ data: [] });
+	}
+
 	const minuteRows = await db
 		.select({
 			minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
@@ -5837,8 +5916,7 @@ admin.openapi(getMappingHistory, async (c) => {
 		.from(modelProviderMappingHistory)
 		.where(
 			and(
-				eq(modelProviderMappingHistory.providerId, providerId),
-				eq(modelProviderMappingHistory.modelId, modelId),
+				inArray(modelProviderMappingHistory.modelProviderMappingId, mappingIds),
 				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
 			),
 		)
@@ -5994,6 +6072,10 @@ admin.openapi(getProviderDetail, async (c) => {
 		throw new HTTPException(404, { message: "Provider not found" });
 	}
 
+	// Aggregate only the deduplicated mapping ids so models with regional mappings
+	// are not double-counted (see resolveMappingHistoryIds).
+	const dedupedMappingIds = await resolveMappingHistoryIds({ providerId });
+
 	const [mappings, statsRows] = await Promise.all([
 		db
 			.select({
@@ -6046,7 +6128,12 @@ admin.openapi(getProviderDetail, async (c) => {
 			.from(modelProviderMappingHistory)
 			.where(
 				and(
-					eq(modelProviderMappingHistory.providerId, providerId),
+					dedupedMappingIds.length > 0
+						? inArray(
+								modelProviderMappingHistory.modelProviderMappingId,
+								dedupedMappingIds,
+							)
+						: sql`false`,
 					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
 				),
 			)
@@ -6240,6 +6327,9 @@ admin.openapi(getMappingDetail, async (c) => {
 				eq(tables.modelProviderMapping.modelId, modelId),
 			),
 		)
+		// Prefer the root (region-less) mapping, whose history rows fold in regional
+		// traffic, so the displayed stats represent the full provider/model total.
+		.orderBy(asc(sql`${tables.modelProviderMapping.region} IS NOT NULL`))
 		.limit(1);
 
 	if (mappingRow.length === 0) {
@@ -6247,6 +6337,13 @@ admin.openapi(getMappingDetail, async (c) => {
 	}
 
 	const m = mappingRow[0];
+
+	// Aggregate the same deduplicated mapping ids the history chart uses so the
+	// stat cards and chart agree (see resolveMappingHistoryIds).
+	const dedupedMappingIds = await resolveMappingHistoryIds({
+		providerId,
+		modelId,
+	});
 
 	const [aggRow] = await db
 		.select({
@@ -6307,7 +6404,12 @@ admin.openapi(getMappingDetail, async (c) => {
 		.from(modelProviderMappingHistory)
 		.where(
 			and(
-				eq(modelProviderMappingHistory.modelProviderMappingId, m.id),
+				dedupedMappingIds.length > 0
+					? inArray(
+							modelProviderMappingHistory.modelProviderMappingId,
+							dedupedMappingIds,
+						)
+					: eq(modelProviderMappingHistory.modelProviderMappingId, m.id),
 				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
 			),
 		);
