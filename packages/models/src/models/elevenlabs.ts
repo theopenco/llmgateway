@@ -2,15 +2,17 @@ import type { ModelDefinition } from "@/models.js";
 
 /**
  * Built-in ElevenLabs voices, mapped from a friendly name to the upstream
- * voice id used in the `/v1/text-to-speech/{voice_id}` path. These are the
- * standard "premade" default voices available to every account (including free
- * plans); newer library-only voices such as Aria/Charlotte are intentionally
- * omitted since they require a paid subscription. The first entry ("Sarah") is
- * the default when the caller omits `voice`. The gateway resolves the friendly
- * name to the id at request time, and also accepts a raw voice id directly.
+ * voice id used in the `/v1/text-to-speech/{voice_id}` path. The first entry
+ * ("Sarah") is the default when the caller omits `voice`; it is a "premade"
+ * voice available on every plan tier (including free), so the default never
+ * fails for an arbitrary key. "Aria" and "Charlotte" are library voices that
+ * require a paid ElevenLabs subscription, so they are offered but not the
+ * default. The gateway resolves the friendly name to the id at request time,
+ * and also accepts a raw voice id directly.
  */
 export const ELEVENLABS_VOICE_IDS: Record<string, string> = {
 	Sarah: "EXAVITQu4vr4xnSDxMaL",
+	Aria: "9BWtsMINqrJLrRacOk9x",
 	Roger: "CwhRBWXzGAHq8TQ4Fs17",
 	Laura: "FGY2WhTYpPnrIDTdsKH5",
 	Charlie: "IKne3meq5aSn9XLyUdCD",
@@ -18,6 +20,7 @@ export const ELEVENLABS_VOICE_IDS: Record<string, string> = {
 	Callum: "N2lVS1w4EtoT3dr4eOWO",
 	River: "SAz9YHcvj6GT2YYXdXww",
 	Liam: "TX3LPaxmHKxFdv7VOQHJ",
+	Charlotte: "XB0fDUnXU5powFXDhCwa",
 	Alice: "Xb7hH8MSUJpSbSDYk0k2",
 	Matilda: "XrExE9yKIg1WjnnlVkGX",
 	Will: "bIHbv24MWmeRgasZH58o",

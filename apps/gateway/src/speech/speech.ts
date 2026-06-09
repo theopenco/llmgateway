@@ -191,12 +191,12 @@ const ELEVENLABS_RESPONSE_FORMATS = new Set(["mp3", "wav", "pcm", "opus"]);
 
 // Maps the gateway's generic response_format to the concrete ElevenLabs
 // `output_format` query value (codec + sample rate + bitrate). WAV and PCM use
-// 24 kHz — a standard TTS rate available on every ElevenLabs plan, since the
-// 44.1 kHz WAV/PCM variants require a paid subscription.
+// 32 kHz — the highest rate available across all paid plans (and free), since
+// the 44.1 kHz WAV/PCM variants are gated behind the Pro tier.
 const ELEVENLABS_OUTPUT_FORMATS: Record<string, string> = {
 	mp3: "mp3_44100_128",
-	wav: "wav_24000",
-	pcm: "pcm_24000",
+	wav: "wav_32000",
+	pcm: "pcm_32000",
 	opus: "opus_48000_128",
 };
 
