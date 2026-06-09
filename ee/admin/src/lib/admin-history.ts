@@ -34,7 +34,7 @@ export async function getMappingHistory(
 	projectId?: string,
 ) {
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET(
+	const { data, error, response } = await $api.GET(
 		"/admin/providers/{providerId}/models/{modelId}/history",
 		{
 			params: {
@@ -43,6 +43,11 @@ export async function getMappingHistory(
 			},
 		},
 	);
+	if (error || !response.ok) {
+		throw new Error(
+			`Failed to load mapping history (${response.status} ${response.statusText})`,
+		);
+	}
 	return data?.data ?? null;
 }
 

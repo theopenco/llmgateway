@@ -5994,21 +5994,75 @@ admin.openapi(getMappingHistory, async (c) => {
 		}
 	}
 
-	const data = hourlyRows.map((r) => {
-		const logsCount = Number(r.logsCount);
-		const errorsCount = Number(r.errorsCount);
-		const cachedCount = Number(r.cachedCount);
-		const hk = new Date(r.hourTimestamp).toISOString();
-		const latency = latencyByHour.get(hk);
-		const errorBreakdown = errorBreakdownByHour.get(hk);
+	// projectHourlyModelStats is populated by the worker rollup, which only fills
+	// the live hour each run (backfill is disabled by default). For historical day
+	// windows it is therefore frequently empty even though the per-minute mapping
+	// history has data. When the hourly rollup has no rows, fall back to
+	// aggregating the per-minute mapping history into hourly buckets so the chart
+	// still renders the same data the stat cards show.
+	const useMinuteFallback = hourlyRows.length === 0 && hasMinuteData;
+
+	const minuteHourly = new Map<
+		string,
+		{
+			logsCount: number;
+			errorsCount: number;
+			cachedCount: number;
+			totalTokens: number;
+			totalCost: number;
+		}
+	>();
+	if (useMinuteFallback) {
+		for (const r of minuteRows) {
+			const hk = getHourFloor(r.minuteTimestamp);
+			const existing = minuteHourly.get(hk);
+			const logs = Number(r.logsCount);
+			const errors = Number(r.errorsCount);
+			const cached = Number(r.cachedCount);
+			const tokens = Number(r.totalTokens);
+			const cost = Number(r.totalCost);
+			if (existing) {
+				existing.logsCount += logs;
+				existing.errorsCount += errors;
+				existing.cachedCount += cached;
+				existing.totalTokens += tokens;
+				existing.totalCost += cost;
+			} else {
+				minuteHourly.set(hk, {
+					logsCount: logs,
+					errorsCount: errors,
+					cachedCount: cached,
+					totalTokens: tokens,
+					totalCost: cost,
+				});
+			}
+		}
+	}
+
+	const hourlyBase = useMinuteFallback
+		? Array.from(minuteHourly.entries())
+				.map(([hk, v]) => ({ hk, ...v }))
+				.sort((a, b) => (a.hk < b.hk ? -1 : 1))
+		: hourlyRows.map((r) => ({
+				hk: new Date(r.hourTimestamp).toISOString(),
+				logsCount: Number(r.logsCount),
+				errorsCount: Number(r.errorsCount),
+				cachedCount: Number(r.cachedCount),
+				totalTokens: Number(r.totalTokens),
+				totalCost: Number(r.cost),
+			}));
+
+	const data = hourlyBase.map((r) => {
+		const latency = latencyByHour.get(r.hk);
+		const errorBreakdown = errorBreakdownByHour.get(r.hk);
 		return {
-			timestamp: hk,
-			logsCount,
-			errorsCount,
+			timestamp: r.hk,
+			logsCount: r.logsCount,
+			errorsCount: r.errorsCount,
 			clientErrorsCount: errorBreakdown?.client ?? 0,
 			gatewayErrorsCount: errorBreakdown?.gateway ?? 0,
 			upstreamErrorsCount: errorBreakdown?.upstream ?? 0,
-			cachedCount,
+			cachedCount: r.cachedCount,
 			avgTtft:
 				latency && latency.nonCached > 0
 					? Math.round(latency.totalTtft / latency.nonCached)
@@ -6017,8 +6071,8 @@ admin.openapi(getMappingHistory, async (c) => {
 				latency && latency.logsCount > 0
 					? Math.round(latency.totalDuration / latency.logsCount)
 					: null,
-			totalTokens: Number(r.totalTokens),
-			totalCost: Number(r.cost),
+			totalTokens: r.totalTokens,
+			totalCost: r.totalCost,
 		};
 	});
 
