@@ -191,6 +191,21 @@ const imageHistoryItemSchema = z.object({
 	models: z.array(imageModelResultSchema),
 });
 
+const audioModelResultSchema = z.object({
+	modelId: z.string(),
+	modelName: z.string(),
+	audio: z.object({ base64: z.string(), mediaType: z.string() }).nullable(),
+	error: z.string().optional(),
+});
+
+const audioHistoryItemSchema = z.object({
+	id: z.string(),
+	prompt: z.string(),
+	createdAt: z.string(),
+	voice: z.string().nullable(),
+	models: z.array(audioModelResultSchema),
+});
+
 const videoModelResultSchema = z.object({
 	modelId: z.string(),
 	modelName: z.string(),
@@ -436,6 +451,227 @@ playground.openapi(renameImageHistory, async (c) => {
 			prompt: row.prompt,
 			createdAt: row.createdAt.toISOString(),
 			inputImages: row.inputImages ?? null,
+			models: row.models,
+		},
+	});
+});
+
+// ── GET /audio-history ───────────────────────────────────────────────────────
+
+const listAudioHistory = createRoute({
+	method: "get",
+	path: "/audio-history",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ items: z.array(audioHistoryItemSchema) }),
+				},
+			},
+			description:
+				"List of audio generation history for the authenticated user",
+		},
+	},
+});
+
+playground.openapi(listAudioHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.playgroundAudioHistory.organizationId,
+		organizationId,
+	);
+
+	const rows = await db
+		.select()
+		.from(tables.playgroundAudioHistory)
+		.where(and(eq(tables.playgroundAudioHistory.userId, user.id), orgFilter))
+		.orderBy(desc(tables.playgroundAudioHistory.createdAt));
+
+	return c.json({
+		items: rows.map((row) => ({
+			id: row.id,
+			prompt: row.prompt,
+			createdAt: row.createdAt.toISOString(),
+			voice: row.voice ?? null,
+			models: row.models,
+		})),
+	});
+});
+
+// ── POST /audio-history ──────────────────────────────────────────────────────
+
+const saveAudioHistory = createRoute({
+	method: "post",
+	path: "/audio-history",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						prompt: z.string().min(1),
+						organizationId: z.string().trim().min(1).optional(),
+						voice: z.string().optional(),
+						models: z.array(audioModelResultSchema),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: audioHistoryItemSchema }),
+				},
+			},
+			description: "Saved audio history item",
+		},
+	},
+});
+
+playground.openapi(saveAudioHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const body = c.req.valid("json");
+
+	const [row] = await db
+		.insert(tables.playgroundAudioHistory)
+		.values({
+			userId: user.id,
+			organizationId: body.organizationId ?? null,
+			prompt: body.prompt,
+			voice: body.voice ?? null,
+			models: body.models,
+		})
+		.returning();
+
+	return c.json(
+		{
+			item: {
+				id: row.id,
+				prompt: row.prompt,
+				createdAt: row.createdAt.toISOString(),
+				voice: row.voice ?? null,
+				models: row.models,
+			},
+		},
+		201,
+	);
+});
+
+// ── DELETE /audio-history/:id ────────────────────────────────────────────────
+
+const deleteAudioHistory = createRoute({
+	method: "delete",
+	path: "/audio-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Deleted",
+		},
+	},
+});
+
+playground.openapi(deleteAudioHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.playgroundAudioHistory)
+		.where(
+			and(
+				eq(tables.playgroundAudioHistory.id, id),
+				eq(tables.playgroundAudioHistory.userId, user.id),
+			),
+		)
+		.returning({ id: tables.playgroundAudioHistory.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({ message: "Deleted" });
+});
+
+// ── PATCH /audio-history/:id ─────────────────────────────────────────────────
+
+const renameAudioHistory = createRoute({
+	method: "patch",
+	path: "/audio-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ prompt: z.string().min(1) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: audioHistoryItemSchema }),
+				},
+			},
+			description: "Updated audio history item",
+		},
+	},
+});
+
+playground.openapi(renameAudioHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const { prompt } = c.req.valid("json");
+
+	const [row] = await db
+		.update(tables.playgroundAudioHistory)
+		.set({ prompt })
+		.where(
+			and(
+				eq(tables.playgroundAudioHistory.id, id),
+				eq(tables.playgroundAudioHistory.userId, user.id),
+			),
+		)
+		.returning();
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({
+		item: {
+			id: row.id,
+			prompt: row.prompt,
+			createdAt: row.createdAt.toISOString(),
+			voice: row.voice ?? null,
 			models: row.models,
 		},
 	});

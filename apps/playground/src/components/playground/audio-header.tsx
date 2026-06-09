@@ -1,0 +1,118 @@
+"use client";
+
+import { Plus, X } from "lucide-react";
+
+import { ModelSelector } from "@/components/model-selector";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Switch } from "@/components/ui/switch";
+
+import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
+
+interface AudioHeaderProps {
+	models: ApiModel[];
+	providers: ApiProvider[];
+	selectedModels: string[];
+	onModelChange: (index: number, model: string) => void;
+	onAddModel: () => void;
+	onRemoveModel: (index: number) => void;
+	comparisonMode: boolean;
+	onComparisonModeChange: (enabled: boolean) => void;
+	hideCompare?: boolean;
+}
+
+export function AudioHeader({
+	models,
+	providers,
+	selectedModels,
+	onModelChange,
+	onAddModel,
+	onRemoveModel,
+	comparisonMode,
+	onComparisonModeChange,
+	hideCompare = false,
+}: AudioHeaderProps) {
+	return (
+		<header className="bg-background flex items-center border-b p-4">
+			<div className="flex min-w-0 flex-1 items-center gap-3">
+				<SidebarTrigger />
+				{comparisonMode ? (
+					<div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+						{selectedModels.map((model, index) => (
+							<div key={index} className="flex items-center gap-1 shrink-0">
+								<div className="w-[200px] min-w-[200px]">
+									<ModelSelector
+										models={models}
+										providers={providers}
+										value={model}
+										onValueChange={(v) => onModelChange(index, v)}
+										placeholder="Select model..."
+										mode="audio"
+									/>
+								</div>
+								{selectedModels.length > 1 && (
+									<Button
+										variant="ghost"
+										size="icon"
+										className="h-7 w-7 shrink-0"
+										onClick={() => onRemoveModel(index)}
+									>
+										<X className="h-3.5 w-3.5" />
+									</Button>
+								)}
+							</div>
+						))}
+						{selectedModels.length < 3 && (
+							<Button
+								variant="outline"
+								size="sm"
+								className="shrink-0"
+								onClick={onAddModel}
+							>
+								<Plus className="h-3.5 w-3.5 mr-1" />
+								Add
+							</Button>
+						)}
+					</div>
+				) : (
+					<div className="flex w-full min-w-0 max-w-[360px] items-center gap-2 sm:max-w-[420px]">
+						<ModelSelector
+							models={models}
+							providers={providers}
+							value={selectedModels[0] ?? ""}
+							onValueChange={(v) => onModelChange(0, v)}
+							placeholder="Select an audio model..."
+							mode="audio"
+						/>
+					</div>
+				)}
+			</div>
+			{(!hideCompare || comparisonMode) && (
+				<div className="ml-3 flex items-center gap-3">
+					<div className="hidden items-center gap-2 md:flex">
+						{hideCompare ? (
+							<span className="text-muted-foreground text-xs">
+								Comparison Mode
+							</span>
+						) : (
+							<>
+								<Label
+									htmlFor="comparison-mode-audio"
+									className="text-muted-foreground text-xs"
+								>
+									Comparison Mode
+								</Label>
+								<Switch
+									id="comparison-mode-audio"
+									checked={comparisonMode}
+									onCheckedChange={onComparisonModeChange}
+								/>
+							</>
+						)}
+					</div>
+				</div>
+			)}
+		</header>
+	);
+}

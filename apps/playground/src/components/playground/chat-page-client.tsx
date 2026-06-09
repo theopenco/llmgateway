@@ -347,6 +347,9 @@ export default function ChatPageClient({
 	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
 		null,
 	);
+	const [pendingAudioModel, setPendingAudioModel] = useState<string | null>(
+		null,
+	);
 
 	// MCP servers management
 	const {
@@ -1531,6 +1534,10 @@ export default function ChatPageClient({
 				setPendingVideoModel(modelId);
 				return;
 			}
+			if (def?.output?.includes("audio")) {
+				setPendingAudioModel(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			if (model) {
 				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
@@ -1977,6 +1984,7 @@ export default function ChatPageClient({
 													handleExtraPanelModelChange(index, model)
 												}
 												onVideoModelSelected={setPendingVideoModel}
+												onAudioModelSelected={setPendingAudioModel}
 												resetToken={comparisonResetToken}
 												primaryChatId={currentChatId}
 												primaryChatIdRef={chatIdRef}
@@ -2036,6 +2044,46 @@ export default function ChatPageClient({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+			<Dialog
+				open={pendingAudioModel !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPendingAudioModel(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Switch to Audio Studio?</DialogTitle>
+						<DialogDescription>
+							{pendingAudioModel
+								? (models.find((m) => m.id === pendingAudioModel)?.name ??
+									pendingAudioModel)
+								: ""}{" "}
+							is a speech generation model. Would you like to open it in Audio
+							Studio?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setPendingAudioModel(null)}
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={() => {
+								if (pendingAudioModel) {
+									router.push(`/audio?model=${pendingAudioModel}`);
+								}
+								setPendingAudioModel(null);
+							}}
+						>
+							Open Audio Studio
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</SidebarProvider>
 	);
 }
@@ -2053,6 +2101,7 @@ interface ExtraChatPanelProps {
 	) => void;
 	onModelChange?: (model: string) => void;
 	onVideoModelSelected?: (modelId: string) => void;
+	onAudioModelSelected?: (modelId: string) => void;
 	resetToken: number;
 	primaryChatId: string | null;
 	primaryChatIdRef: React.RefObject<string | null>;
@@ -2075,6 +2124,7 @@ function ExtraChatPanel({
 	onRegisterExternalSubmit,
 	onModelChange,
 	onVideoModelSelected,
+	onAudioModelSelected,
 	resetToken,
 	primaryChatId,
 	primaryChatIdRef,
@@ -2095,10 +2145,14 @@ function ExtraChatPanel({
 				onVideoModelSelected?.(modelId);
 				return;
 			}
+			if (def?.output?.includes("audio")) {
+				onAudioModelSelected?.(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			onModelChange?.(model);
 		},
-		[onModelChange, onVideoModelSelected, models],
+		[onModelChange, onVideoModelSelected, onAudioModelSelected, models],
 	);
 	const [comparisonChatId, setComparisonChatId] = useState<string | null>(
 		initialChatId,
