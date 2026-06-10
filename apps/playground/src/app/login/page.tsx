@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod/v3";
 
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Button } from "@/components/ui/button";
 import {
 	Form,
@@ -245,6 +246,12 @@ function Login() {
 						<span className="bg-background px-2 text-muted-foreground">Or</span>
 					</div>
 				</div>
+				<SocialAuthButtons
+					isLoading={isLoading}
+					setIsLoading={setIsLoading}
+					callbackPath={returnUrl}
+					errorCallbackPath="/login"
+				/>
 				<Button
 					onClick={handlePasskeySignIn}
 					variant="outline"

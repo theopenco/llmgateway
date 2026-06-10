@@ -100,6 +100,14 @@ To mark content as cacheable, send the message content as an array of blocks and
 
 Use `ttl: "5m"` (the default if omitted) for short-lived caches that match a single user's session, and `ttl: "1h"` when the same prefix will be reused over a longer window (for example, a coding agent that keeps the same project context warm across many requests).
 
+### Mixing explicit markers with automatic injection
+
+Anthropic requires cache breakpoints with longer TTLs to appear before shorter ones (blocks are processed in the order `tools`, `system`, `messages`). The markers LLM Gateway injects automatically use the default 5-minute TTL, so they could never legally precede an explicit `ttl: "1h"` marker in your messages. To keep both features compatible:
+
+- When your request contains an explicit `ttl: "1h"` marker in the **messages**, LLM Gateway skips its automatic marker injection for that request entirely and forwards only your markers — the same behavior you would get calling the provider directly.
+- A `ttl: "1h"` marker only on the **system** prompt does not disable automatic injection, since 5-minute breakpoints after it still satisfy the ordering rule.
+- Explicit markers that use the default 5-minute TTL coexist with automatic injection (capped at 4 breakpoints total per Anthropic's limit).
+
 <Callout type="warning">
 	Cache writes are billed at a premium (typically 1.25x for 5m and 2x for 1h on
 	Anthropic) the first time a cached block is created. After that, cache reads
