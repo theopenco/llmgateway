@@ -157,6 +157,14 @@ export async function POST(req: Request) {
 					const body = JSON.parse(err.responseBody);
 					if (typeof body.message === "string") {
 						detailedMessage = body.message;
+					} else if (typeof body.error === "string") {
+						detailedMessage = body.error;
+					} else if (
+						body.error &&
+						typeof body.error === "object" &&
+						typeof body.error.message === "string"
+					) {
+						detailedMessage = body.error.message;
 					}
 				} catch {
 					// ignore parse errors
