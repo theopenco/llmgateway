@@ -408,6 +408,7 @@ export function ModelCard({
 					<div className="mt-4 pt-4 border-t border-border/30">
 						<ModelCtaButton
 							modelId={`${groupedByProvider[0]?.providerId}/${model.id}`}
+							output={model.output}
 							onClick={(e) => e.stopPropagation()}
 						/>
 					</div>
