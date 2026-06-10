@@ -2198,6 +2198,7 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 		.select({
 			id: tables.providerKey.id,
 			token: tables.providerKey.token,
+			tokenMasked: tables.providerKey.tokenMasked,
 			provider: tables.providerKey.provider,
 			name: tables.providerKey.name,
 			baseUrl: tables.providerKey.baseUrl,
@@ -2210,9 +2211,9 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 		.orderBy(desc(tables.providerKey.createdAt));
 
 	return c.json({
-		providerKeys: providerKeys.map((k) => ({
+		providerKeys: providerKeys.map(({ tokenMasked, ...k }) => ({
 			...k,
-			token: maskToken(k.token, 6),
+			token: tokenMasked ?? maskToken(k.token ?? "", 6),
 			createdAt: k.createdAt.toISOString(),
 			updatedAt: k.updatedAt.toISOString(),
 		})),
