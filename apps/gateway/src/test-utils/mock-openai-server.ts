@@ -1466,6 +1466,56 @@ async function handleGoogleGenerateContent(c: Context) {
 	const userMessage =
 		body.contents?.find?.((entry: any) => entry.role === "user")?.parts?.[0]
 			?.text ?? "";
+
+	const candidateCount =
+		typeof body.generationConfig?.candidateCount === "number"
+			? body.generationConfig.candidateCount
+			: 1;
+	if (candidateCount > 8) {
+		c.status(400);
+		return c.json({
+			error: {
+				code: 400,
+				message:
+					"* GenerateContentRequest.generation_config.candidate_count: candidate_count must be in the range [1, 8].\n",
+				status: "INVALID_ARGUMENT",
+			},
+		});
+	}
+	if (candidateCount > 1) {
+		// Mirror the real AI Studio quirk: candidate 0's parts contain its own
+		// output followed by a verbatim copy of every other candidate's parts,
+		// so tests exercise the gateway's de-duplication.
+		const variantPart = (i: number) => ({
+			text: `Google variant ${i + 1} for: "${userMessage}"`,
+		});
+		const candidates = Array.from({ length: candidateCount }, (_, i) => ({
+			content: {
+				parts:
+					i === 0
+						? [
+								variantPart(0),
+								...Array.from({ length: candidateCount - 1 }, (__, j) =>
+									variantPart(j + 1),
+								),
+							]
+						: [variantPart(i)],
+				role: "model",
+			},
+			finishReason: "STOP",
+			index: i,
+		}));
+		const candidatesTokenCount = 20 * candidateCount;
+		return c.json({
+			candidates,
+			usageMetadata: {
+				promptTokenCount: 10,
+				candidatesTokenCount,
+				totalTokenCount: 10 + candidatesTokenCount,
+			},
+		});
+	}
+
 	return c.json({
 		candidates: [
 			{

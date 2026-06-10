@@ -2451,6 +2451,11 @@ export async function prepareRequestBody(
 			if (top_p !== undefined) {
 				requestBody.generationConfig.topP = top_p;
 			}
+			// Google's equivalent of OpenAI's n: candidateCount (1-8, non-streaming
+			// only). Gated upstream by the mapping's supportsN/maxN/supportsNStreaming.
+			if (n !== undefined && n > 1) {
+				requestBody.generationConfig.candidateCount = n;
+			}
 
 			// Handle JSON output mode for Google
 			if (response_format?.type === "json_object") {

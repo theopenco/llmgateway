@@ -188,7 +188,7 @@ export const completionsRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description:
-				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models); requests for unsupported models are rejected with 400. Streaming is supported: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. The one exception is `n > 1` with `stream: true` **and** function `tools` — that combination is rejected with 400 because the streaming tool-call aggregator can't disambiguate concurrent calls across choices. Native `web_search` tools (and the `web_search: true` flag) are exempt.",
+				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models and Google Gemini 2.5 models via `candidateCount`); requests for unsupported models are rejected with 400. Streaming is supported for OpenAI models: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. Exceptions rejected with 400: `n > 1` with `stream: true` **and** function `tools` (the streaming tool-call aggregator can't disambiguate concurrent calls across choices; native `web_search` tools and the `web_search: true` flag are exempt), `n > 1` with `stream: true` on Google models (Gemini rejects candidateCount on streamGenerateContent), and `n > 8` on Google models (Gemini caps candidateCount at 8).",
 			example: 1,
 		}),
 	prompt_cache_key: z

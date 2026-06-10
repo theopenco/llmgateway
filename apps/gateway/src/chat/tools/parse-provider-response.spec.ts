@@ -55,6 +55,76 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("google multi-candidate (n > 1)", () => {
+		it("aggregates content across de-duplicated candidates and keys tool calls to candidate 0", () => {
+			// AI Studio quirk: candidate 0's parts also contain a copy of every
+			// other candidate's parts. The aggregate must count each candidate
+			// exactly once and tool calls must come from candidate 0 only.
+			const json = {
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{ text: "first thought", thought: true },
+								{ text: "Variant one." },
+								{
+									functionCall: {
+										name: "get_weather",
+										args: { city: "Paris" },
+									},
+								},
+								// duplicated copy of candidate 1's parts
+								{ text: "Variant two." },
+								{
+									functionCall: { name: "get_weather", args: { city: "Rome" } },
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+					{
+						content: {
+							role: "model",
+							parts: [
+								{ text: "Variant two." },
+								{
+									functionCall: { name: "get_weather", args: { city: "Rome" } },
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 1,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 10,
+					candidatesTokenCount: 20,
+					totalTokenCount: 30,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-2.5-flash",
+				json,
+			);
+
+			expect(result.content).toBe("Variant one.Variant two.");
+			expect(result.reasoningContent).toBe("first thought");
+			// Candidate 0's own tool call only — neither the duplicated copy
+			// nor candidate 1's own call belong to the choice-0 tool results.
+			expect(result.toolResults).toHaveLength(1);
+			expect(result.toolResults?.[0].function.name).toBe("get_weather");
+			expect(result.toolResults?.[0].function.arguments).toBe(
+				JSON.stringify({ city: "Paris" }),
+			);
+			expect(result.promptTokens).toBe(10);
+			expect(result.completionTokens).toBe(20);
+		});
+	});
+
 	describe("aws-bedrock cachedTokens", () => {
 		it("returns cachedTokens as 0 when cacheReadInputTokens is 0", () => {
 			const json = {

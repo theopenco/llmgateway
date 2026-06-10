@@ -356,9 +356,21 @@ export interface ProviderModelMapping {
 	 * forwards `n` to the upstream provider; when false/unset, requests with
 	 * `n > 1` are rejected with a 400 error. Only set this for providers that
 	 * actually accumulate input tokens once and bill output tokens across all
-	 * choices upstream (e.g. OpenAI Chat Completions).
+	 * choices upstream (e.g. OpenAI Chat Completions, Google `candidateCount`).
 	 */
 	supportsN?: boolean;
+	/**
+	 * Whether this mapping supports `n > 1` on streaming requests. Only
+	 * meaningful when supportsN is true; unset means streaming is allowed.
+	 * Google accepts candidateCount on generateContent but rejects it on
+	 * streamGenerateContent, so Google mappings set this to false.
+	 */
+	supportsNStreaming?: boolean;
+	/**
+	 * Upper bound the upstream enforces for `n` (e.g. Google caps
+	 * candidateCount at 8). When unset, only the request-schema cap applies.
+	 */
+	maxN?: number;
 	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)

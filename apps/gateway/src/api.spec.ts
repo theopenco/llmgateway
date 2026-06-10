@@ -4628,5 +4628,154 @@ describe("api", () => {
 				json.metadata.routing[json.metadata.routing.length - 1].succeeded,
 			).toBe(true);
 		});
+
+		test("forwards n to Google as candidateCount and de-dupes candidate 0", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-google",
+				token: "real-token-n-google",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-google",
+				token: "google-test-key",
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-google",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash",
+					n: 3,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			// The mock Google server echoes candidateCount back as that many
+			// candidates — and replicates the real AI Studio quirk where
+			// candidate 0's parts also contain a copy of every other candidate's
+			// parts. Receiving 3 distinct choices proves both the forwarding and
+			// the gateway-side de-duplication.
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(Array.isArray(json.choices)).toBe(true);
+			expect(json.choices).toHaveLength(3);
+			expect(json.choices[0].index).toBe(0);
+			expect(json.choices[1].index).toBe(1);
+			expect(json.choices[2].index).toBe(2);
+			expect(json.choices[0].message.content).toContain("Google variant 1");
+			expect(json.choices[0].message.content).not.toContain("Google variant 2");
+			expect(json.choices[0].message.content).not.toContain("Google variant 3");
+			expect(json.choices[1].message.content).toContain("Google variant 2");
+			expect(json.choices[2].message.content).toContain("Google variant 3");
+			for (const choice of json.choices) {
+				expect(choice.finish_reason).toBe("stop");
+			}
+
+			// Input tokens counted once; output across all candidates — mirrors
+			// Google's multi-candidate billing.
+			expect(json.usage.prompt_tokens).toBe(10);
+			expect(json.usage.completion_tokens).toBe(60);
+			expect(json.usage.total_tokens).toBe(70);
+
+			// Log row content column should aggregate every candidate's content
+			// (after de-duplication), not just candidate 0.
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].streamed).toBe(false);
+			expect(logs[0].content).toContain("Google variant 1");
+			expect(logs[0].content).toContain("Google variant 2");
+			expect(logs[0].content).toContain("Google variant 3");
+			// De-duplication: candidate 0's duplicated copies must not double
+			// the variants in the aggregated log content.
+			expect((logs[0].content?.match(/Google variant 2/g) ?? []).length).toBe(
+				1,
+			);
+		});
+
+		test("rejects n > 1 with streaming on Google models", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-google-stream",
+				token: "real-token-n-google-stream",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-google-stream",
+				token: "google-test-key",
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Google rejects candidateCount > 1 on streamGenerateContent, so the
+			// gateway must 400 with a precise message before calling upstream.
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-google-stream",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash",
+					n: 3,
+					stream: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const text = await res.text();
+			expect(text).toContain(
+				"does not support the n parameter for multiple choices with streaming",
+			);
+		});
+
+		test("rejects n above Google's candidateCount cap", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-google-cap",
+				token: "real-token-n-google-cap",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-google-cap",
+				token: "google-test-key",
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Google caps candidateCount at 8; the gateway surfaces a clear 400
+			// instead of forwarding and bubbling Google's INVALID_ARGUMENT.
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-google-cap",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash",
+					n: 9,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const text = await res.text();
+			expect(text).toContain("supports at most 8 choices per request");
+		});
 	});
 });

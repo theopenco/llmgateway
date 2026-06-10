@@ -491,6 +491,7 @@ function filterEligibleModelProviders(
 		maxTokens?: number;
 		reasoningEffort?: string;
 		n?: number;
+		stream?: boolean;
 	},
 ): ProviderModelMapping[] {
 	return availableModelProviders.filter((provider) => {
@@ -514,13 +515,19 @@ function filterEligibleModelProviders(
 
 		// Exclude mappings that can't natively serve n > 1 so routing skips
 		// over them instead of selecting one and failing the post-selection
-		// supportsN guard. The post-guard stays as a safety net.
-		if (
-			options.n !== undefined &&
-			options.n > 1 &&
-			provider.supportsN !== true
-		) {
-			return false;
+		// supportsN guard. The post-guard stays as a safety net. Mappings
+		// whose upstream caps n (maxN) or rejects n > 1 on streaming
+		// (supportsNStreaming === false, e.g. Google) are excluded the same way.
+		if (options.n !== undefined && options.n > 1) {
+			if (provider.supportsN !== true) {
+				return false;
+			}
+			if (provider.maxN !== undefined && options.n > provider.maxN) {
+				return false;
+			}
+			if (options.stream && provider.supportsNStreaming === false) {
+				return false;
+			}
 		}
 
 		if (
@@ -2541,9 +2548,19 @@ chat.openapi(completions, async (c) => {
 
 				// Skip mappings that don't advertise supportsN when n > 1 so
 				// auto-routing doesn't pick one and trip the post-selection
-				// 400 guard. The post-guard stays as a safety net.
-				if (n !== undefined && n > 1 && provider.supportsN !== true) {
-					return false;
+				// 400 guard. The post-guard stays as a safety net. Also skip
+				// mappings whose upstream caps n (maxN) or rejects n > 1 on
+				// streaming (supportsNStreaming === false, e.g. Google).
+				if (n !== undefined && n > 1) {
+					if (provider.supportsN !== true) {
+						return false;
+					}
+					if (provider.maxN !== undefined && n > provider.maxN) {
+						return false;
+					}
+					if (stream && provider.supportsNStreaming === false) {
+						return false;
+					}
 				}
 
 				// Check JSON output capability if json_object or json_schema response format is requested
@@ -2858,6 +2875,7 @@ chat.openapi(completions, async (c) => {
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
+					stream,
 				},
 			);
 
@@ -3220,6 +3238,7 @@ chat.openapi(completions, async (c) => {
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 						n,
+						stream,
 					},
 				).filter(
 					(provider) =>
@@ -3412,12 +3431,41 @@ chat.openapi(completions, async (c) => {
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
+					stream,
 				},
 			);
 
 			if (availableModelProviders.length === 0) {
 				const audience =
 					project.mode === "api-keys" ? "configured" : "available";
+				// When an n-specific constraint (streaming support or the upstream
+				// cap) excluded every n-capable mapping, surface that precisely
+				// instead of the generic no-provider message.
+				if (n !== undefined && n > 1) {
+					const nCapableMappings = modelInfo.providers.filter(
+						(p) => p.supportsN === true,
+					);
+					if (
+						stream &&
+						nCapableMappings.length > 0 &&
+						nCapableMappings.every((p) => p.supportsNStreaming === false)
+					) {
+						throw new HTTPException(400, {
+							message: `Model ${usedInternalModel} does not support the n parameter for multiple choices with streaming. Send a non-streaming request instead.`,
+						});
+					}
+					if (
+						nCapableMappings.length > 0 &&
+						nCapableMappings.every((p) => p.maxN !== undefined && n > p.maxN)
+					) {
+						const maxSupportedN = Math.max(
+							...nCapableMappings.map((p) => p.maxN ?? 0),
+						);
+						throw new HTTPException(400, {
+							message: `Model ${usedInternalModel} supports at most ${maxSupportedN} choices per request (n <= ${maxSupportedN}).`,
+						});
+					}
+				}
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
@@ -3693,6 +3741,7 @@ chat.openapi(completions, async (c) => {
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
+					stream,
 				},
 			);
 
@@ -5012,10 +5061,24 @@ chat.openapi(completions, async (c) => {
 					undefined, // No plugin results for cached response
 				);
 
-				// Estimate cached response size based on content to avoid expensive stringify
-				const cachedContent = cachedResponse.choices?.[0]?.message?.content;
-				const cachedReasoningContent =
-					cachedResponse.choices?.[0]?.message?.reasoning;
+				// Estimate cached response size based on content to avoid expensive stringify.
+				// Aggregate every choice so n > 1 cache hits keep indices > 0 in the log row.
+				const cachedChoices = Array.isArray(cachedResponse.choices)
+					? cachedResponse.choices
+					: [];
+				let cachedContent: string | null = null;
+				let cachedReasoningContent: string | null = null;
+				for (const cachedChoice of cachedChoices) {
+					const choiceContent = cachedChoice?.message?.content;
+					if (typeof choiceContent === "string") {
+						cachedContent = (cachedContent ?? "") + choiceContent;
+					}
+					const choiceReasoning = cachedChoice?.message?.reasoning;
+					if (typeof choiceReasoning === "string") {
+						cachedReasoningContent =
+							(cachedReasoningContent ?? "") + choiceReasoning;
+					}
+				}
 				const estimatedCachedSize =
 					(cachedContent?.length ?? 0) +
 					(cachedReasoningContent?.length ?? 0) +
@@ -5160,7 +5223,7 @@ chat.openapi(completions, async (c) => {
 	// Reject n > 1 when the resolved provider mapping does not advertise
 	// supportsN. We only forward n upstream for providers/models that bill
 	// input tokens once and accumulate output across choices natively
-	// (currently OpenAI Chat Completions models).
+	// (currently OpenAI Chat Completions and Google Gemini 2.5 models).
 	if (n !== undefined && n > 1 && finalModelInfo) {
 		const providerMapping = finalModelInfo.providers.find(
 			(p) => p.providerId === usedProvider && p.region === usedRegion,
@@ -5168,6 +5231,19 @@ chat.openapi(completions, async (c) => {
 		if (!providerMapping?.supportsN) {
 			throw new HTTPException(400, {
 				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+			});
+		}
+		// Google caps candidateCount at 8 and rejects it entirely on
+		// streamGenerateContent, so surface clear 400s instead of opaque
+		// upstream INVALID_ARGUMENT errors.
+		if (providerMapping.maxN !== undefined && n > providerMapping.maxN) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} supports at most ${providerMapping.maxN} choices per request (n <= ${providerMapping.maxN}).`,
+			});
+		}
+		if (effectiveStream && providerMapping.supportsNStreaming === false) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices with streaming. Send a non-streaming request instead.`,
 			});
 		}
 	}
