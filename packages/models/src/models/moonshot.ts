@@ -242,6 +242,7 @@ export const moonshotModels = [
 				// Streaming tool calls and response_format: json_object are unreliable on Nebius
 				stability: "unstable",
 				externalId: "moonshotai/Kimi-K2.5",
+				deactivatedAt: new Date("2026-06-22"),
 				inputPrice: "0.5e-6",
 				cachedInputPrice: "0.02e-6",
 				outputPrice: "2.5e-6",
