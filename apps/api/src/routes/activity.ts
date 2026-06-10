@@ -22,8 +22,84 @@ import {
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
+import type { SQLWrapper } from "@llmgateway/db";
 
 export const activity = new OpenAPIHono<ServerTypes>();
+
+function isValidTimeZone(timeZone: string): boolean {
+	try {
+		Intl.DateTimeFormat("en-US", { timeZone });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+// Intl.DateTimeFormat construction is expensive and generateTimeSlots calls it
+// in a loop (up to ~8800 iterations for 365d), so reuse one formatter per zone.
+const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function getTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat {
+	let formatter = timeZoneFormatters.get(timeZone);
+	if (!formatter) {
+		formatter = new Intl.DateTimeFormat("en-US", {
+			timeZone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+			hourCycle: "h23",
+		});
+		timeZoneFormatters.set(timeZone, formatter);
+	}
+	return formatter;
+}
+
+function getTimeZoneParts(date: Date, timeZone: string) {
+	const parts = getTimeZoneFormatter(timeZone).formatToParts(date);
+	const result: Record<string, string> = {};
+	for (const part of parts) {
+		result[part.type] = part.value;
+	}
+	return result;
+}
+
+function formatInTimeZone(
+	date: Date,
+	timeZone: string,
+	isHourly: boolean,
+): string {
+	const p = getTimeZoneParts(date, timeZone);
+	const day = `${p.year}-${p.month}-${p.day}`;
+	return isHourly ? `${day}T${p.hour}:${p.minute}:${p.second}` : day;
+}
+
+function timeZoneOffsetMs(date: Date, timeZone: string): number {
+	const p = getTimeZoneParts(date, timeZone);
+	const asUtc = Date.UTC(
+		Number(p.year),
+		Number(p.month) - 1,
+		Number(p.day),
+		Number(p.hour),
+		Number(p.minute),
+		Number(p.second),
+	);
+	const wholeSecondsMs = Math.trunc(date.getTime() / 1000) * 1000;
+	return asUtc - wholeSecondsMs;
+}
+
+// Interpret a local wall-clock ISO string (no offset) in the given timezone
+// and return the corresponding UTC instant. Two passes to converge across DST
+// boundaries.
+function zonedTimeToUtc(localIso: string, timeZone: string): Date {
+	const wallClock = new Date(localIso + "Z");
+	const guess = new Date(
+		wallClock.getTime() - timeZoneOffsetMs(wallClock, timeZone),
+	);
+	return new Date(wallClock.getTime() - timeZoneOffsetMs(guess, timeZone));
+}
 
 // Define the response schema for model-specific usage
 const modelUsageSchema = z.object({
@@ -84,52 +160,24 @@ const dailyActivitySchema = z.object({
 
 type ActivityRow = z.infer<typeof dailyActivitySchema>;
 
+// Walk UTC hour boundaries (matching the hourly rollup buckets) and label each
+// in the requested timezone, deduping consecutive labels for daily granularity
+// and DST fall-back overlaps.
 function generateTimeSlots(
 	startDate: Date,
 	endDate: Date,
 	isHourly: boolean,
+	timeZone: string,
 ): string[] {
 	const slots: string[] = [];
-	if (isHourly) {
-		const cur = new Date(
-			Date.UTC(
-				startDate.getUTCFullYear(),
-				startDate.getUTCMonth(),
-				startDate.getUTCDate(),
-				startDate.getUTCHours(),
-			),
-		);
-		const end = new Date(
-			Date.UTC(
-				endDate.getUTCFullYear(),
-				endDate.getUTCMonth(),
-				endDate.getUTCDate(),
-				endDate.getUTCHours(),
-			),
-		);
-		while (cur.getTime() <= end.getTime()) {
-			slots.push(cur.toISOString().slice(0, 19));
-			cur.setUTCHours(cur.getUTCHours() + 1);
+	const cur = new Date(startDate);
+	cur.setUTCMinutes(0, 0, 0);
+	while (cur.getTime() <= endDate.getTime()) {
+		const slot = formatInTimeZone(cur, timeZone, isHourly);
+		if (slots[slots.length - 1] !== slot) {
+			slots.push(slot);
 		}
-	} else {
-		const cur = new Date(
-			Date.UTC(
-				startDate.getUTCFullYear(),
-				startDate.getUTCMonth(),
-				startDate.getUTCDate(),
-			),
-		);
-		const end = new Date(
-			Date.UTC(
-				endDate.getUTCFullYear(),
-				endDate.getUTCMonth(),
-				endDate.getUTCDate(),
-			),
-		);
-		while (cur.getTime() <= end.getTime()) {
-			slots.push(cur.toISOString().slice(0, 10));
-			cur.setUTCDate(cur.getUTCDate() + 1);
-		}
+		cur.setUTCHours(cur.getUTCHours() + 1);
 	}
 	return slots;
 }
@@ -175,8 +223,9 @@ function padActivity(
 	startDate: Date,
 	endDate: Date,
 	isHourly: boolean,
+	timeZone: string,
 ): ActivityRow[] {
-	const slots = generateTimeSlots(startDate, endDate, isHourly);
+	const slots = generateTimeSlots(startDate, endDate, isHourly, timeZone);
 	const byDate = new Map(rows.map((r) => [r.date, r]));
 	return slots.map((slot) => byDate.get(slot) ?? buildEmptyActivityRow(slot));
 }
@@ -198,6 +247,11 @@ const getActivity = createRoute({
 			apiKeyId: z.string().optional(),
 			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
 			groupBy: z.enum(["model", "apiKey"]).optional(),
+			timezone: z
+				.string()
+				.max(64)
+				.refine(isValidTimeZone, { message: "Invalid IANA timezone" })
+				.optional(),
 		}),
 	},
 	responses: {
@@ -225,9 +279,10 @@ activity.openapi(getActivity, async (c) => {
 	}
 
 	// Get the query parameters
-	const { days, from, to, projectId, apiKeyId, timeRange, groupBy } =
+	const { days, from, to, projectId, apiKeyId, timeRange, groupBy, timezone } =
 		c.req.valid("query");
 	const breakdownByApiKey = groupBy === "apiKey";
+	const timeZone = timezone ?? "UTC";
 
 	// Calculate the date range and granularity
 	let startDate: Date;
@@ -264,8 +319,8 @@ activity.openapi(getActivity, async (c) => {
 				break;
 		}
 	} else if (from && to) {
-		startDate = new Date(from + "T00:00:00");
-		endDate = new Date(to + "T23:59:59.999");
+		startDate = zonedTimeToUtc(from + "T00:00:00.000", timeZone);
+		endDate = zonedTimeToUtc(to + "T23:59:59.999", timeZone);
 	} else {
 		const effectiveDays = days ?? 7;
 		endDate = new Date();
@@ -275,6 +330,15 @@ activity.openapi(getActivity, async (c) => {
 
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
+
+	// Bucket UTC-stored hour timestamps as wall-clock strings in the caller's
+	// timezone, so daily grouping happens at local midnight rather than UTC.
+	// Grouping/ordering use positional references because a repeated bind
+	// parameter would make the GROUP BY expression differ from the SELECT one.
+	const bucketDate = (column: SQLWrapper) =>
+		isHourly
+			? sql<string>`to_char(${column} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD"T"HH24:MI:SS')`
+			: sql<string>`to_char(${column} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')`;
 
 	// Get all organizations the user is a member of
 	const organizationIds = await getUserOrganizationIds(user.id);
@@ -317,11 +381,7 @@ activity.openapi(getActivity, async (c) => {
 		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${apiKeyHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(apiKeyHourlyStats.hourTimestamp).as("date"),
 				requestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -435,27 +495,13 @@ activity.openapi(getActivity, async (c) => {
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp}`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp})`,
-			)
-			.orderBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp} ASC`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC`,
-			);
+			.groupBy(sql`1`)
+			.orderBy(sql`1 ASC`);
 
 		// Query model breakdown from apiKeyHourlyModelStats table
 		const modelBreakdowns = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${apiKeyHourlyModelStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${apiKeyHourlyModelStats.hourTimestamp})`.as(
-							"date",
-						),
+				date: bucketDate(apiKeyHourlyModelStats.hourTimestamp).as("date"),
 				usedModel: apiKeyHourlyModelStats.usedModel,
 				usedProvider: apiKeyHourlyModelStats.usedProvider,
 				requestCount:
@@ -488,15 +534,9 @@ activity.openapi(getActivity, async (c) => {
 				),
 			)
 			.groupBy(
-				isHourly
-					? sql`${apiKeyHourlyModelStats.hourTimestamp}, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`
-					: sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}), ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
+				sql`1, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
 			)
-			.orderBy(
-				isHourly
-					? sql`${apiKeyHourlyModelStats.hourTimestamp} ASC, ${apiKeyHourlyModelStats.usedModel} ASC`
-					: sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}) ASC, ${apiKeyHourlyModelStats.usedModel} ASC`,
-			);
+			.orderBy(sql`1 ASC, ${apiKeyHourlyModelStats.usedModel} ASC`);
 
 		const modelBreakdownByDate = new Map<
 			string,
@@ -588,7 +628,7 @@ activity.openapi(getActivity, async (c) => {
 		});
 
 		const paddedActivity = timeRange
-			? padActivity(activityData, startDate, endDate, isHourly)
+			? padActivity(activityData, startDate, endDate, isHourly, timeZone)
 			: activityData;
 
 		return c.json({
@@ -601,11 +641,7 @@ activity.openapi(getActivity, async (c) => {
 	// Query aggregated data from projectHourlyStats table
 	const hourlyAggregates = await db
 		.select({
-			date: isHourly
-				? sql<string>`to_char(${projectHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-						"date",
-					)
-				: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			date: bucketDate(projectHourlyStats.hourTimestamp).as("date"),
 			requestCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 					"requestCount",
@@ -718,16 +754,8 @@ activity.openapi(getActivity, async (c) => {
 				lte(projectHourlyStats.hourTimestamp, endDate),
 			),
 		)
-		.groupBy(
-			isHourly
-				? sql`${projectHourlyStats.hourTimestamp}`
-				: sql`DATE(${projectHourlyStats.hourTimestamp})`,
-		)
-		.orderBy(
-			isHourly
-				? sql`${projectHourlyStats.hourTimestamp} ASC`
-				: sql`DATE(${projectHourlyStats.hourTimestamp}) ASC`,
-		);
+		.groupBy(sql`1`)
+		.orderBy(sql`1 ASC`);
 
 	// Create a map to organize model breakdowns by date.
 	// Only query when not breaking down by api key — saves an aggregate scan
@@ -739,13 +767,7 @@ activity.openapi(getActivity, async (c) => {
 	if (!breakdownByApiKey) {
 		const modelBreakdowns = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${projectHourlyModelStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
-							"date",
-						),
+				date: bucketDate(projectHourlyModelStats.hourTimestamp).as("date"),
 				usedModel: projectHourlyModelStats.usedModel,
 				usedProvider: projectHourlyModelStats.usedProvider,
 				requestCount:
@@ -777,15 +799,9 @@ activity.openapi(getActivity, async (c) => {
 				),
 			)
 			.groupBy(
-				isHourly
-					? sql`${projectHourlyModelStats.hourTimestamp}, ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`
-					: sql`DATE(${projectHourlyModelStats.hourTimestamp}), ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`,
+				sql`1, ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`,
 			)
-			.orderBy(
-				isHourly
-					? sql`${projectHourlyModelStats.hourTimestamp} ASC, ${projectHourlyModelStats.usedModel} ASC`
-					: sql`DATE(${projectHourlyModelStats.hourTimestamp}) ASC, ${projectHourlyModelStats.usedModel} ASC`,
-			);
+			.orderBy(sql`1 ASC, ${projectHourlyModelStats.usedModel} ASC`);
 
 		for (const breakdown of modelBreakdowns) {
 			if (!modelBreakdownByDate.has(breakdown.date)) {
@@ -811,11 +827,7 @@ activity.openapi(getActivity, async (c) => {
 	if (breakdownByApiKey) {
 		const apiKeyBreakdowns = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${apiKeyHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(apiKeyHourlyStats.hourTimestamp).as("date"),
 				apiKeyId: apiKeyHourlyStats.apiKeyId,
 				description: apiKey.description,
 				requestCount:
@@ -848,16 +860,8 @@ activity.openapi(getActivity, async (c) => {
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp}, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp}), ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`,
-			)
-			.orderBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp} ASC, ${apiKeyHourlyStats.apiKeyId} ASC`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC, ${apiKeyHourlyStats.apiKeyId} ASC`,
-			);
+			.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
+			.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
 
 		for (const breakdown of apiKeyBreakdowns) {
 			if (!apiKeyBreakdownByDate.has(breakdown.date)) {
@@ -945,7 +949,7 @@ activity.openapi(getActivity, async (c) => {
 	});
 
 	const paddedActivity = timeRange
-		? padActivity(activityData, startDate, endDate, isHourly)
+		? padActivity(activityData, startDate, endDate, isHourly, timeZone)
 		: activityData;
 
 	return c.json({

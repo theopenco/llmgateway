@@ -1,12 +1,6 @@
 "use client";
 
-import {
-	addDays,
-	addHours,
-	differenceInCalendarDays,
-	format,
-	parseISO,
-} from "date-fns";
+import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
@@ -36,6 +30,7 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
 import type {
@@ -266,9 +261,11 @@ export function ActivityChart({
 	// Build query params based on whether we're using timeRange or date range
 	const queryParams = useMemo(() => {
 		const breakdownParam = groupBy === "apiKey" ? { groupBy } : {};
+		const timezone = getBrowserTimeZone();
 		if (timeRange) {
 			return {
 				timeRange,
+				timezone,
 				...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				...(apiKeyId ? { apiKeyId } : {}),
 				...breakdownParam,
@@ -278,6 +275,7 @@ export function ActivityChart({
 		return {
 			from: format(from, "yyyy-MM-dd"),
 			to: format(to, "yyyy-MM-dd"),
+			timezone,
 			...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 			...(apiKeyId ? { apiKeyId } : {}),
 			...breakdownParam,
@@ -395,30 +393,12 @@ export function ActivityChart({
 		);
 	}
 
-	// Generate the expected time slots (hourly or daily)
+	// Generate the expected time slots (hourly or daily). For timeRange queries
+	// the backend already returns padded, ordered buckets in the requested
+	// timezone, so use them as-is instead of regenerating them locally.
 	const slots: string[] = [];
-	if (hourly && timeRange) {
-		const totalHours = getTimeRangeHours(timeRange);
-		const now = new Date();
-		// Truncate to the current hour
-		const endHour = new Date(
-			now.getFullYear(),
-			now.getMonth(),
-			now.getDate(),
-			now.getHours(),
-		);
-		const startHour = addHours(endHour, -totalHours);
-		for (let i = 0; i < totalHours; i++) {
-			const hour = addHours(startHour, i);
-			slots.push(format(hour, "yyyy-MM-dd'T'HH:mm:ss"));
-		}
-	} else if (timeRange) {
-		const totalDays = getTimeRangeHours(timeRange) / 24;
-		const now = new Date();
-		for (let i = totalDays - 1; i >= 0; i--) {
-			const d = addDays(now, -i);
-			slots.push(format(d, "yyyy-MM-dd"));
-		}
+	if (timeRange) {
+		slots.push(...data.activity.map((item) => item.date));
 	} else {
 		const { from, to } = getDateRangeFromParams(searchParams);
 		const totalDays = differenceInCalendarDays(to, from) + 1;
