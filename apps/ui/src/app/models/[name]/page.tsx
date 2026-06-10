@@ -251,6 +251,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 							<ModelCtaButton
 								modelId={decodedName}
+								output={modelDef.output}
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
