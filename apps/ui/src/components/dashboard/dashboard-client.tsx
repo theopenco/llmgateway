@@ -66,6 +66,13 @@ interface DashboardClientProps {
 	initialDevPassCollapsed?: boolean;
 }
 
+function formatCredits(credits: number) {
+	return credits.toLocaleString("en-US", {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: credits !== 0 && Math.abs(credits) < 1 ? 4 : 2,
+	});
+}
+
 export function DashboardClient({
 	initialActivityData,
 	initialDevPassCollapsed,
@@ -334,12 +341,12 @@ export function DashboardClient({
 				<DateRangePicker buildUrl={buildUrl} />
 
 				<div className="space-y-4">
-					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+					<div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
 						<MetricCard
 							label="Organization Credits"
 							value={`$${
 								selectedOrganization
-									? Number(selectedOrganization.credits).toFixed(8)
+									? formatCredits(Number(selectedOrganization.credits))
 									: "0.00"
 							}`}
 							subtitle="Available balance"
