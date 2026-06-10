@@ -251,3 +251,91 @@ describe("anthropicMessagesToOpenai preserves existing behavior", () => {
 		]);
 	});
 });
+
+describe("anthropicMessagesToOpenai legacy function_call id pairing", () => {
+	it("reuses the synthesized id for the following id-less function result", () => {
+		const result = anthropicMessagesToOpenai([
+			{
+				role: "assistant",
+				content: "",
+				function_call: { name: "get_weather", arguments: "{}" },
+			},
+			{ role: "function", name: "get_weather", content: "sunny" },
+		]);
+
+		const toolCalls = result[0].tool_calls as Array<{ id: string }>;
+		expect(toolCalls).toHaveLength(1);
+		expect(toolCalls[0].id).toMatch(/^call_/);
+		expect(result[1]).toEqual({
+			role: "tool",
+			content: "sunny",
+			tool_call_id: toolCalls[0].id,
+		});
+	});
+
+	it("pairs an explicit function_call id with an id-less function result", () => {
+		const result = anthropicMessagesToOpenai([
+			{
+				role: "assistant",
+				content: "",
+				function_call: { id: "call_exp1", name: "f", arguments: "{}" },
+			},
+			{ role: "function", name: "f", content: "out" },
+		]);
+		expect(result[1].tool_call_id).toBe("call_exp1");
+	});
+
+	it("falls back to the function name when no preceding function_call exists", () => {
+		const result = anthropicMessagesToOpenai([
+			{ role: "function", name: "orphan_fn", content: "out" },
+		]);
+		expect(result[0].tool_call_id).toBe("orphan_fn");
+	});
+});
+
+describe("anthropicMessagesToOpenai cache_control in tool_result turns", () => {
+	it("preserves cache_control on text accompanying tool_result blocks", () => {
+		const result = anthropicMessagesToOpenai([
+			{
+				role: "user",
+				content: [
+					{ type: "tool_result", tool_use_id: "toolu_9", content: "data" },
+					{
+						type: "text",
+						text: "cached doc",
+						cache_control: { type: "ephemeral" },
+					},
+				],
+			},
+		]);
+		expect(result).toEqual([
+			{ role: "tool", content: "data", tool_call_id: "toolu_9" },
+			{
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: "cached doc",
+						cache_control: { type: "ephemeral" },
+					},
+				],
+			},
+		]);
+	});
+
+	it("keeps plain accompanying text as a joined string when uncached", () => {
+		const result = anthropicMessagesToOpenai([
+			{
+				role: "user",
+				content: [
+					{ type: "tool_result", tool_use_id: "toolu_9", content: "data" },
+					{ type: "text", text: "follow-up" },
+				],
+			},
+		]);
+		expect(result).toEqual([
+			{ role: "tool", content: "data", tool_call_id: "toolu_9" },
+			{ role: "user", content: "follow-up" },
+		]);
+	});
+});

@@ -100,6 +100,11 @@ export function anthropicMessagesToOpenai(
 	messages: AnthropicMessage[],
 ): Array<Record<string, unknown>> {
 	const openaiMessages: Array<Record<string, unknown>> = [];
+	// Ids of preceding assistant `function_call` turns (synthesized when the
+	// client omitted one), so the legacy `function` result that follows can
+	// reference the same call. Falling back to the function name instead would
+	// break the tool_call_id pairing contract of the inner completions endpoint.
+	const pendingLegacyToolCallIds: string[] = [];
 
 	for (const message of messages) {
 		// Strip extended-thinking blocks (`thinking` / `redacted_thinking`) from
@@ -133,7 +138,10 @@ export function anthropicMessagesToOpenai(
 			openaiMessages.push({
 				role: "tool",
 				content: message.content,
-				tool_call_id: message.tool_call_id ?? message.name,
+				tool_call_id:
+					message.tool_call_id ??
+					pendingLegacyToolCallIds.shift() ??
+					message.name,
 			});
 			continue;
 		}
@@ -150,11 +158,14 @@ export function anthropicMessagesToOpenai(
 
 		// Handle assistant messages with function_call (legacy OpenAI format)
 		if (message.role === "assistant" && message.function_call) {
+			const toolCallId =
+				message.function_call.id ??
+				`call_${Math.random().toString(36).substring(2, 10)}`;
+			pendingLegacyToolCallIds.push(toolCallId);
+
 			const toolCalls = [
 				{
-					id:
-						message.function_call.id ??
-						`call_${Math.random().toString(36).substring(2, 10)}`,
+					id: toolCallId,
 					type: "function" as const,
 					function: {
 						name: message.function_call.name,
@@ -240,13 +251,28 @@ export function anthropicMessagesToOpenai(
 				});
 			}
 
-			// Handle any remaining text content as a user message
-			const textContent = message.content
-				.filter((block) => block.type === "text")
-				.map((block) => block.text)
-				.join("");
+			// Handle any remaining text content as a user message, preserving
+			// cache_control markers the same way the generic text path below does.
+			const textBlocks = message.content.filter(
+				(block) => block.type === "text",
+			);
+			const hasAnyCacheControl = textBlocks.some(
+				(block) => block.cache_control,
+			);
+			const textContent = textBlocks.map((block) => block.text).join("");
 
-			if (textContent) {
+			if (hasAnyCacheControl) {
+				openaiMessages.push({
+					role: "user",
+					content: textBlocks.map((block) => ({
+						type: "text",
+						text: block.text,
+						...(block.cache_control && {
+							cache_control: block.cache_control,
+						}),
+					})),
+				});
+			} else if (textContent) {
 				openaiMessages.push({
 					role: "user",
 					content: textContent,
