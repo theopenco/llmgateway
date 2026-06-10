@@ -1,6 +1,6 @@
 ---
 title: Speech Generation
-description: Generate speech (text-to-speech) using Gemini and OpenAI models through the OpenAI-compatible audio API
+description: Generate speech (text-to-speech) using ElevenLabs, Gemini, and OpenAI models through the OpenAI-compatible audio API
 icon: Volume2
 ---
 
@@ -9,8 +9,15 @@ import { Callout } from "fumadocs-ui/components/callout";
 # Speech Generation
 
 LLMGateway supports text-to-speech (TTS) through the OpenAI-compatible
-**`/v1/audio/speech`** endpoint, powered by Google Gemini and OpenAI speech
-models.
+**`/v1/audio/speech`** endpoint, powered by ElevenLabs, Google Gemini, and
+OpenAI speech models.
+
+<Callout type="info">
+	Want to hear the voices before writing code? The [Audio
+	Studio](https://chat.llmgateway.io/audio) in the Playground generates speech
+	from up to three models side by side, with per-model voice, format, and speed
+	controls.
+</Callout>
 
 ## Available Models
 
@@ -28,14 +35,14 @@ Browse all speech generation models, with up-to-date pricing, on the
 
 ## Parameters
 
-| Parameter         | Type   | Default  | Description                                                                                                |
-| ----------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------- |
-| `model`           | string | required | The speech model to use                                                                                    |
-| `input`           | string | required | The text to synthesize into speech                                                                         |
-| `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini) or `alloy` (OpenAI)                                          |
-| `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. Gemini: `wav` (default), `pcm` |
-| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                         |
-| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                 |
+| Parameter         | Type   | Default  | Description                                                                                                                                                   |
+| ----------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`           | string | required | The speech model to use                                                                                                                                       |
+| `input`           | string | required | The text to synthesize into speech                                                                                                                            |
+| `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini), `alloy` (OpenAI), or `Sarah` (ElevenLabs)                                                                      |
+| `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. ElevenLabs: `mp3` (default), `wav`, `pcm`, `opus`. Gemini: `wav` (default), `pcm` |
+| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                                                                            |
+| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                                                                    |
 
 <Callout type="info">
 	Gemini speech models return raw PCM audio. LLMGateway wraps it in a WAV
@@ -100,3 +107,30 @@ Gemini exposes 30 prebuilt voices. A few common ones:
 OpenAI voices include `alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`,
 `nova`, `onyx`, `sage`, `shimmer`, and `verse`. When `voice` is omitted on an
 OpenAI model, `alloy` is used.
+
+ElevenLabs models accept 20 named voices, including `Sarah`, `Aria`, `Roger`,
+`Laura`, `Charlie`, `George`, `Charlotte`, `Jessica`, `Brian`, and `Lily`. When
+`voice` is omitted on an ElevenLabs model, `Sarah` is used. A raw ElevenLabs
+voice id is also accepted directly.
+
+## ElevenLabs
+
+The four ElevenLabs models are billed per **input character** (see the [models
+page](https://llmgateway.io/models?filters=1&audioGeneration=true) for rates):
+
+- `eleven-multilingual-v2` — most lifelike, rich emotional expression, 29 languages
+- `eleven-v3` — most expressive and human-like, 70+ languages
+- `eleven-flash-v2-5` — ultra-low latency, 32 languages
+- `eleven-turbo-v2-5` — fast and balanced, 32 languages
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/audio/speech" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "eleven-multilingual-v2",
+    "input": "Hello, welcome to LLM Gateway!",
+    "voice": "Sarah"
+  }' \
+  --output speech.mp3
+```

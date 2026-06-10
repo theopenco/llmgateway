@@ -1114,6 +1114,13 @@
       "when": 1780958022850,
       "tag": "1780958022_easy_wolfsbane",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "8",
+      "when": 1781044033150,
+      "tag": "1781044033_striped_ultragirl",
+      "breakpoints": true
     }
   ]
 }

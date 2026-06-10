@@ -5,11 +5,11 @@ import { BarChart3, Coins, Cpu, Layers, Server } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import {
+	Bar,
+	BarChart,
 	CartesianGrid,
 	Cell,
 	Legend,
-	Line,
-	LineChart,
 	Pie,
 	PieChart,
 	XAxis,
@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/card";
 import {
 	ChartContainer,
+	ChartLegend,
+	ChartLegendContent,
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
@@ -113,6 +115,11 @@ const VALID_METRICS: TimeseriesMetric[] = [
 const VALID_MODEL_VIEWS: ModelView[] = ["mapping", "canonical", "provider"];
 
 const BREAKDOWN_PAGE_SIZE = 25;
+
+// Max distinct series in the stacked bar chart before the rest collapse into "Other".
+const TIMESERIES_STACK_LIMIT = 8;
+const OTHER_KEY = "__other__";
+const OTHER_COLOR = "hsl(215 16% 47%)";
 
 function parseGroupBy(value: string | null): GroupBy {
 	return VALID_GROUPS.includes(value as GroupBy) ? (value as GroupBy) : "model";
@@ -274,7 +281,10 @@ export function GlobalStatsClient() {
 
 	const totals = data?.totals;
 	const timeseries = data?.timeseries ?? [];
+	const timeseriesBreakdown = data?.timeseriesBreakdown ?? [];
 	const breakdown = data?.breakdown ?? [];
+
+	const [showTimeseriesBreakdown, setShowTimeseriesBreakdown] = useState(false);
 
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
@@ -321,6 +331,52 @@ export function GlobalStatsClient() {
 		() => [...breakdown].sort((a, b) => b[chartMetric] - a[chartMetric]),
 		[breakdown, chartMetric],
 	);
+
+	// Top dimensions (by the selected metric) shown as their own stacked series;
+	// everything else collapses into a single "Other" bucket.
+	const stackSeries = useMemo(() => {
+		const top = sortedBreakdown.slice(0, TIMESERIES_STACK_LIMIT);
+		const restCount = Math.max(0, sortedBreakdown.length - top.length);
+		const keys = top.map((b) => b.key);
+		if (restCount > 0) {
+			keys.push(OTHER_KEY);
+		}
+		return { top, topKeys: new Set(top.map((b) => b.key)), restCount, keys };
+	}, [sortedBreakdown]);
+
+	const stackChartConfig = useMemo<ChartConfig>(() => {
+		const config: ChartConfig = {};
+		stackSeries.top.forEach((b, idx) => {
+			config[b.key] = {
+				label: b.label,
+				color: PIE_COLORS[idx % PIE_COLORS.length],
+			};
+		});
+		if (stackSeries.restCount > 0) {
+			config[OTHER_KEY] = {
+				label: `Other (${stackSeries.restCount})`,
+				color: OTHER_COLOR,
+			};
+		}
+		return config;
+	}, [stackSeries]);
+
+	const stackedTimeseries = useMemo(() => {
+		const byDate = new Map<string, Record<string, number | string>>();
+		for (const point of timeseries) {
+			byDate.set(point.date, { date: point.date });
+		}
+		for (const row of timeseriesBreakdown) {
+			const entry = byDate.get(row.date);
+			if (!entry) {
+				continue;
+			}
+			const seriesKey = stackSeries.topKeys.has(row.key) ? row.key : OTHER_KEY;
+			entry[seriesKey] =
+				((entry[seriesKey] as number | undefined) ?? 0) + row[chartMetric];
+		}
+		return Array.from(byDate.values());
+	}, [timeseries, timeseriesBreakdown, stackSeries, chartMetric]);
 
 	const breakdownNoun =
 		groupBy === "model"
@@ -450,23 +506,42 @@ export function GlobalStatsClient() {
 								: chartMetric === "totalTokens"
 									? "total tokens"
 									: "request count"}{" "}
-							per day across all {groupBy === "model" ? "models" : "sources"}.
+							per day
+							{showTimeseriesBreakdown
+								? ` broken down by ${groupBy === "model" ? "model" : "source"}`
+								: ` across all ${groupBy === "model" ? "models" : "sources"}`}
+							.
 						</CardDescription>
 					</div>
-					<div className="flex items-center gap-1">
-						{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
-							(m) => (
-								<Button
-									key={m}
-									variant={chartMetric === m ? "default" : "outline"}
-									size="sm"
-									className="h-7 px-3 text-xs"
-									onClick={() => setChartMetric(m)}
-								>
-									{timeseriesChartConfig[m].label as string}
-								</Button>
-							),
-						)}
+					<div className="flex flex-wrap items-center gap-2">
+						<Button
+							variant={showTimeseriesBreakdown ? "default" : "outline"}
+							size="sm"
+							className="h-7 gap-1.5 px-3 text-xs"
+							onClick={() => setShowTimeseriesBreakdown((v) => !v)}
+						>
+							{groupBy === "model" ? (
+								<Cpu className="h-3.5 w-3.5" />
+							) : (
+								<Layers className="h-3.5 w-3.5" />
+							)}
+							Breakdown
+						</Button>
+						<div className="flex items-center gap-1">
+							{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
+								(m) => (
+									<Button
+										key={m}
+										variant={chartMetric === m ? "default" : "outline"}
+										size="sm"
+										className="h-7 px-3 text-xs"
+										onClick={() => setChartMetric(m)}
+									>
+										{timeseriesChartConfig[m].label as string}
+									</Button>
+								),
+							)}
+						</div>
 					</div>
 				</CardHeader>
 				<CardContent className="px-2 pb-4 sm:p-6">
@@ -476,10 +551,17 @@ export function GlobalStatsClient() {
 						</div>
 					) : (
 						<ChartContainer
-							config={timeseriesChartConfig}
+							config={
+								showTimeseriesBreakdown
+									? stackChartConfig
+									: timeseriesChartConfig
+							}
 							className="aspect-auto h-[320px] w-full"
 						>
-							<LineChart data={timeseries} margin={{ left: 12, right: 12 }}>
+							<BarChart
+								data={showTimeseriesBreakdown ? stackedTimeseries : timeseries}
+								margin={{ left: 12, right: 12 }}
+							>
 								<CartesianGrid vertical={false} strokeDasharray="3 3" />
 								<XAxis
 									dataKey="date"
@@ -507,7 +589,7 @@ export function GlobalStatsClient() {
 								<ChartTooltip
 									content={
 										<ChartTooltipContent
-											className="w-[180px]"
+											className="w-[220px]"
 											labelFormatter={(value) => {
 												if (typeof value !== "string" || !value) {
 													return "";
@@ -518,20 +600,55 @@ export function GlobalStatsClient() {
 												}
 												return format(date, "MMM d, yyyy");
 											}}
-											formatter={(value) =>
-												metricFormatter(chartMetric)(Number(value))
+											formatter={(value, name, item) =>
+												showTimeseriesBreakdown ? (
+													<div className="flex w-full items-center gap-2">
+														<span
+															className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+															style={{
+																backgroundColor:
+																	(item as { fill?: string })?.fill ??
+																	item?.color,
+															}}
+														/>
+														<span className="flex-1 text-muted-foreground">
+															{(stackChartConfig[name as string]
+																?.label as string) ?? String(name)}
+														</span>
+														<span className="font-mono font-medium tabular-nums text-foreground">
+															{metricFormatter(chartMetric)(Number(value))}
+														</span>
+													</div>
+												) : (
+													metricFormatter(chartMetric)(Number(value))
+												)
 											}
 										/>
 									}
 								/>
-								<Line
-									dataKey={chartMetric}
-									type="monotone"
-									stroke={`var(--color-${chartMetric})`}
-									strokeWidth={2}
-									dot={false}
-								/>
-							</LineChart>
+								{showTimeseriesBreakdown ? (
+									stackSeries.keys.map((key) => (
+										<Bar
+											key={key}
+											dataKey={key}
+											stackId="timeseries"
+											fill={`var(--color-${key})`}
+										/>
+									))
+								) : (
+									<Bar
+										dataKey={chartMetric}
+										fill={`var(--color-${chartMetric})`}
+										radius={[4, 4, 0, 0]}
+									/>
+								)}
+								{showTimeseriesBreakdown ? (
+									<ChartLegend
+										verticalAlign="bottom"
+										content={<ChartLegendContent />}
+									/>
+								) : null}
+							</BarChart>
 						</ChartContainer>
 					)}
 				</CardContent>

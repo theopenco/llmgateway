@@ -18,6 +18,7 @@ import {
 	PopoverTrigger,
 } from "@/lib/components/popover";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import { providers } from "@llmgateway/models";
 
@@ -105,6 +106,7 @@ export function CostBreakdownChart({
 				query: {
 					from: fromStr,
 					to: toStr,
+					timezone: getBrowserTimeZone(),
 					...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},

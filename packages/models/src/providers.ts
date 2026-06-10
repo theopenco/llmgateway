@@ -1195,6 +1195,59 @@ export const providers: ProviderDefinition[] = [
 			gdpr: true,
 		},
 	},
+	{
+		id: "reve",
+		name: "Reve",
+		description:
+			"Reve's image generation models with native 4K resolution and code-based controllable image creation.",
+		env: {
+			required: {
+				apiKey: "LLM_REVE_API_KEY",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#1a1a2e",
+		website: "https://reve.com",
+		announcement: null,
+		termsUrl:
+			"https://help.reve.com/hc/en-us/articles/46731550696468-Terms-of-service",
+		privacyPolicyUrl:
+			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
+		headquarters: "US",
+		dataPolicy: null,
+	},
+	{
+		id: "elevenlabs",
+		name: "ElevenLabs",
+		description:
+			"ElevenLabs provides lifelike, low-latency text-to-speech models in 70+ languages.",
+		env: {
+			required: {
+				apiKey: "LLM_ELEVENLABS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ELEVENLABS_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: true,
+		color: "#000000",
+		website: "https://elevenlabs.io",
+		announcement: null,
+		termsUrl: "https://elevenlabs.io/terms-of-use",
+		privacyPolicyUrl: "https://elevenlabs.io/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: true,
+			iso27001: false,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

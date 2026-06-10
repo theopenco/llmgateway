@@ -109,7 +109,8 @@
 			"js-yaml@>=4 <4.1.1": "^4.1.1",
 			"mdast-util-to-hast@>=13 <13.2.1": "^13.2.1",
 			"ajv@>=6 <6.14.0": "^6.14.0",
-			"@tootallnate/once@<2.0.1": "^2.0.1"
+			"@tootallnate/once@<2.0.1": "^2.0.1",
+			"shell-quote@<1.8.4": "^1.8.4"
 		},
 		"packageExtensions": {
 			"@hookform/resolvers": {

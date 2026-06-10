@@ -1004,6 +1004,71 @@ export async function prepareRequestBody(
 		return alibabaImageRequest;
 	}
 
+	// Handle Reve image generation
+	if (imageGenerations && usedProvider === "reve") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		const imageUrls: string[] = [];
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
+			}
+		}
+
+		const allowedReveAspectRatios = [
+			"16:9",
+			"3:2",
+			"4:3",
+			"1:1",
+			"2:3",
+			"9:16",
+			"auto",
+		];
+
+		if (
+			image_config?.aspect_ratio &&
+			!allowedReveAspectRatios.includes(image_config.aspect_ratio)
+		) {
+			throw new Error(
+				`Invalid aspect_ratio for Reve: "${image_config.aspect_ratio}". Allowed values: ${allowedReveAspectRatios.join(
+					", ",
+				)}`,
+			);
+		}
+
+		const reveRequest: any = {
+			prompt,
+			version: "latest",
+			...(image_config?.aspect_ratio && {
+				aspect_ratio: image_config.aspect_ratio,
+			}),
+		};
+
+		if (imageUrls.length === 1) {
+			reveRequest.reference_image = imageUrls[0];
+		} else if (imageUrls.length > 1) {
+			reveRequest.reference_images = imageUrls;
+		}
+
+		return reveRequest;
+	}
+
 	// Handle ByteDance Seedream image generation
 	if (imageGenerations && usedProvider === "bytedance") {
 		// Extract prompt from last user message
@@ -1749,21 +1814,21 @@ export async function prepareRequestBody(
 			}
 
 			// Handle tool_choice parameter - transform OpenAI format to Anthropic format
-			if (tool_choice) {
+			if (resolvedToolChoice) {
 				if (
-					typeof tool_choice === "object" &&
-					tool_choice.type === "function"
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
 				) {
 					// Transform OpenAI format to Anthropic format
 					requestBody.tool_choice = {
 						type: "tool",
-						name: tool_choice.function.name,
+						name: resolvedToolChoice.function.name,
 					};
-				} else if (tool_choice === "required") {
+				} else if (resolvedToolChoice === "required") {
 					requestBody.tool_choice = { type: "any" };
-				} else if (tool_choice === "auto") {
+				} else if (resolvedToolChoice === "auto") {
 					// "auto" is the default behavior for Anthropic, omit it
-				} else if (tool_choice === "none") {
+				} else if (resolvedToolChoice === "none") {
 					requestBody.tool_choice = { type: "none" };
 				}
 			}
@@ -2309,23 +2374,27 @@ export async function prepareRequestBody(
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
 			// Map OpenAI tool_choice to Google's toolConfig format
-			if (tool_choice && tools && tools.filter(isFunctionTool).length > 0) {
-				if (tool_choice === "required") {
+			if (
+				resolvedToolChoice &&
+				tools &&
+				tools.filter(isFunctionTool).length > 0
+			) {
+				if (resolvedToolChoice === "required") {
 					requestBody.toolConfig = {
 						functionCallingConfig: { mode: "ANY" },
 					};
-				} else if (tool_choice === "none") {
+				} else if (resolvedToolChoice === "none") {
 					requestBody.toolConfig = {
 						functionCallingConfig: { mode: "NONE" },
 					};
 				} else if (
-					typeof tool_choice === "object" &&
-					tool_choice.type === "function"
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
 				) {
 					requestBody.toolConfig = {
 						functionCallingConfig: {
 							mode: "ANY",
-							allowedFunctionNames: [tool_choice.function.name],
+							allowedFunctionNames: [resolvedToolChoice.function.name],
 						},
 					};
 				}

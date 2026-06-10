@@ -1058,6 +1058,7 @@ export const alibabaModels = [
 					"response_format",
 					"tools",
 				],
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
@@ -1131,6 +1132,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
@@ -2193,6 +2195,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
@@ -2231,6 +2234,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
@@ -2405,6 +2409,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 		],
 	},

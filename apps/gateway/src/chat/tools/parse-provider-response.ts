@@ -701,6 +701,24 @@ export function parseProviderResponse(
 				}
 				break;
 			}
+			// Check if this is a Reve image generation response
+			// Format: { image: "base64...", version: "...", content_violation: false, ... }
+			if (usedProvider === "reve" && typeof json.image === "string") {
+				images = [
+					{
+						type: "image_url",
+						image_url: {
+							url: `data:image/png;base64,${json.image}`,
+						},
+					},
+				];
+				content = imageLabel;
+				finishReason = "stop";
+				promptTokens = 0;
+				completionTokens = 0;
+				totalTokens = 0;
+				break;
+			}
 			// Check if this is an OpenAI responses format (has output array instead of choices)
 			if (json.output && Array.isArray(json.output)) {
 				// OpenAI responses endpoint format

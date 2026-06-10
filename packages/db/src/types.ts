@@ -208,14 +208,15 @@ export type SerializedApiKey = Omit<
 	| "createdAt"
 	| "updatedAt"
 	| "currentPeriodStartedAt"
+	| "expiresAt"
 	// LLM SDK internals — hidden aggregate keys aren't surfaced here.
 	| "keyType"
 	| "endCustomerWalletId"
-	| "expiresAt"
 > & {
 	createdAt: string;
 	updatedAt: string;
 	currentPeriodStartedAt: string | null;
+	expiresAt: string | null;
 };
 
 export type SerializedApiKeyIamRule = Omit<

@@ -1257,8 +1257,23 @@ export const DeepInfraIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const ElevenLabsIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 512 512"
+		fill="currentColor"
+	>
+		<rect x="120" y="96" width="80" height="320" rx="12" />
+		<rect x="312" y="96" width="80" height="320" rx="12" />
+	</svg>
+);
+
 export const ProviderIcons = {
 	anthropic: AnthropicIcon,
+	elevenlabs: ElevenLabsIcon,
 	bytedance: BytedanceIcon,
 	deepseek: DeepseekIcon,
 	"google-ai-studio": GoogleStudioAIIcon,
@@ -1299,6 +1314,7 @@ export const providerLogoUrls: Partial<
 > = {
 	openai: ProviderIcons.openai,
 	anthropic: ProviderIcons.anthropic,
+	elevenlabs: ProviderIcons.elevenlabs,
 	bytedance: ProviderIcons.bytedance,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
 	glacier: ProviderIcons.glacier,

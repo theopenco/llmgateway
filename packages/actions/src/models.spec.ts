@@ -52,7 +52,6 @@ describe("Models", () => {
 			true,
 			true,
 			true,
-			true,
 		]);
 	});
 

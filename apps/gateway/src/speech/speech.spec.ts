@@ -4,7 +4,7 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 describe("speech", () => {
 	const harness = createGatewayApiTestHarness();
@@ -12,7 +12,7 @@ describe("speech", () => {
 	async function seedKeys(
 		token: string,
 		apiKeyId: string,
-		provider: "google-ai-studio" | "openai" = "google-ai-studio",
+		provider: "google-ai-studio" | "openai" | "elevenlabs" = "google-ai-studio",
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
@@ -21,9 +21,15 @@ describe("speech", () => {
 			description: "Test API Key",
 			createdBy: "user-id",
 		});
+		const providerToken =
+			provider === "openai"
+				? "openai-test-key"
+				: provider === "elevenlabs"
+					? "elevenlabs-test-key"
+					: "google-test-key";
 		await db.insert(tables.providerKey).values({
 			id: `provider-key-${provider}-${apiKeyId}`,
-			token: provider === "openai" ? "openai-test-key" : "google-test-key",
+			token: providerToken,
 			provider,
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
@@ -176,6 +182,95 @@ describe("speech", () => {
 		);
 	});
 
+	test("/v1/audio/speech credits mode requires credits", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("0");
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-speech-no-credits",
+			token: "real-token-speech-no-credits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-no-credits",
+			},
+			body: JSON.stringify({
+				model: "gemini-2.5-flash-preview-tts",
+				input: "Hello there",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("has insufficient credits");
+	});
+
+	test("/v1/audio/speech accepts chat plan credits in credits mode", async () => {
+		const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+		const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+		process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = "google-env-key";
+		process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = harness.mockServerUrl;
+		try {
+			await harness.setProjectMode("credits");
+			await harness.setOrganizationCredits("0");
+			await db
+				.update(tables.organization)
+				.set({
+					retentionLevel: "none",
+					chatPlan: "starter",
+					chatPlanCreditsLimit: "18",
+					chatPlanCreditsUsed: "0.65",
+				})
+				.where(eq(tables.organization.id, "org-id"));
+
+			await db.insert(tables.apiKey).values({
+				id: "token-id-speech-chat-plan",
+				token: "real-token-speech-chat-plan",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/audio/speech", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-speech-chat-plan",
+					"x-source": "chat.llmgateway.io",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash-preview-tts",
+					input: "Hello there",
+					voice: "Kore",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		} finally {
+			if (originalApiKey !== undefined) {
+				process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = originalApiKey;
+			} else {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			}
+			if (originalBaseUrl !== undefined) {
+				process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
+			} else {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			}
+		}
+	});
+
 	test("/v1/audio/speech proxies OpenAI tts-1 and bills by characters", async () => {
 		await seedKeys(
 			"real-token-speech-openai",
@@ -210,6 +305,95 @@ describe("speech", () => {
 		expect(log?.finishReason).toBe("stop");
 		// tts-1 bills $15 / 1M input characters.
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 15e-6, 12);
+	});
+
+	test("/v1/audio/speech proxies ElevenLabs and bills by characters", async () => {
+		await seedKeys(
+			"real-token-speech-eleven",
+			"token-id-speech-eleven",
+			"elevenlabs",
+		);
+
+		const input = "Hello from ElevenLabs";
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-eleven",
+			},
+			body: JSON.stringify({
+				model: "eleven-multilingual-v2",
+				input,
+				voice: "Sarah",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// Default ElevenLabs format is mp3.
+		expect(res.headers.get("Content-Type")).toBe("audio/mpeg");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_ELEVENLABS_AUDIO");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "elevenlabs/eleven-multilingual-v2",
+		);
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
+		// eleven-multilingual-v2 bills $110 / 1M input characters.
+		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 110e-6, 12);
+	});
+
+	test("/v1/audio/speech returns a WAV file from ElevenLabs", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-wav",
+			"token-id-speech-eleven-wav",
+			"elevenlabs",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-eleven-wav",
+			},
+			body: JSON.stringify({
+				model: "eleven-flash-v2-5",
+				input: "Hello there",
+				response_format: "wav",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_ELEVENLABS_AUDIO");
+	});
+
+	test("/v1/audio/speech rejects unsupported ElevenLabs response_format", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-aac",
+			"token-id-speech-eleven-aac",
+			"elevenlabs",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-eleven-aac",
+			},
+			body: JSON.stringify({
+				model: "eleven-multilingual-v2",
+				input: "Hello there",
+				response_format: "aac",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Unsupported response_format");
 	});
 
 	test("/v1/audio/speech bills gpt-4o-mini-tts on SSE token usage", async () => {

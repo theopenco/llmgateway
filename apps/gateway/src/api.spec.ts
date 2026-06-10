@@ -3129,54 +3129,43 @@ describe("api", () => {
 
 	// test for llmgateway/auto special case
 	test("/v1/chat/completions with llmgateway/auto", async () => {
-		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
-		process.env.LLM_GOOGLE_CLOUD_PROJECT = "test-project";
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
 
-		try {
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
+		// Auto-routing now selects from Claude root models, so use a Claude-capable
+		// provider that the mock server supports.
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "aws-test-key",
+			provider: "aws-bedrock",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
 
-			// Auto-routing now selects from Claude root models, so use a Claude-capable
-			// provider that the mock server supports.
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id",
-				token: "google-test-key",
-				provider: "google-vertex",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			});
-
-			const res = await app.request("/v1/chat/completions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model: "llmgateway/auto",
-					messages: [
-						{
-							role: "user",
-							content: "Hello with llmgateway/auto!",
-						},
-					],
-				}),
-			});
-			expect(res.status).toBe(200);
-			const json = await res.json();
-			expect(json).toHaveProperty("choices.[0].message.content");
-		} finally {
-			if (originalGoogleCloudProject !== undefined) {
-				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
-			} else {
-				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
-			}
-		}
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/auto",
+				messages: [
+					{
+						role: "user",
+						content: "Hello with llmgateway/auto!",
+					},
+				],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json).toHaveProperty("choices.[0].message.content");
 	});
 
 	// test for missing provider API key

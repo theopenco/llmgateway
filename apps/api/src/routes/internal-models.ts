@@ -67,6 +67,8 @@ const modelProviderMappingSchema = z.object({
 	imageOutputPrice: z.string().nullable(),
 	imageInputTokensByResolution: z.record(z.number()).nullable(),
 	imageOutputTokensByResolution: z.record(z.number()).nullable(),
+	inputCharacterPrice: z.string().nullable(),
+	outputAudioPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
 	maxOutput: z.number().nullable(),
@@ -236,6 +238,14 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					sharedMapping?.imageInputTokensByResolution ?? null,
 				imageOutputTokensByResolution:
 					sharedMapping?.imageOutputTokensByResolution ?? null,
+				inputCharacterPrice:
+					sharedMapping?.inputCharacterPrice !== undefined
+						? String(sharedMapping.inputCharacterPrice)
+						: null,
+				outputAudioPrice:
+					sharedMapping?.outputAudioPrice !== undefined
+						? String(sharedMapping.outputAudioPrice)
+						: null,
 				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
 				supportedVideoDurationsSeconds:
 					sharedMapping?.supportedVideoDurationsSeconds ?? null,
