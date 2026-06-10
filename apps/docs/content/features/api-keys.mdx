@@ -155,13 +155,16 @@ The gateway reads the client IP from the first entry in the `X-Forwarded-For` he
 
 ## Error Handling
 
-When API keys encounter IAM rule violations, the API returns specific error messages:
+When API keys encounter IAM rule violations, the API returns a `403` with the standard OpenAI error envelope:
 
 ```json
 {
-	"error": true,
-	"status": 403,
-	"message": "Access denied: Model gpt-4 is not in the allowed models list"
+	"error": {
+		"message": "Access denied: Model gpt-4 is not in the allowed models list",
+		"type": "invalid_request_error",
+		"param": null,
+		"code": "permission_denied"
+	}
 }
 ```
 

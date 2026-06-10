@@ -3197,7 +3197,7 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 		const errorMessage = await res.text();
 		expect(errorMessage).toMatchInlineSnapshot(
-			`"{"error":{"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.","type":"invalid_request_error","param":null,"code":null},"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.","status":400}"`,
+			`"{"error":{"message":"No API key set for provider: openai. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.","type":"invalid_request_error","param":null,"code":null}}"`,
 		);
 	});
 
