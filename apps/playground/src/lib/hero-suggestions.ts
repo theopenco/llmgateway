@@ -244,6 +244,29 @@ export const videoStudioSuggestions = [
 	"A hot air balloon drifting over the Cappadocia valley at sunrise",
 ] as const;
 
+export const audioStudioSuggestions = [
+	"Welcome to LLM Gateway — one API for every model, with unified billing and analytics.",
+	"Thanks for calling. All of our agents are currently busy, but your call is important to us.",
+	"Chapter one. The storm rolled in just after midnight, and the old lighthouse keeper knew the night would be long.",
+	"Breaking news: scientists have discovered a new species of deep-sea creature off the coast of Japan.",
+	"Take a deep breath in... and slowly release. Let the tension melt away from your shoulders.",
+	"In a world where artificial intelligence writes the headlines, one developer dares to read the documentation.",
+	"Your order has shipped! Expect delivery within three to five business days.",
+	"Good evening, passengers. We are now beginning our descent into Lisbon, where the local time is 7:45 PM.",
+	"Once upon a time, in a village nestled between two mountains, there lived a clockmaker who could repair anything but time itself.",
+	"Today's forecast calls for clear skies, a gentle breeze, and a high of 24 degrees.",
+	"Attention shoppers: the store will be closing in fifteen minutes. Please bring your final purchases to the register.",
+	"And the winner of this year's award for best original soundtrack goes to...",
+	"Step right up, ladies and gentlemen, and witness the most astonishing spectacle of the century!",
+	"This is your captain speaking. We've reached our cruising altitude of 35,000 feet.",
+	"The quick brown fox jumps over the lazy dog, while the curious cat watches from the windowsill.",
+	"Hello and welcome back to the podcast. Today we're diving into the history of the synthesizer.",
+	"Please leave your message after the tone, and we'll get back to you as soon as possible.",
+	"Five, four, three, two, one — liftoff! We have liftoff of the morning research mission.",
+	"Remember: a journey of a thousand miles begins with a single step.",
+	"It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness.",
+] as const;
+
 export function sampleSuggestions(
 	items: readonly string[],
 	count: number,

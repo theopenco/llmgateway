@@ -39,6 +39,8 @@ export interface ApiModelProviderMapping {
 	imageOutputPrice: string | null;
 	imageInputTokensByResolution: Record<string, number> | null;
 	imageOutputTokensByResolution: Record<string, number> | null;
+	inputCharacterPrice: string | null;
+	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;

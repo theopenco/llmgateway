@@ -1,6 +1,12 @@
 import Link from "next/link";
 
-export type SeoVariant = "chat" | "image" | "video" | "group" | "canvas";
+export type SeoVariant =
+	| "chat"
+	| "image"
+	| "video"
+	| "audio"
+	| "group"
+	| "canvas";
 
 interface VariantContent {
 	h1: string;
@@ -22,6 +28,7 @@ const variants: Record<SeoVariant, VariantContent> = {
 		related: [
 			{ href: "/image", label: "AI image generation" },
 			{ href: "/video", label: "AI video generation" },
+			{ href: "/audio", label: "AI audio generation" },
 			{ href: "/group", label: "Compare models side by side" },
 			{ href: "/canvas", label: "Canvas — UI from JSON" },
 		],
@@ -38,6 +45,7 @@ const variants: Record<SeoVariant, VariantContent> = {
 		related: [
 			{ href: "/", label: "AI chat playground" },
 			{ href: "/video", label: "AI video generation" },
+			{ href: "/audio", label: "AI audio generation" },
 			{ href: "/group", label: "Compare models side by side" },
 			{ href: "/canvas", label: "Canvas — UI from JSON" },
 		],
@@ -54,8 +62,25 @@ const variants: Record<SeoVariant, VariantContent> = {
 		related: [
 			{ href: "/", label: "AI chat playground" },
 			{ href: "/image", label: "AI image generation" },
+			{ href: "/audio", label: "AI audio generation" },
 			{ href: "/group", label: "Compare models side by side" },
 			{ href: "/canvas", label: "Canvas — UI from JSON" },
+		],
+	},
+	audio: {
+		h1: "AI audio generation — text to speech with ElevenLabs, OpenAI, and Gemini",
+		intro:
+			"Turn text into natural-sounding speech using the latest text-to-speech models. Pick a voice, compare providers side by side, and download the audio.",
+		bullets: [
+			"Models include ElevenLabs Multilingual v2, Eleven v3, OpenAI TTS and GPT-4o Mini TTS, and Gemini TTS.",
+			"Choose from dozens of prebuilt voices and control format and speed.",
+			"All requests route through LLM Gateway for unified billing and usage tracking.",
+		],
+		related: [
+			{ href: "/", label: "AI chat playground" },
+			{ href: "/image", label: "AI image generation" },
+			{ href: "/video", label: "AI video generation" },
+			{ href: "/group", label: "Compare models side by side" },
 		],
 	},
 	group: {
@@ -71,6 +96,7 @@ const variants: Record<SeoVariant, VariantContent> = {
 			{ href: "/", label: "AI chat playground" },
 			{ href: "/image", label: "AI image generation" },
 			{ href: "/video", label: "AI video generation" },
+			{ href: "/audio", label: "AI audio generation" },
 			{ href: "/canvas", label: "Canvas — UI from JSON" },
 		],
 	},
@@ -87,6 +113,7 @@ const variants: Record<SeoVariant, VariantContent> = {
 			{ href: "/", label: "AI chat playground" },
 			{ href: "/image", label: "AI image generation" },
 			{ href: "/video", label: "AI video generation" },
+			{ href: "/audio", label: "AI audio generation" },
 			{ href: "/group", label: "Compare models side by side" },
 		],
 	},

@@ -388,6 +388,28 @@ const ModelTableRow = React.memo(
 							</Tooltip>
 						) : (!row.provider.inputPrice ||
 								parseFloat(row.provider.inputPrice) === 0) &&
+						  row.provider.inputCharacterPrice &&
+						  parseFloat(row.provider.inputCharacterPrice) > 0 ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										$
+										{parseFloat(
+											(
+												parseFloat(row.provider.inputCharacterPrice) * 1000
+											).toFixed(4),
+										)}
+										/1K chars
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-character pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
+						) : (!row.provider.inputPrice ||
+								parseFloat(row.provider.inputPrice) === 0) &&
 						  row.provider.requestPrice &&
 						  parseFloat(row.provider.requestPrice) > 0 ? (
 							<Tooltip>
@@ -430,8 +452,10 @@ const ModelTableRow = React.memo(
 							</Tooltip>
 						) : (!row.provider.outputPrice ||
 								parseFloat(row.provider.outputPrice) === 0) &&
-						  row.provider.requestPrice &&
-						  parseFloat(row.provider.requestPrice) > 0 ? (
+						  ((row.provider.requestPrice &&
+								parseFloat(row.provider.requestPrice) > 0) ||
+								(row.provider.inputCharacterPrice &&
+									parseFloat(row.provider.inputCharacterPrice) > 0)) ? (
 							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)

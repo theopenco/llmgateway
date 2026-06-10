@@ -4,7 +4,7 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 describe("speech", () => {
 	const harness = createGatewayApiTestHarness();
@@ -180,6 +180,95 @@ describe("speech", () => {
 		expect(JSON.stringify(json)).toContain(
 			"Speech generation is not available for coding plans",
 		);
+	});
+
+	test("/v1/audio/speech credits mode requires credits", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("0");
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-speech-no-credits",
+			token: "real-token-speech-no-credits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-no-credits",
+			},
+			body: JSON.stringify({
+				model: "gemini-2.5-flash-preview-tts",
+				input: "Hello there",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("has insufficient credits");
+	});
+
+	test("/v1/audio/speech accepts chat plan credits in credits mode", async () => {
+		const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+		const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+		process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = "google-env-key";
+		process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = harness.mockServerUrl;
+		try {
+			await harness.setProjectMode("credits");
+			await harness.setOrganizationCredits("0");
+			await db
+				.update(tables.organization)
+				.set({
+					retentionLevel: "none",
+					chatPlan: "starter",
+					chatPlanCreditsLimit: "18",
+					chatPlanCreditsUsed: "0.65",
+				})
+				.where(eq(tables.organization.id, "org-id"));
+
+			await db.insert(tables.apiKey).values({
+				id: "token-id-speech-chat-plan",
+				token: "real-token-speech-chat-plan",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/audio/speech", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-speech-chat-plan",
+					"x-source": "chat.llmgateway.io",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash-preview-tts",
+					input: "Hello there",
+					voice: "Kore",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		} finally {
+			if (originalApiKey !== undefined) {
+				process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = originalApiKey;
+			} else {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			}
+			if (originalBaseUrl !== undefined) {
+				process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
+			} else {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			}
+		}
 	});
 
 	test("/v1/audio/speech proxies OpenAI tts-1 and bills by characters", async () => {

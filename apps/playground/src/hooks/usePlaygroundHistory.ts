@@ -48,6 +48,52 @@ export function useDeleteImageHistory() {
 	});
 }
 
+export function useAudioHistory(enabled = true, organizationId?: string) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/playground/audio-history",
+		{ params: { query: organizationId ? { organizationId } : {} } },
+		{ enabled },
+	);
+}
+
+export function useSaveAudioHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("post", "/playground/audio-history", {
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/audio-history").queryKey,
+			});
+		},
+	});
+}
+
+export function useRenameAudioHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("patch", "/playground/audio-history/{id}", {
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/audio-history").queryKey,
+			});
+		},
+	});
+}
+
+export function useDeleteAudioHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("delete", "/playground/audio-history/{id}", {
+		onSuccess: () => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/audio-history").queryKey,
+			});
+		},
+	});
+}
+
 export function useVideoHistory(enabled = true, organizationId?: string) {
 	const api = useApi();
 	return api.useQuery(

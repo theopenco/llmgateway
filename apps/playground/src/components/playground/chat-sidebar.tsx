@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
+	AudioLines,
 	Plus,
 	MessageSquare,
 	Edit2,
@@ -894,6 +895,18 @@ export const ChatSidebar = function ChatSidebar({
 							<Link href={withOrg("/video")} prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Audio Studio"
+							isActive={pathname === "/audio"}
+						>
+							<Link href={withOrg("/audio")} prefetch={true}>
+								<AudioLines className="h-4 w-4" />
+								<span>Audio Studio</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

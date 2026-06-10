@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	AudioLines,
 	ChevronDown,
 	ChevronUp,
 	ExternalLink,
@@ -210,6 +211,14 @@ export function SkillsSidebar({
 							<Link href="/video" prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip="Audio Studio">
+							<Link href="/audio" prefetch={true}>
+								<AudioLines className="h-4 w-4" />
+								<span>Audio Studio</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

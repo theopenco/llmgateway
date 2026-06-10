@@ -1,6 +1,13 @@
 "use client";
 
-import { Film, ImagePlus, MessageSquare, PenTool, Users } from "lucide-react";
+import {
+	AudioLines,
+	Film,
+	ImagePlus,
+	MessageSquare,
+	PenTool,
+	Users,
+} from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +56,11 @@ const FEATURES: Feature[] = [
 		icon: Film,
 		title: "Video Studio",
 		description: "Turn a prompt into short videos",
+	},
+	{
+		icon: AudioLines,
+		title: "Audio Studio",
+		description: "Turn text into natural-sounding speech",
 	},
 	{
 		icon: PenTool,

@@ -1213,6 +1213,63 @@ export function transformResponseToOpenai(
 			break;
 		}
 		default: {
+			// For providers that return non-OpenAI format (e.g. Reve image generation),
+			// construct a proper OpenAI-compatible response when we have parsed images/content
+			if (
+				transformedResponse &&
+				typeof transformedResponse === "object" &&
+				!transformedResponse.choices &&
+				(images.length > 0 || content !== null)
+			) {
+				transformedResponse = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: Math.floor(Date.now() / 1000),
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: content,
+								...(images && images.length > 0 && { images }),
+							},
+							finish_reason: "stop",
+						},
+					],
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+						showUpgradeMessage,
+						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
+						audioInputTokens,
+					),
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					),
+				};
+				break;
+			}
 			// For any other provider, add metadata to existing response
 			if (transformedResponse && typeof transformedResponse === "object") {
 				// Ensure content and reasoning fields are present with parsed/healed values

@@ -287,10 +287,17 @@ function getAvailableCredits(
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
 
 	return {
 		devPlanCreditsRemaining,
-		totalAvailableCredits: regularCredits + devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
 	};
 }
 
@@ -300,11 +307,27 @@ function assertCreditsAvailable(
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
-	const { devPlanCreditsRemaining, totalAvailableCredits } =
-		getAvailableCredits(organization);
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
 
 	if (totalAvailableCredits > 0 || modelDef.free) {
 		return;
+	}
+
+	if (
+		organization.chatPlan !== "none" &&
+		chatPlanCreditsRemaining <= 0 &&
+		devPlanCreditsRemaining <= 0
+	) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		});
 	}
 
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {

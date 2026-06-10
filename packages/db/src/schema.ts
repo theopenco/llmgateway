@@ -2997,6 +2997,37 @@ export const playgroundImageHistory = pgTable(
 	(table) => [index("playground_image_history_user_id_idx").on(table.userId)],
 );
 
+export const playgroundAudioHistory = pgTable(
+	"playground_audio_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the generation was created under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		prompt: text().notNull(),
+		voice: text(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				audio: { base64: string; mediaType: string } | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [index("playground_audio_history_user_id_idx").on(table.userId)],
+);
+
 export const playgroundVideoHistory = pgTable(
 	"playground_video_history",
 	{

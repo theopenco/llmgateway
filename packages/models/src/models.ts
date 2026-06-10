@@ -14,6 +14,7 @@ import { nousresearchModels } from "./models/nousresearch.js";
 import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
+import { reveModels } from "./models/reve.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -587,6 +588,7 @@ export const models = [
 	...alibabaModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...reveModels,
 	...nvidiaModels,
 	...zaiModels,
 	...elevenlabsModels,

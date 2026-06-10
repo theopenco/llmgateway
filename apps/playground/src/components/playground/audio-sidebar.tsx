@@ -48,8 +48,8 @@ import {
 } from "@/components/ui/sidebar";
 import { useOrganization } from "@/hooks/useOrganization";
 import {
-	useDeleteVideoHistory,
-	useRenameVideoHistory,
+	useDeleteAudioHistory,
+	useRenameAudioHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
@@ -58,11 +58,11 @@ import { useAuth } from "@/lib/auth-client";
 import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
 
+import type { AudioGalleryItem } from "@/lib/audio-gen";
 import type { Organization } from "@/lib/types";
-import type { VideoGalleryItem } from "@/lib/video-gen";
 
-interface VideoSidebarProps {
-	galleryItems: VideoGalleryItem[];
+interface AudioSidebarProps {
+	galleryItems: AudioGalleryItem[];
 	isHistoryLoading?: boolean;
 	onNewChat: () => void;
 	onItemClick: (itemId: string) => void;
@@ -73,17 +73,17 @@ interface VideoSidebarProps {
 	className?: string;
 }
 
-type VideoHistoryRow =
+type AudioHistoryRow =
 	| { type: "header"; key: string; title: string }
-	| { type: "item"; key: string; item: VideoGalleryItem }
+	| { type: "item"; key: string; item: AudioGalleryItem }
 	| { type: "spacer"; key: string };
 
 const ROW_HEIGHT_HEADER = 28;
 const ROW_HEIGHT_SPACER = 6;
 const ROW_HEIGHT_ITEM = 60;
 
-interface VideoHistoryRowProps {
-	rows: VideoHistoryRow[];
+interface AudioHistoryRowProps {
+	rows: AudioHistoryRow[];
 	currentItemId?: string | null;
 	editingId: string | null;
 	editPrompt: string;
@@ -97,9 +97,9 @@ interface VideoHistoryRowProps {
 	onEditFocused: () => void;
 }
 
-function getVideoHistoryRowHeight(
+function getAudioHistoryRowHeight(
 	index: number,
-	{ rows }: VideoHistoryRowProps,
+	{ rows }: AudioHistoryRowProps,
 ): number {
 	const row = rows[index];
 
@@ -114,7 +114,7 @@ function getVideoHistoryRowHeight(
 	return ROW_HEIGHT_ITEM;
 }
 
-function EditVideoPromptInput({
+function EditAudioPromptInput({
 	itemId,
 	value,
 	original,
@@ -134,6 +134,9 @@ function EditVideoPromptInput({
 	onFocused: () => void;
 }) {
 	const inputRef = useRef<HTMLInputElement | null>(null);
+	// Guards against a blur firing after Escape canceled the edit, so the
+	// cancel can't be overridden by a save.
+	const canceledRef = useRef(false);
 
 	useEffect(() => {
 		if (
@@ -155,7 +158,12 @@ function EditVideoPromptInput({
 			ref={inputRef}
 			value={value}
 			onChange={(e) => onChange(e.target.value)}
-			onBlur={() => onSave(itemId, original)}
+			onBlur={() => {
+				if (!canceledRef.current) {
+					onSave(itemId, original);
+				}
+				canceledRef.current = false;
+			}}
 			onKeyDown={(e) => {
 				if (e.key === "Enter") {
 					e.preventDefault();
@@ -163,6 +171,7 @@ function EditVideoPromptInput({
 				}
 				if (e.key === "Escape") {
 					e.preventDefault();
+					canceledRef.current = true;
 					onCancel();
 				}
 			}}
@@ -171,41 +180,7 @@ function EditVideoPromptInput({
 	);
 }
 
-function HistoryThumbnails({ item }: { item: VideoGalleryItem }) {
-	const images: { src: string; label: string }[] = [];
-
-	if (item.frameInputs?.start) {
-		images.push({ src: item.frameInputs.start.dataUrl, label: "First" });
-	}
-	if (item.frameInputs?.end) {
-		images.push({ src: item.frameInputs.end.dataUrl, label: "Last" });
-	}
-	if (item.referenceImages) {
-		for (const ref of item.referenceImages) {
-			images.push({ src: ref.dataUrl, label: "Ref" });
-		}
-	}
-
-	if (images.length === 0) {
-		return null;
-	}
-
-	return (
-		<div className="flex gap-0.5 shrink-0 mt-0.5">
-			{images.map((img, i) => (
-				<img
-					key={i}
-					src={img.src}
-					alt={img.label}
-					title={img.label}
-					className="h-5 w-5 rounded border object-cover"
-				/>
-			))}
-		</div>
-	);
-}
-
-function VideoHistoryRowComponent({
+function AudioHistoryRowComponent({
 	ariaAttributes,
 	index,
 	style,
@@ -221,7 +196,7 @@ function VideoHistoryRowComponent({
 	onDeleteItem,
 	onStartEdit,
 	onEditFocused,
-}: RowComponentProps<VideoHistoryRowProps>) {
+}: RowComponentProps<AudioHistoryRowProps>) {
 	const row = rows[index];
 
 	if (!row) {
@@ -250,10 +225,10 @@ function VideoHistoryRowComponent({
 	return (
 		<div {...ariaAttributes} style={style}>
 			<div className="relative h-full px-2 pb-1">
-				<div className="group/video-row relative h-full">
+				<div className="group/audio-row relative h-full">
 					{isEditing ? (
 						<div className="flex h-full w-full items-center rounded-md px-2 pr-8 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
-							<EditVideoPromptInput
+							<EditAudioPromptInput
 								itemId={item.id}
 								value={editPrompt}
 								original={item.prompt}
@@ -268,11 +243,13 @@ function VideoHistoryRowComponent({
 						<SidebarMenuButton
 							onClick={() => onItemClick(item.id)}
 							isActive={isActive}
-							className="h-full! w-full justify-start group relative pr-2 !transition-none group-hover/video-row:pr-9"
+							className="h-full! w-full justify-start group relative pr-2 !transition-none group-hover/audio-row:pr-9"
 							type="button"
 						>
 							<div className="flex items-start gap-2 min-w-0 w-full">
-								<HistoryThumbnails item={item} />
+								<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border mt-0.5">
+									<AudioLines className="h-4 w-4 text-muted-foreground" />
+								</div>
 								<div className="flex-1 min-w-0">
 									<div className="truncate text-sm font-medium mb-0.5">
 										{item.prompt}
@@ -296,7 +273,7 @@ function VideoHistoryRowComponent({
 										onClick={(e) => {
 											e.stopPropagation();
 										}}
-										className="pointer-events-none static hidden h-7 w-7 cursor-pointer opacity-0 group-hover/video-row:flex group-hover/video-row:pointer-events-auto group-hover/video-row:opacity-100 data-[state=open]:flex data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+										className="pointer-events-none static hidden h-7 w-7 cursor-pointer opacity-0 group-hover/audio-row:flex group-hover/audio-row:pointer-events-auto group-hover/audio-row:opacity-100 data-[state=open]:flex data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
 									>
 										<MoreVerticalIcon className="h-3.5 w-3.5" />
 									</SidebarMenuAction>
@@ -332,7 +309,7 @@ function VideoHistoryRowComponent({
 	);
 }
 
-function groupItemsByDate(items: VideoGalleryItem[]) {
+function groupItemsByDate(items: AudioGalleryItem[]) {
 	const today = new Date();
 	const yesterday = new Date(today);
 	yesterday.setDate(yesterday.getDate() - 1);
@@ -340,10 +317,10 @@ function groupItemsByDate(items: VideoGalleryItem[]) {
 	lastWeek.setDate(lastWeek.getDate() - 7);
 
 	const groups = {
-		today: [] as VideoGalleryItem[],
-		yesterday: [] as VideoGalleryItem[],
-		lastWeek: [] as VideoGalleryItem[],
-		older: [] as VideoGalleryItem[],
+		today: [] as AudioGalleryItem[],
+		yesterday: [] as AudioGalleryItem[],
+		lastWeek: [] as AudioGalleryItem[],
+		older: [] as AudioGalleryItem[],
 	};
 
 	items.forEach((item) => {
@@ -362,7 +339,7 @@ function groupItemsByDate(items: VideoGalleryItem[]) {
 	return groups;
 }
 
-export function VideoSidebar({
+export function AudioSidebar({
 	galleryItems,
 	isHistoryLoading = false,
 	onNewChat,
@@ -372,7 +349,7 @@ export function VideoSidebar({
 	onSelectOrganization,
 	currentItemId,
 	className,
-}: VideoSidebarProps) {
+}: AudioSidebarProps) {
 	const switcherOrganizations = organizations.filter(
 		(org) => !org.isPersonal && !org.isChat,
 	);
@@ -420,8 +397,8 @@ export function VideoSidebar({
 		setTheme(currentTheme === "dark" ? "light" : "dark");
 	}, [currentTheme, setTheme]);
 
-	const renameItem = useRenameVideoHistory();
-	const deleteItem = useDeleteVideoHistory();
+	const renameItem = useRenameAudioHistory();
+	const deleteItem = useDeleteAudioHistory();
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editPrompt, setEditPrompt] = useState("");
 	const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
@@ -477,14 +454,14 @@ export function VideoSidebar({
 		[sortedItems],
 	);
 
-	const historyRows = useMemo<VideoHistoryRow[]>(() => {
-		const groups: Array<{ title: string; items: VideoGalleryItem[] }> = [
+	const historyRows = useMemo<AudioHistoryRow[]>(() => {
+		const groups: Array<{ title: string; items: AudioGalleryItem[] }> = [
 			{ title: "Today", items: itemGroups.today },
 			{ title: "Yesterday", items: itemGroups.yesterday },
 			{ title: "Last 7 days", items: itemGroups.lastWeek },
 			{ title: "Older", items: itemGroups.older },
 		];
-		const rows: VideoHistoryRow[] = [];
+		const rows: AudioHistoryRow[] = [];
 
 		groups.forEach(({ title, items: groupedItems }, groupIndex) => {
 			if (groupedItems.length === 0) {
@@ -509,7 +486,7 @@ export function VideoSidebar({
 		return rows;
 	}, [itemGroups]);
 
-	const rowProps = useMemo<VideoHistoryRowProps>(
+	const rowProps = useMemo<AudioHistoryRowProps>(
 		() => ({
 			rows: historyRows,
 			currentItemId,
@@ -554,7 +531,7 @@ export function VideoSidebar({
 						>
 							<Logo className="size-6" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
-							<Badge>Video</Badge>
+							<Badge>Audio</Badge>
 						</Link>
 					</div>
 				</SidebarHeader>
@@ -574,12 +551,12 @@ export function VideoSidebar({
 						>
 							<Logo className="size-6" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
-							<Badge>Video</Badge>
+							<Badge>Audio</Badge>
 						</Link>
 						<div className="w-full rounded-md border p-4 text-sm">
 							<div className="font-medium mb-2">Sign in required</div>
 							<p className="text-muted-foreground mb-3">
-								Please sign in to generate videos.
+								Please sign in to generate audio.
 							</p>
 							<div className="flex items-center justify-end gap-2">
 								<Button size="sm" asChild>
@@ -730,21 +707,21 @@ export function VideoSidebar({
 						<HistorySkeleton withThumbnail />
 					) : galleryItems.length === 0 ? (
 						<div className="flex flex-col items-center justify-center py-8 text-center">
-							<Film className="h-12 w-12 text-muted-foreground/50 mb-4" />
+							<AudioLines className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">
 								No generation history
 							</p>
 							<p className="text-xs text-muted-foreground">
-								Generate a video to see it here
+								Generate audio to see it here
 							</p>
 						</div>
 					) : (
 						<List
 							className="min-h-0 w-full flex-1"
 							style={{ width: "100%" }}
-							rowComponent={VideoHistoryRowComponent}
+							rowComponent={AudioHistoryRowComponent}
 							rowCount={historyRows.length}
-							rowHeight={getVideoHistoryRowHeight}
+							rowHeight={getAudioHistoryRowHeight}
 							rowProps={rowProps}
 							overscanCount={8}
 						/>

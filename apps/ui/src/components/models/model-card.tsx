@@ -789,8 +789,54 @@ export function ProviderSection({
 						);
 					})()}
 
+				{/* Per-character pricing for character-billed speech models */}
+				{shouldShowTokenPricing &&
+					activeMapping.inputCharacterPrice &&
+					parseFloat(activeMapping.inputCharacterPrice) > 0 &&
+					(() => {
+						const discountNum = activeMapping.discount
+							? parseFloat(activeMapping.discount)
+							: 0;
+						const perThousandChars =
+							parseFloat(activeMapping.inputCharacterPrice!) *
+							1000 *
+							serviceTierMultiplier;
+						const formatChars = (value: number) =>
+							`$${parseFloat(value.toFixed(4))}`;
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+									Per Character Pricing
+								</div>
+								<div className="flex justify-between text-sm">
+									<span className="text-muted-foreground">Input text</span>
+									<span className="font-semibold tabular-nums">
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground mr-1 text-xs">
+													{formatChars(perThousandChars)}
+												</span>
+												<span className="text-green-600">
+													{formatChars(perThousandChars * (1 - discountNum))}
+												</span>
+											</>
+										) : (
+											formatChars(perThousandChars)
+										)}
+										<span className="text-muted-foreground/60 text-xs ml-0.5">
+											/1K chars
+										</span>
+									</span>
+								</div>
+							</div>
+						);
+					})()}
+
 				{/* Token pricing (hidden by default for image-gen models) */}
-				{!shouldShowTokenPricing ? null : activeMapping.perSecondPrice &&
+				{!shouldShowTokenPricing ||
+				(activeMapping.inputCharacterPrice &&
+					parseFloat(activeMapping.inputCharacterPrice) >
+						0) ? null : activeMapping.perSecondPrice &&
 				  Object.keys(activeMapping.perSecondPrice).length > 0 ? (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">

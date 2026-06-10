@@ -1194,6 +1194,28 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "reve",
+		name: "Reve",
+		description:
+			"Reve's image generation models with native 4K resolution and code-based controllable image creation.",
+		env: {
+			required: {
+				apiKey: "LLM_REVE_API_KEY",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#1a1a2e",
+		website: "https://reve.com",
+		announcement: null,
+		termsUrl:
+			"https://help.reve.com/hc/en-us/articles/46731550696468-Terms-of-service",
+		privacyPolicyUrl:
+			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
+		headquarters: "US",
+		dataPolicy: null,
+	},
+	{
 		id: "elevenlabs",
 		name: "ElevenLabs",
 		description:
