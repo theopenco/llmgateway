@@ -11,7 +11,6 @@ import {
 	MessageSquare,
 	MoreVerticalIcon,
 	PenTool,
-	Plus,
 	Trash2,
 	Users,
 } from "lucide-react";
@@ -57,6 +56,7 @@ import { useAuth } from "@/lib/auth-client";
 
 import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
 
 import type { AudioGalleryItem } from "@/lib/audio-gen";
 import type { Organization } from "@/lib/types";
@@ -365,6 +365,20 @@ export function AudioSidebar({
 	const orgIdParam = searchParams.get("orgId");
 	const withOrg = (path: string) =>
 		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
+	const openChatFromSearch = useCallback(
+		(chatId: string) => {
+			const params = new URLSearchParams();
+			if (orgIdParam) {
+				params.set("orgId", orgIdParam);
+			}
+			params.set("id", chatId);
+			router.push(`/?${params.toString()}`);
+		},
+		[orgIdParam, router],
+	);
+	const startNewChatFromSearch = useCallback(() => {
+		router.push(orgIdParam ? `/?orgId=${orgIdParam}` : "/");
+	}, [orgIdParam, router]);
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
@@ -598,16 +612,11 @@ export function AudioSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							onClick={onNewChat}
-							tooltip="New Generation"
-							className="border border-border"
-						>
-							<Plus className="h-4 w-4" />
-							<span>New Generation</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
+					<SidebarChatSearch
+						onChatSelect={openChatFromSearch}
+						onNewChat={startNewChatFromSearch}
+					/>
+					<SidebarNewAction label="New Generation" onAction={onNewChat} />
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild

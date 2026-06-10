@@ -587,11 +587,15 @@ const AssistantMessage = memo(
 				{sourceParts.length > 0 ? (
 					<Sources>
 						<SourcesTrigger count={sourceParts.length} />
-						{sourceParts.map((part, i) => (
-							<SourcesContent key={`${message.id}-${i}`}>
-								<Source href={part.url} title={part.url} />
-							</SourcesContent>
-						))}
+						<SourcesContent>
+							{sourceParts.map((part, i) => (
+								<Source
+									key={`${message.id}-source-${i}`}
+									href={part.url}
+									title={part.title ?? part.url}
+								/>
+							))}
+						</SourcesContent>
 					</Sources>
 				) : null}
 

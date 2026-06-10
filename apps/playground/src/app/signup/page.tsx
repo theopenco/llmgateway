@@ -2,7 +2,8 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -12,6 +13,10 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod/v3";
 
+import {
+	ChatBrandBadge,
+	ChatBrandPanel,
+} from "@/components/auth/chat-brand-panel";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Button } from "@/components/ui/button";
 import {
@@ -129,99 +134,139 @@ function Signup() {
 	}
 
 	return (
-		<div className="px-4 sm:px-0 max-w-[64rem] mx-auto flex h-screen w-screen flex-col items-center justify-center">
-			<div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
-				<div className="flex flex-col space-y-2 text-center">
-					<h1 className="text-2xl font-semibold tracking-tight">
-						Create an account
-					</h1>
-					<p className="text-sm text-muted-foreground">
-						Enter your email below to create your account
+		<div className="flex min-h-screen">
+			<ChatBrandPanel
+				headline={
+					<>
+						Every model.
+						<br />
+						One chat.
+					</>
+				}
+				subline="Chat with GPT, Claude, Gemini, and hundreds more. Compare answers side by side, then create images, video, and audio — all with one account."
+			/>
+
+			<div className="flex w-full flex-col justify-center px-6 py-10 sm:px-12 lg:w-1/2 lg:px-16 xl:px-24">
+				<motion.div
+					initial={{ opacity: 0, y: 12 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ duration: 0.4, ease: "easeOut" }}
+					className="mx-auto w-full max-w-[400px]"
+				>
+					<div className="mb-6 lg:hidden">
+						<ChatBrandBadge />
+					</div>
+
+					<div className="flex flex-col space-y-2">
+						<h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+							Create your account
+						</h1>
+						<p className="text-sm text-muted-foreground">
+							Start chatting with the world&apos;s best models in seconds
+						</p>
+					</div>
+
+					<div className="mt-8 space-y-4">
+						<Form {...form}>
+							<form
+								onSubmit={form.handleSubmit(onSubmit)}
+								className="space-y-4"
+							>
+								<FormField
+									control={form.control}
+									name="name"
+									render={({ field }) => (
+										<FormItem>
+											<FormLabel>Name (optional)</FormLabel>
+											<FormControl>
+												<Input
+													placeholder="John Doe"
+													autoComplete="name"
+													{...field}
+												/>
+											</FormControl>
+											<FormMessage />
+										</FormItem>
+									)}
+								/>
+								<FormField
+									control={form.control}
+									name="email"
+									render={({ field }) => (
+										<FormItem>
+											<FormLabel>Email</FormLabel>
+											<FormControl>
+												<Input
+													placeholder="name@example.com"
+													type="email"
+													{...field}
+												/>
+											</FormControl>
+											<FormMessage />
+										</FormItem>
+									)}
+								/>
+								<FormField
+									control={form.control}
+									name="password"
+									render={({ field }) => (
+										<FormItem>
+											<FormLabel>Password</FormLabel>
+											<FormControl>
+												<Input
+													placeholder="••••••••"
+													type="password"
+													{...field}
+												/>
+											</FormControl>
+											<FormMessage />
+										</FormItem>
+									)}
+								/>
+								<Button type="submit" className="w-full" disabled={isLoading}>
+									{isLoading ? (
+										<>
+											<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+											Creating account...
+										</>
+									) : (
+										<>
+											Create account
+											<ArrowRight className="ml-2 h-4 w-4" />
+										</>
+									)}
+								</Button>
+							</form>
+						</Form>
+
+						<div className="relative">
+							<div className="absolute inset-0 flex items-center">
+								<span className="w-full border-t" />
+							</div>
+							<div className="relative flex justify-center text-xs uppercase">
+								<span className="bg-background px-2 text-muted-foreground">
+									Or
+								</span>
+							</div>
+						</div>
+
+						<SocialAuthButtons
+							isLoading={isLoading}
+							setIsLoading={setIsLoading}
+							callbackPath={returnUrl}
+							errorCallbackPath="/signup"
+						/>
+					</div>
+
+					<p className="mt-6 text-center text-sm text-muted-foreground">
+						<Link
+							href="/login"
+							className="hover:text-foreground underline underline-offset-4 transition-colors"
+						>
+							Already have an account? Sign in
+						</Link>
 					</p>
-				</div>
-				<Form {...form}>
-					<form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-						<FormField
-							control={form.control}
-							name="name"
-							render={({ field }) => (
-								<FormItem>
-									<FormLabel>Name (optional)</FormLabel>
-									<FormControl>
-										<Input
-											placeholder="John Doe"
-											autoComplete="name"
-											{...field}
-										/>
-									</FormControl>
-									<FormMessage />
-								</FormItem>
-							)}
-						/>
-						<FormField
-							control={form.control}
-							name="email"
-							render={({ field }) => (
-								<FormItem>
-									<FormLabel>Email</FormLabel>
-									<FormControl>
-										<Input
-											placeholder="name@example.com"
-											type="email"
-											{...field}
-										/>
-									</FormControl>
-									<FormMessage />
-								</FormItem>
-							)}
-						/>
-						<FormField
-							control={form.control}
-							name="password"
-							render={({ field }) => (
-								<FormItem>
-									<FormLabel>Password</FormLabel>
-									<FormControl>
-										<Input placeholder="••••••••" type="password" {...field} />
-									</FormControl>
-									<FormMessage />
-								</FormItem>
-							)}
-						/>
-						<Button type="submit" className="w-full" disabled={isLoading}>
-							{isLoading ? (
-								<>
-									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-									Creating account...
-								</>
-							) : (
-								"Create account"
-							)}
-						</Button>
-					</form>
-				</Form>
-				<div className="relative">
-					<div className="absolute inset-0 flex items-center">
-						<span className="w-full border-t" />
-					</div>
-					<div className="relative flex justify-center text-xs uppercase">
-						<span className="bg-background px-2 text-muted-foreground">Or</span>
-					</div>
-				</div>
-				<SocialAuthButtons
-					isLoading={isLoading}
-					setIsLoading={setIsLoading}
-					callbackPath={returnUrl}
-					errorCallbackPath="/signup"
-				/>
-				<p className="px-8 text-center text-sm text-muted-foreground">
-					<Link
-						href="/login"
-						className="hover:text-brand underline underline-offset-4"
-					>
-						Already have an account? Sign in
-					</Link>
-				</p>
+				</motion.div>
 			</div>
 		</div>
 	);
