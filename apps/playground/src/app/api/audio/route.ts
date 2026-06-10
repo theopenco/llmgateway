@@ -51,7 +51,15 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	const body = (await req.json()) as AudioRequestBody;
+	let body: AudioRequestBody;
+	try {
+		body = (await req.json()) as AudioRequestBody;
+	} catch {
+		return NextResponse.json(
+			{ error: "Invalid JSON payload" },
+			{ status: 400 },
+		);
+	}
 
 	if (!body.input?.trim()) {
 		return NextResponse.json(

@@ -35,6 +35,9 @@ const GalleryAudio = memo(
 				variant="secondary"
 				size="icon"
 				className="h-8 w-8 shrink-0"
+				aria-label={
+					modelName ? `Download ${modelName} audio` : "Download audio"
+				}
 				onClick={() => downloadAudio(audio)}
 			>
 				<Download className="h-4 w-4" />
@@ -163,8 +166,8 @@ function ComparisonModeItem({ item }: { item: AudioGalleryItem }) {
 							: "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
 				}`}
 			>
-				{item.models.map((model) => (
-					<div key={model.modelId} className="space-y-2">
+				{item.models.map((model, idx) => (
+					<div key={`${model.modelId}-${idx}`} className="space-y-2">
 						<Badge variant="outline" className="text-xs">
 							{model.modelName}
 						</Badge>
