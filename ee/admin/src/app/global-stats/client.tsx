@@ -508,7 +508,15 @@ export function GlobalStatsClient() {
 									: "request count"}{" "}
 							per day
 							{showTimeseriesBreakdown
-								? ` broken down by ${groupBy === "model" ? "model" : "source"}`
+								? ` broken down by ${
+										groupBy === "model"
+											? modelView === "provider"
+												? "provider"
+												: modelView === "canonical"
+													? "canonical model"
+													: "mapping"
+											: "source"
+									}`
 								: ` across all ${groupBy === "model" ? "models" : "sources"}`}
 							.
 						</CardDescription>
@@ -527,6 +535,25 @@ export function GlobalStatsClient() {
 							)}
 							Breakdown
 						</Button>
+						{showTimeseriesBreakdown && groupBy === "model" ? (
+							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
+								{MODEL_VIEW_OPTIONS.map((opt) => {
+									const Icon = opt.icon;
+									return (
+										<Button
+											key={opt.value}
+											variant={modelView === opt.value ? "default" : "ghost"}
+											size="sm"
+											className="h-7 gap-1.5 px-3 text-xs"
+											onClick={() => setModelView(opt.value)}
+										>
+											<Icon className="h-3.5 w-3.5" />
+											{opt.label}
+										</Button>
+									);
+								})}
+							</div>
+						) : null}
 						<div className="flex items-center gap-1">
 							{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
 								(m) => (
