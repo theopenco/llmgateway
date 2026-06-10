@@ -1122,6 +1122,29 @@ export default function ChatPageClient({
 		}
 	};
 
+	// Billing runs under the selected dashboard org, or the dedicated Chat org
+	// in the Chat plan context. Without resolving the Chat org here, the Chat
+	// plan context (selectedOrganization === null) skipped credit gating
+	// entirely and unsubscribed users without credits could keep generating.
+	const ensureBillableContext = () => {
+		const billingOrganization = selectedOrganization ?? chatOrg;
+		if (
+			billingOrganization &&
+			Number(billingOrganization.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
+			!hasChatPlanCredits
+		) {
+			if (selectedOrganization) {
+				setShowTopUp(true);
+			} else {
+				// Chat plan context has no top-ups — promote the subscription plans.
+				router.push("/pricing");
+			}
+			return false;
+		}
+		return true;
+	};
+
 	const handleUserMessage = async (
 		content: string,
 		images?: Array<{
@@ -1141,13 +1164,7 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (
-			selectedOrganization &&
-			Number(selectedOrganization.credits) <= 0 &&
-			isChatPlanStatusLoaded &&
-			!hasChatPlanCredits
-		) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return undefined;
 		}
 
@@ -1318,13 +1335,7 @@ export default function ChatPageClient({
 			return;
 		}
 
-		if (
-			selectedOrganization &&
-			Number(selectedOrganization.credits) <= 0 &&
-			isChatPlanStatusLoaded &&
-			!hasChatPlanCredits
-		) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return;
 		}
 
