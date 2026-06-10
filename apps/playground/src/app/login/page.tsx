@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, KeySquare } from "lucide-react";
 import Link from "next/link";
@@ -103,6 +104,9 @@ function Login() {
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
+		// Abort the pending conditional (autofill) passkey ceremony so it can't pop a
+		// native passkey/biometric prompt after a successful email sign-in + redirect.
+		WebAuthnAbortService.cancelCeremony();
 		const { error } = await signIn.email(
 			{
 				email: values.email,
@@ -148,6 +152,9 @@ function Login() {
 	async function handlePasskeySignIn() {
 		setIsLoading(true);
 		try {
+			// Cancel the pending conditional (autofill) ceremony started on mount so
+			// it doesn't collide with this modal request and abort it as "cancelled".
+			WebAuthnAbortService.cancelCeremony();
 			const res = await signIn.passkey();
 			if (res?.error) {
 				toast.error(res.error.message ?? "Failed to sign in with passkey", {

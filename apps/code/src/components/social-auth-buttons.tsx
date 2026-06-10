@@ -1,5 +1,6 @@
 "use client";
 
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { Github, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,6 +30,9 @@ export function SocialAuthButtons({
 
 	async function handleSocialSignIn(provider: "github" | "google") {
 		setIsLoading(true);
+		// Abort the pending conditional (autofill) passkey ceremony so it can't pop a
+		// native passkey/biometric prompt after a successful social sign-in + redirect.
+		WebAuthnAbortService.cancelCeremony();
 		try {
 			const res = await signIn.social({
 				provider,
