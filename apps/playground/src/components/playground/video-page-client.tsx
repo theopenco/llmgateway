@@ -288,8 +288,9 @@ export default function VideoPageClient({
 	);
 	// The audio toggle is a preference, never a selection constraint: any model
 	// stays selectable, models that only support one audio mode get clamped per
-	// request in generateVideos, and the toggle locks to the forced mode when no
-	// selected model supports both modes.
+	// request in generateVideos, and the toggle locks unless every selected
+	// model supports both modes (otherwise flipping it wouldn't apply to the
+	// whole selection).
 	const selectionAudioSupport = useMemo(() => {
 		const selected = selectedModels
 			.map((modelId) => availableModelsById.get(modelId))
@@ -298,8 +299,8 @@ export default function VideoPageClient({
 			return { audio: true, silent: true };
 		}
 		return {
-			audio: selected.some((model) => model.supportsVideoAudio !== false),
-			silent: selected.some(
+			audio: selected.every((model) => model.supportsVideoAudio !== false),
+			silent: selected.every(
 				(model) => model.supportsVideoWithoutAudio === true,
 			),
 		};
@@ -312,7 +313,9 @@ export default function VideoPageClient({
 			? true
 			: audioEnabled;
 	const audioToggleLockedReason = !selectionAudioSupport.audio
-		? "The selected model only generates silent video"
+		? selectionAudioSupport.silent
+			? "The selected model only generates silent video"
+			: "Audio output is fixed by each selected model"
 		: !selectionAudioSupport.silent
 			? "The selected model always generates video with audio"
 			: undefined;
