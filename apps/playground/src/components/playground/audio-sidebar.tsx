@@ -134,6 +134,9 @@ function EditAudioPromptInput({
 	onFocused: () => void;
 }) {
 	const inputRef = useRef<HTMLInputElement | null>(null);
+	// Guards against a blur firing after Escape canceled the edit, so the
+	// cancel can't be overridden by a save.
+	const canceledRef = useRef(false);
 
 	useEffect(() => {
 		if (
@@ -155,7 +158,12 @@ function EditAudioPromptInput({
 			ref={inputRef}
 			value={value}
 			onChange={(e) => onChange(e.target.value)}
-			onBlur={() => onSave(itemId, original)}
+			onBlur={() => {
+				if (!canceledRef.current) {
+					onSave(itemId, original);
+				}
+				canceledRef.current = false;
+			}}
 			onKeyDown={(e) => {
 				if (e.key === "Enter") {
 					e.preventDefault();
@@ -163,6 +171,7 @@ function EditAudioPromptInput({
 				}
 				if (e.key === "Escape") {
 					e.preventDefault();
+					canceledRef.current = true;
 					onCancel();
 				}
 			}}
