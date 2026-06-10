@@ -11,6 +11,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import {
 	apiKeyPeriodDurationMaxValues,
 	apiKeyPeriodDurationUnits,
+	cdb,
 	db,
 	eq,
 	getApiKeyCurrentPeriodState,
@@ -1608,7 +1609,10 @@ keysApi.openapi(roll, async (c) => {
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);
 
-	const [updatedApiKey] = await db
+	// Roll through the cached client so its onMutate invalidates the gateway's
+	// cached token lookups (Drizzle cache + SWR mirror) for the api_key table.
+	// Otherwise the old secret would keep authenticating until the cache expired.
+	const [updatedApiKey] = await cdb
 		.update(tables.apiKey)
 		.set({ token })
 		.where(eq(tables.apiKey.id, id))
