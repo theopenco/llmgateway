@@ -268,6 +268,60 @@ describe("keys route", () => {
 		expect(apiKey?.status).toBe("inactive");
 	});
 
+	test("POST /keys/api/{id}/roll unauthorized", async () => {
+		const res = await app.request("/keys/api/test-api-key-id/roll", {
+			method: "POST",
+		});
+		expect(res.status).toBe(401);
+	});
+
+	test("POST /keys/api/{id}/roll regenerates the secret and keeps metadata", async () => {
+		// Give the key some usage and a limit to prove they survive the roll.
+		await db
+			.update(tables.apiKey)
+			.set({ usage: "12.34", usageLimit: "100", description: "Keep Me" })
+			.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+		const res = await app.request("/keys/api/test-api-key-id/roll", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+			},
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json).toHaveProperty("message");
+		expect(json).toHaveProperty("apiKey");
+		// Full new secret is returned once, and it differs from the old one.
+		expect(typeof json.apiKey.token).toBe("string");
+		expect(json.apiKey.token).not.toBe("test-token");
+		expect(json.apiKey.id).toBe("test-api-key-id");
+
+		// Verify the DB was updated and metadata/stats are intact.
+		const apiKey = await db.query.apiKey.findFirst({
+			where: {
+				id: {
+					eq: "test-api-key-id",
+				},
+			},
+		});
+		expect(apiKey?.token).toBe(json.apiKey.token);
+		expect(apiKey?.token).not.toBe("test-token");
+		expect(apiKey?.description).toBe("Keep Me");
+		expect(apiKey?.usage).toBe("12.34");
+		expect(apiKey?.usageLimit).toBe("100");
+	});
+
+	test("POST /keys/api/{id}/roll returns 404 for unknown key", async () => {
+		const res = await app.request("/keys/api/does-not-exist/roll", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+			},
+		});
+		expect(res.status).toBe(404);
+	});
+
 	test("POST /keys/api creates a period usage limit", async () => {
 		const res = await app.request("/keys/api", {
 			method: "POST",

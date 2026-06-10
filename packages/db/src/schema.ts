@@ -1969,6 +1969,7 @@ export const auditLogActions = [
 	"team_member.remove",
 	// API Key
 	"api_key.create",
+	"api_key.roll",
 	"api_key.update_status",
 	"api_key.update_limit",
 	"api_key.update_description",
