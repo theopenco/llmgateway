@@ -194,16 +194,7 @@ function mappingSupportsVideoRequest(
 	inputMode: VideoInputMode,
 	size: VideoSize,
 	duration: VideoDuration,
-	audioEnabled: boolean,
 ): boolean {
-	if (audioEnabled) {
-		if (mapping.supportsVideoAudio === false) {
-			return false;
-		}
-	} else if (mapping.supportsVideoWithoutAudio !== true) {
-		return false;
-	}
-
 	if (
 		mapping.supportedVideoSizes?.length &&
 		!mapping.supportedVideoSizes.includes(size)
@@ -271,20 +262,13 @@ export function getSupportedVideoSizesForSelection(
 	selectedModels: string[],
 	inputMode: VideoInputMode,
 	duration: VideoDuration,
-	audioEnabled: boolean,
 ): VideoSize[] {
 	const allSizes = getVideoSizes();
 
 	return allSizes.filter((size) =>
 		selectedModels.every((modelId) =>
 			getSelectedVideoMappings(models, modelId).some((mapping) =>
-				mappingSupportsVideoRequest(
-					mapping,
-					inputMode,
-					size,
-					duration,
-					audioEnabled,
-				),
+				mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 			),
 		),
 	);
@@ -295,18 +279,11 @@ export function getSupportedVideoDurationsForSelection(
 	selectedModels: string[],
 	inputMode: VideoInputMode,
 	size: VideoSize,
-	audioEnabled: boolean,
 ): VideoDuration[] {
 	return VIDEO_DURATIONS.filter((duration) =>
 		selectedModels.every((modelId) =>
 			getSelectedVideoMappings(models, modelId).some((mapping) =>
-				mappingSupportsVideoRequest(
-					mapping,
-					inputMode,
-					size,
-					duration,
-					audioEnabled,
-				),
+				mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 			),
 		),
 	) as VideoDuration[];
@@ -321,7 +298,6 @@ export function getSupportedVideoRequestOptions(
 	models: ApiModel[],
 	selectedModels: string[],
 	inputMode: VideoInputMode,
-	audioEnabled: boolean,
 ): SupportedVideoRequestOptions {
 	const supportedSizes = new Set<VideoSize>();
 	const supportedDurations = new Set<VideoDuration>();
@@ -330,13 +306,7 @@ export function getSupportedVideoRequestOptions(
 		for (const duration of VIDEO_DURATIONS) {
 			const isSupported = selectedModels.every((modelId) =>
 				getSelectedVideoMappings(models, modelId).some((mapping) =>
-					mappingSupportsVideoRequest(
-						mapping,
-						inputMode,
-						size,
-						duration,
-						audioEnabled,
-					),
+					mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 				),
 			);
 
@@ -359,7 +329,6 @@ export function getNormalizedVideoRequestSelection(
 	models: ApiModel[],
 	selectedModels: string[],
 	inputMode: VideoInputMode,
-	audioEnabled: boolean,
 	size: VideoSize,
 	duration: VideoDuration,
 ): { size: VideoSize; duration: VideoDuration } | null {
@@ -372,7 +341,6 @@ export function getNormalizedVideoRequestSelection(
 						inputMode,
 						candidateSize,
 						candidateDuration,
-						audioEnabled,
 					),
 				),
 			)

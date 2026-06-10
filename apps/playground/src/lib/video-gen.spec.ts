@@ -96,7 +96,6 @@ describe("getSupportedVideoDurationsForSelection", () => {
 			["veo-3.1-generate-preview"],
 			"none",
 			"1280x720",
-			true,
 		);
 		expect(durations).toContain(10);
 	});
@@ -108,7 +107,6 @@ describe("getSupportedVideoDurationsForSelection", () => {
 			["veo-3.1-generate-preview"],
 			"frames",
 			"1280x720",
-			true,
 		);
 		expect(durations).not.toContain(10);
 		expect(durations).toEqual(expect.arrayContaining([4, 6, 8]));
@@ -123,7 +121,6 @@ describe("getSupportedVideoDurationsForSelection", () => {
 			["veo-3.1-generate-preview"],
 			"frames",
 			"1280x720",
-			true,
 		);
 		expect(durations).toContain(10);
 	});
@@ -139,13 +136,11 @@ describe("getSupportedVideoRequestOptions", () => {
 			models,
 			selected,
 			"frames",
-			true,
 		);
 		const textOptions = getSupportedVideoRequestOptions(
 			models,
 			selected,
 			"none",
-			true,
 		);
 
 		expect(framesOptions.durations).not.toContain(10);
@@ -160,7 +155,6 @@ describe("getNormalizedVideoRequestSelection", () => {
 			[model],
 			["veo-3.1-generate-preview"],
 			"frames",
-			true,
 			"1280x720",
 			10,
 		);
@@ -175,7 +169,6 @@ describe("getNormalizedVideoRequestSelection", () => {
 			[model],
 			["veo-3.1-generate-preview"],
 			"none",
-			true,
 			"1280x720",
 			10,
 		);
@@ -194,14 +187,12 @@ describe("getSupportedVideoSizesForSelection", () => {
 			selected,
 			"none",
 			8,
-			true,
 		);
 		const frameSizes = getSupportedVideoSizesForSelection(
 			models,
 			selected,
 			"frames",
 			8,
-			true,
 		);
 
 		expect(frameSizes).toEqual(textSizes);
@@ -264,7 +255,6 @@ describe("Seedance 2.0 reference capabilities", () => {
 			[model],
 			["seedance-2-0"],
 			"reference",
-			true,
 		);
 
 		expect(options.sizes).toContain("1280x720");
@@ -281,7 +271,6 @@ describe("Seedance 2.0 reference capabilities", () => {
 			[model],
 			["seedance-1-5-pro"],
 			"reference",
-			true,
 		);
 
 		expect(options.sizes).toHaveLength(0);

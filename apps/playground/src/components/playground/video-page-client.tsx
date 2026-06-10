@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,7 +19,7 @@ import {
 	useVideoHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
-import { useFetchClient } from "@/lib/fetch-client";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
 import {
 	getModelPreferenceCookie,
@@ -69,6 +70,7 @@ export default function VideoPageClient({
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
 	const fetchClient = useFetchClient();
+	const api = useApi();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -276,20 +278,6 @@ export default function VideoPageClient({
 			),
 		[selectedModels],
 	);
-	const requiresAudioSelection = useMemo(
-		() =>
-			selectedModels.some((modelId) => {
-				if (!modelId.includes("/") || modelId.startsWith("google-vertex/")) {
-					return false;
-				}
-				const model = availableModelsById.get(modelId);
-				if (model && model.supportsVideoAudio === false) {
-					return false;
-				}
-				return true;
-			}),
-		[selectedModels, availableModelsById],
-	);
 	const someModelsRequireImage = useMemo(
 		() =>
 			selectedModels.some((modelId) => {
@@ -298,60 +286,55 @@ export default function VideoPageClient({
 			}),
 		[selectedModels, availableModelsById],
 	);
-	const allModelsRequireNoAudio = useMemo(
-		() =>
-			selectedModels.length > 0 &&
-			selectedModels.every((modelId) => {
-				const model = availableModelsById.get(modelId);
-				return model?.supportsVideoAudio === false;
-			}),
-		[selectedModels, availableModelsById],
-	);
-	const effectiveAudioEnabled = allModelsRequireNoAudio
+	// The audio toggle is a preference, never a selection constraint: any model
+	// stays selectable, models that only support one audio mode get clamped per
+	// request in generateVideos, and the toggle locks unless every selected
+	// model supports both modes (otherwise flipping it wouldn't apply to the
+	// whole selection).
+	const selectionAudioSupport = useMemo(() => {
+		const selected = selectedModels
+			.map((modelId) => availableModelsById.get(modelId))
+			.filter((model): model is ComboboxModel => Boolean(model));
+		if (selected.length === 0) {
+			return { audio: true, silent: true };
+		}
+		return {
+			audio: selected.every((model) => model.supportsVideoAudio !== false),
+			silent: selected.every(
+				(model) => model.supportsVideoWithoutAudio === true,
+			),
+		};
+	}, [selectedModels, availableModelsById]);
+	const audioToggleLocked =
+		!selectionAudioSupport.audio || !selectionAudioSupport.silent;
+	const effectiveAudioEnabled = !selectionAudioSupport.audio
 		? false
-		: requiresAudioSelection
+		: !selectionAudioSupport.silent
 			? true
 			: audioEnabled;
+	const audioToggleLockedReason = !selectionAudioSupport.audio
+		? selectionAudioSupport.silent
+			? "The selected model only generates silent video"
+			: "Audio output is fixed by each selected model"
+		: !selectionAudioSupport.silent
+			? "The selected model always generates video with audio"
+			: undefined;
 
-	useEffect(() => {
-		if (requiresAudioSelection && !audioEnabled) {
-			setAudioEnabled(true);
-		}
-	}, [audioEnabled, requiresAudioSelection]);
-
-	const supportsSelectedAudioMode = useCallback(
-		(modelId: string, withAudio: boolean) => {
-			if (!modelId.includes("/")) {
-				return true;
-			}
-
+	const getAudioForModel = useCallback(
+		(modelId: string) => {
 			const model = availableModelsById.get(modelId);
 			if (!model) {
+				return effectiveAudioEnabled;
+			}
+			if (model.supportsVideoAudio === false) {
+				return false;
+			}
+			if (model.supportsVideoWithoutAudio !== true) {
 				return true;
 			}
-
-			return withAudio
-				? model.supportsVideoAudio !== false
-				: model.supportsVideoWithoutAudio === true;
+			return effectiveAudioEnabled;
 		},
-		[availableModelsById],
-	);
-	const isModelOptionDisabled = useCallback(
-		(modelId: string) =>
-			!supportsSelectedAudioMode(modelId, effectiveAudioEnabled),
-		[effectiveAudioEnabled, supportsSelectedAudioMode],
-	);
-	const getModelOptionDisabledReason = useCallback(
-		(modelId: string) => {
-			if (!isModelOptionDisabled(modelId)) {
-				return undefined;
-			}
-
-			return effectiveAudioEnabled
-				? "This mapping does not support audio output"
-				: "This mapping does not support silent output";
-		},
-		[effectiveAudioEnabled, isModelOptionDisabled],
+		[availableModelsById, effectiveAudioEnabled],
 	);
 
 	const returnUrl = useMemo(() => {
@@ -483,9 +466,8 @@ export default function VideoPageClient({
 				videoGenModels,
 				selectedModels,
 				videoInputMode,
-				effectiveAudioEnabled,
 			),
-		[effectiveAudioEnabled, selectedModels, videoGenModels, videoInputMode],
+		[selectedModels, videoGenModels, videoInputMode],
 	);
 
 	useEffect(() => {
@@ -497,7 +479,6 @@ export default function VideoPageClient({
 			videoGenModels,
 			selectedModels,
 			videoInputMode,
-			effectiveAudioEnabled,
 			videoSize,
 			videoDuration,
 		);
@@ -514,7 +495,6 @@ export default function VideoPageClient({
 			setVideoDuration(normalizedSelection.duration);
 		}
 	}, [
-		effectiveAudioEnabled,
 		selectedModels,
 		videoDuration,
 		videoGenModels,
@@ -679,7 +659,7 @@ export default function VideoPageClient({
 								prompt: currentPrompt,
 								size: videoSize,
 								seconds: videoDuration,
-								audio: effectiveAudioEnabled,
+								audio: getAudioForModel(modelId),
 								...(referenceImages.length === 0 &&
 								referenceVideos.length === 0 &&
 								referenceAudios.length === 0 &&
@@ -798,6 +778,7 @@ export default function VideoPageClient({
 			videoSize,
 			videoDuration,
 			effectiveAudioEnabled,
+			getAudioForModel,
 			frameInputs,
 			posthog,
 			referenceImages,
@@ -901,13 +882,24 @@ export default function VideoPageClient({
 		[activeItems, galleryItems, pathname, router],
 	);
 
+	// In the Chat plan context the plan status endpoint is the source of truth
+	// for remaining credits; the org row passed from the server can be stale.
+	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
+	);
 	const chatPlanCreditsRemaining =
-		selectedOrganization?.chatPlan && selectedOrganization.chatPlan !== "none"
-			? Number(selectedOrganization.chatPlanCreditsLimit ?? "0") -
-				Number(selectedOrganization.chatPlanCreditsUsed ?? "0")
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none"
+			? Number(chatPlanStatus.chatPlanCreditsRemaining)
 			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
+		? isChatPlanContext
+			? chatPlanStatus !== undefined &&
+				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
+			: Number(selectedOrganization.credits) < 1
 		: false;
 
 	const handleSelectOrganization = useCallback(
@@ -947,22 +939,28 @@ export default function VideoPageClient({
 						onRemoveModel={handleRemoveModel}
 						comparisonMode={comparisonMode}
 						onComparisonModeChange={handleComparisonModeChange}
-						isModelOptionDisabled={isModelOptionDisabled}
-						getModelOptionDisabledReason={getModelOptionDisabledReason}
 						hideCompare={displayItems.length > 0}
 					/>
 					{isLowCredits && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								Low credits remaining. Top up to continue generating videos.
+								{isChatPlanContext
+									? "You're out of credits. Upgrade to a plan to continue generating videos."
+									: "Low credits remaining. Top up to continue generating videos."}
 							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => setShowTopUp(true)}
-							>
-								Top Up
-							</Button>
+							{isChatPlanContext ? (
+								<Button variant="outline" size="sm" asChild>
+									<Link href="/pricing">View plans</Link>
+								</Button>
+							) : (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setShowTopUp(true)}
+								>
+									Top Up
+								</Button>
+							)}
 						</div>
 					)}
 					<VideoControls
@@ -975,7 +973,8 @@ export default function VideoPageClient({
 						setVideoDuration={setVideoDuration}
 						audioEnabled={effectiveAudioEnabled}
 						setAudioEnabled={setAudioEnabled}
-						audioToggleDisabled={isGenerating || requiresAudioSelection}
+						audioToggleDisabled={isGenerating || audioToggleLocked}
+						audioToggleDisabledReason={audioToggleLockedReason}
 						canUseFrameInputs={canUseFrameInputs}
 						canUseReferenceInputs={canUseReferenceInputs}
 						canUseReferenceVideoInputs={canUseReferenceVideoInputs}
