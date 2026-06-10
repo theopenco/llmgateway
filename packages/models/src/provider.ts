@@ -162,10 +162,17 @@ export function hasRegionSpecificEnvKey(
 	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
 		return true;
 	}
-	// The base key covers the provider's default region
 	const def = getProviderDefinition(provider);
-	if (def?.regionConfig?.defaultRegion === region && process.env[baseEnvVar]) {
-		return true;
+	if (process.env[baseEnvVar]) {
+		// The base key covers the provider's default region, and — for providers
+		// whose credential is shared across regions (e.g. AWS Bedrock) — every
+		// region, so non-default regions don't need a per-region env key.
+		if (
+			def?.regionConfig?.defaultRegion === region ||
+			def?.regionConfig?.sharedCredentialAcrossRegions
+		) {
+			return true;
+		}
 	}
 	return false;
 }

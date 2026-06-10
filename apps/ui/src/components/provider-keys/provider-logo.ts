@@ -7,6 +7,7 @@ export const providerLogoUrls: Partial<
 > = {
 	openai: ProviderIcons.openai,
 	anthropic: ProviderIcons.anthropic,
+	elevenlabs: ProviderIcons.elevenlabs,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
 	glacier: ProviderIcons.glacier,
 	"google-vertex": ProviderIcons["google-vertex"],
@@ -29,6 +30,7 @@ export const providerLogoUrls: Partial<
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
 	"azure-ai-foundry": ProviderIcons["azure-ai-foundry"],
+	canopywave: ProviderIcons.canopywave,
 	cerebras: ProviderIcons.cerebras,
 	minimax: ProviderIcons.minimax,
 	bytedance: ProviderIcons.bytedance,

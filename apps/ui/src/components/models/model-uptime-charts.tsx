@@ -36,6 +36,12 @@ import type { paths } from "@/lib/api/v1";
 
 type ActiveMetric = "requests" | "errors" | "latency" | "tokens";
 
+// Derived metrics (uptime %, error rate, latency averages, throughput) are only
+// statistically meaningful once a provider has served a reasonable number of
+// requests. Below this threshold we show "—" instead so the numbers don't look
+// misleading.
+const MIN_REQUESTS_FOR_STATS = 1000;
+
 type UptimeResponse =
 	paths["/internal/models/{modelId}/uptime"]["get"]["responses"]["200"]["content"]["application/json"];
 type UptimeProvider = UptimeResponse["providers"][number];
@@ -85,13 +91,15 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
 
+	const hasEnoughData = provider.logsCount > MIN_REQUESTS_FOR_STATS;
+
 	const errorRate =
 		provider.logsCount > 0
 			? Math.round((provider.errorsCount / provider.logsCount) * 1000) / 10
 			: 0;
 
 	const uptimeColor =
-		provider.uptime === null
+		!hasEnoughData || provider.uptime === null
 			? "text-muted-foreground"
 			: provider.uptime >= 99.5
 				? "text-green-600 dark:text-green-500"
@@ -120,6 +128,8 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 							</CardTitle>
 							<CardDescription className="text-xs">
 								Last 4 hours · {provider.points.length} data points
+								{!hasEnoughData &&
+									` · stats hidden until ${formatCompact(MIN_REQUESTS_FOR_STATS)} requests`}
 							</CardDescription>
 						</div>
 					</div>
@@ -128,7 +138,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 							<span
 								className={cn("text-2xl font-bold tabular-nums", uptimeColor)}
 							>
-								{provider.uptime.toFixed(1)}%
+								{hasEnoughData ? `${provider.uptime.toFixed(1)}%` : "—"}
 							</span>
 							<span className="text-[10px] uppercase tracking-wide text-muted-foreground">
 								Uptime
@@ -142,14 +152,22 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						icon={Activity}
 						label="Requests"
 						value={formatCompact(provider.logsCount)}
-						sub={`${formatCompact(provider.errorsCount)} errors (${errorRate}%)`}
+						sub={
+							hasEnoughData
+								? `${formatCompact(provider.errorsCount)} errors (${errorRate}%)`
+								: `${formatCompact(provider.errorsCount)} errors`
+						}
 					/>
 					<Stat
 						icon={Clock}
 						label="Avg TTFT"
-						value={provider.avgTtft !== null ? `${provider.avgTtft}ms` : "—"}
+						value={
+							hasEnoughData && provider.avgTtft !== null
+								? `${provider.avgTtft}ms`
+								: "—"
+						}
 						sub={
-							provider.avgDuration !== null
+							hasEnoughData && provider.avgDuration !== null
 								? `${provider.avgDuration}ms duration`
 								: undefined
 						}
@@ -158,7 +176,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						icon={Gauge}
 						label="Throughput"
 						value={
-							provider.tokensPerSecond !== null
+							hasEnoughData && provider.tokensPerSecond !== null
 								? `${provider.tokensPerSecond.toLocaleString()} t/s`
 								: "—"
 						}
@@ -168,7 +186,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						label="Upstream errors"
 						value={formatCompact(provider.upstreamErrorsCount)}
 						sub={
-							provider.logsCount > 0
+							hasEnoughData && provider.logsCount > 0
 								? `${(
 										Math.round(
 											(provider.upstreamErrorsCount / provider.logsCount) *

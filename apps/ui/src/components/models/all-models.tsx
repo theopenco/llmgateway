@@ -36,6 +36,7 @@ import {
 	Sparkles,
 	PenTool,
 	Sliders,
+	Volume2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -99,6 +100,8 @@ interface AllModelsProps {
 		| "text"
 		| "text-to-image"
 		| "image-to-image"
+		| "video"
+		| "embedding"
 		| "web-search"
 		| "vision"
 		| "reasoning"
@@ -195,6 +198,13 @@ function computeCapabilities(
 			icon: Video,
 			label: "Video Generation",
 			color: "text-violet-500",
+		});
+	}
+	if (model?.output?.includes("audio")) {
+		capabilities.push({
+			icon: Volume2,
+			label: "Speech Generation",
+			color: "text-rose-500",
 		});
 	}
 	if (model?.output?.includes("embedding")) {
@@ -378,6 +388,28 @@ const ModelTableRow = React.memo(
 							</Tooltip>
 						) : (!row.provider.inputPrice ||
 								parseFloat(row.provider.inputPrice) === 0) &&
+						  row.provider.inputCharacterPrice &&
+						  parseFloat(row.provider.inputCharacterPrice) > 0 ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										$
+										{parseFloat(
+											(
+												parseFloat(row.provider.inputCharacterPrice) * 1000
+											).toFixed(4),
+										)}
+										/1K chars
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-character pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
+						) : (!row.provider.inputPrice ||
+								parseFloat(row.provider.inputPrice) === 0) &&
 						  row.provider.requestPrice &&
 						  parseFloat(row.provider.requestPrice) > 0 ? (
 							<Tooltip>
@@ -420,8 +452,10 @@ const ModelTableRow = React.memo(
 							</Tooltip>
 						) : (!row.provider.outputPrice ||
 								parseFloat(row.provider.outputPrice) === 0) &&
-						  row.provider.requestPrice &&
-						  parseFloat(row.provider.requestPrice) > 0 ? (
+						  ((row.provider.requestPrice &&
+								parseFloat(row.provider.requestPrice) > 0) ||
+								(row.provider.inputCharacterPrice &&
+									parseFloat(row.provider.inputCharacterPrice) > 0)) ? (
 							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)
@@ -521,7 +555,11 @@ function applyCategoryFilter(
 ): boolean {
 	switch (categoryFilter) {
 		case "text":
-			return !model.output?.includes("image");
+			return (
+				!model.output?.includes("image") &&
+				!model.output?.includes("video") &&
+				!model.output?.includes("embedding")
+			);
 		case "text-to-image":
 			return model.output?.includes("image") === true;
 		case "image-to-image":
@@ -529,6 +567,10 @@ function applyCategoryFilter(
 				model.output?.includes("image") === true &&
 				providerDetails.some((p) => p.provider.vision)
 			);
+		case "video":
+			return model.output?.includes("video") === true;
+		case "embedding":
+			return model.output?.includes("embedding") === true;
 		case "web-search":
 			return providerDetails.some((p) => p.provider.webSearch);
 		case "vision":
@@ -600,6 +642,7 @@ export function AllModels({
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			videoGeneration: searchParams.get("videoGeneration") === "true",
+			audioGeneration: searchParams.get("audioGeneration") === "true",
 			embedding: searchParams.get("embedding") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
@@ -859,6 +902,12 @@ export function AllModels({
 			if (
 				filters.capabilities.videoGeneration &&
 				!model.output?.includes("video")
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.audioGeneration &&
+				!model.output?.includes("audio")
 			) {
 				return false;
 			}
@@ -1437,6 +1486,13 @@ export function AllModels({
 				color: "text-violet-500",
 			});
 		}
+		if (model?.output?.includes("audio")) {
+			capabilities.push({
+				icon: Volume2,
+				label: "Speech Generation",
+				color: "text-rose-500",
+			});
+		}
 		if (model?.output?.includes("embedding")) {
 			capabilities.push({
 				icon: Boxes,
@@ -1468,6 +1524,7 @@ export function AllModels({
 				jsonOutputSchema: false,
 				imageGeneration: false,
 				videoGeneration: false,
+				audioGeneration: false,
 				embedding: false,
 				webSearch: false,
 				free: false,
@@ -1493,6 +1550,7 @@ export function AllModels({
 			jsonOutputSchema: undefined,
 			imageGeneration: undefined,
 			videoGeneration: undefined,
+			audioGeneration: undefined,
 			embedding: undefined,
 			webSearch: undefined,
 			free: undefined,
@@ -1635,6 +1693,12 @@ export function AllModels({
 									label: "Video Gen",
 									icon: Video,
 									color: "text-violet-500",
+								},
+								{
+									key: "audioGeneration",
+									label: "Speech Gen",
+									icon: Volume2,
+									color: "text-rose-500",
 								},
 								{
 									key: "embedding",

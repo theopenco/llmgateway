@@ -11,6 +11,8 @@ export interface Chat {
 	status: "active" | "archived" | "deleted";
 	webSearch: boolean;
 	pinned: boolean;
+	comparisonEnabled: boolean;
+	comparisonChatIds?: string[];
 	shareId: string | null;
 	sharedAt: string | null;
 	orgShares: Array<{ id: string; organizationId: string }>;
@@ -32,10 +34,12 @@ export interface ChatMessage {
 	createdAt: string;
 }
 
-export function useChats() {
+export function useChats(organizationId?: string) {
 	const api = useApi();
 
-	return api.useQuery("get", "/chats");
+	return api.useQuery("get", "/chats", {
+		params: { query: organizationId ? { organizationId } : {} },
+	});
 }
 
 export function useDataChat(chatId: string) {
@@ -55,7 +59,7 @@ export function useDataChat(chatId: string) {
 	);
 }
 
-export function useCreateChat() {
+export function useCreateChat({ silent = false }: { silent?: boolean } = {}) {
 	const queryClient = useQueryClient();
 	const api = useApi();
 
@@ -63,7 +67,9 @@ export function useCreateChat() {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
 			void queryClient.invalidateQueries({ queryKey });
-			toast("Chat created successfully");
+			if (!silent) {
+				toast("Chat created successfully");
+			}
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));
@@ -87,7 +93,7 @@ export function useUpdateChat() {
 	});
 }
 
-export function useDeleteChat() {
+export function useDeleteChat({ silent = false }: { silent?: boolean } = {}) {
 	const queryClient = useQueryClient();
 	const api = useApi();
 
@@ -95,7 +101,9 @@ export function useDeleteChat() {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
 			void queryClient.invalidateQueries({ queryKey });
-			toast("Chat deleted successfully");
+			if (!silent) {
+				toast("Chat deleted successfully");
+			}
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));

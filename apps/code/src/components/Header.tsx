@@ -5,10 +5,13 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
 
 export function Header() {
 	const config = useAppConfig();
+	const { user, isLoading } = useUser();
+	const isAuthenticated = !!user && !isLoading;
 	const [menuOpen, setMenuOpen] = useState(false);
 
 	return (
@@ -36,21 +39,27 @@ export function Header() {
 						<Link href="/pricing">Pricing</Link>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
+						<Link href="/compare">Compare</Link>
+					</Button>
+					<Button variant="ghost" size="sm" asChild>
 						<a href={config.docsUrl} target="_blank" rel="noopener noreferrer">
 							Docs
 						</a>
 					</Button>
-					<Button variant="ghost" size="sm" asChild>
-						<a href={config.uiUrl} target="_blank" rel="noopener noreferrer">
-							Dashboard
-						</a>
-					</Button>
-					<Button variant="ghost" size="sm" asChild>
-						<Link href="/login">Sign in</Link>
-					</Button>
-					<Button size="sm" asChild>
-						<Link href="/signup">Get Started</Link>
-					</Button>
+					{isAuthenticated ? (
+						<Button size="sm" asChild>
+							<Link href="/dashboard">Dashboard</Link>
+						</Button>
+					) : (
+						<>
+							<Button variant="ghost" size="sm" asChild>
+								<Link href="/login">Sign in</Link>
+							</Button>
+							<Button size="sm" asChild>
+								<Link href="/signup">Get Started</Link>
+							</Button>
+						</>
+					)}
 				</div>
 
 				{/* Mobile menu button */}
@@ -88,6 +97,13 @@ export function Header() {
 					>
 						Pricing
 					</Link>
+					<Link
+						href="/compare"
+						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+						onClick={() => setMenuOpen(false)}
+					>
+						Compare
+					</Link>
 					<a
 						href={config.docsUrl}
 						target="_blank"
@@ -96,26 +112,28 @@ export function Header() {
 					>
 						Docs
 					</a>
-					<a
-						href={config.uiUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
-					>
-						Dashboard
-					</a>
-					<Link
-						href="/login"
-						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
-						onClick={() => setMenuOpen(false)}
-					>
-						Sign in
-					</Link>
-					<Button size="sm" className="w-full" asChild>
-						<Link href="/signup" onClick={() => setMenuOpen(false)}>
-							Get Started
-						</Link>
-					</Button>
+					{isAuthenticated ? (
+						<Button size="sm" className="w-full" asChild>
+							<Link href="/dashboard" onClick={() => setMenuOpen(false)}>
+								Dashboard
+							</Link>
+						</Button>
+					) : (
+						<>
+							<Link
+								href="/login"
+								className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+								onClick={() => setMenuOpen(false)}
+							>
+								Sign in
+							</Link>
+							<Button size="sm" className="w-full" asChild>
+								<Link href="/signup" onClick={() => setMenuOpen(false)}>
+									Get Started
+								</Link>
+							</Button>
+						</>
+					)}
 				</div>
 			)}
 		</header>

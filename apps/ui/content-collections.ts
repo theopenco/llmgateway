@@ -92,6 +92,39 @@ const migrations = defineCollection({
 	}),
 });
 
+const useCases = defineCollection({
+	name: "useCases",
+	directory: "src/content/use-cases",
+	include: "**/*.md",
+	schema: z.object({
+		id: z.string(),
+		slug: z.string(),
+		date: z.string(),
+		draft: z.boolean().optional(),
+		title: z.string(),
+		metaTitle: z.string().optional(),
+		description: z.string(),
+		headline: z.string(),
+		summary: z.string(),
+		benefits: z
+			.array(
+				z.object({
+					title: z.string(),
+					description: z.string(),
+				}),
+			)
+			.default([]),
+		faqs: z
+			.array(
+				z.object({
+					question: z.string(),
+					answer: z.string(),
+				}),
+			)
+			.default([]),
+	}),
+});
+
 export default defineConfig({
-	collections: [changelog, blog, legal, guides, migrations],
+	collections: [changelog, blog, legal, guides, migrations, useCases],
 });

@@ -22,6 +22,7 @@ type MappingSortBy =
 	| "clientErrorsCount"
 	| "gatewayErrorsCount"
 	| "upstreamErrorsCount"
+	| "cost"
 	| "avgTimeToFirstToken"
 	| "updatedAt";
 

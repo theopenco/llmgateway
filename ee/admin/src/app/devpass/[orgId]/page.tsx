@@ -294,6 +294,57 @@ export default async function DevpassDetailPage({
 				</div>
 			</section>
 
+			<section className="space-y-3">
+				<div className="flex items-center gap-2">
+					<h2 className="text-sm font-semibold tracking-tight">All-time</h2>
+					<span className="text-xs text-muted-foreground">
+						Lifetime totals — unaffected by cycle resets or block/disable
+					</span>
+				</div>
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Revenue (all-time)
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{currencyFormatter.format(sub.allTimeRevenue)}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Net of refunds, across all cycles
+						</div>
+					</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Real provider cost (all-time)
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{currencyFormatterPrecise.format(sub.allTimeCost)}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							From hourly project stats
+						</div>
+					</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Margin (all-time)
+						</div>
+						<div
+							className={cn(
+								"mt-2 text-2xl font-semibold tabular-nums",
+								sub.allTimeMargin < 0
+									? "text-rose-600 dark:text-rose-400"
+									: "text-emerald-600 dark:text-emerald-400",
+							)}
+						>
+							{currencyFormatter.format(sub.allTimeMargin)}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Revenue − provider cost
+						</div>
+					</div>
+				</div>
+			</section>
+
 			<Tabs defaultValue="transactions">
 				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
 					<TabsTrigger value="transactions">

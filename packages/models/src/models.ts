@@ -2,6 +2,7 @@ import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
+import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
@@ -10,8 +11,10 @@ import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
+import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
+import { reveModels } from "./models/reve.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -20,7 +23,7 @@ import type { providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
-export type Model = (typeof models)[number]["providers"][number]["modelName"];
+export type Model = (typeof models)[number]["providers"][number]["externalId"];
 
 /**
  * Decimal-safe price representation. Always a string so values are preserved
@@ -123,11 +126,6 @@ export interface ProviderRegion {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
-	 * Discount multiplier (0-1) for this region.
-	 * When absent, falls back to the mapping-level discount.
-	 */
-	discount?: Price;
-	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
 	 */
@@ -161,7 +159,12 @@ export interface ProviderRegion {
 
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
-	modelName: string;
+	/**
+	 * Provider-specific upstream model id used when calling the upstream
+	 * provider. Distinct from the root `ModelDefinition.id` and from any
+	 * human-readable display name.
+	 */
+	externalId: string;
 	/**
 	 * Price per input token in USD
 	 */
@@ -170,6 +173,18 @@ export interface ProviderModelMapping {
 	 * Price per output token in USD
 	 */
 	outputPrice?: Price;
+	/**
+	 * Price per output audio token in USD (for speech generation / text-to-speech
+	 * models where audio output is billed separately from text). When unset,
+	 * audio output tokens fall back to `outputPrice`.
+	 */
+	outputAudioPrice?: Price;
+	/**
+	 * Price per input character in USD. Used by speech generation models that
+	 * bill on input characters rather than tokens (e.g. OpenAI `tts-1`), since
+	 * the OpenAI speech endpoint returns audio bytes without token usage.
+	 */
+	inputCharacterPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
@@ -255,10 +270,6 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
-	 * Discount multiplier (0-1), where 0.5 = 50% off
-	 */
-	discount?: Price;
-	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.
@@ -293,6 +304,15 @@ export interface ProviderModelMapping {
 	 */
 	audio?: boolean;
 	/**
+	 * Whether this specific model accepts document inputs (`file` content
+	 * blocks carrying PDF or text-family MIME types) for this provider. Used by
+	 * the `model: "auto"` router and capability validator to avoid selecting
+	 * providers that would fail upstream when the request contains document
+	 * content. Per-provider MIME allowlists live in the provider transform
+	 * modules (e.g. transform-google-messages.ts).
+	 */
+	document?: boolean;
+	/**
 	 * Whether this model supports reasoning mode
 	 */
 	reasoning?: boolean;
@@ -302,9 +322,43 @@ export interface ProviderModelMapping {
 	 */
 	splitTaggedReasoning?: boolean;
 	/**
+	 * Whether this provider mapping requires an explicit chat-template flag to
+	 * produce reasoning. Hybrid models like DeepSeek V3.2 on Novita keep thinking
+	 * off by default and ignore `reasoning_effort`, so the gateway sends
+	 * `chat_template_kwargs: { thinking: true }` (the documented vLLM/Novita
+	 * parameter) when the caller requests reasoning.
+	 */
+	requiresEnableThinking?: boolean;
+	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;
+	/**
+	 * Provider service tier IDs supported by this specific model mapping.
+	 * Provider definitions own the tier metadata and default multipliers;
+	 * mappings opt in to the subset actually supported by the upstream model.
+	 */
+	serviceTiers?: string[];
+	/**
+	 * Optional per-tier multiplier overrides for provider/model combinations whose
+	 * tier pricing differs from the provider default while still being expressed
+	 * as a multiplier over this mapping's standard token prices.
+	 */
+	serviceTierMultipliers?: Partial<Record<string, number>>;
+	/**
+	 * Regions where the mapping supports service tiers. When omitted, the mapping
+	 * supports its service tiers across all regions.
+	 */
+	serviceTierRegions?: string[];
+	/**
+	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
+	 * (multiple completion choices per request) natively. When true, the gateway
+	 * forwards `n` to the upstream provider; when false/unset, requests with
+	 * `n > 1` are rejected with a 400 error. Only set this for providers that
+	 * actually accumulate input tokens once and bill output tokens across all
+	 * choices upstream (e.g. OpenAI Chat Completions).
+	 */
+	supportsN?: boolean;
 	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
@@ -337,6 +391,13 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports JSON output mode for this provider
 	 */
 	jsonOutput?: boolean;
+	/**
+	 * Whether JSON-mode streaming output for this provider mapping should be
+	 * buffered and healed before being sent downstream. Use this for providers
+	 * that support JSON mode but may stream reasoning or explanatory text as
+	 * content before the final JSON object.
+	 */
+	healStreamingJsonOutput?: boolean;
 	/**
 	 * Whether this provider supports JSON schema output mode (json_schema response format)
 	 */
@@ -391,6 +452,17 @@ export interface ProviderModelMapping {
 	 */
 	embeddings?: boolean;
 	/**
+	 * Whether this model uses a dedicated speech generation API.
+	 * When true, requests are routed to the gateway's /v1/audio/speech endpoint
+	 * which returns binary audio rather than a chat completion.
+	 */
+	speechGenerations?: boolean;
+	/**
+	 * Prebuilt voices supported for speech generation models. The first entry is
+	 * used as the default when the caller does not specify a `voice`.
+	 */
+	supportedVoices?: string[];
+	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
 	 * When absent (undefined), the provider uses a single global endpoint.
@@ -416,6 +488,11 @@ export interface ProviderModelMapping {
 	 * Supported output durations in seconds for this provider.
 	 */
 	supportedVideoDurationsSeconds?: number[];
+	/**
+	 * Supported output durations in seconds when using image-to-video (frame inputs).
+	 * Overrides supportedVideoDurationsSeconds for that input mode when set.
+	 */
+	supportedVideoDurationsSecondsImageToVideo?: number[];
 	/**
 	 * Whether this provider mapping supports generating video with audio.
 	 */
@@ -463,7 +540,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding")[];
+	output?: ("text" | "image" | "video" | "embedding" | "audio")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -511,5 +588,8 @@ export const models = [
 	...alibabaModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...reveModels,
+	...nvidiaModels,
 	...zaiModels,
+	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];

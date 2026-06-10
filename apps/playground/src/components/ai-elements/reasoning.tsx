@@ -2,7 +2,7 @@
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
-import { createContext, memo, use, useEffect, useState } from "react";
+import { createContext, memo, use, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
 import { Shimmer } from "@/components/ai-elements/shimmer";
@@ -72,6 +72,7 @@ export const Reasoning = memo(
 
 		const [hasAutoClosed, setHasAutoClosed] = useState(false);
 		const [startTime, setStartTime] = useState<number | null>(null);
+		const wasInitiallyOpen = useRef(defaultOpen);
 
 		// Track duration when streaming starts and ends
 		useEffect(() => {
@@ -85,10 +86,14 @@ export const Reasoning = memo(
 			}
 		}, [isStreaming, startTime, setDuration]);
 
-		// Auto-open when streaming starts, auto-close when streaming ends (once only)
+		// Auto-close when streaming ends (once only), if initially opened
 		useEffect(() => {
-			if (defaultOpen && !isStreaming && isOpen && !hasAutoClosed) {
-				// Add a small delay before closing to allow user to see the content
+			if (
+				wasInitiallyOpen.current &&
+				!isStreaming &&
+				isOpen &&
+				!hasAutoClosed
+			) {
 				const timer = setTimeout(() => {
 					setIsOpen(false);
 					setHasAutoClosed(true);
@@ -97,7 +102,7 @@ export const Reasoning = memo(
 				return () => clearTimeout(timer);
 			}
 			return undefined;
-		}, [isStreaming, isOpen, defaultOpen, setIsOpen, hasAutoClosed]);
+		}, [isStreaming, isOpen, setIsOpen, hasAutoClosed]);
 
 		const handleOpenChange = (newOpen: boolean) => {
 			setIsOpen(newOpen);

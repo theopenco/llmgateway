@@ -1,8 +1,10 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
+import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -57,13 +59,16 @@ type ApiKeyResponseRecord = ApiKeyRecord & {
 			| "allow_pricing"
 			| "deny_pricing"
 			| "allow_providers"
-			| "deny_providers";
+			| "deny_providers"
+			| "allow_ip_cidrs"
+			| "deny_ip_cidrs";
 		ruleValue: {
 			models?: string[];
 			providers?: string[];
 			pricingType?: "free" | "paid";
 			maxInputPrice?: number;
 			maxOutputPrice?: number;
+			ipCidrs?: string[];
 		};
 		status: "active" | "inactive";
 	}>;
@@ -298,6 +303,7 @@ const apiKeySchema = z.object({
 	currentPeriodUsage: z.string(),
 	currentPeriodStartedAt: z.date().nullable(),
 	currentPeriodResetAt: z.date().nullable(),
+	expiresAt: z.date().nullable(),
 	projectId: z.string(),
 	createdBy: z.string(),
 	creator: z
@@ -321,6 +327,8 @@ const apiKeySchema = z.object({
 					"deny_pricing",
 					"allow_providers",
 					"deny_providers",
+					"allow_ip_cidrs",
+					"deny_ip_cidrs",
 				]),
 				ruleValue: z.object({
 					models: z.array(z.string()).optional(),
@@ -328,6 +336,7 @@ const apiKeySchema = z.object({
 					pricingType: z.enum(["free", "paid"]).optional(),
 					maxInputPrice: z.number().optional(),
 					maxOutputPrice: z.number().optional(),
+					ipCidrs: z.array(z.string()).optional(),
 				}),
 				status: z.enum(["active", "inactive"]),
 			}),
@@ -343,6 +352,16 @@ const createApiKeySchema = z
 		usageLimit: createNullableLimitSchema("Usage limit")
 			.optional()
 			.default(null),
+		expiresAt: z
+			.string()
+			.datetime()
+			.nullable()
+			.optional()
+			.default(null)
+			.openapi({
+				description:
+					"ISO 8601 timestamp when the key expires (TTL). The worker disables the key once this time passes; the gateway also rejects it immediately. Omit or null for a key that never expires.",
+			}),
 		...createApiKeyPeriodConfigFieldsSchema,
 	})
 	.superRefine(validateApiKeyPeriodConfig);
@@ -361,6 +380,10 @@ const listApiKeysQuerySchema = z.object({
 // Schema for updating an API key status
 const updateApiKeyStatusSchema = z.object({
 	status: z.enum(["active", "inactive"]),
+	expiresAt: z.string().datetime().nullable().optional().openapi({
+		description:
+			"ISO 8601 timestamp when the key expires (TTL). Required to reactivate a key whose TTL has already passed; pass null to remove the TTL. Omit to leave the existing expiry unchanged.",
+	}),
 });
 
 // Schema for updating an API key usage limit
@@ -371,6 +394,81 @@ const updateApiKeyUsageLimitSchema = z
 	})
 	.strict();
 
+const platformKeySchema = z.object({
+	id: z.string(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+	description: z.string(),
+	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	projectId: z.string(),
+	createdBy: z.string(),
+	maskedToken: z.string(),
+	mode: z.enum(["live", "test"]),
+});
+
+const listPlatformKeysQuerySchema = z.object({
+	projectId: z.string().trim().min(1),
+});
+
+const createPlatformKeySchema = z.object({
+	projectId: z.string().trim().min(1),
+	description: z
+		.string()
+		.trim()
+		.min(1)
+		.max(255)
+		.optional()
+		.default("SDK platform secret"),
+	// Mint a Stripe-sandbox (test-mode) secret key. Sessions and wallets minted
+	// from it are fully segregated from live data and can only spend on free
+	// models, so developers can test top-ups without real charges.
+	test: z.boolean().optional().default(false),
+});
+
+async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
+	const project = await db.query.project.findFirst({
+		where: {
+			id: { eq: projectId },
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (!project || project.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
+
+	const userOrg = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: project.organizationId },
+		},
+	});
+
+	if (!userOrg) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	if (userOrg.role !== "owner" && userOrg.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can manage platform keys",
+		});
+	}
+
+	if (!project.organization) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	return project;
+}
+
 export const iamRuleTypeEnum = z.enum([
 	"allow_models",
 	"deny_models",
@@ -378,6 +476,8 @@ export const iamRuleTypeEnum = z.enum([
 	"deny_pricing",
 	"allow_providers",
 	"deny_providers",
+	"allow_ip_cidrs",
+	"deny_ip_cidrs",
 ]);
 
 export const iamRuleValueSchema = z.object({
@@ -386,7 +486,271 @@ export const iamRuleValueSchema = z.object({
 	pricingType: z.enum(["free", "paid"]).optional(),
 	maxInputPrice: z.number().optional(),
 	maxOutputPrice: z.number().optional(),
+	ipCidrs: z.array(z.string()).optional(),
 });
+
+const listPlatformKeys = createRoute({
+	method: "get",
+	path: "/platform",
+	request: {
+		query: listPlatformKeysQuerySchema,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						platformKeys: z.array(platformKeySchema).openapi({}),
+					}),
+				},
+			},
+			description: "List SDK platform keys for a project.",
+		},
+	},
+});
+
+keysApi.openapi(listPlatformKeys, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId } = c.req.valid("query");
+	await assertPlatformKeyAdminAccess(user.id, projectId);
+
+	const platformKeys = await db.query.apiKey.findMany({
+		where: {
+			projectId: { eq: projectId },
+			keyType: { eq: "platform_secret" },
+			status: { ne: "deleted" },
+		},
+	});
+
+	return c.json({
+		platformKeys: platformKeys.map((platformKey) => ({
+			id: platformKey.id,
+			createdAt: platformKey.createdAt,
+			updatedAt: platformKey.updatedAt,
+			description: platformKey.description,
+			status: platformKey.status,
+			projectId: platformKey.projectId,
+			createdBy: platformKey.createdBy,
+			maskedToken: maskToken(platformKey.token),
+			mode: platformKeyMode(platformKey.token),
+		})),
+	});
+});
+
+const createPlatformKey = createRoute({
+	method: "post",
+	path: "/platform",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createPlatformKeySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						platformKey: platformKeySchema
+							.extend({
+								token: z.string(),
+							})
+							.openapi({}),
+					}),
+				},
+			},
+			description: "SDK platform key created successfully.",
+		},
+	},
+});
+
+keysApi.openapi(createPlatformKey, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId, description, test } = c.req.valid("json");
+	const project = await assertPlatformKeyAdminAccess(user.id, projectId);
+	const token = `sk_${test ? "test" : "live"}_${shortid(40)}`;
+
+	const [platformKey] = await db
+		.insert(tables.apiKey)
+		.values({
+			token,
+			projectId,
+			description,
+			keyType: "platform_secret",
+			createdBy: user.id,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId: project.organizationId,
+		userId: user.id,
+		action: "api_key.create",
+		resourceType: "api_key",
+		resourceId: platformKey.id,
+		metadata: {
+			resourceName: description,
+			projectId,
+			keyType: "platform_secret",
+		},
+	});
+
+	return c.json({
+		platformKey: {
+			id: platformKey.id,
+			createdAt: platformKey.createdAt,
+			updatedAt: platformKey.updatedAt,
+			description: platformKey.description,
+			status: platformKey.status,
+			projectId: platformKey.projectId,
+			createdBy: platformKey.createdBy,
+			maskedToken: maskToken(token),
+			mode: platformKeyMode(token),
+			token,
+		},
+	});
+});
+
+const deletePlatformKey = createRoute({
+	method: "delete",
+	path: "/platform/{id}",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "SDK platform key deleted successfully.",
+		},
+	},
+});
+
+keysApi.openapi(deletePlatformKey, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.param();
+
+	const platformKey = await db.query.apiKey.findFirst({
+		where: {
+			id: { eq: id },
+			keyType: { eq: "platform_secret" },
+			status: { ne: "deleted" },
+		},
+	});
+
+	if (!platformKey) {
+		throw new HTTPException(404, {
+			message: "Platform key not found",
+		});
+	}
+
+	const project = await assertPlatformKeyAdminAccess(
+		user.id,
+		platformKey.projectId,
+	);
+
+	await db
+		.update(tables.apiKey)
+		.set({
+			status: "deleted",
+		})
+		.where(eq(tables.apiKey.id, id));
+
+	await logAuditEvent({
+		organizationId: project.organizationId,
+		userId: user.id,
+		action: "api_key.delete",
+		resourceType: "api_key",
+		resourceId: id,
+		metadata: {
+			resourceName: platformKey.description,
+			projectId: platformKey.projectId,
+			keyType: "platform_secret",
+		},
+	});
+
+	return c.json({
+		message: "Platform key deleted successfully",
+	});
+});
+
+function isValidCidr(cidr: string): boolean {
+	try {
+		const parsed = ipaddr.parseCIDR(cidr);
+		return Array.isArray(parsed) && parsed.length === 2;
+	} catch {
+		return false;
+	}
+}
+
+export function isIpCidrRuleType(
+	ruleType?: z.infer<typeof iamRuleTypeEnum>,
+): boolean {
+	return ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs";
+}
+
+export function assertEnterpriseForIpCidrRule(
+	ruleType: z.infer<typeof iamRuleTypeEnum> | undefined,
+	plan: string | null | undefined,
+): void {
+	if (isIpCidrRuleType(ruleType) && plan !== "enterprise") {
+		throw new HTTPException(403, {
+			message: "IP address IAM rules require an enterprise plan",
+		});
+	}
+}
+
+export function validateIamRuleInput(input: {
+	ruleType?: z.infer<typeof iamRuleTypeEnum>;
+	ruleValue?: z.infer<typeof iamRuleValueSchema>;
+}): void {
+	const { ruleType, ruleValue } = input;
+	if (!ruleType || !ruleValue) {
+		return;
+	}
+	if (ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs") {
+		const cidrs = ruleValue.ipCidrs;
+		if (!cidrs || cidrs.length === 0) {
+			throw new HTTPException(400, {
+				message: `ruleValue.ipCidrs is required for ruleType ${ruleType}`,
+			});
+		}
+		for (const cidr of cidrs) {
+			if (!isValidCidr(cidr)) {
+				throw new HTTPException(400, {
+					message: `Invalid CIDR: ${cidr}. Expected IPv4 (e.g. 192.0.2.0/24) or IPv6 (e.g. 2001:db8::/32).`,
+				});
+			}
+		}
+	}
+}
 
 export const iamRuleStatusEnum = z.enum(["active", "inactive"]);
 
@@ -444,6 +808,7 @@ export interface CreateApiKeyInput {
 	periodUsageLimit?: string | null;
 	periodUsageDurationValue?: number | null;
 	periodUsageDurationUnit?: ApiKeyPeriodDurationUnit | null;
+	expiresAt?: Date | string | null;
 }
 
 export async function createApiKeyForProject(
@@ -459,6 +824,17 @@ export async function createApiKeyForProject(
 		periodUsageDurationValue,
 		periodUsageDurationUnit,
 	} = input;
+
+	const expiresAt =
+		input.expiresAt === undefined || input.expiresAt === null
+			? null
+			: new Date(input.expiresAt);
+
+	if (expiresAt && expiresAt.getTime() <= Date.now()) {
+		throw new HTTPException(400, {
+			message: "Expiration date must be in the future.",
+		});
+	}
 
 	if (!options.skipAccessCheck) {
 		const projectIds = await getUserProjectIds(userId);
@@ -491,6 +867,9 @@ export async function createApiKeyForProject(
 		where: {
 			projectId: { eq: projectId },
 			status: { ne: "deleted" },
+			// Only count developer keys toward the per-project cap; platform and
+			// hidden LLM SDK aggregate keys are excluded.
+			keyType: { eq: "user" },
 		},
 	});
 
@@ -516,6 +895,7 @@ export async function createApiKeyForProject(
 			periodUsageLimit,
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
+			expiresAt,
 			createdBy: userId,
 		})
 		.returning();
@@ -533,6 +913,7 @@ export async function createApiKeyForProject(
 			periodUsageLimit,
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
+			expiresAt: expiresAt?.toISOString() ?? null,
 		},
 	});
 
@@ -673,6 +1054,9 @@ keysApi.openapi(list, async (c) => {
 			projectId: {
 				in: projectId ? [projectId] : projectIds,
 			},
+			// Hide platform and LLM SDK aggregate keys from the dashboard —
+			// only show developer-created keys.
+			keyType: { eq: "user" },
 			...(shouldFilterByCreator && {
 				createdBy: {
 					eq: user.id,
@@ -944,7 +1328,7 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status } = c.req.valid("json");
+	const { status, expiresAt: expiresAtInput } = c.req.valid("json");
 
 	// Get the user's projects
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -1017,16 +1401,56 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	// Resolve the effective TTL: an explicit value (or null) overrides, otherwise
+	// keep whatever expiry the key already had.
+	const expiresAtProvided = expiresAtInput !== undefined;
+	const nextExpiresAt = expiresAtProvided
+		? expiresAtInput === null
+			? null
+			: new Date(expiresAtInput)
+		: (apiKey.expiresAt ?? null);
+
+	// Reactivating a key requires its TTL (if any) to point to a future date,
+	// so an expired key can only come back online with a fresh expiry.
+	if (
+		status === "active" &&
+		nextExpiresAt &&
+		nextExpiresAt.getTime() <= Date.now()
+	) {
+		throw new HTTPException(400, {
+			message:
+				"Set a future expiration date to reactivate this API key. Its TTL has already passed.",
+		});
+	}
+
 	// Update the API key status
 	const [updatedApiKey] = await db
 		.update(tables.apiKey)
 		.set({
 			status,
+			...(expiresAtProvided ? { expiresAt: nextExpiresAt } : {}),
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
-	if (apiKey.status !== status) {
+	const statusChanged = apiKey.status !== status;
+	const expiryChanged =
+		expiresAtProvided &&
+		(apiKey.expiresAt?.getTime() ?? null) !==
+			(nextExpiresAt?.getTime() ?? null);
+
+	if (statusChanged || expiryChanged) {
+		const changes: Record<string, { old: unknown; new: unknown }> = {};
+		if (statusChanged) {
+			changes.status = { old: apiKey.status, new: status };
+		}
+		if (expiryChanged) {
+			changes.expiresAt = {
+				old: apiKey.expiresAt?.toISOString() ?? null,
+				new: nextExpiresAt?.toISOString() ?? null,
+			};
+		}
+
 		await logAuditEvent({
 			organizationId: projectOrgId,
 			userId: user.id,
@@ -1035,9 +1459,7 @@ keysApi.openapi(updateStatus, async (c) => {
 			resourceId: id,
 			metadata: {
 				resourceName: apiKey.description,
-				changes: {
-					status: { old: apiKey.status, new: status },
-				},
+				changes,
 			},
 		});
 	}
@@ -1269,6 +1691,8 @@ keysApi.openapi(createIamRule, async (c) => {
 	const { id } = c.req.param();
 	const ruleData = c.req.valid("json");
 
+	validateIamRuleInput(ruleData);
+
 	// Verify user has access to the API key
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -1301,7 +1725,11 @@ keysApi.openapi(createIamRule, async (c) => {
 			},
 		},
 		with: {
-			project: true,
+			project: {
+				with: {
+					organization: true,
+				},
+			},
 		},
 	});
 
@@ -1329,6 +1757,11 @@ keysApi.openapi(createIamRule, async (c) => {
 			message: "You don't have permission to manage IAM rules for this API key",
 		});
 	}
+
+	assertEnterpriseForIpCidrRule(
+		ruleData.ruleType,
+		apiKey.project.organization?.plan,
+	);
 
 	// Create the IAM rule
 	const [rule] = await db
@@ -1494,6 +1927,12 @@ keysApi.openapi(updateIamRule, async (c) => {
 	const { id, ruleId } = c.req.param();
 	const updateData = c.req.valid("json");
 
+	// We may not yet know the existing ruleType for partial updates; the
+	// validator pulls it from the patch and runs only when both fields are
+	// present. For pure ruleValue changes we re-validate after loading the
+	// existing rule below.
+	validateIamRuleInput(updateData);
+
 	// Verify user has access to the API key and rule
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
@@ -1526,7 +1965,11 @@ keysApi.openapi(updateIamRule, async (c) => {
 			},
 		},
 		with: {
-			project: true,
+			project: {
+				with: {
+					organization: true,
+				},
+			},
 		},
 	});
 
@@ -1563,6 +2006,21 @@ keysApi.openapi(updateIamRule, async (c) => {
 			},
 		},
 	});
+
+	// Re-validate using the effective ruleType + ruleValue after merging
+	// with the existing rule, so partial updates can't bypass CIDR checks.
+	if (existingRule && (updateData.ruleType || updateData.ruleValue)) {
+		validateIamRuleInput({
+			ruleType: updateData.ruleType ?? existingRule.ruleType,
+			ruleValue: updateData.ruleValue ?? existingRule.ruleValue,
+		});
+	}
+
+	const effectiveRuleType = updateData.ruleType ?? existingRule?.ruleType;
+	assertEnterpriseForIpCidrRule(
+		effectiveRuleType,
+		apiKey.project.organization?.plan,
+	);
 
 	// Update the IAM rule
 	const [updatedRule] = await db

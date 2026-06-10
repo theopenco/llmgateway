@@ -16,6 +16,7 @@ import { processImageUrl } from "./process-image-url.js";
  * Transforms Anthropic messages
  * @param initialCacheControlCount - Number of cache_control blocks already used (e.g., from system messages)
  * @param minCacheableChars - Minimum number of characters for a text block to be cacheable (defaults to 4096, i.e., ~1024 tokens)
+ * @param providerCacheControlEnabled - When false, suppress the gateway's auto-injection of cache_control markers. Caller-supplied markers still pass through.
  */
 export async function transformAnthropicMessages(
 	messages: BaseMessage[],
@@ -26,12 +27,15 @@ export async function transformAnthropicMessages(
 	userPlan: "free" | "pro" | "enterprise" | null = null,
 	initialCacheControlCount = 0,
 	minCacheableChars = 1024 * 4,
+	providerCacheControlEnabled = true,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
 	// Determine if we should apply cache_control for long prompts
-	// Apply for anthropic provider only
-	const shouldApplyCacheControl = provider === "anthropic";
+	// Apply for anthropic provider only, and only when the project hasn't
+	// opted out of auto-injection.
+	const shouldApplyCacheControl =
+		provider === "anthropic" && providerCacheControlEnabled;
 
 	// Track cache_control usage to limit to maximum of 4 blocks total (including system messages)
 	let cacheControlCount = initialCacheControlCount;
@@ -121,13 +125,21 @@ export async function transformAnthropicMessages(
 							} as TextContent;
 						}
 					}
-					if (isTextContent(part) && part.text && !part.cache_control) {
-						// Automatically add cache_control for long text blocks
-						const shouldCache =
+					if (isTextContent(part) && part.text) {
+						if (part.cache_control) {
+							// Count caller-supplied markers toward Anthropic's 4-block
+							// cap so subsequent auto-injection and the turn-boundary
+							// placement don't push the total over 4 (which Anthropic
+							// rejects with a 400). Without this, a coding agent like
+							// Claude Code that sends 4 markers itself would hit the
+							// "Found 5" error after we add our own.
+							cacheControlCount++;
+						} else if (
 							shouldApplyCacheControl &&
 							part.text.length >= minCacheableChars &&
-							cacheControlCount < maxCacheControlBlocks;
-						if (shouldCache) {
+							cacheControlCount < maxCacheControlBlocks
+						) {
+							// Automatically add cache_control for long text blocks.
 							cacheControlCount++;
 							return {
 								...part,

@@ -261,7 +261,7 @@ export default async function Page({
 					/>
 					<RevenueChart
 						data={timeseries.data}
-						totalRevenue={timeseries.totals.revenue}
+						totalNet={timeseries.totals.net}
 					/>
 				</section>
 			) : null}

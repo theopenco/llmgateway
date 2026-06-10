@@ -53,6 +53,25 @@ export const completionsRequestSchema = z.object({
 									]),
 								}),
 							}),
+							z.object({
+								type: z.literal("file"),
+								file: z
+									.object({
+										filename: z.string().optional(),
+										file_data: z.string().optional().openapi({
+											description:
+												"Base64-encoded data URL with MIME prefix, e.g. 'data:application/pdf;base64,<data>'.",
+										}),
+										file_id: z.string().optional().openapi({
+											description:
+												"Reference to a file uploaded via the provider's Files API.",
+										}),
+									})
+									.refine((file) => Boolean(file.file_data || file.file_id), {
+										message:
+											"file.file_data or file.file_id is required for file content",
+									}),
+							}),
 						]),
 					),
 				])
@@ -159,6 +178,19 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	stream: z.boolean().optional().default(false),
+	n: z
+		.number()
+		.int()
+		.min(1)
+		.max(128)
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models); requests for unsupported models are rejected with 400. Streaming is supported: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. The one exception is `n > 1` with `stream: true` **and** function `tools` — that combination is rejected with 400 because the streaming tool-call aggregator can't disambiguate concurrent calls across choices. Native `web_search` tools (and the `web_search: true` flag) are exempt.",
+			example: 1,
+		}),
 	prompt_cache_key: z
 		.string()
 		.nullable()
@@ -178,6 +210,16 @@ export const completionsRequestSchema = z.object({
 			description:
 				"OpenAI prompt cache retention policy. OpenAI supports in_memory and 24h for eligible models.",
 			example: "24h",
+		}),
+	user: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI end-user identifier. Used as a fallback sticky-routing session key when no x-session-id header or prompt_cache_key is provided.",
+			example: "user-123",
 		}),
 	tools: z
 		.array(
@@ -220,22 +262,23 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	reasoning_effort: z
-		.enum(["minimal", "low", "medium", "high", "xhigh"])
+		.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
-			description: "Controls the reasoning effort for reasoning-capable models",
+			description:
+				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is the highest tier and is honored natively by Anthropic models (above `xhigh`); providers without a `max` tier treat it as `high`.",
 			example: "medium",
 		}),
 	reasoning: z
 		.object({
 			effort: z
-				.enum(["none", "minimal", "low", "medium", "high", "xhigh"])
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 				.optional()
 				.openapi({
 					description:
-						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort.",
+						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is the highest tier (honored natively by Anthropic, above `xhigh`); providers without a `max` tier treat it as `high`.",
 					example: "medium",
 				}),
 			max_tokens: z.number().int().positive().optional().openapi({
@@ -258,6 +301,14 @@ export const completionsRequestSchema = z.object({
 			description:
 				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
 			example: "medium",
+		}),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.optional()
+		.openapi({
+			description:
+				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error.",
+			example: "flex",
 		}),
 	free_models_only: z.boolean().optional().default(false).openapi({
 		description:

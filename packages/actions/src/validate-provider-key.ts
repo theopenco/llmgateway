@@ -19,9 +19,10 @@ import type { ProviderKeyOptions } from "@llmgateway/db";
 function getValidationModel(
 	provider: ProviderId,
 	providerKeyOptions?: ProviderKeyOptions,
-): string | null {
+): { modelId: string; externalId: string } | null {
 	if (provider === "azure" && providerKeyOptions?.azure_validation_model) {
-		return providerKeyOptions.azure_validation_model;
+		const azureModel = providerKeyOptions.azure_validation_model;
+		return { modelId: azureModel, externalId: azureModel };
 	}
 
 	// Resolve the selected region from provider key options
@@ -88,21 +89,22 @@ function getValidationModel(
 				providerMapping.outputPrice !== undefined;
 			const inputPrice = Number(providerMapping.inputPrice ?? "0");
 			const outputPrice = Number(providerMapping.outputPrice ?? "0");
-			const discount = Number(providerMapping.discount ?? "0");
-			const discountedAveragePrice = hasPricing
-				? ((inputPrice + outputPrice) / 2) * (1 - discount)
+			const averagePrice = hasPricing
+				? (inputPrice + outputPrice) / 2
 				: Number.MAX_VALUE;
 
 			return [
 				{
-					modelName: providerMapping.modelName,
-					price: discountedAveragePrice,
+					modelId: model.id,
+					externalId: providerMapping.externalId,
+					price: averagePrice,
 				},
 			];
 		})
 		.sort((a, b) => a.price - b.price);
 
-	return providerModels[0]?.modelName ?? null;
+	const best = providerModels[0];
+	return best ? { modelId: best.modelId, externalId: best.externalId } : null;
 }
 
 /**
@@ -125,7 +127,7 @@ export async function validateProviderKey(
 		return { valid: true };
 	}
 
-	let validationModel: string | undefined;
+	let validationModel: { modelId: string; externalId: string } | undefined;
 
 	try {
 		validationModel =
@@ -155,20 +157,14 @@ export async function validateProviderKey(
 		const headers = getProviderHeaders(provider, token);
 		headers["Content-Type"] = "application/json";
 
-		// Find the model definition to get the model ID
-		// For Azure with custom validation model, we might not find it in our models list
-		const modelDef = models.find((m) =>
-			m.providers.some(
-				(p) => p.providerId === provider && p.modelName === validationModel,
-			),
-		);
-		const modelId = modelDef?.id;
+		// Look up the model definition by canonical id.
+		const modelDef = models.find((m) => m.id === validationModel!.modelId);
 
 		// For Azure, if we have a custom validation model, use it directly as modelId
 		const effectiveModelId =
 			provider === "azure" && providerKeyOptions?.azure_validation_model
 				? providerKeyOptions.azure_validation_model
-				: modelId;
+				: validationModel.modelId;
 
 		// Resolve region from provider key options for region-aware providers
 		const providerDef = providers.find((p) => p.id === provider) as
@@ -201,10 +197,15 @@ export async function validateProviderKey(
 			true, // skipEnvVars - provider key validation is always BYOK context
 		);
 
-		// Check if max_tokens is supported
-		const providerMapping = modelDef?.providers.find(
-			(p) => p.providerId === provider && p.modelName === validationModel,
-		);
+		// Check if max_tokens is supported. The mapping is identified by
+		// (providerId, region) — externalId is reserved for the upstream call.
+		const providerMapping =
+			modelDef?.providers.find(
+				(p) =>
+					p.providerId === provider &&
+					((p as ProviderModelMapping).region ?? null) ===
+						(validationRegion ?? null),
+			) ?? modelDef?.providers.find((p) => p.providerId === provider);
 		const supportedParameters = (
 			providerMapping as ProviderModelMapping | undefined
 		)?.supportedParameters;
@@ -216,7 +217,9 @@ export async function validateProviderKey(
 
 		const payload = await prepareRequestBody(
 			provider,
-			validationModel,
+			validationModel.modelId,
+			validationRegion ?? null,
+			validationModel.externalId,
 			messages,
 			false, // stream
 			undefined, // temperature
@@ -243,7 +246,7 @@ export async function validateProviderKey(
 
 		logger.debug("Sending provider key validation request", {
 			provider,
-			model: validationModel,
+			model: validationModel?.modelId,
 			endpoint,
 		});
 
@@ -273,7 +276,7 @@ export async function validateProviderKey(
 
 			logger.warn("Provider key validation returned error response", {
 				provider,
-				model: validationModel,
+				model: validationModel?.modelId,
 				statusCode: response.status,
 				error: safeErrorMessage,
 			});
@@ -282,7 +285,7 @@ export async function validateProviderKey(
 				return {
 					valid: false,
 					statusCode: response.status,
-					model: validationModel,
+					model: validationModel?.modelId,
 				};
 			}
 
@@ -290,15 +293,15 @@ export async function validateProviderKey(
 				valid: false,
 				error: safeErrorMessage,
 				statusCode: response.status,
-				model: validationModel,
+				model: validationModel?.modelId,
 			};
 		}
 
 		logger.debug("Provider key validation succeeded", {
 			provider,
-			model: validationModel,
+			model: validationModel?.modelId,
 		});
-		return { valid: true, model: validationModel };
+		return { valid: true, model: validationModel.modelId };
 	} catch (error) {
 		const rawMessage =
 			error instanceof Error ? error.message : "Unknown error occurred";
@@ -309,14 +312,14 @@ export async function validateProviderKey(
 				: undefined;
 		logger.error("Provider key validation failed with exception", {
 			provider,
-			model: validationModel,
+			model: validationModel?.modelId,
 			error: safeErrorMessage,
 			stack: safeStack,
 		});
 		return {
 			valid: false,
 			error: safeErrorMessage,
-			model: validationModel,
+			model: validationModel?.modelId,
 		};
 	}
 }

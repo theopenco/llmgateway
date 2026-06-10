@@ -7,6 +7,10 @@ export interface GalleryItem {
 	id: string;
 	prompt: string;
 	timestamp: number;
+	// Organization context active when the generation was started. Captured up
+	// front so the saved item is attributed to the right org even if the user
+	// switches organizations while the generation is in flight.
+	organizationId?: string;
 	inputImages?: { dataUrl: string; mediaType: string }[];
 	models: {
 		modelId: string;
@@ -48,10 +52,21 @@ export const GPT_IMAGE_SIZES = [
 	"2160x3840",
 ] as const;
 
+const REVE_ASPECT_RATIOS: AspectRatio[] = [
+	"auto",
+	"1:1",
+	"16:9",
+	"9:16",
+	"3:2",
+	"2:3",
+	"4:3",
+];
+
 export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
 	const isGptImage = lower.includes("gpt-image");
+	const isReve = lower.includes("reve");
 
 	const usesPixelDimensions =
 		isGptImage ||
@@ -67,13 +82,21 @@ export function getModelImageConfig(model: string) {
 
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
-		: isSeedream
-			? (["2K", "4K"] as const)
-			: isGemini31FlashImage
-				? (["0.5K", "1K", "2K", "4K"] as const)
-				: (["1K", "2K", "4K"] as const);
+		: isReve
+			? (["2K"] as const)
+			: isSeedream
+				? (["2K", "4K"] as const)
+				: isGemini31FlashImage
+					? (["0.5K", "1K", "2K", "4K"] as const)
+					: (["1K", "2K", "4K"] as const);
 
-	const defaultSize = isGptImage ? "1024x1024" : isSeedream ? "2K" : "1K";
+	const defaultSize = isGptImage
+		? "1024x1024"
+		: isReve
+			? "2K"
+			: isSeedream
+				? "2K"
+				: "1K";
 
 	const supportsQuality = isGptImage;
 	const availableQualities = isGptImage
@@ -83,17 +106,23 @@ export function getModelImageConfig(model: string) {
 
 	const maxInputImages = getMaxInputImages(lower);
 
+	const supportedAspectRatios: AspectRatio[] | undefined = isReve
+		? REVE_ASPECT_RATIOS
+		: undefined;
+
 	return {
 		usesPixelDimensions,
 		isSeedream,
 		isGemini31FlashImage,
 		isGptImage,
+		isReve,
 		availableSizes,
 		defaultSize,
 		supportsQuality,
 		availableQualities,
 		defaultQuality,
 		maxInputImages,
+		supportedAspectRatios,
 	};
 }
 

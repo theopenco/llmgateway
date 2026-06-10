@@ -2,6 +2,7 @@ import { streamText } from "ai";
 import { cookies } from "next/headers";
 
 import { catalog } from "@/lib/canvas/catalog";
+import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
@@ -44,8 +45,8 @@ export async function POST(req: Request) {
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
-		cookieStore.get("llmgateway_playground_key")?.value.trim() ||
-		cookieStore.get("__Host-llmgateway_playground_key")?.value.trim();
+		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value.trim() ||
+		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value.trim();
 	const finalApiKey = headerApiKey || cookieApiKey;
 
 	if (!finalApiKey) {

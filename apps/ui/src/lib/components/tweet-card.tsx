@@ -44,6 +44,31 @@ const Verified = ({ className, ...props }: TwitterIconProps) => (
 	</svg>
 );
 
+// react-tweet's enrichTweet iterates entities.{hashtags,user_mentions,urls,symbols}
+// without null checks; the syndication API sometimes omits these arrays, which
+// crashes server rendering. Backfill missing arrays before passing into enrichTweet.
+function normalizeEntities<T extends { entities: Tweet["entities"] }>(t: T): T {
+	const entities = t.entities ?? ({} as Tweet["entities"]);
+	return {
+		...t,
+		entities: {
+			...entities,
+			hashtags: entities.hashtags ?? [],
+			user_mentions: entities.user_mentions ?? [],
+			urls: entities.urls ?? [],
+			symbols: entities.symbols ?? [],
+		},
+	};
+}
+
+function normalizeTweetEntities(tweet: Tweet): Tweet {
+	const normalized = normalizeEntities(tweet);
+	if (normalized.quoted_tweet) {
+		normalized.quoted_tweet = normalizeEntities(normalized.quoted_tweet);
+	}
+	return normalized;
+}
+
 export const truncate = (str: string | null, length: number) => {
 	if (!str || str.length <= length) {
 		return str;
@@ -282,7 +307,7 @@ export const TweetCard = async ({
 		if (result.tombstone || result.notFound || !result.data?.user) {
 			tweet = undefined;
 		} else {
-			tweet = result.data;
+			tweet = normalizeTweetEntities(result.data);
 		}
 	} catch (err) {
 		if (onError) {

@@ -78,7 +78,7 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 			modelDef ??= models.find((m) =>
 				m.providers.some(
 					(p) =>
-						p.modelName === modelName && p.providerId === requestedProvider,
+						p.externalId === modelName && p.providerId === requestedProvider,
 				),
 			);
 
@@ -97,17 +97,17 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 			const providerMapping = modelDef.providers.find(
 				(p) => p.providerId === requestedProvider,
 			);
-			requestedModel = (providerMapping?.modelName ?? modelName) as Model;
+			requestedModel = (providerMapping?.externalId ?? modelName) as Model;
 		}
 	} else if (models.find((m) => m.id === modelInput)) {
 		requestedModel = modelInput as Model;
 	} else if (
-		models.find((m) => m.providers.find((p) => p.modelName === modelInput))
+		models.find((m) => m.providers.find((p) => p.externalId === modelInput))
 	) {
 		const model = models.find((m) =>
-			m.providers.find((p) => p.modelName === modelInput),
+			m.providers.find((p) => p.externalId === modelInput),
 		);
-		const provider = model?.providers.find((p) => p.modelName === modelInput);
+		const provider = model?.providers.find((p) => p.externalId === modelInput);
 
 		throw new HTTPException(400, {
 			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.id}`,

@@ -118,6 +118,12 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 			const log = await validateLogByRequestId(requestId);
 			expect(log.streamed).toBe(true);
+			expect(usageChunk.metadata).toMatchObject({
+				log_id: log.id,
+				organization_id: log.organizationId,
+				project_id: log.projectId,
+			});
+			expect(usageChunk.metadata.discount ?? null).toBe(log.discount ?? null);
 			expect(log.content).toBeTruthy();
 			expect(log.content).not.toBeNull();
 			expect(typeof log.content).toBe("string");

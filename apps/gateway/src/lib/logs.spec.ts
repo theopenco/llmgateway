@@ -205,6 +205,24 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps novita finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("stop", "novita")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "novita")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "novita")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("sensitive", "novita")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("content_filter", "novita")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
 	it("maps llmgateway_content_filter to CONTENT_FILTER", () => {
 		expect(
 			getUnifiedFinishReason("llmgateway_content_filter", "any-provider"),

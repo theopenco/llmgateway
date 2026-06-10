@@ -1,5 +1,7 @@
 import { join } from "path";
 
+import { withContentCollections } from "@content-collections/next";
+
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -9,15 +11,13 @@ const nextConfig: NextConfig = {
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
-	webpack: (config, { isServer }) => {
-		if (isServer) {
-			config.devtool = "source-map";
-		}
-		return config;
+	experimental: {
+		serverSourceMaps: true,
 	},
 	typescript: {
 		ignoreBuildErrors: true,
 	},
 };
 
-export default nextConfig;
+// withContentCollections must be the outermost plugin
+export default withContentCollections(nextConfig);

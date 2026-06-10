@@ -2,7 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { ensureStripeCustomer } from "@/stripe.js";
+import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
+import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables, eq, shortid } from "@llmgateway/db";
@@ -10,6 +11,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -19,60 +21,6 @@ import { getStripe } from "./payments.js";
 import type { ServerTypes } from "@/vars.js";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
-
-interface User {
-	id: string;
-	email: string;
-	emailVerified?: boolean;
-}
-
-// Helper to get or create personal organization for a user
-// Uses a transaction to ensure atomicity when creating org, membership, and project
-async function getOrCreatePersonalOrg(user: User) {
-	// Find existing personal org for user
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const existingPersonalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
-	);
-
-	if (existingPersonalOrg?.organization) {
-		return existingPersonalOrg.organization;
-	}
-
-	// Create new personal org with transaction for atomicity
-	return await db.transaction(async (tx) => {
-		const [newOrg] = await tx
-			.insert(tables.organization)
-			.values({
-				name: "Personal",
-				isPersonal: true,
-				billingEmail: user.email,
-			})
-			.returning();
-
-		await tx.insert(tables.userOrganization).values({
-			userId: user.id,
-			organizationId: newOrg.id,
-			role: "owner",
-		});
-
-		await tx.insert(tables.project).values({
-			name: "Default Project",
-			organizationId: newOrg.id,
-			mode: "credits",
-		});
-
-		return newOrg;
-	});
-}
 
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
@@ -109,6 +57,19 @@ async function getOrCreatePersonalOrgApiKey(
 	});
 
 	return token;
+}
+
+// Find the user's personal org without creating one. Used by the billing
+// payment-method routes, which only apply to users that already have a DevPass.
+async function findPersonalOrg(userId: string) {
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId },
+		with: { organization: true },
+	});
+	return (
+		userOrgs.find((uo) => uo.organization?.isPersonal === true)?.organization ??
+		null
+	);
 }
 
 function getDevPlanPriceId(
@@ -193,7 +154,6 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["lite", "pro", "max"]),
-						cycle: z.enum(["monthly", "annual"]).optional().default("monthly"),
 					}),
 				},
 			},
@@ -215,7 +175,11 @@ const subscribe = createRoute({
 
 devPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier, cycle } = c.req.valid("json");
+	const { tier } = c.req.valid("json");
+
+	// Dev plans are billed monthly only; the Stripe monthly cycle drives credit
+	// refreshes. (Legacy annual subscriptions are still serviced on read.)
+	const cycle: DevPlanCycle = "monthly";
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -246,40 +210,41 @@ devPlans.openapi(subscribe, async (c) => {
 
 	const priceId = getDevPlanPriceId(tier, cycle);
 	if (!priceId) {
-		const envSuffix = cycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
 		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}${envSuffix} environment variable is not set`,
+			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
 		});
 	}
 
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
+		// We use `mode: "setup"` (not "subscription") so the card is collected
+		// but the customer is NOT charged at checkout. After redirect we check
+		// the card fingerprint against existing DevPass orgs; if it conflicts
+		// we reject the activation without ever creating a Stripe subscription
+		// or charging the user. The shared metadata carries everything the
+		// finalize step needs to create the subscription server-side.
 		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
-			mode: "subscription",
-			line_items: [
-				{
-					price: priceId,
-					quantity: 1,
-				},
-			],
-			allow_promotion_codes: true,
-			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?success=true`,
+			mode: "setup",
+			payment_method_types: ["card"],
+			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
 				organizationId: personalOrg.id,
 				subscriptionType: "dev_plan",
 				devPlan: tier,
 				devPlanCycle: cycle,
+				priceId,
 				userEmail: user.email,
 			},
-			subscription_data: {
+			setup_intent_data: {
 				metadata: {
 					organizationId: personalOrg.id,
 					subscriptionType: "dev_plan",
 					devPlan: tier,
 					devPlanCycle: cycle,
+					priceId,
 					userEmail: user.email,
 				},
 			},
@@ -313,6 +278,150 @@ devPlans.openapi(subscribe, async (c) => {
 		throw new HTTPException(500, {
 			message: `Failed to create checkout session: ${error}`,
 		});
+	}
+});
+
+// Finalize a dev plan setup session — called by the dashboard after the user
+// returns from Stripe Checkout. Verifies the card fingerprint and creates the
+// subscription server-side, or rejects with 409 if the card is already used
+// by another DevPass org (no charge is made in that case).
+const finalize = createRoute({
+	method: "post",
+	path: "/finalize",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						sessionId: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.union([
+						z.object({
+							status: z.enum(["ok", "already_processed"]),
+						}),
+						z.object({
+							status: z.literal("requires_action"),
+							subscriptionId: z.string(),
+							clientSecret: z.string(),
+							paymentMethodId: z.string().optional(),
+						}),
+						z.object({
+							status: z.literal("payment_pending"),
+							subscriptionId: z.string(),
+							subscriptionStatus: z.string().optional(),
+							invoiceId: z.string().optional(),
+							invoiceStatus: z.string().nullable().optional(),
+							paymentIntentStatus: z.string().optional(),
+							hasClientSecret: z.boolean().optional(),
+						}),
+					]),
+				},
+			},
+			description: "Dev plan subscription finalized",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("duplicate_card"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Card already in use by another DevPass account",
+		},
+	},
+});
+
+devPlans.openapi(finalize, async (c) => {
+	const user = c.get("user");
+	const { sessionId } = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId: user.id },
+		with: { organization: true },
+	});
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.isPersonal === true,
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	let result;
+	try {
+		result = await finalizeDevPlanSetupSession(sessionId);
+	} catch (error) {
+		logger.error(
+			`Failed to finalize dev plan session ${sessionId}`,
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw new HTTPException(500, {
+			message: "Failed to finalize subscription",
+		});
+	}
+
+	switch (result.status) {
+		case "ok":
+		case "already_processed":
+			return c.json({ status: result.status }, 200);
+		case "requires_action":
+			return c.json(
+				{
+					status: result.status,
+					subscriptionId: result.subscriptionId,
+					clientSecret: result.clientSecret,
+					paymentMethodId: result.paymentMethodId,
+				},
+				200,
+			);
+		case "payment_pending":
+			return c.json(
+				{
+					status: result.status,
+					subscriptionId: result.subscriptionId,
+					subscriptionStatus: result.subscriptionStatus,
+					invoiceId: result.invoiceId,
+					invoiceStatus: result.invoiceStatus,
+					paymentIntentStatus: result.paymentIntentStatus,
+					hasClientSecret: result.hasClientSecret,
+				},
+				200,
+			);
+		case "duplicate_card":
+			return c.json(
+				{
+					error: "duplicate_card" as const,
+					message:
+						"This card is already associated with another DevPass account. Please use a different payment method.",
+				},
+				409,
+			);
+		case "no_payment_method":
+			throw new HTTPException(400, {
+				message: "No payment method found on the checkout session",
+			});
+		case "invalid_session":
+			throw new HTTPException(400, {
+				message: `Invalid checkout session: ${result.reason}`,
+			});
 	}
 });
 
@@ -579,6 +688,14 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const currentTier: DevPlanTier = personalOrg.devPlan;
+
 	// Preserve the subscriber's existing billing cadence so an annual
 	// subscriber doesn't silently get switched to monthly when changing tier.
 	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
@@ -591,20 +708,19 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	const isUpgrade =
-		DEV_PLAN_PRICES[newTier] >
-		DEV_PLAN_PRICES[personalOrg.devPlan as DevPlanTier];
+	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
 
 	try {
 		const subscription = await getStripe().subscriptions.retrieve(
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
-		// For upgrades, charge the prorated amount synchronously and reject the
-		// upgrade if the customer's payment method can't cover it. Without this,
-		// Stripe leaves the subscription on the new (higher) price even when the
-		// proration invoice fails — letting the user spend at the upgraded tier
-		// while we never collect.
+		// Upgrades are charged a prorated amount synchronously (and rejected if
+		// the payment method can't cover it — otherwise Stripe would leave the
+		// subscription on the higher price while we never collect). Downgrades
+		// use `none`: the subscriber keeps the current (higher) tier's credits
+		// for the rest of the billing cycle and there is no refund — the lower
+		// price simply takes effect at the next renewal.
 		const updated = await getStripe().subscriptions.update(
 			personalOrg.devPlanStripeSubscriptionId,
 			{
@@ -614,7 +730,10 @@ devPlans.openapi(changeTier, async (c) => {
 						price: newPriceId,
 					},
 				],
-				proration_behavior: isUpgrade ? "always_invoice" : "create_prorations",
+				// Downgrades use "none" so the user is not refunded or credited for
+				// the current period (no refund) — the lower price applies from the
+				// next invoice onward.
+				proration_behavior: isUpgrade ? "always_invoice" : "none",
 				payment_behavior: isUpgrade
 					? "error_if_incomplete"
 					: "allow_incomplete",
@@ -637,24 +756,65 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Only update local DB after Stripe confirms the upgrade is paid/active.
-		const newCreditsLimit = getDevPlanCreditsLimit(newTier);
+		if (isUpgrade) {
+			// Only update local DB after Stripe confirms the upgrade is paid/active.
+			//
+			// Credits track prorated dollars: a mid-cycle upgrade grants only the
+			// prorated difference between the two tiers' allotments for the
+			// remaining part of the billing period, mirroring the prorated amount
+			// Stripe charges. Granting the full new-tier allotment on every
+			// upgrade would let a user upgrade cheaply near the end of a cycle to
+			// receive a near-full fresh allotment. Clamp to the new tier's full
+			// allotment so a carried-over higher limit (e.g. credits kept from a
+			// prior downgrade) can never push the balance above the tier cap.
+			const subscriptionItem = updated.items.data[0];
+			const periodStart = subscriptionItem.current_period_start;
+			const periodEnd = subscriptionItem.current_period_end;
+			const nowSeconds = Math.floor(Date.now() / 1000);
+			const periodLength = periodEnd - periodStart;
+			const remainingFraction =
+				periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
 
-		await db
-			.update(tables.organization)
-			.set({
-				devPlan: newTier,
-				devPlanCreditsLimit: newCreditsLimit.toString(),
-			})
-			.where(eq(tables.organization.id, personalOrg.id));
+			const creditDelta = getProratedCreditDelta(
+				currentTier,
+				newTier,
+				remainingFraction,
+			);
+			const currentLimit = parseFloat(personalOrg.devPlanCreditsLimit ?? "0");
+			const newCreditsLimit = Math.min(
+				getDevPlanCreditsLimit(newTier),
+				Math.max(0, currentLimit + creditDelta),
+			);
 
-		// Record transaction
-		await db.insert(tables.transaction).values({
-			organizationId: personalOrg.id,
-			type: isUpgrade ? "dev_plan_upgrade" : "dev_plan_downgrade",
-			description: `Changed from ${personalOrg.devPlan} to ${newTier} plan`,
-			status: "completed",
-		});
+			// The upgrade's proration invoice fires `invoice.payment_succeeded`,
+			// which records the `dev_plan_upgrade` transaction (with the amount
+			// collected) — so we don't record one here to avoid double-counting.
+			await db
+				.update(tables.organization)
+				.set({
+					devPlan: newTier,
+					devPlanCreditsLimit: newCreditsLimit.toString(),
+				})
+				.where(eq(tables.organization.id, personalOrg.id));
+		} else {
+			// Downgrade: keep the current cycle's credits (limit and used) intact;
+			// the lower tier — and its smaller allotment — takes effect at the
+			// next renewal. No proration invoice is generated, so record the
+			// tier-change transaction here.
+			await db
+				.update(tables.organization)
+				.set({
+					devPlan: newTier,
+				})
+				.where(eq(tables.organization.id, personalOrg.id));
+
+			await db.insert(tables.transaction).values({
+				organizationId: personalOrg.id,
+				type: "dev_plan_downgrade",
+				description: `Changed from ${currentTier} to ${newTier} plan`,
+				status: "completed",
+			});
+		}
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -664,7 +824,7 @@ devPlans.openapi(changeTier, async (c) => {
 			resourceId: personalOrg.devPlanStripeSubscriptionId,
 			metadata: {
 				changes: {
-					tier: { old: personalOrg.devPlan, new: newTier },
+					tier: { old: currentTier, new: newTier },
 				},
 			},
 		});
@@ -724,8 +884,6 @@ const getStatus = createRoute({
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanAllowAllModels: z.boolean(),
-						cachingEnabled: z.boolean(),
-						cacheDurationSeconds: z.number(),
 						retentionLevel: z.enum(["retain", "none"]),
 					}),
 				},
@@ -773,8 +931,6 @@ devPlans.openapi(getStatus, async (c) => {
 			projectId: null,
 			apiKey: null,
 			devPlanAllowAllModels: false,
-			cachingEnabled: false,
-			cacheDurationSeconds: 60,
 			retentionLevel: "none" as const,
 		});
 	}
@@ -786,8 +942,6 @@ devPlans.openapi(getStatus, async (c) => {
 	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
 	let projectId: string | null = null;
-	let cachingEnabled = false;
-	let cacheDurationSeconds = 60;
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -805,8 +959,6 @@ devPlans.openapi(getStatus, async (c) => {
 
 		if (project) {
 			projectId = project.id;
-			cachingEnabled = project.cachingEnabled;
-			cacheDurationSeconds = project.cacheDurationSeconds;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -831,8 +983,6 @@ devPlans.openapi(getStatus, async (c) => {
 		projectId,
 		apiKey,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
-		cachingEnabled,
-		cacheDurationSeconds,
 		retentionLevel: personalOrg.retentionLevel,
 	});
 });
@@ -847,8 +997,6 @@ const updateSettings = createRoute({
 				"application/json": {
 					schema: z.object({
 						devPlanAllowAllModels: z.boolean().optional(),
-						cachingEnabled: z.boolean().optional(),
-						cacheDurationSeconds: z.number().min(10).max(31536000).optional(),
 						retentionLevel: z.enum(["retain", "none"]).optional(),
 					}),
 				},
@@ -862,8 +1010,6 @@ const updateSettings = createRoute({
 					schema: z.object({
 						success: z.boolean(),
 						devPlanAllowAllModels: z.boolean(),
-						cachingEnabled: z.boolean(),
-						cacheDurationSeconds: z.number(),
 						retentionLevel: z.enum(["retain", "none"]),
 					}),
 				},
@@ -875,12 +1021,7 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const {
-		devPlanAllowAllModels,
-		cachingEnabled,
-		cacheDurationSeconds,
-		retentionLevel,
-	} = c.req.valid("json");
+	const { devPlanAllowAllModels, retentionLevel } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -954,54 +1095,6 @@ devPlans.openapi(updateSettings, async (c) => {
 		}
 	}
 
-	const project = await db.query.project.findFirst({
-		where: {
-			organizationId: {
-				eq: personalOrg.id,
-			},
-		},
-		orderBy: {
-			createdAt: "asc",
-		},
-	});
-
-	const projectUpdate: {
-		cachingEnabled?: boolean;
-		cacheDurationSeconds?: number;
-	} = {};
-	if (cachingEnabled !== undefined) {
-		projectUpdate.cachingEnabled = cachingEnabled;
-	}
-	if (cacheDurationSeconds !== undefined) {
-		projectUpdate.cacheDurationSeconds = cacheDurationSeconds;
-	}
-
-	if (project && Object.keys(projectUpdate).length > 0) {
-		await db
-			.update(tables.project)
-			.set(projectUpdate)
-			.where(eq(tables.project.id, project.id));
-
-		if (
-			cachingEnabled !== undefined &&
-			cachingEnabled !== project.cachingEnabled
-		) {
-			changes.cachingEnabled = {
-				old: project.cachingEnabled,
-				new: cachingEnabled,
-			};
-		}
-		if (
-			cacheDurationSeconds !== undefined &&
-			cacheDurationSeconds !== project.cacheDurationSeconds
-		) {
-			changes.cacheDurationSeconds = {
-				old: project.cacheDurationSeconds,
-				new: cacheDurationSeconds,
-			};
-		}
-	}
-
 	if (Object.keys(changes).length > 0) {
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -1016,9 +1109,6 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanAllowAllModels:
 			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
-		cachingEnabled: cachingEnabled ?? project?.cachingEnabled ?? false,
-		cacheDurationSeconds:
-			cacheDurationSeconds ?? project?.cacheDurationSeconds ?? 60,
 		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 	});
 });
@@ -1122,4 +1212,317 @@ devPlans.openapi(rotateApiKey, async (c) => {
 	return c.json({
 		apiKey: newToken,
 	});
+});
+
+// Get the card currently backing the DevPass subscription
+const getPaymentMethod = createRoute({
+	method: "get",
+	path: "/payment-method",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						card: z
+							.object({
+								brand: z.string(),
+								last4: z.string(),
+								expiryMonth: z.number(),
+								expiryYear: z.number(),
+							})
+							.nullable(),
+					}),
+				},
+			},
+			description: "Current DevPass payment method retrieved",
+		},
+	},
+});
+
+devPlans.openapi(getPaymentMethod, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg?.devPlanStripeSubscriptionId) {
+		return c.json({ card: null });
+	}
+
+	const subscription = await getStripe().subscriptions.retrieve(
+		personalOrg.devPlanStripeSubscriptionId,
+		{ expand: ["default_payment_method"] },
+	);
+
+	const defaultPaymentMethod = subscription.default_payment_method;
+	if (!defaultPaymentMethod) {
+		return c.json({ card: null });
+	}
+
+	const paymentMethod =
+		typeof defaultPaymentMethod === "string"
+			? await getStripe().paymentMethods.retrieve(defaultPaymentMethod)
+			: defaultPaymentMethod;
+
+	if (paymentMethod.type !== "card" || !paymentMethod.card) {
+		return c.json({ card: null });
+	}
+
+	return c.json({
+		card: {
+			brand: paymentMethod.card.brand,
+			last4: paymentMethod.card.last4,
+			expiryMonth: paymentMethod.card.exp_month,
+			expiryYear: paymentMethod.card.exp_year,
+		},
+	});
+});
+
+// Create a SetupIntent to collect a new card for the DevPass subscription. The
+// card is confirmed client-side via Stripe Elements, then attached to the
+// subscription through /dev-plans/update-payment-method.
+const createSetupIntent = createRoute({
+	method: "post",
+	path: "/create-setup-intent",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						clientSecret: z.string(),
+					}),
+				},
+			},
+			description: "SetupIntent created successfully",
+		},
+	},
+});
+
+devPlans.openapi(createSetupIntent, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+
+	const setupIntent = await getStripe().setupIntents.create({
+		customer: stripeCustomerId,
+		payment_method_types: ["card"],
+		usage: "off_session",
+		metadata: {
+			organizationId: personalOrg.id,
+			subscriptionType: "dev_plan_update",
+		},
+	});
+
+	if (!setupIntent.client_secret) {
+		throw new HTTPException(500, {
+			message: "Failed to create setup intent",
+		});
+	}
+
+	return c.json({
+		clientSecret: setupIntent.client_secret,
+	});
+});
+
+// Attach a newly confirmed card as the DevPass subscription's payment method.
+// Rejects with 409 if the card is already used by another DevPass account, to
+// preserve the one-card-per-account guarantee enforced at signup.
+const updatePaymentMethod = createRoute({
+	method: "post",
+	path: "/update-payment-method",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						paymentMethodId: z.string().min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+					}),
+				},
+			},
+			description: "Payment method updated successfully",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("duplicate_card"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Card already in use by another DevPass account",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.literal("invalid_payment_method"),
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Payment method is not a card with a fingerprint",
+		},
+	},
+});
+
+devPlans.openapi(updatePaymentMethod, async (c) => {
+	const user = c.get("user");
+	const { paymentMethodId } = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (!personalOrg.devPlanStripeSubscriptionId) {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+
+	const paymentMethod =
+		await getStripe().paymentMethods.retrieve(paymentMethodId);
+
+	// Only card payment methods carry the fingerprint we rely on to enforce the
+	// one-card-per-account rule. Reject anything else up front so we never store
+	// a null fingerprint or point the subscription at an unverifiable method.
+	const fingerprint =
+		paymentMethod.type === "card"
+			? (paymentMethod.card?.fingerprint ?? null)
+			: null;
+
+	if (!fingerprint) {
+		return c.json(
+			{
+				error: "invalid_payment_method" as const,
+				message: "Payment method must be a card with a fingerprint.",
+			},
+			400,
+		);
+	}
+
+	// Enforce one card per DevPass account: reject a card already linked to a
+	// different org and detach it so it isn't silently left on this customer.
+	const conflictingOrg = await db.query.organization.findFirst({
+		where: {
+			devPlanCardFingerprint: { eq: fingerprint },
+			id: { ne: personalOrg.id },
+		},
+	});
+	if (conflictingOrg) {
+		try {
+			await getStripe().paymentMethods.detach(paymentMethodId);
+		} catch (err) {
+			logger.warn(
+				`Failed to detach duplicate dev plan card ${paymentMethodId}`,
+				{ error: err instanceof Error ? err.message : String(err) },
+			);
+		}
+		return c.json(
+			{
+				error: "duplicate_card" as const,
+				message:
+					"This card is already associated with another DevPass account. Please use a different payment method.",
+			},
+			409,
+		);
+	}
+
+	// confirmCardSetup already attaches the card to the customer; attach again
+	// defensively in case it isn't, ignoring the already-attached error.
+	try {
+		await getStripe().paymentMethods.attach(paymentMethodId, {
+			customer: stripeCustomerId,
+		});
+	} catch (err) {
+		logger.warn(
+			`Attach dev plan card ${paymentMethodId} (likely already attached)`,
+			{
+				error: err instanceof Error ? err.message : String(err),
+			},
+		);
+	}
+
+	await getStripe().customers.update(stripeCustomerId, {
+		invoice_settings: { default_payment_method: paymentMethodId },
+	});
+
+	await getStripe().subscriptions.update(
+		personalOrg.devPlanStripeSubscriptionId,
+		{ default_payment_method: paymentMethodId },
+	);
+
+	await db
+		.update(tables.organization)
+		.set({ devPlanCardFingerprint: fingerprint })
+		.where(eq(tables.organization.id, personalOrg.id));
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.update_payment_method",
+		resourceType: "dev_plan",
+		resourceId: personalOrg.devPlanStripeSubscriptionId,
+		metadata: {
+			cardLast4:
+				paymentMethod.type === "card" ? paymentMethod.card?.last4 : undefined,
+		},
+	});
+
+	return c.json(
+		{
+			success: true,
+		},
+		200,
+	);
 });

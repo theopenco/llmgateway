@@ -43,7 +43,7 @@ export interface ApiKey {
 }
 
 export interface ComboboxModel {
-	id: string; // providerId/modelName (value sent to API)
+	id: string; // providerId/modelId[:region] (value sent to API)
 	name?: string; // Friendly model name
 	provider?: string; // Provider display name
 	providerId?: string; // Provider id
@@ -57,6 +57,7 @@ export interface ComboboxModel {
 	imageGen?: boolean;
 	supportsVideoAudio?: boolean;
 	supportsVideoWithoutAudio?: boolean;
+	imageInputRequired?: boolean;
 }
 
 export interface Project {
@@ -76,7 +77,14 @@ export interface Organization {
 	createdAt: string;
 	updatedAt: string;
 	name: string;
+	isPersonal: boolean;
+	isChat: boolean;
 	credits: string;
+	chatPlan?: "none" | "starter" | "plus" | "pro";
+	chatPlanCreditsLimit?: string | null;
+	chatPlanCreditsUsed?: string | null;
+	chatPlanCancelled?: boolean | null;
+	chatPlanExpiresAt?: string | null;
 	plan: "free" | "pro" | "enterprise";
 	planExpiresAt: string | null;
 	retentionLevel: "retain" | "none";

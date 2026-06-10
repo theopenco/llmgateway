@@ -10,7 +10,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "mistral-large-latest",
+				externalId: "mistral-large-latest",
 				inputPrice: "0.000004",
 				outputPrice: "0.000012",
 				requestPrice: "0",
@@ -32,7 +32,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "pixtral-large-latest",
+				externalId: "pixtral-large-latest",
 				inputPrice: "0.000004",
 				outputPrice: "0.000012",
 				requestPrice: "0",
@@ -55,7 +55,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "mistral-large-2512",
+				externalId: "mistral-large-2512",
 				inputPrice: "0.5e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -77,7 +77,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "mistral-small-2506",
+				externalId: "mistral-small-2506",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
@@ -100,7 +100,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "ministral-14b-2512",
+				externalId: "ministral-14b-2512",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.2e-6",
 				requestPrice: "0",
@@ -122,7 +122,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "ministral-8b-2512",
+				externalId: "ministral-8b-2512",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
@@ -144,7 +144,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "ministral-3b-2512",
+				externalId: "ministral-3b-2512",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.1e-6",
 				requestPrice: "0",
@@ -167,7 +167,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "codestral-2508",
+				externalId: "codestral-2508",
 				inputPrice: "0.3e-6",
 				outputPrice: "0.9e-6",
 				requestPrice: "0",
@@ -189,7 +189,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "devstral-2512",
+				externalId: "devstral-2512",
 				inputPrice: "0.4e-6",
 				outputPrice: "2e-6",
 				requestPrice: "0",
@@ -212,7 +212,7 @@ export const mistralModels = [
 		providers: [
 			{
 				providerId: "mistral",
-				modelName: "devstral-small-2507",
+				externalId: "devstral-small-2507",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",

@@ -13,11 +13,13 @@ import {
 import { cookies } from "next/headers";
 import { z } from "zod";
 
+import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 import { getModelImageConfig } from "@/lib/image-gen";
 import {
 	isRecord,
 	readNumber,
+	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
 
@@ -60,6 +62,7 @@ interface PlaygroundMetadataFinishStepPart {
 	type: "finish-step";
 	response: {
 		modelId: string;
+		headers?: Record<string, string>;
 	};
 	usage: {
 		inputTokens?: number;
@@ -74,6 +77,11 @@ interface PlaygroundMetadataFinishStepPart {
 type PlaygroundMetadataStreamPart =
 	| PlaygroundMetadataFinishStepPart
 	| { type: string };
+
+type GatewayResponseMetadata = Pick<
+	PlaygroundMessageMetadata,
+	"logId" | "organizationId" | "projectId" | "discount"
+>;
 
 /**
  * Type guard to check if a value is an MCP CallToolResult
@@ -107,18 +115,115 @@ function isPlaygroundMetadataFinishStepPart(
 	return part.type === "finish-step" && "response" in part && "usage" in part;
 }
 
-function readLLMGatewayUsage(
+function readLLMGatewayProvider(
 	providerMetadata: unknown,
 ): Record<string, unknown> | undefined {
 	if (!isRecord(providerMetadata)) {
 		return undefined;
 	}
 	const llmgateway = providerMetadata.llmgateway;
-	if (!isRecord(llmgateway)) {
+	return isRecord(llmgateway) ? llmgateway : undefined;
+}
+
+function extractGatewayResponseMetadata(
+	value: unknown,
+): GatewayResponseMetadata | undefined {
+	if (!isRecord(value)) {
 		return undefined;
 	}
-	const usage = llmgateway.usage;
-	return isRecord(usage) ? usage : undefined;
+
+	const metadata = isRecord(value.metadata)
+		? (value.metadata as Record<string, unknown>)
+		: isRecord(value.responseMetadata)
+			? (value.responseMetadata as Record<string, unknown>)
+			: value;
+
+	const gatewayMetadata: GatewayResponseMetadata = {
+		logId: readString(metadata.log_id),
+		organizationId: readString(metadata.organization_id),
+		projectId: readString(metadata.project_id),
+		discount: readNumber(metadata.discount),
+	};
+
+	if (
+		!gatewayMetadata.logId &&
+		!gatewayMetadata.organizationId &&
+		!gatewayMetadata.projectId &&
+		gatewayMetadata.discount === undefined
+	) {
+		return undefined;
+	}
+
+	return gatewayMetadata;
+}
+
+function mergeGatewayResponseMetadata(
+	metadata: PlaygroundMessageMetadata | undefined,
+	gatewayMetadata: GatewayResponseMetadata | undefined,
+): PlaygroundMessageMetadata | undefined {
+	if (!gatewayMetadata) {
+		return metadata;
+	}
+
+	return {
+		...(metadata ?? {}),
+		...(gatewayMetadata.logId ? { logId: gatewayMetadata.logId } : {}),
+		...(gatewayMetadata.organizationId
+			? { organizationId: gatewayMetadata.organizationId }
+			: {}),
+		...(gatewayMetadata.projectId
+			? { projectId: gatewayMetadata.projectId }
+			: {}),
+		...(gatewayMetadata.discount !== undefined
+			? { discount: gatewayMetadata.discount }
+			: {}),
+	};
+}
+
+function createGatewayMetadataCaptureStream(
+	onMetadata: (metadata: GatewayResponseMetadata) => void,
+): TransformStream<Uint8Array, Uint8Array> {
+	const decoder = new TextDecoder();
+	let buffer = "";
+
+	const parseEvents = (events: string[]) => {
+		for (const event of events) {
+			const data = event
+				.split("\n")
+				.filter((line) => line.startsWith("data:"))
+				.map((line) => line.slice(5).trimStart())
+				.join("\n");
+			if (!data || data === "[DONE]") {
+				continue;
+			}
+
+			try {
+				const parsed: unknown = JSON.parse(data);
+				const metadata = extractGatewayResponseMetadata(parsed);
+				if (metadata) {
+					onMetadata(metadata);
+				}
+			} catch {
+				// Ignore non-JSON stream events.
+			}
+		}
+	};
+
+	return new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			buffer += decoder.decode(chunk, { stream: true });
+			const events = buffer.split("\n\n");
+			buffer = events.pop() ?? "";
+			parseEvents(events);
+			controller.enqueue(chunk);
+		},
+		flush() {
+			buffer += decoder.decode();
+			if (buffer) {
+				parseEvents([buffer]);
+			}
+		},
+	});
 }
 
 function extractPlaygroundMessageMetadata(
@@ -128,10 +233,25 @@ function extractPlaygroundMessageMetadata(
 		return undefined;
 	}
 
-	const llmgatewayUsage = readLLMGatewayUsage(part.providerMetadata);
+	const llmgateway = readLLMGatewayProvider(part.providerMetadata);
+	const llmgatewayUsage =
+		llmgateway && isRecord(llmgateway.usage)
+			? (llmgateway.usage as Record<string, unknown>)
+			: undefined;
+	const llmgatewayMetadata =
+		llmgateway && isRecord(llmgateway.metadata)
+			? (llmgateway.metadata as Record<string, unknown>)
+			: llmgateway && isRecord(llmgateway.responseMetadata)
+				? (llmgateway.responseMetadata as Record<string, unknown>)
+				: llmgateway;
+
 	const promptTokensDetails = llmgatewayUsage?.promptTokensDetails;
+	const requestId = readString(part.response.headers?.["x-request-id"]);
+
 	const metadata: PlaygroundMessageMetadata = {
 		usedModel: part.response.modelId,
+		...(requestId ? { requestId } : {}),
+		...extractGatewayResponseMetadata(llmgatewayMetadata),
 		usage: {
 			inputTokens:
 				readNumber(llmgatewayUsage?.promptTokens) ?? part.usage.inputTokens,
@@ -446,8 +566,8 @@ export async function POST(req: Request) {
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
-		cookieStore.get("llmgateway_playground_key")?.value ??
-		cookieStore.get("__Host-llmgateway_playground_key")?.value;
+		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
+		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value;
 	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
@@ -461,9 +581,51 @@ export async function POST(req: Request) {
 			? "http://localhost:4001/v1"
 			: "https://api.llmgateway.io/v1");
 
+	let latestGatewayResponseMetadata: GatewayResponseMetadata | undefined;
+	const captureGatewayMetadata = (metadata: GatewayResponseMetadata) => {
+		latestGatewayResponseMetadata = {
+			...latestGatewayResponseMetadata,
+			...metadata,
+		};
+	};
+	const gatewayFetch: typeof fetch = async (input, init) => {
+		const response = await fetch(input, init);
+		const contentType = response.headers.get("content-type") ?? "";
+
+		if (contentType.includes("text/event-stream") && response.body) {
+			const providerStream = response.body.pipeThrough(
+				createGatewayMetadataCaptureStream(captureGatewayMetadata),
+			);
+
+			return new Response(providerStream, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
+			});
+		}
+
+		if (contentType.includes("application/json")) {
+			void response
+				.clone()
+				.json()
+				.then((json: unknown) => {
+					const metadata = extractGatewayResponseMetadata(json);
+					if (metadata) {
+						captureGatewayMetadata(metadata);
+					}
+				})
+				.catch(() => {
+					// Ignore JSON parsing errors in the metadata side-channel.
+				});
+		}
+
+		return response;
+	};
+
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
+		fetch: gatewayFetch,
 		headers: {
 			"x-source": "chat.llmgateway.io",
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
@@ -936,9 +1098,15 @@ export async function POST(req: Request) {
 			sendSources: true,
 			messageMetadata: ({ part }) => {
 				if (part.type === "finish") {
-					return latestMessageMetadata;
+					return mergeGatewayResponseMetadata(
+						latestMessageMetadata,
+						latestGatewayResponseMetadata,
+					);
 				}
-				const metadata = extractPlaygroundMessageMetadata(part);
+				const metadata = mergeGatewayResponseMetadata(
+					extractPlaygroundMessageMetadata(part),
+					latestGatewayResponseMetadata,
+				);
 				if (metadata) {
 					latestMessageMetadata = metadata;
 				}

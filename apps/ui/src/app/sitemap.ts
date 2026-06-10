@@ -1,3 +1,4 @@
+import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
 
 import {
@@ -7,11 +8,24 @@ import {
 
 import type { MetadataRoute } from "next";
 
+function slugify(label: string) {
+	return label
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/(^-|-$)/g, "");
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
 
-	const { allBlogs, allGuides, allChangelogs, allLegals, allMigrations } =
-		await import("content-collections");
+	const {
+		allBlogs,
+		allGuides,
+		allChangelogs,
+		allLegals,
+		allMigrations,
+		allUseCases,
+	} = await import("content-collections");
 
 	// Static pages
 	const staticPages: MetadataRoute.Sitemap = [
@@ -108,8 +122,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		{
 			url: `${baseUrl}/token-cost-calculator`,
 			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
+			url: `${baseUrl}/nano-banana-simulator/20`,
+			lastModified: new Date(),
 			changeFrequency: "monthly",
-			priority: 0.8,
+			priority: 0.6,
 		},
 		{
 			url: `${baseUrl}/blog/category`,
@@ -155,6 +175,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/models/text-to-image`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/video`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/embeddings`,
 			lastModified: new Date(),
 			changeFrequency: "weekly",
 			priority: 0.8,
@@ -206,6 +238,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			lastModified: new Date(),
 			changeFrequency: "monthly",
 			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/portkey`,
+			lastModified: new Date(),
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/use-cases`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.8,
 		},
 	];
 
@@ -260,6 +304,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		priority: 0.7,
 	}));
 
+	// Enterprise feature subpages
+	const enterpriseFeaturePages: MetadataRoute.Sitemap = enterpriseFeatures.map(
+		(feature) => ({
+			url: `${baseUrl}/enterprise/${feature.slug}`,
+			lastModified: new Date(),
+			changeFrequency: "monthly" as const,
+			priority: 0.8,
+		}),
+	);
+
 	// Blog pages
 	const blogPages: MetadataRoute.Sitemap = allBlogs
 		.filter((blog) => !blog.draft)
@@ -269,6 +323,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "monthly" as const,
 			priority: 0.6,
 		}));
+
+	// Blog category pages
+	const blogCategorySlugs = new Set<string>();
+	for (const blog of allBlogs) {
+		if (blog.draft) {
+			continue;
+		}
+		for (const category of blog.categories ?? []) {
+			blogCategorySlugs.add(slugify(category));
+		}
+	}
+	const blogCategoryPages: MetadataRoute.Sitemap = Array.from(
+		blogCategorySlugs,
+	).map((category) => ({
+		url: `${baseUrl}/blog/category/${encodeURIComponent(category)}`,
+		lastModified: new Date(),
+		changeFrequency: "weekly" as const,
+		priority: 0.5,
+	}));
 
 	// Guide pages
 	const guidePages: MetadataRoute.Sitemap = allGuides.map((guide) => ({
@@ -306,15 +379,28 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		}),
 	);
 
+	// Use case pages
+	const useCasePages: MetadataRoute.Sitemap = allUseCases
+		.filter((useCase) => !useCase.draft)
+		.map((useCase) => ({
+			url: `${baseUrl}/use-cases/${useCase.slug}`,
+			lastModified: new Date(useCase.date),
+			changeFrequency: "monthly" as const,
+			priority: 0.7,
+		}));
+
 	return [
 		...staticPages,
 		...modelPages,
 		...providerPages,
 		...featurePages,
+		...enterpriseFeaturePages,
 		...blogPages,
+		...blogCategoryPages,
 		...guidePages,
 		...changelogPages,
 		...legalPages,
 		...migrationPages,
+		...useCasePages,
 	];
 }

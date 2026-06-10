@@ -123,7 +123,7 @@ export async function syncProvidersAndModels() {
 						await database
 							.update(modelProviderMapping)
 							.set({
-								modelName: mapping.modelName,
+								externalId: mapping.externalId,
 								region: mappingRegion ?? null,
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
@@ -186,11 +186,6 @@ export async function syncProvidersAndModels() {
 									mapping.webSearchPrice !== undefined
 										? mapping.webSearchPrice.toString()
 										: null,
-								// NotNull decimal field - use explicit default
-								discount:
-									"discount" in mapping && mapping.discount !== undefined
-										? mapping.discount.toString()
-										: "0",
 								// NotNull enum field - use explicit default
 								stability:
 									"stability" in mapping ? mapping.stability : "stable",
@@ -218,7 +213,7 @@ export async function syncProvidersAndModels() {
 						await database.insert(modelProviderMapping).values({
 							modelId: modelDef.id,
 							providerId: mapping.providerId,
-							modelName: mapping.modelName,
+							externalId: mapping.externalId,
 							region: mappingRegion ?? undefined,
 							inputPrice:
 								"inputPrice" in mapping && mapping.inputPrice !== undefined
@@ -278,10 +273,6 @@ export async function syncProvidersAndModels() {
 								"webSearchPrice" in mapping &&
 								mapping.webSearchPrice !== undefined
 									? mapping.webSearchPrice.toString()
-									: undefined,
-							discount:
-								"discount" in mapping && mapping.discount !== undefined
-									? mapping.discount.toString()
 									: undefined,
 							stability: "stability" in mapping ? mapping.stability : undefined,
 							supportedParameters:

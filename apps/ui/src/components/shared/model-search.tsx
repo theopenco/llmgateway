@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	Command,
@@ -55,6 +55,8 @@ export function ModelSearch({
 	const router = useRouter();
 	const config = useAppConfig();
 	const [open, setOpen] = useState(false);
+	const [search, setSearch] = useState("");
+	const listRef = useRef<HTMLDivElement>(null);
 
 	// Fetch models/providers via React Query if not provided as props
 	const { data: fetchedModels = [] } = useQuery<ApiModel[]>({
@@ -108,6 +110,12 @@ export function ModelSearch({
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, []);
+
+	useEffect(() => {
+		if (listRef.current) {
+			listRef.current.scrollTop = 0;
+		}
+	}, [search]);
 
 	const aliasMap = useMemo(() => {
 		const map = new Map<string, string[]>();
@@ -190,7 +198,15 @@ export function ModelSearch({
 	}, [entries]);
 
 	return (
-		<Popover open={open} onOpenChange={setOpen}>
+		<Popover
+			open={open}
+			onOpenChange={(v) => {
+				setOpen(v);
+				if (!v) {
+					setSearch("");
+				}
+			}}
+		>
 			<PopoverTrigger asChild>
 				<button
 					type="button"
@@ -211,9 +227,52 @@ export function ModelSearch({
 				align="center"
 			>
 				<Command>
-					<CommandInput placeholder="Search models…" />
-					<CommandList className="max-h-[400px]">
-						<CommandEmpty>No models found.</CommandEmpty>
+					<CommandInput
+						placeholder="Search models…"
+						value={search}
+						onValueChange={setSearch}
+					/>
+					<CommandList ref={listRef} className="max-h-[400px]">
+						<CommandEmpty>No results found.</CommandEmpty>
+						{search.trim().length > 0 && providers.length > 0 && (
+							<CommandGroup heading="Providers">
+								{providers
+									.filter((p) => p.name !== "LLM Gateway")
+									.map((p) => {
+										const ProviderIcon = getProviderIcon(p.id);
+										return (
+											<CommandItem
+												key={`provider-${p.id}`}
+												value={`${p.name ?? p.id} ${p.id} provider`}
+												onSelect={() => {
+													router.push(`/providers/${encodeURIComponent(p.id)}`);
+													setOpen(false);
+												}}
+											>
+												<div className="flex items-center gap-3">
+													<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+														{ProviderIcon ? (
+															<ProviderIcon className="h-5 w-5" />
+														) : (
+															<span className="text-xs font-medium uppercase text-muted-foreground">
+																{(p.name ?? p.id).charAt(0)}
+															</span>
+														)}
+													</div>
+													<div className="flex flex-col items-start">
+														<span className="text-sm font-medium">
+															{p.name ?? p.id}
+														</span>
+														<span className="text-xs text-muted-foreground">
+															{p.id}
+														</span>
+													</div>
+												</div>
+											</CommandItem>
+										);
+									})}
+							</CommandGroup>
+						)}
 						{groups.map(([label, items]) => (
 							<CommandGroup key={label} heading={label}>
 								{items.map((entry) => {

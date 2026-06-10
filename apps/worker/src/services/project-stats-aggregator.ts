@@ -3,11 +3,15 @@ import {
 	log,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	apiKey,
 	sql,
 	and,
 	isNull,
+	eq,
+	inArray,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -292,6 +296,55 @@ async function recalculateProjectHourlyModelStats(
 }
 
 /**
+ * Calculate and store hourly source statistics for a specific project and hour.
+ * NULL log.source is bucketed under the literal 'unknown'.
+ */
+async function recalculateProjectHourlySourceStats(
+	projectId: string,
+	hourTimestamp: string,
+) {
+	const database = db;
+
+	const sourceStats = await database
+		.select({
+			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
+			...getCommonAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				sql`${log.projectId} = ${projectId}`,
+				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+			),
+		)
+		.groupBy(sql`coalesce(${log.source}, 'unknown')`);
+
+	for (const stat of sourceStats) {
+		const { source, ...statsFields } = stat;
+		await database
+			.insert(projectHourlySourceStats)
+			.values({
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				source,
+				...statsFields,
+			})
+			.onConflictDoUpdate({
+				target: [
+					projectHourlySourceStats.projectId,
+					projectHourlySourceStats.hourTimestamp,
+					projectHourlySourceStats.source,
+				],
+				set: {
+					...statsFields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+}
+
+/**
  * Calculate and store hourly API key statistics for a specific project and hour
  */
 async function recalculateApiKeyHourlyStats(
@@ -306,11 +359,13 @@ async function recalculateApiKeyHourlyStats(
 			...getCommonAggregationFields(),
 		})
 		.from(log)
+		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
 				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
 				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
 		.groupBy(log.apiKeyId);
@@ -352,11 +407,13 @@ async function recalculateApiKeyHourlyModelStats(
 			...getCommonAggregationFields(),
 		})
 		.from(log)
+		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
 				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
 				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
 		.groupBy(log.apiKeyId, log.usedModel, log.usedProvider);
@@ -475,6 +532,10 @@ export async function aggregateHistoricalStats() {
 						bucket.projectId,
 						bucket.hourTimestamp,
 					);
+					await recalculateProjectHourlySourceStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
 					await recalculateApiKeyHourlyStats(
 						bucket.projectId,
 						bucket.hourTimestamp,
@@ -561,6 +622,10 @@ export async function aggregateHistoricalStats() {
 						bucket.projectId,
 						bucket.hourTimestamp,
 					);
+					await recalculateProjectHourlySourceStats(
+						bucket.projectId,
+						bucket.hourTimestamp,
+					);
 					await recalculateApiKeyHourlyStats(
 						bucket.projectId,
 						bucket.hourTimestamp,
@@ -628,6 +693,7 @@ export async function refreshCurrentHourStats() {
 		for (const { projectId } of projectsWithCurrentHourLogs) {
 			await recalculateProjectHourlyStats(projectId, currentHourStart);
 			await recalculateProjectHourlyModelStats(projectId, currentHourStart);
+			await recalculateProjectHourlySourceStats(projectId, currentHourStart);
 			await recalculateApiKeyHourlyStats(projectId, currentHourStart);
 			await recalculateApiKeyHourlyModelStats(projectId, currentHourStart);
 		}

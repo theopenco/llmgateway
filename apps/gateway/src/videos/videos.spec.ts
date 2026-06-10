@@ -11,9 +11,7 @@ import {
 import { db, eq, tables } from "@llmgateway/db";
 
 describe("videos", () => {
-	const harness = createGatewayApiTestHarness({
-		mockServerPort: 3002,
-	});
+	const harness = createGatewayApiTestHarness();
 	let mockServerUrl: string;
 	let originalGoogleVertexBaseUrl: string | undefined;
 
@@ -87,6 +85,49 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("fixed 8s clips");
 	});
 
+	test("/v1/videos rejects dev-plan personal orgs with 403", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "veo-3.1-generate-preview",
+				prompt: "A neon city at night",
+				size: "1920x1080",
+				seconds: 8,
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Video generation is not available for coding plans",
+		);
+
+		// Existing video status/content endpoints must still be reachable.
+		// We don't have a job, but the endpoint should reach the project lookup
+		// (which is independent of devPlan) and return 404 rather than 403.
+		const statusRes = await app.request("/v1/videos/nonexistent", {
+			method: "GET",
+			headers: {
+				Authorization: "Bearer real-token",
+			},
+		});
+		expect(statusRes.status).toBe(404);
+	});
+
 	test("/v1/videos explains avalanche reference-image constraints clearly", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -128,6 +169,201 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain(
 			"avalanche/veo-3.1-fast-generate-preview",
 		);
+	});
+
+	test("/v1/videos rejects non-https reference videos", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Reproduce the camera move from the reference clip",
+				size: "1280x720",
+				seconds: 5,
+				reference_videos: ["http://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("reference_videos");
+	});
+
+	test("/v1/videos rejects combining frames with reference videos", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Blend these inputs",
+				size: "1280x720",
+				seconds: 5,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				reference_videos: ["https://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Frame inputs");
+	});
+
+	test("/v1/videos rejects reference videos on non-bytedance models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "avalanche",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "avalanche/veo-3.1-fast-generate-preview",
+				prompt: "Reproduce this motion",
+				size: "1920x1080",
+				seconds: 8,
+				reference_videos: ["https://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"reference videos are currently only supported on bytedance",
+		);
+	});
+
+	test("/v1/videos rejects non-https reference audios", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Align the motion to the reference track",
+				size: "1280x720",
+				seconds: 5,
+				reference_audios: ["http://example.com/reference-track.mp3"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("reference_audios");
+	});
+
+	test("/v1/videos rejects reference audio on non-bytedance models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "avalanche",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "avalanche/veo-3.1-fast-generate-preview",
+				prompt: "Align this motion",
+				size: "1920x1080",
+				seconds: 8,
+				reference_audios: ["https://example.com/reference-track.mp3"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"reference audio is currently only supported on bytedance",
+		);
+	});
+
+	test("/v1/videos restricts reference inputs to Seedance 2.0 models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "bytedance/seedance-1-5-pro",
+				prompt: "Reproduce this motion",
+				size: "1280x720",
+				seconds: 5,
+				reference_videos: ["https://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Seedance 2.0");
 	});
 
 	test("/v1/videos uses routing metrics to pick the best eligible provider", async () => {

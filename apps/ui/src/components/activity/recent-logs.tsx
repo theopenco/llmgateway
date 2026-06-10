@@ -195,6 +195,9 @@ export function RecentLogs({
 	const [customHeaderValue, setCustomHeaderValue] = useState<string>(
 		searchParams.get("customHeaderValue") ?? "",
 	);
+	const [sessionId, setSessionId] = useState<string>(
+		searchParams.get("sessionId") ?? "",
+	);
 
 	const api = useApi();
 	const deferredModelSearch = useDeferredValue(modelSearch);
@@ -288,6 +291,9 @@ export function RecentLogs({
 	if (customHeaderValue.trim()) {
 		queryParams.customHeaderValue = customHeaderValue.trim();
 	}
+	if (sessionId.trim()) {
+		queryParams.sessionId = sessionId.trim();
+	}
 	if (projectId) {
 		queryParams.projectId = projectId;
 	}
@@ -299,7 +305,8 @@ export function RecentLogs({
 		provider === (searchParams.get("provider") ?? undefined) &&
 		model === (searchParams.get("model") ?? undefined) &&
 		customHeaderKey === (searchParams.get("customHeaderKey") ?? "") &&
-		customHeaderValue === (searchParams.get("customHeaderValue") ?? "");
+		customHeaderValue === (searchParams.get("customHeaderValue") ?? "") &&
+		sessionId === (searchParams.get("sessionId") ?? "");
 
 	const {
 		data,
@@ -565,6 +572,21 @@ export function RecentLogs({
 						// Update URL immediately
 						updateUrlWithFilters({
 							customHeaderValue: e.target.value ?? undefined,
+						});
+					}}
+					className="w-[200px]"
+				/>
+
+				<Input
+					placeholder="Session ID"
+					value={sessionId}
+					onChange={(e) => {
+						isFilteringRef.current = true;
+						scrollPositionRef.current = window.scrollY;
+						setSessionId(e.target.value);
+						// Update URL immediately
+						updateUrlWithFilters({
+							sessionId: e.target.value ?? undefined,
 						});
 					}}
 					className="w-[200px]"

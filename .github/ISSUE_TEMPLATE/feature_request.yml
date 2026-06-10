@@ -1,0 +1,52 @@
+name: ✨ Feature request
+description: Suggest a new feature or improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Please search [existing issues](https://github.com/theopenco/llmgateway/issues) first to see if someone already requested it.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      description: Which part of LLM Gateway would this affect?
+      options:
+        - "Gateway (API request routing)"
+        - "DevPass / Code"
+        - "Chat Playground"
+        - "Dashboard / UI"
+        - "API (billing, analytics, management)"
+        - "Docs"
+        - "Other / multiple"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem are you trying to solve? What's the use case?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe what you'd like to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or workarounds you've thought about?
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, links, or anything else that helps explain the request.
+    validations:
+      required: false

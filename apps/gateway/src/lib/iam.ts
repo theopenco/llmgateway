@@ -1,12 +1,16 @@
 import { HTTPException } from "hono/http-exception";
 
 import { findActiveIamRules } from "@/lib/cached-queries.js";
+import { anyCidrMatches } from "@/lib/client-ip.js";
+import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 
 import {
 	models,
 	type ModelDefinition,
 	type ProviderId,
 } from "@llmgateway/models";
+
+import type { GatewayApiKey } from "@/lib/cached-queries.js";
 
 export interface IamRule {
 	id: string;
@@ -16,13 +20,16 @@ export interface IamRule {
 		| "allow_pricing"
 		| "deny_pricing"
 		| "allow_providers"
-		| "deny_providers";
+		| "deny_providers"
+		| "allow_ip_cidrs"
+		| "deny_ip_cidrs";
 	ruleValue: {
 		models?: string[];
 		providers?: string[];
 		pricingType?: "free" | "paid";
 		maxInputPrice?: number;
 		maxOutputPrice?: number;
+		ipCidrs?: string[];
 	};
 	status: "active" | "inactive";
 }
@@ -38,6 +45,7 @@ export async function validateModelAccess(
 	requestedModel: string,
 	requestedProvider?: string,
 	activeModelInfo?: ModelDefinition,
+	clientIp?: string,
 ): Promise<IamValidationResult> {
 	// Get all active IAM rules for this API key (using cacheable select builder)
 	const iamRules = await findActiveIamRules(apiKeyId);
@@ -71,6 +79,7 @@ export async function validateModelAccess(
 			modelDef,
 			requestedProvider,
 			allowedProviders,
+			clientIp,
 		);
 		if (!result.allowed) {
 			return {
@@ -97,6 +106,43 @@ export async function validateModelAccess(
 	return { allowed: true, allowedProviders: Array.from(allowedProviders) };
 }
 
+export async function validateRequestModelAccess(
+	apiKey: GatewayApiKey,
+	requestedModel: string,
+	requestedProvider?: string,
+	activeModelInfo?: ModelDefinition,
+	clientIp?: string,
+	options: { autoRouting?: boolean } = {},
+): Promise<IamValidationResult> {
+	const sessionValidation = validateEndUserSessionModelAccess(
+		apiKey,
+		requestedModel,
+		activeModelInfo,
+		options,
+	);
+	if (sessionValidation) {
+		if (
+			sessionValidation.allowed &&
+			requestedProvider &&
+			!sessionValidation.allowedProviders?.includes(requestedProvider)
+		) {
+			return {
+				allowed: false,
+				reason: `Provider ${requestedProvider} is not allowed for this end-user session`,
+			};
+		}
+		return sessionValidation;
+	}
+
+	return await validateModelAccess(
+		apiKey.id,
+		requestedModel,
+		requestedProvider,
+		activeModelInfo,
+		clientIp,
+	);
+}
+
 interface RuleEvaluationResult {
 	allowed: boolean;
 	reason?: string;
@@ -108,6 +154,7 @@ async function evaluateRule(
 	modelDef: ModelDefinition,
 	requestedProvider: string | undefined,
 	currentAllowedProviders: Set<ProviderId>,
+	clientIp: string | undefined,
 ): Promise<RuleEvaluationResult> {
 	const { ruleType, ruleValue } = rule;
 
@@ -263,6 +310,38 @@ async function evaluateRule(
 						reason: "Paid models are not allowed",
 					};
 				}
+			}
+			break;
+
+		case "allow_ip_cidrs":
+			if (ruleValue.ipCidrs && ruleValue.ipCidrs.length > 0) {
+				if (!clientIp) {
+					return {
+						allowed: false,
+						reason:
+							"Client IP could not be determined but an IP allow-list rule is configured",
+					};
+				}
+				if (!anyCidrMatches(clientIp, ruleValue.ipCidrs)) {
+					return {
+						allowed: false,
+						reason: `Client IP ${clientIp} is not in the allowed CIDR ranges`,
+					};
+				}
+			}
+			break;
+
+		case "deny_ip_cidrs":
+			if (
+				ruleValue.ipCidrs &&
+				ruleValue.ipCidrs.length > 0 &&
+				clientIp &&
+				anyCidrMatches(clientIp, ruleValue.ipCidrs)
+			) {
+				return {
+					allowed: false,
+					reason: `Client IP ${clientIp} is in the denied CIDR ranges`,
+				};
 			}
 			break;
 	}

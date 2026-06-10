@@ -1,4 +1,5 @@
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+import { formatUsedModelForDisplay } from "./resolve-provider-context.js";
 
 import type { RoutingAttempt } from "./retry-with-fallback.js";
 import type { Annotation, ImageObject } from "./types.js";
@@ -17,6 +18,30 @@ export interface CostData {
 	audioInputCost?: number | null;
 	totalCost: number | null;
 	dataStorageCost?: number | null;
+}
+
+export interface ResponseMetadataExtras {
+	logId?: string;
+	organizationId?: string;
+	projectId?: string;
+	discount?: number | null;
+}
+
+export function toResponseMetadataExtras(
+	extras?: ResponseMetadataExtras,
+): Record<string, unknown> {
+	if (!extras) {
+		return {};
+	}
+
+	return {
+		...(extras.logId ? { log_id: extras.logId } : {}),
+		...(extras.organizationId
+			? { organization_id: extras.organizationId }
+			: {}),
+		...(extras.projectId ? { project_id: extras.projectId } : {}),
+		discount: extras.discount ?? null,
+	};
 }
 
 export function applyExtendedUsageFields(
@@ -212,6 +237,10 @@ export function stripRequestScopedMetadataFromOpenAiResponse<
 
 	const nextMetadata = { ...metadata };
 	delete nextMetadata.request_id;
+	delete nextMetadata.log_id;
+	delete nextMetadata.organization_id;
+	delete nextMetadata.project_id;
+	delete nextMetadata.discount;
 
 	if (Array.isArray(metadata.routing)) {
 		nextMetadata.routing = sanitizeRoutingAttempts(
@@ -229,7 +258,7 @@ export function withCurrentRequestMetadataOnOpenAiResponse<
 	T extends {
 		metadata?: Record<string, unknown> | null;
 	},
->(response: T, requestId: string): T {
+>(response: T, requestId: string, extras?: ResponseMetadataExtras): T {
 	const sanitizedResponse =
 		stripRequestScopedMetadataFromOpenAiResponse(response);
 	const metadata = sanitizedResponse.metadata;
@@ -243,6 +272,7 @@ export function withCurrentRequestMetadataOnOpenAiResponse<
 		metadata: {
 			...metadata,
 			request_id: requestId,
+			...toResponseMetadataExtras(extras),
 		},
 	};
 }
@@ -328,6 +358,7 @@ export function transformResponseToOpenai(
 	cacheCreation5mTokens: number | null = null,
 	cacheCreation1hTokens: number | null = null,
 	audioInputTokens: number | null = null,
+	serviceTier?: string,
 ) {
 	let transformedResponse = json;
 
@@ -340,7 +371,12 @@ export function transformResponseToOpenai(
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
 				created: Math.floor(Date.now() / 1000),
-				model: `${usedProvider}/${baseModelName}`,
+				model: formatUsedModelForDisplay(
+					usedProvider,
+					baseModelName,
+					undefined,
+					usedRegion,
+				),
 				choices: [
 					{
 						index: 0,
@@ -395,7 +431,12 @@ export function transformResponseToOpenai(
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
 				created: Math.floor(Date.now() / 1000),
-				model: `${usedProvider}/${baseModelName}`,
+				model: formatUsedModelForDisplay(
+					usedProvider,
+					baseModelName,
+					undefined,
+					usedRegion,
+				),
 				choices: [
 					{
 						index: 0,
@@ -451,7 +492,12 @@ export function transformResponseToOpenai(
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -509,7 +555,12 @@ export function transformResponseToOpenai(
 					transformedResponse.choices[0].finish_reason = finishReason;
 				}
 				// Add metadata and usage with costs to existing response
-				transformedResponse.model = `${usedProvider}/${baseModelName}`;
+				transformedResponse.model = formatUsedModelForDisplay(
+					usedProvider,
+					baseModelName,
+					undefined,
+					usedRegion,
+				);
 				transformedResponse.metadata = buildMetadata(
 					requestedModel,
 					requestedProvider,
@@ -542,7 +593,12 @@ export function transformResponseToOpenai(
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
 				created: Math.floor(Date.now() / 1000),
-				model: `${usedProvider}/${baseModelName}`,
+				model: formatUsedModelForDisplay(
+					usedProvider,
+					baseModelName,
+					undefined,
+					usedRegion,
+				),
 				choices: [
 					{
 						index: 0,
@@ -594,7 +650,12 @@ export function transformResponseToOpenai(
 					id: json.request_id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -647,7 +708,12 @@ export function transformResponseToOpenai(
 					if (transformedResponse.choices?.[0] && finishReason !== null) {
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
-					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.model = formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					);
 					transformedResponse.metadata = buildMetadata(
 						requestedModel,
 						requestedProvider,
@@ -693,7 +759,12 @@ export function transformResponseToOpenai(
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: json.created ?? Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -739,7 +810,12 @@ export function transformResponseToOpenai(
 					id: json.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: json.created_at ?? Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -804,7 +880,12 @@ export function transformResponseToOpenai(
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
 
-					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.model = formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					);
 					transformedResponse.metadata = buildMetadata(
 						requestedModel,
 						requestedProvider,
@@ -841,7 +922,12 @@ export function transformResponseToOpenai(
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: json.created ?? Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -893,7 +979,12 @@ export function transformResponseToOpenai(
 					if (transformedResponse.choices?.[0] && finishReason !== null) {
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
-					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.model = formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					);
 					transformedResponse.metadata = buildMetadata(
 						requestedModel,
 						requestedProvider,
@@ -930,7 +1021,12 @@ export function transformResponseToOpenai(
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: json.created ?? Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -982,7 +1078,12 @@ export function transformResponseToOpenai(
 					if (transformedResponse.choices?.[0] && finishReason !== null) {
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
-					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.model = formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					);
 					transformedResponse.metadata = buildMetadata(
 						requestedModel,
 						requestedProvider,
@@ -1020,7 +1121,12 @@ export function transformResponseToOpenai(
 					id: `chatcmpl-${Date.now()}`,
 					object: "chat.completion",
 					created: json.created ?? Math.floor(Date.now() / 1000),
-					model: `${usedProvider}/${baseModelName}`,
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
 					choices: [
 						{
 							index: 0,
@@ -1072,7 +1178,12 @@ export function transformResponseToOpenai(
 					if (transformedResponse.choices?.[0] && finishReason !== null) {
 						transformedResponse.choices[0].finish_reason = finishReason;
 					}
-					transformedResponse.model = `${usedProvider}/${baseModelName}`;
+					transformedResponse.model = formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					);
 					transformedResponse.metadata = buildMetadata(
 						requestedModel,
 						requestedProvider,
@@ -1102,6 +1213,63 @@ export function transformResponseToOpenai(
 			break;
 		}
 		default: {
+			// For providers that return non-OpenAI format (e.g. Reve image generation),
+			// construct a proper OpenAI-compatible response when we have parsed images/content
+			if (
+				transformedResponse &&
+				typeof transformedResponse === "object" &&
+				!transformedResponse.choices &&
+				(images.length > 0 || content !== null)
+			) {
+				transformedResponse = {
+					id: `chatcmpl-${Date.now()}`,
+					object: "chat.completion",
+					created: Math.floor(Date.now() / 1000),
+					model: formatUsedModelForDisplay(
+						usedProvider,
+						baseModelName,
+						undefined,
+						usedRegion,
+					),
+					choices: [
+						{
+							index: 0,
+							message: {
+								role: "assistant",
+								content: content,
+								...(images && images.length > 0 && { images }),
+							},
+							finish_reason: "stop",
+						},
+					],
+					usage: buildUsageObject(
+						promptTokens,
+						completionTokens,
+						totalTokens,
+						reasoningTokens,
+						cachedTokens,
+						costs,
+						showUpgradeMessage,
+						cacheCreationTokens,
+						imageInputTokens,
+						imageOutputTokens,
+						cacheCreation5mTokens,
+						cacheCreation1hTokens,
+						audioInputTokens,
+					),
+					metadata: buildMetadata(
+						requestedModel,
+						requestedProvider,
+						baseModelName,
+						usedProvider,
+						usedModel,
+						requestId,
+						routing,
+						usedRegion,
+					),
+				};
+				break;
+			}
 			// For any other provider, add metadata to existing response
 			if (transformedResponse && typeof transformedResponse === "object") {
 				// Ensure content and reasoning fields are present with parsed/healed values
@@ -1121,7 +1289,12 @@ export function transformResponseToOpenai(
 						message.annotations = annotations;
 					}
 				}
-				transformedResponse.model = `${usedProvider}/${baseModelName}`;
+				transformedResponse.model = formatUsedModelForDisplay(
+					usedProvider,
+					baseModelName,
+					undefined,
+					usedRegion,
+				);
 				transformedResponse.metadata = buildMetadata(
 					requestedModel,
 					requestedProvider,
@@ -1149,6 +1322,14 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
+	}
+
+	if (
+		serviceTier !== undefined &&
+		transformedResponse &&
+		typeof transformedResponse === "object"
+	) {
+		transformedResponse.service_tier = serviceTier;
 	}
 
 	return transformedResponse;

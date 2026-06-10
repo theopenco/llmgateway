@@ -146,7 +146,7 @@ describe("Custom Provider E2E", () => {
 
 			const json = await res.json();
 			expect(res.status).toBe(400);
-			expect(json.message).toContain(
+			expect(json.error.message).toContain(
 				"Custom providers are not supported in credits mode",
 			);
 		});
@@ -168,7 +168,7 @@ describe("Custom Provider E2E", () => {
 
 			const json = await res.json();
 			expect(res.status).toBe(400);
-			expect(json.message).toContain(
+			expect(json.error.message).toContain(
 				"Custom models require a provider key configured in your organization settings",
 			);
 		});
@@ -244,7 +244,7 @@ describe("Custom Provider E2E", () => {
 
 			// Credits mode doesn't support custom providers
 			expect(res.status).toBe(400);
-			expect((await res.json()).message).toContain(
+			expect((await res.json()).error.message).toContain(
 				"Custom providers are not supported in credits mode",
 			);
 		});
@@ -268,7 +268,7 @@ describe("Custom Provider E2E", () => {
 
 			const json = await res.json();
 			expect(res.status).toBe(400);
-			expect(json.message).toContain("not found");
+			expect(json.error.message).toContain("not found");
 		});
 	});
 });

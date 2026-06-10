@@ -34,11 +34,19 @@ There are two ways to control reasoning effort:
 
 Add the `reasoning_effort` parameter directly to your request:
 
+- `none` - Disable reasoning. Supported by OpenAI's newer reasoning models (e.g. `gpt-5.4-mini` and later, which accept `none` instead of `minimal`). For other providers this turns reasoning off.
 - `minimal` - Fastest reasoning with minimal thought process (only for GPT-5 models)
 - `low` - Light reasoning for simpler tasks
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Maximum reasoning depth for the most complex problems
+
+<Callout type="info">
+	OpenAI's reasoning models do not all accept the same effort values. The
+	original GPT-5 models support `minimal`, while newer models (e.g.
+	`gpt-5.4-mini` and later) replace it with `none`. If you send an effort value
+	the target model doesn't support, OpenAI returns an `unsupported_value` error.
+</Callout>
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \

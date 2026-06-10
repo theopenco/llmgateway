@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { getConfig } from "@/lib/config-server";
+import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import type { NextRequest } from "next/server";
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
 	const data = (await res.json()) as { ok: boolean; token?: string };
 	const response = NextResponse.json({ ok: true });
 	if (data?.token) {
-		response.cookies.set("llmgateway_playground_key", data.token, {
+		response.cookies.set(PLAYGROUND_KEY_COOKIE_NAME, data.token, {
 			httpOnly: true,
 			secure: process.env.NODE_ENV === "production",
 			sameSite: "lax",

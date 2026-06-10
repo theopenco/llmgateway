@@ -10,7 +10,7 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "groq",
-				modelName: "moonshotai/kimi-k2-instruct",
+				externalId: "moonshotai/kimi-k2-instruct",
 				// Frequently over capacity on Groq (503)
 				// Ref: https://groqstatus.com
 				stability: "unstable",
@@ -24,10 +24,12 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// 404 model_not_found: moonshotai/kimi-k2-instruct no longer served
+				deactivatedAt: new Date("2026-06-05"),
 			},
 			{
 				providerId: "novita",
-				modelName: "moonshotai/kimi-k2-instruct",
+				externalId: "moonshotai/kimi-k2-instruct",
 				// Streaming tool calls produce malformed JSON arguments
 				stability: "unstable",
 				inputPrice: "0.57e-6",
@@ -42,7 +44,7 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "moonshot",
-				modelName: "kimi-k2-0905-preview",
+				externalId: "kimi-k2-0905-preview",
 				inputPrice: "0.6e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.15e-6",
@@ -53,10 +55,12 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// 404 resource_not_found: kimi-k2-0905-preview no longer served
+				deactivatedAt: new Date("2026-06-05"),
 			},
 			{
 				providerId: "nebius",
-				modelName: "moonshotai/Kimi-K2-Instruct",
+				externalId: "moonshotai/Kimi-K2-Instruct",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.4e-6",
 				requestPrice: "0",
@@ -70,7 +74,7 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "bytedance",
-				modelName: "kimi-k2-250905",
+				externalId: "kimi-k2-250905",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.12e-6",
 				outputPrice: "2.5e-6",
@@ -81,11 +85,13 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				// 404 InvalidEndpointOrModel.NotFound: kimi-k2-250905 no longer served
+				deactivatedAt: new Date("2026-06-05"),
 			},
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "Moonshot-Kimi-K2-Instruct",
+				externalId: "Moonshot-Kimi-K2-Instruct",
 				inputPrice: "0.574e-6",
 				outputPrice: "2.294e-6",
 				regions: [{ id: "cn-beijing" }],
@@ -97,6 +103,7 @@ export const moonshotModels = [
 				tools: true,
 				webSearch: true,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 		],
 	},
@@ -109,7 +116,7 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
-				modelName: "kimi-k2-thinking",
+				externalId: "kimi-k2-thinking",
 				inputPrice: "0.6e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.15e-6",
@@ -124,7 +131,7 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "bytedance",
-				modelName: "kimi-k2-thinking-251104",
+				externalId: "kimi-k2-thinking-251104",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.12e-6",
 				outputPrice: "2.5e-6",
@@ -140,7 +147,7 @@ export const moonshotModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "kimi-k2-thinking",
+				externalId: "kimi-k2-thinking",
 				inputPrice: "0.574e-6",
 				outputPrice: "2.294e-6",
 				regions: [{ id: "cn-beijing" }],
@@ -152,6 +159,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 		],
 	},
@@ -164,7 +172,7 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
-				modelName: "kimi-k2-thinking-turbo",
+				externalId: "kimi-k2-thinking-turbo",
 				// Frequently overloaded (429 engine_overloaded_error)
 				stability: "unstable",
 				inputPrice: "1.15e-6",
@@ -191,7 +199,7 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
-				modelName: "kimi-k2.5",
+				externalId: "kimi-k2.5",
 				inputPrice: "0.6e-6",
 				outputPrice: "3.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -212,7 +220,7 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "moonshotai/Kimi-K2.5",
+				externalId: "moonshotai/Kimi-K2.5",
 				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
 				// Ref: https://status.together.ai
 				// Model page: https://www.together.ai/models/kimi-k2-5
@@ -227,12 +235,13 @@ export const moonshotModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				deprecatedAt: new Date("2026-05-21"),
 			},
 			{
 				providerId: "nebius",
 				// Streaming tool calls and response_format: json_object are unreliable on Nebius
 				stability: "unstable",
-				modelName: "moonshotai/Kimi-K2.5",
+				externalId: "moonshotai/Kimi-K2.5",
 				inputPrice: "0.5e-6",
 				cachedInputPrice: "0.02e-6",
 				outputPrice: "2.5e-6",
@@ -248,7 +257,7 @@ export const moonshotModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				modelName: "kimi-k2.5",
+				externalId: "kimi-k2.5",
 				inputPrice: "0.574e-6",
 				outputPrice: "3.011e-6",
 				regions: [{ id: "cn-beijing" }],
@@ -263,7 +272,7 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "embercloud",
-				modelName: "kimi-k2.5",
+				externalId: "kimi-k2.5",
 				inputPrice: "0.405e-6",
 				outputPrice: "1.98e-6",
 				cachedInputPrice: "0.225e-6",
@@ -294,7 +303,7 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "deepinfra",
-				modelName: "moonshotai/Kimi-K2.5",
+				externalId: "moonshotai/Kimi-K2.5",
 				inputPrice: "0.45e-6",
 				cachedInputPrice: "0.07e-6",
 				outputPrice: "2.25e-6",
@@ -319,7 +328,7 @@ export const moonshotModels = [
 		providers: [
 			{
 				providerId: "moonshot",
-				modelName: "kimi-k2.6",
+				externalId: "kimi-k2.6",
 				inputPrice: "0.95e-6",
 				cachedInputPrice: "0.16e-6",
 				outputPrice: "4.0e-6",
@@ -339,8 +348,23 @@ export const moonshotModels = [
 				],
 			},
 			{
+				providerId: "canopywave",
+				externalId: "moonshotai/kimi-k2.6",
+				inputPrice: "0.5e-6",
+				cachedInputPrice: "0.1e-6",
+				outputPrice: "2.8e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 32768,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "novita",
-				modelName: "moonshotai/kimi-k2.6",
+				externalId: "moonshotai/kimi-k2.6",
 				inputPrice: "0.95e-6",
 				cachedInputPrice: "0.16e-6",
 				outputPrice: "4.0e-6",
@@ -355,7 +379,7 @@ export const moonshotModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "moonshotai/Kimi-K2.6",
+				externalId: "moonshotai/Kimi-K2.6",
 				test: "skip",
 				inputPrice: "1.2e-6",
 				cachedInputPrice: "0.2e-6",

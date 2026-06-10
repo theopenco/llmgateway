@@ -6,10 +6,10 @@ import {
 	Minus,
 	Sparkles,
 } from "lucide-react";
-import Link from "next/link";
 
 import { Faq } from "@/components/Faq";
 import { Footer } from "@/components/Footer";
+import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { CodeCTATracker } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
@@ -17,12 +17,7 @@ import { SoulForgeBoost } from "@/components/SoulForgeBoost";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
 
-import {
-	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
-	DEV_PLAN_PRICES,
-	getDevPlanAnnualPrice,
-	getDevPlanCreditsLimit,
-} from "@llmgateway/shared";
+import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
 
@@ -203,12 +198,6 @@ const usageRows: UsageRow[] = [
 		max: true,
 	},
 	{
-		label: `Annual billing (save ${DEV_PLAN_ANNUAL_DISCOUNT_MONTHS} months)`,
-		lite: true,
-		pro: true,
-		max: true,
-	},
-	{
 		label: "Email support",
 		lite: true,
 		pro: true,
@@ -319,6 +308,13 @@ export default function PricingPage() {
 								max: maxCredits,
 							}}
 						/>
+						<p className="mx-auto mt-6 max-w-3xl text-center text-xs text-muted-foreground">
+							Premium-tier frontier models (Anthropic Opus, OpenAI
+							Pro/reasoning, Gemini Pro, Grok 4) are subject to a weekly
+							fair-use allowance ($10 / $50 / $140 for Lite / Pro / Max) in
+							addition to the monthly credit allowance. All other 190+ models
+							use the full monthly allowance with the 3x multiplier.
+						</p>
 					</div>
 				</section>
 
@@ -350,9 +346,7 @@ export default function PricingPage() {
 													Lite
 												</div>
 												<div className="mt-0.5 text-xs font-normal text-muted-foreground normal-case tracking-normal tabular-nums">
-													${DEV_PLAN_PRICES.lite}/mo · $
-													{getDevPlanAnnualPrice("lite")}
-													/yr
+													${DEV_PLAN_PRICES.lite}/mo
 												</div>
 											</th>
 											<th className="px-5 py-4 text-center font-medium">
@@ -363,17 +357,13 @@ export default function PricingPage() {
 													</span>
 												</div>
 												<div className="mt-0.5 text-xs font-normal text-muted-foreground normal-case tracking-normal tabular-nums">
-													${DEV_PLAN_PRICES.pro}/mo · $
-													{getDevPlanAnnualPrice("pro")}
-													/yr
+													${DEV_PLAN_PRICES.pro}/mo
 												</div>
 											</th>
 											<th className="px-5 py-4 text-center font-medium">
 												<div className="font-semibold text-foreground">Max</div>
 												<div className="mt-0.5 text-xs font-normal text-muted-foreground normal-case tracking-normal tabular-nums">
-													${DEV_PLAN_PRICES.max}/mo · $
-													{getDevPlanAnnualPrice("max")}
-													/yr
+													${DEV_PLAN_PRICES.max}/mo
 												</div>
 											</th>
 										</tr>
@@ -481,14 +471,13 @@ export default function PricingPage() {
 							time, prorated.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-							<CodeCTATracker cta="get_started" location="pricing_bottom_cta">
-								<Button size="lg" className="gap-2 px-8" asChild>
-									<Link href="/signup?plan=pro">
-										Get your DevPass
-										<ArrowRight className="h-4 w-4" />
-									</Link>
-								</Button>
-							</CodeCTATracker>
+							<GetDevPassButton
+								cta="get_started"
+								location="pricing_bottom_cta"
+								signupHref="/signup?plan=pro"
+								showArrow
+								className="gap-2 px-8"
+							/>
 							<Button size="lg" variant="ghost" asChild>
 								<a href="mailto:contact@llmgateway.io">Talk to us</a>
 							</Button>

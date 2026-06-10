@@ -32,6 +32,7 @@ import {
 	getAvalancheApiBaseUrl,
 	getAvalancheJobsApiBaseUrl,
 	getVideoProxyRedisKey,
+	isContentFilterErrorText,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
 import {
@@ -137,6 +138,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "xai":
+			return "https://api.x.ai";
 		case "bytedance":
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
@@ -336,6 +339,7 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 		case "generating":
 			return "in_progress";
 		case "completed":
+		case "done":
 		case "success":
 		case "succeeded":
 			return "completed";
@@ -432,6 +436,7 @@ function extractContentUrl(body: Record<string, unknown>): string | null {
 		body.url,
 		body.video_url,
 		body.output_url,
+		body.video,
 		body.content,
 		body.output,
 	];
@@ -1692,12 +1697,28 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						]
 					: null;
 
+			const isContentFilterFailure =
+				jobToLog.status === "failed" &&
+				isContentFilterErrorText(
+					[jobToLog.error?.code, jobToLog.error?.message]
+						.filter(Boolean)
+						.join(" "),
+				);
+			const failureFinishReason = isContentFilterFailure
+				? "content_filter"
+				: "upstream_error";
+			const failureUnifiedFinishReason = isContentFilterFailure
+				? UnifiedFinishReason.CONTENT_FILTER
+				: UnifiedFinishReason.UPSTREAM_ERROR;
+
 			await tx.insert(tables.log).values({
 				id: logId,
 				requestId: jobToLog.requestId,
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,
+				endUserSessionId: jobToLog.endUserSessionId,
+				endCustomerWalletId: jobToLog.endCustomerWalletId,
 				duration: Math.max(0, Date.now() - jobToLog.createdAt.getTime()),
 				requestedModel: getFormattedRequestedVideoModel(jobToLog),
 				requestedProvider: jobToLog.requestedProvider,
@@ -1710,11 +1731,11 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						? buildGatewayVideoLogContentUrl(logId)
 						: null,
 				finishReason:
-					jobToLog.status === "completed" ? "completed" : "upstream_error",
+					jobToLog.status === "completed" ? "completed" : failureFinishReason,
 				unifiedFinishReason:
 					jobToLog.status === "completed"
 						? UnifiedFinishReason.COMPLETED
-						: UnifiedFinishReason.UPSTREAM_ERROR,
+						: failureUnifiedFinishReason,
 				hasError: jobToLog.status !== "completed",
 				errorDetails: jobToLog.error
 					? {
@@ -1917,6 +1938,7 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "avalanche" ||
+		job.usedProvider === "xai" ||
 		isGoogleVertexVideoProvider(job.usedProvider)
 	) {
 		return null;

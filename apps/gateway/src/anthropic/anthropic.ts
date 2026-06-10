@@ -3,17 +3,30 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
+import {
+	buildAnthropicErrorBody,
+	getAnthropicErrorType,
+} from "@/lib/error-response.js";
+import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
 import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
+import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const anthropic = new OpenAPIHono<ServerTypes>();
 
 const anthropicMessageSchema = z.object({
-	role: z.enum(["user", "assistant", "tool", "function"]),
+	role: z.enum([
+		"system",
+		"developer",
+		"user",
+		"assistant",
+		"tool",
+		"function",
+	]),
 	content: z.union([
 		z.string(),
 		z.array(
@@ -124,6 +137,43 @@ const anthropicRequestSchema = z.object({
 		description: "Whether to stream the response",
 		example: false,
 	}),
+	metadata: z
+		.object({
+			user_id: z.string().optional(),
+		})
+		.passthrough()
+		.optional()
+		.openapi({
+			description:
+				"Anthropic request metadata. Claude Code embeds the session id in user_id, which the gateway uses for sticky routing.",
+		}),
+	thinking: z
+		.object({
+			// Tolerant string (not an enum) so a future Anthropic thinking type
+			// doesn't 400 the request; unknown types simply map to no reasoning.
+			type: z.string(),
+			budget_tokens: z.number().int().positive().optional(),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Anthropic extended-thinking configuration. Mapped onto the gateway's unified reasoning controls so the requested effort reaches the provider.",
+		}),
+	output_config: z
+		.object({
+			// Matches the chat completions reasoning-effort enum. Claude Code emits
+			// the full range (including `xhigh` and `max`), so accept all of them;
+			// `max` is normalized to `high` downstream for client compatibility.
+			effort: z
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+				.optional(),
+		})
+		.passthrough()
+		.optional()
+		.openapi({
+			description:
+				"Anthropic output configuration. `effort` controls adaptive reasoning depth on Opus 4.7+ models.",
+		}),
 });
 
 const anthropicContentBlockSchema = z.object({
@@ -498,8 +548,28 @@ anthropic.openapi(messages, async (c) => {
 		openaiRequest.tools = openaiTools;
 	}
 
+	// Translate Anthropic reasoning controls (extended `thinking` and adaptive
+	// `output_config.effort`) onto the unified reasoning fields the inner
+	// /v1/chat/completions endpoint understands. Without this, native-Anthropic
+	// clients like Claude Code lose reasoning entirely — the field is otherwise
+	// dropped here and never reaches the provider.
+	Object.assign(
+		openaiRequest,
+		mapAnthropicThinkingToReasoning(
+			anthropicRequest.thinking,
+			anthropicRequest.output_config?.effort,
+		),
+	);
+
 	// Get user-agent for forwarding
 	const userAgent = c.req.header("User-Agent") ?? "";
+
+	// Sticky-routing session id: prefer an explicit header, otherwise derive it
+	// from Anthropic's metadata.user_id (Claude Code embeds the session id here)
+	// and forward it to the chat completions endpoint, which routes on it.
+	const sessionId =
+		c.req.header("x-session-id")?.trim() ||
+		extractAnthropicSessionId(anthropicRequest.metadata?.user_id);
 
 	// Make internal request to the existing chat completions endpoint using app.request()
 	const response = await app.request("/v1/chat/completions", {
@@ -513,6 +583,7 @@ anthropic.openapi(messages, async (c) => {
 			"x-source": c.req.header("x-source") ?? "",
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+			...(sessionId ? { "x-session-id": sessionId } : {}),
 		},
 		body: JSON.stringify(openaiRequest),
 	});
@@ -531,14 +602,27 @@ anthropic.openapi(messages, async (c) => {
 			} catch {
 				parsedError = null;
 			}
-			const errorEvent = buildAnthropicErrorEvent(
-				parsedError ?? {
-					error: {
-						message: errorData || response.statusText,
-						type: "api_error",
-					},
+			// Derive the Anthropic error type from the HTTP status so streamed
+			// errors match the non-streaming path. The upstream here is our own
+			// /v1/chat/completions, which returns an OpenAI envelope whose `type`
+			// (e.g. invalid_request_error) would otherwise pass through verbatim.
+			const innerMessage =
+				parsedError &&
+				typeof parsedError === "object" &&
+				"error" in parsedError &&
+				parsedError.error &&
+				typeof parsedError.error === "object" &&
+				"message" in parsedError.error &&
+				typeof parsedError.error.message === "string"
+					? parsedError.error.message
+					: errorData || response.statusText;
+			const errorEvent = buildAnthropicErrorEvent({
+				type: "error",
+				error: {
+					type: getAnthropicErrorType(response.status),
+					message: innerMessage,
 				},
-			);
+			});
 			return streamSSE(c, async (stream) => {
 				await stream.writeSSE({
 					data: JSON.stringify(errorEvent),
@@ -552,11 +636,10 @@ anthropic.openapi(messages, async (c) => {
 		}
 
 		return c.json(
-			{
-				error: true,
-				status: response.status,
+			buildAnthropicErrorBody({
 				message: `Request failed: ${errorData}`,
-			},
+				status: response.status,
+			}),
 			response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
 		);
 	}
@@ -601,6 +684,83 @@ anthropic.openapi(messages, async (c) => {
 				let currentTextBlockIndex: number | null = null;
 				const toolCallBlockIndex = new Map<number, number>();
 				let currentEventType: string | null = null;
+				let stopReason: string | null = null;
+				let contentBlockStopsSent = false;
+				let messageDeltaSent = false;
+
+				const extractUsage = (chunk: any) => {
+					if (!chunk?.usage) {
+						return;
+					}
+					const promptDetails = chunk.usage.prompt_tokens_details ?? {};
+					const cacheRead: number = promptDetails.cached_tokens ?? 0;
+					const cacheCreation: number =
+						promptDetails.cache_write_tokens ??
+						promptDetails.cache_creation_tokens ??
+						0;
+					const totalPrompt: number = chunk.usage.prompt_tokens ?? 0;
+					const nonCachedInput = Math.max(
+						0,
+						totalPrompt - cacheRead - cacheCreation,
+					);
+					const breakdown = promptDetails.cache_creation as
+						| {
+								ephemeral_5m_input_tokens?: number;
+								ephemeral_1h_input_tokens?: number;
+						  }
+						| undefined;
+					usage = {
+						input_tokens: nonCachedInput,
+						output_tokens: chunk.usage.completion_tokens ?? 0,
+						// Match Anthropic's API and always emit both fields
+						// (set to 0 when inapplicable).
+						cache_creation_input_tokens: cacheCreation,
+						cache_read_input_tokens: cacheRead,
+						...(breakdown &&
+							cacheCreation > 0 && {
+								cache_creation: {
+									ephemeral_5m_input_tokens:
+										breakdown.ephemeral_5m_input_tokens ?? 0,
+									ephemeral_1h_input_tokens:
+										breakdown.ephemeral_1h_input_tokens ?? 0,
+								},
+							}),
+					};
+				};
+
+				const sendContentBlockStops = async () => {
+					if (contentBlockStopsSent) {
+						return;
+					}
+					contentBlockStopsSent = true;
+					for (let i = 0; i < contentBlocks.length; i++) {
+						await stream.writeSSE({
+							data: JSON.stringify({
+								type: "content_block_stop",
+								index: i,
+							}),
+							event: "content_block_stop",
+						});
+					}
+				};
+
+				const sendMessageDelta = async () => {
+					if (messageDeltaSent || stopReason === null) {
+						return;
+					}
+					messageDeltaSent = true;
+					await stream.writeSSE({
+						data: JSON.stringify({
+							type: "message_delta",
+							delta: {
+								stop_reason: stopReason,
+								stop_sequence: null,
+							},
+							usage: usage,
+						}),
+						event: "message_delta",
+					});
+				};
 
 				try {
 					while (true) {
@@ -631,6 +791,8 @@ anthropic.openapi(messages, async (c) => {
 							if (line.startsWith("data: ")) {
 								const data = line.slice(6).trim();
 								if (data === "[DONE]") {
+									await sendContentBlockStops();
+									await sendMessageDelta();
 									// Send final Anthropic streaming event
 									await stream.writeSSE({
 										data: JSON.stringify({
@@ -703,6 +865,12 @@ anthropic.openapi(messages, async (c) => {
 										event: "message_start",
 									});
 								}
+
+								// Extract usage from any chunk that carries it. The
+								// upstream chat completions endpoint emits usage in a
+								// separate final chunk (no finish_reason), so we must not
+								// gate this on choices/delta/finish_reason.
+								extractUsage(chunk);
 
 								const choice = chunk.choices?.[0];
 								if (!choice) {
@@ -820,73 +988,27 @@ anthropic.openapi(messages, async (c) => {
 									}
 								}
 
-								// Handle finish_reason
+								// Capture the stop reason and flush content_block_stops,
+								// but defer message_delta until the final usage chunk
+								// (or stream end) so usage is included.
 								if (choice.finish_reason) {
-									// Send content_block_stop events
-									for (let i = 0; i < contentBlocks.length; i++) {
-										await stream.writeSSE({
-											data: JSON.stringify({
-												type: "content_block_stop",
-												index: i,
-											}),
-											event: "content_block_stop",
-										});
-									}
-
-									// Update usage if available
-									if (chunk.usage) {
-										const promptDetails =
-											chunk.usage.prompt_tokens_details ?? {};
-										const cacheRead: number = promptDetails.cached_tokens ?? 0;
-										const cacheCreation: number =
-											promptDetails.cache_write_tokens ??
-											promptDetails.cache_creation_tokens ??
-											0;
-										const totalPrompt: number = chunk.usage.prompt_tokens ?? 0;
-										const nonCachedInput = Math.max(
-											0,
-											totalPrompt - cacheRead - cacheCreation,
-										);
-										const breakdown = promptDetails.cache_creation as
-											| {
-													ephemeral_5m_input_tokens?: number;
-													ephemeral_1h_input_tokens?: number;
-											  }
-											| undefined;
-										usage = {
-											input_tokens: nonCachedInput,
-											output_tokens: chunk.usage.completion_tokens ?? 0,
-											// Match Anthropic's API and always emit both fields
-											// (set to 0 when inapplicable).
-											cache_creation_input_tokens: cacheCreation,
-											cache_read_input_tokens: cacheRead,
-											...(breakdown &&
-												cacheCreation > 0 && {
-													cache_creation: {
-														ephemeral_5m_input_tokens:
-															breakdown.ephemeral_5m_input_tokens ?? 0,
-														ephemeral_1h_input_tokens:
-															breakdown.ephemeral_1h_input_tokens ?? 0,
-													},
-												}),
-										};
-									}
-
-									// Send message_delta with usage
-									await stream.writeSSE({
-										data: JSON.stringify({
-											type: "message_delta",
-											delta: {
-												stop_reason: determineStopReason(choice.finish_reason),
-												stop_sequence: null,
-											},
-											usage: usage,
-										}),
-										event: "message_delta",
-									});
+									stopReason = determineStopReason(choice.finish_reason);
+									await sendContentBlockStops();
 								}
 							}
 						}
+					}
+
+					// Stream ended without an explicit [DONE]. Emit any deferred
+					// terminator events so downstream clients see a well-formed
+					// Anthropic stream.
+					await sendContentBlockStops();
+					await sendMessageDelta();
+					if (stopReason !== null) {
+						await stream.writeSSE({
+							data: JSON.stringify({ type: "message_stop" }),
+							event: "message_stop",
+						});
 					}
 				} catch (error) {
 					throw new HTTPException(500, {

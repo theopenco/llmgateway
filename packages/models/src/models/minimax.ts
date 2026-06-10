@@ -2,6 +2,32 @@ import type { ModelDefinition } from "@/models.js";
 
 export const minimaxModels = [
 	{
+		id: "minimax-m3",
+		name: "MiniMax M3",
+		description:
+			"MiniMax M3 is a multimodal foundation model with 1M token context, native multimodal understanding, and MiniMax Sparse Attention (MSA) for efficient long-context inference.",
+		family: "minimax",
+		releasedAt: new Date("2026-06-01"),
+		providers: [
+			{
+				providerId: "minimax",
+				externalId: "MiniMax-M3",
+				inputPrice: "0.6e-6",
+				cachedInputPrice: "0.12e-6",
+				outputPrice: "2.4e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				splitTaggedReasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "minimax-m2.7",
 		name: "MiniMax M2.7",
 		description:
@@ -10,7 +36,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.7",
+				externalId: "MiniMax-M2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -26,7 +52,7 @@ export const minimaxModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "minimax/minimax-m2.7",
+				externalId: "minimax/minimax-m2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -41,7 +67,7 @@ export const minimaxModels = [
 			},
 			{
 				providerId: "together-ai",
-				modelName: "MiniMaxAI/MiniMax-M2.7",
+				externalId: "MiniMaxAI/MiniMax-M2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -66,7 +92,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.7-highspeed",
+				externalId: "MiniMax-M2.7-highspeed",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "2.4e-6",
@@ -91,7 +117,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.5",
+				externalId: "MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
@@ -102,12 +128,12 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 			{
 				providerId: "novita",
-				modelName: "minimax/minimax-m2.5",
+				externalId: "minimax/minimax-m2.5",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
@@ -123,7 +149,7 @@ export const minimaxModels = [
 			{
 				deactivatedAt: new Date("2026-04-27"),
 				providerId: "together-ai",
-				modelName: "MiniMaxAI/MiniMax-M2.5",
+				externalId: "MiniMaxAI/MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -137,8 +163,12 @@ export const minimaxModels = [
 				jsonOutputSchema: true,
 			},
 			{
+				// Embercloud's upstream routing for this model is broken: streaming
+				// returns finish_reason "error" with null content, and non-streaming
+				// returns "Temporary routing error (400)". Deactivated until fixed.
+				deactivatedAt: new Date("2026-06-03"),
 				providerId: "embercloud",
-				modelName: "minimax-m2.5",
+				externalId: "minimax-m2.5",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.2e-6",
 				cachedInputPrice: "0.04e-6",
@@ -173,7 +203,7 @@ export const minimaxModels = [
 				providerId: "nebius",
 				// Streaming tool calls and response_format: json_object are unreliable on Nebius
 				stability: "unstable",
-				modelName: "MiniMaxAI/MiniMax-M2.5",
+				externalId: "MiniMaxAI/MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -196,7 +226,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.5-highspeed",
+				externalId: "MiniMax-M2.5-highspeed",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "2.4e-6",
@@ -207,7 +237,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -221,7 +251,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2",
+				externalId: "MiniMax-M2",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.0e-6",
@@ -232,7 +262,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -247,7 +277,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.1",
+				externalId: "MiniMax-M2.1",
 				inputPrice: "0.27e-6",
 				outputPrice: "1.1e-6",
 				requestPrice: "0",
@@ -257,13 +287,13 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 			{
 				providerId: "novita",
 				test: "skip",
-				modelName: "minimax/minimax-m2.1",
+				externalId: "minimax/minimax-m2.1",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
@@ -289,7 +319,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.1-lightning",
+				externalId: "MiniMax-M2.1-lightning",
 				inputPrice: "0.12e-6",
 				outputPrice: "0.48e-6",
 				requestPrice: "0",
@@ -299,7 +329,7 @@ export const minimaxModels = [
 				reasoning: true,
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -314,7 +344,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-Text-01",
+				externalId: "MiniMax-Text-01",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.1e-6",
 				requestPrice: "0",
@@ -325,7 +355,7 @@ export const minimaxModels = [
 				splitTaggedReasoning: true,
 				reasoningOutput: "omit",
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],

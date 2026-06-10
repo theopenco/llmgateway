@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { LegalSummary } from "@/components/legal/legal-summary";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import { allLegals } from "content-collections";
@@ -41,6 +42,8 @@ export default async function LegalEntryPage({ params }: LegalEntryPageProps) {
 								Back Home
 							</Link>
 						</div>
+
+						<LegalSummary slug={slug} />
 
 						<article className="prose prose-lg dark:prose-invert max-w-none">
 							<div className="prose prose-lg dark:prose-invert max-w-none">

@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { models } from "@llmgateway/models";
-
 import { calculateCosts } from "./costs.js";
 
 const { mockGetEffectiveDiscount } = vi.hoisted(() => ({
@@ -15,16 +13,14 @@ vi.mock("@llmgateway/db", () => ({
 describe("calculateCosts", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
-		vi.mocked(mockGetEffectiveDiscount).mockImplementation(
-			async (_organizationId, _provider, _model, hardcodedDiscount = 0) => ({
-				discount: hardcodedDiscount,
-				source: hardcodedDiscount > 0 ? "hardcoded" : "none",
-			}),
-		);
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
 	});
 
 	it("should calculate costs with provided token counts", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
+		const result = await calculateCosts("gpt-4", "openai", null, 100, 50, null);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0.0015); // 50 * 0.00003
@@ -36,10 +32,18 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate costs with null token counts but provided text", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
-			prompt: "Hello, how are you?",
-			completion: "I'm doing well, thank you for asking!",
-		});
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+			{
+				prompt: "Hello, how are you?",
+				completion: "I'm doing well, thank you for asking!",
+			},
+		);
 
 		// The exact token counts will depend on the tokenizer, but we can check that they're calculated
 		expect(result.promptTokens).toBeGreaterThan(0);
@@ -51,13 +55,24 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate costs with null token counts but provided chat messages", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
-			messages: [
-				{ role: "user", content: "Hello, how are you?" },
-				{ role: "assistant", content: "I'm doing well, thank you for asking!" },
-			],
-			completion: "I'm doing well, thank you for asking!",
-		});
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+			{
+				messages: [
+					{ role: "user", content: "Hello, how are you?" },
+					{
+						role: "assistant",
+						content: "I'm doing well, thank you for asking!",
+					},
+				],
+				completion: "I'm doing well, thank you for asking!",
+			},
+		);
 
 		// The exact token counts will depend on the tokenizer, but we can check that they're calculated
 		expect(result.promptTokens).toBeGreaterThan(0);
@@ -73,6 +88,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-4",
 			"non-existent-provider",
+			null,
 			100,
 			50,
 			null,
@@ -88,7 +104,14 @@ describe("calculateCosts", () => {
 	});
 
 	it("should return null costs when token counts are null and no text is provided", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null);
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+		);
 
 		expect(result.inputCost).toBeNull();
 		expect(result.outputCost).toBeNull();
@@ -100,7 +123,7 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate costs with cached tokens for OpenAI (prompt_tokens includes cached)", async () => {
-		const result = await calculateCosts("gpt-4o", "openai", 100, 50, 20);
+		const result = await calculateCosts("gpt-4o", "openai", null, 100, 50, 20);
 
 		expect(result.inputCost).toBeCloseTo(0.0002); // (100 - 20) * 0.0000025 = 80 * 0.0000025
 		expect(result.outputCost).toBeCloseTo(0.0005); // 50 * 0.00001
@@ -116,6 +139,7 @@ describe("calculateCosts", () => {
 		const withoutCacheWrite = await calculateCosts(
 			"gpt-4o",
 			"openai",
+			null,
 			100,
 			50,
 			20,
@@ -123,6 +147,7 @@ describe("calculateCosts", () => {
 		const withCacheWrite = await calculateCosts(
 			"gpt-4o",
 			"openai",
+			null,
 			100,
 			50,
 			20,
@@ -155,6 +180,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
+			null,
 			1663,
 			50,
 			0,
@@ -191,6 +217,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
+			null,
 			1004,
 			50,
 			0,
@@ -225,6 +252,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
+			null,
 			1004,
 			50,
 			0,
@@ -251,6 +279,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-haiku-4-5",
 			"aws-bedrock",
+			null,
 			1004,
 			50,
 			0,
@@ -270,17 +299,14 @@ describe("calculateCosts", () => {
 			},
 		);
 
-		const discountMultiplier = 0.8;
-		expect(result.inputCost).toBeCloseTo(4 * (1.0 / 1e6) * discountMultiplier);
-		expect(result.outputCost).toBeCloseTo(
-			50 * (5.0 / 1e6) * discountMultiplier,
-		);
+		expect(result.inputCost).toBeCloseTo(4 * (1.0 / 1e6));
+		expect(result.outputCost).toBeCloseTo(50 * (5.0 / 1e6));
 		const fiveMinuteCacheWriteCost = 300 * (1.25 / 1e6);
 		const oneHourCacheWriteCost = 700 * (2.0 / 1e6);
 		expect(result.cacheWriteInputCost).toBeCloseTo(
-			(fiveMinuteCacheWriteCost + oneHourCacheWriteCost) * discountMultiplier,
+			fiveMinuteCacheWriteCost + oneHourCacheWriteCost,
 		);
-		expect(result.discount).toBeCloseTo(0.2);
+		expect(result.discount).toBeUndefined();
 		expect(result.cacheWriteTokens).toBe(1000);
 	});
 
@@ -289,6 +315,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"claude-3-5-sonnet-20241022",
 			"anthropic",
+			null,
 			1663,
 			50,
 			1659,
@@ -314,6 +341,7 @@ describe("calculateCosts", () => {
 		const resultWithDiscount = await calculateCosts(
 			"gpt-4",
 			"openai",
+			null,
 			100,
 			50,
 			null,
@@ -327,19 +355,17 @@ describe("calculateCosts", () => {
 			null,
 			"openai",
 			"gpt-4",
-			"0",
-			"gpt-4",
 		);
 	});
 
 	it("should not include discount field when no discount applied", async () => {
-		const result = await calculateCosts("gpt-4", "azure", 100, 50, null);
+		const result = await calculateCosts("gpt-4", "azure", null, 100, 50, null);
 
 		expect(result.discount).toBeUndefined();
 	});
 
 	it("should calculate input costs even when output tokens are zero", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, 0, null);
+		const result = await calculateCosts("gpt-4", "openai", null, 100, 0, null);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0); // 0 * 0.00003
@@ -350,7 +376,14 @@ describe("calculateCosts", () => {
 	});
 
 	it("should calculate input costs when completion tokens are null but prompt tokens exist", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, null, null);
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			100,
+			null,
+			null,
+		);
 
 		expect(result.inputCost).toBeCloseTo(0.001); // 100 * 0.00001
 		expect(result.outputCost).toBeCloseTo(0); // 0 * 0.00003 (completion tokens set to 0)
@@ -361,28 +394,36 @@ describe("calculateCosts", () => {
 	});
 
 	it("should include tool results in completion token estimation", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
-			prompt: "What's the weather like?",
-			completion: "", // Empty completion
-			toolResults: [
-				{
-					id: "call_1",
-					type: "function",
-					function: {
-						name: "get_weather",
-						arguments: '{"location": "San Francisco"}',
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+			{
+				prompt: "What's the weather like?",
+				completion: "", // Empty completion
+				toolResults: [
+					{
+						id: "call_1",
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: '{"location": "San Francisco"}',
+						},
 					},
-				},
-				{
-					id: "call_2",
-					type: "function",
-					function: {
-						name: "get_temperature",
-						arguments: '{"location": "New York", "units": "celsius"}',
+					{
+						id: "call_2",
+						type: "function",
+						function: {
+							name: "get_temperature",
+							arguments: '{"location": "New York", "units": "celsius"}',
+						},
 					},
-				},
-			],
-		});
+				],
+			},
+		);
 
 		// Should calculate tokens for tool calls even with empty completion
 		expect(result.promptTokens).toBeGreaterThan(3);
@@ -394,22 +435,30 @@ describe("calculateCosts", () => {
 	});
 
 	it("should handle tool results with missing function data gracefully", async () => {
-		const result = await calculateCosts("gpt-4", "openai", null, null, null, {
-			prompt: "What's the weather like?",
-			completion: "Here's the weather:",
-			toolResults: [
-				{ id: "call_1", type: "function" } as any, // Missing function data
-				{ id: "call_2", type: "function", function: {} as any }, // Missing name and arguments
-				{
-					id: "call_3",
-					type: "function",
-					function: {
-						name: "get_weather",
-						arguments: '{"location": "Paris"}',
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			null,
+			null,
+			null,
+			{
+				prompt: "What's the weather like?",
+				completion: "Here's the weather:",
+				toolResults: [
+					{ id: "call_1", type: "function" } as any, // Missing function data
+					{ id: "call_2", type: "function", function: {} as any }, // Missing name and arguments
+					{
+						id: "call_3",
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: '{"location": "Paris"}',
+						},
 					},
-				},
-			],
-		});
+				],
+			},
+		);
 
 		// Should still work with partial tool result data
 		expect(result.promptTokens).toBeGreaterThan(0);
@@ -424,6 +473,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
 			"google-ai-studio",
+			null,
 			1000,
 			700, // completionTokens includes reasoning for Google
 			null,
@@ -447,6 +497,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
 			"google-ai-studio",
+			null,
 			1000,
 			500,
 			null,
@@ -465,6 +516,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
+			null,
 			1000, // text prompt tokens
 			500, // completion tokens
 			null, // no cached tokens
@@ -494,6 +546,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
+			null,
 			1000, // text prompt tokens
 			2500, // completion tokens (includes 1120 * 2 = 2240 image tokens for 2 images)
 			null, // no cached tokens
@@ -517,10 +570,290 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	describe("service tiers (Flex / Priority)", () => {
+		it("applies the Priority multiplier (1.8x) to token costs", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00125 * 1.8); // 0.00225
+			expect(result.outputCost).toBeCloseTo(0.007 * 1.8); // 0.0126
+			expect(result.totalCost).toBeCloseTo((0.00125 + 0.007) * 1.8);
+		});
+
+		it("applies the Flex multiplier (0.5x) to token costs", async () => {
+			const result = await calculateCosts(
+				"gemini-3.5-flash",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.0015 * 0.5);
+			expect(result.outputCost).toBeCloseTo(0.0063 * 0.5);
+		});
+
+		it("applies Google AI Studio Flex multipliers to configured models", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-ai-studio",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00125 * 0.5);
+			expect(result.outputCost).toBeCloseTo(0.007 * 0.5);
+			expect(result.totalCost).toBeCloseTo((0.00125 + 0.007) * 0.5);
+		});
+
+		it("applies model-specific OpenAI Priority multipliers", async () => {
+			const result = await calculateCosts(
+				"gpt-5.4",
+				"openai",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			const standardInputCost = 800 * 2.5e-6;
+			const standardCachedInputCost = 200 * 0.25e-6;
+			const standardOutputCost = 700 * 15e-6;
+			const standardCost =
+				standardInputCost + standardCachedInputCost + standardOutputCost;
+			expect(result.inputCost).toBeCloseTo(standardInputCost * 2, 8);
+			expect(result.cachedInputCost).toBeCloseTo(
+				standardCachedInputCost * 2,
+				8,
+			);
+			expect(result.outputCost).toBeCloseTo(standardOutputCost * 2, 8);
+			expect(result.totalCost).toBeCloseTo(standardCost * 2, 8);
+		});
+
+		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: null },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00125);
+			expect(result.outputCost).toBeCloseTo(0.007);
+		});
+
+		it("scales image output cost by the served tier (Flex honored on image model)", async () => {
+			const result = await calculateCosts(
+				"gemini-3-pro-image-preview",
+				"google-vertex",
+				null,
+				1000,
+				2500,
+				null,
+				undefined,
+				null,
+				2,
+				"1K",
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			// image output 2240 tokens * 120e-6 * 0.5 (Flex)
+			expect(result.imageOutputCost).toBeCloseTo(0.2688 * 0.5);
+		});
+
+		it("does not scale flat web-search fees by the tier", async () => {
+			const result = await calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				1, // webSearchCount
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			// token costs scale 1.8x, but the per-search fee stays flat at $0.035
+			expect(result.inputCost).toBeCloseTo(0.00125 * 1.8);
+			expect(result.webSearchCost).toBeCloseTo(0.035);
+		});
+
+		it("ignores the tier for providers without configured service tiers", async () => {
+			const result = await calculateCosts(
+				"claude-3-5-sonnet-20241022",
+				"anthropic",
+				null,
+				100,
+				50,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.0003);
+			expect(result.outputCost).toBeCloseTo(0.00075);
+		});
+
+		it("ignores the tier for model mappings without configured service tier support", async () => {
+			const result = await calculateCosts(
+				"gpt-4",
+				"openai",
+				null,
+				100,
+				50,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.001);
+			expect(result.outputCost).toBeCloseTo(0.0015);
+		});
+
+		it("ignores Google AI Studio tiers for unsupported model mappings", async () => {
+			const result = await calculateCosts(
+				"gemini-3.1-flash-image-preview",
+				"google-ai-studio",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "flex" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.00025);
+			expect(result.outputCost).toBeCloseTo(0.00105);
+		});
+
+		it("ignores Google Vertex tiers outside the global endpoint", async () => {
+			const result = await calculateCosts(
+				"gemini-3.5-flash",
+				"google-vertex",
+				"us-central1",
+				1000,
+				700,
+				null,
+				undefined,
+				200,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.0015);
+			expect(result.outputCost).toBeCloseTo(0.0063);
+		});
+	});
+
 	it("should use reported image output tokens for gpt-image-2", async () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"openai",
+			null,
 			1000,
 			2000,
 			null,
@@ -560,6 +893,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"openai",
+			null,
 			promptTokens,
 			completionTokens,
 			null, // cachedTokens
@@ -593,7 +927,7 @@ describe("calculateCosts", () => {
 		);
 	});
 
-	it("should apply azure discount on top of split image/text input pricing for gpt-image-2", async () => {
+	it("should split azure image/text input pricing for gpt-image-2", async () => {
 		const promptTokens = 524;
 		const reportedImageInputTokens = 512;
 		const completionTokens = 196;
@@ -602,6 +936,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"azure",
+			null,
 			promptTokens,
 			completionTokens,
 			null,
@@ -617,20 +952,10 @@ describe("calculateCosts", () => {
 			reportedImageOutputTokens,
 		);
 
-		// Read discount from the model definition so the test stays correct
-		// even if the azure discount value changes.
-		const azureProvider = models
-			.find((m) => m.id === "gpt-image-2")
-			?.providers.find((p) => p.providerId === "azure");
-		const discountMultiplier = 1 - Number(azureProvider?.discount ?? "0");
 		const expectedTextInputCost =
-			(promptTokens - reportedImageInputTokens) *
-			(5 / 1e6) *
-			discountMultiplier;
-		const expectedImageInputCost =
-			reportedImageInputTokens * (8 / 1e6) * discountMultiplier;
-		const expectedImageOutputCost =
-			reportedImageOutputTokens * (30 / 1e6) * discountMultiplier;
+			(promptTokens - reportedImageInputTokens) * (5 / 1e6);
+		const expectedImageInputCost = reportedImageInputTokens * (8 / 1e6);
+		const expectedImageOutputCost = reportedImageOutputTokens * (30 / 1e6);
 
 		expect(result.imageInputTokens).toBe(reportedImageInputTokens);
 		expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
@@ -638,6 +963,7 @@ describe("calculateCosts", () => {
 			expectedTextInputCost + expectedImageInputCost,
 		);
 		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
+		expect(result.discount).toBeUndefined();
 	});
 
 	it("should split cached tokens between text and image rates for gpt-image-2", async () => {
@@ -652,6 +978,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"openai",
+			null,
 			promptTokens,
 			0, // completionTokens
 			cachedTokens,
@@ -699,6 +1026,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gpt-image-2",
 			"openai",
+			null,
 			promptTokens,
 			0,
 			cachedTokens,
@@ -740,14 +1068,21 @@ describe("calculateCosts", () => {
 		// gpt-4o has imageInputPrice but no cachedImageInputPrice and no
 		// output: ["image"], so the apportionment branch must NOT fire.
 		// All cached tokens stay billed at cachedInputPrice.
-		const result = await calculateCosts("gpt-4o", "openai", 1000, 100, 200);
+		const result = await calculateCosts(
+			"gpt-4o",
+			"openai",
+			null,
+			1000,
+			100,
+			200,
+		);
 
 		expect(result.cachedInputCost).toBeCloseTo(200 * (1.25 / 1e6));
 		expect(result.imageInputTokens).toBeNull();
 	});
 
 	it("should return null for all image fields when no images", async () => {
-		const result = await calculateCosts("gpt-4", "openai", 100, 50, null);
+		const result = await calculateCosts("gpt-4", "openai", null, 100, 50, null);
 
 		expect(result.imageInputTokens).toBeNull();
 		expect(result.imageOutputTokens).toBeNull();
@@ -760,6 +1095,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3.1-flash-image-preview",
 			"google-ai-studio",
+			null,
 			1000,
 			800, // completion tokens (includes 747 image tokens for 1 image)
 			null,
@@ -783,6 +1119,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3.1-flash-image-preview",
 			"google-ai-studio",
+			null,
 			1000,
 			5100, // completion tokens (includes 2520 * 2 = 5040 image tokens)
 			null,
@@ -806,6 +1143,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
+			null,
 			1000,
 			2100,
 			null,
@@ -829,6 +1167,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3.1-flash-image-preview",
 			"google-ai-studio",
+			null,
 			1000,
 			1200, // includes 1120 image tokens
 			null,
@@ -849,6 +1188,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-3-pro-image-preview",
 			"google-ai-studio",
+			null,
 			1000, // text prompt tokens
 			2500, // completion tokens
 			null, // no cached tokens
@@ -885,6 +1225,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.5-flash-lite",
 			"google-ai-studio",
+			null,
 			promptTokens,
 			0,
 			cachedTokens,
@@ -913,6 +1254,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.5-flash",
 			"google-ai-studio",
+			null,
 			audioInputTokens, // entire prompt is audio
 			0,
 			cachedTokens,
@@ -945,6 +1287,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"gemini-2.0-flash",
 			"google-ai-studio",
+			null,
 			promptTokens,
 			0,
 			cachedTokens,
@@ -980,7 +1323,14 @@ describe("calculateCosts", () => {
 		// arithmetic on these prices produces values like 2.5000000000000004e-7
 		// (when 5 * 0.6/1e6 is computed naively). The Decimal-backed pipeline
 		// must return the exact decimal value at the serialisation boundary.
-		const result = await calculateCosts("gpt-4o-mini", "openai", 7, 3, null);
+		const result = await calculateCosts(
+			"gpt-4o-mini",
+			"openai",
+			null,
+			7,
+			3,
+			null,
+		);
 
 		// 7 * 0.15/1e6 = 0.00000105
 		expect(result.inputCost).toBe(1.05e-6);
@@ -998,6 +1348,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"grok-3",
 			"xai",
+			null,
 			100,
 			0,
 			null,
@@ -1022,6 +1373,7 @@ describe("calculateCosts", () => {
 		const result = await calculateCosts(
 			"grok-3",
 			"xai",
+			null,
 			100,
 			0,
 			null,
@@ -1055,6 +1407,7 @@ describe("calculateCosts", () => {
 			const result = await calculateCosts(
 				"qwen-plus",
 				"alibaba",
+				null,
 				cachedTokens,
 				0,
 				cachedTokens,
@@ -1067,6 +1420,7 @@ describe("calculateCosts", () => {
 			const result = await calculateCosts(
 				"qwen-plus",
 				"alibaba",
+				null,
 				cachedTokens,
 				0,
 				cachedTokens,
@@ -1094,6 +1448,7 @@ describe("calculateCosts", () => {
 			const explicit = await calculateCosts(
 				"gpt-4",
 				"openai",
+				null,
 				promptTokens,
 				0,
 				cached,
@@ -1112,6 +1467,7 @@ describe("calculateCosts", () => {
 			const implicit = await calculateCosts(
 				"gpt-4",
 				"openai",
+				null,
 				promptTokens,
 				0,
 				cached,

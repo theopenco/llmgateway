@@ -11,7 +11,37 @@ import {
 	type PricingTier,
 	type ToolCall,
 	expandAllProviderRegions,
+	getSupportedServiceTiers,
 } from "@llmgateway/models";
+
+/**
+ * Resolve the price multiplier for a served processing tier (Flex / Priority).
+ * The tier is what the provider actually served — Vertex reports it via
+ * `usageMetadata.trafficType`, AI Studio via the `x-gemini-service-tier`
+ * response header — NOT what the caller requested, since Google silently
+ * downgrades unsupported tiers to standard. Returns 1 (no change) for the
+ * standard tier, unknown tiers, or model mappings without configured support.
+ */
+function getServiceTierMultiplier(
+	model: string,
+	provider: string,
+	region: string | null,
+	servedServiceTier: string | null | undefined,
+	providerMapping?: ProviderModelMapping,
+): number {
+	if (!servedServiceTier) {
+		return 1;
+	}
+	const mappingMultiplier =
+		providerMapping?.serviceTierMultipliers?.[servedServiceTier];
+	if (mappingMultiplier !== undefined) {
+		return mappingMultiplier;
+	}
+	const tier = getSupportedServiceTiers(model, provider, region).find(
+		(t) => t.id === servedServiceTier,
+	);
+	return tier?.multiplier ?? 1;
+}
 
 interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
@@ -97,15 +127,25 @@ function getPricingForTokenCount(
 }
 
 /**
- * Calculate costs based on model, provider, and token counts
- * If promptTokens or completionTokens are not available, it will try to calculate them
- * from the fullOutput parameter if provided
+ * Calculate costs based on model, provider, region, and token counts.
+ * If promptTokens or completionTokens are not available, it will try to
+ * calculate them from the fullOutput parameter if provided.
  *
- * @param organizationId - Optional organization ID for org-specific discounts
+ * @param model - Root model id from `ModelDefinition.id`. Callers MUST pass
+ *   the canonical root id, never the provider-specific upstream id
+ *   (`externalId`). The upstream id is only ever for sending to the provider
+ *   API; pricing/discount/rate-limit lookups all key on the root id.
+ * @param provider - Provider id (e.g. "openai", "anthropic"). Required for
+ *   per-provider pricing resolution.
+ * @param region - Region id when the provider mapping defines per-region
+ *   pricing (e.g. "cn-beijing", "singapore"). Pass `null` when the model is
+ *   not region-keyed.
+ * @param organizationId - Optional organization ID for org-specific discounts.
  */
 export async function calculateCosts(
 	model: string,
 	provider: string,
+	region: string | null,
 	promptTokens: number | null,
 	completionTokens: number | null,
 	cachedTokens: number | null = null,
@@ -136,6 +176,16 @@ export async function calculateCosts(
 		 * that rate for cached read tokens when this flag is set.
 		 */
 		explicitCacheUsed?: boolean;
+		/**
+		 * The processing tier the provider actually served (e.g. "flex" /
+		 * "priority"), resolved from the upstream response — Vertex's
+		 * `usageMetadata.trafficType` or AI Studio's `x-gemini-service-tier`
+		 * header. Token costs are scaled by the tier's multiplier. Null/undefined
+		 * (the standard tier) leaves pricing unchanged. We deliberately bill on the
+		 * served tier rather than the requested one because Google downgrades
+		 * unsupported tiers to standard.
+		 */
+		servedServiceTier?: string | null;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -144,21 +194,12 @@ export async function calculateCosts(
 	const audioInputTokens = options?.audioInputTokens ?? null;
 	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
+	const servedServiceTier = options?.servedServiceTier ?? null;
 
-	// Find the model info - try both base model name and provider model name
-	// Strip :region suffix if present (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
-	const baseModel = model.includes(":") ? model.split(":")[0] : model;
-	let modelInfo = models.find(
-		(m) => m.id === model || m.id === baseModel,
-	) as ModelDefinition;
-
-	if (!modelInfo) {
-		modelInfo = models.find((m) =>
-			m.providers.some(
-				(p) => p.modelName === model || p.modelName === baseModel,
-			),
-		) as ModelDefinition;
-	}
+	// Look up the model definition by the canonical root id only.
+	// externalId-based lookups are intentionally not supported here — the
+	// upstream provider id must never leak into pricing/discount lookups.
+	const modelInfo = models.find((m) => m.id === model) as ModelDefinition;
 
 	if (!modelInfo) {
 		return {
@@ -221,10 +262,10 @@ export async function calculateCosts(
 			// Include tool results if available
 			if (fullOutput.toolResults && Array.isArray(fullOutput.toolResults)) {
 				for (const toolResult of fullOutput.toolResults) {
-					if (toolResult.function?.name) {
+					if (toolResult?.function?.name) {
 						completionText += toolResult.function.name;
 					}
-					if (toolResult.function?.arguments) {
+					if (toolResult?.function?.arguments) {
 						completionText += JSON.stringify(toolResult.function.arguments);
 					}
 				}
@@ -267,19 +308,36 @@ export async function calculateCosts(
 	// Set completion tokens to 0 if not available (but still calculate input costs)
 	calculatedCompletionTokens ??= 0;
 
-	// Find the provider-specific pricing
-	// Expand region entries so we can match the specific region's pricing
+	// Find the provider-specific pricing, keyed by providerId + region.
+	// Region matters when a single root model id has multiple per-region
+	// entries with different prices (see `regions:` on ProviderModelMapping);
+	// expandAllProviderRegions flattens those into one mapping per region.
+	//
+	// For regionalized providers we MUST match the exact region — falling back
+	// to the non-regional/base entry would bill at the default rate even when
+	// the caller named a region that doesn't exist on this provider, which
+	// silently masks the misroute. Only fall back to the non-regional entry
+	// when the provider has no regional variants at all.
 	const expandedProviders = expandAllProviderRegions(
 		modelInfo.providers as ProviderModelMapping[],
 	);
-	const providerInfo =
-		expandedProviders.find(
-			(p) => p.providerId === provider && p.modelName === model,
-		) ??
-		expandedProviders.find(
-			(p) => p.providerId === provider && p.modelName === baseModel,
-		) ??
-		expandedProviders.find((p) => p.providerId === provider);
+	const providerEntries = expandedProviders.filter(
+		(p) => p.providerId === provider,
+	);
+	const isBaseEntry = (p: (typeof providerEntries)[number]) =>
+		p.region === undefined || p.region === null;
+	const hasRegionalEntries = providerEntries.some((p) => !isBaseEntry(p));
+	let providerInfo: (typeof providerEntries)[number] | undefined;
+	if (region !== null) {
+		providerInfo = providerEntries.find((p) => p.region === region);
+		// Region was requested but doesn't match any regional variant. For a
+		// regionalized provider, bail out rather than billing at the base rate.
+		if (!providerInfo && !hasRegionalEntries) {
+			providerInfo = providerEntries.find(isBaseEntry);
+		}
+	} else {
+		providerInfo = providerEntries.find(isBaseEntry) ?? providerEntries[0];
+	}
 
 	if (!providerInfo) {
 		return {
@@ -343,18 +401,32 @@ export async function calculateCosts(
 			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
-	// Get effective discount (checks org-specific, global, then hardcoded)
-	// Pass both the root model ID and the provider-specific model name for matching
-	const hardcodedDiscount = providerInfo.discount ?? "0";
+	// Discounts are keyed by the root model ID only.
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
 		model,
-		hardcodedDiscount,
-		providerInfo.modelName, // Provider-specific model name for discount matching
 	);
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
+
+	// Flex / Priority processing tiers scale every per-token price uniformly.
+	// They do NOT affect per-request, web-search, or content-filter fees, so token
+	// costs use `tokenDiscountMultiplier` while those flat fees keep the plain
+	// `discountMultiplier`. When the served tier is standard/unknown the
+	// multiplier is 1 and behavior is unchanged.
+	const serviceTierMultiplier = new Decimal(
+		getServiceTierMultiplier(
+			model,
+			provider,
+			region,
+			servedServiceTier,
+			providerInfo,
+		),
+	);
+	const tokenDiscountMultiplier = discountMultiplier.times(
+		serviceTierMultiplier,
+	);
 
 	// Resolve the tokens-per-image for the given imageSize from a resolution map.
 	function resolveTokensPerImage(
@@ -454,7 +526,7 @@ export async function calculateCosts(
 	if (imageInputTokens && imageInputPricePerToken) {
 		imageInputCost = new Decimal(uncachedImageTokens)
 			.times(imageInputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	// Audio input tokens are reported separately by Google and OpenAI but are
 	// included in the upstream prompt-token total, so we subtract them from the
@@ -470,7 +542,7 @@ export async function calculateCosts(
 	if (billableAudioInputTokens > 0 && audioInputPricePerToken) {
 		audioInputCost = new Decimal(billableAudioInputTokens)
 			.times(audioInputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	const billableTextPromptTokens = Math.max(
 		0,
@@ -481,7 +553,7 @@ export async function calculateCosts(
 	// inputCost includes text, image, and audio input costs when applicable
 	const inputCost = new Decimal(billableTextPromptTokens)
 		.times(inputPrice)
-		.times(discountMultiplier)
+		.times(tokenDiscountMultiplier)
 		.plus(imageInputCost ?? 0)
 		.plus(audioInputCost ?? 0);
 
@@ -523,15 +595,15 @@ export async function calculateCosts(
 
 		imageOutputCost = new Decimal(imageOutputTokens)
 			.times(imageOutputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 		outputCost = new Decimal(textTokens)
 			.times(outputPrice)
-			.times(discountMultiplier)
+			.times(tokenDiscountMultiplier)
 			.plus(imageOutputCost);
 	} else {
 		outputCost = new Decimal(totalOutputTokens)
 			.times(outputPrice)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	const cachedImageInputPriceDecimal =
 		cachedImageInputPricePerToken !== undefined
@@ -552,7 +624,7 @@ export async function calculateCosts(
 						cachedInputAudioPriceDecimal,
 					),
 				)
-				.times(discountMultiplier)
+				.times(tokenDiscountMultiplier)
 		: new Decimal(0);
 	// `cacheWriteTokens` is the total cache-creation tokens (5m + 1h).
 	// `cacheWrite1hTokens` is the 1h subset; the remainder is treated as 5m.
@@ -575,7 +647,7 @@ export async function calculateCosts(
 						cacheWriteInputPrice1h ?? cacheWriteInputPrice,
 					),
 				)
-				.times(discountMultiplier)
+				.times(tokenDiscountMultiplier)
 		: new Decimal(0);
 	const requestCost = requestPrice.times(discountMultiplier);
 

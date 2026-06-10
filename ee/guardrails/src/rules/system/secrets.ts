@@ -27,6 +27,28 @@ const SECRET_PATTERNS = [
 	/\b(password|passwd|pwd)[=:]\s*['"]?[^\s'"]{8,}['"]?\b/i,
 ];
 
+export function redactSecrets(content: string): {
+	redacted: string;
+	patterns: string[];
+} {
+	let redacted = content;
+	const patterns: string[] = [];
+
+	for (const pattern of SECRET_PATTERNS) {
+		const globalPattern = new RegExp(
+			pattern.source,
+			pattern.global ? pattern.flags : pattern.flags + "g",
+		);
+		const matches = redacted.match(globalPattern);
+		if (matches) {
+			patterns.push(...matches.map(() => "Secret"));
+			redacted = redacted.replace(globalPattern, "[SECRET_REDACTED]");
+		}
+	}
+
+	return { redacted, patterns };
+}
+
 export const secretsRule: SystemRule = {
 	id: "system:secrets",
 	name: "Secrets Detection",

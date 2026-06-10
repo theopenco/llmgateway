@@ -1,5 +1,7 @@
 import { ImageResponse } from "next/og";
 
+import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
+import { fetchModelDiscounts } from "@/lib/fetch-models";
 import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
@@ -21,6 +23,7 @@ export const size = {
 	height: 630,
 };
 export const contentType = "image/png";
+export const revalidate = 60;
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -28,6 +31,7 @@ interface ImageProps {
 
 function getEffectivePricePerMillion(
 	mapping: ProviderModelMapping | undefined,
+	discount: number,
 ) {
 	if (
 		!mapping?.inputPrice &&
@@ -42,7 +46,6 @@ function getEffectivePricePerMillion(
 			return undefined;
 		}
 		const base = Number(price) * 1e6;
-		const discount = Number(mapping?.discount ?? "0");
 		if (!discount) {
 			return { original: base, discounted: base };
 		}
@@ -109,7 +112,18 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						? GoogleStudioAIIconStatic
 						: getProviderIcon(selectedMapping.providerId)
 			: null;
-		const pricing = getEffectivePricePerMillion(selectedMapping);
+		const discounts = await fetchModelDiscounts(decodedName);
+		const effectiveDiscount = selectedMapping
+			? getEffectiveProviderDiscount(
+					discounts,
+					selectedMapping.providerId,
+					decodedName,
+				)
+			: undefined;
+		const discountNum = discountFraction(effectiveDiscount);
+
+		const hasPricingTiers = (selectedMapping?.pricingTiers?.length ?? 0) > 1;
+		const pricing = getEffectivePricePerMillion(selectedMapping, discountNum);
 		const requestPrice =
 			selectedMapping?.requestPrice !== undefined
 				? Number(selectedMapping.requestPrice)
@@ -122,10 +136,6 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					]),
 				)
 			: undefined;
-		const discountNum =
-			selectedMapping?.discount !== undefined
-				? Number(selectedMapping.discount)
-				: undefined;
 		const isVideoGen = selectedMapping?.videoGenerations === true;
 		const isImageGen = selectedMapping?.imageGenerations === true;
 		const hasTokenPricing =
@@ -497,7 +507,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 											letterSpacing: "0.05em",
 										}}
 									>
-										Input
+										{hasPricingTiers ? "Input (starting at)" : "Input"}
 									</span>
 									{formatDollars(pricing?.input ?? undefined, discountNum)}
 								</div>
@@ -525,7 +535,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 											letterSpacing: "0.05em",
 										}}
 									>
-										Output
+										{hasPricingTiers ? "Output (starting at)" : "Output"}
 									</span>
 									{formatDollars(pricing?.output ?? undefined, discountNum)}
 								</div>

@@ -56,7 +56,8 @@ interface ProviderKeysListProps {
 
 function formatOptionLabel(key: string, value: string): string {
 	const labels: Record<string, string> = {
-		aws_bedrock_region_prefix: "Region",
+		aws_bedrock_region_prefix: "Cross-Region Prefix",
+		aws_bedrock_region: "Region",
 		azure_resource: "Resource",
 		azure_api_version: "API Version",
 		azure_deployment_type: "Deployment",

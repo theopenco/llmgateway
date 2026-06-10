@@ -65,21 +65,16 @@ export function getCheapestModelForProvider(
 	// This ensures providers that only have free models can still be validated
 	const modelsToConsider = paidModels.length > 0 ? paidModels : availableModels;
 
-	let cheapestModel = modelsToConsider[0].provider.modelName;
+	let cheapestModel = modelsToConsider[0].provider.externalId;
 	let lowestPrice: Decimal | null = null;
 
 	for (const { provider: providerInfo } of modelsToConsider) {
-		const discount = new Decimal(
-			(providerInfo as ProviderModelMapping).discount ?? "0",
-		);
-		const discountMultiplier = new Decimal(1).minus(discount);
 		const totalPrice = new Decimal(providerInfo.inputPrice!)
 			.plus(providerInfo.outputPrice!)
-			.div(2)
-			.times(discountMultiplier);
+			.div(2);
 		if (lowestPrice === null || totalPrice.lt(lowestPrice)) {
 			lowestPrice = totalPrice;
-			cheapestModel = providerInfo.modelName;
+			cheapestModel = providerInfo.externalId;
 		}
 	}
 

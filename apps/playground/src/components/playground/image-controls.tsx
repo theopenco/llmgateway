@@ -99,6 +99,16 @@ export function ImageControls({
 	const primaryModel = selectedModels[0] ?? "";
 	const config = getModelImageConfig(primaryModel);
 	const maxInputImages = config.maxInputImages;
+	const filteredAspectRatios = config.supportedAspectRatios ?? aspectRatios;
+
+	useEffect(() => {
+		if (
+			config.supportedAspectRatios &&
+			!config.supportedAspectRatios.includes(imageAspectRatio)
+		) {
+			setImageAspectRatio("auto");
+		}
+	}, [config.supportedAspectRatios, imageAspectRatio, setImageAspectRatio]);
 
 	const addImageFile = useCallback(
 		(file: File) => {
@@ -328,7 +338,7 @@ export function ImageControls({
 									<SelectValue placeholder="Aspect ratio" />
 								</SelectTrigger>
 								<SelectContent>
-									{aspectRatios.map((r) => (
+									{filteredAspectRatios.map((r) => (
 										<SelectItem key={r} value={r}>
 											<span className="flex items-center gap-2">
 												<AspectRatioIcon ratio={r} />
@@ -338,18 +348,20 @@ export function ImageControls({
 									))}
 								</SelectContent>
 							</Select>
-							<Select value={imageSize} onValueChange={setImageSize}>
-								<SelectTrigger size="sm" className="min-w-[80px]">
-									<SelectValue placeholder="Resolution" />
-								</SelectTrigger>
-								<SelectContent>
-									{config.availableSizes.map((size) => (
-										<SelectItem key={size} value={size}>
-											{size}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+							{!config.isReve && (
+								<Select value={imageSize} onValueChange={setImageSize}>
+									<SelectTrigger size="sm" className="min-w-[80px]">
+										<SelectValue placeholder="Resolution" />
+									</SelectTrigger>
+									<SelectContent>
+										{config.availableSizes.map((size) => (
+											<SelectItem key={size} value={size}>
+												{size}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							)}
 						</>
 					)}
 					{config.usesPixelDimensions && config.isGptImage && (

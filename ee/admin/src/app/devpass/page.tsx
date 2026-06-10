@@ -5,6 +5,8 @@ import {
 	ArrowUpDown,
 	ChevronLeft,
 	ChevronRight,
+	Info,
+	RotateCcw,
 	Search,
 	TrendingDown,
 	TrendingUp,
@@ -28,6 +30,11 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -45,6 +52,9 @@ const SORT_BY_VALUES = [
 	"margin",
 	"mrr",
 	"creditsUsed",
+	"allTimeRevenue",
+	"allTimeCost",
+	"allTimeMargin",
 ] as const;
 type SortBy = (typeof SORT_BY_VALUES)[number];
 
@@ -438,6 +448,7 @@ export default async function DevpassPage({
 	}
 
 	const kpis = data.kpis;
+	const grossMrrAfterRefunds = kpis.grossMrr - kpis.refundedAmountThisMonth;
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -454,7 +465,7 @@ export default async function DevpassPage({
 				</Suspense>
 			</header>
 
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 						<Users className="h-3.5 w-3.5" />
@@ -482,8 +493,52 @@ export default async function DevpassPage({
 						<Wallet className="h-3.5 w-3.5" />
 						Gross MRR
 					</div>
-					<div className="mt-2 text-2xl font-semibold tabular-nums">
-						{currencyFormatter.format(kpis.grossMrr)}
+					<div className="mt-2 flex items-baseline gap-2">
+						<span className="text-2xl font-semibold tabular-nums">
+							{currencyFormatter.format(kpis.grossMrr)}
+						</span>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<span
+									className={cn(
+										"inline-flex cursor-help items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+										kpis.committedMrr !== kpis.grossMrr
+											? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+											: "border-border/60 bg-muted/40 text-muted-foreground",
+									)}
+								>
+									<Info className="h-3 w-3" />
+									{currencyFormatter.format(kpis.committedMrr)} committed
+								</span>
+							</TooltipTrigger>
+							<TooltipContent className="max-w-xs">
+								Forward-looking MRR after pending churn. Excludes subs flagged
+								to cancel at period end (still billed by Stripe this cycle, but
+								gone next cycle).
+							</TooltipContent>
+						</Tooltip>
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						Net after refunds this month:{" "}
+						<span
+							className={cn(
+								"font-medium tabular-nums",
+								grossMrrAfterRefunds < kpis.grossMrr
+									? "text-rose-600 dark:text-rose-400"
+									: "",
+							)}
+						>
+							{currencyFormatter.format(grossMrrAfterRefunds)}
+						</span>
+						{kpis.refundedAmountThisMonth > 0 ? (
+							<>
+								{" "}
+								after {currencyFormatter.format(
+									kpis.refundedAmountThisMonth,
+								)}{" "}
+								refunded
+							</>
+						) : null}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
 						Net new this month:{" "}
@@ -501,6 +556,26 @@ export default async function DevpassPage({
 							{kpis.netNewThisMonth}
 						</span>{" "}
 						({kpis.startsThisMonth} starts / {kpis.endsThisMonth} ends)
+					</div>
+				</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+						<RotateCcw className="h-3.5 w-3.5" />
+						Refunds this month
+					</div>
+					<div
+						className={cn(
+							"mt-2 text-2xl font-semibold tabular-nums",
+							kpis.refundedAmountThisMonth > 0
+								? "text-rose-600 dark:text-rose-400"
+								: "",
+						)}
+					>
+						{currencyFormatter.format(kpis.refundedAmountThisMonth)}
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{kpis.refundsThisMonth} refund
+						{kpis.refundsThisMonth === 1 ? "" : "s"} processed
 					</div>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">
@@ -786,6 +861,25 @@ export default async function DevpassPage({
 									queryString={queryString}
 								/>
 							</TableHead>
+							<TableHead>Premium (week)</TableHead>
+							<TableHead>
+								<SortableHeader
+									label="Cost (all-time)"
+									sortKey="allTimeCost"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
+							<TableHead>
+								<SortableHeader
+									label="Margin (all-time)"
+									sortKey="allTimeMargin"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Since"
@@ -803,7 +897,7 @@ export default async function DevpassPage({
 						{data.subscribers.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={12}
+									colSpan={15}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No subscribers match
@@ -861,6 +955,47 @@ export default async function DevpassPage({
 										)}
 									>
 										{currencyFormatter.format(sub.margin)}
+									</TableCell>
+									<TableCell className="tabular-nums text-xs">
+										{(() => {
+											const premUsed = parseFloat(sub.premiumCreditsUsed);
+											const premLimit = parseFloat(sub.premiumCreditsLimit);
+											if (premLimit <= 0) {
+												return <span className="text-muted-foreground">—</span>;
+											}
+											const pct = Math.min(
+												100,
+												Math.max(0, (premUsed / premLimit) * 100),
+											);
+											const tone =
+												pct >= 100
+													? "text-rose-600 dark:text-rose-400"
+													: pct >= 80
+														? "text-orange-600 dark:text-orange-400"
+														: "text-muted-foreground";
+											return (
+												<span className={tone}>
+													{currencyFormatter.format(premUsed)} /{" "}
+													{currencyFormatter.format(premLimit)}
+												</span>
+											);
+										})()}
+									</TableCell>
+									<TableCell className="tabular-nums text-muted-foreground">
+										{currencyFormatterPrecise.format(sub.allTimeCost)}
+									</TableCell>
+									<TableCell
+										className={cn(
+											"tabular-nums",
+											sub.allTimeMargin < 0
+												? "text-rose-600 dark:text-rose-400"
+												: "text-emerald-600 dark:text-emerald-400",
+										)}
+										title={`Revenue ${currencyFormatter.format(
+											sub.allTimeRevenue,
+										)} − cost ${currencyFormatterPrecise.format(sub.allTimeCost)}`}
+									>
+										{currencyFormatter.format(sub.allTimeMargin)}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
 										{formatDate(sub.subscribedSince)}

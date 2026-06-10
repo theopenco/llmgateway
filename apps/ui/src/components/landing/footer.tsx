@@ -191,6 +191,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/use-cases"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Use Cases
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/blog"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
@@ -323,6 +332,24 @@ export default function Footer() {
 										LiteLLM
 									</Link>
 								</li>
+								<li>
+									<Link
+										href="/compare/portkey"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Portkey
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/migration"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Migration Guides
+									</Link>
+								</li>
 							</ul>
 						</div>
 
@@ -356,6 +383,24 @@ export default function Footer() {
 										prefetch={true}
 									>
 										Image to Image
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/video"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Video Generation
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/embeddings"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Embeddings
 									</Link>
 								</li>
 								<li>

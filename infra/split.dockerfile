@@ -202,7 +202,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/ui
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]
 
 # Playground runtime stage
 FROM runtime AS playground
@@ -219,7 +219,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/playground
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]
 
 # Worker preparation stage
 FROM worker-builder AS worker-prep
@@ -249,7 +249,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/docs
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]
 
 # Admin runtime stage
 FROM runtime AS admin
@@ -266,7 +266,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/ee/admin
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]
 
 # Code runtime stage
 FROM runtime AS code
@@ -283,4 +283,4 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/code
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]

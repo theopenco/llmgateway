@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { hasActiveApiKey } from "@/lib/hasActiveApiKey.js";
 import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 
 import {
 	db,
@@ -32,6 +33,7 @@ const chatSchema = z.object({
 	status: z.enum(["active", "archived", "deleted"]),
 	webSearch: z.boolean(),
 	pinned: z.boolean(),
+	comparisonEnabled: z.boolean(),
 	shareId: z.string().nullable(),
 	sharedAt: z.string().datetime().nullable(),
 	orgShares: z.array(z.object({ id: z.string(), organizationId: z.string() })),
@@ -46,6 +48,7 @@ const messageSchema = z.object({
 	content: z.string().nullable(),
 	images: z.string().nullable(), // JSON string
 	audios: z.string().nullable(), // JSON string of audio attachments
+	documents: z.string().nullable().optional(), // JSON string of document attachments
 	reasoning: z.string().nullable(), // Reasoning content
 	tools: z.string().nullable(), // JSON string of tool parts
 	metadata: z.record(z.unknown()).nullable(),
@@ -84,6 +87,7 @@ const orgShareSchema = z.object({
 			content: z.string().nullable(),
 			images: z.string().nullable(),
 			audios: z.string().nullable().optional(),
+			documents: z.string().nullable().optional(),
 			reasoning: z.string().nullable(),
 			tools: z.string().nullable(),
 			metadata: z.record(z.unknown()).nullable().optional(),
@@ -100,6 +104,7 @@ const sharedMessageSnapshotSchema = z.array(
 		content: z.string().nullable(),
 		images: z.string().nullable(),
 		audios: z.string().nullable().optional(),
+		documents: z.string().nullable().optional(),
 		reasoning: z.string().nullable(),
 		tools: z.string().nullable(),
 		metadata: z.record(z.unknown()).nullable().optional(),
@@ -112,6 +117,11 @@ const createChatSchema = z.object({
 	title: z.string().min(1).max(200),
 	model: z.string().min(1),
 	webSearch: z.boolean().optional().default(false),
+	comparisonEnabled: z.boolean().optional().default(false),
+	parentChatId: z.string().trim().min(1).optional(),
+	// Organization context the chat is created under (the dedicated Chat org for
+	// the "Chat plan" context, or a real org). Used to separate chat history.
+	organizationId: z.string().trim().min(1).optional(),
 });
 
 const updateChatSchema = z.object({
@@ -132,6 +142,7 @@ const createMessageSchema = z
 		content: z.string().optional(),
 		images: z.string().optional(), // JSON string
 		audios: z.string().optional(), // JSON string of audio attachments
+		documents: z.string().optional(), // JSON string of document attachments
 		reasoning: z.string().optional(), // Reasoning content
 		tools: z.string().optional(), // Tool parts JSON
 		metadata: z.record(z.unknown()).optional(),
@@ -141,10 +152,11 @@ const createMessageSchema = z
 			data.content ??
 			data.images ??
 			data.audios ??
+			data.documents ??
 			data.reasoning ??
 			data.tools,
 		{
-			message: "Either content, images, or audios must be provided",
+			message: "Either content, images, audios, or documents must be provided",
 		},
 	);
 
@@ -168,7 +180,11 @@ async function enforceActiveChatLimit(userId: string) {
 		.select({ count: count() })
 		.from(tables.chat)
 		.where(
-			and(eq(tables.chat.userId, userId), eq(tables.chat.status, "active")),
+			and(
+				eq(tables.chat.userId, userId),
+				eq(tables.chat.status, "active"),
+				isNull(tables.chat.parentChatId),
+			),
 		);
 
 	if (chatCount[0].count >= 3) {
@@ -196,6 +212,11 @@ function getForkedChatTitle(title: string) {
 const listChats = createRoute({
 	method: "get",
 	path: "/",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -216,6 +237,12 @@ chats.openapi(listChats, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.chat.organizationId,
+		organizationId,
+	);
+
 	// Get user's chats with message counts in a single query
 	const chatsWithCount = await db
 		.select({
@@ -225,6 +252,7 @@ chats.openapi(listChats, async (c) => {
 			status: tables.chat.status,
 			webSearch: tables.chat.webSearch,
 			pinned: tables.chat.pinned,
+			comparisonEnabled: tables.chat.comparisonEnabled,
 			shareId: tables.chatShare.id,
 			sharedAt: tables.chatShare.createdAt,
 			orgShares: sql<Array<{ id: string; organizationId: string }>>`COALESCE(
@@ -255,7 +283,12 @@ chats.openapi(listChats, async (c) => {
 			),
 		)
 		.where(
-			and(eq(tables.chat.userId, user.id), eq(tables.chat.status, "active")),
+			and(
+				eq(tables.chat.userId, user.id),
+				eq(tables.chat.status, "active"),
+				isNull(tables.chat.parentChatId),
+				orgFilter,
+			),
 		)
 		.groupBy(
 			tables.chat.id,
@@ -264,6 +297,7 @@ chats.openapi(listChats, async (c) => {
 			tables.chat.status,
 			tables.chat.webSearch,
 			tables.chat.pinned,
+			tables.chat.comparisonEnabled,
 			tables.chatShare.id,
 			tables.chatShare.createdAt,
 			tables.chat.createdAt,
@@ -278,6 +312,7 @@ chats.openapi(listChats, async (c) => {
 		status: chat.status as "active" | "archived" | "deleted",
 		webSearch: chat.webSearch ?? false,
 		pinned: chat.pinned,
+		comparisonEnabled: chat.comparisonEnabled ?? false,
 		shareId: chat.shareId,
 		sharedAt: chat.sharedAt?.toISOString() ?? null,
 		orgShares: chat.orgShares ?? [],
@@ -339,6 +374,7 @@ chats.openapi(searchChats, async (c) => {
 	const conditions = [
 		eq(tables.chat.userId, user.id),
 		eq(tables.chat.status, "active"),
+		isNull(tables.chat.parentChatId),
 	];
 
 	if (searchCondition) {
@@ -356,6 +392,7 @@ chats.openapi(searchChats, async (c) => {
 				status: tables.chat.status,
 				webSearch: tables.chat.webSearch,
 				pinned: tables.chat.pinned,
+				comparisonEnabled: tables.chat.comparisonEnabled,
 				shareId: tables.chatShare.id,
 				sharedAt: tables.chatShare.createdAt,
 				orgShares: sql<Array<{ id: string; organizationId: string }>>`COALESCE(
@@ -393,6 +430,7 @@ chats.openapi(searchChats, async (c) => {
 				tables.chat.status,
 				tables.chat.webSearch,
 				tables.chat.pinned,
+				tables.chat.comparisonEnabled,
 				tables.chatShare.id,
 				tables.chatShare.createdAt,
 				tables.chat.createdAt,
@@ -414,6 +452,7 @@ chats.openapi(searchChats, async (c) => {
 		status: chat.status as "active" | "archived" | "deleted",
 		webSearch: chat.webSearch ?? false,
 		pinned: chat.pinned,
+		comparisonEnabled: chat.comparisonEnabled ?? false,
 		shareId: chat.shareId,
 		sharedAt: chat.sharedAt?.toISOString() ?? null,
 		orgShares: chat.orgShares ?? [],
@@ -476,13 +515,51 @@ chats.openapi(createChat, async (c) => {
 	// Check if user has unlimited access via API key
 	const isUnlimited = await hasActiveApiKey(user.id);
 
-	// Check if user has reached the 3 chat limit (only for free users)
-	if (!isUnlimited) {
+	if (body.parentChatId) {
+		const parentChat = await db.query.chat.findFirst({
+			where: {
+				id: { eq: body.parentChatId },
+				userId: { eq: user.id },
+				status: { eq: "active" },
+			},
+		});
+		if (!parentChat) {
+			throw new HTTPException(400, { message: "Invalid parentChatId" });
+		}
+		if (parentChat.parentChatId !== null) {
+			throw new HTTPException(400, { message: "Invalid parentChatId" });
+		}
+
+		const [childCount] = await db
+			.select({ count: count() })
+			.from(tables.chat)
+			.where(
+				and(
+					eq(tables.chat.parentChatId, body.parentChatId),
+					eq(tables.chat.status, "active"),
+				),
+			);
+
+		if (childCount.count >= 2) {
+			throw new HTTPException(400, {
+				message: "Comparison panel limit reached",
+			});
+		}
+	}
+
+	// Check if user has reached the 3 chat limit (only for free users).
+	// Child comparison chats (parentChatId set) are excluded — they don't
+	// count against the quota since they're part of an existing session.
+	if (!isUnlimited && !body.parentChatId) {
 		const chatCount = await db
 			.select({ count: count() })
 			.from(tables.chat)
 			.where(
-				and(eq(tables.chat.userId, user.id), eq(tables.chat.status, "active")),
+				and(
+					eq(tables.chat.userId, user.id),
+					eq(tables.chat.status, "active"),
+					isNull(tables.chat.parentChatId),
+				),
 			);
 
 		if (chatCount[0].count >= 3) {
@@ -498,7 +575,10 @@ chats.openapi(createChat, async (c) => {
 			title: body.title,
 			model: body.model,
 			userId: user.id,
+			organizationId: body.organizationId ?? null,
 			webSearch: body.webSearch ?? false,
+			comparisonEnabled: body.comparisonEnabled ?? false,
+			parentChatId: body.parentChatId ?? null,
 		})
 		.returning();
 
@@ -511,6 +591,7 @@ chats.openapi(createChat, async (c) => {
 				status: newChat.status as "active" | "archived" | "deleted",
 				webSearch: newChat.webSearch ?? false,
 				pinned: newChat.pinned,
+				comparisonEnabled: newChat.comparisonEnabled ?? false,
 				shareId: null,
 				sharedAt: null,
 				orgShares: [],
@@ -539,6 +620,7 @@ const getChat = createRoute({
 					schema: z.object({
 						chat: chatSchema,
 						messages: z.array(messageSchema),
+						comparisonChatIds: z.array(z.string()),
 					}),
 				},
 			},
@@ -574,6 +656,7 @@ chats.openapi(getChat, async (c) => {
 			status: tables.chat.status,
 			webSearch: tables.chat.webSearch,
 			pinned: tables.chat.pinned,
+			comparisonEnabled: tables.chat.comparisonEnabled,
 			createdAt: tables.chat.createdAt,
 			updatedAt: tables.chat.updatedAt,
 			shareId: tables.chatShare.id,
@@ -613,12 +696,21 @@ chats.openapi(getChat, async (c) => {
 		return c.json({ message: "Chat not found" }, 404);
 	}
 
-	// Get messages
-	const messages = await db
-		.select()
-		.from(tables.message)
-		.where(eq(tables.message.chatId, id))
-		.orderBy(tables.message.sequence);
+	// Get messages and comparison child chat IDs in parallel
+	const [messages, comparisonChats] = await Promise.all([
+		db
+			.select()
+			.from(tables.message)
+			.where(eq(tables.message.chatId, id))
+			.orderBy(tables.message.sequence),
+		db
+			.select({ id: tables.chat.id })
+			.from(tables.chat)
+			.where(
+				and(eq(tables.chat.parentChatId, id), eq(tables.chat.status, "active")),
+			)
+			.orderBy(asc(tables.chat.createdAt)),
+	]);
 
 	return c.json(
 		{
@@ -629,6 +721,7 @@ chats.openapi(getChat, async (c) => {
 				status: chat.status as "active" | "archived" | "deleted",
 				webSearch: chat.webSearch ?? false,
 				pinned: chat.pinned,
+				comparisonEnabled: chat.comparisonEnabled ?? false,
 				shareId: chat.shareId,
 				sharedAt: chat.sharedAt?.toISOString() ?? null,
 				orgShares: chat.orgShares ?? [],
@@ -641,13 +734,15 @@ chats.openapi(getChat, async (c) => {
 				role: message.role as "user" | "assistant" | "system",
 				content: message.content,
 				images: message.images,
-				audios: (message as any).audios ?? null,
+				audios: message.audios ?? null,
+				documents: message.documents ?? null,
 				reasoning: message.reasoning,
 				tools: message.tools ?? null,
 				metadata: message.metadata ?? null,
 				sequence: message.sequence,
 				createdAt: message.createdAt.toISOString(),
 			})),
+			comparisonChatIds: comparisonChats.map((c) => c.id),
 		},
 		200,
 	);
@@ -761,6 +856,7 @@ chats.openapi(updateChat, async (c) => {
 			status: updatedChat.status as "active" | "archived" | "deleted",
 			webSearch: updatedChat.webSearch ?? false,
 			pinned: updatedChat.pinned,
+			comparisonEnabled: updatedChat.comparisonEnabled ?? false,
 			shareId: activeShare?.id ?? null,
 			sharedAt: activeShare?.createdAt.toISOString() ?? null,
 			orgShares: activeOrgShares.filter(
@@ -836,6 +932,7 @@ chats.openapi(shareChat, async (c) => {
 					eq(tables.organization.id, organizationId),
 					eq(tables.organization.status, "active"),
 					eq(tables.organization.isPersonal, false),
+					eq(tables.organization.isChat, false),
 				),
 			)
 			.limit(1);
@@ -896,6 +993,7 @@ chats.openapi(shareChat, async (c) => {
 			content: tables.message.content,
 			images: tables.message.images,
 			audios: tables.message.audios,
+			documents: tables.message.documents,
 			reasoning: tables.message.reasoning,
 			tools: tables.message.tools,
 			metadata: tables.message.metadata,
@@ -920,6 +1018,7 @@ chats.openapi(shareChat, async (c) => {
 				content: message.content,
 				images: message.images,
 				audios: message.audios,
+				documents: message.documents,
 				reasoning: message.reasoning,
 				tools: message.tools,
 				metadata: message.metadata,
@@ -1083,6 +1182,7 @@ chats.openapi(listOrgShares, async (c) => {
 				eq(tables.chat.status, "active"),
 				eq(tables.organization.status, "active"),
 				eq(tables.organization.isPersonal, false),
+				eq(tables.organization.isChat, false),
 			),
 		)
 		.orderBy(desc(tables.chatShare.updatedAt));
@@ -1150,6 +1250,7 @@ chats.openapi(getOrgShare, async (c) => {
 				eq(tables.chat.status, "active"),
 				eq(tables.organization.status, "active"),
 				eq(tables.organization.isPersonal, false),
+				eq(tables.organization.isChat, false),
 			),
 		)
 		.limit(1);
@@ -1360,6 +1461,7 @@ chats.openapi(forkSharedChat, async (c) => {
 					content: message.content,
 					images: message.images,
 					audios: message.audios ?? null,
+					documents: message.documents ?? null,
 					reasoning: message.reasoning,
 					tools: message.tools,
 					metadata: message.metadata ?? null,
@@ -1651,6 +1753,7 @@ chats.openapi(addMessage, async (c) => {
 			content: body.content ?? null,
 			images: body.images ?? null,
 			audios: body.audios ?? null,
+			documents: body.documents ?? null,
 			reasoning: body.reasoning ?? null,
 			tools: body.tools ?? null,
 			metadata: body.metadata ?? null,
@@ -1671,7 +1774,7 @@ chats.openapi(addMessage, async (c) => {
 				role: newMessage.role as "user" | "assistant" | "system",
 				content: newMessage.content,
 				images: newMessage.images,
-				audios: (newMessage as any).audios ?? null,
+				audios: newMessage.audios ?? null,
 				reasoning: newMessage.reasoning,
 				tools: newMessage.tools ?? null,
 				metadata: newMessage.metadata ?? null,

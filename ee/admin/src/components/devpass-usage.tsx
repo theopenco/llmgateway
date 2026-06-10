@@ -148,7 +148,7 @@ export function DevpassUsage({ from, to }: { from?: string; to?: string }) {
 			/>
 			<UsageList
 				title="Top coding agents"
-				description="Global `source` header rollups (cross-org)."
+				description="DevPass `source` header spend from hourly project rollups."
 				icon={<Bot className="h-4 w-4" />}
 				rows={sources}
 				isLoading={isLoading}

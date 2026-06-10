@@ -1,5 +1,8 @@
 import { ImageResponse } from "next/og";
 
+import { discountFraction } from "@/lib/discount";
+import { fetchModels } from "@/lib/fetch-models";
+
 import {
 	models as modelDefinitions,
 	type ModelDefinition,
@@ -18,7 +21,7 @@ interface CategoryOgConfig {
 	accentColor: string;
 	accentColorDim: string;
 	iconSvgPath: string;
-	countFilter: (model: ModelDefinition) => boolean;
+	countFilter?: (model: ModelDefinition) => boolean;
 }
 
 export const categoryConfigs: Record<string, CategoryOgConfig> = {
@@ -29,7 +32,10 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		accentColorDim: "#1E3A5F",
 		// Lucide "Type" icon path
 		iconSvgPath: "M4 7V4h16v3 M9 20h6 M12 4v16",
-		countFilter: (m) => !m.output?.includes("image"),
+		countFilter: (m) =>
+			!m.output?.includes("image") &&
+			!m.output?.includes("video") &&
+			!m.output?.includes("embedding"),
 	},
 	"text-to-image": {
 		title: "Text to Image",
@@ -52,6 +58,26 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		countFilter: (m) =>
 			m.output?.includes("image") === true &&
 			m.providers.some((p) => (p as ProviderModelMapping).vision),
+	},
+	video: {
+		title: "Video Generation",
+		subtitle: "Generate videos from text prompts",
+		accentColor: "#F43F5E",
+		accentColorDim: "#881337",
+		// Lucide "Video" icon path
+		iconSvgPath:
+			"M22 8l-6 4 6 4V8Z M14 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2Z",
+		countFilter: (m) => m.output?.includes("video") === true,
+	},
+	embedding: {
+		title: "Embeddings",
+		subtitle: "Vector embeddings for search and RAG",
+		accentColor: "#14B8A6",
+		accentColorDim: "#134E4A",
+		// Lucide "Boxes" icon path
+		iconSvgPath:
+			"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z M7 16.5l-4.74-2.85 M7 16.5l5-3 M7 16.5v5.17 M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z M17 16.5l-5-3 M17 16.5l4.74-2.85 M17 16.5v5.17 M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z M12 8L7.26 5.15 M12 8l4.74-2.85 M12 8v5.5",
+		countFilter: (m) => m.output?.includes("embedding") === true,
 	},
 	"web-search": {
 		title: "Web Search",
@@ -105,14 +131,26 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Percent" icon path
 		iconSvgPath:
 			"M19 5L5 19 M9 6.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z M20 17.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z",
-		countFilter: (m) => {
-			const providers = m.providers as ProviderModelMapping[];
-			return providers.some((p) => p.discount && Number(p.discount) > 0);
-		},
 	},
 };
 
-export function generateCategoryOgImage(categoryKey: string) {
+async function getCategoryModelCount(
+	categoryKey: string,
+	config: CategoryOgConfig,
+): Promise<number> {
+	if (categoryKey === "discounted") {
+		const models = await fetchModels();
+		return models.filter((model) =>
+			model.mappings.some((mapping) => discountFraction(mapping.discount) > 0),
+		).length;
+	}
+
+	return config.countFilter
+		? modelDefinitions.filter(config.countFilter).length
+		: 0;
+}
+
+export async function generateCategoryOgImage(categoryKey: string) {
 	const config = categoryConfigs[categoryKey];
 	if (!config) {
 		return new ImageResponse(
@@ -139,7 +177,7 @@ export function generateCategoryOgImage(categoryKey: string) {
 		);
 	}
 
-	const modelCount = modelDefinitions.filter(config.countFilter).length;
+	const modelCount = await getCategoryModelCount(categoryKey, config);
 
 	return new ImageResponse(
 		(

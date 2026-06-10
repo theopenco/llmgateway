@@ -45,11 +45,24 @@ Do not run test files or suites in parallel unless the repository instructions f
 
 When running curl commands against the local API, you can use `test-token` as authentication.
 
+To test a specific provider in isolation (e.g. to reproduce a provider-specific failure without the gateway silently falling back to a healthy provider), pin the provider with the `provider/model` model string and disable fallback with the `x-no-fallback: true` header:
+
+```bash
+curl -N http://localhost:4001/v1/chat/completions \
+  -H "Authorization: Bearer test-token" -H "x-no-fallback: true" \
+  -d '{"model":"embercloud/minimax-m2.5","stream":true,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+Without `x-no-fallback`, a failing pinned provider falls back to the next healthy provider, masking the error. Also note that the gateway caches responses (including errors) in Redis keyed on the request body, so vary the prompt when re-testing the same failure.
+
+Caveat: if you run multiple git worktrees (e.g. conductor workspaces), only one `pnpm dev` can own port :4001 — confirm which working tree is actually serving it (`lsof -a -p <pid> -d cwd -Fn`) before assuming your local edits are live, or launch your own build on a different `PORT`.
+
 #### E2E Test Options
 
 - `TEST_MODELS` - Run tests only for specific models (comma-separated list of `provider/model-id` pairs)
   Example: `TEST_MODELS="openai/gpt-4o-mini,anthropic/claude-3-5-sonnet-20241022" pnpm test:e2e`
   This is useful for quick testing as the full e2e suite can take too long with all models.
+  `TEST_MODELS` always overrides provider mappings marked with `test: "skip"`. For example, `TEST_MODELS="anthropic/claude-opus-4-6"` will include that Anthropic mapping even if it is skipped by default, so metadata-driven e2e assertions such as `reasoningOutput` still apply.
 - `FULL_MODE` - Include free models in tests (default: only paid models)
 - `LOG_MODE` - Enable detailed logging of responses
 
@@ -121,12 +134,14 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 ### Database Operations
 
+- Use the local `migrations` skill for database migration generation, review, edits, and merge conflicts.
 - Use Drizzle ORM with latest object syntax
 - The schema uses camelCase in TypeScript but the actual database columns are snake_case (configured via Drizzle's `casing: "snake_case"`). When writing raw SQL, always use snake_case column names (e.g. `user_id`, not `userId`).
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
-- For schema changes: Use `pnpm run setup` instead of writing migrations which will generate .sql files
-- Always sync schema with `pnpm run setup` after table/column changes
-- Never write migrations manually, only edit generated migration files if specifically asked
+- For schema changes: edit `packages/db/src/schema.ts`, then generate migration artifacts with `pnpm migrations`
+- If generated migration SQL needs adaptation, edit only the generated `.sql` file. Never manually edit snapshot JSON or journal files.
+- Always sync schema with `pnpm run setup` after table/column changes when local database state needs to be refreshed
+- Never write migrations manually from scratch
 - **NEVER resolve merge conflicts in migration files, journal files, or snapshot files manually.** When merging with main and migration conflicts occur, ALWAYS follow this exact procedure:
   1. **Before merging**, reset migrations: `git restore --source=origin/main packages/db/migrations/`
   2. **After merging**, regenerate migrations: `pnpm migrations`
@@ -147,12 +162,14 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Always use the internal api (`apps/api/`) for any backend operations, never use NextJS API routes.
 - In frontend apps (`apps/ui`, `apps/playground`, `apps/code`, `ee/admin`), always use the generated typed API client (`useFetchClient()` or `useApi()` from `@/lib/fetch-client`) to call the Hono API. Never use raw `fetch()` for API calls. The client is auto-generated from the OpenAPI spec (`pnpm --filter api generate && pnpm --filter <app> generate`). For non-hook contexts (e.g., utility functions), accept the fetch client as a parameter from the calling component.
 - Do not use useEffect for data fetching in the UI; instead, use TanStack Query for all data fetching and state management.
+- In frontend apps, always prefer Next.js `<Link>` (`next/link`) over raw `<a>` tags for internal navigation, and `next/navigation`'s router for programmatic navigation.
 - Always use top-level `import`, never use require or dynamic imports
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - Do not --amend commits after pushing to remote
 - Never force push on main/default branch; force pushing is only acceptable on feature branches
 - When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
+- When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse

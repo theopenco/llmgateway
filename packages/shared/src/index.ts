@@ -11,14 +11,37 @@ export {
 } from "./fees.js";
 
 export {
-	DEV_PLAN_ANNUAL_DISCOUNT_MONTHS,
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
 	DEV_PLAN_PRICES,
 	type DevPlanCycle,
 	type DevPlanTier,
-	getDevPlanAnnualMonthlyPrice,
-	getDevPlanAnnualPrice,
 	getDevPlanCreditsLimit,
+	getDevPlanPremiumWeeklyLimit,
+	getRemainingPremiumWeeklyAllowance,
+	getProratedCreditDelta,
+	isPremiumWeekExpired,
 } from "./dev-plans.js";
+
+export {
+	CHAT_PLAN_PRICES,
+	CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS,
+	type ChatPlanCycle,
+	type ChatPlanTier,
+	CHAT_PLAN_CREDITS_MULTIPLIERS,
+	getChatPlanCreditsLimit,
+	getChatPlanCreditsMultiplier,
+	getChatPlanCreditsMultipliers,
+	isChatPlanModelAllowed,
+} from "./chat-plans.js";
+
+export {
+	getModelCategory,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
+	isPremiumModel,
+	type ModelCategory,
+} from "./model-categories.js";
 
 export {
 	HealthChecker,
@@ -62,9 +85,40 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
+export { isContentFilterErrorText } from "./content-filter.js";
+
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	type TokenEstimateFallback,
 } from "./token-estimate.js";
+
+export {
+	buildProviderPriorityDefaults,
+	DEFAULT_ROUTING_HISTORY,
+	DEFAULT_ROUTING_RETRY,
+	DEFAULT_ROUTING_SESSION,
+	DEFAULT_ROUTING_STICKY,
+	DEFAULT_ROUTING_THRESHOLDS,
+	DEFAULT_ROUTING_TIMEOUTS,
+	DEFAULT_ROUTING_WEIGHTS,
+	getDefaultRoutingConfig,
+	historyMatchesDefaults,
+	type ProviderPriorityOverrides,
+	resolveRoutingConfig,
+	type ResolvedRoutingConfig,
+	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
+	routingHistoryCacheKey,
+	type RoutingConfigOverrides,
+	type RoutingHistoryConfig,
+	type RoutingRetryConfig,
+	type RoutingSessionConfig,
+	type RoutingStickyConfig,
+	type RoutingThresholdsConfig,
+	type RoutingTimeoutsConfig,
+	type RoutingWeightsConfig,
+} from "./routing-config.js";
+
+export { assertSafeWebhookUrl, isPrivateOrReservedIp } from "./url-safety.js";
 
 export * from "./components/ui/index.js";

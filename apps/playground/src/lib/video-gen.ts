@@ -3,8 +3,10 @@ import type { ApiModel, ApiModelProviderMapping } from "@/lib/fetch-models";
 import type { Client } from "openapi-fetch";
 
 export type VideoSize =
+	| "848x480"
 	| "1280x720"
 	| "720x1280"
+	| "1696x960"
 	| "1920x1080"
 	| "1080x1920"
 	| "3840x2160"
@@ -46,6 +48,7 @@ export interface VideoGalleryModelResult {
 	modelName: string;
 	job: VideoJob | null;
 	videoUrl: string | null;
+	expiresAt: number | null;
 	error?: string;
 	isLoading: boolean;
 }
@@ -54,6 +57,10 @@ export interface VideoGalleryItem {
 	id: string;
 	prompt: string;
 	timestamp: number;
+	// Organization context active when the generation was started. Captured up
+	// front so the saved item is attributed to the right org even if the user
+	// switches organizations while the generation is in flight.
+	organizationId?: string;
 	frameInputs?: VideoFrameInputs;
 	referenceImages?: VideoInputImage[];
 	models: VideoGalleryModelResult[];
@@ -64,8 +71,10 @@ export type VideoInputMode = "none" | "frames" | "reference";
 const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10, 12, 15];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
+	"848x480": "480p Landscape",
 	"1280x720": "720p Landscape",
 	"720x1280": "720p Portrait",
+	"1696x960": "960p Landscape",
 	"1920x1080": "1080p Landscape",
 	"1080x1920": "1080p Portrait",
 	"3840x2160": "4K Landscape",
@@ -89,6 +98,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
+	if (rootModelId === "grok-imagine-video-1-5-preview") {
+		return providerId === undefined || providerId === "xai";
+	}
+
 	if (
 		rootModelId !== "veo-3.1-generate-preview" &&
 		rootModelId !== "veo-3.1-fast-generate-preview"
@@ -103,10 +116,18 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 	);
 }
 
+function isSeedance2ReferenceModel(rootModelId: string): boolean {
+	return rootModelId === "seedance-2-0" || rootModelId === "seedance-2-0-fast";
+}
+
 export function supportsVideoReferenceInput(modelId: string): boolean {
 	const [providerId, rootModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
+
+	if (providerId === "bytedance") {
+		return isSeedance2ReferenceModel(rootModelId);
+	}
 
 	if (providerId === "google-vertex") {
 		return rootModelId === "veo-3.1-generate-preview";
@@ -118,8 +139,33 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 
 	return (
 		rootModelId === "veo-3.1-generate-preview" ||
-		rootModelId === "veo-3.1-fast-generate-preview"
+		rootModelId === "veo-3.1-fast-generate-preview" ||
+		isSeedance2ReferenceModel(rootModelId)
 	);
+}
+
+export function supportsVideoReferenceVideoInput(modelId: string): boolean {
+	const [providerId, rootModelId] = modelId.includes("/")
+		? modelId.split("/", 2)
+		: [undefined, modelId];
+
+	if (providerId !== undefined && providerId !== "bytedance") {
+		return false;
+	}
+
+	return isSeedance2ReferenceModel(rootModelId);
+}
+
+export function supportsVideoReferenceAudioInput(modelId: string): boolean {
+	const [providerId, rootModelId] = modelId.includes("/")
+		? modelId.split("/", 2)
+		: [undefined, modelId];
+
+	if (providerId !== undefined && providerId !== "bytedance") {
+		return false;
+	}
+
+	return isSeedance2ReferenceModel(rootModelId);
 }
 
 function getSelectedVideoMappings(
@@ -161,31 +207,41 @@ function mappingSupportsVideoRequest(
 		return false;
 	}
 
-	if (
-		mapping.supportedVideoDurationsSeconds?.length &&
-		!mapping.supportedVideoDurationsSeconds.includes(duration)
-	) {
+	const durationsToCheck =
+		inputMode === "frames" &&
+		mapping.supportedVideoDurationsSecondsImageToVideo?.length
+			? mapping.supportedVideoDurationsSecondsImageToVideo
+			: mapping.supportedVideoDurationsSeconds;
+	if (durationsToCheck?.length && !durationsToCheck.includes(duration)) {
 		return false;
 	}
 
 	if (
 		inputMode === "frames" &&
 		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche"
+		mapping.providerId !== "avalanche" &&
+		mapping.providerId !== "xai"
 	) {
 		return false;
 	}
 
 	if (inputMode === "reference") {
-		if (mapping.providerId === "google-vertex") {
-			if (mapping.modelName !== "veo-3.1-generate-001") {
-				return false;
-			}
-		} else if (mapping.providerId === "avalanche") {
-			if (mapping.modelName !== "veo3_fast") {
-				return false;
-			}
-		} else {
+		// Match by canonical root model id — never by the upstream externalId.
+		if (mapping.providerId === "bytedance") {
+			return (
+				mapping.modelId === "seedance-2-0" ||
+				mapping.modelId === "seedance-2-0-fast"
+			);
+		}
+
+		// Veo reference images are only supported on the veo-3.1 family.
+		if (mapping.modelId !== "veo-3.1-generate-preview") {
+			return false;
+		}
+		if (
+			mapping.providerId !== "google-vertex" &&
+			mapping.providerId !== "avalanche"
+		) {
 			return false;
 		}
 

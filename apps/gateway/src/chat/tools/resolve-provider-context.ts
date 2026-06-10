@@ -27,8 +27,13 @@ import {
 	providers,
 	type ToolChoiceType,
 	type WebSearchTool,
-	stripRegionFromModelName,
 } from "@llmgateway/models";
+import {
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	type DevPlanTier,
+	getRemainingPremiumWeeklyAllowance,
+	isPremiumModel,
+} from "@llmgateway/shared";
 
 import { getProviderEnv } from "./get-provider-env.js";
 
@@ -36,10 +41,19 @@ import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
 	usedProvider: Provider;
-	usedModel: string;
+	/**
+	 * Canonical LLM Gateway model id. Used for everything internal: pricing,
+	 * discounts, rate limits, IAM, key selection, logging display. Never the
+	 * upstream provider's model id.
+	 */
+	usedInternalModel: string;
+	/**
+	 * Provider-specific upstream model id. Reserved for sending the request
+	 * to the upstream provider API; do not use for internal lookups.
+	 */
+	usedExternalId: string;
 	usedModelFormatted: string;
 	usedModelMapping: string;
-	baseModelName: string;
 	usedToken: string;
 	usedApiKeyHash: string;
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -59,6 +73,7 @@ export interface ProviderContext {
 	isImageGeneration: boolean;
 	supportsReasoning: boolean;
 	splitTaggedReasoning: boolean;
+	healStreamingJsonOutput: boolean;
 	temperature: number | undefined;
 	max_tokens: number | undefined;
 	top_p: number | undefined;
@@ -84,7 +99,15 @@ export interface ProviderContextOptions {
 	response_format: OpenAIRequestBody["response_format"];
 	tools: OpenAIToolInput[] | undefined;
 	tool_choice: ToolChoiceType | undefined;
-	reasoning_effort: "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+	reasoning_effort:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max"
+		| undefined;
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;
 	prompt_cache_retention: PromptCacheRetention | undefined;
@@ -107,6 +130,9 @@ export interface ProviderContextOptions {
 	webSearchEnabled: boolean;
 	excludedEnvKeyIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	n?: number;
+	providerCacheControlEnabled: boolean;
+	service_tier?: "auto" | "default" | "flex" | "priority";
 }
 
 interface ProjectInfo {
@@ -120,7 +146,56 @@ interface OrgInfo {
 	devPlan: string;
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
+	devPlanPremiumCreditsUsed: string | null;
+	devPlanPremiumWeekStart: Date | null;
 	devPlanExpiresAt: Date | null;
+	chatPlan: string;
+	chatPlanCreditsLimit: string | null;
+	chatPlanCreditsUsed: string | null;
+	chatPlanExpiresAt: Date | null;
+}
+
+/**
+ * Throws when a DevPass subscriber has exhausted the weekly fair-use
+ * allowance for premium-tier models. No-op for non-DevPass orgs and
+ * non-premium models.
+ */
+export function assertDevPlanPremiumCapNotExceeded(
+	organization: Pick<
+		OrgInfo,
+		"devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
+	>,
+	modelInfo: Pick<ModelDefinition, "id">,
+): void {
+	if (organization.devPlan === "none") {
+		return;
+	}
+	if (!isPremiumModel(modelInfo.id)) {
+		return;
+	}
+	const tier = organization.devPlan as DevPlanTier;
+	const remaining = getRemainingPremiumWeeklyAllowance(
+		tier,
+		organization.devPlanPremiumCreditsUsed,
+		organization.devPlanPremiumWeekStart,
+	);
+	if (remaining > 0) {
+		return;
+	}
+	const weekStart = organization.devPlanPremiumWeekStart
+		? new Date(organization.devPlanPremiumWeekStart)
+		: new Date();
+	const resetAt = new Date(
+		weekStart.getTime() + DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	);
+	const msUntilReset = Math.max(0, resetAt.getTime() - Date.now());
+	const daysUntilReset = Math.max(
+		1,
+		Math.ceil(msUntilReset / (24 * 60 * 60 * 1000)),
+	);
+	throw new HTTPException(402, {
+		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Upgrade for a higher allowance, or use any standard model now. Resets in ${daysUntilReset} day${daysUntilReset === 1 ? "" : "s"}.`,
+	});
 }
 
 // Mirrors the initial credit gate in chat.ts so retry/fallback paths that
@@ -134,15 +209,34 @@ function assertOrganizationHasCreditsForEnvFallback(
 	if (modelInfo.free) {
 		return;
 	}
+	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
 	const regularCredits = parseFloat(organization.credits ?? "0");
 	const devPlanCreditsRemaining =
 		organization.devPlan !== "none"
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
-	const totalAvailableCredits = regularCredits + devPlanCreditsRemaining;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	const totalAvailableCredits =
+		regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 	if (totalAvailableCredits > 0) {
 		return;
+	}
+	if (
+		organization.chatPlan !== "none" &&
+		chatPlanCreditsRemaining <= 0 &&
+		devPlanCreditsRemaining <= 0
+	) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		});
 	}
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 		const renewalDate = organization.devPlanExpiresAt
@@ -159,15 +253,17 @@ function assertOrganizationHasCreditsForEnvFallback(
 
 export function formatUsedModelForDisplay(
 	usedProvider: string,
-	baseModelName: string,
+	usedInternalModel: string,
 	customProviderName?: string,
+	usedRegion?: string,
 ): string {
 	const usedModelProviderPrefix =
 		usedProvider === "custom" && customProviderName
 			? customProviderName
 			: usedProvider;
 
-	return `${usedModelProviderPrefix}/${baseModelName}`;
+	const base = `${usedModelProviderPrefix}/${usedInternalModel}`;
+	return usedRegion ? `${base}:${usedRegion}` : base;
 }
 
 /**
@@ -178,7 +274,7 @@ export function formatUsedModelForDisplay(
  * Used by the retry loop to quickly set up a new provider context on fallback.
  */
 export async function resolveProviderContext(
-	providerMapping: { providerId: string; modelName: string; region?: string },
+	providerMapping: { providerId: string; externalId: string; region?: string },
 	project: ProjectInfo,
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
@@ -186,20 +282,21 @@ export async function resolveProviderContext(
 	options: ProviderContextOptions,
 ): Promise<ProviderContext> {
 	const usedProvider = providerMapping.providerId as Provider;
-	const usedModel = providerMapping.modelName;
-	// Strip :region suffix for the actual upstream API call. The
-	// per-provider-key azure_deployment_name override is applied below once
-	// providerKey is resolved.
-	const strippedModelName = stripRegionFromModelName(
-		usedModel,
-		providerMapping.region,
-	);
-	const baseModelName = modelInfo.id || strippedModelName;
-	const usedModelMapping = usedModel;
+	// The upstream model id (sent verbatim to the provider API). For BYOK
+	// Azure deployments this is overridden by `azure_deployment_name` below.
+	const usedExternalId = providerMapping.externalId;
+	// The canonical LLM Gateway model id (used for everything internal:
+	// pricing, discounts, rate limits, IAM, key selection, logging display).
+	// `modelInfo.id` falls back to `usedExternalId` only for custom providers,
+	// which have no entry in the registry.
+	const usedInternalModel = modelInfo.id || usedExternalId;
+	// `usedModelMapping` is the log column that stores the raw upstream id.
+	const usedModelMapping = usedExternalId;
 	const usedModelFormatted = formatUsedModelForDisplay(
 		usedProvider,
-		baseModelName,
+		usedInternalModel,
 		options.customProviderName,
+		providerMapping.region,
 	);
 
 	// --- Token resolution ---
@@ -213,14 +310,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
-				baseModelName,
+				usedInternalModel,
 				options.excludedProviderKeyIds,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				baseModelName,
+				usedInternalModel,
 				options.excludedProviderKeyIds,
 			);
 		}
@@ -236,7 +333,7 @@ export async function resolveProviderContext(
 		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
 			excludedIndices: options.excludedEnvKeyIndices,
-			selectionScope: baseModelName,
+			selectionScope: usedInternalModel,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -246,14 +343,14 @@ export async function resolveProviderContext(
 			providerKey = await findCustomProviderKey(
 				project.organizationId,
 				options.customProviderName,
-				baseModelName,
+				usedInternalModel,
 				options.excludedProviderKeyIds,
 			);
 		} else {
 			providerKey = await findProviderKey(
 				project.organizationId,
 				usedProvider,
-				baseModelName,
+				usedInternalModel,
 				options.excludedProviderKeyIds,
 			);
 		}
@@ -264,7 +361,7 @@ export async function resolveProviderContext(
 			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {
 				excludedIndices: options.excludedEnvKeyIndices,
-				selectionScope: baseModelName,
+				selectionScope: usedInternalModel,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -280,10 +377,7 @@ export async function resolveProviderContext(
 	// modelInfo.providers is already expanded (regions flattened into separate entries)
 	const usedRegion = providerMapping.region;
 	const providerMappingForSelected = modelInfo.providers.find(
-		(p) =>
-			p.providerId === usedProvider &&
-			p.modelName === usedModel &&
-			p.region === usedRegion,
+		(p) => p.providerId === usedProvider && p.region === usedRegion,
 	);
 
 	// --- Region validation ---
@@ -296,7 +390,7 @@ export async function resolveProviderContext(
 			.filter(Boolean) as string[];
 		if (modelRegions.length > 0 && !modelRegions.includes(usedRegion)) {
 			throw new HTTPException(400, {
-				message: `Model ${usedModel} is not available in region "${usedRegion}". Available regions: ${modelRegions.join(", ")}`,
+				message: `Model ${usedInternalModel} is not available in region "${usedRegion}". Available regions: ${modelRegions.join(", ")}`,
 			});
 		}
 	}
@@ -322,6 +416,8 @@ export async function resolveProviderContext(
 	const supportsReasoning = providerMappingForSelected?.reasoning === true;
 	const splitTaggedReasoning =
 		providerMappingForSelected?.splitTaggedReasoning === true;
+	const healStreamingJsonOutput =
+		providerMappingForSelected?.healStreamingJsonOutput === true;
 
 	// --- Image generation check ---
 	const isImageGeneration =
@@ -334,7 +430,7 @@ export async function resolveProviderContext(
 		usedProvider === "azure"
 			? providerKey?.options?.azure_deployment_name
 			: undefined;
-	const upstreamModelName = azureDeploymentName || strippedModelName;
+	const upstreamModelName = azureDeploymentName || usedExternalId;
 
 	// --- URL resolution ---
 	// When using a provider key (BYOK), skip env vars entirely —
@@ -359,6 +455,7 @@ export async function resolveProviderContext(
 		isImageGeneration,
 		usedRegion,
 		isBYOK,
+		usedInternalModel,
 	);
 
 	if (!url) {
@@ -417,10 +514,24 @@ export async function resolveProviderContext(
 		if (effectiveMaxOutput !== undefined) {
 			if (max_tokens > effectiveMaxOutput) {
 				throw new HTTPException(400, {
-					message: `The requested max_tokens (${max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${effectiveMaxOutput})`,
+					message: `The requested max_tokens (${max_tokens}) exceeds the maximum output tokens allowed for model ${usedInternalModel} (${effectiveMaxOutput})`,
 				});
 			}
 		}
+	}
+
+	// --- n parameter validation ---
+	// Mirror the initial-path supportsN check (chat.ts) so retry fallbacks
+	// don't silently drop n by routing to a mapping that doesn't natively
+	// accept multiple choices.
+	if (
+		options.n !== undefined &&
+		options.n > 1 &&
+		!providerMappingForSelected?.supportsN
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+		});
 	}
 
 	// --- requestCanBeCanceled ---
@@ -430,6 +541,8 @@ export async function resolveProviderContext(
 	// --- Request body preparation ---
 	const requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
 		usedProvider as Provider,
+		usedInternalModel,
+		providerMapping.region ?? null,
 		upstreamModelName,
 		options.messages as BaseMessage[],
 		options.effectiveStream,
@@ -455,6 +568,9 @@ export async function resolveProviderContext(
 		useResponsesApi,
 		options.prompt_cache_key,
 		options.prompt_cache_retention,
+		options.providerCacheControlEnabled,
+		options.n,
+		options.service_tier,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -470,7 +586,7 @@ export async function resolveProviderContext(
 		) {
 			if (requestBody.max_tokens > providerMappingForSelected.maxOutput) {
 				throw new HTTPException(400, {
-					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedModel} (${providerMappingForSelected.maxOutput})`,
+					message: `The effective max_tokens (${requestBody.max_tokens}) exceeds the maximum output tokens allowed for model ${usedInternalModel} (${providerMappingForSelected.maxOutput})`,
 				});
 			}
 		}
@@ -516,10 +632,10 @@ export async function resolveProviderContext(
 
 	return {
 		usedProvider,
-		usedModel,
+		usedInternalModel,
+		usedExternalId,
 		usedModelFormatted,
 		usedModelMapping,
-		baseModelName,
 		usedToken,
 		usedApiKeyHash,
 		providerKey,
@@ -533,6 +649,7 @@ export async function resolveProviderContext(
 		isImageGeneration,
 		supportsReasoning,
 		splitTaggedReasoning,
+		healStreamingJsonOutput,
 		temperature,
 		max_tokens,
 		top_p,

@@ -21,6 +21,7 @@ interface VideoHeaderProps {
 	onComparisonModeChange: (enabled: boolean) => void;
 	isModelOptionDisabled?: (value: string) => boolean;
 	getModelOptionDisabledReason?: (value: string) => string | undefined;
+	hideCompare?: boolean;
 }
 
 export function VideoHeader({
@@ -34,6 +35,7 @@ export function VideoHeader({
 	onComparisonModeChange,
 	isModelOptionDisabled,
 	getModelOptionDisabledReason,
+	hideCompare = false,
 }: VideoHeaderProps) {
 	return (
 		<header className="bg-background flex items-center border-b p-4">
@@ -94,21 +96,31 @@ export function VideoHeader({
 					</div>
 				)}
 			</div>
-			<div className="ml-3 flex items-center gap-3">
-				<div className="hidden items-center gap-2 md:flex">
-					<Label
-						htmlFor="comparison-mode-vid"
-						className="text-muted-foreground text-xs"
-					>
-						Compare
-					</Label>
-					<Switch
-						id="comparison-mode-vid"
-						checked={comparisonMode}
-						onCheckedChange={onComparisonModeChange}
-					/>
+			{(!hideCompare || comparisonMode) && (
+				<div className="ml-3 flex items-center gap-3">
+					<div className="hidden items-center gap-2 md:flex">
+						{hideCompare ? (
+							<span className="text-muted-foreground text-xs">
+								Comparison Mode
+							</span>
+						) : (
+							<>
+								<Label
+									htmlFor="comparison-mode-vid"
+									className="text-muted-foreground text-xs"
+								>
+									Comparison Mode
+								</Label>
+								<Switch
+									id="comparison-mode-vid"
+									checked={comparisonMode}
+									onCheckedChange={onComparisonModeChange}
+								/>
+							</>
+						)}
+					</div>
 				</div>
-			</div>
+			)}
 		</header>
 	);
 }

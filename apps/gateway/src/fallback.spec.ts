@@ -9,7 +9,7 @@ import {
 	vi,
 } from "vitest";
 
-import { and, db, eq, tables, type Log } from "@llmgateway/db";
+import { db, eq, tables, type Log } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
 
 import { app } from "./app.js";
@@ -96,12 +96,7 @@ describe("fallback and error status code handling", () => {
 		resetFailOnceCounter();
 		resetKeyHealth();
 		await clearCache();
-		await db.update(tables.modelProviderMapping).set({
-			routingUptime: null,
-			routingLatency: null,
-			routingThroughput: null,
-			routingTotalRequests: null,
-		});
+		await db.delete(tables.modelProviderMappingHistory);
 
 		await Promise.all([
 			db.delete(tables.log),
@@ -124,8 +119,8 @@ describe("fallback and error status code handling", () => {
 		]);
 	}
 
-	beforeAll(() => {
-		mockServerUrl = startMockServer(3001);
+	beforeAll(async () => {
+		mockServerUrl = await startMockServer();
 	});
 
 	afterAll(() => {
@@ -290,24 +285,60 @@ describe("fallback and error status code handling", () => {
 			routingTotalRequests?: number;
 		},
 	) {
-		const conditions = [
-			eq(tables.modelProviderMapping.modelId, modelId),
-			eq(tables.modelProviderMapping.providerId, providerId),
-		];
-
-		if (options?.region) {
-			conditions.push(eq(tables.modelProviderMapping.region, options.region));
-		}
+		// Seed a recent model_provider_mapping_history row whose unweighted
+		// aggregates reproduce the requested uptime/latency/throughput.
+		// Routing reads from this table on-demand
+		// (see packages/db/src/provider-metrics-history.ts).
+		const totalRequests = options?.routingTotalRequests ?? 100;
+		const latency = options?.routingLatency ?? 100;
+		const throughput = options?.routingThroughput ?? 100;
+		const uptimeFraction = routingUptime / 100;
+		const errorRate = 1 - uptimeFraction;
+		const errorsCount = Math.round(totalRequests * errorRate);
+		const totalDurationMs = 1000;
+		const totalOutputTokens = Math.round((throughput * totalDurationMs) / 1000);
+		const totalTimeToFirstToken = latency * totalRequests;
+		const minuteTimestamp = new Date(Math.floor(Date.now() / 60000) * 60000);
+		const mappingId = options?.region
+			? `${modelId}::${providerId}::${options.region}`
+			: `${modelId}::${providerId}`;
 
 		await db
-			.update(tables.modelProviderMapping)
-			.set({
-				routingUptime,
-				routingLatency: options?.routingLatency ?? 100,
-				routingThroughput: options?.routingThroughput ?? 100,
-				routingTotalRequests: options?.routingTotalRequests ?? 100,
+			.insert(tables.modelProviderMappingHistory)
+			.values({
+				modelId,
+				providerId,
+				modelProviderMappingId: mappingId,
+				minuteTimestamp,
+				logsCount: totalRequests,
+				errorsCount,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: errorsCount,
+				cachedCount: 0,
+				totalOutputTokens,
+				totalDuration: totalDurationMs,
+				totalTimeToFirstToken,
+				totalTimeToFirstReasoningToken: 0,
 			})
-			.where(and(...conditions));
+			.onConflictDoUpdate({
+				target: [
+					tables.modelProviderMappingHistory.modelProviderMappingId,
+					tables.modelProviderMappingHistory.minuteTimestamp,
+				],
+				set: {
+					logsCount: totalRequests,
+					errorsCount,
+					clientErrorsCount: 0,
+					gatewayErrorsCount: 0,
+					upstreamErrorsCount: errorsCount,
+					cachedCount: 0,
+					totalOutputTokens,
+					totalDuration: totalDurationMs,
+					totalTimeToFirstToken,
+					totalTimeToFirstReasoningToken: 0,
+				},
+			});
 	}
 
 	/** Ensure a regional modelProviderMapping row exists for routing tests. */
@@ -334,7 +365,7 @@ describe("fallback and error status code handling", () => {
 				id,
 				modelId,
 				providerId,
-				modelName: `${modelId}:${region}`,
+				externalId: modelId,
 				region,
 				status: "active",
 			})
@@ -1023,21 +1054,21 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-zai-root",
 						modelId: "glm-4.6",
 						providerId: "zai",
-						modelName: "glm-4.6",
+						externalId: "glm-4.6",
 						streaming: true,
 					},
 					{
 						id: "glm-4-6-alibaba-root",
 						modelId: "glm-4.6",
 						providerId: "alibaba",
-						modelName: "glm-4.6",
+						externalId: "glm-4.6",
 						streaming: true,
 					},
 					{
 						id: "glm-4-6-alibaba-cn-beijing",
 						modelId: "glm-4.6",
 						providerId: "alibaba",
-						modelName: "glm-4.6:cn-beijing",
+						externalId: "glm-4.6",
 						region: "cn-beijing",
 						streaming: true,
 					},
@@ -1045,7 +1076,7 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-novita-root",
 						modelId: "glm-4.6",
 						providerId: "novita",
-						modelName: "zai-org/glm-4.6",
+						externalId: "zai-org/glm-4.6",
 						streaming: true,
 					},
 				])
@@ -1107,6 +1138,20 @@ describe("fallback and error status code handling", () => {
 		test("auto routing ignores synthetic root region mappings", async () => {
 			await ensureProviders(["zai", "alibaba", "novita"]);
 
+			// zai carries a default provider-priority bonus that would otherwise win
+			// auto-routing outright. Neutralize provider priorities via an enterprise
+			// routing config so this test exercises pure metric-based selection of
+			// the regional mapping.
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "org-id"));
+			await db.insert(tables.routingConfig).values({
+				projectId: "project-id",
+				enabled: true,
+				providerPriorities: { zai: 1, alibaba: 1, novita: 1 },
+			});
+
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
@@ -1148,21 +1193,21 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-zai-auto-root",
 						modelId: "glm-4.6",
 						providerId: "zai",
-						modelName: "glm-4.6",
+						externalId: "glm-4.6",
 						streaming: true,
 					},
 					{
 						id: "glm-4-6-alibaba-auto-root",
 						modelId: "glm-4.6",
 						providerId: "alibaba",
-						modelName: "glm-4.6",
+						externalId: "glm-4.6",
 						streaming: true,
 					},
 					{
 						id: "glm-4-6-alibaba-auto-cn-beijing",
 						modelId: "glm-4.6",
 						providerId: "alibaba",
-						modelName: "glm-4.6:cn-beijing",
+						externalId: "glm-4.6",
 						region: "cn-beijing",
 						streaming: true,
 					},
@@ -1170,7 +1215,7 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-novita-auto-root",
 						modelId: "glm-4.6",
 						providerId: "novita",
-						modelName: "zai-org/glm-4.6",
+						externalId: "zai-org/glm-4.6",
 						streaming: true,
 					},
 				])
@@ -1271,7 +1316,7 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-zai-root-max-tokens",
 						modelId: "glm-4.6",
 						providerId: "zai",
-						modelName: "glm-4.6",
+						externalId: "glm-4.6",
 						maxOutput: 32768,
 						streaming: true,
 					},
@@ -1279,7 +1324,7 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-alibaba-cn-beijing-max-tokens",
 						modelId: "glm-4.6",
 						providerId: "alibaba",
-						modelName: "glm-4.6:cn-beijing",
+						externalId: "glm-4.6",
 						region: "cn-beijing",
 						maxOutput: 16384,
 						streaming: true,
@@ -1288,7 +1333,7 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-novita-root-max-tokens",
 						modelId: "glm-4.6",
 						providerId: "novita",
-						modelName: "zai-org/glm-4.6",
+						externalId: "zai-org/glm-4.6",
 						maxOutput: 32768,
 						streaming: true,
 					},
