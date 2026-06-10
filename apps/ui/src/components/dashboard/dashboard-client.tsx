@@ -57,6 +57,7 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import type { ActivitT } from "@/types/activity";
 
@@ -107,6 +108,7 @@ export function DashboardClient({
 				query: {
 					from: fromStr,
 					to: toStr,
+					timezone: getBrowserTimeZone(),
 					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 				},
 			},
