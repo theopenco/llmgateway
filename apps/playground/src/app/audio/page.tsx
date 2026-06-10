@@ -97,6 +97,12 @@ export default async function AudioPage({
 		organizations[0] ??
 		null;
 
+	// Discard projects fetched for an orgId that didn't resolve to the selected
+	// organization so the project list always matches the billing context.
+	if (orgId && selectedOrganization?.id !== orgId) {
+		initialProjectsData = null;
+	}
+
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(

@@ -237,6 +237,10 @@ export default function AudioPageClient({
 
 	// Ensure playground key
 	const pendingRef = useRef(0);
+	// Incremented for every generation (and on reset) so finally blocks from
+	// requests of an abandoned generation can't decrement the counter of the
+	// one currently running.
+	const generationIdRef = useRef(0);
 	const ensuredProjectRef = useRef<string | null>(null);
 	useEffect(() => {
 		if (!isAuthenticated || !selectedProject) {
@@ -408,6 +412,7 @@ export default function AudioPageClient({
 			setPrompt("");
 
 			// Fire requests independently — each updates gallery as audio arrives.
+			const generationId = ++generationIdRef.current;
 			pendingRef.current = modelsToGenerate.length;
 
 			for (const modelId of modelsToGenerate) {
@@ -512,9 +517,11 @@ export default function AudioPageClient({
 							}),
 						);
 					} finally {
-						pendingRef.current--;
-						if (pendingRef.current === 0) {
-							setIsGenerating(false);
+						if (generationIdRef.current === generationId) {
+							pendingRef.current--;
+							if (pendingRef.current === 0) {
+								setIsGenerating(false);
+							}
 						}
 					}
 				})();
@@ -585,6 +592,7 @@ export default function AudioPageClient({
 		setInstructions("");
 		setIsGenerating(false);
 		setComparisonMode(false);
+		generationIdRef.current++;
 		pendingRef.current = 0;
 		const params = new URLSearchParams(window.location.search);
 		params.delete("id");

@@ -76,25 +76,45 @@ export async function POST(req: Request) {
 
 	const noFallback = req.headers.get("x-no-fallback");
 
-	const response = await fetch(`${gatewayBaseUrl}/v1/audio/speech`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${apiKey}`,
-			"x-source": "chat.llmgateway.io",
-			...(noFallback ? { "x-no-fallback": noFallback } : {}),
-		},
-		body: JSON.stringify({
-			model: body.model,
-			input: body.input,
-			...(body.voice ? { voice: body.voice } : {}),
-			...(body.response_format
-				? { response_format: body.response_format }
-				: {}),
-			...(body.speed !== undefined ? { speed: body.speed } : {}),
-			...(body.instructions ? { instructions: body.instructions } : {}),
-		}),
-	});
+	// Abort just under maxDuration so a hung gateway connection surfaces as a
+	// 504 instead of an opaque function timeout. Long TTS inputs can take well
+	// over a minute, so the timeout stays generous.
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 110_000);
+
+	let response: Response;
+	try {
+		response = await fetch(`${gatewayBaseUrl}/v1/audio/speech`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${apiKey}`,
+				"x-source": "chat.llmgateway.io",
+				...(noFallback ? { "x-no-fallback": noFallback } : {}),
+			},
+			body: JSON.stringify({
+				model: body.model,
+				input: body.input,
+				...(body.voice ? { voice: body.voice } : {}),
+				...(body.response_format
+					? { response_format: body.response_format }
+					: {}),
+				...(body.speed !== undefined ? { speed: body.speed } : {}),
+				...(body.instructions ? { instructions: body.instructions } : {}),
+			}),
+			signal: controller.signal,
+		});
+	} catch (error) {
+		if (error instanceof DOMException && error.name === "AbortError") {
+			return NextResponse.json(
+				{ error: "Speech generation timed out" },
+				{ status: 504 },
+			);
+		}
+		throw error;
+	} finally {
+		clearTimeout(timeout);
+	}
 
 	if (!response.ok) {
 		const text = await response.text();
