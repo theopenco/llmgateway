@@ -11,6 +11,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { getAuthErrorMessage } from "@/lib/auth-errors";
@@ -284,6 +285,24 @@ export default function Signup() {
 						</Button>
 					</form>
 				</Form>
+
+				{/* Divider */}
+				<div className="relative">
+					<div className="absolute inset-0 flex items-center">
+						<span className="w-full border-t" />
+					</div>
+					<div className="relative flex justify-center text-xs uppercase">
+						<span className="bg-background px-2 text-muted-foreground">Or</span>
+					</div>
+				</div>
+
+				{/* Social sign-up methods */}
+				<SocialAuthButtons
+					isLoading={isLoading}
+					setIsLoading={setIsLoading}
+					callbackPath="/dashboard"
+					errorCallbackPath="/signup"
+				/>
 			</div>
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">
