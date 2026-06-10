@@ -131,6 +131,40 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs even with allowAllModels", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// allow-all-models only relaxes the model-level coding/cached-input
+		// restrictions — it must NOT unlock direct provider routing. The
+		// `provider/model` format stays blocked; only the canonical root id
+		// (`deepseek-v4-pro`) is allowed on dev plans.
+		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "deepseek/deepseek-v4-pro",
+				messages: [{ role: "user", content: "hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Direct provider routing is not available on coding plans",
+		);
+	});
+
 	test("/v1/chat/completions e2e success", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

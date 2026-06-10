@@ -2388,9 +2388,7 @@ chat.openapi(completions, async (c) => {
 	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
 	// model qualifies as coding overall but the named mapping itself is uncached.
 	const isDevPlanRestricted = Boolean(
-		organization?.kind === "devpass" &&
-			organization.devPlan !== "none" &&
-			!organization.devPlanAllowAllModels,
+		isDevPlan && !organization?.devPlanAllowAllModels,
 	);
 
 	// Source restriction is gated behind DEVPASS_ENFORCE_SOURCE_RESTRICTION so it
@@ -2408,26 +2406,33 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	if (isDevPlanRestricted) {
-		if (!isCodingModel(modelInfo)) {
-			throw new HTTPException(403, {
-				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at devpass.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
-			});
-		}
-
+	// Provider-targeting model strings (`provider/model`, `custom/model`) are
+	// never allowed on dev plans — only canonical root model ids. This is
+	// independent of allow-all-models: that flag only relaxes the model-level
+	// coding/cached-input restrictions below, it does not unlock direct or
+	// custom provider routing.
+	if (isDevPlan) {
 		if (
 			requestedProvider &&
 			requestedProvider !== "llmgateway" &&
 			requestedProvider !== "custom"
 		) {
 			throw new HTTPException(403, {
-				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
 			});
 		}
 
 		if (requestedProvider === "custom") {
 			throw new HTTPException(403, {
-				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
+			});
+		}
+	}
+
+	if (isDevPlanRestricted) {
+		if (!isCodingModel(modelInfo)) {
+			throw new HTTPException(403, {
+				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at devpass.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
 			});
 		}
 	}
