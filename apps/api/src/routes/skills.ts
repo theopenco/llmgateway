@@ -311,6 +311,8 @@ const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
 // Default model for skill generation; must support tool calling.
 const SKILL_GENERATION_MODEL = "openai/gpt-5-mini";
 
+const SKILL_GENERATION_TIMEOUT_MS = 120_000;
+
 const generatedSkillSchema = z.object({
 	name: z
 		.string()
@@ -453,6 +455,7 @@ skills.openapi(generateSkill, async (c) => {
 			}),
 		},
 		toolChoice: "required",
+		abortSignal: AbortSignal.timeout(SKILL_GENERATION_TIMEOUT_MS),
 	});
 
 	const saveCall = result.toolCalls.find(
