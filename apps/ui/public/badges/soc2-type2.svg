@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="SOC 2 Type II badge">
-	<circle cx="60" cy="60" r="60" fill="#232c5c" />
-	<circle cx="60" cy="60" r="59" fill="none" stroke="#ffffff" stroke-width="0.75" opacity="0.35" />
-	<circle cx="60" cy="60" r="48" fill="none" stroke="#ffffff" stroke-width="1.5" />
-	<text x="60" y="56" font-family="Helvetica, Arial, sans-serif" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="1.5">SOC 2</text>
-	<line x1="36" y1="64" x2="84" y2="64" stroke="#ffffff" stroke-width="0.75" opacity="0.6" />
-	<text x="60" y="80" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" letter-spacing="2">TYPE II</text>
-</svg>
