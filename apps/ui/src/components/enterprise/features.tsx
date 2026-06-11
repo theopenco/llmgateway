@@ -55,7 +55,7 @@ const features = [
 		icon: Headphones,
 		title: "24/7 Premium Support",
 		description:
-			"Round-the-clock access to our engineering team. Priority response for any issues.",
+			"Round-the-clock access to our engineering team through a dedicated Slack or Discord channel. Priority response for any issues.",
 	},
 	{
 		icon: MessageSquare,

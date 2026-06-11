@@ -8,6 +8,7 @@ import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
 import { PricingEnterprise } from "@/components/enterprise/pricing";
 import { ProductShowcase } from "@/components/enterprise/product-showcase";
 import { SecurityEnterprise } from "@/components/enterprise/security";
+import { SupportEnterprise } from "@/components/enterprise/support";
 import { TrustBarEnterprise } from "@/components/enterprise/trust-bar";
 import { UptimeVisualization } from "@/components/enterprise/uptime";
 import Footer from "@/components/landing/footer";
@@ -64,6 +65,7 @@ export default async function EnterprisePage() {
 			<ProductShowcase />
 			<AdminDashboardEnterprise />
 			<SecurityEnterprise />
+			<SupportEnterprise />
 			<Testimonials />
 			<PricingEnterprise />
 			<OpenSourceEnterprise />
