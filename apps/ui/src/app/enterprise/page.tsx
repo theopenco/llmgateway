@@ -58,14 +58,14 @@ export default async function EnterprisePage() {
 				totalRequests={stats?.totalRequests}
 			/>
 			<TrustBarEnterprise />
+			<SecurityEnterprise />
+			<SupportEnterprise />
 			<EnterpriseCapabilities />
 			<UptimeVisualization />
 			<FeaturesEnterprise />
 			<CostCalculator />
 			<ProductShowcase />
 			<AdminDashboardEnterprise />
-			<SecurityEnterprise />
-			<SupportEnterprise />
 			<Testimonials />
 			<PricingEnterprise />
 			<OpenSourceEnterprise />

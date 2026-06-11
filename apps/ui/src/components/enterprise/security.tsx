@@ -33,7 +33,7 @@ const assurances = [
 
 export function SecurityEnterprise() {
 	return (
-		<section className="relative py-24 sm:py-32 border-t border-border overflow-hidden">
+		<section className="relative py-24 sm:py-32 overflow-hidden">
 			<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(59,130,246,0.07),transparent_50%),radial-gradient(circle_at_85%_100%,rgba(99,102,241,0.06),transparent_50%)]" />
 
 			<div className="container relative mx-auto px-4 sm:px-6 lg:px-8">
