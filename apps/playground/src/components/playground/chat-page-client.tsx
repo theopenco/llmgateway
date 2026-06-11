@@ -81,6 +81,19 @@ function isToolPart(obj: unknown): obj is ToolPart {
 	);
 }
 
+// Serialize web search source-url parts for persistence alongside the message.
+function extractSourcePartsJson(parts: UIMessage["parts"]): string | undefined {
+	const sourceParts = (parts as { type: string; [key: string]: unknown }[])
+		.filter((p) => p.type === "source-url" && typeof p.url === "string")
+		.map((p) => ({
+			type: "source-url" as const,
+			sourceId: p.sourceId,
+			url: p.url,
+			...(p.title ? { title: p.title } : {}),
+		}));
+	return sourceParts.length > 0 ? JSON.stringify(sourceParts) : undefined;
+}
+
 function getFirstUserMessageText(
 	messages: { role: string; parts?: { type: string; text?: string }[] }[],
 ): string | null {
@@ -537,6 +550,7 @@ export default function ChatPageClient({
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 
@@ -1016,6 +1030,17 @@ export default function ChatPageClient({
 						}
 					} catch (error) {
 						toast.error("Failed to parse tools: " + getErrorMessage(error));
+					}
+				}
+
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch (error) {
+						toast.error("Failed to parse sources: " + getErrorMessage(error));
 					}
 				}
 
@@ -2276,6 +2301,7 @@ function ExtraChatPanel({
 					content: textContent || undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 

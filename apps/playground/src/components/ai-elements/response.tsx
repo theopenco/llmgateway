@@ -35,6 +35,7 @@ export const Response = memo(
 			isAnimating={isStreaming}
 			plugins={{ code, mermaid, math, cjk }}
 			shikiTheme={shikiTheme}
+			linkSafety={{ enabled: false }}
 			{...props}
 		/>
 	),

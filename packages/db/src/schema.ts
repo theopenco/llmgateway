@@ -1602,6 +1602,7 @@ export const message = pgTable(
 		documents: text(), // JSON string to store document attachments array
 		reasoning: text(), // Reasoning content from AI models
 		tools: text(), // JSON string to store tool call parts
+		sources: text(), // JSON string to store web search source citations
 		metadata: jsonb().$type<Record<string, unknown>>(),
 		sequence: integer().notNull(), // To maintain message order
 	},
