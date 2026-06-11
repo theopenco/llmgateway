@@ -339,7 +339,7 @@ export function CostBreakdownChart({
 					</Pie>
 				</PieChart>
 			</ChartContainer>
-			<div className="flex flex-1 flex-col justify-center gap-3 text-sm">
+			<div className="flex min-w-0 flex-1 flex-col justify-center gap-3 text-sm">
 				{selectedProject && (
 					<p className="text-muted-foreground">
 						Project:{" "}
