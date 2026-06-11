@@ -388,20 +388,6 @@ export function VideoSidebar({
 	const orgIdParam = searchParams.get("orgId");
 	const withOrg = (path: string) =>
 		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
-	const openChatFromSearch = useCallback(
-		(chatId: string) => {
-			const params = new URLSearchParams();
-			if (orgIdParam) {
-				params.set("orgId", orgIdParam);
-			}
-			params.set("id", chatId);
-			router.push(`/?${params.toString()}`);
-		},
-		[orgIdParam, router],
-	);
-	const startNewChatFromSearch = useCallback(() => {
-		router.push(orgIdParam ? `/?orgId=${orgIdParam}` : "/");
-	}, [orgIdParam, router]);
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
@@ -635,10 +621,7 @@ export function VideoSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarChatSearch
-						onChatSelect={openChatFromSearch}
-						onNewChat={startNewChatFromSearch}
-					/>
+					<SidebarChatSearch disabled />
 					<SidebarNewAction label="New Generation" onAction={onNewChat} />
 					<SidebarMenuItem>
 						<SidebarMenuButton

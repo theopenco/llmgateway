@@ -813,7 +813,7 @@ export const ChatSidebar = function ChatSidebar({
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarChatSearch
-						disabled={pathname === "/"}
+						disabled={pathname !== "/"}
 						onChatSelect={handleChatSelect}
 						onNewChat={onNewChat}
 					/>

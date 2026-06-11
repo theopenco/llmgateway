@@ -67,8 +67,8 @@ export function SidebarShortcutKbd({ keys }: { keys: string }) {
 }
 
 interface SidebarChatSearchProps {
-	// Disable the search entry point (e.g. on the chat page itself, where the
-	// chat sidebar already shows history and opening search causes flicker).
+	// Search is only enabled on the Chat page, where selecting a result can
+	// switch chats in place; elsewhere the entry point renders disabled.
 	disabled?: boolean;
 	onChatSelect?: (chatId: string) => void;
 	onNewChat?: () => void;

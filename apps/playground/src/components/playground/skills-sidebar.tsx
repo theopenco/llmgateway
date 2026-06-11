@@ -94,15 +94,6 @@ export function SkillsSidebar({
 		setTheme(currentTheme === "dark" ? "light" : "dark");
 	}, [currentTheme, setTheme]);
 
-	const openChatFromSearch = useCallback(
-		(chatId: string) => {
-			router.push(`/?id=${chatId}`);
-		},
-		[router],
-	);
-	const startNewChatFromSearch = useCallback(() => {
-		router.push("/");
-	}, [router]);
 	const isMac = useSidebarShortcut("j", onCreateOpen);
 
 	const logout = async () => {
@@ -177,10 +168,7 @@ export function SkillsSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarChatSearch
-						onChatSelect={openChatFromSearch}
-						onNewChat={startNewChatFromSearch}
-					/>
+					<SidebarChatSearch disabled />
 					<SidebarMenuItem>
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>

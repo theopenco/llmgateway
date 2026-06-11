@@ -600,32 +600,35 @@ export const Navbar = ({
 													)}
 												/>
 											</button>
-											{openMobileSection === section.label ? (
-												<ul className="grid grid-cols-2 gap-x-4 rounded-xl bg-muted/40 px-3 py-2 mb-2">
-													{section.items.map((item) => (
-														<li key={item.name}>
-															{item.external ? (
-																<a
-																	href={item.href}
-																	target="_blank"
-																	rel="noopener noreferrer"
-																	className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
-																>
-																	{item.name}
-																</a>
-															) : (
-																<Link
-																	href={item.href as Route}
-																	className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
-																	prefetch={true}
-																>
-																	{item.name}
-																</Link>
-															)}
-														</li>
-													))}
-												</ul>
-											) : null}
+											<ul
+												className={cn(
+													"grid grid-cols-2 gap-x-4 rounded-xl bg-muted/40 px-3 py-2 mb-2",
+													openMobileSection !== section.label && "hidden",
+												)}
+											>
+												{section.items.map((item) => (
+													<li key={item.name}>
+														{item.external ? (
+															<a
+																href={item.href}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
+															>
+																{item.name}
+															</a>
+														) : (
+															<Link
+																href={item.href as Route}
+																className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
+																prefetch={true}
+															>
+																{item.name}
+															</Link>
+														)}
+													</li>
+												))}
+											</ul>
 										</li>
 									))}
 

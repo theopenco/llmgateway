@@ -943,11 +943,30 @@ export function transformStreamingToOpenai(
 						};
 						break;
 
+					case "response.output_text.annotation.added":
 					case "response.output_item.annotations.added":
 					case "response.content_part.annotations.added": {
-						// Handle web search annotations/citations from OpenAI Responses API
-						const annotations =
-							data.annotations ?? data.part?.annotations ?? [];
+						// Handle web search annotations/citations from OpenAI Responses API.
+						// Annotations arrive flat ({type, url, title, ...}) and must be
+						// mapped to the chat-completions nested url_citation shape.
+						const rawAnnotations = data.annotation
+							? [data.annotation]
+							: (data.annotations ?? data.part?.annotations ?? []);
+						const annotations: Annotation[] = [];
+						for (const annotation of rawAnnotations) {
+							if (annotation?.type !== "url_citation") {
+								continue;
+							}
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: annotation.url ?? annotation.url_citation?.url ?? "",
+									title: annotation.title ?? annotation.url_citation?.title,
+									start_index: annotation.start_index,
+									end_index: annotation.end_index,
+								},
+							});
+						}
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
