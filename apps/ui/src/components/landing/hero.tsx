@@ -171,11 +171,11 @@ export function Hero({
 								<div className="mb-10 lg:mb-12 flex justify-center">
 									<AnimatedGroup variants={transitionVariants}>
 										<Link
-											href="/token-cost-calculator"
+											href="/blog/soc2-type-ii"
 											className="hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
 										>
 											<span className="text-foreground text-sm">
-												See How Much You Can Save on LLMs
+												LLM Gateway Is Now SOC 2 Type II Certified
 											</span>
 											<span className="dark:border-background block h-4 w-0.5 border-l bg-white dark:bg-zinc-700" />
 

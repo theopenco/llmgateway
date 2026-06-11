@@ -1,7 +1,6 @@
 import { AdminDashboardEnterprise } from "@/components/enterprise/admin-dashboard";
 import { EnterpriseCapabilities } from "@/components/enterprise/capabilities";
 import { ContactFormEnterprise } from "@/components/enterprise/contact";
-import { CostCalculator } from "@/components/enterprise/cost-calculator";
 import { FeaturesEnterprise } from "@/components/enterprise/features";
 import { HeroEnterprise } from "@/components/enterprise/hero";
 import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
@@ -63,7 +62,6 @@ export default async function EnterprisePage() {
 			<EnterpriseCapabilities />
 			<UptimeVisualization />
 			<FeaturesEnterprise />
-			<CostCalculator />
 			<ProductShowcase />
 			<AdminDashboardEnterprise />
 			<Testimonials />

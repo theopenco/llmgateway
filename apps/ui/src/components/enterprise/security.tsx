@@ -16,13 +16,14 @@ const assurances = [
 	},
 	{
 		icon: KeyRound,
-		title: "SSO/SAML + RBAC",
+		title: "SSO upon request",
 		description: "Okta, Azure AD, and Google with role-based permissions.",
 	},
 	{
 		icon: FileCheck,
 		title: "Tamper-evident audit logs",
-		description: "Every config change and key rotation, SIEM-exportable.",
+		description:
+			"Every change — configuration, permissions, spend limits, key rotations.",
 	},
 	{
 		icon: ShieldCheck,
