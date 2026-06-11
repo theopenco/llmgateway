@@ -172,19 +172,7 @@ function EditVideoPromptInput({
 }
 
 function HistoryThumbnails({ item }: { item: VideoGalleryItem }) {
-	const images: { src: string; label: string }[] = [];
-
-	if (item.frameInputs?.start) {
-		images.push({ src: item.frameInputs.start.dataUrl, label: "First" });
-	}
-	if (item.frameInputs?.end) {
-		images.push({ src: item.frameInputs.end.dataUrl, label: "Last" });
-	}
-	if (item.referenceImages) {
-		for (const ref of item.referenceImages) {
-			images.push({ src: ref.dataUrl, label: "Ref" });
-		}
-	}
+	const images = item.inputPreviews ?? [];
 
 	if (images.length === 0) {
 		return null;
@@ -198,6 +186,7 @@ function HistoryThumbnails({ item }: { item: VideoGalleryItem }) {
 					src={img.src}
 					alt={img.label}
 					title={img.label}
+					loading="lazy"
 					className="h-5 w-5 rounded border object-cover"
 				/>
 			))}

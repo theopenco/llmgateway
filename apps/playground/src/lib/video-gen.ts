@@ -63,6 +63,10 @@ export interface VideoGalleryItem {
 	organizationId?: string;
 	frameInputs?: VideoFrameInputs;
 	referenceImages?: VideoInputImage[];
+	// Small preview images shown next to the prompt (frame/reference inputs).
+	// Data URLs for in-flight items, API input-image URLs for history items so
+	// the history list doesn't need to inline base64 payloads.
+	inputPreviews?: { src: string; label: string }[];
 	models: VideoGalleryModelResult[];
 }
 

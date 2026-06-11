@@ -213,9 +213,11 @@ function ImageHistoryRowComponent({
 	const isActive = currentItemId === item.id;
 	const isSaved = item.models.every((m) => !m.isLoading);
 	const firstImage = item.models[0]?.images[0];
-	const thumbnailSrc = firstImage
-		? `data:${firstImage.mediaType};base64,${firstImage.base64}`
-		: null;
+	const thumbnailSrc =
+		item.thumbnailUrl ??
+		(firstImage
+			? `data:${firstImage.mediaType};base64,${firstImage.base64}`
+			: null);
 
 	return (
 		<div {...ariaAttributes} style={style}>
@@ -246,6 +248,7 @@ function ImageHistoryRowComponent({
 									<img
 										src={thumbnailSrc}
 										alt="Generated image thumbnail"
+										loading="lazy"
 										className="h-8 w-8 shrink-0 rounded border object-cover mt-0.5"
 									/>
 								)}
