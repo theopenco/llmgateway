@@ -144,7 +144,10 @@ publicChatShares.openapi(getSharedChat, async (c) => {
 		return c.json({ message: "Shared chat not found" }, 404);
 	}
 
-	const messages = sharedMessageSchema.array().parse(share.messages);
+	const messages = sharedMessageSchema
+		.array()
+		.parse(share.messages)
+		.map((message) => ({ ...message, sources: message.sources ?? null }));
 
 	return c.json(
 		{

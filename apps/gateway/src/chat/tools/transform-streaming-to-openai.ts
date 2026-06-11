@@ -962,8 +962,11 @@ export function transformStreamingToOpenai(
 								url_citation: {
 									url: annotation.url ?? annotation.url_citation?.url ?? "",
 									title: annotation.title ?? annotation.url_citation?.title,
-									start_index: annotation.start_index,
-									end_index: annotation.end_index,
+									start_index:
+										annotation.start_index ??
+										annotation.url_citation?.start_index,
+									end_index:
+										annotation.end_index ?? annotation.url_citation?.end_index,
 								},
 							});
 						}

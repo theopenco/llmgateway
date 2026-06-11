@@ -32,6 +32,16 @@ export function useSidebarShortcut(
 		}
 
 		const handleKeyDown = (event: KeyboardEvent) => {
+			const target = event.target;
+			if (
+				target instanceof HTMLElement &&
+				target.closest(
+					'input, textarea, select, [role="textbox"], [contenteditable]:not([contenteditable="false"])',
+				)
+			) {
+				return;
+			}
+
 			const pressed = event.key?.toLowerCase();
 			const withModifier = isMac
 				? event.metaKey && !event.altKey && !event.ctrlKey

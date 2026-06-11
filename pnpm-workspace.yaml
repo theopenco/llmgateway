@@ -10,10 +10,6 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
 
-ignoredBuiltDependencies:
-  - protobufjs
-  - unrs-resolver
-
 onlyBuiltDependencies:
   - '@parcel/watcher'
   - '@tailwindcss/oxide'

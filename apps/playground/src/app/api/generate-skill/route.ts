@@ -18,16 +18,22 @@ const SKILL_DESCRIPTION_MAX = 2000;
 const skillSchema = z.object({
 	name: z
 		.string()
+		.trim()
+		.min(1)
 		.describe(
 			"Short kebab-case identifier for the skill, e.g. 'brand-guidelines'. Max 100 characters.",
 		),
 	description: z
 		.string()
+		.trim()
+		.min(1)
 		.describe(
 			"One or two sentences describing what the skill does and when to use it. Max 2000 characters.",
 		),
 	instructions: z
 		.string()
+		.trim()
+		.min(1)
 		.describe(
 			"The full skill instructions in markdown. Detailed, actionable guidance the AI should follow when the skill is active.",
 		),
@@ -51,7 +57,14 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const body = await req.json();
+	let body: { prompt?: unknown };
+	try {
+		body = await req.json();
+	} catch {
+		return new Response(JSON.stringify({ error: "Malformed JSON body" }), {
+			status: 400,
+		});
+	}
 	const prompt = body?.prompt;
 
 	if (!prompt || typeof prompt !== "string" || !prompt.trim()) {

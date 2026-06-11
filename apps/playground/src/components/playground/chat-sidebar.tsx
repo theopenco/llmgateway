@@ -529,17 +529,18 @@ export const ChatSidebar = function ChatSidebar({
 	);
 	const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(
 		() =>
-			typeof window !== "undefined" &&
-			window.localStorage.getItem(HISTORY_COLLAPSED_STORAGE_KEY) === "1",
+			typeof document !== "undefined" &&
+			document.cookie
+				.split("; ")
+				.includes(`${HISTORY_COLLAPSED_STORAGE_KEY}=1`),
 	);
 
 	const toggleHistoryCollapsed = useCallback(() => {
 		setIsHistoryCollapsed((prev) => {
 			const next = !prev;
-			window.localStorage.setItem(
-				HISTORY_COLLAPSED_STORAGE_KEY,
-				next ? "1" : "0",
-			);
+			document.cookie = `${HISTORY_COLLAPSED_STORAGE_KEY}=${
+				next ? "1" : "0"
+			}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
 			return next;
 		});
 	}, []);

@@ -109,7 +109,7 @@ const sharedMessageSnapshotSchema = z.array(
 		documents: z.string().nullable().optional(),
 		reasoning: z.string().nullable(),
 		tools: z.string().nullable(),
-		sources: z.string().nullable(),
+		sources: z.string().nullable().optional(),
 		metadata: z.record(z.unknown()).nullable().optional(),
 		sequence: z.number(),
 		createdAt: z.string().datetime(),
@@ -158,9 +158,11 @@ const createMessageSchema = z
 			data.audios ??
 			data.documents ??
 			data.reasoning ??
-			data.tools,
+			data.tools ??
+			data.sources,
 		{
-			message: "Either content, images, audios, or documents must be provided",
+			message:
+				"Either content, images, audios, documents, reasoning, tools, or sources must be provided",
 		},
 	);
 
@@ -1274,7 +1276,9 @@ chats.openapi(getOrgShare, async (c) => {
 		throw new HTTPException(404, { message: "Shared chat not found" });
 	}
 
-	const messages = sharedMessageSnapshotSchema.parse(share.messages);
+	const messages = sharedMessageSnapshotSchema
+		.parse(share.messages)
+		.map((message) => ({ ...message, sources: message.sources ?? null }));
 
 	return c.json({
 		share: {

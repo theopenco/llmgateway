@@ -2657,6 +2657,16 @@ function ExtraChatPanel({
 						// ignore malformed tools
 					}
 				}
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch {
+						// ignore malformed sources
+					}
+				}
 				const metadata = parsePlaygroundMessageMetadata((msg as any).metadata);
 				return {
 					id: msg.id,
