@@ -109,6 +109,9 @@ export default function Login() {
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
+		// Abort the pending conditional (autofill) passkey ceremony so it can't pop a
+		// native passkey/biometric prompt after a successful email sign-in + redirect.
+		WebAuthnAbortService.cancelCeremony();
 		const { error } = await signIn.email(
 			{
 				email: values.email,

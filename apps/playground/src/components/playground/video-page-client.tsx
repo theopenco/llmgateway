@@ -19,6 +19,7 @@ import {
 	useVideoHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
+import { useAppConfig } from "@/lib/config";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
 import {
@@ -69,6 +70,7 @@ export default function VideoPageClient({
 }: VideoPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
+	const config = useAppConfig();
 	const fetchClient = useFetchClient();
 	const api = useApi();
 	const pathname = usePathname();
@@ -152,27 +154,52 @@ export default function VideoPageClient({
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
 
+	// The history list carries no base64 input images, only presence flags.
+	// Previews are lazily loaded binary endpoints, indexed in the same
+	// [start, end, ...references] order the API serves them in.
 	const galleryItems = useMemo<VideoGalleryItem[]>(() => {
 		const historical: VideoGalleryItem[] = (historyData?.items ?? []).map(
-			(item) => ({
-				id: item.id,
-				prompt: item.prompt,
-				timestamp: new Date(item.createdAt).getTime(),
-				frameInputs: item.frameInputs ?? undefined,
-				referenceImages: item.referenceImages ?? undefined,
-				models: item.models.map((m) => ({
-					modelId: m.modelId,
-					modelName: m.modelName,
-					job: null,
-					videoUrl: m.videoUrl,
-					expiresAt: m.expiresAt ?? null,
-					error: m.error,
-					isLoading: false,
-				})),
-			}),
+			(item) => {
+				const inputPreviews: { src: string; label: string }[] = [];
+				const inputImageUrl = (index: number) =>
+					`${config.apiUrl}/playground/video-history/${item.id}/input-image/${index}`;
+				if (item.hasStartFrame) {
+					inputPreviews.push({
+						src: inputImageUrl(inputPreviews.length),
+						label: "First frame",
+					});
+				}
+				if (item.hasEndFrame) {
+					inputPreviews.push({
+						src: inputImageUrl(inputPreviews.length),
+						label: "Last frame",
+					});
+				}
+				for (let i = 0; i < item.referenceImageCount; i++) {
+					inputPreviews.push({
+						src: inputImageUrl(inputPreviews.length),
+						label: `Reference ${i + 1}`,
+					});
+				}
+				return {
+					id: item.id,
+					prompt: item.prompt,
+					timestamp: new Date(item.createdAt).getTime(),
+					inputPreviews,
+					models: item.models.map((m) => ({
+						modelId: m.modelId,
+						modelName: m.modelName,
+						job: null,
+						videoUrl: m.videoUrl,
+						expiresAt: m.expiresAt ?? null,
+						error: m.error,
+						isLoading: false,
+					})),
+				};
+			},
 		);
 		return [...activeItems, ...historical];
-	}, [activeItems, historyData]);
+	}, [activeItems, historyData, config.apiUrl]);
 
 	const displayItems = useMemo<VideoGalleryItem[]>(() => {
 		if (activeItems.length > 0) {
@@ -617,6 +644,18 @@ export default function VideoPageClient({
 					frameInputs.start || frameInputs.end ? { ...frameInputs } : undefined,
 				referenceImages:
 					referenceImages.length > 0 ? [...referenceImages] : undefined,
+				inputPreviews: [
+					...(frameInputs.start
+						? [{ src: frameInputs.start.dataUrl, label: "First frame" }]
+						: []),
+					...(frameInputs.end
+						? [{ src: frameInputs.end.dataUrl, label: "Last frame" }]
+						: []),
+					...referenceImages.map((ref, i) => ({
+						src: ref.dataUrl,
+						label: `Reference ${i + 1}`,
+					})),
+				],
 				models: modelsToGenerate.map((modelId) => ({
 					modelId,
 					modelName: getModelName(modelId),

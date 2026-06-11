@@ -194,19 +194,7 @@ function EmptyState({
 }
 
 function VideoInputThumbnails({ item }: { item: VideoGalleryItem }) {
-	const images: { src: string; label: string }[] = [];
-
-	if (item.frameInputs?.start) {
-		images.push({ src: item.frameInputs.start.dataUrl, label: "First frame" });
-	}
-	if (item.frameInputs?.end) {
-		images.push({ src: item.frameInputs.end.dataUrl, label: "Last frame" });
-	}
-	if (item.referenceImages) {
-		item.referenceImages.forEach((ref, i) => {
-			images.push({ src: ref.dataUrl, label: `Reference ${i + 1}` });
-		});
-	}
+	const images = item.inputPreviews ?? [];
 
 	if (images.length === 0) {
 		return null;
@@ -220,6 +208,7 @@ function VideoInputThumbnails({ item }: { item: VideoGalleryItem }) {
 					src={img.src}
 					alt={img.label}
 					title={img.label}
+					loading="lazy"
 					className="h-6 w-6 rounded border object-cover"
 				/>
 			))}

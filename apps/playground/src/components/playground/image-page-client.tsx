@@ -15,9 +15,11 @@ import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
 	useImageHistory,
+	useImageHistoryItem,
 	useSaveImageHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
+import { useAppConfig } from "@/lib/config";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
 import {
@@ -52,6 +54,7 @@ export default function ImagePageClient({
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
+	const config = useAppConfig();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -179,29 +182,66 @@ export default function ImagePageClient({
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
 
+	// The history list is metadata-only (no base64). Image data is fetched per
+	// item below when one is selected.
 	const galleryItems = useMemo<GalleryItem[]>(() => {
 		const historical: GalleryItem[] = (historyData?.items ?? []).map(
 			(item) => ({
 				id: item.id,
 				prompt: item.prompt,
 				timestamp: new Date(item.createdAt).getTime(),
-				inputImages: item.inputImages ?? undefined,
-				models: item.models.map((m) => ({ ...m, isLoading: false })),
+				thumbnailUrl: item.models.some((m) => m.imageCount > 0)
+					? `${config.apiUrl}/playground/image-history/${item.id}/thumbnail`
+					: null,
+				models: item.models.map((m) => ({
+					modelId: m.modelId,
+					modelName: m.modelName,
+					images: [],
+					imageCount: m.imageCount,
+					error: m.error,
+					isLoading: false,
+				})),
 			}),
 		);
 		return [...activeItems, ...historical];
-	}, [activeItems, historyData]);
+	}, [activeItems, historyData, config.apiUrl]);
+
+	const { data: selectedItemDetail } = useImageHistoryItem(
+		activeItems.length === 0 ? selectedItemId : null,
+	);
 
 	const displayItems = useMemo<GalleryItem[]>(() => {
 		if (activeItems.length > 0) {
 			return activeItems;
 		}
-		if (selectedItemId) {
-			const item = galleryItems.find((i) => i.id === selectedItemId);
-			return item ? [item] : [];
+		if (!selectedItemId) {
+			return [];
+		}
+		const detail = selectedItemDetail?.item;
+		if (detail && detail.id === selectedItemId) {
+			return [
+				{
+					id: detail.id,
+					prompt: detail.prompt,
+					timestamp: new Date(detail.createdAt).getTime(),
+					inputImages: detail.inputImages ?? undefined,
+					models: detail.models.map((m) => ({ ...m, isLoading: false })),
+				},
+			];
+		}
+		// Detail still loading: render the metadata item with per-model
+		// skeletons so the gallery shows progress instead of a blank page.
+		const light = galleryItems.find((i) => i.id === selectedItemId);
+		if (light) {
+			return [
+				{
+					...light,
+					models: light.models.map((m) => ({ ...m, isLoading: !m.error })),
+				},
+			];
 		}
 		return [];
-	}, [activeItems, selectedItemId, galleryItems]);
+	}, [activeItems, selectedItemId, selectedItemDetail, galleryItems]);
 
 	// Auto-save completed active items to DB then remove from local state
 	useEffect(() => {

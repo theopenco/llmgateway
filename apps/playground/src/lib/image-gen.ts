@@ -12,10 +12,16 @@ export interface GalleryItem {
 	// switches organizations while the generation is in flight.
 	organizationId?: string;
 	inputImages?: { dataUrl: string; mediaType: string }[];
+	// Sidebar thumbnail URL for items loaded from the lightweight history
+	// list, which carries no base64 image data.
+	thumbnailUrl?: string | null;
 	models: {
 		modelId: string;
 		modelName: string;
 		images: GeneratedImage[];
+		// Number of stored images for history items whose image data hasn't
+		// been fetched yet (images stays empty until the detail query resolves).
+		imageCount?: number;
 		error?: string;
 		isLoading: boolean;
 	}[];
