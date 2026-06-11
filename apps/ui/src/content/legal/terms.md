@@ -191,6 +191,8 @@ Your use of the Service and any AI outputs is **entirely at your own risk**. Som
 
 These limitations apply regardless of whether the claim is based in contract, tort (including negligence), strict liability, or any other theory, and apply even if any remedy fails of its essential purpose. The parties agree these limitations reflect a reasonable allocation of risk and are an essential basis of the bargain. Some jurisdictions do not allow certain limitations, so some of the above may not apply to you.
 
+**Exclusive remedy.** To the fullest extent permitted by law, your **sole and exclusive remedy** for any dissatisfaction with, or loss or damage arising from, the Service is to stop using the Service and, where applicable, terminate your account. Any refund, where one is required by law, is limited as set out in Section 4 and is your only monetary remedy.
+
 ---
 
 ## 14. Indemnification
