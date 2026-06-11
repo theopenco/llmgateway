@@ -1194,6 +1194,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://aiplatform.googleapis.com";
 		case "minimax":
 			return "https://api.minimax.io";
+		case "alibaba":
+			return "https://dashscope-intl.aliyuncs.com";
 		default:
 			return null;
 	}
@@ -3404,6 +3406,79 @@ async function createXaiVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+async function createAlibabaVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		input: {
+			prompt,
+		},
+		parameters: {
+			size: `${videoSize.width}*${videoSize.height}`,
+			duration: durationSeconds,
+		},
+	};
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/api/v1/services/aigc/video-generation/video-synthesis",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-DashScope-Async": "enable",
+			...getProviderHeaders("alibaba", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const output =
+		rawResponse.output && typeof rawResponse.output === "object"
+			? (rawResponse.output as Record<string, unknown>)
+			: null;
+	const taskId =
+		output && typeof output.task_id === "string" ? output.task_id : null;
+	if (!taskId) {
+		const message =
+			typeof rawResponse.message === "string"
+				? rawResponse.message
+				: "Alibaba video response did not include a task id";
+		const code =
+			typeof rawResponse.code === "string" ? rawResponse.code : undefined;
+		throw new HTTPException(502, {
+			message: code
+				? `Alibaba video API error: ${message} (code ${code})`
+				: message,
+		});
+	}
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			task_id: taskId,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	return { upstreamId: taskId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3504,6 +3579,14 @@ async function createUpstreamVideoJob(
 				prompt,
 				durationSeconds,
 				processedFirstFrame,
+			);
+		case "alibaba":
+			return await createAlibabaVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
 			);
 		default:
 			throw new HTTPException(500, {
