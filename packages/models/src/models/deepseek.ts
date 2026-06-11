@@ -181,6 +181,7 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				externalId: "deepseek-ai/DeepSeek-V3.2",
+				deactivatedAt: new Date("2026-06-22"),
 				inputPrice: "0.3e-6",
 				outputPrice: "0.45e-6",
 				requestPrice: "0",
