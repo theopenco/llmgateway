@@ -1239,7 +1239,10 @@ export function transformStreamingToOpenai(
 					finishReason = "length";
 				} else if (stopReason === "tool_use") {
 					finishReason = "tool_calls";
-				} else if (stopReason === "content_filtered") {
+				} else if (
+					stopReason === "content_filtered" ||
+					stopReason === "refusal"
+				) {
 					finishReason = "content_filter";
 				}
 

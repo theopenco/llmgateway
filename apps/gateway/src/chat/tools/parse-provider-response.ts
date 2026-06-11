@@ -100,6 +100,11 @@ export function parseProviderResponse(
 				finishReason = "tool_calls";
 			} else if (stopReason === "content_filtered") {
 				finishReason = "content_filter";
+			} else if (stopReason === "refusal") {
+				// Anthropic-on-Bedrock safety-classifier refusal. Preserve the raw
+				// reason so downstream billing can skip charging an unbilled refusal
+				// (getUnifiedFinishReason maps it to content_filter for the log).
+				finishReason = "refusal";
 			} else {
 				finishReason = "stop"; // default fallback
 			}

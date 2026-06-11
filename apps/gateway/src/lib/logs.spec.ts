@@ -55,6 +55,12 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps aws-bedrock refusal to content filter", () => {
+		expect(getUnifiedFinishReason("refusal", "aws-bedrock")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
 	it("maps Google AI Studio finish reasons correctly (original Google format)", () => {
 		expect(getUnifiedFinishReason("STOP", "google-ai-studio")).toBe(
 			UnifiedFinishReason.COMPLETED,

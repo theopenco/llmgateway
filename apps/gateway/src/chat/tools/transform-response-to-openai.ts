@@ -611,7 +611,16 @@ export function transformResponseToOpenai(
 							...(toolResults && { tool_calls: toolResults }),
 							...(annotations && annotations.length > 0 && { annotations }),
 						},
-						finish_reason: finishReason ?? "stop",
+						// parseProviderResponse already maps Bedrock stop reasons to
+						// OpenAI-canonical values; mapFinishReasonToOpenai is idempotent
+						// for those and additionally surfaces a "refusal" as
+						// "content_filter" for OpenAI-compatible clients.
+						finish_reason:
+							mapFinishReasonToOpenai(
+								finishReason,
+								usedProvider,
+								!!toolResults,
+							) ?? "stop",
 					},
 				],
 				usage: buildUsageObject(

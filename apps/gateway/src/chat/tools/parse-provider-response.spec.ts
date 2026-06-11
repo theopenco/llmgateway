@@ -259,6 +259,49 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("refusal finish reason", () => {
+		it("preserves the raw 'refusal' stop reason for aws-bedrock", () => {
+			const json = {
+				output: {
+					message: { content: [], role: "assistant" },
+				},
+				stopReason: "refusal",
+				usage: {
+					inputTokens: 100,
+					outputTokens: 0,
+					totalTokens: 100,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				json,
+			);
+
+			expect(result.finishReason).toBe("refusal");
+		});
+
+		it("surfaces the raw 'refusal' stop_reason for anthropic", () => {
+			const json = {
+				content: [],
+				stop_reason: "refusal",
+				usage: {
+					input_tokens: 100,
+					output_tokens: 0,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-opus-4-8",
+				json,
+			);
+
+			expect(result.finishReason).toBe("refusal");
+		});
+	});
+
 	describe("anthropic cachedTokens", () => {
 		it("returns cachedTokens as 0 when cache_read_input_tokens is 0", () => {
 			const json = {

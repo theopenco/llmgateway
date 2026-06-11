@@ -4618,4 +4618,302 @@ describe("api", () => {
 			).toBe(true);
 		});
 	});
+
+	describe("refusal billing", () => {
+		// Anthropic-family models emit stop_reason "refusal" when a safety
+		// classifier blocks the response. Per Anthropic's billing policy, a
+		// refusal that arrives before any output is generated is not billed; a
+		// refusal that already produced output is billed for what was generated.
+		function spyRefusalResponse(
+			matchUrlFragment: string,
+			body: unknown,
+		): ReturnType<typeof vi.spyOn> {
+			const originalFetch = globalThis.fetch;
+			return vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(matchUrlFragment)) {
+						return new Response(JSON.stringify(body), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						});
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+		}
+
+		test("anthropic refusal with no output is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyRefusalResponse(`${mockServerUrl}/v1/messages`, {
+				id: "msg_refusal",
+				type: "message",
+				role: "assistant",
+				model: "claude-fable-5",
+				content: [],
+				stop_reason: "refusal",
+				stop_sequence: null,
+				usage: { input_tokens: 100, output_tokens: 0 },
+			});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-fable-5",
+						messages: [{ role: "user", content: "Trigger a refusal" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				// Client sees the OpenAI-canonical content_filter reason.
+				expect(json.choices[0].finish_reason).toBe("content_filter");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			// Raw provider reason preserved; unified reason classified.
+			expect(logs[0].finishReason).toBe("refusal");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			expect(logs[0].hasError).toBe(false);
+			// A refusal before any output is generated must not be charged.
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].inputCost)).toBe(0);
+			expect(Number(logs[0].outputCost)).toBe(0);
+			// Usage tokens are still recorded for analytics (informational only).
+			expect(Number(logs[0].promptTokens)).toBe(100);
+		});
+
+		test("anthropic refusal after partial output is still billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyRefusalResponse(`${mockServerUrl}/v1/messages`, {
+				id: "msg_refusal_partial",
+				type: "message",
+				role: "assistant",
+				model: "claude-fable-5",
+				content: [{ type: "text", text: "Here is the start of an answer" }],
+				stop_reason: "refusal",
+				stop_sequence: null,
+				usage: { input_tokens: 100, output_tokens: 20 },
+			});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-fable-5",
+						messages: [{ role: "user", content: "Trigger a refusal" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("refusal");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			// Output was generated before the refusal, so it is billed normally:
+			// 100 input * 10e-6 + 20 output * 50e-6 = 0.002.
+			expect(Number(logs[0].cost)).toBeCloseTo(0.002);
+		});
+
+		test("aws-bedrock refusal with no output is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "aws-test-key",
+				provider: "aws-bedrock",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyRefusalResponse("/converse", {
+				output: { message: { content: [], role: "assistant" } },
+				stopReason: "refusal",
+				usage: { inputTokens: 100, outputTokens: 0, totalTokens: 100 },
+			});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "aws-bedrock/claude-fable-5",
+						messages: [{ role: "user", content: "Trigger a refusal" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.choices[0].finish_reason).toBe("content_filter");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("refusal");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			expect(logs[0].hasError).toBe(false);
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].promptTokens)).toBe(100);
+		});
+
+		test("streaming anthropic refusal with no output is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Anthropic surfaces streaming-classifier refusals as a message_delta
+			// with stop_reason "refusal" and no generated content.
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_stream_refusal",
+						type: "message",
+						role: "assistant",
+						model: "claude-fable-5",
+						content: [],
+						usage: { input_tokens: 100, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: message_delta\ndata: ${JSON.stringify({
+					type: "message_delta",
+					delta: { stop_reason: "refusal", stop_sequence: null },
+					usage: { output_tokens: 0 },
+				})}\n\n`,
+				`event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+			].join("");
+
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						const stream = new ReadableStream({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode(sse));
+								controller.close();
+							},
+						});
+						return new Response(stream, {
+							status: 200,
+							headers: { "Content-Type": "text/event-stream" },
+						});
+					}
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-fable-5",
+						messages: [{ role: "user", content: "Trigger a refusal" }],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(
+					streamResult.chunks.some(
+						(chunk) => chunk.choices?.[0]?.finish_reason === "content_filter",
+					),
+				).toBe(true);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("refusal");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			expect(Number(logs[0].cost)).toBe(0);
+		});
+	});
 });
