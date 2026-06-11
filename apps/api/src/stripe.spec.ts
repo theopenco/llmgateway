@@ -169,6 +169,7 @@ function makeInvoiceEvent(overrides: {
 	amountPaid: number;
 	invoiceId: string;
 	metadata?: Record<string, string>;
+	periodEnd?: number;
 }): Stripe.InvoicePaymentSucceededEvent {
 	return {
 		id: "evt_test_invoice",
@@ -183,7 +184,12 @@ function makeInvoiceEvent(overrides: {
 				currency: "usd",
 				payment_intent: "pi_test_001",
 				metadata: overrides.metadata ?? { organizationId: ORG_ID },
-				lines: { data: [] },
+				lines: {
+					data:
+						overrides.periodEnd !== undefined
+							? [{ period: { end: overrides.periodEnd } }]
+							: [],
+				},
 			},
 		},
 	} as unknown as Stripe.InvoicePaymentSucceededEvent;
@@ -302,6 +308,25 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 
 		expect(sendEmailMock).toHaveBeenCalledTimes(1);
 		expect(sendEmailMock.mock.calls[0][0].to).toBe("default-billing@acme.test");
+	});
+
+	test("records the new period end as the renewal date on a cycle renewal", async () => {
+		await seedUsedDevPlanOrg();
+
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_period_001",
+				periodEnd,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 	});
 
 	test("does NOT reset credits on a proration invoice from a tier change", async () => {

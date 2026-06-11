@@ -150,16 +150,28 @@ export default function BillingClient({
 	const cycle = devPlanStatus.devPlanCycle ?? "monthly";
 	const cancelled = devPlanStatus.devPlanCancelled ?? false;
 	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
+	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
 
 	const renewalHint = (() => {
-		if (!billingCycleStart) {
+		// Prefer Stripe's real `current_period_end`; only fall back to projecting a
+		// cycle from `billingCycleStart` for legacy rows missing the recorded end.
+		// The projection diverges from the actual schedule after a mid-cycle
+		// proration upgrade (the anchor is preserved, the cycle start is not).
+		const renewAt = currentPeriodEnd
+			? new Date(currentPeriodEnd)
+			: billingCycleStart
+				? (() => {
+						const d = new Date(billingCycleStart);
+						if (cycle === "annual") {
+							d.setFullYear(d.getFullYear() + 1);
+						} else {
+							d.setMonth(d.getMonth() + 1);
+						}
+						return d;
+					})()
+				: null;
+		if (!renewAt) {
 			return "—";
-		}
-		const renewAt = new Date(billingCycleStart);
-		if (cycle === "annual") {
-			renewAt.setFullYear(renewAt.getFullYear() + 1);
-		} else {
-			renewAt.setMonth(renewAt.getMonth() + 1);
 		}
 		const when = format(renewAt, "MMM d, yyyy");
 		return cancelled
