@@ -66,6 +66,26 @@ export default function Footer() {
 							</span>
 							All systems operational
 						</a>
+						<a
+							href="https://security.llmgateway.io/"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="mt-6 flex items-center gap-3 text-muted-foreground transition-colors hover:text-foreground"
+						>
+							<img
+								src="/badges/soc2-type2.svg"
+								alt="SOC 2 Type II badge"
+								width={56}
+								height={56}
+								loading="lazy"
+								className="h-14 w-14"
+							/>
+							<span className="text-xs leading-snug">
+								SOC 2 Type II
+								<br />
+								compliant
+							</span>
+						</a>
 					</div>
 
 					<div className="w-full md:w-auto grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 text-muted-foreground">

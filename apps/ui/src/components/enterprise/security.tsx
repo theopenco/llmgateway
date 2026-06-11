@@ -1,26 +1,30 @@
 import { ArrowRight, Eye, Lock, Shield, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 
 const badges = [
 	{
 		title: "99.99% Uptime SLA",
-		href: "/docs/sla",
+		href: "https://status.llmgateway.io/",
+		external: true,
 	},
 	{
-		title: "SOC 2 Type 1",
-		href: "/security",
+		title: "SOC 2 Type II",
+		href: "https://security.llmgateway.io/",
+		external: true,
 	},
 	{
 		title: "GDPR Compliant",
-		href: "/privacy",
+		href: "/legal/privacy",
+		external: false,
 	},
 ];
 
 const features = [
 	{
 		icon: Shield,
-		title: "Enterprise-Grade Security",
+		title: "SOC 2 Type II Certified",
 		description:
-			"End-to-end encryption, secure API key management, and comprehensive audit logs for all operations.",
+			"Independently audited controls for security, availability, and confidentiality. Request our report at security.llmgateway.io.",
 	},
 	{
 		icon: Lock,
@@ -53,19 +57,38 @@ export function SecurityEnterprise() {
 					{/* Middle and Right columns - Badges */}
 					<div className="lg:col-span-2 lg:pl-12">
 						<div className="grid sm:grid-cols-3 gap-6">
-							{badges.map((badge) => (
-								<a
-									key={badge.title}
-									href={badge.href}
-									className="group flex items-center justify-between p-4 rounded-lg hover:bg-muted/50 transition-colors"
-								>
-									<div className="flex items-center gap-3">
-										<ShieldCheck className="h-5 w-5 text-primary" />
-										<span className="font-semibold">{badge.title}</span>
-									</div>
-									<ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-								</a>
-							))}
+							{badges.map((badge) => {
+								const content = (
+									<>
+										<div className="flex items-center gap-3">
+											<ShieldCheck className="h-5 w-5 text-primary" />
+											<span className="font-semibold">{badge.title}</span>
+										</div>
+										<ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+									</>
+								);
+								const className =
+									"group flex items-center justify-between p-4 rounded-lg hover:bg-muted/50 transition-colors";
+								return badge.external ? (
+									<a
+										key={badge.title}
+										href={badge.href}
+										target="_blank"
+										rel="noopener noreferrer"
+										className={className}
+									>
+										{content}
+									</a>
+								) : (
+									<Link
+										key={badge.title}
+										href={badge.href}
+										className={className}
+									>
+										{content}
+									</Link>
+								);
+							})}
 						</div>
 					</div>
 				</div>

@@ -77,9 +77,9 @@ const features = [
 	},
 	{
 		icon: ShieldCheck,
-		title: "SOC 2 Type II (In Progress)",
+		title: "SOC 2 Type II Compliant",
 		description:
-			"We are actively pursuing SOC 2 Type II certification to meet the highest standards of security, availability, and confidentiality for your data.",
+			"LLM Gateway is SOC 2 Type II compliant, independently audited against the highest standards of security, availability, and confidentiality. Request our report at security.llmgateway.io.",
 	},
 ];
 
