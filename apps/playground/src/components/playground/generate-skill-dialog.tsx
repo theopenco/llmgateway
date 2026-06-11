@@ -16,6 +16,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateSkill } from "@/hooks/useSkills";
+import { useApi } from "@/lib/fetch-client";
+import { getErrorMessage } from "@/lib/utils";
 
 import type { Skill } from "@/hooks/useSkills";
 
@@ -31,8 +33,9 @@ export function GenerateSkillDialog({
 	onSuccess,
 }: GenerateSkillDialogProps) {
 	const [prompt, setPrompt] = useState("");
-	const [isGenerating, setIsGenerating] = useState(false);
 
+	const api = useApi();
+	const generateSkill = api.useMutation("post", "/skills/generate");
 	const createSkill = useCreateSkill();
 
 	const handleOpenChange = (nextOpen: boolean) => {
@@ -43,28 +46,14 @@ export function GenerateSkillDialog({
 	};
 
 	const handleGenerate = async () => {
-		if (!prompt.trim() || isGenerating) {
+		if (!prompt.trim() || generateSkill.isPending) {
 			return;
 		}
 
-		setIsGenerating(true);
 		try {
-			const response = await fetch("/api/generate-skill", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ prompt: prompt.trim() }),
+			const data = await generateSkill.mutateAsync({
+				body: { prompt: prompt.trim() },
 			});
-
-			if (!response.ok) {
-				const data = (await response.json().catch(() => null)) as {
-					error?: string;
-				} | null;
-				throw new Error(data?.error ?? "Failed to generate skill");
-			}
-
-			const data = (await response.json()) as {
-				skill: Pick<Skill, "name" | "description" | "instructions">;
-			};
 
 			const result = await createSkill.mutateAsync({
 				body: {
@@ -81,15 +70,11 @@ export function GenerateSkillDialog({
 				handleOpenChange(false);
 			}
 		} catch (error) {
-			toast.error(
-				error instanceof Error ? error.message : "Failed to generate skill",
-			);
-		} finally {
-			setIsGenerating(false);
+			toast.error(getErrorMessage(error));
 		}
 	};
 
-	const isBusy = isGenerating || createSkill.isPending;
+	const isBusy = generateSkill.isPending || createSkill.isPending;
 
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
