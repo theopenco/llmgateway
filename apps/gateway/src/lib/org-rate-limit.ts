@@ -277,8 +277,16 @@ function spendCacheKey(organizationId: string): string {
 
 /**
  * Lifetime spend (USD) for an organization, aggregated from hourly project
- * stats and cached in Redis. The cache TTL is intentionally coarse: crossing a
- * spend tier boundary does not need to take effect instantly.
+ * stats and cached in Redis.
+ *
+ * This deliberately does NOT use the `cached-queries` (swrWrap + cdb) pattern.
+ * Those caches auto-invalidate whenever their backing table is written, and
+ * `project_hourly_stats` is rewritten continuously by the worker — so a
+ * swr/cdb cache for this aggregate would be evicted constantly and hammer
+ * Postgres at gateway throughput. Instead we use a plain fixed-TTL Redis entry:
+ * the spend tier is coarse and does not need to reflect a write instantly. The
+ * lookup is also only reached lazily, once an org is already at its base limit
+ * (see {@link checkOrgRateLimit}), so the hot path never touches Postgres.
  */
 export async function getOrganizationLifetimeSpend(
 	organizationId: string,
