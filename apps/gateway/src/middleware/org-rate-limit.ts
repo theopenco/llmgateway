@@ -59,10 +59,13 @@ export async function orgRateLimitMiddleware(
 		return await next();
 	}
 
-	const lifetimeSpend = await getOrganizationLifetimeSpend(organizationId);
-	const { multiplier } = getSpendTierMultiplier(lifetimeSpend);
-
-	const result = await checkOrgRateLimit(organizationId, config, multiplier);
+	// The spend-tier multiplier is resolved lazily inside checkOrgRateLimit and
+	// only when the org has already reached its base limit, so the common
+	// under-limit path skips the spend lookup entirely.
+	const result = await checkOrgRateLimit(organizationId, config, async () => {
+		const lifetimeSpend = await getOrganizationLifetimeSpend(organizationId);
+		return getSpendTierMultiplier(lifetimeSpend).multiplier;
+	});
 
 	if (!result.allowed) {
 		const retryAfter = result.retryAfter ?? 60;

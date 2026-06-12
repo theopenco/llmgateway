@@ -95,6 +95,15 @@ app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
 app.use("*", corsMiddleware);
 
+// Per-organization, per-path rate limiting. Registered before the other
+// request gates (content-type validation) and ahead of every downstream
+// DB check and rate limiter in the route handlers (credit checks, free-model
+// and provider rate limits), so an over-limit org is rejected as early as
+// possible. Enterprise orgs are exempt and limits scale with the
+// organization's lifetime spend tier. Only configured `/v1/*` paths are
+// throttled; everything else passes through.
+app.use("*", orgRateLimitMiddleware);
+
 // Middleware to check for application/json content type on POST requests
 // Excludes /mcp endpoint which handles its own content type validation
 // Excludes /oauth endpoints which accept form-urlencoded or JSON
@@ -118,11 +127,6 @@ app.use("*", async (c, next) => {
 	}
 	return await next();
 });
-
-// Per-organization, per-path rate limiting. Enterprise orgs are exempt and
-// limits scale with the organization's lifetime spend tier. Only configured
-// `/v1/*` paths are throttled; everything else passes through.
-app.use("*", orgRateLimitMiddleware);
 
 // Renders a gateway-level error in a provider-compatible shape. The Anthropic
 // `/v1/messages` endpoint expects Anthropic's `{ type: "error", error: {...} }`

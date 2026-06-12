@@ -166,18 +166,22 @@ describe("getEffectiveLimit", () => {
 
 describe("checkOrgRateLimit", () => {
 	const orgId = "org-1";
+	const multiplierOf = (value: number) => vi.fn().mockResolvedValue(value);
 
 	it("allows requests under the limit and records them", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
 		vi.mocked(redis.zcard).mockResolvedValue(3);
 
-		const result = await checkOrgRateLimit(orgId, chatConfig, 1);
+		const getMultiplier = multiplierOf(1);
+		const result = await checkOrgRateLimit(orgId, chatConfig, getMultiplier);
 
 		expect(result.allowed).toBe(true);
 		expect(result.limit).toBe(10);
 		expect(result.remaining).toBe(6);
 		expect(redis.zadd).toHaveBeenCalled();
 		expect(redis.expire).toHaveBeenCalled();
+		// Under the base limit the spend tier must not be resolved.
+		expect(getMultiplier).not.toHaveBeenCalled();
 	});
 
 	it("blocks requests at the limit with a retryAfter", async () => {
@@ -186,7 +190,7 @@ describe("checkOrgRateLimit", () => {
 		const future = Date.now() + 30_000;
 		vi.mocked(redis.zrange).mockResolvedValue(["m", future.toString()]);
 
-		const result = await checkOrgRateLimit(orgId, chatConfig, 1);
+		const result = await checkOrgRateLimit(orgId, chatConfig, multiplierOf(1));
 
 		expect(result.allowed).toBe(false);
 		expect(result.limit).toBe(5);
@@ -195,25 +199,29 @@ describe("checkOrgRateLimit", () => {
 		expect(redis.zadd).not.toHaveBeenCalled();
 	});
 
-	it("applies the spend-tier multiplier to the limit", async () => {
+	it("resolves the spend-tier multiplier only once the base limit is hit", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
 		vi.mocked(redis.zcard).mockResolvedValue(15);
 
 		// At base limit 10 a 16th request would block, but with multiplier 4 the
 		// effective limit is 40 so the request is allowed.
-		const result = await checkOrgRateLimit(orgId, chatConfig, 4);
+		const getMultiplier = multiplierOf(4);
+		const result = await checkOrgRateLimit(orgId, chatConfig, getMultiplier);
 
 		expect(result.allowed).toBe(true);
 		expect(result.limit).toBe(40);
+		expect(getMultiplier).toHaveBeenCalledOnce();
 	});
 
-	it("treats a zero limit as unlimited", async () => {
+	it("treats a zero limit as unlimited without touching Redis", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "0";
 
-		const result = await checkOrgRateLimit(orgId, chatConfig, 1);
+		const getMultiplier = multiplierOf(1);
+		const result = await checkOrgRateLimit(orgId, chatConfig, getMultiplier);
 
 		expect(result.allowed).toBe(true);
 		expect(redis.zcard).not.toHaveBeenCalled();
+		expect(getMultiplier).not.toHaveBeenCalled();
 	});
 
 	it("fails open on Redis errors", async () => {
@@ -222,7 +230,7 @@ describe("checkOrgRateLimit", () => {
 			new Error("Redis down"),
 		);
 
-		const result = await checkOrgRateLimit(orgId, chatConfig, 1);
+		const result = await checkOrgRateLimit(orgId, chatConfig, multiplierOf(1));
 
 		expect(result.allowed).toBe(true);
 	});

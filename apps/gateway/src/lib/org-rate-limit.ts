@@ -292,17 +292,23 @@ export interface RateLimitResult {
  * Check (and record) a request against an organization's per-path rate limit
  * using a Redis sliding window. Mirrors the free-model limiter: on any Redis
  * error the request is allowed so that limiter outages never block traffic.
+ *
+ * `getMultiplier` is resolved lazily: the spend tier only matters once the org
+ * is already at or above its base limit, so the (cached but still extra) spend
+ * lookup is skipped entirely for the common under-limit case. Higher tiers can
+ * only raise the limit, so a request under the base limit is always allowed
+ * regardless of tier.
  */
 export async function checkOrgRateLimit(
 	organizationId: string,
 	config: PathRateLimitConfig,
-	multiplier: number,
+	getMultiplier: () => Promise<number>,
 ): Promise<RateLimitResult> {
-	const limit = getEffectiveLimit(config, multiplier);
+	const baseLimit = getEnvNumber(config.envVar, config.defaultRpm);
 
-	// A non-positive limit means the path is effectively unlimited (e.g. an
+	// A non-positive base limit means the path is effectively unlimited (e.g. an
 	// operator set the override to 0). Skip enforcement.
-	if (limit <= 0) {
+	if (baseLimit <= 0) {
 		return { allowed: true, remaining: 0, limit: 0 };
 	}
 
@@ -316,6 +322,15 @@ export async function checkOrgRateLimit(
 
 		await redisClient.zremrangebyscore(key, "-inf", windowStart);
 		const currentCount = await redisClient.zcard(key);
+
+		// Only resolve the spend tier (an extra DB/Redis lookup) once the base
+		// limit is reached; below it the request is admitted without it.
+		let limit = baseLimit;
+		let multiplier = 1;
+		if (currentCount >= baseLimit) {
+			multiplier = await getMultiplier();
+			limit = Math.floor(baseLimit * multiplier);
+		}
 
 		if (currentCount >= limit) {
 			const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");
@@ -354,6 +369,6 @@ export async function checkOrgRateLimit(
 	} catch (error) {
 		logger.error("Error checking org rate limit:", error as Error);
 		// Fail open so Redis issues never block users.
-		return { allowed: true, remaining: 0, limit };
+		return { allowed: true, remaining: 0, limit: baseLimit };
 	}
 }
