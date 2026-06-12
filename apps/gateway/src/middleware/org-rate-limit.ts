@@ -1,4 +1,4 @@
-import { findOrganizationById } from "@/lib/cached-queries.js";
+import { findOrganizationCachedById } from "@/lib/cached-queries.js";
 import {
 	buildAnthropicErrorBody,
 	buildOpenAIErrorBody,
@@ -49,7 +49,10 @@ export async function orgRateLimitMiddleware(
 		return await next();
 	}
 
-	const organization = await findOrganizationById(organizationId);
+	// Use the cached-only lookup: the enterprise check needs `plan`, not fresh
+	// credits, so this stays a Redis cache hit even for zero-credit orgs (which
+	// findOrganizationById would otherwise refetch from Postgres every request).
+	const organization = await findOrganizationCachedById(organizationId);
 	if (!organization) {
 		return await next();
 	}

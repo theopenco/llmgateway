@@ -325,6 +325,27 @@ export async function findOrganizationByIdFresh(
 }
 
 /**
+ * Find an organization by ID using only the cached path (no 0-credit bypass).
+ *
+ * Use this when a slightly stale view is acceptable and a guaranteed cache hit
+ * matters more than fresh credits (e.g. checking the org `plan` for rate
+ * limiting). For credit/billing decisions use {@link findOrganizationById},
+ * which refetches via a short-TTL fresh read when credits are exhausted.
+ */
+export async function findOrganizationCachedById(
+	id: string,
+): Promise<Organization | undefined> {
+	return await swrWrap(`org:${id}`, [organizationTableName], async () => {
+		const results = await db
+			.select()
+			.from(organizationTable)
+			.where(eq(organizationTable.id, id))
+			.limit(1);
+		return results[0];
+	});
+}
+
+/**
  * Find an organization by ID (cacheable)
  * When the organization has 0 credits, refetch via a short-TTL fresh read so
  * topups and usage updates are reflected within FRESH_TTL_SECONDS without
@@ -333,14 +354,7 @@ export async function findOrganizationByIdFresh(
 export async function findOrganizationById(
 	id: string,
 ): Promise<Organization | undefined> {
-	const org = await swrWrap(`org:${id}`, [organizationTableName], async () => {
-		const results = await db
-			.select()
-			.from(organizationTable)
-			.where(eq(organizationTable.id, id))
-			.limit(1);
-		return results[0];
-	});
+	const org = await findOrganizationCachedById(id);
 
 	// If org has 0 or negative credits, refetch via the short-TTL fresh read
 	// so topups are reflected promptly without a per-request Postgres hit
