@@ -6,7 +6,9 @@ icon: Terminal
 
 # Coding Agents
 
-DevPass coding plans are restricted to recognized coding agents and tools. Requests from unrecognized sources (browsers, curl, generic HTTP clients) are rejected with a `403` response.
+The gateway detects which coding agent or tool a DevPass request comes from and records it as the `x-source` attribution in logs and the dashboard. Detection runs on every request.
+
+Source enforcement is gated behind the `DEVPASS_ENFORCE_SOURCE_RESTRICTION` environment variable and is **disabled by default**. While disabled, all sources are allowed and detection is used only for attribution. When enabled (`DEVPASS_ENFORCE_SOURCE_RESTRICTION=true`), requests from unrecognized sources (browsers, curl, generic HTTP clients) are rejected with a `403` response.
 
 ## How Detection Works
 
@@ -18,7 +20,7 @@ The gateway identifies coding agents using a multi-layer priority chain:
 4. **`HTTP-Referer` header** — Referer URL pattern matching (e.g., `hermes-agent.nousresearch.com`)
 5. **User-Agent fallback** — If an unrecognized `x-source` is sent, falls back to UA detection
 
-If your tool sends a recognized `x-source` header, no further detection is needed. Otherwise, the gateway checks each subsequent layer until a match is found. If no layer produces a match, the request is rejected on DevPass plans.
+If your tool sends a recognized `x-source` header, no further detection is needed. Otherwise, the gateway checks each subsequent layer until a match is found. If no layer produces a match, the request is rejected on DevPass plans only when source enforcement is enabled (see above); otherwise it is allowed and logged as an unrecognized source.
 
 ## Supported Agents
 
@@ -127,21 +129,7 @@ No other code changes are required.
 
 ## Removing an Agent
 
-To remove an agent from the allowlist, delete its entry from `packages/shared/src/coding-agents.ts`. Requests from that tool will be rejected on DevPass plans after deployment.
-
-## Testing Changes Locally
-
-A test script is provided to verify agent detection against a local gateway:
-
-```bash
-# Start the gateway
-pnpm dev
-
-# Run tests (requires a devpass-enabled API key)
-DEVPASS_API_KEY="your-key" ./scripts/test-agent-detection.sh
-```
-
-The script tests all recognized agents, \*claw forks, x-source overrides, and verifies unknown agents are blocked.
+To remove an agent from the allowlist, delete its entry from `packages/shared/src/coding-agents.ts`. Once source enforcement is enabled, requests from that tool will be rejected on DevPass plans after deployment.
 
 ## Source Normalization
 

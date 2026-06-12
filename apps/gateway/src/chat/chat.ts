@@ -2230,15 +2230,25 @@ chat.openapi(completions, async (c) => {
 	const isDevPlanRestricted = Boolean(
 		organization?.isPersonal &&
 			organization.devPlan !== "none" &&
+			!organization.devPlanAllowAllModels,
+	);
+
+	// Source restriction is gated behind DEVPASS_ENFORCE_SOURCE_RESTRICTION so it
+	// can be enabled later. While disabled (default), all sources are allowed —
+	// the `source` value is still normalized and recorded in logs above, so we
+	// get correct x-source attribution without blocking any requests.
+	const isDevPlanSourceRestricted = Boolean(
+		organization?.isPersonal &&
+			organization.devPlan !== "none" &&
 			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
 	);
-	if (isDevPlanRestricted) {
-		if (!isRecognizedCodingAgent(source)) {
-			throw new HTTPException(403, {
-				message: `DevPass coding plans are restricted to recognized coding agents. Your request was not identified as coming from a supported tool. Please ensure your coding tool sends an identifiable User-Agent header or x-source header. Supported agents: ${getSupportedAgentsList()}.`,
-			});
-		}
+	if (isDevPlanSourceRestricted && !isRecognizedCodingAgent(source)) {
+		throw new HTTPException(403, {
+			message: `DevPass coding plans are restricted to recognized coding agents. Your request was not identified as coming from a supported tool. Please ensure your coding tool sends an identifiable User-Agent header or x-source header. Supported agents: ${getSupportedAgentsList()}.`,
+		});
+	}
 
+	if (isDevPlanRestricted) {
 		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
 				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at devpass.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
