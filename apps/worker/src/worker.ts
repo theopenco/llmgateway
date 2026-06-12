@@ -711,12 +711,13 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	}
 }
 
-export async function batchProcessLogs(): Promise<void> {
+export async function batchProcessLogs(): Promise<number> {
 	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
 	if (!lockAcquired) {
-		return;
+		return 0;
 	}
 
+	let processedCount = 0;
 	const deductedOrgIds: string[] = [];
 	// LLM SDK: wallets that crossed below the low-balance threshold this
 	// batch — webhooks are enqueued after the transaction commits.
@@ -780,6 +781,8 @@ export async function batchProcessLogs(): Promise<void> {
 			if (unprocessedLogs.rows.length === 0) {
 				return;
 			}
+
+			processedCount = unprocessedLogs.rows.length;
 
 			logger.info(
 				`Processing ${unprocessedLogs.rows.length} logs for credit deduction and API key usage`,
@@ -1356,6 +1359,8 @@ export async function batchProcessLogs(): Promise<void> {
 	} finally {
 		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
 	}
+
+	return processedCount;
 }
 
 async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
@@ -1741,9 +1746,15 @@ async function runBatchProcessLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await batchProcessLogs();
+				const processed = await batchProcessLogs();
 
-				await interruptibleSleep(interval);
+				// A full batch means more unprocessed logs remain, so loop straight
+				// into the next batch instead of sleeping. Without this the loop is
+				// hard-capped at CREDIT_BATCH_SIZE / interval logs per second (e.g.
+				// 100 / 5s = 20/s) regardless of how far behind credit processing is.
+				if (processed < CREDIT_BATCH_SIZE) {
+					await interruptibleSleep(interval);
+				}
 			} catch (error) {
 				logger.error(
 					"Error in batch process loop",
