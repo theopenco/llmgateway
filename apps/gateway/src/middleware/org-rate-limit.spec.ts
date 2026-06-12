@@ -24,6 +24,9 @@ vi.mock("@/lib/org-rate-limit.js", () => ({
 const { orgRateLimitMiddleware } = await import("./org-rate-limit.js");
 const { parseApiToken } = await import("@/lib/extract-api-token.js");
 const { findOrganizationCachedById } = await import("@/lib/cached-queries.js");
+const { API_ORIGIN_HEADER, internalApiOriginHeaders } = await import(
+	"@/lib/api-origin.js"
+);
 const lib = await import("@/lib/org-rate-limit.js");
 
 const chatConfig: PathRateLimitConfig = {
@@ -34,9 +37,12 @@ const chatConfig: PathRateLimitConfig = {
 	chatDefaultRpm: 60,
 };
 
-function makeContext(path = "/v1/chat/completions") {
+function makeContext(
+	path = "/v1/chat/completions",
+	headers: Record<string, string> = {},
+) {
 	return {
-		req: { path },
+		req: { path, header: (name: string) => headers[name] },
 		json: vi.fn(),
 	} as unknown as Context;
 }
@@ -146,5 +152,31 @@ describe("orgRateLimitMiddleware", () => {
 		expect(findOrganizationCachedById).not.toHaveBeenCalled();
 		expect(lib.checkOrgRateLimit).not.toHaveBeenCalled();
 		expect(next).toHaveBeenCalledOnce();
+	});
+
+	it("skips trusted internal forwards so they don't double-count", async () => {
+		const c = makeContext(
+			"/v1/chat/completions",
+			internalApiOriginHeaders("images"),
+		);
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(lib.checkOrgRateLimit).not.toHaveBeenCalled();
+		expect(findOrganizationCachedById).not.toHaveBeenCalled();
+		expect(next).toHaveBeenCalledOnce();
+	});
+
+	it("does not let a spoofed internal-forward header bypass the limiter", async () => {
+		vi.mocked(findOrganizationCachedById).mockResolvedValue(orgWith("pro"));
+		const c = makeContext("/v1/chat/completions", {
+			[API_ORIGIN_HEADER]: "not-the-real-token:images",
+		});
+		const next = vi.fn(async () => undefined) as unknown as Next;
+
+		await orgRateLimitMiddleware(c, next);
+
+		expect(lib.checkOrgRateLimit).toHaveBeenCalledOnce();
 	});
 });

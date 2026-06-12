@@ -4,6 +4,7 @@ import {
 	buildOpenAIErrorBody,
 } from "@/lib/error-response.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { isInternalApiOrigin } from "@/lib/api-origin.js";
 import {
 	checkOrgRateLimit,
 	getOrganizationLifetimeSpend,
@@ -34,6 +35,14 @@ export async function orgRateLimitMiddleware(
 	next: Next,
 ) {
 	if (!isOrgRateLimitEnabled()) {
+		return await next();
+	}
+
+	// Trusted internal forwards (e.g. images/responses/messages handlers calling
+	// `/v1/chat/completions`) already counted against their own endpoint budget;
+	// don't double-count them against the forwarded endpoint's bucket. Detected
+	// via the internal api-origin token those handlers stamp on the hop.
+	if (isInternalApiOrigin(c)) {
 		return await next();
 	}
 
