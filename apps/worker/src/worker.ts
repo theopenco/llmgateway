@@ -110,6 +110,11 @@ const AUTO_TOPUP_DISABLE_AFTER_MS =
 
 // Configuration for batch processing
 const LOG_QUEUE_BATCH_SIZE = Number(process.env.LOG_QUEUE_BATCH_SIZE) || 100;
+// Cache organization retention levels to avoid a serial Postgres round-trip
+// before every log batch insert. retentionLevel changes rarely; the short TTL
+// bounds how long a stale value can keep retaining or stripping log payloads.
+const ORG_RETENTION_CACHE_TTL_MS =
+	Number(process.env.ORG_RETENTION_CACHE_TTL_MS) || 60_000;
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
@@ -1488,15 +1493,62 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
-export async function processLogQueue(): Promise<void> {
+const orgRetentionCache = new Map<
+	string,
+	{ retentionLevel: "retain" | "none"; expiresAt: number }
+>();
+
+// Resolve organization retention levels, serving from the in-memory cache when
+// fresh and only querying Postgres for the ids that are missing or expired.
+async function getOrganizationRetentionLevels(
+	organizationIds: string[],
+): Promise<Map<string, "retain" | "none">> {
+	const now = Date.now();
+	const result = new Map<string, "retain" | "none">();
+	const missing: string[] = [];
+
+	for (const id of organizationIds) {
+		const cached = orgRetentionCache.get(id);
+		if (cached && cached.expiresAt > now) {
+			result.set(id, cached.retentionLevel);
+		} else {
+			missing.push(id);
+		}
+	}
+
+	if (missing.length > 0) {
+		const organizations = await cdb
+			.select({
+				id: organization.id,
+				retentionLevel: organization.retentionLevel,
+			})
+			.from(organization)
+			.where(inArray(organization.id, missing));
+
+		for (const org of organizations) {
+			result.set(org.id, org.retentionLevel);
+			orgRetentionCache.set(org.id, {
+				retentionLevel: org.retentionLevel,
+				expiresAt: now + ORG_RETENTION_CACHE_TTL_MS,
+			});
+		}
+	}
+
+	return result;
+}
+
+// Returns the number of messages successfully inserted, so the drain loop can
+// decide whether to sleep (partial batch) or immediately fetch the next batch
+// (full batch, queue likely still backed up).
+export async function processLogQueue(): Promise<number> {
 	if (Date.now() < logInsertCircuit.nextAttemptAt) {
-		return;
+		return 0;
 	}
 
 	const message = await consumeFromQueue(LOG_QUEUE, LOG_QUEUE_BATCH_SIZE);
 
 	if (!message) {
-		return;
+		return 0;
 	}
 
 	const MAX_RETRIES = 5;
@@ -1506,27 +1558,18 @@ export async function processLogQueue(): Promise<void> {
 		const organizationIds = Array.from(
 			new Set(logData.map((data) => data.organizationId)),
 		);
-		const organizations =
+		const selectStart = Date.now();
+		const retentionByOrg =
 			organizationIds.length > 0
-				? await cdb
-						.select({
-							id: organization.id,
-							retentionLevel: organization.retentionLevel,
-						})
-						.from(organization)
-						.where(inArray(organization.id, organizationIds))
-				: [];
-		const organizationsById = new Map(
-			organizations.map((organization) => [organization.id, organization]),
-		);
+				? await getOrganizationRetentionLevels(organizationIds)
+				: new Map<string, "retain" | "none">();
+		const selectMs = Date.now() - selectStart;
 
 		const processedLogData: (
 			| LogInsertData
 			| Omit<LogInsertData, "messages" | "content">
 		)[] = logData.map((data) => {
-			const organization = organizationsById.get(data.organizationId);
-
-			if (organization?.retentionLevel === "none") {
+			if (retentionByOrg.get(data.organizationId) === "none") {
 				const {
 					messages: _messages,
 					content: _content,
@@ -1548,9 +1591,14 @@ export async function processLogQueue(): Promise<void> {
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
 				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
+				const insertStart = Date.now();
 				await db.insert(log).values(processedLogData as LogInsertData[]);
+				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
-				return; // Success, exit function
+				logger.info(
+					`Processed log batch: ${message.length} rows (org lookup ${selectMs}ms, insert ${insertMs}ms)`,
+				);
+				return message.length; // Success, exit function
 			} catch (insertError) {
 				lastError =
 					insertError instanceof Error
@@ -1584,6 +1632,8 @@ export async function processLogQueue(): Promise<void> {
 		for (const msg of message) {
 			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
 		}
+
+		return 0;
 	} catch (error) {
 		// Opens the circuit when the pre-insert postgres read (cdb.select) throws,
 		// so we stop draining the queue while postgres is down.
@@ -1606,6 +1656,8 @@ export async function processLogQueue(): Promise<void> {
 					: new Error(String(requeueError)),
 			);
 		}
+
+		return 0;
 	}
 }
 
@@ -1620,8 +1672,12 @@ async function runLogQueueLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await processLogQueue();
-				await interruptibleSleep(1000);
+				const drained = await processLogQueue();
+				// When a full batch came back the queue is almost certainly still
+				// backed up, so skip the sleep and immediately drain the next batch.
+				if (drained < LOG_QUEUE_BATCH_SIZE) {
+					await interruptibleSleep(1000);
+				}
 			} catch (error) {
 				logger.error(
 					"Error in log queue loop",
