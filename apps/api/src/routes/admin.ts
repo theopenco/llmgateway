@@ -1632,6 +1632,7 @@ admin.openapi(getOrganizations, async (c) => {
 				sql`LOWER(${tables.organization.name}) LIKE ${`%${searchLower}%`}`,
 				sql`LOWER(${tables.organization.billingEmail}) LIKE ${`%${searchLower}%`}`,
 				sql`${tables.organization.id} LIKE ${`%${search}%`}`,
+				sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${`%${searchLower}%`})`,
 			)
 		: undefined;
 

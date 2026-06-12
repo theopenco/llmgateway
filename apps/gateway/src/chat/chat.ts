@@ -136,7 +136,14 @@ import {
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
 } from "@llmgateway/models";
-import { isChatPlanModelAllowed } from "@llmgateway/shared";
+import {
+	detectCodingAgentFromReferer,
+	detectCodingAgentFromTitle,
+	getSupportedAgentsList,
+	isChatPlanModelAllowed,
+	isRecognizedCodingAgent,
+	normalizeSourceToAgentId,
+} from "@llmgateway/shared";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -1547,6 +1554,38 @@ chat.openapi(completions, async (c) => {
 		source = detectCodingAgentFromUserAgent(userAgent);
 	}
 
+	if (source) {
+		source = normalizeSourceToAgentId(source);
+	}
+
+	// If source is still unrecognized, try X-Title header
+	if (!source || !isRecognizedCodingAgent(source)) {
+		const fromTitle = detectCodingAgentFromTitle(
+			c.req.header("X-Title") ?? c.req.header("X-OpenRouter-Title"),
+		);
+		if (fromTitle) {
+			source = fromTitle;
+		}
+	}
+
+	// If still unrecognized, try HTTP-Referer pattern matching
+	if (!source || !isRecognizedCodingAgent(source)) {
+		const fromReferer = detectCodingAgentFromReferer(
+			c.req.header("HTTP-Referer"),
+		);
+		if (fromReferer) {
+			source = fromReferer;
+		}
+	}
+
+	// Final fallback: UA detection for unrecognized x-source values
+	if (source && !isRecognizedCodingAgent(source)) {
+		const detectedFromUa = detectCodingAgentFromUserAgent(userAgent);
+		if (detectedFromUa) {
+			source = detectedFromUa;
+		}
+	}
+
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
 		c.req.header("x-debug") === "true" ||
@@ -2193,6 +2232,22 @@ chat.openapi(completions, async (c) => {
 			organization.devPlan !== "none" &&
 			!organization.devPlanAllowAllModels,
 	);
+
+	// Source restriction is gated behind DEVPASS_ENFORCE_SOURCE_RESTRICTION so it
+	// can be enabled later. While disabled (default), all sources are allowed —
+	// the `source` value is still normalized and recorded in logs above, so we
+	// get correct x-source attribution without blocking any requests.
+	const isDevPlanSourceRestricted = Boolean(
+		organization?.isPersonal &&
+			organization.devPlan !== "none" &&
+			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
+	);
+	if (isDevPlanSourceRestricted && !isRecognizedCodingAgent(source)) {
+		throw new HTTPException(403, {
+			message: `DevPass coding plans are restricted to recognized coding agents. Your request was not identified as coming from a supported tool. Please ensure your coding tool sends an identifiable User-Agent header or x-source header. Supported agents: ${getSupportedAgentsList()}.`,
+		});
+	}
+
 	if (isDevPlanRestricted) {
 		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
