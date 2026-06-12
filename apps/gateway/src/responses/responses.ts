@@ -294,6 +294,9 @@ responses.post("/", async (c) => {
 	if (req.prompt_cache_retention !== undefined) {
 		chatRequest.prompt_cache_retention = req.prompt_cache_retention;
 	}
+	if (req.routing !== undefined) {
+		chatRequest.routing = req.routing;
+	}
 	if (response_format) {
 		chatRequest.response_format = response_format;
 	}

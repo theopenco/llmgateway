@@ -275,6 +275,22 @@ projects.openapi(updateProject, async (c) => {
 	}
 
 	if (defaultRoutingStrategy !== undefined) {
+		// Personal coding-plan projects optimize for prompt caching, so only the
+		// default weighted routing or the price strategy are allowed — mirror the
+		// /dev-plans/settings restriction so the stored default never diverges
+		// from what the gateway will actually honor.
+		const projectOrg = projectUserOrg?.organization;
+		if (
+			projectOrg?.isPersonal &&
+			projectOrg.devPlan !== "none" &&
+			defaultRoutingStrategy !== "auto" &&
+			defaultRoutingStrategy !== "price"
+		) {
+			throw new HTTPException(400, {
+				message:
+					'Only the "auto" and "price" routing strategies are available on coding plans.',
+			});
+		}
 		updateData.defaultRoutingStrategy = defaultRoutingStrategy;
 	}
 

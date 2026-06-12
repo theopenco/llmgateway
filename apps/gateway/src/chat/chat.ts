@@ -1981,34 +1981,42 @@ chat.openapi(completions, async (c) => {
 		organization = withWalletCredits(organization, endUserWallet);
 	}
 
-	// Resolve the effective routing strategy: an explicit request `routing` wins,
-	// otherwise fall back to the project's configured default.
 	const isDevPlan = Boolean(
 		organization?.isPersonal && organization.devPlan !== "none",
 	);
-	let effectiveRouting = routing ?? project.defaultRoutingStrategy;
-	// Coding (dev) plans optimize for prompt caching and only allow the default
-	// weighted routing or the price strategy; throughput/latency would route to
-	// the fastest provider regardless of cache support. Reject an explicit
-	// ineligible request, but silently clamp a stale project default so existing
-	// requests keep working.
-	if (
-		isDevPlan &&
-		effectiveRouting !== "auto" &&
-		effectiveRouting !== "price"
-	) {
-		if (routing !== undefined) {
-			throw new HTTPException(400, {
-				message: `The "${routing}" routing strategy is not available on coding plans. Use "auto" (default) or "price".`,
-			});
-		}
-		effectiveRouting = "auto";
-	}
 
-	const routingCfg = applyRoutingPreference(
-		await getResolvedRoutingConfig(project.id, organization.plan),
-		effectiveRouting,
+	let routingCfg = await getResolvedRoutingConfig(
+		project.id,
+		organization.plan,
 	);
+	// Routing strategies only affect multi-provider selection. When the request
+	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
+	// reused for region selection and fallback scoring, so leave it untouched to
+	// keep pinned calls a no-op for the strategy.
+	if (!useExpandedRoutingProviders) {
+		// Resolve the effective routing strategy: an explicit request `routing`
+		// wins, otherwise fall back to the project's configured default.
+		let effectiveRouting = routing ?? project.defaultRoutingStrategy;
+		// Coding (dev) plans optimize for prompt caching and only allow the
+		// default weighted routing or the price strategy; throughput/latency would
+		// route to the fastest provider regardless of cache support. Reject an
+		// explicit ineligible request, but silently clamp a stale project default
+		// so existing requests keep working.
+		if (
+			isDevPlan &&
+			effectiveRouting !== "auto" &&
+			effectiveRouting !== "price"
+		) {
+			if (routing !== undefined) {
+				throw new HTTPException(400, {
+					message: `The "${routing}" routing strategy is not available on coding plans. Use "auto" (default) or "price".`,
+				});
+			}
+			effectiveRouting = "auto";
+		}
+
+		routingCfg = applyRoutingPreference(routingCfg, effectiveRouting);
+	}
 
 	// Sticky-session routing: when the request carries a session id and the
 	// project has session stickiness enabled, provider selection is scored
