@@ -617,6 +617,7 @@ export function GlobalStatsClient() {
 									content={
 										<ChartTooltipContent
 											className="w-[220px]"
+											sortByValue={showTimeseriesBreakdown}
 											labelFormatter={(value) => {
 												if (typeof value !== "string" || !value) {
 													return "";
