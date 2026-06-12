@@ -220,22 +220,14 @@ function getEnvNumber(name: string, fallback: number): number {
 }
 
 /**
- * Whether org rate limiting is enforced.
- *
- * - `GATEWAY_RATE_LIMITS_ENABLED` is a global kill switch (default enabled):
- *   set it to "false" to turn off all gateway rate limiting, e.g. to debug in
- *   prod without a redeploy.
- * - Otherwise it is enabled by default in every environment except the e2e
- *   suite (which fires many requests against a single org and would otherwise
- *   be throttled); `GATEWAY_RATE_LIMIT_ENABLED` overrides that default.
+ * Whether org rate limiting is enforced. `GATEWAY_RATE_LIMITS_ENABLED` is the
+ * global switch: set it to "false" to turn off all gateway rate limiting (e.g.
+ * to debug in prod without a redeploy) or "true" to force it on. When unset it
+ * defaults to enabled in every environment except the e2e suite (which fires
+ * many requests against a single org and would otherwise be throttled).
  */
 export function isOrgRateLimitEnabled(): boolean {
-	// Global kill switch — only an explicit "false" disables everything.
-	if (process.env.GATEWAY_RATE_LIMITS_ENABLED === "false") {
-		return false;
-	}
-
-	const explicit = process.env.GATEWAY_RATE_LIMIT_ENABLED;
+	const explicit = process.env.GATEWAY_RATE_LIMITS_ENABLED;
 	if (explicit !== undefined) {
 		return explicit === "true";
 	}

@@ -50,7 +50,6 @@ const redis = mockCache.redisClient;
 
 const ENV_KEYS = [
 	"GATEWAY_RATE_LIMITS_ENABLED",
-	"GATEWAY_RATE_LIMIT_ENABLED",
 	"E2E_TEST",
 	"GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM",
 	"GATEWAY_RATE_LIMIT_DEV_CHAT_COMPLETIONS_RPM",
@@ -115,25 +114,13 @@ describe("isOrgRateLimitEnabled", () => {
 
 	it("honors an explicit override even in the e2e suite", () => {
 		process.env.E2E_TEST = "true";
-		process.env.GATEWAY_RATE_LIMIT_ENABLED = "true";
-		expect(isOrgRateLimitEnabled()).toBe(true);
-	});
-
-	it("can be explicitly disabled", () => {
-		process.env.GATEWAY_RATE_LIMIT_ENABLED = "false";
-		expect(isOrgRateLimitEnabled()).toBe(false);
-	});
-
-	it("is killed globally by GATEWAY_RATE_LIMITS_ENABLED=false", () => {
-		process.env.GATEWAY_RATE_LIMITS_ENABLED = "false";
-		// Wins even if the finer toggle tries to force-enable.
-		process.env.GATEWAY_RATE_LIMIT_ENABLED = "true";
-		expect(isOrgRateLimitEnabled()).toBe(false);
-	});
-
-	it("stays enabled when the global kill switch is true or unset", () => {
 		process.env.GATEWAY_RATE_LIMITS_ENABLED = "true";
 		expect(isOrgRateLimitEnabled()).toBe(true);
+	});
+
+	it("can be explicitly disabled as a global kill switch", () => {
+		process.env.GATEWAY_RATE_LIMITS_ENABLED = "false";
+		expect(isOrgRateLimitEnabled()).toBe(false);
 	});
 });
 
