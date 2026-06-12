@@ -317,13 +317,14 @@ export function resolveRoutingConfig(
 }
 
 /**
- * Per-request routing preference. `auto` (the default) uses the full weighted
- * smart-routing score described above. `cheapest` and `fastest` collapse the
- * weights onto a single dominant factor (price or throughput) while keeping a
- * small uptime weight so requests still fall back to other providers when the
- * dominant pick has extremely bad uptime.
+ * Per-request routing preference, named after the factor it optimizes. `auto`
+ * (the default) uses the full weighted smart-routing score described above. The
+ * other kinds collapse the weights onto a single dominant factor (`price`,
+ * `throughput`, or `latency`) while keeping a small uptime weight so requests
+ * still fall back to other providers when the dominant pick has extremely bad
+ * uptime.
  */
-export type RoutingPreference = "auto" | "cheapest" | "fastest";
+export type RoutingPreference = "auto" | "price" | "throughput" | "latency";
 
 /**
  * The dominant factor gets a 90% relative weight and uptime keeps the remaining
@@ -336,7 +337,7 @@ export const ROUTING_PREFERENCE_WEIGHTS: Record<
 	Exclude<RoutingPreference, "auto">,
 	Required<RoutingWeightsConfig>
 > = {
-	cheapest: {
+	price: {
 		price: 0.9,
 		imagePrice: 0.9,
 		uptime: 0.1,
@@ -344,12 +345,23 @@ export const ROUTING_PREFERENCE_WEIGHTS: Record<
 		latency: 0,
 		cache: 0,
 	},
-	fastest: {
+	throughput: {
 		price: 0,
 		imagePrice: 0,
 		uptime: 0.1,
 		throughput: 0.9,
 		latency: 0,
+		cache: 0,
+	},
+	// Latency (time-to-first-token) is only measured for streaming requests, so
+	// this preference only biases streaming routing; non-streaming requests fall
+	// back to scoring on the uptime weight alone.
+	latency: {
+		price: 0,
+		imagePrice: 0,
+		uptime: 0.1,
+		throughput: 0,
+		latency: 0.9,
 		cache: 0,
 	},
 };

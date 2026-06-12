@@ -229,9 +229,9 @@ describe("applyRoutingPreference", () => {
 		expect(applyRoutingPreference(base, undefined)).toBe(base);
 	});
 
-	it("collapses weights onto price for cheapest, keeping uptime fallback", () => {
-		const resolved = applyRoutingPreference(base, "cheapest");
-		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.cheapest);
+	it("collapses weights onto price, keeping uptime fallback", () => {
+		const resolved = applyRoutingPreference(base, "price");
+		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.price);
 		expect(resolved.weights.price).toBe(0.9);
 		expect(resolved.weights.imagePrice).toBe(0.9);
 		expect(resolved.weights.uptime).toBe(0.1);
@@ -241,17 +241,26 @@ describe("applyRoutingPreference", () => {
 		expect(resolved.providerPriorities).toEqual(base.providerPriorities);
 	});
 
-	it("collapses weights onto throughput for fastest, keeping uptime fallback", () => {
-		const resolved = applyRoutingPreference(base, "fastest");
-		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.fastest);
+	it("collapses weights onto throughput, keeping uptime fallback", () => {
+		const resolved = applyRoutingPreference(base, "throughput");
+		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.throughput);
 		expect(resolved.weights.throughput).toBe(0.9);
 		expect(resolved.weights.uptime).toBe(0.1);
 		expect(resolved.weights.price).toBe(0);
 		expect(resolved.weights.imagePrice).toBe(0);
 	});
 
+	it("collapses weights onto latency, keeping uptime fallback", () => {
+		const resolved = applyRoutingPreference(base, "latency");
+		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.latency);
+		expect(resolved.weights.latency).toBe(0.9);
+		expect(resolved.weights.uptime).toBe(0.1);
+		expect(resolved.weights.price).toBe(0);
+		expect(resolved.weights.throughput).toBe(0);
+	});
+
 	it("does not mutate the input config", () => {
-		applyRoutingPreference(base, "cheapest");
+		applyRoutingPreference(base, "price");
 		expect(base.weights).toEqual(DEFAULT_ROUTING_WEIGHTS);
 	});
 });

@@ -2189,17 +2189,18 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Coding (dev) plans optimize for prompt caching and only allow the default
-	// weighted routing or the cheapest strategy. `fastest` would route to the
-	// highest-throughput provider regardless of cache support, undermining the
-	// plan economics, so it is rejected for any active dev plan.
+	// weighted routing or the price strategy. `throughput`/`latency` would route
+	// to the fastest provider regardless of cache support, undermining the plan
+	// economics, so they are rejected for any active dev plan.
 	if (
 		organization?.isPersonal &&
 		organization.devPlan !== "none" &&
-		routing === "fastest"
+		routing !== undefined &&
+		routing !== "auto" &&
+		routing !== "price"
 	) {
 		throw new HTTPException(400, {
-			message:
-				'The "fastest" routing strategy is not available on coding plans. Use "auto" (default) or "cheapest".',
+			message: `The "${routing}" routing strategy is not available on coding plans. Use "auto" (default) or "price".`,
 		});
 	}
 

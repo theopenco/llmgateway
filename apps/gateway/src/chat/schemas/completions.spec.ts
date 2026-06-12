@@ -39,7 +39,7 @@ describe("completionsRequestSchema reasoning_effort", () => {
 
 describe("completionsRequestSchema routing", () => {
 	it("accepts the supported routing strategies", () => {
-		for (const routing of ["auto", "cheapest", "fastest"] as const) {
+		for (const routing of ["auto", "price", "throughput", "latency"] as const) {
 			const result = completionsRequestSchema.safeParse({
 				model: "deepseek-v4",
 				messages: [{ role: "user", content: "hi" }],
