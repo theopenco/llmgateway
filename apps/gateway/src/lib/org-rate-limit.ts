@@ -41,8 +41,14 @@ export interface PathRateLimitConfig {
 	prefix: string;
 	/** Default requests per minute for regular (pay-as-you-go) orgs. */
 	defaultRpm: number;
-	/** Default requests per minute for dev/chat plan orgs (much tighter). */
-	tightDefaultRpm: number;
+	/**
+	 * Default requests per minute for dev ("devpass") plan orgs. Tighter than
+	 * regular but kept at a 120 floor — these limits are an anti-abuse backstop,
+	 * not a product cap.
+	 */
+	devDefaultRpm: number;
+	/** Default requests per minute for chat plan orgs (much tighter). */
+	chatDefaultRpm: number;
 }
 
 /**
@@ -55,55 +61,64 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		key: "chat_completions",
 		prefix: "/v1/chat/completions",
 		defaultRpm: 600,
-		tightDefaultRpm: 60,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
 	},
 	{
 		key: "messages",
 		prefix: "/v1/messages",
 		defaultRpm: 600,
-		tightDefaultRpm: 60,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
 	},
 	{
 		key: "responses",
 		prefix: "/v1/responses",
 		defaultRpm: 600,
-		tightDefaultRpm: 60,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
 	},
 	{
 		key: "embeddings",
 		prefix: "/v1/embeddings",
 		defaultRpm: 1200,
-		tightDefaultRpm: 120,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 120,
 	},
 	{
 		key: "moderations",
 		prefix: "/v1/moderations",
 		defaultRpm: 1200,
-		tightDefaultRpm: 120,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 120,
 	},
 	{
 		key: "models",
 		prefix: "/v1/models",
 		defaultRpm: 1200,
-		tightDefaultRpm: 120,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 120,
 	},
 	{
 		key: "images",
 		prefix: "/v1/images",
 		defaultRpm: 300,
-		tightDefaultRpm: 30,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 30,
 	},
 	{
 		key: "audio_speech",
 		prefix: "/v1/audio/speech",
 		defaultRpm: 300,
-		tightDefaultRpm: 30,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 30,
 	},
 	{
 		key: "videos",
 		prefix: "/v1/videos",
 		defaultRpm: 120,
-		tightDefaultRpm: 12,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 12,
 	},
 ];
 
@@ -154,7 +169,11 @@ export function getBaseLimit(
 	planClass: PlanClass,
 ): number {
 	const fallback =
-		planClass === "regular" ? config.defaultRpm : config.tightDefaultRpm;
+		planClass === "dev"
+			? config.devDefaultRpm
+			: planClass === "chat"
+				? config.chatDefaultRpm
+				: config.defaultRpm;
 	return getEnvNumber(baseLimitEnvVar(planClass, config), fallback);
 }
 

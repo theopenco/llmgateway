@@ -195,10 +195,16 @@ describe("getBaseLimit", () => {
 		expect(getBaseLimit(chatConfig, "regular")).toBe(chatConfig.defaultRpm);
 	});
 
-	it("uses the much tighter default for dev and chat plans", () => {
-		expect(getBaseLimit(chatConfig, "dev")).toBe(chatConfig.tightDefaultRpm);
-		expect(getBaseLimit(chatConfig, "chat")).toBe(chatConfig.tightDefaultRpm);
-		expect(chatConfig.tightDefaultRpm).toBeLessThan(chatConfig.defaultRpm);
+	it("uses the tighter per-plan defaults for dev and chat plans", () => {
+		expect(getBaseLimit(chatConfig, "dev")).toBe(chatConfig.devDefaultRpm);
+		expect(getBaseLimit(chatConfig, "chat")).toBe(chatConfig.chatDefaultRpm);
+		expect(chatConfig.devDefaultRpm).toBeLessThan(chatConfig.defaultRpm);
+		expect(chatConfig.chatDefaultRpm).toBeLessThan(chatConfig.defaultRpm);
+		// Dev (devpass) is relaxed relative to the chat plan: it's an anti-abuse
+		// backstop, not a product cap.
+		expect(chatConfig.devDefaultRpm).toBeGreaterThanOrEqual(
+			chatConfig.chatDefaultRpm,
+		);
 	});
 
 	it("honors a per-plan-class env override", () => {
@@ -256,10 +262,10 @@ describe("checkOrgRateLimit", () => {
 		expect(redis.zadd).not.toHaveBeenCalled();
 	});
 
-	it("applies the much tighter base limit for dev (devpass) plans", async () => {
-		// No env override: dev plan falls back to the tight default, which is
-		// well below the regular default.
-		vi.mocked(redis.zcard).mockResolvedValue(chatConfig.tightDefaultRpm);
+	it("applies the tighter base limit for dev (devpass) plans", async () => {
+		// No env override: dev plan falls back to its default, which is below the
+		// regular default.
+		vi.mocked(redis.zcard).mockResolvedValue(chatConfig.devDefaultRpm);
 		const future = Date.now() + 30_000;
 		vi.mocked(redis.zrange).mockResolvedValue(["m", future.toString()]);
 
@@ -272,7 +278,7 @@ describe("checkOrgRateLimit", () => {
 		);
 
 		expect(result.allowed).toBe(false);
-		expect(result.limit).toBe(chatConfig.tightDefaultRpm);
+		expect(result.limit).toBe(chatConfig.devDefaultRpm);
 	});
 
 	it("resolves the spend-tier multiplier only once the base limit is hit", async () => {
