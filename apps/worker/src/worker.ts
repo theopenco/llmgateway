@@ -110,6 +110,15 @@ const AUTO_TOPUP_DISABLE_AFTER_MS =
 
 // Configuration for batch processing
 const LOG_QUEUE_BATCH_SIZE = Number(process.env.LOG_QUEUE_BATCH_SIZE) || 100;
+// Number of log-drain loops to run concurrently in-process. Each loop pulls an
+// independent batch (LPOP is atomic, so there is no double-processing) and
+// inserts on its own pool connection, multiplying drain throughput without
+// adding worker replicas. Bounded by the DB pool size and Postgres write
+// capacity.
+const LOG_QUEUE_CONCURRENCY = Math.max(
+	1,
+	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
+);
 // Cache organization retention levels to avoid a serial Postgres round-trip
 // before every log batch insert. retentionLevel changes rarely; the short TTL
 // bounds how long a stale value can keep retaining or stripping log payloads.
@@ -1666,21 +1675,24 @@ let activeLoops = 0;
 let stopFailed = false;
 
 // Independent worker loops
-async function runLogQueueLoop() {
+async function runLogQueueLoop(loopIndex = 0) {
 	activeLoops++;
-	logger.info("Starting log queue processing loop...");
+	logger.info(`Starting log queue processing loop ${loopIndex}...`);
 	try {
 		while (!isStopRequested()) {
 			try {
 				const drained = await processLogQueue();
-				// When a full batch came back the queue is almost certainly still
-				// backed up, so skip the sleep and immediately drain the next batch.
-				if (drained < LOG_QUEUE_BATCH_SIZE) {
+				// Only idle-poll when the queue came back empty. As long as any
+				// messages were drained the queue is still backed up, so loop
+				// straight into the next batch instead of sleeping. Tying this to
+				// LOG_QUEUE_BATCH_SIZE was wrong: when the batch size is raised
+				// above the steady-state queue depth the sleep fired every cycle.
+				if (drained === 0) {
 					await interruptibleSleep(1000);
 				}
 			} catch (error) {
 				logger.error(
-					"Error in log queue loop",
+					`Error in log queue loop ${loopIndex}`,
 					error instanceof Error ? error : new Error(String(error)),
 				);
 				await interruptibleSleep(5000);
@@ -1688,7 +1700,7 @@ async function runLogQueueLoop() {
 		}
 	} finally {
 		activeLoops--;
-		logger.info("Log queue loop stopped");
+		logger.info(`Log queue loop ${loopIndex} stopped`);
 	}
 }
 
@@ -2468,7 +2480,7 @@ export async function startWorker() {
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(
-		`- Log queue: dequeues up to ${LOG_QUEUE_BATCH_SIZE} logs per iteration`,
+		`- Log queue: ${LOG_QUEUE_CONCURRENCY} concurrent loop(s), each dequeues up to ${LOG_QUEUE_BATCH_SIZE} logs per iteration`,
 	);
 	logger.info(
 		`- Credit processing: processes up to ${CREDIT_BATCH_SIZE} logs per batch`,
@@ -2506,7 +2518,9 @@ export async function startWorker() {
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();
-	void runLogQueueLoop();
+	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
+		void runLogQueueLoop(i);
+	}
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
