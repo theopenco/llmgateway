@@ -678,7 +678,14 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						responsesApiData: null,
 						dataRetentionCleanedUp: true,
 					})
-					.where(inArray(log.id, idsToClean));
+					// Use `= ANY($1)` with a single array parameter instead of
+					// `inArray()`, which expands to `IN ($1, $2, ...)` with a
+					// variable number of binds per batch. A varying placeholder
+					// count makes pg_stat_statements fingerprint every batch size
+					// as a distinct query, so one logical operation shows up as
+					// thousands of individual queries. The array form keeps the
+					// query text constant.
+					.where(sql`${log.id} = ANY(${sql.param(idsToClean)}::text[])`);
 
 				return recordsToClean.length;
 			});
@@ -1312,13 +1319,15 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
-			// Mark all logs as processed within the same transaction
+			// Mark all logs as processed within the same transaction.
+			// `= ANY($1)` keeps the query text constant across batch sizes; see
+			// the data-retention cleanup above for why this matters.
 			await tx
 				.update(log)
 				.set({
 					processedAt: new Date(),
 				})
-				.where(inArray(log.id, logIds));
+				.where(sql`${log.id} = ANY(${sql.param(logIds)}::text[])`);
 
 			logger.debug(`Marked ${logIds.length} logs as processed`);
 		});
