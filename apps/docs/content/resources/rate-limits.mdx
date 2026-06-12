@@ -51,19 +51,21 @@ For example, an organization that has spent more than $10,000 gets a 4× multipl
 
 ### Dev and Chat Plans
 
-Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier. Dev plans use a flat 120 requests-per-minute floor on every endpoint:
+Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier.
+
+Dev plans are inference-only and only cover **chat completions, messages, responses, and the models list**, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, moderations, images, speech, videos) are **not available** on Dev plans and are marked **—** below.
 
 | Endpoint             | Dev plan / min | Chat plan / min |
 | -------------------- | -------------- | --------------- |
 | Chat completions     | 120            | 60              |
 | Messages (Anthropic) | 120            | 60              |
 | Responses            | 120            | 60              |
-| Embeddings           | 120            | 120             |
-| Moderations          | 120            | 120             |
 | Models               | 120            | 120             |
-| Images               | 120            | 30              |
-| Speech               | 120            | 30              |
-| Videos               | 120            | 12              |
+| Embeddings           | —              | 120             |
+| Moderations          | —              | 120             |
+| Images               | —              | 30              |
+| Speech               | —              | 30              |
+| Videos               | —              | 12              |
 
 ### Enterprise
 
