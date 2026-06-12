@@ -396,4 +396,35 @@ export const moonshotModels = [
 			},
 		],
 	},
+	{
+		id: "kimi-k2.7-code",
+		name: "Kimi K2.7 Code",
+		description:
+			"Kimi's most intelligent coding model with a native multimodal architecture supporting text, image, and video input, thinking modes, and agent tasks.",
+		family: "moonshot",
+		releasedAt: new Date("2026-06-12"),
+		providers: [
+			{
+				providerId: "moonshot",
+				externalId: "kimi-k2.7-code",
+				inputPrice: "0.95e-6",
+				cachedInputPrice: "0.19e-6",
+				outputPrice: "4.0e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 262144,
+				reasoning: true,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+				],
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
