@@ -22,6 +22,7 @@ import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
 import { ModelCtaButton } from "@/components/models/model-cta-button";
+import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
@@ -32,6 +33,8 @@ import {
 	perMillion,
 } from "@/lib/discount";
 import { fetchModelDiscounts } from "@/lib/fetch-models";
+import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
+import { fetchServerData } from "@/lib/server-api";
 
 import {
 	models as modelDefinitions,
@@ -90,7 +93,12 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
-	const allDiscounts = await fetchModelDiscounts(decodedName);
+	const [allDiscounts, ratingsData] = await Promise.all([
+		fetchModelDiscounts(decodedName),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+	]);
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
@@ -142,6 +150,7 @@ export default async function ModelPage({ params }: PageProps) {
 	const lowestInputPrice = Math.min(...providerPrices);
 	const highestInputPrice = Math.max(...providerPrices);
 
+	const primaryProviderId = modelDef.providers[0]?.providerId || "default";
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
@@ -149,6 +158,7 @@ export default async function ModelPage({ params }: PageProps) {
 		description:
 			modelDef.description ??
 			`Access ${modelDef.name ?? modelDef.id} through LLM Gateway's unified API.`,
+		image: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProviderId)}/opengraph-image`,
 		brand: {
 			"@type": "Brand",
 			name: modelDef.family || "LLM Gateway",
@@ -162,6 +172,7 @@ export default async function ModelPage({ params }: PageProps) {
 			availability: "https://schema.org/InStock",
 		},
 		category: "AI/ML API Service",
+		...buildRatingSchema(ratingsData),
 	};
 
 	return (
@@ -501,6 +512,8 @@ export default async function ModelPage({ params }: PageProps) {
 								));
 							})()}
 						</div>
+
+						<ModelRating modelId={decodedName} />
 					</div>
 
 					{currentModelDiscount && (

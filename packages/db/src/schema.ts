@@ -87,6 +87,35 @@ export const userFavoriteModel = pgTable(
 	],
 );
 
+export const modelRating = pgTable(
+	"model_rating",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		modelId: text().notNull(),
+		rating: integer().notNull(),
+		comment: text(),
+	},
+	(table) => [
+		uniqueIndex("model_rating_user_id_model_id_unique").on(
+			table.userId,
+			table.modelId,
+		),
+		index("model_rating_model_id_idx").on(table.modelId),
+		check(
+			"model_rating_rating_check",
+			sql`${table.rating} >= 1 AND ${table.rating} <= 5`,
+		),
+	],
+);
+
 export const session = pgTable(
 	"session",
 	{
