@@ -36,6 +36,7 @@ import {
 } from "./lib/error-response.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { corsMiddleware } from "./middleware/cors.js";
+import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
@@ -117,6 +118,11 @@ app.use("*", async (c, next) => {
 	}
 	return await next();
 });
+
+// Per-organization, per-path rate limiting. Enterprise orgs are exempt and
+// limits scale with the organization's lifetime spend tier. Only configured
+// `/v1/*` paths are throttled; everything else passes through.
+app.use("*", orgRateLimitMiddleware);
 
 // Renders a gateway-level error in a provider-compatible shape. The Anthropic
 // `/v1/messages` endpoint expects Anthropic's `{ type: "error", error: {...} }`
