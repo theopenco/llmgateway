@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	baseLimitEnvVar,
 	checkOrgRateLimit,
-	getEffectiveLimit,
+	getBaseLimit,
+	getPlanClass,
 	getSpendTierMultiplier,
 	isOrgRateLimitEnabled,
 	PATH_RATE_LIMITS,
@@ -50,6 +52,8 @@ const ENV_KEYS = [
 	"GATEWAY_RATE_LIMIT_ENABLED",
 	"E2E_TEST",
 	"GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM",
+	"GATEWAY_RATE_LIMIT_DEV_CHAT_COMPLETIONS_RPM",
+	"GATEWAY_RATE_LIMIT_CHATPLAN_CHAT_COMPLETIONS_RPM",
 	"GATEWAY_RATE_LIMIT_TIER_1_THRESHOLD",
 	"GATEWAY_RATE_LIMIT_TIER_2_THRESHOLD",
 	"GATEWAY_RATE_LIMIT_TIER_3_THRESHOLD",
@@ -151,16 +155,59 @@ describe("getSpendTierMultiplier", () => {
 	});
 });
 
-describe("getEffectiveLimit", () => {
-	it("uses the path default times the multiplier", () => {
-		expect(getEffectiveLimit(chatConfig, 1)).toBe(chatConfig.defaultRpm);
-		expect(getEffectiveLimit(chatConfig, 2)).toBe(chatConfig.defaultRpm * 2);
+describe("getPlanClass", () => {
+	it("classifies regular orgs", () => {
+		expect(getPlanClass({ devPlan: "none", chatPlan: "none" })).toBe("regular");
+		expect(getPlanClass({})).toBe("regular");
+		expect(getPlanClass({ devPlan: null, chatPlan: null })).toBe("regular");
 	});
 
-	it("honors a per-path env override", () => {
-		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "100";
-		expect(getEffectiveLimit(chatConfig, 1)).toBe(100);
-		expect(getEffectiveLimit(chatConfig, 4)).toBe(400);
+	it("classifies dev (devpass) plan orgs", () => {
+		expect(getPlanClass({ devPlan: "lite", chatPlan: "none" })).toBe("dev");
+		expect(getPlanClass({ devPlan: "max", chatPlan: "none" })).toBe("dev");
+	});
+
+	it("classifies chat plan orgs", () => {
+		expect(getPlanClass({ devPlan: "none", chatPlan: "plus" })).toBe("chat");
+	});
+
+	it("prefers dev over chat when both are set", () => {
+		expect(getPlanClass({ devPlan: "pro", chatPlan: "pro" })).toBe("dev");
+	});
+});
+
+describe("baseLimitEnvVar", () => {
+	it("derives the env var name per plan class", () => {
+		expect(baseLimitEnvVar("regular", chatConfig)).toBe(
+			"GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM",
+		);
+		expect(baseLimitEnvVar("dev", chatConfig)).toBe(
+			"GATEWAY_RATE_LIMIT_DEV_CHAT_COMPLETIONS_RPM",
+		);
+		expect(baseLimitEnvVar("chat", chatConfig)).toBe(
+			"GATEWAY_RATE_LIMIT_CHATPLAN_CHAT_COMPLETIONS_RPM",
+		);
+	});
+});
+
+describe("getBaseLimit", () => {
+	it("uses the regular default for regular orgs", () => {
+		expect(getBaseLimit(chatConfig, "regular")).toBe(chatConfig.defaultRpm);
+	});
+
+	it("uses the much tighter default for dev and chat plans", () => {
+		expect(getBaseLimit(chatConfig, "dev")).toBe(chatConfig.tightDefaultRpm);
+		expect(getBaseLimit(chatConfig, "chat")).toBe(chatConfig.tightDefaultRpm);
+		expect(chatConfig.tightDefaultRpm).toBeLessThan(chatConfig.defaultRpm);
+	});
+
+	it("honors a per-plan-class env override", () => {
+		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "500";
+		process.env.GATEWAY_RATE_LIMIT_DEV_CHAT_COMPLETIONS_RPM = "20";
+		process.env.GATEWAY_RATE_LIMIT_CHATPLAN_CHAT_COMPLETIONS_RPM = "10";
+		expect(getBaseLimit(chatConfig, "regular")).toBe(500);
+		expect(getBaseLimit(chatConfig, "dev")).toBe(20);
+		expect(getBaseLimit(chatConfig, "chat")).toBe(10);
 	});
 });
 
@@ -173,7 +220,12 @@ describe("checkOrgRateLimit", () => {
 		vi.mocked(redis.zcard).mockResolvedValue(3);
 
 		const getMultiplier = multiplierOf(1);
-		const result = await checkOrgRateLimit(orgId, chatConfig, getMultiplier);
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"regular",
+			getMultiplier,
+		);
 
 		expect(result.allowed).toBe(true);
 		expect(result.limit).toBe(10);
@@ -190,13 +242,37 @@ describe("checkOrgRateLimit", () => {
 		const future = Date.now() + 30_000;
 		vi.mocked(redis.zrange).mockResolvedValue(["m", future.toString()]);
 
-		const result = await checkOrgRateLimit(orgId, chatConfig, multiplierOf(1));
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"regular",
+			multiplierOf(1),
+		);
 
 		expect(result.allowed).toBe(false);
 		expect(result.limit).toBe(5);
 		expect(result.remaining).toBe(0);
 		expect(result.retryAfter).toBeGreaterThan(0);
 		expect(redis.zadd).not.toHaveBeenCalled();
+	});
+
+	it("applies the much tighter base limit for dev (devpass) plans", async () => {
+		// No env override: dev plan falls back to the tight default, which is
+		// well below the regular default.
+		vi.mocked(redis.zcard).mockResolvedValue(chatConfig.tightDefaultRpm);
+		const future = Date.now() + 30_000;
+		vi.mocked(redis.zrange).mockResolvedValue(["m", future.toString()]);
+
+		const getMultiplier = multiplierOf(1);
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"dev",
+			getMultiplier,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.limit).toBe(chatConfig.tightDefaultRpm);
 	});
 
 	it("resolves the spend-tier multiplier only once the base limit is hit", async () => {
@@ -206,7 +282,12 @@ describe("checkOrgRateLimit", () => {
 		// At base limit 10 a 16th request would block, but with multiplier 4 the
 		// effective limit is 40 so the request is allowed.
 		const getMultiplier = multiplierOf(4);
-		const result = await checkOrgRateLimit(orgId, chatConfig, getMultiplier);
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"regular",
+			getMultiplier,
+		);
 
 		expect(result.allowed).toBe(true);
 		expect(result.limit).toBe(40);
@@ -217,7 +298,12 @@ describe("checkOrgRateLimit", () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "0";
 
 		const getMultiplier = multiplierOf(1);
-		const result = await checkOrgRateLimit(orgId, chatConfig, getMultiplier);
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"regular",
+			getMultiplier,
+		);
 
 		expect(result.allowed).toBe(true);
 		expect(redis.zcard).not.toHaveBeenCalled();
@@ -230,7 +316,12 @@ describe("checkOrgRateLimit", () => {
 			new Error("Redis down"),
 		);
 
-		const result = await checkOrgRateLimit(orgId, chatConfig, multiplierOf(1));
+		const result = await checkOrgRateLimit(
+			orgId,
+			chatConfig,
+			"regular",
+			multiplierOf(1),
+		);
 
 		expect(result.allowed).toBe(true);
 	});

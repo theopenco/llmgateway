@@ -7,6 +7,7 @@ import { parseApiToken } from "@/lib/extract-api-token.js";
 import {
 	checkOrgRateLimit,
 	getOrganizationLifetimeSpend,
+	getPlanClass,
 	getSpendTierMultiplier,
 	isOrgRateLimitEnabled,
 	resolveOrganizationIdForToken,
@@ -22,7 +23,9 @@ import type { Context, Next } from "hono";
  * - Only `/v1/*` endpoints with a configured limit are throttled; other paths
  *   (health, metrics, docs, mcp/oauth) pass through.
  * - Enterprise organizations are exempt.
- * - Limits scale with the organization's lifetime spend tier.
+ * - Dev ("devpass") and chat plan orgs get their own, much tighter per-path
+ *   limits and are not eligible for the spend-tier multiplier.
+ * - Regular (pay-as-you-go) org limits scale with their lifetime spend tier.
  * - Requests without a resolvable API token are passed through so the
  *   downstream handler can return the appropriate auth error.
  */
@@ -62,13 +65,24 @@ export async function orgRateLimitMiddleware(
 		return await next();
 	}
 
-	// The spend-tier multiplier is resolved lazily inside checkOrgRateLimit and
-	// only when the org has already reached its base limit, so the common
-	// under-limit path skips the spend lookup entirely.
-	const result = await checkOrgRateLimit(organizationId, config, async () => {
-		const lifetimeSpend = await getOrganizationLifetimeSpend(organizationId);
-		return getSpendTierMultiplier(lifetimeSpend).multiplier;
-	});
+	const planClass = getPlanClass(organization);
+
+	// Only regular (pay-as-you-go) orgs get a spend-tier boost; dev/chat plans
+	// stay on their flat, tight limit. The multiplier is resolved lazily inside
+	// checkOrgRateLimit and only once the org has reached its base limit, so the
+	// common under-limit path skips the spend lookup entirely.
+	const result = await checkOrgRateLimit(
+		organizationId,
+		config,
+		planClass,
+		async () => {
+			if (planClass !== "regular") {
+				return 1;
+			}
+			const lifetimeSpend = await getOrganizationLifetimeSpend(organizationId);
+			return getSpendTierMultiplier(lifetimeSpend).multiplier;
+		},
+	);
 
 	if (!result.allowed) {
 		const retryAfter = result.retryAfter ?? 60;

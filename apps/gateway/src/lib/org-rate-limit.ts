@@ -26,15 +26,23 @@ import { findApiKeyByToken, findProjectById } from "./cached-queries.js";
  * aggregation query on the hot path.
  */
 
+/**
+ * Plan class an organization is billed under, used to pick a rate-limit profile.
+ * Dev ("devpass") and chat plans are metered subscriptions and get their own,
+ * much tighter limits than pay-as-you-go regular orgs, and never receive the
+ * spend-tier multiplier.
+ */
+export type PlanClass = "regular" | "dev" | "chat";
+
 export interface PathRateLimitConfig {
-	/** Stable identifier used in the Redis key and env var name. */
+	/** Stable identifier used in the Redis key and env var names. */
 	key: string;
 	/** Path prefix this config applies to. */
 	prefix: string;
-	/** Default requests per minute (per org) before any spend-tier multiplier. */
+	/** Default requests per minute for regular (pay-as-you-go) orgs. */
 	defaultRpm: number;
-	/** Env var that overrides `defaultRpm`. */
-	envVar: string;
+	/** Default requests per minute for dev/chat plan orgs (much tighter). */
+	tightDefaultRpm: number;
 }
 
 /**
@@ -47,57 +55,108 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		key: "chat_completions",
 		prefix: "/v1/chat/completions",
 		defaultRpm: 600,
-		envVar: "GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM",
+		tightDefaultRpm: 60,
 	},
 	{
 		key: "messages",
 		prefix: "/v1/messages",
 		defaultRpm: 600,
-		envVar: "GATEWAY_RATE_LIMIT_MESSAGES_RPM",
+		tightDefaultRpm: 60,
 	},
 	{
 		key: "responses",
 		prefix: "/v1/responses",
 		defaultRpm: 600,
-		envVar: "GATEWAY_RATE_LIMIT_RESPONSES_RPM",
+		tightDefaultRpm: 60,
 	},
 	{
 		key: "embeddings",
 		prefix: "/v1/embeddings",
 		defaultRpm: 1200,
-		envVar: "GATEWAY_RATE_LIMIT_EMBEDDINGS_RPM",
+		tightDefaultRpm: 120,
 	},
 	{
 		key: "moderations",
 		prefix: "/v1/moderations",
 		defaultRpm: 1200,
-		envVar: "GATEWAY_RATE_LIMIT_MODERATIONS_RPM",
+		tightDefaultRpm: 120,
 	},
 	{
 		key: "models",
 		prefix: "/v1/models",
 		defaultRpm: 1200,
-		envVar: "GATEWAY_RATE_LIMIT_MODELS_RPM",
+		tightDefaultRpm: 120,
 	},
 	{
 		key: "images",
 		prefix: "/v1/images",
 		defaultRpm: 300,
-		envVar: "GATEWAY_RATE_LIMIT_IMAGES_RPM",
+		tightDefaultRpm: 30,
 	},
 	{
 		key: "audio_speech",
 		prefix: "/v1/audio/speech",
 		defaultRpm: 300,
-		envVar: "GATEWAY_RATE_LIMIT_AUDIO_SPEECH_RPM",
+		tightDefaultRpm: 30,
 	},
 	{
 		key: "videos",
 		prefix: "/v1/videos",
 		defaultRpm: 120,
-		envVar: "GATEWAY_RATE_LIMIT_VIDEOS_RPM",
+		tightDefaultRpm: 12,
 	},
 ];
+
+/**
+ * Determine which rate-limit profile an org falls under. Dev ("devpass") plans
+ * take precedence over chat plans when an org somehow has both.
+ */
+export function getPlanClass(org: {
+	devPlan?: string | null;
+	chatPlan?: string | null;
+}): PlanClass {
+	if (org.devPlan && org.devPlan !== "none") {
+		return "dev";
+	}
+	if (org.chatPlan && org.chatPlan !== "none") {
+		return "chat";
+	}
+	return "regular";
+}
+
+/**
+ * Env var that overrides the base RPM for a path under a given plan class, e.g.
+ * `GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM` (regular),
+ * `GATEWAY_RATE_LIMIT_DEV_CHAT_COMPLETIONS_RPM` (dev plan),
+ * `GATEWAY_RATE_LIMIT_CHATPLAN_CHAT_COMPLETIONS_RPM` (chat plan).
+ */
+export function baseLimitEnvVar(
+	planClass: PlanClass,
+	config: PathRateLimitConfig,
+): string {
+	const suffix = `${config.key.toUpperCase()}_RPM`;
+	switch (planClass) {
+		case "dev":
+			return `GATEWAY_RATE_LIMIT_DEV_${suffix}`;
+		case "chat":
+			return `GATEWAY_RATE_LIMIT_CHATPLAN_${suffix}`;
+		default:
+			return `GATEWAY_RATE_LIMIT_${suffix}`;
+	}
+}
+
+/**
+ * Resolve the (env-overridable) base RPM for a path under a given plan class,
+ * before any spend-tier multiplier.
+ */
+export function getBaseLimit(
+	config: PathRateLimitConfig,
+	planClass: PlanClass,
+): number {
+	const fallback =
+		planClass === "regular" ? config.defaultRpm : config.tightDefaultRpm;
+	return getEnvNumber(baseLimitEnvVar(planClass, config), fallback);
+}
 
 /**
  * Spend tiers. A higher lifetime spend grants a larger multiplier on top of the
@@ -269,18 +328,6 @@ export function getSpendTierMultiplier(lifetimeSpend: number): {
 	};
 }
 
-/**
- * Resolve the effective per-minute limit for an org on a given path, combining
- * the (possibly env-overridden) base RPM with the spend-tier multiplier.
- */
-export function getEffectiveLimit(
-	config: PathRateLimitConfig,
-	multiplier: number,
-): number {
-	const base = getEnvNumber(config.envVar, config.defaultRpm);
-	return Math.floor(base * multiplier);
-}
-
 export interface RateLimitResult {
 	allowed: boolean;
 	retryAfter?: number;
@@ -293,18 +340,20 @@ export interface RateLimitResult {
  * using a Redis sliding window. Mirrors the free-model limiter: on any Redis
  * error the request is allowed so that limiter outages never block traffic.
  *
- * `getMultiplier` is resolved lazily: the spend tier only matters once the org
- * is already at or above its base limit, so the (cached but still extra) spend
- * lookup is skipped entirely for the common under-limit case. Higher tiers can
- * only raise the limit, so a request under the base limit is always allowed
- * regardless of tier.
+ * The base limit depends on the org's `planClass` (dev/chat plans are much
+ * tighter). `getMultiplier` is resolved lazily: the spend tier only matters
+ * once the org is already at or above its base limit, so the (cached but still
+ * extra) spend lookup is skipped entirely for the common under-limit case.
+ * Higher tiers can only raise the limit, so a request under the base limit is
+ * always allowed regardless of tier.
  */
 export async function checkOrgRateLimit(
 	organizationId: string,
 	config: PathRateLimitConfig,
+	planClass: PlanClass,
 	getMultiplier: () => Promise<number>,
 ): Promise<RateLimitResult> {
-	const baseLimit = getEnvNumber(config.envVar, config.defaultRpm);
+	const baseLimit = getBaseLimit(config, planClass);
 
 	// A non-positive base limit means the path is effectively unlimited (e.g. an
 	// operator set the override to 0). Skip enforcement.
@@ -348,6 +397,7 @@ export async function checkOrgRateLimit(
 			logger.info("Org rate limit exceeded", {
 				organizationId,
 				path: config.key,
+				planClass,
 				currentCount,
 				limit,
 				multiplier,
