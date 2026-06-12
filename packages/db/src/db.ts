@@ -4,7 +4,15 @@ import { Pool } from "pg";
 
 import { logger } from "@llmgateway/logger";
 
+import { patchClientQuery, setQueryTags } from "./query-tags.js";
 import { relations } from "./relations.js";
+
+// Optional default tag from the environment so deployments can label queries
+// without code changes. App entrypoints typically override this via
+// setQueryTags({ application: "..." }).
+if (process.env.DB_APPLICATION_NAME) {
+	setQueryTags({ application: process.env.DB_APPLICATION_NAME });
+}
 
 // Single shared pool for all database connections
 // This prevents connection exhaustion from having multiple pools
@@ -27,8 +35,10 @@ pool.on("error", (err) => {
 	logger.error("Unexpected database pool error", err);
 });
 
-// Log when pool connects (trace level to avoid noise in production)
-pool.on("connect", () => {
+// Log when pool connects (trace level to avoid noise in production) and patch
+// the new client so every statement it runs carries the sqlcommenter tag.
+pool.on("connect", (client) => {
+	patchClientQuery(client);
 	logger.trace("New database connection established");
 });
 
