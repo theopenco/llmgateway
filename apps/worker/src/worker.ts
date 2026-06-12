@@ -729,7 +729,10 @@ export async function batchProcessLogs(): Promise<number> {
 	}> = [];
 
 	try {
-		await db.transaction(async (tx) => {
+		// Only batches that actually commit count toward processedCount, so a
+		// rolled-back transaction leaves it at 0 and the loop backs off instead
+		// of hot-looping on a failing batch.
+		processedCount = await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
 			const rows = await tx
 				.select({
@@ -779,10 +782,8 @@ export async function batchProcessLogs(): Promise<number> {
 			const unprocessedLogs = { rows };
 
 			if (unprocessedLogs.rows.length === 0) {
-				return;
+				return 0;
 			}
-
-			processedCount = unprocessedLogs.rows.length;
 
 			logger.info(
 				`Processing ${unprocessedLogs.rows.length} logs for credit deduction and API key usage`,
@@ -1324,6 +1325,8 @@ export async function batchProcessLogs(): Promise<number> {
 				.where(inArray(log.id, logIds));
 
 			logger.debug(`Marked ${logIds.length} logs as processed`);
+
+			return unprocessedLogs.rows.length;
 		});
 
 		// Async low-balance alert check (outside transaction, non-blocking)
