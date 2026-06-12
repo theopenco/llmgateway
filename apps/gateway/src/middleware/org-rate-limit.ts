@@ -91,6 +91,7 @@ export async function orgRateLimitMiddleware(
 			"Retry-After": String(retryAfter),
 			"X-RateLimit-Limit": String(result.limit),
 			"X-RateLimit-Remaining": "0",
+			"X-RateLimit-Reset": String(Math.floor(Date.now() / 1000) + retryAfter),
 		};
 
 		if (c.req.path.startsWith("/v1/messages")) {
