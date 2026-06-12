@@ -619,5 +619,83 @@ describe("Log Processing", () => {
 
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
 		});
+
+		test("should floor regular credits at 0 instead of going negative", async () => {
+			// Org has fewer credits than the request costs and no dev plan.
+			await db
+				.update(organization)
+				.set({ credits: "0.01" })
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-floor",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Never negative — the overage is written off.
+			expect(Number(updatedOrg!.credits)).toBe(0);
+		});
+
+		test("should charge dev plan overflow to virtual credits, not real credits", async () => {
+			// Active dev plan whose cycle allowance is nearly exhausted, with no
+			// real credits. An in-flight request that exceeds the remaining dev
+			// plan allowance must spill onto the dev plan (over its limit), not
+			// drive real credits negative.
+			await db
+				.update(organization)
+				.set({
+					credits: "0.00",
+					devPlan: "pro",
+					devPlanCreditsLimit: "0.02",
+					devPlanCreditsUsed: "0.00",
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-dev-overflow",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Real credits untouched; the full cost lands on the dev plan even
+			// though it pushes usage past the limit.
+			expect(Number(updatedOrg!.credits)).toBe(0);
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(0.05, 10);
+		});
 	});
 });

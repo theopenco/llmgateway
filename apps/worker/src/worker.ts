@@ -1237,7 +1237,7 @@ export async function batchProcessLogs(): Promise<number> {
 					premiumCost: Decimal,
 					preferred: PlanPool | null,
 					fallback: PlanPool | null,
-				): Promise<Decimal> => {
+				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
 					for (const pool of [preferred, fallback]) {
@@ -1256,43 +1256,76 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return remaining;
+					return { remaining, remainingPremium };
 				};
 
-				const remainingFromChat = buckets.chat.greaterThan(0)
+				const zeroDrain = {
+					remaining: new Decimal(0),
+					remainingPremium: new Decimal(0),
+				};
+
+				const chatDrain = buckets.chat.greaterThan(0)
 					? await drainBucket(
 							buckets.chat,
 							buckets.chatPremium,
 							chatPool,
 							devPool,
 						)
-					: new Decimal(0);
+					: zeroDrain;
 
-				const remainingFromOther = buckets.other.greaterThan(0)
+				const otherDrain = buckets.other.greaterThan(0)
 					? await drainBucket(
 							buckets.other,
 							buckets.otherPremium,
 							devPool,
 							chatPool,
 						)
-					: new Decimal(0);
+					: zeroDrain;
 
-				const remainingCost = remainingFromChat.plus(remainingFromOther);
+				const remainingCost = chatDrain.remaining.plus(otherDrain.remaining);
+				const remainingPremium = chatDrain.remainingPremium.plus(
+					otherDrain.remainingPremium,
+				);
 
 				if (remainingCost.greaterThan(0)) {
-					const costStr = remainingCost.toString();
-					await tx
-						.update(organization)
-						.set({
-							credits: sql`${organization.credits} - ${costStr}`,
-						})
-						.where(eq(organization.id, orgId));
+					if (devPool) {
+						// The dev plan is active but its cycle allowance was exhausted
+						// by an in-flight burst that raced past the limit. Charge the
+						// overflow to the dev plan's virtual credits (pushing
+						// devPlanCreditsUsed past the limit) rather than the org's real
+						// credits. Dev-plan users typically hold no real credits, so
+						// spilling here would drive the balance negative for usage the
+						// plan was meant to cover.
+						await deductFromPlanPool(
+							orgId,
+							devPool,
+							remainingCost,
+							Decimal.min(remainingPremium, remainingCost),
+						);
 
-					deductedOrgIds.push(orgId);
+						logger.debug(
+							`Charged ${remainingCost.toString()} overflow to dev plan virtual credits for organization ${orgId}`,
+						);
+					} else {
+						// No active dev plan. Never let real credits go negative: an org
+						// that has run out (or never had any) gets the remaining usage
+						// written off instead of driven below zero. This also covers
+						// usage that drains after a dev plan was cancelled and its
+						// virtual-credit pool was already torn down.
+						const costStr = remainingCost.toString();
+						await tx
+							.update(organization)
+							.set({
+								credits: sql`GREATEST(0, ${organization.credits} - ${costStr})`,
+							})
+							.where(eq(organization.id, orgId));
 
-					logger.debug(
-						`Deducted ${costStr} regular credits from organization ${orgId}`,
-					);
+						deductedOrgIds.push(orgId);
+
+						logger.debug(
+							`Deducted ${costStr} regular credits (floored at 0) from organization ${orgId}`,
+						);
+					}
 				}
 
 				// 1% referral earnings on the full charge regardless of which pool paid.
