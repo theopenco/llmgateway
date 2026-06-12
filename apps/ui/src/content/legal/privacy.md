@@ -114,7 +114,7 @@ If you belong to an organization:
 - Owners and Admins can view and manage member data and roles.
 - Access is limited by assigned roles (Owner, Admin, Developer, Restricted Access).
 
-You can manage permissions from the **Team Settings** page. Your organization is responsible for the personal data it processes through the Service and for the lawfulness of the Customer Data it submits.
+You can manage permissions from the **Team** page. Your organization is responsible for the personal data it processes through the Service and for the lawfulness of the Customer Data it submits.
 
 ---
 
