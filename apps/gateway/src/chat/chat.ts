@@ -137,6 +137,10 @@ import {
 	getProviderEnvValue,
 } from "@llmgateway/models";
 import { isChatPlanModelAllowed } from "@llmgateway/shared";
+import {
+	applyRoutingPreference,
+	type ResolvedRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -218,7 +222,6 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
-import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -1363,6 +1366,7 @@ chat.openapi(completions, async (c) => {
 		prompt_cache_key,
 		prompt_cache_retention,
 		tool_choice,
+		routing,
 		free_models_only,
 		onboarding,
 		no_reasoning,
@@ -1977,9 +1981,9 @@ chat.openapi(completions, async (c) => {
 		organization = withWalletCredits(organization, endUserWallet);
 	}
 
-	const routingCfg = await getResolvedRoutingConfig(
-		project.id,
-		organization.plan,
+	const routingCfg = applyRoutingPreference(
+		await getResolvedRoutingConfig(project.id, organization.plan),
+		routing,
 	);
 
 	// Sticky-session routing: when the request carries a session id and the
@@ -2181,6 +2185,21 @@ chat.openapi(completions, async (c) => {
 	if (isDevPlan && modelEmitsImages) {
 		throw new HTTPException(403, {
 			message: `Image generation is not available for coding plans. Coding plans only include text-based inference.`,
+		});
+	}
+
+	// Coding (dev) plans optimize for prompt caching and only allow the default
+	// weighted routing or the cheapest strategy. `fastest` would route to the
+	// highest-throughput provider regardless of cache support, undermining the
+	// plan economics, so it is rejected for any active dev plan.
+	if (
+		organization?.isPersonal &&
+		organization.devPlan !== "none" &&
+		routing === "fastest"
+	) {
+		throw new HTTPException(400, {
+			message:
+				'The "fastest" routing strategy is not available on coding plans. Use "auto" (default) or "cheapest".',
 		});
 	}
 

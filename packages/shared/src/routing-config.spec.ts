@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	applyRoutingPreference,
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_STICKY,
@@ -10,6 +11,7 @@ import {
 	historyMatchesDefaults,
 	resolveRoutingConfig,
 	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
+	ROUTING_PREFERENCE_WEIGHTS,
 	routingHistoryCacheKey,
 } from "./routing-config.js";
 
@@ -215,6 +217,42 @@ describe("resolveRoutingConfig", () => {
 		);
 		expect(resolved.providerPriorities.openai).toBe(providerDefaults.openai);
 		expect(resolved.providerPriorities.anthropic).toBe(0.7);
+	});
+});
+
+describe("applyRoutingPreference", () => {
+	const providerDefaults = buildProviderPriorityDefaults();
+	const base = resolveRoutingConfig(null, providerDefaults);
+
+	it("returns the config unchanged for auto / undefined", () => {
+		expect(applyRoutingPreference(base, "auto")).toBe(base);
+		expect(applyRoutingPreference(base, undefined)).toBe(base);
+	});
+
+	it("collapses weights onto price for cheapest, keeping uptime fallback", () => {
+		const resolved = applyRoutingPreference(base, "cheapest");
+		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.cheapest);
+		expect(resolved.weights.price).toBe(0.9);
+		expect(resolved.weights.imagePrice).toBe(0.9);
+		expect(resolved.weights.uptime).toBe(0.1);
+		expect(resolved.weights.throughput).toBe(0);
+		// Everything else on the config is preserved.
+		expect(resolved.thresholds).toEqual(base.thresholds);
+		expect(resolved.providerPriorities).toEqual(base.providerPriorities);
+	});
+
+	it("collapses weights onto throughput for fastest, keeping uptime fallback", () => {
+		const resolved = applyRoutingPreference(base, "fastest");
+		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.fastest);
+		expect(resolved.weights.throughput).toBe(0.9);
+		expect(resolved.weights.uptime).toBe(0.1);
+		expect(resolved.weights.price).toBe(0);
+		expect(resolved.weights.imagePrice).toBe(0);
+	});
+
+	it("does not mutate the input config", () => {
+		applyRoutingPreference(base, "cheapest");
+		expect(base.weights).toEqual(DEFAULT_ROUTING_WEIGHTS);
 	});
 });
 

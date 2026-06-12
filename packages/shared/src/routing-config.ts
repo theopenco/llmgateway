@@ -316,6 +316,62 @@ export function resolveRoutingConfig(
 	};
 }
 
+/**
+ * Per-request routing preference. `auto` (the default) uses the full weighted
+ * smart-routing score described above. `cheapest` and `fastest` collapse the
+ * weights onto a single dominant factor (price or throughput) while keeping a
+ * small uptime weight so requests still fall back to other providers when the
+ * dominant pick has extremely bad uptime.
+ */
+export type RoutingPreference = "auto" | "cheapest" | "fastest";
+
+/**
+ * The dominant factor gets a 90% relative weight and uptime keeps the remaining
+ * 10% so an otherwise-winning provider with terrible uptime still loses. The
+ * exponential uptime penalty (see getCheapestFromAvailableProviders) applies on
+ * top of this regardless of weights, providing the hard fallback for providers
+ * below the uptime-penalty threshold.
+ */
+export const ROUTING_PREFERENCE_WEIGHTS: Record<
+	Exclude<RoutingPreference, "auto">,
+	Required<RoutingWeightsConfig>
+> = {
+	cheapest: {
+		price: 0.9,
+		imagePrice: 0.9,
+		uptime: 0.1,
+		throughput: 0,
+		latency: 0,
+		cache: 0,
+	},
+	fastest: {
+		price: 0,
+		imagePrice: 0,
+		uptime: 0.1,
+		throughput: 0.9,
+		latency: 0,
+		cache: 0,
+	},
+};
+
+/**
+ * Returns a routing config whose weights are overridden for the given
+ * per-request routing preference. `auto` (or undefined) returns the config
+ * unchanged so projects keep their configured/default weighted scoring.
+ */
+export function applyRoutingPreference(
+	cfg: ResolvedRoutingConfig,
+	preference: RoutingPreference | undefined,
+): ResolvedRoutingConfig {
+	if (!preference || preference === "auto") {
+		return cfg;
+	}
+	return {
+		...cfg,
+		weights: { ...ROUTING_PREFERENCE_WEIGHTS[preference] },
+	};
+}
+
 let cachedDefaults: ResolvedRoutingConfig | null = null;
 
 export function getDefaultRoutingConfig(): ResolvedRoutingConfig {
