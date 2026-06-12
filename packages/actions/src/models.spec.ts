@@ -933,7 +933,10 @@ describe("getCheapestFromAvailableProviders", () => {
 			},
 		);
 
-		expect(cheapestProvider?.provider.providerId).toBe("avalanche");
+		// google-vertex and avalanche have identical per-second pricing, so this
+		// is a price tie; the price-only path deterministically selects the
+		// first-listed provider (google-vertex).
+		expect(cheapestProvider?.provider.providerId).toBe("google-vertex");
 
 		const vertexScore = cheapestProvider?.metadata.providerScores.find(
 			(provider) => provider.providerId === "google-vertex",
