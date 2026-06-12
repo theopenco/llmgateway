@@ -567,6 +567,14 @@ export const project = pgTable(
 		})
 			.notNull()
 			.default("hybrid"),
+		// Default smart-routing strategy applied when a request omits the
+		// `routing` field. Named after the factor it optimizes; "auto" uses the
+		// full weighted score.
+		defaultRoutingStrategy: text({
+			enum: ["auto", "price", "throughput", "latency"],
+		})
+			.notNull()
+			.default("auto"),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),

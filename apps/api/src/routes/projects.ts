@@ -22,6 +22,7 @@ const projectSchema = z.object({
 	cacheDurationSeconds: z.number(),
 	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
+	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
@@ -43,6 +44,9 @@ const updateProjectSchema = z.object({
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
+	defaultRoutingStrategy: z
+		.enum(["auto", "price", "throughput", "latency"])
+		.optional(),
 	endUserEnabled: z.boolean().optional(),
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
@@ -194,6 +198,7 @@ projects.openapi(updateProject, async (c) => {
 		cacheDurationSeconds,
 		providerCacheControlEnabled,
 		mode,
+		defaultRoutingStrategy,
 		endUserEnabled,
 		endUserMarkupPercent,
 		allowedOrigins,
@@ -269,6 +274,10 @@ projects.openapi(updateProject, async (c) => {
 		updateData.mode = mode;
 	}
 
+	if (defaultRoutingStrategy !== undefined) {
+		updateData.defaultRoutingStrategy = defaultRoutingStrategy;
+	}
+
 	if (endUserEnabled !== undefined) {
 		updateData.endUserEnabled = endUserEnabled;
 	}
@@ -322,6 +331,15 @@ projects.openapi(updateProject, async (c) => {
 	}
 	if (mode !== undefined && mode !== project.mode) {
 		changes.mode = { old: project.mode, new: mode };
+	}
+	if (
+		defaultRoutingStrategy !== undefined &&
+		defaultRoutingStrategy !== project.defaultRoutingStrategy
+	) {
+		changes.defaultRoutingStrategy = {
+			old: project.defaultRoutingStrategy,
+			new: defaultRoutingStrategy,
+		};
 	}
 	if (
 		endUserEnabled !== undefined &&

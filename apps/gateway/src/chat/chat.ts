@@ -1981,9 +1981,33 @@ chat.openapi(completions, async (c) => {
 		organization = withWalletCredits(organization, endUserWallet);
 	}
 
+	// Resolve the effective routing strategy: an explicit request `routing` wins,
+	// otherwise fall back to the project's configured default.
+	const isDevPlan = Boolean(
+		organization?.isPersonal && organization.devPlan !== "none",
+	);
+	let effectiveRouting = routing ?? project.defaultRoutingStrategy;
+	// Coding (dev) plans optimize for prompt caching and only allow the default
+	// weighted routing or the price strategy; throughput/latency would route to
+	// the fastest provider regardless of cache support. Reject an explicit
+	// ineligible request, but silently clamp a stale project default so existing
+	// requests keep working.
+	if (
+		isDevPlan &&
+		effectiveRouting !== "auto" &&
+		effectiveRouting !== "price"
+	) {
+		if (routing !== undefined) {
+			throw new HTTPException(400, {
+				message: `The "${routing}" routing strategy is not available on coding plans. Use "auto" (default) or "price".`,
+			});
+		}
+		effectiveRouting = "auto";
+	}
+
 	const routingCfg = applyRoutingPreference(
 		await getResolvedRoutingConfig(project.id, organization.plan),
-		routing,
+		effectiveRouting,
 	);
 
 	// Sticky-session routing: when the request carries a session id and the
@@ -2176,31 +2200,12 @@ chat.openapi(completions, async (c) => {
 	// declared output formats (and the legacy imageGenerations provider
 	// flag) so chat-completions models that emit images — e.g. Gemini
 	// *-flash-image with output: ["text", "image"] — are also blocked.
-	const isDevPlan = Boolean(
-		organization?.isPersonal && organization.devPlan !== "none",
-	);
 	const modelEmitsImages =
 		modelInfo.output?.includes("image") === true ||
 		modelInfo.providers.some((p) => p.imageGenerations === true);
 	if (isDevPlan && modelEmitsImages) {
 		throw new HTTPException(403, {
 			message: `Image generation is not available for coding plans. Coding plans only include text-based inference.`,
-		});
-	}
-
-	// Coding (dev) plans optimize for prompt caching and only allow the default
-	// weighted routing or the price strategy. `throughput`/`latency` would route
-	// to the fastest provider regardless of cache support, undermining the plan
-	// economics, so they are rejected for any active dev plan.
-	if (
-		organization?.isPersonal &&
-		organization.devPlan !== "none" &&
-		routing !== undefined &&
-		routing !== "auto" &&
-		routing !== "price"
-	) {
-		throw new HTTPException(400, {
-			message: `The "${routing}" routing strategy is not available on coding plans. Use "auto" (default) or "price".`,
 		});
 	}
 
