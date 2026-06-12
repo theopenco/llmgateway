@@ -567,7 +567,12 @@ export async function findEffectiveDiscount(
 
 			const now = Date.now();
 			const discounts = rows.filter(
-				(row) => row.expiresAt === null || row.expiresAt.getTime() >= now,
+				// expiresAt is a Date on both a fresh query and a Drizzle cache hit
+				// (the cache stores the raw pg result and re-applies the timestamp
+				// parser on restore). Wrap in new Date() defensively so the compare
+				// is robust even if a serialized value ever reaches here.
+				(row) =>
+					row.expiresAt === null || new Date(row.expiresAt).getTime() >= now,
 			);
 
 			const modelMatches = (discountModel: string | null): boolean =>
