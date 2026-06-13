@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e820a6b8-d204-4992-adb6-010fffdd9203",
+  "id": "6a5f2585-a41d-4b80-a525-a0c4baa029c2",
   "prevId": "4d6707ea-88fd-4682-92cb-edafff6d8d3a",
   "ddl": [
     {
@@ -199,6 +199,12 @@
     {
       "isRlsEnabled": false,
       "name": "model_provider_mapping_history",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "model_rating",
       "entityType": "tables",
       "schema": "public"
     },
@@ -9485,6 +9491,103 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "model_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "rating",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "comment",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "organization"
     },
     {
@@ -11490,22 +11593,6 @@
       "generated": null,
       "identity": null,
       "name": "mode",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'auto'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "default_routing_strategy",
       "entityType": "columns",
       "schema": "public",
       "table": "project"
@@ -18506,6 +18593,55 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "model_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "model_rating_user_id_model_id_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "model_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "model_rating_model_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "dev_plan_card_fingerprint",
           "isExpression": false,
           "asc": true,
@@ -20359,6 +20495,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "model_rating_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "model_rating"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -21320,6 +21473,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "model_rating_pkey",
+      "schema": "public",
+      "table": "model_rating",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "organization_pkey",
       "schema": "public",
       "table": "organization",
@@ -22001,6 +22164,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "chat_support_message"
+    },
+    {
+      "value": "\"rating\" >= 1 AND \"rating\" <= 5",
+      "name": "model_rating_rating_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "model_rating"
     }
   ],
   "renames": []
