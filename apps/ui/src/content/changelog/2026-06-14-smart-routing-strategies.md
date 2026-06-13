@@ -1,7 +1,7 @@
 ---
 id: "57"
 slug: "smart-routing-strategies"
-date: "2026-06-13"
+date: "2026-06-14"
 title: "Routing Strategies: Cheapest, Fastest & Defaults"
 summary: "Steer multi-provider routing with a new routing field — auto, price, throughput, or latency — per request or as a per-project default. Each strategy still falls back when the top pick has bad uptime."
 image:
