@@ -75,6 +75,62 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 		expect(sent).toHaveLength(0);
 	});
 
+	it("sends the no_purchase email only once when the owner has multiple credit-less orgs", async () => {
+		const [owner] = await db
+			.insert(user)
+			.values({
+				email: "multi@example.com",
+				name: "Multi Org User",
+				emailVerified: true,
+			})
+			.returning();
+
+		const [orgA] = await db
+			.insert(organization)
+			.values({
+				name: "Org A",
+				status: "active",
+				devPlan: "none",
+				billingEmail: owner.email,
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		const [orgB] = await db
+			.insert(organization)
+			.values({
+				name: "Org B",
+				status: "active",
+				devPlan: "none",
+				billingEmail: owner.email,
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		await db.insert(userOrganization).values([
+			{ userId: owner.id, organizationId: orgA.id, role: "owner" },
+			{ userId: owner.id, organizationId: orgB.id, role: "owner" },
+		]);
+
+		await processNoPurchaseEmails();
+
+		const sent = await db
+			.select()
+			.from(followUpEmail)
+			.where(eq(followUpEmail.emailType, "no_purchase"));
+		expect(sent).toHaveLength(1);
+		expect([orgA.id, orgB.id]).toContain(sent[0].organizationId);
+
+		// A subsequent run must not email the owner again via the other org.
+		await processNoPurchaseEmails();
+
+		const sentAfter = await db
+			.select()
+			.from(followUpEmail)
+			.where(eq(followUpEmail.emailType, "no_purchase"));
+		expect(sentAfter).toHaveLength(1);
+	});
+
 	it("sends the no_purchase email when the owner has no DevPass", async () => {
 		const [freeUser] = await db
 			.insert(user)

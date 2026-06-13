@@ -213,8 +213,16 @@ export async function processNoPurchaseEmails(): Promise<void> {
 	const eligibleOrgs = await db
 		.select({
 			organizationId: organization.id,
+			ownerUserId: userOrganization.userId,
 		})
 		.from(organization)
+		.innerJoin(
+			userOrganization,
+			and(
+				eq(userOrganization.organizationId, organization.id),
+				eq(userOrganization.role, "owner"),
+			),
+		)
 		.where(
 			and(
 				sql`${organization.createdAt} < ${twentyFourHoursAgo}`,
@@ -227,10 +235,18 @@ export async function processNoPurchaseEmails(): Promise<void> {
 					WHERE ${transaction.type} = 'credit_topup'
 					AND ${transaction.status} = 'completed'
 				)`,
-				sql`${organization.id} NOT IN (
-					SELECT ${followUpEmail.organizationId}
-					FROM ${followUpEmail}
-					WHERE ${followUpEmail.emailType} = 'no_purchase'
+				// The no_purchase nudge is a per-user concern, not per-org: a single
+				// owner can have several credit-less orgs. Skip the org if its owner
+				// already received this email on ANY of their orgs, so they aren't
+				// emailed once per organization.
+				sql`NOT EXISTS (
+					SELECT 1
+					FROM ${followUpEmail} sent
+					JOIN ${userOrganization} sent_owner
+						ON sent_owner.organization_id = sent.organization_id
+						AND sent_owner.role = 'owner'
+					WHERE sent.email_type = 'no_purchase'
+					AND sent_owner.user_id = ${userOrganization.userId}
 				)`,
 				// Skip orgs whose owner already subscribes to a DevPass plan on any
 				// of their organizations — they shouldn't be nudged to add credits.
@@ -249,9 +265,16 @@ export async function processNoPurchaseEmails(): Promise<void> {
 			),
 		);
 
-	for (const { organizationId } of eligibleOrgs) {
+	// Guard against emailing the same owner more than once within a single run:
+	// two of their orgs can both pass the cross-run SQL check before either has
+	// a recorded send.
+	const handledOwners = new Set<string>();
+	for (const { organizationId, ownerUserId } of eligibleOrgs) {
 		if (isStopRequested()) {
 			break;
+		}
+		if (handledOwners.has(ownerUserId)) {
+			continue;
 		}
 		try {
 			const email = await getOrgRecipientEmail(organizationId);
@@ -262,6 +285,7 @@ export async function processNoPurchaseEmails(): Promise<void> {
 				continue;
 			}
 			await sendAndRecord(organizationId, "no_purchase", email);
+			handledOwners.add(ownerUserId);
 		} catch (error) {
 			logger.error(
 				`Error sending no_purchase follow-up for org ${organizationId}`,
