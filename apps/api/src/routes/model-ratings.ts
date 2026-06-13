@@ -31,10 +31,10 @@ async function getModelRequestCount(
 		return 0;
 	}
 
-	const projects = await db
-		.select({ id: tables.project.id })
-		.from(tables.project)
-		.where(inArray(tables.project.organizationId, organizationIds));
+	const projects = await db.query.project.findMany({
+		where: { organizationId: { in: organizationIds } },
+		columns: { id: true },
+	});
 	const projectIds = projects.map((p) => p.id);
 	if (projectIds.length === 0) {
 		return 0;
