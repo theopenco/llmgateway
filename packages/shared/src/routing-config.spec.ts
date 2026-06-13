@@ -236,9 +236,23 @@ describe("applyRoutingPreference", () => {
 		expect(resolved.weights.imagePrice).toBe(0.9);
 		expect(resolved.weights.uptime).toBe(0.1);
 		expect(resolved.weights.throughput).toBe(0);
-		// Everything else on the config is preserved.
-		expect(resolved.thresholds).toEqual(base.thresholds);
+		// Provider priorities are preserved.
 		expect(resolved.providerPriorities).toEqual(base.providerPriorities);
+	});
+
+	it("disables exploration for non-auto preferences but keeps other thresholds", () => {
+		for (const preference of ["price", "throughput", "latency"] as const) {
+			const resolved = applyRoutingPreference(base, preference);
+			expect(resolved.thresholds.explorationRate).toBe(0);
+			expect(resolved.thresholds).toEqual({
+				...base.thresholds,
+				explorationRate: 0,
+			});
+		}
+		// auto leaves exploration untouched.
+		expect(
+			applyRoutingPreference(base, "auto").thresholds.explorationRate,
+		).toBe(base.thresholds.explorationRate);
 	});
 
 	it("collapses weights onto throughput, keeping uptime fallback", () => {

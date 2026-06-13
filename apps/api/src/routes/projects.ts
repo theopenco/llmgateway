@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getUserOrganizationIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -307,7 +307,11 @@ projects.openapi(updateProject, async (c) => {
 		updateData.allowedOrigins = normalizedAllowedOrigins;
 	}
 
-	const [updatedProject] = await db
+	// Roll through the cached client so its onMutate invalidates the gateway's
+	// cached project lookups (Drizzle cache + SWR mirror) for the project table.
+	// Otherwise settings like defaultRoutingStrategy/mode/caching would keep
+	// using the previous value until the cache expires (up to the SWR TTL).
+	const [updatedProject] = await cdb
 		.update(tables.project)
 		.set(updateData)
 		.where(eq(tables.project.id, id))

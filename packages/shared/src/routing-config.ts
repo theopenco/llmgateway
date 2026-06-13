@@ -370,6 +370,10 @@ export const ROUTING_PREFERENCE_WEIGHTS: Record<
  * Returns a routing config whose weights are overridden for the given
  * per-request routing preference. `auto` (or undefined) returns the config
  * unchanged so projects keep their configured/default weighted scoring.
+ *
+ * A non-`auto` preference also disables epsilon-greedy exploration: the caller
+ * explicitly asked to optimize a single factor, so a random ~1% reroute to a
+ * non-optimal provider (which runs before scoring) would violate that intent.
  */
 export function applyRoutingPreference(
 	cfg: ResolvedRoutingConfig,
@@ -381,6 +385,7 @@ export function applyRoutingPreference(
 	return {
 		...cfg,
 		weights: { ...ROUTING_PREFERENCE_WEIGHTS[preference] },
+		thresholds: { ...cfg.thresholds, explorationRate: 0 },
 	};
 }
 

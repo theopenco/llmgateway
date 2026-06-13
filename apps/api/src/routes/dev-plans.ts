@@ -6,7 +6,7 @@ import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, tables, eq, shortid } from "@llmgateway/db";
+import { cdb, db, tables, eq, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
@@ -1136,7 +1136,9 @@ devPlans.openapi(updateSettings, async (c) => {
 			defaultRoutingStrategy !== undefined &&
 			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
 		) {
-			await db
+			// Cached client so the gateway's project-cache invalidates and the new
+			// default routing strategy takes effect immediately (see projects.ts).
+			await cdb
 				.update(tables.project)
 				.set({ defaultRoutingStrategy })
 				.where(eq(tables.project.id, defaultProject.id));
