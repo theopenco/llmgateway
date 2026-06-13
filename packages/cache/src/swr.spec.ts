@@ -107,6 +107,37 @@ describe("swrWrap", () => {
 		);
 	});
 
+	it("throttles mirror rewrites for the same key within the window", async () => {
+		await swrWrap("test:key:throttle", ["table_a"], () =>
+			Promise.resolve({ v: 1 }),
+		);
+		expect(
+			await redisClient.get(`${SWR_PREFIX}test:key:throttle`),
+		).not.toBeNull();
+
+		// Drop the mirror, then call again within the throttle window. The fresh
+		// fetcher value is still returned, but the mirror is NOT rewritten.
+		await redisClient.del(`${SWR_PREFIX}test:key:throttle`);
+		const value = await swrWrap("test:key:throttle", ["table_a"], () =>
+			Promise.resolve({ v: 2 }),
+		);
+		expect(value).toEqual({ v: 2 });
+		expect(await redisClient.get(`${SWR_PREFIX}test:key:throttle`)).toBeNull();
+	});
+
+	it("repopulates mirror on next fetch after invalidation despite throttle", async () => {
+		await swrWrap("test:key:reinv", ["table_a"], () =>
+			Promise.resolve({ v: 1 }),
+		);
+		await invalidateSwrByTables(["table_a"]);
+		expect(await redisClient.get(`${SWR_PREFIX}test:key:reinv`)).toBeNull();
+
+		await swrWrap("test:key:reinv", ["table_a"], () =>
+			Promise.resolve({ v: 2 }),
+		);
+		expect(await redisClient.get(`${SWR_PREFIX}test:key:reinv`)).not.toBeNull();
+	});
+
 	it("honors SWR_STALE_TTL_SECONDS env var", async () => {
 		process.env.SWR_STALE_TTL_SECONDS = "120";
 		expect(getSwrStaleTtlSeconds()).toBe(120);

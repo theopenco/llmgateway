@@ -7,6 +7,33 @@ export const SWR_TABLE_INDEX_PREFIX = "swr:tables:";
 export const SWR_DEFAULT_TTL_SECONDS = 14400;
 export const SWR_BATCH_SIZE = 500;
 
+// The SWR mirror is only a fallback served when the underlying fetcher (a
+// Postgres query) throws. The happy path never reads it, so it does NOT need to
+// be rewritten on every successful request — doing so adds a Redis pipeline
+// (SET + SADD/EXPIRE per table) to every hot-path query and, at hundreds of
+// req/s with ~15-30 cached queries each, becomes a dominant source of Redis
+// load. We instead refresh a given key's mirror at most once per throttle
+// window per process. The mirror's own TTL (hours) is far longer than this
+// window, so the fallback stays valid; it just stops being needlessly rewritten.
+export const SWR_MIRROR_WRITE_THROTTLE_MS = 30_000;
+const SWR_MIRROR_THROTTLE_MAX_KEYS = 100_000;
+const lastMirrorWriteAt = new Map<string, number>();
+
+function shouldRefreshMirror(key: string): boolean {
+	const now = Date.now();
+	const last = lastMirrorWriteAt.get(key);
+	if (last !== undefined && now - last < SWR_MIRROR_WRITE_THROTTLE_MS) {
+		return false;
+	}
+	// Bound memory: distinct keys are bounded (orgs × providers × models) but can
+	// grow large. Clearing only resets the throttle, which is harmless.
+	if (lastMirrorWriteAt.size >= SWR_MIRROR_THROTTLE_MAX_KEYS) {
+		lastMirrorWriteAt.clear();
+	}
+	lastMirrorWriteAt.set(key, now);
+	return true;
+}
+
 const SWR_NONE_SENTINEL = "__swrNone" as const;
 
 interface SwrNoneSentinel {
@@ -110,7 +137,9 @@ export async function swrWrap<T>(
 		throw error;
 	}
 
-	await writeMirror(key, tables, value);
+	if (shouldRefreshMirror(key)) {
+		await writeMirror(key, tables, value);
+	}
 	return value;
 }
 
@@ -140,6 +169,12 @@ export async function invalidateSwrByTables(tables: string[]): Promise<void> {
 			if (batch.length > 0) {
 				await redisClient.unlink(...batch);
 			}
+		}
+
+		// Drop the write-throttle marker for invalidated keys so the next fetch
+		// repopulates the mirror immediately instead of waiting out the window.
+		for (const cacheKey of keysArray) {
+			lastMirrorWriteAt.delete(cacheKey.slice(SWR_PREFIX.length));
 		}
 
 		for (const table of tables) {
