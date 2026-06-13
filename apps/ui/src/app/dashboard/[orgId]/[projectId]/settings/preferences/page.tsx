@@ -13,7 +13,6 @@ import { ArchiveProjectSettings } from "./_components/archive-project";
 import { CachingSettingsRsc } from "./_components/caching-settings-rsc";
 import { ProjectModeSettingsRsc } from "./_components/project-mode-settings-rsc";
 import { ProjectNameSettingsRsc } from "./_components/project-name-settings-rsc";
-import { RoutingStrategySettingsRsc } from "./_components/routing-strategy-settings-rsc";
 import { CachingSettingsSkeleton } from "./_skeletons/caching-settings-skeleton";
 import { ProjectModeSkeleton } from "./_skeletons/project-mode-skeleton";
 import { ProjectNameSkeleton } from "./_skeletons/project-name-skeleton";
@@ -73,23 +72,6 @@ export default async function PreferencesPage({
 						<CardContent>
 							<Suspense fallback={<ProjectModeSkeleton />}>
 								<ProjectModeSettingsRsc orgId={orgId} projectId={projectId} />
-							</Suspense>
-						</CardContent>
-					</Card>
-
-					<Card>
-						<CardHeader>
-							<CardTitle>Routing Strategy</CardTitle>
-							<CardDescription>
-								Set the default provider-selection strategy for this project
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<Suspense fallback={<ProjectModeSkeleton />}>
-								<RoutingStrategySettingsRsc
-									orgId={orgId}
-									projectId={projectId}
-								/>
 							</Suspense>
 						</CardContent>
 					</Card>
