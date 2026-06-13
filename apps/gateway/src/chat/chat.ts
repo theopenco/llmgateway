@@ -3886,7 +3886,10 @@ chat.openapi(completions, async (c) => {
 					inputPrice: "0",
 					outputPrice: "0",
 					contextSize: 8192,
-					maxOutput: 4096,
+					// Custom providers have no catalog entry, so the gateway does not
+					// know the real output limit. Leave it uncapped and let the
+					// upstream provider enforce its own max_tokens limit.
+					maxOutput: undefined,
 					streaming: true,
 					vision: false,
 				},
