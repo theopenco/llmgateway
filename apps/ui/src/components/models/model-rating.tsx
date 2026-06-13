@@ -84,13 +84,15 @@ export function ModelRating({ modelId }: ModelRatingProps) {
 
 	const aggregate = aggregateQuery.data;
 	const ownRating = ownRatingQuery.data?.rating ?? null;
+	const eligibility = ownRatingQuery.data?.eligibility ?? null;
+	const canRate = !user || (eligibility?.canRate ?? false);
 
 	const displayedStars =
 		hovered ||
 		(editing ? selected : (ownRating?.rating ?? aggregate?.averageRating ?? 0));
 
 	const startEditing = (value: number) => {
-		if (!user) {
+		if (!user || !canRate) {
 			return;
 		}
 		setSelected(value);
@@ -117,11 +119,11 @@ export function ModelRating({ modelId }: ModelRatingProps) {
 								(editing ? selected : (ownRating?.rating ?? 0)) === value
 							}
 							aria-label={`${value} star${value === 1 ? "" : "s"}`}
-							disabled={!user}
+							disabled={!user || !canRate}
 							onClick={() => startEditing(value)}
-							onMouseEnter={() => user && setHovered(value)}
+							onMouseEnter={() => user && canRate && setHovered(value)}
 							onMouseLeave={() => setHovered(0)}
-							className={user ? "cursor-pointer" : "cursor-default"}
+							className={user && canRate ? "cursor-pointer" : "cursor-default"}
 						>
 							<Star
 								className={`h-5 w-5 ${
@@ -150,7 +152,14 @@ export function ModelRating({ modelId }: ModelRatingProps) {
 						Sign in to rate
 					</Link>
 				)}
-				{user && ownRating && !editing && (
+				{user && !canRate && eligibility && (
+					<span className="text-sm text-muted-foreground ml-auto">
+						Make {eligibility.minimumRequests} requests to rate (
+						{eligibility.requestCount.toLocaleString()}/
+						{eligibility.minimumRequests.toLocaleString()})
+					</span>
+				)}
+				{user && canRate && ownRating && !editing && (
 					<span className="text-sm text-muted-foreground ml-auto">
 						You rated {ownRating.rating}/5
 					</span>

@@ -2,12 +2,61 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { and, db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
 import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const modelRatings = new OpenAPIHono<ServerTypes>();
+
+// Users must have made at least this many requests on a model before they are
+// allowed to rate it, to keep ratings tied to genuine usage.
+const MINIMUM_REQUESTS_TO_RATE = 100;
+
+// Counts how many requests a user has made on a given model across all the
+// organizations they belong to. Uses the persisted hourly model stats rollups
+// rather than raw logs, since raw logs are subject to data-retention cleanup.
+// The model name may be stored as "provider/model" or just "model", so we match
+// the model portion.
+async function getModelRequestCount(
+	userId: string,
+	modelId: string,
+): Promise<number> {
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId },
+		columns: { organizationId: true },
+	});
+	const organizationIds = userOrgs.map((o) => o.organizationId);
+	if (organizationIds.length === 0) {
+		return 0;
+	}
+
+	const projects = await db
+		.select({ id: tables.project.id })
+		.from(tables.project)
+		.where(inArray(tables.project.organizationId, organizationIds));
+	const projectIds = projects.map((p) => p.id);
+	if (projectIds.length === 0) {
+		return 0;
+	}
+
+	const [result] = await db
+		.select({
+			value: sql<number>`COALESCE(SUM(${tables.projectHourlyModelStats.requestCount}), 0)`,
+		})
+		.from(tables.projectHourlyModelStats)
+		.where(
+			and(
+				inArray(tables.projectHourlyModelStats.projectId, projectIds),
+				sql`CASE WHEN ${tables.projectHourlyModelStats.usedModel} LIKE '%/%'
+					THEN SPLIT_PART(${tables.projectHourlyModelStats.usedModel}, '/', 2)
+					ELSE ${tables.projectHourlyModelStats.usedModel}
+				END = ${modelId}`,
+			),
+		);
+
+	return Number(result?.value ?? 0);
+}
 
 const ratingSchema = z.object({
 	modelId: z.string(),
@@ -15,6 +64,12 @@ const ratingSchema = z.object({
 	comment: z.string().nullable(),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
+});
+
+const eligibilitySchema = z.object({
+	canRate: z.boolean(),
+	requestCount: z.number().int(),
+	minimumRequests: z.number().int(),
 });
 
 const getOwnRating = createRoute({
@@ -27,7 +82,10 @@ const getOwnRating = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ rating: ratingSchema.nullable() }),
+					schema: z.object({
+						rating: ratingSchema.nullable(),
+						eligibility: eligibilitySchema,
+					}),
 				},
 			},
 			description: "The authenticated user's rating for the model.",
@@ -42,9 +100,12 @@ modelRatings.openapi(getOwnRating, async (c) => {
 	}
 
 	const { modelId } = c.req.valid("query");
-	const row = await db.query.modelRating.findFirst({
-		where: { userId: authUser.id, modelId },
-	});
+	const [row, requestCount] = await Promise.all([
+		db.query.modelRating.findFirst({
+			where: { userId: authUser.id, modelId },
+		}),
+		getModelRequestCount(authUser.id, modelId),
+	]);
 
 	return c.json({
 		rating: row
@@ -56,6 +117,11 @@ modelRatings.openapi(getOwnRating, async (c) => {
 					updatedAt: row.updatedAt.toISOString(),
 				}
 			: null,
+		eligibility: {
+			canRate: requestCount >= MINIMUM_REQUESTS_TO_RATE,
+			requestCount,
+			minimumRequests: MINIMUM_REQUESTS_TO_RATE,
+		},
 	});
 });
 
@@ -98,6 +164,13 @@ modelRatings.openapi(upsertRating, async (c) => {
 	const modelExists = modelDefinitions.some((m) => m.id === modelId);
 	if (!modelExists) {
 		throw new HTTPException(404, { message: "Model not found" });
+	}
+
+	const requestCount = await getModelRequestCount(authUser.id, modelId);
+	if (requestCount < MINIMUM_REQUESTS_TO_RATE) {
+		throw new HTTPException(403, {
+			message: `You need at least ${MINIMUM_REQUESTS_TO_RATE} requests on this model before you can rate it.`,
+		});
 	}
 
 	const [row] = await db
