@@ -25,7 +25,12 @@ import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
+import {
+	buildRatingSchema,
+	digitalOfferFields,
+	hasFullRatingData,
+	type ModelRatingsData,
+} from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -208,7 +213,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 	const productSchema = {
 		"@context": "https://schema.org",
-		"@type": "Product",
+		"@type": hasFullRatingData(ratingsData) ? "Product" : "Service",
 		name: `${modelDef.name ?? modelDef.id} on ${providerInfo?.name ?? decodedProvider}`,
 		description:
 			modelDef.description ??
@@ -233,6 +238,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				"@type": "Organization",
 				name: "LLM Gateway",
 			},
+			...digitalOfferFields,
 		},
 		category: "AI/ML API Service",
 		...buildRatingSchema(ratingsData),

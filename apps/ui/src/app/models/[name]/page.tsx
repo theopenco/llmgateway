@@ -33,7 +33,12 @@ import {
 	perMillion,
 } from "@/lib/discount";
 import { fetchModelDiscounts } from "@/lib/fetch-models";
-import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
+import {
+	buildRatingSchema,
+	digitalOfferFields,
+	hasFullRatingData,
+	type ModelRatingsData,
+} from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -153,7 +158,7 @@ export default async function ModelPage({ params }: PageProps) {
 	const primaryProviderId = modelDef.providers[0]?.providerId || "default";
 	const productSchema = {
 		"@context": "https://schema.org",
-		"@type": "Product",
+		"@type": hasFullRatingData(ratingsData) ? "Product" : "Service",
 		name: modelDef.name ?? modelDef.id,
 		description:
 			modelDef.description ??
@@ -170,6 +175,7 @@ export default async function ModelPage({ params }: PageProps) {
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: modelProviders.length,
 			availability: "https://schema.org/InStock",
+			...digitalOfferFields,
 		},
 		category: "AI/ML API Service",
 		...buildRatingSchema(ratingsData),
