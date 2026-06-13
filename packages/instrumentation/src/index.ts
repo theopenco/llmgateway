@@ -127,6 +127,7 @@ export {
 	finishReasonTotal,
 	tokenUsage,
 	requestsInFlight,
+	gatewayInflightRequests,
 	recordChatCompletionMetrics,
 	recordRequestStarted,
 	recordRequestCompleted,

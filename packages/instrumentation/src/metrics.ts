@@ -67,6 +67,14 @@ export const requestsInFlight = new Gauge({
 	registers: [metricsRegistry],
 });
 
+// Gauge for tracking total in-flight requests across the whole gateway pod
+// (used by the backpressure middleware to shed load above a configured cap)
+export const gatewayInflightRequests = new Gauge({
+	name: "gateway_inflight_requests",
+	help: "Number of requests currently in flight on this gateway pod",
+	registers: [metricsRegistry],
+});
+
 export interface ChatCompletionMetrics {
 	model: string;
 	provider: string;
