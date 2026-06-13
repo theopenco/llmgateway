@@ -33,6 +33,14 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
+	// 402 Payment Required indicates the gateway's provider account is out of
+	// funds (e.g. DeepSeek "Insufficient Balance"). This is a gateway-side
+	// account problem, not a client error, so classify as gateway_error to allow
+	// fallback to another provider.
+	if (statusCode === 402) {
+		return "gateway_error";
+	}
+
 	// Provider content-moderation / safety blocks (Azure ResponsibleAIPolicyViolation,
 	// ByteDance/DeepSeek SensitiveContentDetected, Alibaba data_inspection_failed,
 	// Azure content management policy, OpenAI safety system rejection, etc.)

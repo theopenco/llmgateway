@@ -190,6 +190,7 @@ export interface LogCardData {
 	responseFormat?: unknown;
 	params?: unknown;
 	customHeaders?: unknown;
+	userAgent?: string | null;
 }
 
 export interface LogCardProps {
@@ -1138,6 +1139,14 @@ export function LogCard({
 								<div className="font-mono text-xs break-all">
 									{log.source ?? "-"}
 								</div>
+								{log.userAgent && (
+									<>
+										<div className="text-muted-foreground">User Agent</div>
+										<div className="font-mono text-xs break-all">
+											{log.userAgent}
+										</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Project</div>
 								<RelatedResourceValue
 									id={log.projectId}

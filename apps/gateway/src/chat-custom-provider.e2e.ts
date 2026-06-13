@@ -197,6 +197,52 @@ describe("Custom Provider E2E", () => {
 			);
 		});
 
+		test("should not cap max_tokens for custom providers", async () => {
+			await setupTestData({ mode: "api-keys", includeProviderKey: true });
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "my-custom/qwen3.6-plus",
+					max_tokens: 32000,
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+
+			const json = await res.json();
+			expect(res.status).toBe(200);
+			expect(json.choices[0].message.content).toBe(
+				"Hello from custom provider!",
+			);
+		});
+
+		test("should not reject json_object response_format for custom providers", async () => {
+			await setupTestData({ mode: "api-keys", includeProviderKey: true });
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "my-custom/qwen3.6-plus",
+					response_format: { type: "json_object" },
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+
+			const json = await res.json();
+			expect(res.status).toBe(200);
+			expect(json.choices[0].message.content).toBe(
+				"Hello from custom provider!",
+			);
+		});
+
 		test("should succeed in hybrid mode with custom provider key", async () => {
 			await setupTestData({
 				mode: "hybrid",

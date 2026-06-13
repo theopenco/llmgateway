@@ -129,7 +129,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 
 	const productSchema = {
 		"@context": "https://schema.org",
-		"@type": "Product",
+		"@type": "Service",
 		name: `LLM Gateway Enterprise – ${feature.title}`,
 		description: feature.longDescription,
 		brand: {

@@ -61,7 +61,7 @@
 		"sort-package-json": "3.4.0",
 		"sql.js": "1.13.0",
 		"tsc-watch": "7.2.0",
-		"tsx": "4.20.6",
+		"tsx": "4.22.4",
 		"turbo": "^2.9.14",
 		"typescript": "5.9.2",
 		"vite": "^7.3.2",
@@ -110,7 +110,9 @@
 			"mdast-util-to-hast@>=13 <13.2.1": "^13.2.1",
 			"ajv@>=6 <6.14.0": "^6.14.0",
 			"@tootallnate/once@<2.0.1": "^2.0.1",
-			"shell-quote@<1.8.4": "^1.8.4"
+			"shell-quote@<1.8.4": "^1.8.4",
+			"@grpc/grpc-js": ">=1.14.4",
+			"esbuild@>=0.17.0 <0.28.1": "^0.28.1"
 		},
 		"packageExtensions": {
 			"@hookform/resolvers": {

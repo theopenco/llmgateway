@@ -4670,7 +4670,7 @@ describe("api", () => {
 				id: "msg_refusal",
 				type: "message",
 				role: "assistant",
-				model: "claude-fable-5",
+				model: "claude-opus-4-8",
 				content: [],
 				stop_reason: "refusal",
 				stop_sequence: null,
@@ -4686,7 +4686,7 @@ describe("api", () => {
 						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
-						model: "anthropic/claude-fable-5",
+						model: "anthropic/claude-opus-4-8",
 						messages: [{ role: "user", content: "Trigger a refusal" }],
 					}),
 				});
@@ -4733,7 +4733,7 @@ describe("api", () => {
 				id: "msg_refusal_partial",
 				type: "message",
 				role: "assistant",
-				model: "claude-fable-5",
+				model: "claude-opus-4-8",
 				content: [{ type: "text", text: "Here is the start of an answer" }],
 				stop_reason: "refusal",
 				stop_sequence: null,
@@ -4749,7 +4749,7 @@ describe("api", () => {
 						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
-						model: "anthropic/claude-fable-5",
+						model: "anthropic/claude-opus-4-8",
 						messages: [{ role: "user", content: "Trigger a refusal" }],
 					}),
 				});
@@ -4764,8 +4764,8 @@ describe("api", () => {
 			expect(logs[0].finishReason).toBe("refusal");
 			expect(logs[0].unifiedFinishReason).toBe("content_filter");
 			// Output was generated before the refusal, so it is billed normally:
-			// 100 input * 10e-6 + 20 output * 50e-6 = 0.002.
-			expect(Number(logs[0].cost)).toBeCloseTo(0.002);
+			// 100 input * 5e-6 + 20 output * 25e-6 = 0.001.
+			expect(Number(logs[0].cost)).toBeCloseTo(0.001);
 		});
 
 		test("aws-bedrock refusal with no output is not billed", async () => {
@@ -4799,7 +4799,7 @@ describe("api", () => {
 						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
-						model: "aws-bedrock/claude-fable-5",
+						model: "aws-bedrock/claude-opus-4-8",
 						messages: [{ role: "user", content: "Trigger a refusal" }],
 					}),
 				});
@@ -4845,7 +4845,7 @@ describe("api", () => {
 						id: "msg_stream_refusal",
 						type: "message",
 						role: "assistant",
-						model: "claude-fable-5",
+						model: "claude-opus-4-8",
 						content: [],
 						usage: { input_tokens: 100, output_tokens: 0 },
 					},
@@ -4892,7 +4892,7 @@ describe("api", () => {
 						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
-						model: "anthropic/claude-fable-5",
+						model: "anthropic/claude-opus-4-8",
 						messages: [{ role: "user", content: "Trigger a refusal" }],
 						stream: true,
 					}),

@@ -124,6 +124,23 @@ Once you press `Y`, Hermes launches a full agent session connected to LLM Gatewa
 </Step>
 </Steps>
 
+## DevPass Compatibility
+
+Hermes Agent is fully compatible with [DevPass coding plans](/docs/features/coding-agents). The gateway automatically detects Hermes via multiple signals:
+
+- **X-Source header** — Hermes sends `X-Source: https://hermes-agent.nousresearch.com` (auto-detected)
+- **User-Agent** — `HermesAgent/<version>` is recognized
+- **X-Title** — Title containing "hermes agent" is matched
+- **HTTP-Referer** — Any referer URL containing `hermes-agent.nousresearch.com`
+
+No configuration is needed on your side — DevPass plans automatically allow Hermes traffic.
+
+<Callout type="info">
+	Native LLM Gateway provider support is being added to Hermes Agent upstream.
+	Once merged, you'll be able to select "LLM Gateway" directly as a provider in
+	`hermes setup` instead of using "Custom OpenAI-compatible endpoint".
+</Callout>
+
 ## Using Hermes with LLM Gateway
 
 Once configured, all requests route through LLM Gateway. You'll see the provider name (e.g., "LLMGATEWAY") in the Hermes status bar.

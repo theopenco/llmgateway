@@ -38,6 +38,7 @@ const testProviderKeyOpenAi = "test-provider-key-swr-openai";
 const testProviderKeyAnthropic = "test-provider-key-swr-anthropic";
 const testIamRuleId = "test-iam-rule-swr";
 const testDiscountId = "test-discount-swr";
+const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 async function flushDrizzleCache(): Promise<void> {
 	const keys = await redisClient.keys("drizzle:cache:*");
@@ -151,6 +152,9 @@ describe("cached-queries SWR integration", () => {
 			model: "gpt-4",
 			discountPercent: "0.25",
 			reason: "SWR test discount",
+			// Non-null future expiry so the JS expiry filter has a value to evaluate
+			// (exercises the active-discount path, including on a Drizzle cache hit).
+			expiresAt: new Date(Date.now() + ONE_YEAR_MS),
 		});
 	});
 
@@ -262,6 +266,21 @@ describe("cached-queries SWR integration", () => {
 				`${SWR_PREFIX}discount:${testOrgId}:openai:gpt-4`,
 			);
 			expect(mirror).not.toBeNull();
+		});
+
+		it("findEffectiveDiscount resolves an expiring discount on a Drizzle cache hit", async () => {
+			// First call populates the Drizzle cache.
+			const first = await findEffectiveDiscount(testOrgId, "openai", "gpt-4");
+			expect(first.discount).toBe("0.25");
+
+			// Drop the SWR mirror so the next call can't fall back to it — it must
+			// resolve through the Drizzle cache and apply the JS expiry filter to the
+			// cached row (whose expiresAt is non-null) without erroring.
+			await flushSwrOnly();
+
+			const second = await findEffectiveDiscount(testOrgId, "openai", "gpt-4");
+			expect(second.discount).toBe("0.25");
+			expect(second.source).toBe("org_provider_model");
 		});
 	});
 
