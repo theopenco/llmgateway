@@ -4,6 +4,7 @@ import { redisClient } from "./redis.js";
 
 export const SWR_PREFIX = "swr:";
 export const SWR_TABLE_INDEX_PREFIX = "swr:tables:";
+export const SWR_THROTTLE_PREFIX = "swr:throttle:";
 export const SWR_DEFAULT_TTL_SECONDS = 14400;
 export const SWR_BATCH_SIZE = 500;
 
@@ -13,25 +14,43 @@ export const SWR_BATCH_SIZE = 500;
 // (SET + SADD/EXPIRE per table) to every hot-path query and, at hundreds of
 // req/s with ~15-30 cached queries each, becomes a dominant source of Redis
 // load. We instead refresh a given key's mirror at most once per throttle
-// window per process. The mirror's own TTL (hours) is far longer than this
-// window, so the fallback stays valid; it just stops being needlessly rewritten.
-export const SWR_MIRROR_WRITE_THROTTLE_MS = 30_000;
-const SWR_MIRROR_THROTTLE_MAX_KEYS = 100_000;
-const lastMirrorWriteAt = new Map<string, number>();
+// window, collapsing the per-request pipeline to a single conditional SET.
+//
+// The throttle marker lives in Redis (not in process memory) on purpose: the
+// thing it gates — the mirror — also lives in Redis and can disappear out from
+// under us (eviction, TTL, FLUSHDB, failover). An in-memory marker would
+// desync from that and suppress re-priming for a full window even though the
+// mirror is gone, silently removing the disaster fallback. A Redis-side marker
+// is cleared by the same events that drop the mirror, so the next request
+// re-primes immediately.
+export const SWR_MIRROR_WRITE_THROTTLE_SECONDS = 30;
 
-function shouldRefreshMirror(key: string): boolean {
-	const now = Date.now();
-	const last = lastMirrorWriteAt.get(key);
-	if (last !== undefined && now - last < SWR_MIRROR_WRITE_THROTTLE_MS) {
-		return false;
+function throttleKey(key: string): string {
+	return SWR_THROTTLE_PREFIX + key;
+}
+
+// Returns true if this caller won the throttle slot and should (re)write the
+// mirror. Uses SET NX so exactly one caller per window per key wins. Fails open
+// (returns true) on Redis error so an unavailable Redis never suppresses a
+// write the caller would otherwise make.
+async function claimMirrorWrite(key: string): Promise<boolean> {
+	try {
+		const result = await redisClient.set(
+			throttleKey(key),
+			"1",
+			"EX",
+			SWR_MIRROR_WRITE_THROTTLE_SECONDS,
+			"NX",
+		);
+		return result === "OK";
+	} catch (error) {
+		logger.error(
+			"Error claiming SWR mirror write throttle",
+			error instanceof Error ? error : new Error(String(error)),
+			{ key },
+		);
+		return true;
 	}
-	// Bound memory: distinct keys are bounded (orgs × providers × models) but can
-	// grow large. Clearing only resets the throttle, which is harmless.
-	if (lastMirrorWriteAt.size >= SWR_MIRROR_THROTTLE_MAX_KEYS) {
-		lastMirrorWriteAt.clear();
-	}
-	lastMirrorWriteAt.set(key, now);
-	return true;
 }
 
 const SWR_NONE_SENTINEL = "__swrNone" as const;
@@ -72,7 +91,7 @@ async function writeMirror<T>(
 	key: string,
 	tables: string[],
 	value: T,
-): Promise<void> {
+): Promise<boolean> {
 	try {
 		const ttl = getSwrStaleTtlSeconds();
 		const cacheKey = swrKey(key);
@@ -87,12 +106,26 @@ async function writeMirror<T>(
 			pipeline.expire(indexKey, ttl + 60);
 		}
 		await pipeline.exec();
+		return true;
 	} catch (error) {
 		logger.error(
 			"Error writing SWR mirror",
 			error instanceof Error ? error : new Error(String(error)),
 			{ key },
 		);
+		return false;
+	}
+}
+
+// Release the throttle slot so the next request retries the write. Used when a
+// claimed write fails, so a transient Redis write error does not suppress the
+// mirror (and weaken the stale fallback) for the whole throttle window.
+async function releaseMirrorThrottle(key: string): Promise<void> {
+	try {
+		await redisClient.del(throttleKey(key));
+	} catch {
+		// Best-effort: the throttle key's own TTL bounds how long it can wrongly
+		// suppress writes, so a failed release is non-fatal.
 	}
 }
 
@@ -137,8 +170,11 @@ export async function swrWrap<T>(
 		throw error;
 	}
 
-	if (shouldRefreshMirror(key)) {
-		await writeMirror(key, tables, value);
+	if (await claimMirrorWrite(key)) {
+		const wrote = await writeMirror(key, tables, value);
+		if (!wrote) {
+			await releaseMirrorThrottle(key);
+		}
 	}
 	return value;
 }
@@ -163,18 +199,19 @@ export async function invalidateSwrByTables(tables: string[]): Promise<void> {
 			return;
 		}
 
+		// Also drop the write-throttle markers for the invalidated keys so the
+		// next fetch repopulates the mirror immediately instead of waiting out
+		// the throttle window.
 		const keysArray = Array.from(allKeysToDelete);
-		for (let i = 0; i < keysArray.length; i += SWR_BATCH_SIZE) {
-			const batch = keysArray.slice(i, i + SWR_BATCH_SIZE);
+		const throttleKeys = keysArray.map((cacheKey) =>
+			throttleKey(cacheKey.slice(SWR_PREFIX.length)),
+		);
+		const allUnlinkKeys = [...keysArray, ...throttleKeys];
+		for (let i = 0; i < allUnlinkKeys.length; i += SWR_BATCH_SIZE) {
+			const batch = allUnlinkKeys.slice(i, i + SWR_BATCH_SIZE);
 			if (batch.length > 0) {
 				await redisClient.unlink(...batch);
 			}
-		}
-
-		// Drop the write-throttle marker for invalidated keys so the next fetch
-		// repopulates the mirror immediately instead of waiting out the window.
-		for (const cacheKey of keysArray) {
-			lastMirrorWriteAt.delete(cacheKey.slice(SWR_PREFIX.length));
 		}
 
 		for (const table of tables) {

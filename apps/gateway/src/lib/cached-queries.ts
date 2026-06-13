@@ -278,13 +278,17 @@ const FRESH_TTL_SECONDS = 2;
 
 /**
  * Find an organization by ID with a short-TTL fresh read (for near-fresh credit
- * checks when the org shows <= 0 credits). Uses a distinct cache tag so it does
- * not collide with the longer-lived `findOrganizationById` cache entry.
+ * checks when the org shows <= 0 credits). Uses a distinct Drizzle cache tag AND
+ * a distinct SWR mirror key (`org:fresh:${id}`) so it does not collide with the
+ * longer-lived `findOrganizationById` entry. The distinct mirror key matters:
+ * sharing it would let the (possibly stale-zero) regular read claim the mirror
+ * write-throttle slot and suppress this fresh value's mirror write, so a DB
+ * outage right after a topup could keep serving the stale-zero fallback.
  */
 export async function findOrganizationByIdFresh(
 	id: string,
 ): Promise<Organization | undefined> {
-	return await swrWrap(`org:${id}`, [organizationTableName], async () => {
+	return await swrWrap(`org:fresh:${id}`, [organizationTableName], async () => {
 		const results = await db
 			.select()
 			.from(organizationTable)
@@ -342,13 +346,15 @@ export async function findOrganizationById(
 
 /**
  * Find an end-user wallet by ID with a short-TTL fresh read (for near-fresh
- * balance checks when the wallet shows <= 0 balance). Uses a distinct cache tag
- * so it does not collide with the longer-lived `findWalletById` cache entry.
+ * balance checks when the wallet shows <= 0 balance). Uses a distinct Drizzle
+ * cache tag AND a distinct SWR mirror key (`wallet:fresh:${id}`) so it does not
+ * collide with the longer-lived `findWalletById` entry — see
+ * `findOrganizationByIdFresh` for why the distinct mirror key matters.
  */
 export async function findWalletByIdFresh(
 	id: string,
 ): Promise<Wallet | undefined> {
-	return await swrWrap(`wallet:${id}`, [walletTableName], async () => {
+	return await swrWrap(`wallet:fresh:${id}`, [walletTableName], async () => {
 		const results = await db
 			.select()
 			.from(walletTable)
