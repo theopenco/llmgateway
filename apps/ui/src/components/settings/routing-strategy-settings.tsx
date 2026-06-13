@@ -138,22 +138,24 @@ export function RoutingStrategySettings({
 								<FormControl>
 									<Select value={field.value} onValueChange={field.onChange}>
 										<SelectTrigger className="w-full max-w-sm">
-											<SelectValue />
+											<SelectValue placeholder="Select a strategy" />
 										</SelectTrigger>
 										<SelectContent>
 											{STRATEGY_OPTIONS.map((option) => (
 												<SelectItem key={option.value} value={option.value}>
-													<div className="flex flex-col">
-														<span className="font-medium">{option.label}</span>
-														<span className="text-xs text-muted-foreground">
-															{option.description}
-														</span>
-													</div>
+													{option.label}
 												</SelectItem>
 											))}
 										</SelectContent>
 									</Select>
 								</FormControl>
+								<p className="text-muted-foreground text-sm">
+									{
+										STRATEGY_OPTIONS.find(
+											(option) => option.value === field.value,
+										)?.description
+									}
+								</p>
 								<FormMessage />
 							</FormItem>
 						)}
