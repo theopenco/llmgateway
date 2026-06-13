@@ -189,10 +189,11 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 ```
 
 <Callout type="info">
-	The `routing` field only affects models served by more than one provider — it
-	has no effect when you pin a specific provider (e.g. `openai/gpt-4o`). On
-	**coding (dev) plans**, only `auto` and `price` are allowed; the other
-	strategies return a `400` error because they would bypass the
+	The `routing` field only applies to model-id routing. Combining it with a
+	specific provider (e.g. `openai/gpt-4o`) returns a `400` error, since the
+	strategy can't influence a pinned provider — remove the provider prefix to use
+	a strategy. On **coding (dev) plans**, only `auto` and `price` are allowed;
+	the other strategies return a `400` error because they would bypass the
 	prompt-cache–aware routing those plans depend on.
 </Callout>
 

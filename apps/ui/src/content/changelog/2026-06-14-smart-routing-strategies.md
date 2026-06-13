@@ -47,7 +47,7 @@ DevPass coding plans support `auto` and `price` (the cache-aware strategies that
 
 ## No surprises for pinned providers
 
-Strategies only affect multi-provider routing. If you pin a provider — e.g. `openai/gpt-4o` — the `routing` field is a no-op, and an explicit single-factor strategy also disables random exploration so selection stays deterministic.
+Strategies only affect multi-provider routing. Combining `routing` with a pinned provider — e.g. `openai/gpt-4o` — returns a `400` rather than silently doing nothing. And an explicit single-factor strategy disables random exploration, so selection stays deterministic.
 
 ---
 

@@ -315,7 +315,7 @@ export const completionsRequestSchema = z.object({
 		.optional()
 		.openapi({
 			description:
-				"Provider selection strategy when a model is served by multiple providers, named after the factor it optimizes. `auto` (default) uses the full weighted smart-routing score. `price`, `throughput`, and `latency` each give a 90% relative weight to that factor while keeping a small uptime weight so requests still fall back to other providers when the top pick has extremely bad uptime. `latency` only biases streaming requests. On coding (dev) plans only `auto` and `price` are allowed.",
+				"Provider selection strategy for model-id routing, named after the factor it optimizes. `auto` (default) uses the full weighted smart-routing score. `price`, `throughput`, and `latency` each give a 90% relative weight to that factor while keeping a small uptime weight so requests still fall back to other providers when the top pick has extremely bad uptime. `latency` only biases streaming requests. Combining `routing` with a specific provider prefix (e.g. `openai/gpt-4o`) returns a 400. On coding (dev) plans only `auto` and `price` are allowed.",
 			example: "price",
 		}),
 	free_models_only: z.boolean().optional().default(false).openapi({

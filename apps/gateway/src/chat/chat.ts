@@ -2024,14 +2024,29 @@ chat.openapi(completions, async (c) => {
 		organization?.isPersonal && organization.devPlan !== "none",
 	);
 
+	// A routing strategy only has meaning for multi-provider model-id routing.
+	// If the request also pins a specific provider (e.g. `openai/gpt-4o` or a
+	// custom provider), the strategy can't influence anything, so reject the
+	// contradiction explicitly instead of silently ignoring it. Only an explicit
+	// request `routing` errors — a project default still applies harmlessly.
+	if (
+		routing !== undefined &&
+		requestedProvider !== undefined &&
+		requestedProvider !== "llmgateway"
+	) {
+		throw new HTTPException(400, {
+			message:
+				"The `routing` strategy is only supported for model-id routing and cannot be combined with a specific provider. Remove the provider prefix from `model` to use a routing strategy, or drop the `routing` field.",
+		});
+	}
+
 	let routingCfg = await getResolvedRoutingConfig(
 		project.id,
 		organization.plan,
 	);
 	// Routing strategies only affect multi-provider selection. When the request
 	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
-	// reused for region selection and fallback scoring, so leave it untouched to
-	// keep pinned calls a no-op for the strategy.
+	// reused for region selection and fallback scoring, so leave it untouched.
 	if (!useExpandedRoutingProviders) {
 		// Resolve the effective routing strategy: an explicit request `routing`
 		// wins, otherwise fall back to the project's configured default.
