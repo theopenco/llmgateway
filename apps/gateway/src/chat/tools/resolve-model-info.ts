@@ -41,13 +41,11 @@ export function resolveModelInfo(
 					externalId: requestedModel,
 					inputPrice: "0",
 					outputPrice: "0",
-					contextSize: 8192,
-					// Custom providers have no catalog entry, so the gateway does not
-					// know the real output limit. Leave it uncapped and let the
-					// upstream provider enforce its own max_tokens limit.
-					maxOutput: undefined,
+					// Custom providers have no catalog entry, so the gateway cannot
+					// know contextSize, maxOutput, or vision support. Leave them
+					// unset rather than guessing — the upstream provider enforces
+					// its own limits and capabilities.
 					streaming: true,
-					vision: false,
 					jsonOutput: true,
 				},
 			],
