@@ -28,7 +28,7 @@
 		"class-variance-authority": "^0.7.1",
 		"flexsearch": "^0.8.212",
 		"fumadocs-core": "16.9.3",
-		"fumadocs-mdx": "15.0.10",
+		"fumadocs-mdx": "15.0.12",
 		"fumadocs-openapi": "10.9.1",
 		"fumadocs-ui": "16.9.3",
 		"gateway": "workspace:*",
