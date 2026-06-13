@@ -1,20 +1,19 @@
 import { EventEmitter } from "node:events";
 
 import { Hono } from "hono";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
+
+import { backpressureMiddleware } from "./backpressure.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe("backpressure middleware", () => {
 	afterEach(() => {
 		delete process.env.GATEWAY_MAX_INFLIGHT_REQUESTS;
-		vi.resetModules();
 	});
 
 	test("sheds excess load with 529 and frees slots on response close", async () => {
-		vi.resetModules();
 		process.env.GATEWAY_MAX_INFLIGHT_REQUESTS = "2";
-		const { backpressureMiddleware } = await import("./backpressure.js");
 
 		const app = new Hono();
 		app.use("*", backpressureMiddleware);
@@ -58,12 +57,15 @@ describe("backpressure middleware", () => {
 		gates[1]();
 		gates[2]();
 		await Promise.all([r2, r4]);
+
+		// Close the remaining connections so the shared in-flight counter returns
+		// to 0 and doesn't leak into other tests.
+		o2.emit("close");
+		o4.emit("close");
 	});
 
 	test("exempt paths are never counted", async () => {
-		vi.resetModules();
 		process.env.GATEWAY_MAX_INFLIGHT_REQUESTS = "1";
-		const { backpressureMiddleware } = await import("./backpressure.js");
 
 		const app = new Hono();
 		app.use("*", backpressureMiddleware);

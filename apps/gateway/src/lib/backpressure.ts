@@ -10,7 +10,10 @@ import type { ServerResponse } from "node:http";
 // are shed immediately with a retryable HTTP 529 so the load balancer gets a
 // fast response instead of a hanging connection. Conservative default; tune
 // from real traffic via the gateway_inflight_requests gauge.
-const MAX_INFLIGHT = Number(process.env.GATEWAY_MAX_INFLIGHT_REQUESTS) || 1000;
+function getMaxInflight(): number {
+	const parsed = Number(process.env.GATEWAY_MAX_INFLIGHT_REQUESTS);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : 1000;
+}
 
 let inFlight = 0;
 
@@ -35,7 +38,7 @@ export const backpressureMiddleware: MiddlewareHandler<ServerTypes> = async (
 		return await next();
 	}
 
-	if (inFlight >= MAX_INFLIGHT) {
+	if (inFlight >= getMaxInflight()) {
 		c.header("Retry-After", "1");
 		return renderGatewayError(c, 529, "Gateway overloaded, please retry");
 	}
