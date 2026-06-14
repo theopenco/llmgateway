@@ -18,7 +18,7 @@ export function generateStaticParams() {
 
 function Tile({ spec, devpass }: { spec: BrandSpec; devpass?: boolean }) {
 	const tileSize = 150;
-	const inner = 84;
+	const inner = Math.round(tileSize * spec.scale);
 	const background = devpass ? "#fafafa" : spec.bg;
 	const color = devpass ? "#0a0a0b" : spec.fg;
 	const Mark = spec.Mark;

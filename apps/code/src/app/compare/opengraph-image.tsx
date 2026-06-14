@@ -12,7 +12,7 @@ export const contentType = "image/png";
 
 function Tile({ spec, devpass }: { spec: BrandSpec; devpass?: boolean }) {
 	const tileSize = 96;
-	const inner = 52;
+	const inner = Math.round(tileSize * spec.scale);
 	const background = devpass ? "#fafafa" : spec.bg;
 	const color = devpass ? "#0a0a0b" : spec.fg;
 	const Mark = spec.Mark;

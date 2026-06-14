@@ -50,9 +50,6 @@ features:
   - label: "SoulForge token reduction (~50% fewer tokens)"
     devpass: true
     competitor: false
-  - label: Commercial & team use
-    devpass: true
-    competitor: true
 faqs:
   - question: What is Cursor and how much does it cost?
     answer: "Cursor is an AI-native code editor — a VS Code fork with unlimited tab completion, the Composer agent, Bugbot code review and Cloud Agents built in. Individual plans are Pro at $20/mo (about $20 of model usage included), Pro Plus at $60/mo (~$70 included) and Ultra at $200/mo (~$400 included). Teams start at $40/user/mo. Beyond the included usage you continue at each model's API rate, pay-as-you-go."
