@@ -137,6 +137,10 @@ function parseModelView(value: string | null): ModelView {
 		: "mapping";
 }
 
+function parseBreakdown(value: string | null): boolean {
+	return value === "1";
+}
+
 function StatCard({
 	label,
 	value,
@@ -218,6 +222,7 @@ export function GlobalStatsClient() {
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
+	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
 
 	const rangeLabel = useMemo(() => {
 		const fromDate = parseISO(from);
@@ -269,6 +274,9 @@ export function GlobalStatsClient() {
 		},
 		[updateParam],
 	);
+	const toggleTimeseriesBreakdown = useCallback(() => {
+		updateParam("breakdown", showTimeseriesBreakdown ? "0" : "1");
+	}, [updateParam, showTimeseriesBreakdown]);
 
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
@@ -283,8 +291,6 @@ export function GlobalStatsClient() {
 	const timeseries = data?.timeseries ?? [];
 	const timeseriesBreakdown = data?.timeseriesBreakdown ?? [];
 	const breakdown = data?.breakdown ?? [];
-
-	const [showTimeseriesBreakdown, setShowTimeseriesBreakdown] = useState(false);
 
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
@@ -526,7 +532,7 @@ export function GlobalStatsClient() {
 							variant={showTimeseriesBreakdown ? "default" : "outline"}
 							size="sm"
 							className="h-7 gap-1.5 px-3 text-xs"
-							onClick={() => setShowTimeseriesBreakdown((v) => !v)}
+							onClick={toggleTimeseriesBreakdown}
 						>
 							{groupBy === "model" ? (
 								<Cpu className="h-3.5 w-3.5" />
