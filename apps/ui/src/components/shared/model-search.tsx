@@ -31,6 +31,11 @@ interface ModelSearchEntry {
 	providerName: string;
 	createdAt?: Date;
 	free?: boolean;
+	searchText: string;
+}
+
+function normalizeForSearch(value: string) {
+	return value.toLowerCase().replace(/[-_\s]+/g, "");
 }
 
 function formatMonthLabel(date?: Date) {
@@ -117,16 +122,6 @@ export function ModelSearch({
 		}
 	}, [search]);
 
-	const aliasMap = useMemo(() => {
-		const map = new Map<string, string[]>();
-		for (const model of models) {
-			if (model.aliases?.length) {
-				map.set(model.id, model.aliases);
-			}
-		}
-		return map;
-	}, [models]);
-
 	const entries = useMemo<ModelSearchEntry[]>(() => {
 		const now = new Date();
 		const map = new Map<string, ModelSearchEntry>();
@@ -155,12 +150,23 @@ export function ModelSearch({
 
 				const key = `${String(mapping.providerId)}-${String(model.id)}`;
 				if (!map.has(key)) {
+					const entryName = model.name ?? String(model.id);
+					const entryProviderName =
+						provider?.name ?? String(mapping.providerId);
 					map.set(key, {
 						id: String(model.id),
-						name: model.name ?? String(model.id),
+						name: entryName,
 						providerId: String(mapping.providerId),
-						providerName: provider?.name ?? String(mapping.providerId),
+						providerName: entryProviderName,
 						createdAt,
+						searchText: normalizeForSearch(
+							[
+								entryProviderName,
+								entryName,
+								String(model.id),
+								model.aliases?.join(" ") ?? "",
+							].join(" "),
+						),
 						free:
 							model.free === true &&
 							(mapping.requestPrice === undefined ||
@@ -185,9 +191,40 @@ export function ModelSearch({
 		return list;
 	}, [models, providers]);
 
+	const searchTokens = useMemo(
+		() =>
+			search
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean),
+		[search],
+	);
+
+	const filteredEntries = useMemo(() => {
+		if (searchTokens.length === 0) {
+			return entries;
+		}
+		return entries.filter((entry) =>
+			searchTokens.every((token) => entry.searchText.includes(token)),
+		);
+	}, [entries, searchTokens]);
+
+	const filteredProviders = useMemo(() => {
+		if (searchTokens.length === 0) {
+			return [];
+		}
+		return providers.filter((p) => {
+			if (p.name === "LLM Gateway") {
+				return false;
+			}
+			const text = normalizeForSearch(`${p.name ?? p.id} ${p.id}`);
+			return searchTokens.every((token) => text.includes(token));
+		});
+	}, [providers, searchTokens]);
+
 	const groups: [string, ModelSearchEntry[]][] = useMemo(() => {
 		const byMonth = new Map<string, ModelSearchEntry[]>();
-		for (const entry of entries as ModelSearchEntry[]) {
+		for (const entry of filteredEntries) {
 			const label = formatMonthLabel(entry.createdAt);
 			if (!byMonth.has(label)) {
 				byMonth.set(label, []);
@@ -195,7 +232,7 @@ export function ModelSearch({
 			byMonth.get(label)!.push(entry);
 		}
 		return Array.from(byMonth.entries());
-	}, [entries]);
+	}, [filteredEntries]);
 
 	return (
 		<Popover
@@ -226,7 +263,7 @@ export function ModelSearch({
 				side="bottom"
 				align="center"
 			>
-				<Command>
+				<Command shouldFilter={false}>
 					<CommandInput
 						placeholder="Search models…"
 						value={search}
@@ -234,43 +271,41 @@ export function ModelSearch({
 					/>
 					<CommandList ref={listRef} className="max-h-[400px]">
 						<CommandEmpty>No results found.</CommandEmpty>
-						{search.trim().length > 0 && providers.length > 0 && (
+						{filteredProviders.length > 0 && (
 							<CommandGroup heading="Providers">
-								{providers
-									.filter((p) => p.name !== "LLM Gateway")
-									.map((p) => {
-										const ProviderIcon = getProviderIcon(p.id);
-										return (
-											<CommandItem
-												key={`provider-${p.id}`}
-												value={`${p.name ?? p.id} ${p.id} provider`}
-												onSelect={() => {
-													router.push(`/providers/${encodeURIComponent(p.id)}`);
-													setOpen(false);
-												}}
-											>
-												<div className="flex items-center gap-3">
-													<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
-														{ProviderIcon ? (
-															<ProviderIcon className="h-5 w-5" />
-														) : (
-															<span className="text-xs font-medium uppercase text-muted-foreground">
-																{(p.name ?? p.id).charAt(0)}
-															</span>
-														)}
-													</div>
-													<div className="flex flex-col items-start">
-														<span className="text-sm font-medium">
-															{p.name ?? p.id}
+								{filteredProviders.map((p) => {
+									const ProviderIcon = getProviderIcon(p.id);
+									return (
+										<CommandItem
+											key={`provider-${p.id}`}
+											value={`provider-${p.id}`}
+											onSelect={() => {
+												router.push(`/providers/${encodeURIComponent(p.id)}`);
+												setOpen(false);
+											}}
+										>
+											<div className="flex items-center gap-3">
+												<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+													{ProviderIcon ? (
+														<ProviderIcon className="h-5 w-5" />
+													) : (
+														<span className="text-xs font-medium uppercase text-muted-foreground">
+															{(p.name ?? p.id).charAt(0)}
 														</span>
-														<span className="text-xs text-muted-foreground">
-															{p.id}
-														</span>
-													</div>
+													)}
 												</div>
-											</CommandItem>
-										);
-									})}
+												<div className="flex flex-col items-start">
+													<span className="text-sm font-medium">
+														{p.name ?? p.id}
+													</span>
+													<span className="text-xs text-muted-foreground">
+														{p.id}
+													</span>
+												</div>
+											</div>
+										</CommandItem>
+									);
+								})}
 							</CommandGroup>
 						)}
 						{groups.map(([label, items]) => (
@@ -281,7 +316,7 @@ export function ModelSearch({
 									return (
 										<CommandItem
 											key={`${entry.providerId}-${entry.id}`}
-											value={`${entry.providerName} ${entry.name} ${entry.id}${aliasMap.has(entry.id) ? ` ${aliasMap.get(entry.id)!.join(" ")}` : ""}`}
+											value={`${entry.providerId}-${entry.id}`}
 											onSelect={() => {
 												router.push(`/models/${encodeURIComponent(entry.id)}`);
 												setOpen(false);
