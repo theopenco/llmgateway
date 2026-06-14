@@ -9,13 +9,12 @@ export interface ModelRatingsData {
 	}[];
 }
 
-export function hasFullRatingData(ratings: ModelRatingsData | null) {
-	return Boolean(
-		ratings &&
-			ratings.ratingCount > 0 &&
-			ratings.averageRating &&
-			ratings.reviews.length > 0,
-	);
+// Google only renders rating/review snippets on certain types (Product,
+// SoftwareApplication, etc.) — not on Service. When this is true the page must
+// use a rating-capable @type so aggregateRating/review have a valid parent node.
+// Must stay in sync with the emit condition in buildRatingSchema below.
+export function hasRatingData(ratings: ModelRatingsData | null) {
+	return Boolean(ratings && ratings.ratingCount > 0 && ratings.averageRating);
 }
 
 export const digitalOfferFields = {
