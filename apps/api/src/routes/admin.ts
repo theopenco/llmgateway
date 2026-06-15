@@ -7635,9 +7635,9 @@ admin.openapi(getModelProviderMappings, async (c) => {
 
 // The candidate set of logs is bounded both ways: only the latest logs from the
 // last 24 hours, capped at UNSTABLE_MAPPINGS_LOG_LIMIT most recent rows. Retried
-// logs are excluded because the gateway already recovered from those failures
-// via a fallback provider, so they should not count against a mapping's
-// stability.
+// logs are excluded by default because the gateway already recovered from those
+// failures via a fallback provider, so they should not count against a mapping's
+// stability — but callers can opt to include them via `includeRetried`.
 const UNSTABLE_MAPPINGS_LOG_LIMIT = 1000;
 const UNSTABLE_MAPPINGS_WINDOW = sql`now() - interval '24 hours'`;
 
@@ -7655,6 +7655,7 @@ const unstableMappingsListSchema = z.object({
 	sampledLogs: z.number(),
 	windowHours: z.number(),
 	logLimit: z.number(),
+	includeRetried: z.boolean(),
 });
 
 const getUnstableMappings = createRoute({
@@ -7663,6 +7664,7 @@ const getUnstableMappings = createRoute({
 	request: {
 		query: z.object({
 			limit: z.coerce.number().min(1).max(200).optional(),
+			includeRetried: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -7681,6 +7683,10 @@ const getUnstableMappings = createRoute({
 admin.openapi(getUnstableMappings, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
+	const includeRetried = query.includeRetried === "true";
+	const retriedClause = includeRetried
+		? sql``
+		: sql`AND ${tables.log.retried} = false`;
 
 	const rows = await db.execute<{
 		used_model: string;
@@ -7695,8 +7701,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 				${tables.log.usedProvider} AS used_provider,
 				${tables.log.hasError} AS has_error
 			FROM ${tables.log}
-			WHERE ${tables.log.retried} = false
-				AND ${tables.log.createdAt} >= ${UNSTABLE_MAPPINGS_WINDOW}
+			WHERE ${tables.log.createdAt} >= ${UNSTABLE_MAPPINGS_WINDOW}
+				${retriedClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${UNSTABLE_MAPPINGS_LOG_LIMIT}
 		)
@@ -7738,6 +7744,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		sampledLogs,
 		windowHours: 24,
 		logLimit: UNSTABLE_MAPPINGS_LOG_LIMIT,
+		includeRetried,
 	});
 });
 
@@ -7761,6 +7768,7 @@ const getUnstableMappingErrors = createRoute({
 		query: z.object({
 			model: z.string(),
 			provider: z.string(),
+			includeRetried: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -7771,13 +7779,15 @@ const getUnstableMappingErrors = createRoute({
 				},
 			},
 			description:
-				"Top 10 error details for a mapping over the latest non-retried error logs.",
+				"Top 10 error details for a mapping over the latest error logs.",
 		},
 	},
 });
 
 admin.openapi(getUnstableMappingErrors, async (c) => {
-	const { model, provider } = c.req.valid("query");
+	const { model, provider, includeRetried } = c.req.valid("query");
+	const retriedClause =
+		includeRetried === "true" ? sql`` : sql`AND ${tables.log.retried} = false`;
 
 	const rows = await db.execute<{
 		status_code: string | null;
@@ -7789,11 +7799,11 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		WITH recent_errors AS (
 			SELECT ${tables.log.errorDetails} AS error_details
 			FROM ${tables.log}
-			WHERE ${tables.log.retried} = false
-				AND ${tables.log.hasError} = true
+			WHERE ${tables.log.hasError} = true
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${UNSTABLE_MAPPINGS_WINDOW}
+				${retriedClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${UNSTABLE_MAPPINGS_LOG_LIMIT}
 		)

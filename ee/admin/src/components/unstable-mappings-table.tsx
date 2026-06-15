@@ -45,15 +45,25 @@ function errorRateClass(rate: number): string {
 function ErrorDetails({
 	model,
 	provider,
+	includeRetried,
 }: {
 	model: string;
 	provider: string;
+	includeRetried: boolean;
 }) {
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
 		"/admin/unstable-mappings/errors",
-		{ params: { query: { model, provider } } },
+		{
+			params: {
+				query: {
+					model,
+					provider,
+					includeRetried: includeRetried ? "true" : "false",
+				},
+			},
+		},
 	);
 
 	if (isLoading) {
@@ -132,8 +142,10 @@ function ErrorDetails({
 
 export function UnstableMappingsTable({
 	mappings,
+	includeRetried,
 }: {
 	mappings: UnstableMapping[];
+	includeRetried: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -217,6 +229,7 @@ export function UnstableMappingsTable({
 										<ErrorDetails
 											model={mapping.modelId}
 											provider={mapping.providerId}
+											includeRetried={includeRetried}
 										/>
 									</TableCell>
 								</TableRow>
