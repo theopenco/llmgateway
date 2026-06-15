@@ -20,6 +20,7 @@ import { getProviderIcon } from "@llmgateway/shared";
 
 interface UnstableMapping {
 	modelId: string;
+	usedModel: string;
 	providerId: string;
 	providerName: string;
 	logsCount: number;
@@ -43,11 +44,11 @@ function errorRateClass(rate: number): string {
 }
 
 function ErrorDetails({
-	model,
+	usedModel,
 	provider,
 	includeRetried,
 }: {
-	model: string;
+	usedModel: string;
 	provider: string;
 	includeRetried: boolean;
 }) {
@@ -58,7 +59,7 @@ function ErrorDetails({
 		{
 			params: {
 				query: {
-					model,
+					model: usedModel,
 					provider,
 					includeRetried: includeRetried ? "true" : "false",
 				},
@@ -171,27 +172,33 @@ export function UnstableMappingsTable({
 			</TableHeader>
 			<TableBody>
 				{mappings.map((mapping) => {
-					const key = `${mapping.providerId}/${mapping.modelId}`;
+					const key = `${mapping.providerId}/${mapping.usedModel}`;
 					const isOpen = expanded === key;
 					const ProviderIcon = getProviderIcon(mapping.providerId);
 					return (
 						<Fragment key={key}>
-							<TableRow
-								className="cursor-pointer"
-								onClick={() => setExpanded(isOpen ? null : key)}
-							>
+							<TableRow>
 								<TableCell>
-									{isOpen ? (
-										<ChevronDown className="h-4 w-4 text-muted-foreground" />
-									) : (
-										<ChevronRight className="h-4 w-4 text-muted-foreground" />
-									)}
+									<button
+										type="button"
+										className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										aria-label={
+											isOpen ? "Collapse error details" : "Expand error details"
+										}
+										aria-expanded={isOpen}
+										onClick={() => setExpanded(isOpen ? null : key)}
+									>
+										{isOpen ? (
+											<ChevronDown className="h-4 w-4" />
+										) : (
+											<ChevronRight className="h-4 w-4" />
+										)}
+									</button>
 								</TableCell>
 								<TableCell>
 									<Link
 										href={`/providers/${encodeURIComponent(mapping.providerId)}`}
 										className="flex items-center gap-2 hover:underline"
-										onClick={(e) => e.stopPropagation()}
 									>
 										<ProviderIcon className="h-4 w-4 shrink-0 dark:text-white" />
 										<span>{mapping.providerName}</span>
@@ -201,7 +208,6 @@ export function UnstableMappingsTable({
 									<Link
 										href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}`}
 										className="font-mono text-xs hover:underline"
-										onClick={(e) => e.stopPropagation()}
 									>
 										{mapping.modelId}
 									</Link>
@@ -227,7 +233,7 @@ export function UnstableMappingsTable({
 								<TableRow className="hover:bg-transparent">
 									<TableCell colSpan={6} className="bg-muted/20 p-0">
 										<ErrorDetails
-											model={mapping.modelId}
+											usedModel={mapping.usedModel}
 											provider={mapping.providerId}
 											includeRetried={includeRetried}
 										/>

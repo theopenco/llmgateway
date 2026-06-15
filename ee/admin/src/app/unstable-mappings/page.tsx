@@ -1,7 +1,4 @@
-import Link from "next/link";
-
 import { RetriedFilterToggle } from "@/components/retried-filter-toggle";
-import { Button } from "@/components/ui/button";
 import { UnstableMappingsTable } from "@/components/unstable-mappings-table";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -17,28 +14,15 @@ export default async function UnstableMappingsPage({
 	const includeRetried = params?.includeRetried === "true";
 
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/unstable-mappings", {
+	const { data, error } = await $api.GET("/admin/unstable-mappings", {
 		params: {
 			query: { limit: 50, includeRetried: includeRetried ? "true" : "false" },
 		},
 	});
 
-	if (!data) {
-		return (
-			<div className="flex min-h-screen items-center justify-center px-4">
-				<div className="w-full max-w-md text-center">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-					<Button asChild size="lg" className="mt-6 w-full">
-						<Link href="/login">Sign In</Link>
-					</Button>
-				</div>
-			</div>
-		);
+	// requireSession() already enforces auth, so a failure here is operational.
+	if (error || !data) {
+		throw new Error("Failed to load unstable mappings");
 	}
 
 	return (

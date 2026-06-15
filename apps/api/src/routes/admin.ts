@@ -7641,8 +7641,31 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_LOG_LIMIT = 1000;
 const UNSTABLE_MAPPINGS_WINDOW = sql`now() - interval '24 hours'`;
 
+// `retried` is nullable; legacy rows predate the column and are NULL. Treat
+// those as non-retried so they are not silently dropped from the rankings.
+const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
+
+// Gateway logs store `used_model` as the display value `provider/model[:region]`
+// (for example `openai/gpt-5-nano`), but the mapping detail page and the
+// `model_provider_mapping` table key off the bare `model_id`. Strip the provider
+// prefix and region suffix so the table can link to a resolvable detail path.
+function bareModelId(usedModel: string, usedProvider: string): string {
+	let modelId = usedModel;
+	const prefix = `${usedProvider}/`;
+	if (modelId.startsWith(prefix)) {
+		modelId = modelId.slice(prefix.length);
+	} else if (modelId.includes("/")) {
+		modelId = modelId.slice(modelId.indexOf("/") + 1);
+	}
+	const regionIdx = modelId.lastIndexOf(":");
+	return regionIdx === -1 ? modelId : modelId.slice(0, regionIdx);
+}
+
 const unstableMappingEntrySchema = z.object({
 	modelId: z.string(),
+	// The raw `used_model` log value (`provider/model[:region]`); the error-detail
+	// drilldown queries logs by this exact value.
+	usedModel: z.string(),
 	providerId: z.string(),
 	providerName: z.string(),
 	logsCount: z.number(),
@@ -7686,7 +7709,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const includeRetried = query.includeRetried === "true";
 	const retriedClause = includeRetried
 		? sql``
-		: sql`AND ${tables.log.retried} = false`;
+		: unstableMappingsNotRetriedClause;
 
 	const rows = await db.execute<{
 		used_model: string;
@@ -7734,7 +7757,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 
 	return c.json({
 		mappings: resultRows.map((r) => ({
-			modelId: r.used_model,
+			modelId: bareModelId(r.used_model, r.used_provider),
+			usedModel: r.used_model,
 			providerId: r.used_provider,
 			providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
 			logsCount: Number(r.logs_count),
@@ -7787,7 +7811,7 @@ const getUnstableMappingErrors = createRoute({
 admin.openapi(getUnstableMappingErrors, async (c) => {
 	const { model, provider, includeRetried } = c.req.valid("query");
 	const retriedClause =
-		includeRetried === "true" ? sql`` : sql`AND ${tables.log.retried} = false`;
+		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
 
 	const rows = await db.execute<{
 		status_code: string | null;
@@ -7795,6 +7819,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		response_text: string | null;
 		cause: string | null;
 		count: string;
+		sampled_errors: string;
 	}>(sql`
 		WITH recent_errors AS (
 			SELECT ${tables.log.errorDetails} AS error_details
@@ -7811,14 +7836,16 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			error_details->>'statusText' AS status_text,
 			LEFT(error_details->>'responseText', 2000) AS response_text,
 			error_details->>'cause' AS cause,
-			COUNT(*) AS count
+			COUNT(*) AS count,
+			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
 		FROM recent_errors
 		GROUP BY status_code, status_text, response_text, cause
 		ORDER BY count DESC
 		LIMIT 10
 	`);
 
-	const sampledErrors = rows.rows.reduce((s, r) => s + Number(r.count), 0);
+	const sampledErrors =
+		rows.rows.length > 0 ? Number(rows.rows[0].sampled_errors) : 0;
 
 	return c.json({
 		errors: rows.rows.map((r) => ({
