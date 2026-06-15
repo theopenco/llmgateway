@@ -3411,38 +3411,46 @@ chat.openapi(completions, async (c) => {
 			const providerLockedRegions = buildProviderLockedRegions(providerKeys);
 
 			// Filter model providers to only those eligible for this request
+			const preparedModelProviders = preferConcreteRegionalMappings(
+				applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+					explicitLocks: providerLockedRegions,
+					requestedRegion,
+				}),
+			);
+			const eligibilityOptions = {
+				allProviderVariants: modelInfo.providers,
+				availableProviders,
+				providerLockedRegions,
+				webSearchTool,
+				responseFormatType: response_format?.type,
+				hasImages,
+				hasAudio,
+				audioFormats,
+				hasDocuments,
+				maxTokens: max_tokens,
+				reasoningEffort: reasoning_effort,
+			};
 			const availableModelProviders = filterEligibleModelProviders(
-				preferConcreteRegionalMappings(
-					applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
-						explicitLocks: providerLockedRegions,
-						requestedRegion,
-					}),
-				),
-				{
-					allProviderVariants: modelInfo.providers,
-					availableProviders,
-					providerLockedRegions,
-					webSearchTool,
-					responseFormatType: response_format?.type,
-					hasImages,
-					hasAudio,
-					audioFormats,
-					hasDocuments,
-					maxTokens: max_tokens,
-					reasoningEffort: reasoning_effort,
-					n,
-					stream,
-				},
+				preparedModelProviders,
+				{ ...eligibilityOptions, n, stream },
 			);
 
 			if (availableModelProviders.length === 0) {
 				const audience =
 					project.mode === "api-keys" ? "configured" : "available";
-				// When an n-specific constraint (streaming support or the upstream
-				// cap) excluded every n-capable mapping, surface that precisely
-				// instead of the generic no-provider message.
+				// When an n-specific constraint (the upstream cap or streaming)
+				// excluded every otherwise-eligible mapping, surface that precisely
+				// instead of the generic no-provider message. Attribute against the
+				// providers that passed every other filter for this request (re-running
+				// eligibility without the n-specific filters), not modelInfo.providers —
+				// the full variant set includes mappings excluded for unrelated reasons
+				// (vision, region, keys, …) and would misattribute the failure to n.
 				if (n !== undefined && n > 1) {
-					const nCapableMappings = modelInfo.providers.filter(
+					const candidateMappings = filterEligibleModelProviders(
+						preparedModelProviders,
+						eligibilityOptions,
+					);
+					const nCapableMappings = candidateMappings.filter(
 						(p) => p.supportsN === true,
 					);
 					if (
