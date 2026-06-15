@@ -1471,7 +1471,7 @@ async function handleGoogleGenerateContent(c: Context) {
 		typeof body.generationConfig?.candidateCount === "number"
 			? body.generationConfig.candidateCount
 			: 1;
-	if (candidateCount > 8) {
+	if (candidateCount > 8 || candidateCount < 1) {
 		c.status(400);
 		return c.json({
 			error: {
