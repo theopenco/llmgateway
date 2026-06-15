@@ -7,7 +7,7 @@ summary: "Steer multi-provider routing with a new routing field — auto, price,
 image:
   src: "/changelog/smart-routing-strategies.png"
   alt: "Routing strategies on LLM Gateway: auto, price, throughput and latency"
-  width: 1536
+  width: 1024
   height: 1024
 ---
 
