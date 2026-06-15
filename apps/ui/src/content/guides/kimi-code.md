@@ -53,19 +53,19 @@ kimi
 
 Once loaded, type the `/provider` command and press Enter. Select **Known third-party provider** to fetch the catalog from the registry:
 
-![Opening Provider Manager in Kimi Code](https://docs.llmgateway.io/guides/kimi-code/0-add-provider.png)
+![Opening Provider Manager in Kimi Code](/guides/kimi-code/0-add-provider.png)
 
 ### Step 3: Select LLM Gateway
 
 Type `llm` to filter the providers and select **LLM Gateway** from the list:
 
-![Selecting LLM Gateway in Kimi Code](https://docs.llmgateway.io/guides/kimi-code/1-select-provider.png)
+![Selecting LLM Gateway in Kimi Code](/guides/kimi-code/1-select-provider.png)
 
 ### Step 4: Enter Your API Key
 
 When prompted, paste your LLM Gateway API key and press Enter. Kimi Code will save it securely to your local configuration:
 
-![Entering LLM Gateway API Key](https://docs.llmgateway.io/guides/kimi-code/2-enter-key.png)
+![Entering LLM Gateway API Key](/guides/kimi-code/2-enter-key.png)
 
 _Your credentials are saved locally to `~/.kimi-code/config.toml`._
 
@@ -75,17 +75,17 @@ The LLM Gateway catalog is now loaded. Use the arrow keys to browse or type to s
 
 You can also toggle the **Thinking** option (On/Off) at the bottom depending on the model's capabilities:
 
-![Browsing LLM Gateway Models](https://docs.llmgateway.io/guides/kimi-code/3-select-model.png)
+![Browsing LLM Gateway Models](/guides/kimi-code/3-select-model.png)
 
 For example, type `gpt-5.5` to find the latest reasoning model, select it, and press Enter:
 
-![Selecting GPT-5.5 Model](https://docs.llmgateway.io/guides/kimi-code/4-select-gpt-model.png)
+![Selecting GPT-5.5 Model](/guides/kimi-code/4-select-gpt-model.png)
 
 ### Step 6: Start Coding
 
 All set! Kimi Code is now configured. Your requests will be securely routed through LLM Gateway, allowing you to use advanced models for local autonomous coding while showing real-time usage and cost statistics on your LLM Gateway dashboard.
 
-![Running Kimi Code CLI session](https://docs.llmgateway.io/guides/kimi-code/5-chat.png)
+![Running Kimi Code CLI session](/guides/kimi-code/5-chat.png)
 
 Use `/model` in the terminal session at any time to switch models.
 
