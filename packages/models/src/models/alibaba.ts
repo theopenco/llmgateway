@@ -622,6 +622,30 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen3.5-9b",
+		name: "Qwen3.5 9B",
+		description:
+			"Compact Qwen3.5 hybrid-reasoning model with tool calling and a 262K context window.",
+		family: "alibaba",
+		releasedAt: new Date("2026-06-01"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3.5-9B",
+				inputPrice: "0.1e-6",
+				outputPrice: "0.15e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 32768,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "qwen3-32b",
 		name: "Qwen3 32B",
 		description: "Mid-size Qwen 3 model.",
