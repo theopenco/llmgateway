@@ -10,6 +10,7 @@ import {
 	AutohandIcon,
 	CodexIcon,
 	ContinueIcon,
+	DifyIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
@@ -84,6 +85,14 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with Continue's open-source AI code assistant CLI.",
 		href: "/guides/continue",
 		icon: ContinueIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Dify",
+		description:
+			"Connect Dify's open-source LLM app development platform to LLM Gateway for AI-powered agents and workflows.",
+		href: "/guides/dify",
+		icon: DifyIcon,
 		comingSoon: false,
 	},
 	{
