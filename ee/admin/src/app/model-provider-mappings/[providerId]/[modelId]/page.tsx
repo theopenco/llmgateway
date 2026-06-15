@@ -12,7 +12,7 @@ export default async function MappingDetailPage({
 	searchParams,
 }: {
 	params: Promise<{ providerId: string; modelId: string }>;
-	searchParams?: Promise<{ window?: string }>;
+	searchParams?: Promise<{ window?: string; region?: string }>;
 }) {
 	await requireSession();
 
@@ -20,6 +20,7 @@ export default async function MappingDetailPage({
 	const decodedModelId = decodeURIComponent(modelId);
 	const searchParamsData = await searchParams;
 	const window = searchParamsData?.window;
+	const region = searchParamsData?.region;
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -29,6 +30,7 @@ export default async function MappingDetailPage({
 				path: { providerId, modelId: encodeURIComponent(decodedModelId) },
 				query: {
 					...(window ? { window } : {}),
+					...(region ? { region } : {}),
 				} as any,
 			},
 		},

@@ -20,6 +20,7 @@ import { getProviderIcon } from "@llmgateway/shared";
 
 interface UnstableMapping {
 	modelId: string;
+	region: string | null;
 	usedModel: string;
 	providerId: string;
 	providerName: string;
@@ -206,10 +207,15 @@ export function UnstableMappingsTable({
 								</TableCell>
 								<TableCell>
 									<Link
-										href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}`}
+										href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
 										className="font-mono text-xs hover:underline"
 									>
 										{mapping.modelId}
+										{mapping.region && (
+											<span className="text-muted-foreground">
+												:{mapping.region}
+											</span>
+										)}
 									</Link>
 								</TableCell>
 								<TableCell className="text-right">

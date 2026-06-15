@@ -6382,6 +6382,7 @@ const getMappingDetail = createRoute({
 		}),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			region: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -6398,6 +6399,7 @@ admin.openapi(getMappingDetail, async (c) => {
 	const { providerId, modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const region = query.region;
 	const startDate = getHistoryStartDate(window);
 
 	const mappingRow = await db
@@ -6438,6 +6440,9 @@ admin.openapi(getMappingDetail, async (c) => {
 			and(
 				eq(tables.modelProviderMapping.providerId, providerId),
 				eq(tables.modelProviderMapping.modelId, modelId),
+				region !== undefined
+					? eq(tables.modelProviderMapping.region, region)
+					: undefined,
 			),
 		)
 		.limit(1);
@@ -7646,23 +7651,32 @@ const UNSTABLE_MAPPINGS_WINDOW = sql`now() - interval '24 hours'`;
 const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
 
 // Gateway logs store `used_model` as the display value `provider/model[:region]`
-// (for example `openai/gpt-5-nano`), but the mapping detail page and the
-// `model_provider_mapping` table key off the bare `model_id`. Strip the provider
-// prefix and region suffix so the table can link to a resolvable detail path.
-function bareModelId(usedModel: string, usedProvider: string): string {
-	let modelId = usedModel;
+// (for example `openai/gpt-5-nano` or `alibaba/glm-4.6:cn-beijing`), but the
+// mapping detail page and the `model_provider_mapping` table key off the bare
+// `model_id` plus `region`. Split the provider prefix and region suffix so the
+// table can link to the exact regional mapping rather than a root/other region.
+function parseUsedModel(
+	usedModel: string,
+	usedProvider: string,
+): { modelId: string; region: string | null } {
+	let rest = usedModel;
 	const prefix = `${usedProvider}/`;
-	if (modelId.startsWith(prefix)) {
-		modelId = modelId.slice(prefix.length);
-	} else if (modelId.includes("/")) {
-		modelId = modelId.slice(modelId.indexOf("/") + 1);
+	if (rest.startsWith(prefix)) {
+		rest = rest.slice(prefix.length);
+	} else if (rest.includes("/")) {
+		rest = rest.slice(rest.indexOf("/") + 1);
 	}
-	const regionIdx = modelId.lastIndexOf(":");
-	return regionIdx === -1 ? modelId : modelId.slice(0, regionIdx);
+	const regionIdx = rest.lastIndexOf(":");
+	return regionIdx === -1
+		? { modelId: rest, region: null }
+		: { modelId: rest.slice(0, regionIdx), region: rest.slice(regionIdx + 1) };
 }
 
 const unstableMappingEntrySchema = z.object({
 	modelId: z.string(),
+	// Region suffix parsed from `used_model`, if any. Needed to disambiguate
+	// regional mappings, which are unique on (model_id, provider_id, region).
+	region: z.string().nullable(),
 	// The raw `used_model` log value (`provider/model[:region]`); the error-detail
 	// drilldown queries logs by this exact value.
 	usedModel: z.string(),
@@ -7756,15 +7770,19 @@ admin.openapi(getUnstableMappings, async (c) => {
 		resultRows.length > 0 ? Number(resultRows[0].sampled_logs) : 0;
 
 	return c.json({
-		mappings: resultRows.map((r) => ({
-			modelId: bareModelId(r.used_model, r.used_provider),
-			usedModel: r.used_model,
-			providerId: r.used_provider,
-			providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
-			logsCount: Number(r.logs_count),
-			errorsCount: Number(r.errors_count),
-			errorRate: Number(r.error_rate),
-		})),
+		mappings: resultRows.map((r) => {
+			const { modelId, region } = parseUsedModel(r.used_model, r.used_provider);
+			return {
+				modelId,
+				region,
+				usedModel: r.used_model,
+				providerId: r.used_provider,
+				providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
+				logsCount: Number(r.logs_count),
+				errorsCount: Number(r.errors_count),
+				errorRate: Number(r.error_rate),
+			};
+		}),
 		sampledLogs,
 		windowHours: 24,
 		logLimit: UNSTABLE_MAPPINGS_LOG_LIMIT,
