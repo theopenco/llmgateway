@@ -403,7 +403,7 @@ export default function ImagePageClient({
 		const isCompare = item.models.length > 1;
 		setComparisonMode(isCompare);
 		setSelectedModels(item.models.map((m) => m.modelId));
-	}, [selectedItemId, galleryItems]);
+	}, [selectedItemId, galleryItems, activeItems.length]);
 
 	// Reset image size/quality when the selected model changes and the current
 	// value isn't valid for the new model. Including the value itself in deps
@@ -431,6 +431,7 @@ export default function ImagePageClient({
 		if (!isEditModel) {
 			setInputImages([]);
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude size/quality values to avoid clobbering the user's explicit selection
 	}, [selectedModels, isEditModel]);
 
 	const getModelName = useCallback(
@@ -645,8 +646,7 @@ export default function ImagePageClient({
 			inputImages,
 			posthog,
 			requiresImageInput,
-			pathname,
-			router,
+			selectedOrganization?.id,
 		],
 	);
 

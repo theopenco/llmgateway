@@ -71,6 +71,7 @@ export const GroupChatUI = ({
 
 	const virtualizerRef = useRef(virtualizer);
 	virtualizerRef.current = virtualizer;
+	const totalSize = virtualizer.getTotalSize();
 
 	const handleScroll = useCallback(() => {
 		const el = scrollRef.current;
@@ -90,7 +91,7 @@ export const GroupChatUI = ({
 		if (messages.length > 0 && wasAtEndRef.current) {
 			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
 		}
-	}, [virtualizer.getTotalSize(), messages.length]);
+	}, [totalSize, messages.length]);
 
 	useEffect(() => {
 		if (isStreaming) {

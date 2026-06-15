@@ -440,7 +440,7 @@ export default function VideoPageClient({
 		const isCompare = item.models.length > 1;
 		setComparisonMode(isCompare);
 		setSelectedModels(item.models.map((m) => m.modelId));
-	}, [selectedItemId, galleryItems]);
+	}, [selectedItemId, galleryItems, activeItems.length]);
 
 	useEffect(() => {
 		if (!canUseFrameInputs) {
@@ -824,9 +824,8 @@ export default function VideoPageClient({
 			referenceVideos,
 			referenceAudios,
 			updateGalleryModel,
-			pathname,
-			router,
 			someModelsRequireImage,
+			selectedOrganization?.id,
 		],
 	);
 

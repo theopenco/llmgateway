@@ -288,9 +288,12 @@ export function GlobalStatsClient() {
 	);
 
 	const totals = data?.totals;
-	const timeseries = data?.timeseries ?? [];
-	const timeseriesBreakdown = data?.timeseriesBreakdown ?? [];
-	const breakdown = data?.breakdown ?? [];
+	const timeseries = useMemo(() => data?.timeseries ?? [], [data?.timeseries]);
+	const timeseriesBreakdown = useMemo(
+		() => data?.timeseriesBreakdown ?? [],
+		[data?.timeseriesBreakdown],
+	);
+	const breakdown = useMemo(() => data?.breakdown ?? [], [data?.breakdown]);
 
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
