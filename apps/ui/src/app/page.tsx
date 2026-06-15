@@ -1,6 +1,7 @@
 import dynamic from "next/dynamic";
 
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { ProductHuntPopup } from "@/components/landing/product-hunt-popup";
 
 const Features = dynamic(() => import("@/components/landing/features"));
 const Testimonials = dynamic(() =>
@@ -35,6 +36,7 @@ export default function Home() {
 			<EnterpriseCTA />
 			<CallToAction />
 			<Footer />
+			<ProductHuntPopup />
 		</>
 	);
 }
