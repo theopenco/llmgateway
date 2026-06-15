@@ -274,8 +274,12 @@ export function parseProviderResponse(
 			}
 
 			// AI Studio duplicates the other candidates' parts into candidate 0
-			// when candidateCount > 1 — strip that before any extraction.
-			const candidates = dedupeGoogleCandidateParts(json.candidates ?? []);
+			// when candidateCount > 1 — strip that before any extraction. Gated on
+			// the provider so clean responses (e.g. Vertex) are never touched.
+			const candidates = dedupeGoogleCandidateParts(
+				json.candidates ?? [],
+				usedProvider,
+			);
 
 			// Extract content and reasoning content from Google response parts.
 			// The log row only stores a single content/reasoning string, so for

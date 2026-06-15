@@ -2,12 +2,24 @@
  * Google AI Studio's generateContent has a quirk when candidateCount > 1:
  * candidate 0's `content.parts` contains its own parts followed by a verbatim
  * copy of every other candidate's parts (in candidate order) appended as a
- * suffix. Vertex AI responses are not affected. Strip that suffix when it
- * matches exactly so candidate 0 only carries its own output; clean responses
- * (Vertex, or a fixed AI Studio) won't match the strictly-shorter suffix
- * check and pass through untouched.
+ * suffix. Strip that suffix when it matches exactly so candidate 0 only carries
+ * its own output.
+ *
+ * Only google-ai-studio exhibits this. The suffix match alone can't tell the
+ * quirk apart from a legitimately-clean candidate 0 whose trailing parts happen
+ * to coincide with the later candidates' parts (e.g. candidate 0 [A, B],
+ * candidate 1 [B]) — stripping there would drop candidate 0's real tail. So
+ * gate on the provider: pass `provider` and any non-AI-Studio caller
+ * (google-vertex, quartz, …) passes through untouched. Calls without a
+ * `provider` (e.g. unit tests of the suffix algorithm) still run the strip.
  */
-export function dedupeGoogleCandidateParts(candidates: any[]): any[] {
+export function dedupeGoogleCandidateParts(
+	candidates: any[],
+	provider?: string,
+): any[] {
+	if (provider !== undefined && provider !== "google-ai-studio") {
+		return candidates;
+	}
 	if (!Array.isArray(candidates) || candidates.length <= 1) {
 		return candidates;
 	}

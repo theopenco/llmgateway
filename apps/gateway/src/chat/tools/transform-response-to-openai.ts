@@ -376,6 +376,7 @@ export function transformResponseToOpenai(
 			// carry response healing and image-generation labels.
 			const googleCandidates = dedupeGoogleCandidateParts(
 				Array.isArray(json?.candidates) ? json.candidates : [],
+				usedProvider,
 			);
 			const googleChoices =
 				googleCandidates.length > 1

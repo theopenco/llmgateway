@@ -128,4 +128,25 @@ describe("dedupeGoogleCandidateParts", () => {
 
 		expect(dedupeGoogleCandidateParts(candidates)).toBe(candidates);
 	});
+
+	it("does not strip for non-AI-Studio providers even when the suffix matches", () => {
+		// A clean Vertex response where candidate 0 legitimately ends with the
+		// same part the next candidate produced ([A, B] vs [B]). The suffix would
+		// match, but Vertex never appends others' parts, so stripping would drop
+		// candidate 0's real trailing part. The provider gate prevents that.
+		const candidates = [
+			{
+				content: { parts: [{ text: "A" }, { text: "B" }], role: "model" },
+				index: 0,
+			},
+			{ content: { parts: [{ text: "B" }], role: "model" }, index: 1 },
+		];
+
+		expect(dedupeGoogleCandidateParts(candidates, "google-vertex")).toBe(
+			candidates,
+		);
+		// The same shape from AI Studio is still de-duplicated.
+		const stripped = dedupeGoogleCandidateParts(candidates, "google-ai-studio");
+		expect(stripped[0].content.parts).toEqual([{ text: "A" }]);
+	});
 });
