@@ -269,6 +269,7 @@ export const anthropicModels = [
 				jsonOutputSchema: true,
 				webSearch: true,
 				webSearchPrice: "0.01", // $10 per 1000 searches
+				deactivatedAt: new Date("2026-06-15"),
 			},
 			{
 				test: "skip",
@@ -622,6 +623,7 @@ export const anthropicModels = [
 				jsonOutputSchema: true,
 				webSearch: true,
 				webSearchPrice: "0.01", // $10 per 1000 searches
+				deactivatedAt: new Date("2026-06-15"),
 			},
 			{
 				test: "skip",
