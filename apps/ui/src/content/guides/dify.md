@@ -23,13 +23,13 @@ Log in to your Dify dashboard. In the bottom-left corner of the sidebar, click o
 
 Navigate to the **Model Provider** page to view your active and available LLM configurations.
 
-![Opening Model Provider Settings in Dify](https://docs.llmgateway.io/guides/dify/0-add-provider.png)
+![Opening Model Provider Settings in Dify](/guides/dify/0-add-provider.png)
 
 ### Step 2: Add Custom OpenAI-compatible Provider
 
 Scroll down to the **Custom Providers** section. Locate the **OpenAI-API-compatible** card and click **Setup** (or click **Add Custom Provider** and select **OpenAI-API-compatible**).
 
-![Selecting OpenAI-compatible provider in Dify](https://docs.llmgateway.io/guides/dify/1-configure-provider.png)
+![Selecting OpenAI-compatible provider in Dify](/guides/dify/1-configure-provider.png)
 
 ### Step 3: Configure Provider Connection
 
@@ -39,7 +39,7 @@ In the setup modal, configure the connection settings for LLM Gateway:
 - **API Endpoint URL**: Enter `https://api.llmgateway.io/v1`.
 - **API Key**: Paste your LLM Gateway API key (starts with `llmgtwy_`).
 
-![Configuring LLM Gateway connection in Dify](https://docs.llmgateway.io/guides/dify/2-add-model.png)
+![Configuring LLM Gateway connection in Dify](/guides/dify/2-add-model.png)
 
 ### Step 4: Add Models
 
@@ -51,7 +51,7 @@ Inside the same provider configuration, register the models you wish to use from
 4. Configure model capabilities (such as whether it supports system prompts, function calling, vision, etc.).
 5. Click **Save** to add the model.
 
-![Registering custom models in Dify](https://docs.llmgateway.io/guides/dify/3-provider-added.png)
+![Registering custom models in Dify](/guides/dify/3-provider-added.png)
 
 _You can add multiple models to the same LLM Gateway provider block by repeating this step for other model IDs in the catalog._
 
@@ -59,7 +59,7 @@ _You can add multiple models to the same LLM Gateway provider block by repeating
 
 Once you have added your models and finished configuring the credentials, click **Save** in the main modal. LLM Gateway will now appear as an active provider in your Dify workspace.
 
-![LLM Gateway active provider status in Dify](https://docs.llmgateway.io/guides/dify/4-select-model.png)
+![LLM Gateway active provider status in Dify](/guides/dify/4-select-model.png)
 
 ### Step 6: Use LLM Gateway Models in Apps
 
@@ -67,13 +67,13 @@ Create a new application (chatbot, agent, or workflow) in Dify or open an existi
 
 Select **LLM Gateway** as the provider, and choose one of the custom models you registered (e.g., `gpt-4o-mini`).
 
-![Selecting LLM Gateway models in Dify app builder](https://docs.llmgateway.io/guides/dify/5-test-chat.png)
+![Selecting LLM Gateway models in Dify app builder](/guides/dify/5-test-chat.png)
 
 ### Step 7: Run and Monitor
 
 Try sending a message in the debug console to test your connection. Dify will route the prompt through LLM Gateway, allowing you to monitor real-time token usage, latency, and cost details in your LLM Gateway dashboard.
 
-![Verifying chat outputs and latency in Dify](https://docs.llmgateway.io/guides/dify/6-chat-details.png)
+![Verifying chat outputs and latency in Dify](/guides/dify/6-chat-details.png)
 
 ## Why Use LLM Gateway with Dify?
 
