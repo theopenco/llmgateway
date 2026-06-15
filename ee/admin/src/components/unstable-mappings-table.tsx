@@ -1,0 +1,230 @@
+"use client";
+
+import { ChevronDown, ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { Fragment, useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
+import { useApi } from "@/lib/fetch-client";
+import { cn } from "@/lib/utils";
+
+import { getProviderIcon } from "@llmgateway/shared";
+
+interface UnstableMapping {
+	modelId: string;
+	providerId: string;
+	providerName: string;
+	logsCount: number;
+	errorsCount: number;
+	errorRate: number;
+}
+
+const percentFormatter = new Intl.NumberFormat("en-US", {
+	style: "percent",
+	maximumFractionDigits: 1,
+});
+
+function errorRateClass(rate: number): string {
+	if (rate >= 0.5) {
+		return "bg-red-500/15 text-red-600 dark:text-red-400";
+	}
+	if (rate >= 0.2) {
+		return "bg-orange-500/15 text-orange-600 dark:text-orange-400";
+	}
+	return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400";
+}
+
+function ErrorDetails({
+	model,
+	provider,
+}: {
+	model: string;
+	provider: string;
+}) {
+	const $api = useApi();
+	const { data, isLoading, isError } = $api.useQuery(
+		"get",
+		"/admin/unstable-mappings/errors",
+		{ params: { query: { model, provider } } },
+	);
+
+	if (isLoading) {
+		return (
+			<div className="space-y-2 p-4">
+				{[0, 1, 2].map((i) => (
+					<div key={i} className="h-8 animate-pulse rounded bg-muted/40" />
+				))}
+			</div>
+		);
+	}
+
+	if (isError) {
+		return (
+			<p className="p-4 text-sm text-muted-foreground">
+				Failed to load error details.
+			</p>
+		);
+	}
+
+	const errors = data?.errors ?? [];
+
+	if (errors.length === 0) {
+		return (
+			<p className="p-4 text-sm text-muted-foreground">
+				No error details available in the sampled window.
+			</p>
+		);
+	}
+
+	return (
+		<div className="space-y-3 p-4">
+			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				Top {errors.length} error{errors.length === 1 ? "" : "s"} ·{" "}
+				{data?.sampledErrors.toLocaleString()} sampled
+			</p>
+			<ul className="space-y-2">
+				{errors.map((error, i) => (
+					<li
+						key={i}
+						className="rounded-md border border-border/60 bg-background/60 p-3"
+					>
+						<div className="flex items-center justify-between gap-3">
+							<div className="flex items-center gap-2">
+								{error.statusCode !== null && (
+									<Badge variant="outline" className="font-mono">
+										{error.statusCode}
+									</Badge>
+								)}
+								{error.statusText && (
+									<span className="text-sm font-medium">
+										{error.statusText}
+									</span>
+								)}
+							</div>
+							<span className="shrink-0 text-sm font-semibold tabular-nums">
+								{error.count.toLocaleString()}×
+							</span>
+						</div>
+						{error.responseText && (
+							<pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
+								{error.responseText}
+							</pre>
+						)}
+						{error.cause && (
+							<p className="mt-1 text-xs text-muted-foreground">
+								Cause: {error.cause}
+							</p>
+						)}
+					</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+export function UnstableMappingsTable({
+	mappings,
+}: {
+	mappings: UnstableMapping[];
+}) {
+	const [expanded, setExpanded] = useState<string | null>(null);
+
+	if (mappings.length === 0) {
+		return (
+			<div className="p-8 text-center text-sm text-muted-foreground">
+				No unstable mappings in the sampled window. 🎉
+			</div>
+		);
+	}
+
+	return (
+		<Table>
+			<TableHeader>
+				<TableRow>
+					<TableHead className="w-8" />
+					<TableHead>Provider</TableHead>
+					<TableHead>Model</TableHead>
+					<TableHead className="text-right">Error Rate</TableHead>
+					<TableHead className="text-right">Errors</TableHead>
+					<TableHead className="text-right">Logs</TableHead>
+				</TableRow>
+			</TableHeader>
+			<TableBody>
+				{mappings.map((mapping) => {
+					const key = `${mapping.providerId}/${mapping.modelId}`;
+					const isOpen = expanded === key;
+					const ProviderIcon = getProviderIcon(mapping.providerId);
+					return (
+						<Fragment key={key}>
+							<TableRow
+								className="cursor-pointer"
+								onClick={() => setExpanded(isOpen ? null : key)}
+							>
+								<TableCell>
+									{isOpen ? (
+										<ChevronDown className="h-4 w-4 text-muted-foreground" />
+									) : (
+										<ChevronRight className="h-4 w-4 text-muted-foreground" />
+									)}
+								</TableCell>
+								<TableCell>
+									<Link
+										href={`/providers/${encodeURIComponent(mapping.providerId)}`}
+										className="flex items-center gap-2 hover:underline"
+										onClick={(e) => e.stopPropagation()}
+									>
+										<ProviderIcon className="h-4 w-4 shrink-0 dark:text-white" />
+										<span>{mapping.providerName}</span>
+									</Link>
+								</TableCell>
+								<TableCell>
+									<Link
+										href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}`}
+										className="font-mono text-xs hover:underline"
+										onClick={(e) => e.stopPropagation()}
+									>
+										{mapping.modelId}
+									</Link>
+								</TableCell>
+								<TableCell className="text-right">
+									<Badge
+										className={cn(
+											"font-semibold tabular-nums",
+											errorRateClass(mapping.errorRate),
+										)}
+									>
+										{percentFormatter.format(mapping.errorRate)}
+									</Badge>
+								</TableCell>
+								<TableCell className="text-right tabular-nums">
+									{mapping.errorsCount.toLocaleString()}
+								</TableCell>
+								<TableCell className="text-right tabular-nums text-muted-foreground">
+									{mapping.logsCount.toLocaleString()}
+								</TableCell>
+							</TableRow>
+							{isOpen && (
+								<TableRow className="hover:bg-transparent">
+									<TableCell colSpan={6} className="bg-muted/20 p-0">
+										<ErrorDetails
+											model={mapping.modelId}
+											provider={mapping.providerId}
+										/>
+									</TableCell>
+								</TableRow>
+							)}
+						</Fragment>
+					);
+				})}
+			</TableBody>
+		</Table>
+	);
+}

@@ -7631,6 +7631,197 @@ admin.openapi(getModelProviderMappings, async (c) => {
 	});
 });
 
+// ── Unstable Model Mappings ─────────────────────────────────────────────────
+
+// The candidate set of logs is bounded both ways: only the latest logs from the
+// last 24 hours, capped at UNSTABLE_MAPPINGS_LOG_LIMIT most recent rows. Retried
+// logs are excluded because the gateway already recovered from those failures
+// via a fallback provider, so they should not count against a mapping's
+// stability.
+const UNSTABLE_MAPPINGS_LOG_LIMIT = 1000;
+const UNSTABLE_MAPPINGS_WINDOW = sql`now() - interval '24 hours'`;
+
+const unstableMappingEntrySchema = z.object({
+	modelId: z.string(),
+	providerId: z.string(),
+	providerName: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	errorRate: z.number(),
+});
+
+const unstableMappingsListSchema = z.object({
+	mappings: z.array(unstableMappingEntrySchema),
+	sampledLogs: z.number(),
+	windowHours: z.number(),
+	logLimit: z.number(),
+});
+
+const getUnstableMappings = createRoute({
+	method: "get",
+	path: "/unstable-mappings",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(200).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableMappingsListSchema.openapi({}),
+				},
+			},
+			description:
+				"Model-provider mappings ranked by error rate over the latest non-retried logs.",
+		},
+	},
+});
+
+admin.openapi(getUnstableMappings, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+
+	const rows = await db.execute<{
+		used_model: string;
+		used_provider: string;
+		logs_count: string;
+		errors_count: string;
+		error_rate: string;
+		sampled_logs: string;
+	}>(sql`
+		WITH recent_logs AS (
+			SELECT ${tables.log.usedModel} AS used_model,
+				${tables.log.usedProvider} AS used_provider,
+				${tables.log.hasError} AS has_error
+			FROM ${tables.log}
+			WHERE ${tables.log.retried} = false
+				AND ${tables.log.createdAt} >= ${UNSTABLE_MAPPINGS_WINDOW}
+			ORDER BY ${tables.log.createdAt} DESC
+			LIMIT ${UNSTABLE_MAPPINGS_LOG_LIMIT}
+		)
+		SELECT used_model,
+			used_provider,
+			COUNT(*) AS logs_count,
+			COUNT(*) FILTER (WHERE has_error) AS errors_count,
+			COUNT(*) FILTER (WHERE has_error)::float / COUNT(*) AS error_rate,
+			(SELECT COUNT(*) FROM recent_logs) AS sampled_logs
+		FROM recent_logs
+		GROUP BY used_model, used_provider
+		HAVING COUNT(*) FILTER (WHERE has_error) > 0
+		ORDER BY error_rate DESC, errors_count DESC
+		LIMIT ${limit}
+	`);
+
+	const resultRows = rows.rows;
+	const providerIds = [...new Set(resultRows.map((r) => r.used_provider))];
+	const providerRows =
+		providerIds.length > 0
+			? await db.query.provider.findMany({
+					where: { id: { in: providerIds } },
+				})
+			: [];
+	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
+
+	const sampledLogs =
+		resultRows.length > 0 ? Number(resultRows[0].sampled_logs) : 0;
+
+	return c.json({
+		mappings: resultRows.map((r) => ({
+			modelId: r.used_model,
+			providerId: r.used_provider,
+			providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
+			logsCount: Number(r.logs_count),
+			errorsCount: Number(r.errors_count),
+			errorRate: Number(r.error_rate),
+		})),
+		sampledLogs,
+		windowHours: 24,
+		logLimit: UNSTABLE_MAPPINGS_LOG_LIMIT,
+	});
+});
+
+const unstableMappingErrorDetailSchema = z.object({
+	statusCode: z.number().nullable(),
+	statusText: z.string().nullable(),
+	responseText: z.string().nullable(),
+	cause: z.string().nullable(),
+	count: z.number(),
+});
+
+const unstableMappingErrorsSchema = z.object({
+	errors: z.array(unstableMappingErrorDetailSchema),
+	sampledErrors: z.number(),
+});
+
+const getUnstableMappingErrors = createRoute({
+	method: "get",
+	path: "/unstable-mappings/errors",
+	request: {
+		query: z.object({
+			model: z.string(),
+			provider: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableMappingErrorsSchema.openapi({}),
+				},
+			},
+			description:
+				"Top 10 error details for a mapping over the latest non-retried error logs.",
+		},
+	},
+});
+
+admin.openapi(getUnstableMappingErrors, async (c) => {
+	const { model, provider } = c.req.valid("query");
+
+	const rows = await db.execute<{
+		status_code: string | null;
+		status_text: string | null;
+		response_text: string | null;
+		cause: string | null;
+		count: string;
+	}>(sql`
+		WITH recent_errors AS (
+			SELECT ${tables.log.errorDetails} AS error_details
+			FROM ${tables.log}
+			WHERE ${tables.log.retried} = false
+				AND ${tables.log.hasError} = true
+				AND ${tables.log.usedModel} = ${model}
+				AND ${tables.log.usedProvider} = ${provider}
+				AND ${tables.log.createdAt} >= ${UNSTABLE_MAPPINGS_WINDOW}
+			ORDER BY ${tables.log.createdAt} DESC
+			LIMIT ${UNSTABLE_MAPPINGS_LOG_LIMIT}
+		)
+		SELECT error_details->>'statusCode' AS status_code,
+			error_details->>'statusText' AS status_text,
+			LEFT(error_details->>'responseText', 2000) AS response_text,
+			error_details->>'cause' AS cause,
+			COUNT(*) AS count
+		FROM recent_errors
+		GROUP BY status_code, status_text, response_text, cause
+		ORDER BY count DESC
+		LIMIT 10
+	`);
+
+	const sampledErrors = rows.rows.reduce((s, r) => s + Number(r.count), 0);
+
+	return c.json({
+		errors: rows.rows.map((r) => ({
+			statusCode: r.status_code !== null ? Number(r.status_code) : null,
+			statusText: r.status_text,
+			responseText: r.response_text,
+			cause: r.cause,
+			count: Number(r.count),
+		})),
+		sampledErrors,
+	});
+});
+
 // ── Enterprise Contact Submissions ──────────────────────────────────────────
 
 const contactSubmissionSchema = z.object({
