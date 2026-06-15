@@ -5,6 +5,7 @@ import {
 	KeyIcon,
 	MoreHorizontal,
 	PlusIcon,
+	RefreshCwIcon,
 	Shield,
 } from "lucide-react";
 import Link from "next/link";
@@ -61,6 +62,7 @@ import { ApiKeyLimitsDialog } from "./api-key-limits-dialog";
 import { formatApiKeyExpiry } from "./api-key-ttl-fields";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
 import { ReactivateApiKeyDialog } from "./reactivate-api-key-dialog";
+import { RollApiKeyDialog } from "./roll-api-key-dialog";
 
 import type { ApiKey, Project } from "@/lib/types";
 import type { Route } from "next";
@@ -87,6 +89,7 @@ export function ApiKeysList({
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
 	const [reactivateKey, setReactivateKey] = useState<ApiKey | null>(null);
+	const [rollKey, setRollKey] = useState<ApiKey | null>(null);
 
 	const getIamRulesUrl = (keyId: string) =>
 		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}/iam` as Route;
@@ -139,6 +142,9 @@ export function ApiKeysList({
 		"patch",
 		"/keys/api/limit/{id}",
 	);
+
+	const { mutateAsync: rollKeyAsync, isPending: isRollPending } =
+		api.useMutation("post", "/keys/api/{id}/roll");
 
 	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 	const activeKeys = allKeys.filter((key) => key.status === "active");
@@ -312,6 +318,35 @@ export function ApiKeysList({
 				title: "Failed to reactivate API key.",
 				variant: "destructive",
 			});
+		}
+	};
+
+	const handleRoll = async (): Promise<string | undefined> => {
+		if (!rollKey) {
+			return undefined;
+		}
+
+		try {
+			const data = await rollKeyAsync({
+				params: {
+					path: { id: rollKey.id },
+				},
+			});
+
+			invalidateApiKeys();
+
+			toast({
+				title: "API Key Rolled",
+				description: "A new secret has been generated for this key.",
+			});
+
+			return data.apiKey.token;
+		} catch {
+			toast({
+				title: "Failed to roll API key.",
+				variant: "destructive",
+			});
+			return undefined;
 		}
 	};
 
@@ -675,6 +710,10 @@ export function ApiKeysList({
 															: "Activate"}{" "}
 														Key
 													</DropdownMenuItem>
+													<DropdownMenuItem onClick={() => setRollKey(key)}>
+														<RefreshCwIcon className="mr-2 h-4 w-4" />
+														Roll Key
+													</DropdownMenuItem>
 													<DropdownMenuSeparator />
 													<AlertDialog>
 														<AlertDialogTrigger asChild>
@@ -767,6 +806,10 @@ export function ApiKeysList({
 											<DropdownMenuItem onClick={() => toggleStatus(key)}>
 												{key.status === "active" ? "Deactivate" : "Activate"}{" "}
 												Key
+											</DropdownMenuItem>
+											<DropdownMenuItem onClick={() => setRollKey(key)}>
+												<RefreshCwIcon className="mr-2 h-4 w-4" />
+												Roll Key
 											</DropdownMenuItem>
 											<DropdownMenuSeparator />
 											<AlertDialog>
@@ -904,6 +947,18 @@ export function ApiKeysList({
 				}}
 				onConfirm={handleReactivate}
 				isPending={isTogglePending}
+			/>
+
+			<RollApiKeyDialog
+				apiKey={rollKey}
+				open={rollKey !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRollKey(null);
+					}
+				}}
+				onConfirm={handleRoll}
+				isPending={isRollPending}
 			/>
 		</>
 	);

@@ -1657,6 +1657,25 @@ export async function prepareRequestBody(
 				(m) => m.role !== "system",
 			);
 
+			// Anthropic requires longer-TTL cache breakpoints to come before
+			// shorter ones (processing order: tools, system, messages). The
+			// gateway's heuristics inject ttl-less markers (5m default), so when
+			// the caller placed an explicit ttl:"1h" marker in the messages, any
+			// auto-injected marker would land before it and Anthropic rejects the
+			// request ("a ttl='1h' cache_control block must not come after a
+			// ttl='5m' cache_control block"). Defer entirely to the caller's
+			// caching strategy in that case. A 1h marker only on system is safe:
+			// message-level 5m markers after it satisfy the ordering.
+			const callerUses1hTtlInMessages = nonSystemMessages.some(
+				(m) =>
+					Array.isArray(m.content) &&
+					m.content.some(
+						(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+					),
+			);
+			const autoCacheControlEnabled =
+				providerCacheControlEnabled && !callerUses1hTtlInMessages;
+
 			// Build the system field with cache_control for long prompts
 			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
 			let systemCacheControlCount = 0;
@@ -1742,7 +1761,7 @@ export async function prepareRequestBody(
 						}
 
 						const shouldCache =
-							providerCacheControlEnabled &&
+							autoCacheControlEnabled &&
 							text.length >= minCacheableChars &&
 							systemCacheControlCount < maxCacheControlBlocks;
 
@@ -1783,7 +1802,7 @@ export async function prepareRequestBody(
 				userPlan,
 				systemCacheControlCount, // Pass count to respect the 4 block limit
 				minCacheableChars, // Model-specific minimum cacheable characters
-				providerCacheControlEnabled,
+				autoCacheControlEnabled,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -1968,6 +1987,25 @@ export async function prepareRequestBody(
 				(m) => m.role !== "system",
 			);
 
+			// Mirror the Anthropic branch: Bedrock enforces the same
+			// longer-TTL-first ordering for cachePoints, and heuristic injection
+			// emits ttl-less (5m default) points. When the caller placed an
+			// explicit ttl:"1h" marker in the messages — and the model actually
+			// supports 1h, i.e. the marker won't be downgraded to 5m — suppress
+			// heuristic cachePoint injection so an auto-added 5m point can't
+			// precede the caller's 1h point.
+			const bedrockCallerUses1hTtlInMessages =
+				bedrockSupports1hTtl &&
+				bedrockNonSystemMessages.some(
+					(m) =>
+						Array.isArray(m.content) &&
+						m.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						),
+				);
+			const bedrockAutoCachePointEnabled =
+				providerCacheControlEnabled && !bedrockCallerUses1hTtlInMessages;
+
 			// Build the system field with cachePoint for long prompts.
 			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE
 			// content block after the text block. Honor caller-supplied
@@ -2019,7 +2057,7 @@ export async function prepareRequestBody(
 					}
 
 					const shouldHeuristicCache =
-						providerCacheControlEnabled &&
+						bedrockAutoCachePointEnabled &&
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
 						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
@@ -2122,7 +2160,7 @@ export async function prepareRequestBody(
 
 						// Add cachePoint as separate block for long user messages (model-specific threshold)
 						const shouldCache =
-							providerCacheControlEnabled &&
+							bedrockAutoCachePointEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
 							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
@@ -2152,7 +2190,7 @@ export async function prepareRequestBody(
 									// Add cachePoint as separate block for long text parts
 									// (model-specific threshold)
 									const shouldCache =
-										providerCacheControlEnabled &&
+										bedrockAutoCachePointEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
 										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
@@ -2180,7 +2218,7 @@ export async function prepareRequestBody(
 			// the entire conversation prefix (all prior turns) so only the
 			// newest user message is uncached. This mirrors the Anthropic
 			// turn-boundary logic in transformAnthropicMessages.
-			if (providerCacheControlEnabled && bedrockMessages.length >= 3) {
+			if (bedrockAutoCachePointEnabled && bedrockMessages.length >= 3) {
 				let lastUserIdx = -1;
 				for (let i = bedrockMessages.length - 1; i >= 0; i--) {
 					if (bedrockMessages[i].role === "user") {

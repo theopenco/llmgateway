@@ -47,6 +47,13 @@ export function validateModelCapabilities(
 		hasDocuments,
 	} = options;
 
+	// Custom providers have no catalog entry, so the gateway cannot know which
+	// capabilities they support. Skip all capability validation and let the
+	// upstream provider reject anything it doesn't support.
+	if (requestedProvider === "custom") {
+		return;
+	}
+
 	if (
 		requestedModel !== "auto" &&
 		requestedModel !== "custom" &&

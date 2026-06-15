@@ -70,8 +70,12 @@ async function authenticateRequest(c: {
 	}
 
 	const apiKey = await findApiKeyByToken(token);
-	if (!apiKey || apiKey.status !== "active") {
-		return { error: "Invalid API key", status: 401 as const };
+	if (!apiKey) {
+		return { error: "API key not found", status: 401 as const };
+	}
+
+	if (apiKey.status !== "active") {
+		return { error: "API key is not active", status: 401 as const };
 	}
 
 	const project = await findProjectById(apiKey.projectId);
@@ -289,6 +293,9 @@ responses.post("/", async (c) => {
 	}
 	if (req.prompt_cache_retention !== undefined) {
 		chatRequest.prompt_cache_retention = req.prompt_cache_retention;
+	}
+	if (req.routing !== undefined) {
+		chatRequest.routing = req.routing;
 	}
 	if (response_format) {
 		chatRequest.response_format = response_format;

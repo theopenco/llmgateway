@@ -140,6 +140,20 @@ const SUPPORTED_VIDEO_SIZES = {
 		resolution: "720p",
 		orientation: "portrait",
 	},
+	"1366x768": {
+		size: "1366x768",
+		width: 1366,
+		height: 768,
+		resolution: "768p",
+		orientation: "landscape",
+	},
+	"768x1366": {
+		size: "768x1366",
+		width: 768,
+		height: 1366,
+		resolution: "768p",
+		orientation: "portrait",
+	},
 	"1920x1080": {
 		size: "1920x1080",
 		width: 1920,
@@ -684,10 +698,17 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 	const token = extractToken(c);
 	const apiKey = await findApiKeyByToken(token);
 
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		throw new HTTPException(401, {
 			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
@@ -918,10 +939,11 @@ function getVideoProviderConstraintReasons(
 		inputMode === "frames" &&
 		!isGoogleVertexVideoProvider(provider.providerId) &&
 		provider.providerId !== "avalanche" &&
+		provider.providerId !== "minimax" &&
 		provider.providerId !== "xai"
 	) {
 		reasons.push(
-			"frame inputs are currently only supported through google-vertex, avalanche, or xai",
+			"frame inputs are currently only supported through google-vertex, avalanche, minimax, or xai",
 		);
 	}
 
@@ -1116,6 +1138,7 @@ function getVideoUpstreamModelName(
 			return getAvalancheVideoModelName(baseModelName);
 		case "bytedance":
 		case "google-vertex":
+		case "minimax":
 		default:
 			return baseModelName;
 	}
@@ -1169,6 +1192,10 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "minimax":
+			return "https://api.minimax.io";
+		case "alibaba":
+			return "https://dashscope-intl.aliyuncs.com";
 		default:
 			return null;
 	}
@@ -1578,13 +1605,15 @@ async function resolveVideoExecution(
 				? "4k"
 				: videoSize.resolution === "1080p"
 					? "1080p"
-					: videoSize.resolution === "720p"
-						? "720p"
-						: videoSize.resolution === "480p"
-							? "480p"
-							: videoSize.resolution === "hd"
-								? "hd"
-								: "default",
+					: videoSize.resolution === "768p"
+						? "768p"
+						: videoSize.resolution === "720p"
+							? "720p"
+							: videoSize.resolution === "480p"
+								? "480p"
+								: videoSize.resolution === "hd"
+									? "hd"
+									: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
@@ -2385,7 +2414,11 @@ async function streamVideoFromUrl(
 }
 
 function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
-	return job.usedProvider === "openai" || job.usedProvider === "xai";
+	return (
+		job.usedProvider === "openai" ||
+		job.usedProvider === "minimax" ||
+		job.usedProvider === "xai"
+	);
 }
 
 async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
@@ -2454,10 +2487,59 @@ async function streamDirectUpstreamVideoContent(
 	job: VideoJobRecord,
 ): Promise<Response> {
 	const providerContext = await resolveVideoJobProviderContext(job);
-	const contentUrl = joinUrl(
-		providerContext.baseUrl,
-		`/v1/videos/${job.upstreamId}/content`,
-	);
+
+	let contentUrl: string;
+	if (providerContext.providerId === "minimax") {
+		const statusResponse =
+			job.upstreamStatusResponse &&
+			typeof job.upstreamStatusResponse === "object" &&
+			!Array.isArray(job.upstreamStatusResponse)
+				? (job.upstreamStatusResponse as Record<string, unknown>)
+				: {};
+		const fileId =
+			typeof statusResponse.file_id === "string"
+				? statusResponse.file_id
+				: typeof statusResponse.file_id === "number"
+					? String(statusResponse.file_id)
+					: null;
+		if (!fileId) {
+			throw new HTTPException(502, {
+				message: "MiniMax video response did not include a file_id for content",
+			});
+		}
+		const retrieveUrl = joinUrl(
+			providerContext.baseUrl,
+			`/v1/files/retrieve?file_id=${fileId}`,
+		);
+		const retrieveResponse = await fetch(retrieveUrl, {
+			headers: getProviderHeaders(
+				providerContext.providerId,
+				providerContext.token,
+				{ requestId: providerContext.requestId },
+			),
+		});
+		if (!retrieveResponse.ok) {
+			throw new HTTPException(502, {
+				message: "Failed to retrieve MiniMax video download URL",
+			});
+		}
+		const retrieveBody = (await retrieveResponse.json()) as {
+			file?: { download_url?: string };
+		};
+		contentUrl = retrieveBody.file?.download_url ?? "";
+		if (!contentUrl) {
+			throw new HTTPException(502, {
+				message:
+					"MiniMax file retrieve response did not include a download_url",
+			});
+		}
+	} else {
+		contentUrl = joinUrl(
+			providerContext.baseUrl,
+			`/v1/videos/${job.upstreamId}/content`,
+		);
+	}
+
 	const upstreamResponse = await fetch(contentUrl, {
 		headers: getProviderHeaders(
 			providerContext.providerId,
@@ -3185,6 +3267,84 @@ async function createBytedanceVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+function getMinimaxResolution(videoSize: VideoSizeConfig): string {
+	if (videoSize.resolution === "1080p") {
+		return "1080P";
+	}
+	if (videoSize.resolution === "4k") {
+		return "1080P";
+	}
+	return "768P";
+}
+
+async function createMinimaxVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const resolution = getMinimaxResolution(videoSize);
+	const effectiveDuration =
+		resolution === "1080P" && durationSeconds > 6 ? 6 : durationSeconds;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		prompt,
+		duration: effectiveDuration,
+		resolution,
+	};
+
+	if (processedFirstFrame) {
+		upstreamRequest.first_frame_image = `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`;
+	}
+
+	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/video_generation");
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("minimax", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const baseResp = rawResponse.base_resp as
+		| { status_code?: number; status_msg?: string }
+		| undefined;
+	if (baseResp && baseResp.status_code !== 0) {
+		throw new HTTPException(502, {
+			message: `MiniMax video API error: ${baseResp.status_msg ?? "unknown error"} (code ${baseResp.status_code})`,
+		});
+	}
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "MiniMax video response did not include a task id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createXaiVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3244,6 +3404,79 @@ async function createXaiVideoJob(
 	}
 
 	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
+async function createAlibabaVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		input: {
+			prompt,
+		},
+		parameters: {
+			size: `${videoSize.width}*${videoSize.height}`,
+			duration: durationSeconds,
+		},
+	};
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/api/v1/services/aigc/video-generation/video-synthesis",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-DashScope-Async": "enable",
+			...getProviderHeaders("alibaba", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const output =
+		rawResponse.output && typeof rawResponse.output === "object"
+			? (rawResponse.output as Record<string, unknown>)
+			: null;
+	const taskId =
+		output && typeof output.task_id === "string" ? output.task_id : null;
+	if (!taskId) {
+		const message =
+			typeof rawResponse.message === "string"
+				? rawResponse.message
+				: "Alibaba video response did not include a task id";
+		const code =
+			typeof rawResponse.code === "string" ? rawResponse.code : undefined;
+		throw new HTTPException(502, {
+			message: code
+				? `Alibaba video API error: ${message} (code ${code})`
+				: message,
+		});
+	}
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			task_id: taskId,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	return { upstreamId: taskId, upstreamRequest, upstreamResponse };
 }
 
 async function createUpstreamVideoJob(
@@ -3337,6 +3570,23 @@ async function createUpstreamVideoJob(
 				videoJobId,
 				organizationId,
 				projectId,
+			);
+		case "minimax":
+			return await createMinimaxVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				processedFirstFrame,
+			);
+		case "alibaba":
+			return await createAlibabaVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
 			);
 		default:
 			throw new HTTPException(500, {

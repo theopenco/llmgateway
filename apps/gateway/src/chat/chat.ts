@@ -28,7 +28,12 @@ import {
 	isCodingModel,
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
-import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import {
+	calculateCosts,
+	isRefusalFinishReason,
+	shouldBillCancelledRequests,
+	zeroInferenceCosts,
+} from "@/lib/costs.js";
 import {
 	assertOriginAllowed,
 	assertTestWalletModelAllowed,
@@ -131,7 +136,18 @@ import {
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
 } from "@llmgateway/models";
-import { isChatPlanModelAllowed } from "@llmgateway/shared";
+import {
+	detectCodingAgentFromReferer,
+	detectCodingAgentFromTitle,
+	getSupportedAgentsList,
+	isChatPlanModelAllowed,
+	isRecognizedCodingAgent,
+	normalizeSourceToAgentId,
+} from "@llmgateway/shared";
+import {
+	applyRoutingPreference,
+	type ResolvedRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -213,7 +229,6 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
-import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -1365,6 +1380,7 @@ chat.openapi(completions, async (c) => {
 		prompt_cache_key,
 		prompt_cache_retention,
 		tool_choice,
+		routing,
 		free_models_only,
 		onboarding,
 		no_reasoning,
@@ -1549,6 +1565,38 @@ chat.openapi(completions, async (c) => {
 		source = detectCodingAgentFromUserAgent(userAgent);
 	}
 
+	if (source) {
+		source = normalizeSourceToAgentId(source);
+	}
+
+	// If source is still unrecognized, try X-Title header
+	if (!source || !isRecognizedCodingAgent(source)) {
+		const fromTitle = detectCodingAgentFromTitle(
+			c.req.header("X-Title") ?? c.req.header("X-OpenRouter-Title"),
+		);
+		if (fromTitle) {
+			source = fromTitle;
+		}
+	}
+
+	// If still unrecognized, try HTTP-Referer pattern matching
+	if (!source || !isRecognizedCodingAgent(source)) {
+		const fromReferer = detectCodingAgentFromReferer(
+			c.req.header("HTTP-Referer"),
+		);
+		if (fromReferer) {
+			source = fromReferer;
+		}
+	}
+
+	// Final fallback: UA detection for unrecognized x-source values
+	if (source && !isRecognizedCodingAgent(source)) {
+		const detectedFromUa = detectCodingAgentFromUserAgent(userAgent);
+		if (detectedFromUa) {
+			source = detectedFromUa;
+		}
+	}
+
 	// Check if debug mode is enabled via x-debug header
 	const debugMode =
 		c.req.header("x-debug") === "true" ||
@@ -1702,10 +1750,17 @@ chat.openapi(completions, async (c) => {
 
 	const apiKey = await findApiKeyByToken(token);
 
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		throw new HTTPException(401, {
 			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
@@ -1972,10 +2027,57 @@ chat.openapi(completions, async (c) => {
 		organization = withWalletCredits(organization, endUserWallet);
 	}
 
-	const routingCfg = await getResolvedRoutingConfig(
+	const isDevPlan = Boolean(
+		organization?.isPersonal && organization.devPlan !== "none",
+	);
+
+	// A routing strategy only has meaning for multi-provider model-id routing.
+	// If the request also pins a specific provider (e.g. `openai/gpt-4o` or a
+	// custom provider), the strategy can't influence anything, so reject the
+	// contradiction explicitly instead of silently ignoring it. Only an explicit
+	// request `routing` errors — a project default still applies harmlessly.
+	if (
+		routing !== undefined &&
+		requestedProvider !== undefined &&
+		requestedProvider !== "llmgateway"
+	) {
+		throw new HTTPException(400, {
+			message:
+				"The `routing` strategy is only supported for model-id routing and cannot be combined with a specific provider. Remove the provider prefix from `model` to use a routing strategy, or drop the `routing` field.",
+		});
+	}
+
+	let routingCfg = await getResolvedRoutingConfig(
 		project.id,
 		organization.plan,
 	);
+	// Routing strategies only affect multi-provider selection. When the request
+	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
+	// reused for region selection and fallback scoring, so leave it untouched.
+	if (!useExpandedRoutingProviders) {
+		// Resolve the effective routing strategy: an explicit request `routing`
+		// wins, otherwise fall back to the project's configured default.
+		let effectiveRouting = routing ?? project.defaultRoutingStrategy;
+		// Coding (dev) plans optimize for prompt caching and only allow the
+		// default weighted routing or the price strategy; throughput/latency would
+		// route to the fastest provider regardless of cache support. Reject an
+		// explicit ineligible request, but silently clamp a stale project default
+		// so existing requests keep working.
+		if (
+			isDevPlan &&
+			effectiveRouting !== "auto" &&
+			effectiveRouting !== "price"
+		) {
+			if (routing !== undefined) {
+				throw new HTTPException(400, {
+					message: `The "${routing}" routing strategy is not available on coding plans. Use "auto" (default) or "price".`,
+				});
+			}
+			effectiveRouting = "auto";
+		}
+
+		routingCfg = applyRoutingPreference(routingCfg, effectiveRouting);
+	}
 
 	// Sticky-session routing: when the request carries a session id and the
 	// project has session stickiness enabled, provider selection is scored
@@ -2167,9 +2269,6 @@ chat.openapi(completions, async (c) => {
 	// declared output formats (and the legacy imageGenerations provider
 	// flag) so chat-completions models that emit images — e.g. Gemini
 	// *-flash-image with output: ["text", "image"] — are also blocked.
-	const isDevPlan = Boolean(
-		organization?.isPersonal && organization.devPlan !== "none",
-	);
 	const modelEmitsImages =
 		modelInfo.output?.includes("image") === true ||
 		modelInfo.providers.some((p) => p.imageGenerations === true);
@@ -2188,6 +2287,22 @@ chat.openapi(completions, async (c) => {
 			organization.devPlan !== "none" &&
 			!organization.devPlanAllowAllModels,
 	);
+
+	// Source restriction is gated behind DEVPASS_ENFORCE_SOURCE_RESTRICTION so it
+	// can be enabled later. While disabled (default), all sources are allowed —
+	// the `source` value is still normalized and recorded in logs above, so we
+	// get correct x-source attribution without blocking any requests.
+	const isDevPlanSourceRestricted = Boolean(
+		organization?.isPersonal &&
+			organization.devPlan !== "none" &&
+			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
+	);
+	if (isDevPlanSourceRestricted && !isRecognizedCodingAgent(source)) {
+		throw new HTTPException(403, {
+			message: `DevPass coding plans are restricted to recognized coding agents. Your request was not identified as coming from a supported tool. Please ensure your coding tool sends an identifiable User-Agent header or x-source header. Supported agents: ${getSupportedAgentsList()}.`,
+		});
+	}
+
 	if (isDevPlanRestricted) {
 		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
@@ -3875,10 +3990,14 @@ chat.openapi(completions, async (c) => {
 					externalId: usedExternalId,
 					inputPrice: "0",
 					outputPrice: "0",
-					contextSize: 8192,
-					maxOutput: 4096,
+					// Custom providers have no catalog entry, so the gateway cannot
+					// know their limits (contextSize, maxOutput) or capabilities
+					// (vision, jsonOutput, ...). Leave them unset rather than
+					// guessing — capability validation is skipped for custom
+					// providers and the upstream provider enforces its own limits.
+					// `streaming` is required by the type but is never read for
+					// custom providers (streaming support comes from the catalog).
 					streaming: true,
-					vision: false,
 				},
 			],
 		};
@@ -8384,7 +8503,17 @@ chat.openapi(completions, async (c) => {
 								if (Array.isArray(transformedData.choices)) {
 									for (const choice of transformedData.choices) {
 										if (choice?.finish_reason) {
-											finishReason = choice.finish_reason;
+											// Anthropic/Vertex-Anthropic finish reasons are owned by
+											// the provider-specific switch below, which reads the raw
+											// stop_reason (e.g. "refusal") from message_delta. Don't
+											// let the transformed message_stop chunk (mapped to
+											// "stop") clobber a refusal captured moments earlier.
+											if (
+												usedProvider !== "anthropic" &&
+												usedProvider !== "vertex-anthropic"
+											) {
+												finishReason = choice.finish_reason;
+											}
 											sawProviderTerminalEvent = true;
 											sentDownstreamFinishReasonChunk = true;
 										}
@@ -8558,10 +8687,29 @@ chat.openapi(completions, async (c) => {
 											data.type === "message_stop" ||
 											data.stop_reason
 										) {
-											finishReason = data.stop_reason ?? "end_turn";
+											// message_stop carries no stop_reason of its own — the
+											// real terminal reason arrived in the preceding
+											// message_delta. Only fall back to end_turn when we never
+											// captured one, so we don't clobber e.g. a "refusal".
+											finishReason =
+												data.stop_reason ?? finishReason ?? "end_turn";
 											sawProviderTerminalEvent = true;
 										} else if (data.delta?.stop_reason) {
 											finishReason = data.delta.stop_reason;
+											sawProviderTerminalEvent = true;
+										}
+										break;
+									case "aws-bedrock":
+										// The client-facing finish_reason comes from the
+										// transformed chunk (a refusal is surfaced as
+										// content_filter). Internally, preserve the raw
+										// "refusal" stop reason from the messageStop event so
+										// billing can skip charging an unbilled refusal.
+										if (
+											data.__aws_event_type === "messageStop" &&
+											data.stopReason === "refusal"
+										) {
+											finishReason = "refusal";
 											sawProviderTerminalEvent = true;
 										}
 										break;
@@ -9146,6 +9294,24 @@ chat.openapi(completions, async (c) => {
 								reasoningTokens,
 								retentionLevel,
 							);
+						}
+
+						// Anthropic-family refusal that produced no output is not billed
+						// (per Anthropic's policy: a refusal before any generated output
+						// is informational only). A mid-stream refusal that already
+						// produced content is billed normally.
+						if (
+							streamingCostsEarly.totalCost !== null &&
+							isRefusalFinishReason(finishReason, usedProvider) &&
+							!hasMeaningfulAssistantOutput({
+								completionTokens: calculatedCompletionTokens,
+								reasoningTokens,
+								content: fullContent,
+								toolResults: streamingToolCalls,
+								images: null,
+							})
+						) {
+							zeroInferenceCosts(streamingCostsEarly);
 						}
 
 						// Always send final usage chunk with cost data for SDK compatibility
@@ -11355,6 +11521,25 @@ chat.openapi(completions, async (c) => {
 		},
 		finishReason === "content_filter",
 	);
+
+	// Anthropic-family refusal that produced no output is not billed (per
+	// Anthropic's policy: a refusal before any generated output is informational
+	// only). A refusal that already produced content is billed normally. This is
+	// applied before transformResponseToOpenai so the cost echoed back to the
+	// client also reflects the zeroed charge.
+	if (
+		isRefusalFinishReason(finishReason, usedProvider) &&
+		!hasMeaningfulAssistantOutput({
+			completionTokens: calculatedCompletionTokens,
+			reasoningTokens: calculatedReasoningTokens,
+			content,
+			toolResults,
+			images: convertedImages,
+		})
+	) {
+		zeroInferenceCosts(costs);
+	}
+
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
 		cachedTokens,

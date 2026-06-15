@@ -61,7 +61,7 @@
 		"sort-package-json": "3.4.0",
 		"sql.js": "1.13.0",
 		"tsc-watch": "7.2.0",
-		"tsx": "4.20.6",
+		"tsx": "4.22.4",
 		"turbo": "^2.9.14",
 		"typescript": "5.9.2",
 		"vite": "^7.3.2",
@@ -95,7 +95,7 @@
 			"fast-uri@<3.1.2": "^3.1.2",
 			"fast-xml-builder@<1.1.7": "^1.1.7",
 			"uuid@<11.1.1": "^11.1.1",
-			"dompurify@<3.4.0": "^3.4.0",
+			"dompurify@<3.4.5": "^3.4.5",
 			"fast-xml-parser@<5.7.0": "^5.7.0",
 			"postcss@<8.5.10": "^8.5.10",
 			"ip-address@<10.1.1": "^10.1.1",
@@ -109,7 +109,10 @@
 			"js-yaml@>=4 <4.1.1": "^4.1.1",
 			"mdast-util-to-hast@>=13 <13.2.1": "^13.2.1",
 			"ajv@>=6 <6.14.0": "^6.14.0",
-			"@tootallnate/once@<2.0.1": "^2.0.1"
+			"@tootallnate/once@<2.0.1": "^2.0.1",
+			"shell-quote@<1.8.4": "^1.8.4",
+			"@grpc/grpc-js": ">=1.14.4",
+			"esbuild@>=0.17.0 <0.28.1": "^0.28.1"
 		},
 		"packageExtensions": {
 			"@hookform/resolvers": {

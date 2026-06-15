@@ -245,6 +245,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://ai.google.com",
 		announcement: null,
+		priority: 0.8,
 		serviceTiers: [
 			{
 				id: "flex",
@@ -294,6 +295,7 @@ export const providers: ProviderDefinition[] = [
 		privacyPolicyUrl: null,
 		headquarters: null,
 		dataPolicy: null,
+		priority: 1.2,
 	},
 	{
 		id: "google-vertex",
@@ -315,7 +317,6 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.8,
 		serviceTiers: [
 			{
 				id: "flex",
@@ -365,7 +366,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.9,
+		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -398,7 +399,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.1,
+		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -528,7 +529,6 @@ export const providers: ProviderDefinition[] = [
 		color: "#000000",
 		website: "https://x.ai",
 		announcement: null,
-		priority: 0.1,
 		termsUrl: "https://x.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://x.ai/legal/privacy-policy",
 		headquarters: "US",
@@ -855,7 +855,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "perplexity",

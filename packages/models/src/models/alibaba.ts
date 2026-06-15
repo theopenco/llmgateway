@@ -2609,4 +2609,42 @@ export const alibabaModels = [
 			},
 		],
 	},
+	{
+		id: "wan-2-6-t2v",
+		name: "Wan 2.6 Text-to-Video",
+		description:
+			"Alibaba's Wan 2.6 text-to-video model generating short clips with synchronized audio from a text prompt.",
+		family: "alibaba",
+		output: ["video"],
+		maxVideoDurationSeconds: 15,
+		releasedAt: new Date("2026-01-15"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "wan2.6-t2v",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					default: "0.08",
+					"720p": "0.08",
+					"1080p": "0.12",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1280x720", "720x1280", "1920x1080", "1080x1920"],
+				supportedVideoDurationsSeconds: [
+					2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+				],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: false,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

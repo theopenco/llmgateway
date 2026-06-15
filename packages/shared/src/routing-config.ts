@@ -316,6 +316,79 @@ export function resolveRoutingConfig(
 	};
 }
 
+/**
+ * Per-request routing preference, named after the factor it optimizes. `auto`
+ * (the default) uses the full weighted smart-routing score described above. The
+ * other kinds collapse the weights onto a single dominant factor (`price`,
+ * `throughput`, or `latency`) while keeping a small uptime weight so requests
+ * still fall back to other providers when the dominant pick has extremely bad
+ * uptime.
+ */
+export type RoutingPreference = "auto" | "price" | "throughput" | "latency";
+
+/**
+ * The dominant factor gets a 90% relative weight and uptime keeps the remaining
+ * 10% so an otherwise-winning provider with terrible uptime still loses. The
+ * exponential uptime penalty (see getCheapestFromAvailableProviders) applies on
+ * top of this regardless of weights, providing the hard fallback for providers
+ * below the uptime-penalty threshold.
+ */
+export const ROUTING_PREFERENCE_WEIGHTS: Record<
+	Exclude<RoutingPreference, "auto">,
+	Required<RoutingWeightsConfig>
+> = {
+	price: {
+		price: 0.9,
+		imagePrice: 0.9,
+		uptime: 0.1,
+		throughput: 0,
+		latency: 0,
+		cache: 0,
+	},
+	throughput: {
+		price: 0,
+		imagePrice: 0,
+		uptime: 0.1,
+		throughput: 0.9,
+		latency: 0,
+		cache: 0,
+	},
+	// Latency (time-to-first-token) is only measured for streaming requests, so
+	// this preference only biases streaming routing; non-streaming requests fall
+	// back to scoring on the uptime weight alone.
+	latency: {
+		price: 0,
+		imagePrice: 0,
+		uptime: 0.1,
+		throughput: 0,
+		latency: 0.9,
+		cache: 0,
+	},
+};
+
+/**
+ * Returns a routing config whose weights are overridden for the given
+ * per-request routing preference. `auto` (or undefined) returns the config
+ * unchanged so projects keep their configured/default weighted scoring.
+ *
+ * A non-`auto` preference also disables epsilon-greedy exploration: the caller
+ * explicitly asked to optimize a single factor, so a random ~1% reroute to a
+ * non-optimal provider (which runs before scoring) would violate that intent.
+ */
+export function applyRoutingPreference(
+	cfg: ResolvedRoutingConfig,
+	preference: RoutingPreference | undefined,
+): ResolvedRoutingConfig {
+	if (!preference || preference === "auto") {
+		return cfg;
+	}
+	return {
+		...cfg,
+		weights: { ...ROUTING_PREFERENCE_WEIGHTS[preference] },
+		thresholds: { ...cfg.thresholds, explorationRate: 0 },
+	};
+}
+
 let cachedDefaults: ResolvedRoutingConfig | null = null;
 
 export function getDefaultRoutingConfig(): ResolvedRoutingConfig {

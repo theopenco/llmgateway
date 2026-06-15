@@ -407,7 +407,7 @@ export const emptySpec: Spec = {
 		text: {
 			type: "Text",
 			props: {
-				text: "Edit the JSON on the left to build your UI. Use the templates above for inspiration.",
+				text: "Describe the UI you want to build in the prompt below, or pick a template above to get started.",
 			},
 		},
 	},

@@ -4,21 +4,19 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
 	AudioLines,
-	Plus,
 	MessageSquare,
 	Edit2,
 	Trash2,
 	MoreVerticalIcon,
-	Loader2,
 	ImagePlus,
 	Film,
 	Pin,
 	PinOff,
 	Users,
+	ChevronDown,
 	ChevronUp,
 	LogOut,
 	ExternalLink,
-	Search,
 	PenTool,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
@@ -72,9 +70,9 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
-import { ChatSearchDialog } from "./chat-search-dialog";
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
 // import { ProjectSwitcher } from "./project-switcher";
 
 import type { Organization, Project } from "@/lib/types";
@@ -112,6 +110,8 @@ type ChatHistoryRow =
 const ROW_HEIGHT_HEADER = 28;
 const ROW_HEIGHT_SPACER = 6;
 const ROW_HEIGHT_CHAT = 52;
+
+const HISTORY_COLLAPSED_STORAGE_KEY = "playground-chat-history-collapsed";
 
 interface ChatHistoryRowProps {
 	rows: ChatHistoryRow[];
@@ -527,38 +527,29 @@ export const ChatSidebar = function ChatSidebar({
 	const [pendingFocusChatId, setPendingFocusChatId] = useState<string | null>(
 		null,
 	);
-	const [isSearchOpen, setIsSearchOpen] = useState(false);
-	const [isMac, setIsMac] = useState(false);
+	const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(
+		() =>
+			typeof document !== "undefined" &&
+			document.cookie
+				.split("; ")
+				.includes(`${HISTORY_COLLAPSED_STORAGE_KEY}=1`),
+	);
+
+	const toggleHistoryCollapsed = useCallback(() => {
+		setIsHistoryCollapsed((prev) => {
+			const next = !prev;
+			document.cookie = `${HISTORY_COLLAPSED_STORAGE_KEY}=${
+				next ? "1" : "0"
+			}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+			return next;
+		});
+	}, []);
 
 	const chats = useMemo(() => chatsData?.chats ?? [], [chatsData?.chats]);
 	const currentTheme = theme === "system" ? systemTheme : theme;
 	const toggleTheme = useCallback(() => {
 		setTheme(currentTheme === "dark" ? "light" : "dark");
 	}, [currentTheme, setTheme]);
-
-	useEffect(() => {
-		setIsMac(/(Mac|iPhone|iPad|iPod)/i.test(window.navigator.platform));
-	}, []);
-
-	useEffect(() => {
-		const handleKeyDown = (event: KeyboardEvent) => {
-			const key = event.key?.toLowerCase();
-			const isSearchShortcut = isMac
-				? event.metaKey && key === "k" && !event.altKey && !event.ctrlKey
-				: event.altKey && key === "k" && !event.metaKey && !event.ctrlKey;
-
-			if (!isSearchShortcut || event.shiftKey || event.defaultPrevented) {
-				return;
-			}
-
-			event.preventDefault();
-			setIsSearchOpen(true);
-		};
-
-		window.addEventListener("keydown", handleKeyDown);
-
-		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [isMac]);
 
 	const logout = async () => {
 		posthog.reset();
@@ -822,34 +813,16 @@ export const ChatSidebar = function ChatSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							onClick={onNewChat}
-							disabled={isPageLoading}
-							tooltip="New Chat"
-							className="border border-border"
-						>
-							{isPageLoading ? (
-								<Loader2 className="h-4 w-4 animate-spin" />
-							) : (
-								<Plus className="h-4 w-4" />
-							)}
-							<span>New Chat</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							type="button"
-							tooltip="Search Chats"
-							onClick={() => setIsSearchOpen(true)}
-						>
-							<Search className="h-4 w-4" />
-							<span>Search Chats</span>
-							<kbd className="ml-auto text-xs font-medium text-muted-foreground opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100 group-data-[collapsible=icon]:hidden">
-								{isMac ? "⌘K" : "Alt+K"}
-							</kbd>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
+					<SidebarChatSearch
+						disabled={pathname !== "/"}
+						onChatSelect={handleChatSelect}
+						onNewChat={onNewChat}
+					/>
+					<SidebarNewAction
+						label="New Chat"
+						onAction={onNewChat}
+						isLoading={isPageLoading}
+					/>
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild
@@ -970,7 +943,20 @@ export const ChatSidebar = function ChatSidebar({
 					aria-hidden={isHistoryHidden}
 					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
 				>
-					{chats.length === 0 ? (
+					<button
+						type="button"
+						onClick={toggleHistoryCollapsed}
+						aria-expanded={!isHistoryCollapsed}
+						className="flex w-full shrink-0 items-center justify-between px-5 py-2 text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground group-data-[collapsible=icon]:hidden"
+					>
+						<span>Chats</span>
+						<ChevronDown
+							className={`h-3.5 w-3.5 transition-transform duration-200 ${
+								isHistoryCollapsed ? "-rotate-90" : ""
+							}`}
+						/>
+					</button>
+					{isHistoryCollapsed ? null : chats.length === 0 ? (
 						<div className="flex flex-col items-center justify-center py-8 text-center">
 							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">
@@ -1112,12 +1098,6 @@ export const ChatSidebar = function ChatSidebar({
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
-			<ChatSearchDialog
-				open={isSearchOpen}
-				onOpenChange={setIsSearchOpen}
-				onNewChat={onNewChat}
-				onChatSelect={handleChatSelect}
-			/>
 		</Sidebar>
 	);
 };

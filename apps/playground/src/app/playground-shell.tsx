@@ -80,6 +80,47 @@ export async function renderPlaygroundShell({
 			: []
 	) as Organization[];
 
+	const organizations = allOrganizations.filter(
+		(o) => !o.isPersonal && !o.isChat,
+	);
+
+	// The Chat plan context is only the right default for subscribers (or users
+	// who topped up the Chat org). Unsubscribed users with a funded dashboard
+	// org land on that org instead; the Chat plan context stays the default only
+	// when no org has credits, so the plan upsell can take over. Runs before the
+	// chat-org fetch so redirected users never get a Chat org provisioned.
+	if (!orgId && !orgShareView) {
+		const chatPlanStatusData = await fetchServerData(
+			"GET",
+			"/chat-plans/status",
+		);
+		const chatPlanStatus =
+			chatPlanStatusData &&
+			typeof chatPlanStatusData === "object" &&
+			"chatPlan" in chatPlanStatusData
+				? (chatPlanStatusData as { chatPlan: string; regularCredits: string })
+				: null;
+		const hasChatPlanAccess =
+			!chatPlanStatus ||
+			chatPlanStatus.chatPlan !== "none" ||
+			Number(chatPlanStatus.regularCredits) > 0;
+		if (!hasChatPlanAccess) {
+			const fundedOrganization = organizations.find(
+				(o) => Number(o.credits) > 0,
+			);
+			if (fundedOrganization) {
+				const nextParams = new URLSearchParams();
+				for (const [key, value] of Object.entries(searchParams)) {
+					if (typeof value === "string") {
+						nextParams.set(key, value);
+					}
+				}
+				nextParams.set("orgId", fundedOrganization.id);
+				redirect(`/?${nextParams.toString()}`);
+			}
+		}
+	}
+
 	// The dedicated Chat org backs the "Personal" context
 	// (selectedOrganization === null): generation, billing, and top-ups all run
 	// under it. It is created on demand and never appears in the org switcher,
@@ -91,9 +132,6 @@ export async function renderPlaygroundShell({
 		"organizationId" in chatOrgData
 			? (chatOrgData as { organizationId: string; projectId: string })
 			: null;
-	const organizations = allOrganizations.filter(
-		(o) => !o.isPersonal && !o.isChat,
-	);
 
 	if (
 		orgShareView &&

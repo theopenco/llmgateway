@@ -87,6 +87,35 @@ export const userFavoriteModel = pgTable(
 	],
 );
 
+export const modelRating = pgTable(
+	"model_rating",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		modelId: text().notNull(),
+		rating: integer().notNull(),
+		comment: text(),
+	},
+	(table) => [
+		uniqueIndex("model_rating_user_id_model_id_unique").on(
+			table.userId,
+			table.modelId,
+		),
+		index("model_rating_model_id_idx").on(table.modelId),
+		check(
+			"model_rating_rating_check",
+			sql`${table.rating} >= 1 AND ${table.rating} <= 5`,
+		),
+	],
+);
+
 export const session = pgTable(
 	"session",
 	{
@@ -567,6 +596,14 @@ export const project = pgTable(
 		})
 			.notNull()
 			.default("hybrid"),
+		// Default smart-routing strategy applied when a request omits the
+		// `routing` field. Named after the factor it optimizes; "auto" uses the
+		// full weighted score.
+		defaultRoutingStrategy: text({
+			enum: ["auto", "price", "throughput", "latency"],
+		})
+			.notNull()
+			.default("auto"),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -1602,6 +1639,7 @@ export const message = pgTable(
 		documents: text(), // JSON string to store document attachments array
 		reasoning: text(), // Reasoning content from AI models
 		tools: text(), // JSON string to store tool call parts
+		sources: text(), // JSON string to store web search source citations
 		metadata: jsonb().$type<Record<string, unknown>>(),
 		sequence: integer().notNull(), // To maintain message order
 	},
@@ -1969,6 +2007,7 @@ export const auditLogActions = [
 	"team_member.remove",
 	// API Key
 	"api_key.create",
+	"api_key.roll",
 	"api_key.update_status",
 	"api_key.update_limit",
 	"api_key.update_description",

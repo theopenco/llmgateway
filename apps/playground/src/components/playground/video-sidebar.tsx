@@ -11,7 +11,6 @@ import {
 	MessageSquare,
 	MoreVerticalIcon,
 	PenTool,
-	Plus,
 	Trash2,
 	Users,
 } from "lucide-react";
@@ -57,6 +56,7 @@ import { useAuth } from "@/lib/auth-client";
 
 import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
 
 import type { Organization } from "@/lib/types";
 import type { VideoGalleryItem } from "@/lib/video-gen";
@@ -172,19 +172,7 @@ function EditVideoPromptInput({
 }
 
 function HistoryThumbnails({ item }: { item: VideoGalleryItem }) {
-	const images: { src: string; label: string }[] = [];
-
-	if (item.frameInputs?.start) {
-		images.push({ src: item.frameInputs.start.dataUrl, label: "First" });
-	}
-	if (item.frameInputs?.end) {
-		images.push({ src: item.frameInputs.end.dataUrl, label: "Last" });
-	}
-	if (item.referenceImages) {
-		for (const ref of item.referenceImages) {
-			images.push({ src: ref.dataUrl, label: "Ref" });
-		}
-	}
+	const images = item.inputPreviews ?? [];
 
 	if (images.length === 0) {
 		return null;
@@ -198,6 +186,7 @@ function HistoryThumbnails({ item }: { item: VideoGalleryItem }) {
 					src={img.src}
 					alt={img.label}
 					title={img.label}
+					loading="lazy"
 					className="h-5 w-5 rounded border object-cover"
 				/>
 			))}
@@ -621,16 +610,8 @@ export function VideoSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							onClick={onNewChat}
-							tooltip="New Generation"
-							className="border border-border"
-						>
-							<Plus className="h-4 w-4" />
-							<span>New Generation</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
+					<SidebarChatSearch disabled />
+					<SidebarNewAction label="New Generation" onAction={onNewChat} />
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild

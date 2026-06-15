@@ -6,6 +6,7 @@ title: DevPass vs z.ai GLM Coding Plan
 metaTitle: "DevPass vs z.ai GLM Coding Plan: One Vendor or 200+?"
 description: "DevPass vs the z.ai GLM Coding Plan compared. z.ai is a low-cost, GLM-only subscription billed quarterly; DevPass is a flat monthly plan for 200+ models — Claude, GPT-5.5, Gemini and GLM — under one key."
 competitor: z.ai GLM Coding Plan
+competitorLogo: zai
 competitorTagline: Low-cost subscription for Zhipu's GLM models
 tagline: "z.ai's coding plan is one of the cheapest ways to run GLM. DevPass costs more but isn't tied to a single vendor — GLM is just one of 200+ models on every plan."
 devpassPrice: "$29–$179/mo"

@@ -1,0 +1,147 @@
+---
+title: Coding Agents
+description: Supported coding agents for DevPass plans and how to configure your tool.
+icon: Terminal
+---
+
+# Coding Agents
+
+The gateway detects which coding agent or tool a DevPass request comes from and records it as the `x-source` attribution in logs and the dashboard. Detection runs on every request.
+
+Source enforcement is gated behind the `DEVPASS_ENFORCE_SOURCE_RESTRICTION` environment variable and is **disabled by default**. While disabled, all sources are allowed and detection is used only for attribution. When enabled (`DEVPASS_ENFORCE_SOURCE_RESTRICTION=true`), requests from unrecognized sources (browsers, curl, generic HTTP clients) are rejected with a `403` response.
+
+## How Detection Works
+
+The gateway identifies coding agents using a multi-layer priority chain:
+
+1. **`x-source` header** — Explicit source identifier sent by the client (also accepts full URLs like `https://hermes-agent.nousresearch.com`)
+2. **`User-Agent` header** — Automatic detection via pattern matching
+3. **`X-Title` / `X-OpenRouter-Title` header** — Title-based detection (e.g., "hermes agent")
+4. **`HTTP-Referer` header** — Referer URL pattern matching (e.g., `hermes-agent.nousresearch.com`)
+5. **User-Agent fallback** — If an unrecognized `x-source` is sent, falls back to UA detection
+
+If your tool sends a recognized `x-source` header, no further detection is needed. Otherwise, the gateway checks each subsequent layer until a match is found. If no layer produces a match, the request is rejected on DevPass plans only when source enforcement is enabled (see above); otherwise it is allowed and logged as an unrecognized source.
+
+## Supported Agents
+
+The following agents are automatically detected and allowed on DevPass plans:
+
+| Agent              | Source ID                | Detection                                                                   |
+| ------------------ | ------------------------ | --------------------------------------------------------------------------- |
+| Claude Code        | `claude.com/claude-code` | UA: `claude-cli/...` or contains `claude-code`                              |
+| Codex CLI          | `codex`                  | UA: `codex-cli/...`, `codex_cli_rs/...`, `codex-tui/...`                    |
+| OpenCode           | `opencode`               | UA: `opencode/...` or contains `opencode-cli`                               |
+| Roo Code           | `roo-code`               | UA: contains `roo-code` or `roo-cline`                                      |
+| Cline              | `cline`                  | UA: contains `cline`                                                        |
+| Cursor             | `cursor`                 | UA: `Cursor/...` or contains `cursor-llm`                                   |
+| Autohand Code      | `autohand`               | UA: `autohand/...` or contains `autohand-code`                              |
+| SoulForge          | `soulforge`              | UA: `soulforge/...`                                                         |
+| n8n                | `n8n`                    | UA: `n8n/...` or contains `n8n-workflow`                                    |
+| OpenClaw           | `openclaw`               | UA: `openclaw/...`                                                          |
+| Aider              | `aider`                  | UA: `aider/...` or contains `aider`                                         |
+| Continue           | `continue`               | UA: `continue/...` or contains `continue-dev`                               |
+| Windsurf / Codeium | `windsurf`               | UA: `windsurf/...` or `codeium/...`                                         |
+| Zed AI             | `zed`                    | UA: `Zed/...` or contains `zed-editor`                                      |
+| GitHub Copilot     | `github-copilot`         | UA: `github-copilot/...` or contains `copilot`                              |
+| Pi Agent           | `pi-agent`               | UA: `pi-agent/...` or contains `pi_agent`                                   |
+| Hermes Agent       | `hermes-agent`           | UA: `HermesAgent/...`, Title: `hermes agent`, Referer: `*.nousresearch.com` |
+| OpenAI SDK         | `openai-sdk`             | UA: `OpenAI/Python ...` or `Is/JS ...`                                      |
+| Any \*claw fork    | _(varies)_               | UA or source containing `claw`                                              |
+
+## Configuring Your Tool
+
+### Option 1: Send the `x-source` Header (Recommended)
+
+The most reliable way to identify your tool is to include the `x-source` header in every request:
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "x-source: your-tool-name" \
+  -d '{ "model": "claude-sonnet-4-5-20250514", "messages": [...] }'
+```
+
+The `x-source` value must match one of the recognized source IDs listed above. For \*claw forks, any value containing "claw" is accepted.
+
+### Option 2: Send an Identifiable User-Agent
+
+If you cannot set custom headers, ensure your tool sends a recognizable `User-Agent`:
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "User-Agent: my-tool/1.0.0" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -d '{ "model": "claude-sonnet-4-5-20250514", "messages": [...] }'
+```
+
+The User-Agent must match one of the patterns in the detection table above.
+
+## Error Response
+
+When a DevPass plan request comes from an unrecognized source, the gateway returns:
+
+```json
+{
+	"error": {
+		"message": "DevPass coding plans are restricted to recognized coding agents. Your request was not identified as coming from a supported tool. Please ensure your coding tool sends an identifiable User-Agent header or x-source header. Supported agents: Claude Code, Codex CLI, OpenCode, ..., and any *claw fork.",
+		"type": "gateway_error",
+		"param": null,
+		"code": "403"
+	}
+}
+```
+
+## Adding a New Agent
+
+To add support for a new coding agent, add an entry to the centralized registry at `packages/shared/src/coding-agents.ts`:
+
+```typescript
+{
+  id: "your-agent",
+  label: "Your Agent",
+  xSourceValues: ["your-agent"],
+  userAgentPatterns: [/^your-agent\//i, /\byour-agent\b/i],
+  titleValues: ["your agent"],          // optional
+  refererPatterns: [/your-agent\.com/i], // optional
+},
+```
+
+**Fields:**
+
+| Field               | Required | Description                                                                                                                                  |
+| ------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                | Yes      | Canonical identifier stored in `log.source`. Must be unique.                                                                                 |
+| `label`             | Yes      | Human-friendly display name shown in the UI and error messages.                                                                              |
+| `xSourceValues`     | Yes      | Array of `x-source` header values that identify this agent. Include alternate spellings and domain forms (e.g., `"your-agent.example.com"`). |
+| `userAgentPatterns` | Yes      | Array of regex patterns to match the User-Agent string. Patterns are tested in order; first match wins.                                      |
+| `titleValues`       | No       | Array of lowercase title strings to match against `X-Title` or `X-OpenRouter-Title` headers.                                                 |
+| `refererPatterns`   | No       | Array of regex patterns to match the `HTTP-Referer` header URL.                                                                              |
+
+After adding the entry:
+
+1. The agent is automatically detected from User-Agent headers
+2. The agent is automatically allowlisted for DevPass plans
+3. The agent appears in the Agents activity view in the dashboard
+4. The `x-source` values are normalized to the canonical `id` in logs
+
+No other code changes are required.
+
+## Removing an Agent
+
+To remove an agent from the allowlist, delete its entry from `packages/shared/src/coding-agents.ts`. Once source enforcement is enabled, requests from that tool will be rejected on DevPass plans after deployment.
+
+## Source Normalization
+
+Alternate `x-source` values are normalized to canonical IDs for consistent analytics:
+
+- `open-code` → `opencode`
+- `codeium` → `windsurf`
+- `roo-cline` → `roo-code`
+- `copilot` → `github-copilot`
+- `hermes` → `hermes-agent`
+- `hermes-agent.nousresearch.com` → `hermes-agent`
+
+Full URLs sent as `x-source` (e.g., `https://hermes-agent.nousresearch.com`) are automatically stripped of their protocol prefix before matching, so `https://hermes-agent.nousresearch.com` becomes `hermes-agent.nousresearch.com` which normalizes to `hermes-agent`.
+
+This ensures the same agent always appears under one name in logs and dashboards regardless of which header value the client sends.

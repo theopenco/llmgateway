@@ -98,6 +98,20 @@ describe("validateModelCapabilities - vision", () => {
 	});
 });
 
+describe("validateModelCapabilities - custom providers", () => {
+	it("skips all capability checks when the provider is custom", () => {
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "qwen3.6-plus", "custom", {
+				hasImages: true,
+				hasDocuments: true,
+				response_format: { type: "json_object" },
+				reasoning_effort: "high",
+				tools: [{ type: "function" }],
+			}),
+		).not.toThrow();
+	});
+});
+
 describe("validateModelCapabilities - embeddings", () => {
 	it("rejects embedding-only models on chat completions", () => {
 		expect(() =>

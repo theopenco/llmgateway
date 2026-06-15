@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getUserOrganizationIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -22,6 +22,7 @@ const projectSchema = z.object({
 	cacheDurationSeconds: z.number(),
 	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
+	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
@@ -43,6 +44,9 @@ const updateProjectSchema = z.object({
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
+	defaultRoutingStrategy: z
+		.enum(["auto", "price", "throughput", "latency"])
+		.optional(),
 	endUserEnabled: z.boolean().optional(),
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
@@ -194,6 +198,7 @@ projects.openapi(updateProject, async (c) => {
 		cacheDurationSeconds,
 		providerCacheControlEnabled,
 		mode,
+		defaultRoutingStrategy,
 		endUserEnabled,
 		endUserMarkupPercent,
 		allowedOrigins,
@@ -269,6 +274,26 @@ projects.openapi(updateProject, async (c) => {
 		updateData.mode = mode;
 	}
 
+	if (defaultRoutingStrategy !== undefined) {
+		// Personal coding-plan projects optimize for prompt caching, so only the
+		// default weighted routing or the price strategy are allowed — mirror the
+		// /dev-plans/settings restriction so the stored default never diverges
+		// from what the gateway will actually honor.
+		const projectOrg = projectUserOrg?.organization;
+		if (
+			projectOrg?.isPersonal &&
+			projectOrg.devPlan !== "none" &&
+			defaultRoutingStrategy !== "auto" &&
+			defaultRoutingStrategy !== "price"
+		) {
+			throw new HTTPException(400, {
+				message:
+					'Only the "auto" and "price" routing strategies are available on coding plans.',
+			});
+		}
+		updateData.defaultRoutingStrategy = defaultRoutingStrategy;
+	}
+
 	if (endUserEnabled !== undefined) {
 		updateData.endUserEnabled = endUserEnabled;
 	}
@@ -282,7 +307,11 @@ projects.openapi(updateProject, async (c) => {
 		updateData.allowedOrigins = normalizedAllowedOrigins;
 	}
 
-	const [updatedProject] = await db
+	// Roll through the cached client so its onMutate invalidates the gateway's
+	// cached project lookups (Drizzle cache + SWR mirror) for the project table.
+	// Otherwise settings like defaultRoutingStrategy/mode/caching would keep
+	// using the previous value until the cache expires (up to the SWR TTL).
+	const [updatedProject] = await cdb
 		.update(tables.project)
 		.set(updateData)
 		.where(eq(tables.project.id, id))
@@ -322,6 +351,15 @@ projects.openapi(updateProject, async (c) => {
 	}
 	if (mode !== undefined && mode !== project.mode) {
 		changes.mode = { old: project.mode, new: mode };
+	}
+	if (
+		defaultRoutingStrategy !== undefined &&
+		defaultRoutingStrategy !== project.defaultRoutingStrategy
+	) {
+		changes.defaultRoutingStrategy = {
+			old: project.defaultRoutingStrategy,
+			new: defaultRoutingStrategy,
+		};
 	}
 	if (
 		endUserEnabled !== undefined &&

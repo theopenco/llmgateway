@@ -244,6 +244,29 @@ export const videoStudioSuggestions = [
 	"A hot air balloon drifting over the Cappadocia valley at sunrise",
 ] as const;
 
+export const canvasSuggestions = [
+	"A pricing page with three tiers and a highlighted popular plan",
+	"A SaaS analytics dashboard with stat cards and a recent activity table",
+	"A login form with email, password, and social sign-in buttons",
+	"A landing page hero with a headline, subtitle, and two call-to-action buttons",
+	"A user profile card with avatar, bio, and follow button",
+	"A checkout summary with line items, totals, and a pay button",
+	"A kanban board with three columns of task cards",
+	"A settings page with grouped toggles and a save button",
+	"A testimonial section with three customer quote cards",
+	"An onboarding checklist with a progress bar and completed steps",
+	"A newsletter signup section with an input and subscribe button",
+	"A FAQ section with expandable questions",
+	"A team page with a grid of member cards",
+	"A product detail layout with gallery, description, and buy button",
+	"A job board listing with filters and job cards",
+	"An invoice template with a company header and itemized table",
+	"A contact form with name, email, subject, and message fields",
+	"A weather widget showing current conditions and a 5-day forecast",
+	"A blog post layout with title, author byline, and article body",
+	"A feature comparison table for two products",
+] as const;
+
 export const audioStudioSuggestions = [
 	"Welcome to LLM Gateway — one API for every model, with unified billing and analytics.",
 	"Thanks for calling. All of our agents are currently busy, but your call is important to us.",

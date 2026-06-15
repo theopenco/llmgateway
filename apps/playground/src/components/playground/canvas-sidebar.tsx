@@ -9,7 +9,6 @@ import {
 	LogOut,
 	MessageSquare,
 	PenTool,
-	Plus,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -45,6 +44,7 @@ import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
 import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
 
 import type { Organization } from "@/lib/types";
 
@@ -189,16 +189,8 @@ export function CanvasSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							onClick={onNewCanvas}
-							tooltip="New Canvas"
-							className="border border-border"
-						>
-							<Plus className="h-4 w-4" />
-							<span>New Canvas</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
+					<SidebarChatSearch disabled />
+					<SidebarNewAction label="New Canvas" onAction={onNewCanvas} />
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild

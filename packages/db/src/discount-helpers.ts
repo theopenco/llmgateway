@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 
 import { logger } from "@llmgateway/logger";
 
@@ -51,25 +51,25 @@ export async function getEffectiveDiscount(
 	model: string,
 ): Promise<EffectiveDiscount> {
 	try {
-		const now = new Date();
-
-		const notExpiredCondition = or(
-			isNull(discountTable.expiresAt),
-			gte(discountTable.expiresAt, now),
-		);
-
-		const discounts = await cdb
+		// The expiry filter is applied in JS below, NOT in SQL: a `now` Date in the
+		// WHERE clause becomes a query parameter, and the cached client keys its
+		// cache on hashQuery(sql, params). A per-request millisecond `now` would
+		// make that key unique every call, so the cache would never hit and this
+		// (hot, per-provider-candidate) lookup would query Postgres on every
+		// request. Keeping the SQL time-independent lets the cache key stay stable
+		// while expiry is still evaluated fresh on each call.
+		const rows = await cdb
 			.select({
 				id: discountTable.id,
 				organizationId: discountTable.organizationId,
 				provider: discountTable.provider,
 				model: discountTable.model,
 				discountPercent: discountTable.discountPercent,
+				expiresAt: discountTable.expiresAt,
 			})
 			.from(discountTable)
 			.where(
 				and(
-					notExpiredCondition,
 					or(
 						isNull(discountTable.organizationId),
 						organizationId
@@ -83,6 +83,15 @@ export async function getEffectiveDiscount(
 					or(eq(discountTable.model, model), isNull(discountTable.model)),
 				),
 			);
+
+		const now = Date.now();
+		const discounts = rows.filter(
+			// expiresAt is a Date on both a fresh query and a Drizzle cache hit (the
+			// cache stores the raw pg result and re-applies the timestamp parser on
+			// restore). Wrap in new Date() defensively so the compare is robust even
+			// if a serialized value ever reaches here.
+			(d) => d.expiresAt === null || new Date(d.expiresAt).getTime() >= now,
+		);
 
 		const modelMatches = (discountModel: string | null): boolean =>
 			discountModel !== null && discountModel === model;

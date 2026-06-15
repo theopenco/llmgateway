@@ -110,6 +110,20 @@ const AUTO_TOPUP_DISABLE_AFTER_MS =
 
 // Configuration for batch processing
 const LOG_QUEUE_BATCH_SIZE = Number(process.env.LOG_QUEUE_BATCH_SIZE) || 100;
+// Number of log-drain loops to run concurrently in-process. Each loop pulls an
+// independent batch (LPOP is atomic, so there is no double-processing) and
+// inserts on its own pool connection, multiplying drain throughput without
+// adding worker replicas. Bounded by the DB pool size and Postgres write
+// capacity.
+const LOG_QUEUE_CONCURRENCY = Math.max(
+	1,
+	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
+);
+// Cache organization retention levels to avoid a serial Postgres round-trip
+// before every log batch insert. retentionLevel changes rarely; the short TTL
+// bounds how long a stale value can keep retaining or stripping log payloads.
+const ORG_RETENTION_CACHE_TTL_MS =
+	Number(process.env.ORG_RETENTION_CACHE_TTL_MS) || 60_000;
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
@@ -664,7 +678,14 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						responsesApiData: null,
 						dataRetentionCleanedUp: true,
 					})
-					.where(inArray(log.id, idsToClean));
+					// Use `= ANY($1)` with a single array parameter instead of
+					// `inArray()`, which expands to `IN ($1, $2, ...)` with a
+					// variable number of binds per batch. A varying placeholder
+					// count makes pg_stat_statements fingerprint every batch size
+					// as a distinct query, so one logical operation shows up as
+					// thousands of individual queries. The array form keeps the
+					// query text constant.
+					.where(sql`${log.id} = ANY(${sql.param(idsToClean)}::text[])`);
 
 				return recordsToClean.length;
 			});
@@ -697,12 +718,13 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	}
 }
 
-export async function batchProcessLogs(): Promise<void> {
+export async function batchProcessLogs(): Promise<number> {
 	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
 	if (!lockAcquired) {
-		return;
+		return 0;
 	}
 
+	let processedCount = 0;
 	const deductedOrgIds: string[] = [];
 	// LLM SDK: wallets that crossed below the low-balance threshold this
 	// batch — webhooks are enqueued after the transaction commits.
@@ -714,7 +736,10 @@ export async function batchProcessLogs(): Promise<void> {
 	}> = [];
 
 	try {
-		await db.transaction(async (tx) => {
+		// Only batches that actually commit count toward processedCount, so a
+		// rolled-back transaction leaves it at 0 and the loop backs off instead
+		// of hot-looping on a failing batch.
+		processedCount = await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
 			const rows = await tx
 				.select({
@@ -764,7 +789,7 @@ export async function batchProcessLogs(): Promise<void> {
 			const unprocessedLogs = { rows };
 
 			if (unprocessedLogs.rows.length === 0) {
-				return;
+				return 0;
 			}
 
 			logger.info(
@@ -1298,15 +1323,19 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
-			// Mark all logs as processed within the same transaction
+			// Mark all logs as processed within the same transaction.
+			// `= ANY($1)` keeps the query text constant across batch sizes; see
+			// the data-retention cleanup above for why this matters.
 			await tx
 				.update(log)
 				.set({
 					processedAt: new Date(),
 				})
-				.where(inArray(log.id, logIds));
+				.where(sql`${log.id} = ANY(${sql.param(logIds)}::text[])`);
 
 			logger.debug(`Marked ${logIds.length} logs as processed`);
+
+			return unprocessedLogs.rows.length;
 		});
 
 		// Async low-balance alert check (outside transaction, non-blocking)
@@ -1342,6 +1371,8 @@ export async function batchProcessLogs(): Promise<void> {
 	} finally {
 		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
 	}
+
+	return processedCount;
 }
 
 async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
@@ -1488,15 +1519,62 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
-export async function processLogQueue(): Promise<void> {
+const orgRetentionCache = new Map<
+	string,
+	{ retentionLevel: "retain" | "none"; expiresAt: number }
+>();
+
+// Resolve organization retention levels, serving from the in-memory cache when
+// fresh and only querying Postgres for the ids that are missing or expired.
+async function getOrganizationRetentionLevels(
+	organizationIds: string[],
+): Promise<Map<string, "retain" | "none">> {
+	const now = Date.now();
+	const result = new Map<string, "retain" | "none">();
+	const missing: string[] = [];
+
+	for (const id of organizationIds) {
+		const cached = orgRetentionCache.get(id);
+		if (cached && cached.expiresAt > now) {
+			result.set(id, cached.retentionLevel);
+		} else {
+			missing.push(id);
+		}
+	}
+
+	if (missing.length > 0) {
+		const organizations = await cdb
+			.select({
+				id: organization.id,
+				retentionLevel: organization.retentionLevel,
+			})
+			.from(organization)
+			.where(inArray(organization.id, missing));
+
+		for (const org of organizations) {
+			result.set(org.id, org.retentionLevel);
+			orgRetentionCache.set(org.id, {
+				retentionLevel: org.retentionLevel,
+				expiresAt: now + ORG_RETENTION_CACHE_TTL_MS,
+			});
+		}
+	}
+
+	return result;
+}
+
+// Returns the number of messages successfully inserted, so the drain loop can
+// decide whether to sleep (partial batch) or immediately fetch the next batch
+// (full batch, queue likely still backed up).
+export async function processLogQueue(): Promise<number> {
 	if (Date.now() < logInsertCircuit.nextAttemptAt) {
-		return;
+		return 0;
 	}
 
 	const message = await consumeFromQueue(LOG_QUEUE, LOG_QUEUE_BATCH_SIZE);
 
 	if (!message) {
-		return;
+		return 0;
 	}
 
 	const MAX_RETRIES = 5;
@@ -1506,27 +1584,18 @@ export async function processLogQueue(): Promise<void> {
 		const organizationIds = Array.from(
 			new Set(logData.map((data) => data.organizationId)),
 		);
-		const organizations =
+		const selectStart = Date.now();
+		const retentionByOrg =
 			organizationIds.length > 0
-				? await cdb
-						.select({
-							id: organization.id,
-							retentionLevel: organization.retentionLevel,
-						})
-						.from(organization)
-						.where(inArray(organization.id, organizationIds))
-				: [];
-		const organizationsById = new Map(
-			organizations.map((organization) => [organization.id, organization]),
-		);
+				? await getOrganizationRetentionLevels(organizationIds)
+				: new Map<string, "retain" | "none">();
+		const selectMs = Date.now() - selectStart;
 
 		const processedLogData: (
 			| LogInsertData
 			| Omit<LogInsertData, "messages" | "content">
 		)[] = logData.map((data) => {
-			const organization = organizationsById.get(data.organizationId);
-
-			if (organization?.retentionLevel === "none") {
+			if (retentionByOrg.get(data.organizationId) === "none") {
 				const {
 					messages: _messages,
 					content: _content,
@@ -1548,9 +1617,14 @@ export async function processLogQueue(): Promise<void> {
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
 				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
+				const insertStart = Date.now();
 				await db.insert(log).values(processedLogData as LogInsertData[]);
+				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
-				return; // Success, exit function
+				logger.info(
+					`Processed log batch: ${message.length} rows (org lookup ${selectMs}ms, insert ${insertMs}ms)`,
+				);
+				return message.length; // Success, exit function
 			} catch (insertError) {
 				lastError =
 					insertError instanceof Error
@@ -1584,6 +1658,8 @@ export async function processLogQueue(): Promise<void> {
 		for (const msg of message) {
 			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
 		}
+
+		return 0;
 	} catch (error) {
 		// Opens the circuit when the pre-insert postgres read (cdb.select) throws,
 		// so we stop draining the queue while postgres is down.
@@ -1606,6 +1682,8 @@ export async function processLogQueue(): Promise<void> {
 					: new Error(String(requeueError)),
 			);
 		}
+
+		return 0;
 	}
 }
 
@@ -1614,17 +1692,24 @@ let activeLoops = 0;
 let stopFailed = false;
 
 // Independent worker loops
-async function runLogQueueLoop() {
+async function runLogQueueLoop(loopIndex = 0) {
 	activeLoops++;
-	logger.info("Starting log queue processing loop...");
+	logger.info(`Starting log queue processing loop ${loopIndex}...`);
 	try {
 		while (!isStopRequested()) {
 			try {
-				await processLogQueue();
-				await interruptibleSleep(1000);
+				const drained = await processLogQueue();
+				// Only idle-poll when the queue came back empty. As long as any
+				// messages were drained the queue is still backed up, so loop
+				// straight into the next batch instead of sleeping. Tying this to
+				// LOG_QUEUE_BATCH_SIZE was wrong: when the batch size is raised
+				// above the steady-state queue depth the sleep fired every cycle.
+				if (drained === 0) {
+					await interruptibleSleep(1000);
+				}
 			} catch (error) {
 				logger.error(
-					"Error in log queue loop",
+					`Error in log queue loop ${loopIndex}`,
 					error instanceof Error ? error : new Error(String(error)),
 				);
 				await interruptibleSleep(5000);
@@ -1632,7 +1717,7 @@ async function runLogQueueLoop() {
 		}
 	} finally {
 		activeLoops--;
-		logger.info("Log queue loop stopped");
+		logger.info(`Log queue loop ${loopIndex} stopped`);
 	}
 }
 
@@ -1673,9 +1758,15 @@ async function runBatchProcessLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await batchProcessLogs();
+				const processed = await batchProcessLogs();
 
-				await interruptibleSleep(interval);
+				// A full batch means more unprocessed logs remain, so loop straight
+				// into the next batch instead of sleeping. Without this the loop is
+				// hard-capped at CREDIT_BATCH_SIZE / interval logs per second (e.g.
+				// 100 / 5s = 20/s) regardless of how far behind credit processing is.
+				if (processed < CREDIT_BATCH_SIZE) {
+					await interruptibleSleep(interval);
+				}
 			} catch (error) {
 				logger.error(
 					"Error in batch process loop",
@@ -2412,7 +2503,7 @@ export async function startWorker() {
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(
-		`- Log queue: dequeues up to ${LOG_QUEUE_BATCH_SIZE} logs per iteration`,
+		`- Log queue: ${LOG_QUEUE_CONCURRENCY} concurrent loop(s), each dequeues up to ${LOG_QUEUE_BATCH_SIZE} logs per iteration`,
 	);
 	logger.info(
 		`- Credit processing: processes up to ${CREDIT_BATCH_SIZE} logs per batch`,
@@ -2450,7 +2541,9 @@ export async function startWorker() {
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();
-	void runLogQueueLoop();
+	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
+		void runLogQueueLoop(i);
+	}
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();

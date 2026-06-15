@@ -310,6 +310,14 @@ export const completionsRequestSchema = z.object({
 				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error.",
 			example: "flex",
 		}),
+	routing: z
+		.enum(["auto", "price", "throughput", "latency"])
+		.optional()
+		.openapi({
+			description:
+				"Provider selection strategy for model-id routing, named after the factor it optimizes. `auto` (default) uses the full weighted smart-routing score. `price`, `throughput`, and `latency` each give a 90% relative weight to that factor while keeping a small uptime weight so requests still fall back to other providers when the top pick has extremely bad uptime. `latency` only biases streaming requests. Combining `routing` with a specific provider prefix (e.g. `openai/gpt-4o`) returns a 400. On coding (dev) plans only `auto` and `price` are allowed.",
+			example: "price",
+		}),
 	free_models_only: z.boolean().optional().default(false).openapi({
 		description:
 			"When used with auto routing, only route to free models (models with zero input and output pricing)",

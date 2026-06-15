@@ -77,6 +77,7 @@ const projectSchema = z.object({
 	cacheDurationSeconds: z.number(),
 	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
+	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),

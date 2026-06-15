@@ -229,6 +229,7 @@ export const zaiModels = [
 			{
 				providerId: "nebius",
 				externalId: "zai-org/GLM-5",
+				deactivatedAt: new Date("2026-06-22"),
 				inputPrice: "1.0e-6",
 				outputPrice: "3.2e-6",
 				requestPrice: "0",

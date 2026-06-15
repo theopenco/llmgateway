@@ -6,7 +6,7 @@ import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, tables, eq, shortid } from "@llmgateway/db";
+import { cdb, db, tables, eq, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
@@ -885,6 +885,12 @@ const getStatus = createRoute({
 						apiKey: z.string().nullable(),
 						devPlanAllowAllModels: z.boolean(),
 						retentionLevel: z.enum(["retain", "none"]),
+						defaultRoutingStrategy: z.enum([
+							"auto",
+							"price",
+							"throughput",
+							"latency",
+						]),
 					}),
 				},
 			},
@@ -932,6 +938,7 @@ devPlans.openapi(getStatus, async (c) => {
 			apiKey: null,
 			devPlanAllowAllModels: false,
 			retentionLevel: "none" as const,
+			defaultRoutingStrategy: "auto" as const,
 		});
 	}
 
@@ -942,6 +949,8 @@ devPlans.openapi(getStatus, async (c) => {
 	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
 	let projectId: string | null = null;
+	let defaultRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
+		"auto";
 	if (personalOrg.devPlan !== "none") {
 		// Find the default project for this org. Order by createdAt asc so we
 		// always return the original "Default Project" rather than whichever
@@ -959,6 +968,7 @@ devPlans.openapi(getStatus, async (c) => {
 
 		if (project) {
 			projectId = project.id;
+			defaultRoutingStrategy = project.defaultRoutingStrategy;
 			apiKey = await getOrCreatePersonalOrgApiKey(
 				personalOrg.id,
 				project.id,
@@ -984,6 +994,7 @@ devPlans.openapi(getStatus, async (c) => {
 		apiKey,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
 		retentionLevel: personalOrg.retentionLevel,
+		defaultRoutingStrategy,
 	});
 });
 
@@ -998,6 +1009,9 @@ const updateSettings = createRoute({
 					schema: z.object({
 						devPlanAllowAllModels: z.boolean().optional(),
 						retentionLevel: z.enum(["retain", "none"]).optional(),
+						// Coding plans optimize for prompt caching, so only the
+						// default weighted routing or the price strategy are allowed.
+						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
 					}),
 				},
 			},
@@ -1011,6 +1025,12 @@ const updateSettings = createRoute({
 						success: z.boolean(),
 						devPlanAllowAllModels: z.boolean(),
 						retentionLevel: z.enum(["retain", "none"]),
+						defaultRoutingStrategy: z.enum([
+							"auto",
+							"price",
+							"throughput",
+							"latency",
+						]),
 					}),
 				},
 			},
@@ -1021,7 +1041,8 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanAllowAllModels, retentionLevel } = c.req.valid("json");
+	const { devPlanAllowAllModels, retentionLevel, defaultRoutingStrategy } =
+		c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1095,6 +1116,40 @@ devPlans.openapi(updateSettings, async (c) => {
 		}
 	}
 
+	// The default routing strategy lives on the project, not the org. Apply it to
+	// the org's default project (the same one surfaced by the status endpoint).
+	let effectiveRoutingStrategy: "auto" | "price" | "throughput" | "latency" =
+		"auto";
+	const defaultProject = await db.query.project.findFirst({
+		where: {
+			organizationId: {
+				eq: personalOrg.id,
+			},
+		},
+		orderBy: {
+			createdAt: "asc",
+		},
+	});
+	if (defaultProject) {
+		effectiveRoutingStrategy = defaultProject.defaultRoutingStrategy;
+		if (
+			defaultRoutingStrategy !== undefined &&
+			defaultRoutingStrategy !== defaultProject.defaultRoutingStrategy
+		) {
+			// Cached client so the gateway's project-cache invalidates and the new
+			// default routing strategy takes effect immediately (see projects.ts).
+			await cdb
+				.update(tables.project)
+				.set({ defaultRoutingStrategy })
+				.where(eq(tables.project.id, defaultProject.id));
+			changes.defaultRoutingStrategy = {
+				old: defaultProject.defaultRoutingStrategy,
+				new: defaultRoutingStrategy,
+			};
+			effectiveRoutingStrategy = defaultRoutingStrategy;
+		}
+	}
+
 	if (Object.keys(changes).length > 0) {
 		await logAuditEvent({
 			organizationId: personalOrg.id,
@@ -1110,6 +1165,7 @@ devPlans.openapi(updateSettings, async (c) => {
 		devPlanAllowAllModels:
 			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
 		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
+		defaultRoutingStrategy: effectiveRoutingStrategy,
 	});
 });
 
