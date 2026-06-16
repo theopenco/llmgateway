@@ -4,6 +4,7 @@ import { db, tables } from "@llmgateway/db";
 
 import {
 	handleInvoicePaymentSucceeded,
+	handlePaymentIntentFailed,
 	handleSubscriptionUpdated,
 } from "./stripe.js";
 import { deleteAll } from "./testing.js";
@@ -380,5 +381,90 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		expect(org?.devPlanCreditsLimit).toBe("90");
 		expect(org?.devPlanCreditsFrozen).toBe(true);
 		expect(org?.devPlanCreditsLimitBeforeFreeze).toBe("312");
+	});
+});
+
+function makeFailedPaymentIntentEvent(overrides: {
+	amount: number;
+	metadata: Record<string, string>;
+	id?: string;
+}): Stripe.PaymentIntentPaymentFailedEvent {
+	return {
+		id: "evt_test_pi_failed",
+		type: "payment_intent.payment_failed",
+		data: {
+			object: {
+				id: overrides.id ?? "pi_test_failed_001",
+				customer: "cus_test_pi_failed",
+				amount: overrides.amount,
+				currency: "usd",
+				metadata: overrides.metadata,
+				last_payment_error: {
+					message: "Your card was declined.",
+					code: "card_declined",
+					decline_code: "generic_decline",
+				},
+			},
+		},
+	} as unknown as Stripe.PaymentIntentPaymentFailedEvent;
+}
+
+describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("does not record a credit_topup for a failed subscription invoice payment", async () => {
+		await seedDevPlanOrg();
+
+		await handlePaymentIntentFailed(
+			makeFailedPaymentIntentEvent({
+				amount: 7900,
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+				},
+			}),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+
+		// Subscription-failure tracking still runs (count bumped, dunning email).
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.paymentFailureCount).toBe(1);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+	});
+
+	test("records a credit_topup for a failed manual credit purchase", async () => {
+		await seedDevPlanOrg();
+
+		await handlePaymentIntentFailed(
+			makeFailedPaymentIntentEvent({
+				amount: 5150,
+				metadata: {
+					organizationId: ORG_ID,
+					baseAmount: "50",
+				},
+			}),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("credit_topup");
+		expect(txns[0].status).toBe("failed");
+		expect(txns[0].creditAmount).toBe("50");
 	});
 });

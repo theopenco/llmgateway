@@ -2342,7 +2342,7 @@ async function handlePaymentIntentSucceeded(
 	);
 }
 
-async function handlePaymentIntentFailed(
+export async function handlePaymentIntentFailed(
 	event: Stripe.PaymentIntentPaymentFailedEvent,
 ) {
 	const paymentIntent = event.data.object;
@@ -2414,29 +2414,54 @@ async function handlePaymentIntentFailed(
 		stripePaymentIntentId: paymentIntent.id,
 	});
 
-	// Check if this is an auto top-up with an existing pending transaction
+	// Only credit top-up payment intents may be recorded as a `credit_topup`
+	// transaction. Subscription invoice payments (Pro / DevPass / chat plan) also
+	// emit `payment_intent.payment_failed`, but recording them here produced a
+	// phantom "Credit top-up failed" row on the customer's billing history (and
+	// the credit-purchase paths never create such a charge). Mirror the
+	// `baseAmount` guard in handlePaymentIntentSucceeded: actual top-ups always
+	// set `baseAmount` (manual + auto) or carry a pending `transactionId`;
+	// subscription invoice intents carry neither. Failure tracking above
+	// (paymentFailure row + dunning email) still runs for subscription invoices,
+	// and dev/chat plan credit freezes are handled in handleInvoicePaymentFailed.
 	const transactionId = metadata?.transactionId;
-	if (transactionId) {
-		// Update existing pending transaction to failed
-		const updatedTransaction = await db
-			.update(tables.transaction)
-			.set({
-				status: "failed",
-				description: `Auto top-up failed via Stripe webhook: ${errorMessage}`,
-			})
-			.where(eq(tables.transaction.id, transactionId))
-			.returning()
-			.then((rows) => rows[0]);
+	const isCreditTopup =
+		metadata?.baseAmount !== undefined || transactionId !== undefined;
+	if (isCreditTopup) {
+		if (transactionId) {
+			// Update existing pending transaction to failed
+			const updatedTransaction = await db
+				.update(tables.transaction)
+				.set({
+					status: "failed",
+					description: `Auto top-up failed via Stripe webhook: ${errorMessage}`,
+				})
+				.where(eq(tables.transaction.id, transactionId))
+				.returning()
+				.then((rows) => rows[0]);
 
-		if (updatedTransaction) {
-			logger.info(
-				`Updated pending transaction ${transactionId} to failed for organization ${organizationId}`,
-			);
+			if (updatedTransaction) {
+				logger.info(
+					`Updated pending transaction ${transactionId} to failed for organization ${organizationId}`,
+				);
+			} else {
+				logger.warn(
+					`Could not find pending transaction ${transactionId} for organization ${organizationId}`,
+				);
+				// Fallback: create new failed transaction record
+				await db.insert(tables.transaction).values({
+					organizationId,
+					type: "credit_topup",
+					creditAmount: creditAmount ? creditAmount.toString() : null,
+					amount: totalAmountInDollars.toString(),
+					currency: paymentIntent.currency.toUpperCase(),
+					status: "failed",
+					stripePaymentIntentId: paymentIntent.id,
+					description: `Credit top-up failed via Stripe (fallback): ${errorMessage}`,
+				});
+			}
 		} else {
-			logger.warn(
-				`Could not find pending transaction ${transactionId} for organization ${organizationId}`,
-			);
-			// Fallback: create new failed transaction record
+			// Create new failed transaction record (for manual top-ups or payments without transactionId)
 			await db.insert(tables.transaction).values({
 				organizationId,
 				type: "credit_topup",
@@ -2445,21 +2470,9 @@ async function handlePaymentIntentFailed(
 				currency: paymentIntent.currency.toUpperCase(),
 				status: "failed",
 				stripePaymentIntentId: paymentIntent.id,
-				description: `Credit top-up failed via Stripe (fallback): ${errorMessage}`,
+				description: `Credit top-up failed via Stripe: ${errorMessage}`,
 			});
 		}
-	} else {
-		// Create new failed transaction record (for manual top-ups or payments without transactionId)
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "credit_topup",
-			creditAmount: creditAmount ? creditAmount.toString() : null,
-			amount: totalAmountInDollars.toString(),
-			currency: paymentIntent.currency.toUpperCase(),
-			status: "failed",
-			stripePaymentIntentId: paymentIntent.id,
-			description: `Credit top-up failed via Stripe: ${errorMessage}`,
-		});
 	}
 
 	// Update payment failure tracking with exponential backoff
