@@ -20,6 +20,12 @@ import {
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
+	complianceBlockMessage,
+	filterCompliantProviders,
+	getActiveCompliancePolicy,
+	logComplianceBlock,
+} from "@/lib/compliance.js";
+import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
@@ -3889,6 +3895,27 @@ videos.openapi(createVideo, async (c) => {
 		});
 	}
 
+	// Enterprise provider compliance policy: restrict video routing to providers
+	// that meet the org's policy, and block before dispatch if none qualify.
+	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	let complianceModelInfo: ModelDefinition = modelInfo;
+	if (videoCompliancePolicy) {
+		const compliantProviders = filterCompliantProviders(
+			modelInfo.providers as ProviderModelMapping[],
+			videoCompliancePolicy,
+		);
+		if (compliantProviders.length === 0) {
+			await logComplianceBlock(project.organizationId, {
+				apiKeyId: apiKey.id,
+				model: normalizedModel,
+			});
+			throw new HTTPException(403, {
+				message: complianceBlockMessage(normalizedModel),
+			});
+		}
+		complianceModelInfo = { ...modelInfo, providers: compliantProviders };
+	}
+
 	const {
 		providerMapping,
 		providerContext,
@@ -3896,7 +3923,7 @@ videos.openapi(createVideo, async (c) => {
 		routingMetadata,
 		orderedMappings,
 	} = await resolveVideoExecution(
-		modelInfo,
+		complianceModelInfo,
 		requestedProvider,
 		videoSize,
 		videoDurationSeconds,

@@ -107,7 +107,9 @@ const updateOrganizationSchema = z.object({
 	billingTaxId: z.string().optional(),
 	billingNotes: z.string().optional(),
 	retentionLevel: z.enum(["retain", "none"]).optional(),
-	providerCompliancePolicy: providerCompliancePolicySchema.optional(),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
 	autoTopUpAmount: z
@@ -611,7 +613,11 @@ organization.openapi(updateOrganization, async (c) => {
 			new: retentionLevel,
 		};
 	}
-	if (providerCompliancePolicy !== undefined) {
+	if (
+		providerCompliancePolicy !== undefined &&
+		JSON.stringify(oldOrg.providerCompliancePolicy ?? null) !==
+			JSON.stringify(providerCompliancePolicy ?? null)
+	) {
 		changes.providerCompliancePolicy = {
 			old: oldOrg.providerCompliancePolicy,
 			new: providerCompliancePolicy,

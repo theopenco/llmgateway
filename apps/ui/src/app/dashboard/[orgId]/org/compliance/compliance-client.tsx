@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Save } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
@@ -134,6 +134,24 @@ export function ComplianceClient() {
 			| undefined) ?? DEFAULT_POLICY,
 	);
 
+	// Reset local edits to the selected org's saved policy when the org changes,
+	// so switching organizations doesn't persist the previous org's policy.
+	const loadedOrgId = useRef(selectedOrganization?.id);
+	useEffect(() => {
+		if (loadedOrgId.current !== selectedOrganization?.id) {
+			loadedOrgId.current = selectedOrganization?.id;
+			setPolicy(
+				(selectedOrganization?.providerCompliancePolicy as
+					| ProviderCompliancePolicy
+					| null
+					| undefined) ?? DEFAULT_POLICY,
+			);
+		}
+	}, [
+		selectedOrganization?.id,
+		selectedOrganization?.providerCompliancePolicy,
+	]);
+
 	const { allowed, blocked } = useMemo(() => {
 		const allowedList: ProviderDefinition[] = [];
 		const blockedList: ProviderDefinition[] = [];
@@ -178,7 +196,7 @@ export function ComplianceClient() {
 		return <ContactSalesCard />;
 	}
 
-	if (isLoadingTeam || !currentUserRole) {
+	if (isLoadingTeam) {
 		return (
 			<div className="flex items-center justify-center py-12">
 				<div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />

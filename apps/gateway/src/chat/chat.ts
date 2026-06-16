@@ -29,6 +29,13 @@ import {
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
 import {
+	complianceBlockMessage,
+	filterCompliantProviders,
+	getActiveCompliancePolicy,
+	isProviderIdCompliant,
+	logComplianceBlock,
+} from "@/lib/compliance.js";
+import {
 	calculateCosts,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
@@ -135,7 +142,6 @@ import {
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
-	isProviderCompliant,
 } from "@llmgateway/models";
 import {
 	detectCodingAgentFromReferer,
@@ -2421,63 +2427,38 @@ chat.openapi(completions, async (c) => {
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
-	const compliancePolicy =
-		organization.plan === "enterprise" &&
-		organization.providerCompliancePolicy?.enabled
-			? organization.providerCompliancePolicy
-			: undefined;
+	const compliancePolicy = getActiveCompliancePolicy(organization);
 
-	const filterCompliantProviders = <T extends { providerId: string }>(
+	const applyCompliancePolicy = <T extends { providerId: string }>(
 		list: T[],
-	): T[] => {
-		if (!compliancePolicy) {
-			return list;
-		}
-		return list.filter((p) => {
-			const definition = getProviderDefinition(p.providerId);
-			return definition
-				? isProviderCompliant(definition, compliancePolicy)
-				: false;
-		});
-	};
+	): T[] =>
+		compliancePolicy ? filterCompliantProviders(list, compliancePolicy) : list;
 
 	const enforceCompliancePolicy = async () => {
 		if (!compliancePolicy) {
 			return;
 		}
-		iamFilteredModelProviders = filterCompliantProviders(
+		iamFilteredModelProviders = applyCompliancePolicy(
 			iamFilteredModelProviders,
 		);
-		expandedIamFilteredModelProviders = filterCompliantProviders(
+		expandedIamFilteredModelProviders = applyCompliancePolicy(
 			expandedIamFilteredModelProviders,
 		);
 		// A pinned provider (e.g. "deepseek/...") is selected directly rather than
 		// from the filtered array, so check it explicitly. Auto/unpinned routing
 		// relies on the emptiness check below.
-		const pinnedDefinition =
-			usedProvider && usedProvider !== "llmgateway" && usedProvider !== "custom"
-				? getProviderDefinition(usedProvider)
-				: undefined;
 		const pinnedBlocked =
-			pinnedDefinition !== undefined &&
-			!isProviderCompliant(pinnedDefinition, compliancePolicy);
+			usedProvider !== undefined &&
+			usedProvider !== "llmgateway" &&
+			usedProvider !== "custom" &&
+			!isProviderIdCompliant(usedProvider, compliancePolicy);
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
-			try {
-				await logViolation(
-					project.organizationId,
-					{
-						ruleId: "provider_compliance",
-						ruleName: "Provider compliance policy",
-						category: "provider_compliance",
-						action: "block",
-					},
-					{ apiKeyId: apiKey.id, model: requestedModel },
-				);
-			} catch {
-				// Silently ignore logging failures
-			}
+			await logComplianceBlock(project.organizationId, {
+				apiKeyId: apiKey.id,
+				model: requestedModel,
+			});
 			throw new HTTPException(403, {
-				message: `This request was blocked by your organization's provider compliance policy. No available provider for ${modelInfo.id} meets the required certifications. Contact your LLMGateway admin to adjust the policy.`,
+				message: complianceBlockMessage(modelInfo.id),
 			});
 		}
 	};
@@ -2495,7 +2476,12 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	await enforceCompliancePolicy();
+	// For auto routing, modelInfo is still the synthetic "llmgateway" model here;
+	// compliance is enforced after the real model/provider is resolved (and the
+	// auto candidate set is compliance-filtered during selection below).
+	if (usedInternalModel !== "auto") {
+		await enforceCompliancePolicy();
+	}
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
@@ -2682,121 +2668,129 @@ chat.openapi(completions, async (c) => {
 				? availableModelProviders.filter(providerSupportsCachedInput)
 				: availableModelProviders;
 
+			// Drop providers that don't meet the org's compliance policy so auto
+			// routing picks a compliant provider instead of being blocked later.
+			const complianceFilteredProviders = applyCompliancePolicy(
+				cachedFilteredProviders,
+			);
+
 			// Filter by context size requirement, reasoning capability, and deprecation status
-			const suitableProviders = cachedFilteredProviders.filter((provider) => {
-				// Skip deprecated provider mappings
-				if (provider.deprecatedAt && now > provider.deprecatedAt!) {
-					return false;
-				}
-
-				// Use the provider's context size, defaulting to a reasonable value if not specified
-				const modelContextSize = provider.contextSize ?? 8192;
-				const contextSizeMet = modelContextSize >= requiredContextSize;
-
-				// If no_reasoning is true, exclude reasoning models
-				if (no_reasoning && provider.reasoning === true) {
-					return false;
-				}
-
-				// Check reasoning capability if reasoning_effort is specified.
-				// "none" means "no reasoning", so it doesn't require a
-				// reasoning-capable provider.
-				if (
-					reasoning_effort !== undefined &&
-					reasoning_effort !== "none" &&
-					provider.reasoning !== true
-				) {
-					return false;
-				}
-
-				// Check reasoning.max_tokens support if specified
-				if (
-					reasoning_max_tokens !== undefined &&
-					provider.reasoningMaxTokens !== true
-				) {
-					return false;
-				}
-
-				// Check tool capability if tools or tool_choice is specified
-				if (
-					(tools !== undefined || tool_choice !== undefined) &&
-					provider.tools !== true
-				) {
-					return false;
-				}
-
-				// Check web search capability if web search tool is requested
-				if (webSearchTool && provider.webSearch !== true) {
-					return false;
-				}
-
-				// Skip mappings that don't advertise supportsN when n > 1 so
-				// auto-routing doesn't pick one and trip the post-selection
-				// 400 guard. The post-guard stays as a safety net. Also skip
-				// mappings whose upstream caps n (maxN) or rejects n > 1 on
-				// streaming (supportsNStreaming === false, e.g. Google).
-				if (n !== undefined && n > 1) {
-					if (provider.supportsN !== true) {
+			const suitableProviders = complianceFilteredProviders.filter(
+				(provider) => {
+					// Skip deprecated provider mappings
+					if (provider.deprecatedAt && now > provider.deprecatedAt!) {
 						return false;
 					}
-					if (provider.maxN !== undefined && n > provider.maxN) {
+
+					// Use the provider's context size, defaulting to a reasonable value if not specified
+					const modelContextSize = provider.contextSize ?? 8192;
+					const contextSizeMet = modelContextSize >= requiredContextSize;
+
+					// If no_reasoning is true, exclude reasoning models
+					if (no_reasoning && provider.reasoning === true) {
 						return false;
 					}
-					if (stream && provider.supportsNStreaming === false) {
+
+					// Check reasoning capability if reasoning_effort is specified.
+					// "none" means "no reasoning", so it doesn't require a
+					// reasoning-capable provider.
+					if (
+						reasoning_effort !== undefined &&
+						reasoning_effort !== "none" &&
+						provider.reasoning !== true
+					) {
 						return false;
 					}
-				}
 
-				// Check JSON output capability if json_object or json_schema response format is requested
-				if (
-					response_format?.type === "json_object" ||
-					response_format?.type === "json_schema"
-				) {
-					if (provider.jsonOutput !== true) {
+					// Check reasoning.max_tokens support if specified
+					if (
+						reasoning_max_tokens !== undefined &&
+						provider.reasoningMaxTokens !== true
+					) {
 						return false;
 					}
-				}
 
-				// Check JSON schema output capability if json_schema response format is requested
-				if (response_format?.type === "json_schema") {
-					if (provider.jsonOutputSchema !== true) {
+					// Check tool capability if tools or tool_choice is specified
+					if (
+						(tools !== undefined || tool_choice !== undefined) &&
+						provider.tools !== true
+					) {
 						return false;
 					}
-				}
 
-				// Check vision capability if images are present in messages
-				if (hasImages && provider.vision !== true) {
-					return false;
-				}
+					// Check web search capability if web search tool is requested
+					if (webSearchTool && provider.webSearch !== true) {
+						return false;
+					}
 
-				if (hasAudio && provider.audio !== true) {
-					return false;
-				}
+					// Skip mappings that don't advertise supportsN when n > 1 so
+					// auto-routing doesn't pick one and trip the post-selection
+					// 400 guard. The post-guard stays as a safety net. Also skip
+					// mappings whose upstream caps n (maxN) or rejects n > 1 on
+					// streaming (supportsNStreaming === false, e.g. Google).
+					if (n !== undefined && n > 1) {
+						if (provider.supportsN !== true) {
+							return false;
+						}
+						if (provider.maxN !== undefined && n > provider.maxN) {
+							return false;
+						}
+						if (stream && provider.supportsNStreaming === false) {
+							return false;
+						}
+					}
 
-				if (
-					hasAudio &&
-					audioFormats.length > 0 &&
-					!audioFormats.every((fmt) =>
-						googleProviderSupportsAudioFormat(provider.providerId, fmt),
-					)
-				) {
-					return false;
-				}
+					// Check JSON output capability if json_object or json_schema response format is requested
+					if (
+						response_format?.type === "json_object" ||
+						response_format?.type === "json_schema"
+					) {
+						if (provider.jsonOutput !== true) {
+							return false;
+						}
+					}
 
-				if (hasDocuments && provider.document !== true) {
-					return false;
-				}
+					// Check JSON schema output capability if json_schema response format is requested
+					if (response_format?.type === "json_schema") {
+						if (provider.jsonOutputSchema !== true) {
+							return false;
+						}
+					}
 
-				if (
-					max_tokens !== undefined &&
-					provider.maxOutput !== undefined &&
-					max_tokens > provider.maxOutput
-				) {
-					return false;
-				}
+					// Check vision capability if images are present in messages
+					if (hasImages && provider.vision !== true) {
+						return false;
+					}
 
-				return contextSizeMet;
-			});
+					if (hasAudio && provider.audio !== true) {
+						return false;
+					}
+
+					if (
+						hasAudio &&
+						audioFormats.length > 0 &&
+						!audioFormats.every((fmt) =>
+							googleProviderSupportsAudioFormat(provider.providerId, fmt),
+						)
+					) {
+						return false;
+					}
+
+					if (hasDocuments && provider.document !== true) {
+						return false;
+					}
+
+					if (
+						max_tokens !== undefined &&
+						provider.maxOutput !== undefined &&
+						max_tokens > provider.maxOutput
+					) {
+						return false;
+					}
+
+					return contextSizeMet;
+				},
+			);
 
 			if (suitableProviders.length > 0) {
 				// Find the cheapest among the suitable providers for this model

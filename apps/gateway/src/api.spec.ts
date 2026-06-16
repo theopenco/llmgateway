@@ -238,6 +238,51 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	test("/v1/embeddings is blocked by the compliance policy too", async () => {
+		// Compliance enforcement also covers non-chat endpoints. text-embedding-3-small
+		// resolves to OpenAI, whose dataPolicy has promptLogging: true.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, blockPromptLogging: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-embeddings",
+			token: "real-token-compliance-embeddings",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-embeddings",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-embeddings",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				input: "Hello compliance!",
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-unsupported-service-tier",
