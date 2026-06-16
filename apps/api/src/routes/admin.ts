@@ -2927,6 +2927,33 @@ const deleteGlobalDiscount = createRoute({
 	},
 });
 
+// --- All Organization Discounts (across all organizations) ---
+
+const orgDiscountSchema = discountSchema.extend({
+	organizationName: z.string().nullable(),
+});
+
+const orgDiscountsListSchema = z.object({
+	discounts: z.array(orgDiscountSchema),
+	total: z.number(),
+});
+
+const getAllOrganizationDiscounts = createRoute({
+	method: "get",
+	path: "/discounts/organizations",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: orgDiscountsListSchema.openapi({}),
+				},
+			},
+			description: "List of all organization-specific discounts.",
+		},
+	},
+});
+
 // --- Organization Discounts ---
 
 const getOrganizationDiscounts = createRoute({
@@ -3196,6 +3223,37 @@ admin.openapi(deleteGlobalDiscount, async (c) => {
 	}
 
 	return c.json({ success: true });
+});
+
+admin.openapi(getAllOrganizationDiscounts, async (c) => {
+	const discounts = await db
+		.select({
+			id: tables.discount.id,
+			organizationId: tables.discount.organizationId,
+			organizationName: tables.organization.name,
+			provider: tables.discount.provider,
+			model: tables.discount.model,
+			discountPercent: tables.discount.discountPercent,
+			reason: tables.discount.reason,
+			expiresAt: tables.discount.expiresAt,
+			createdAt: tables.discount.createdAt,
+			updatedAt: tables.discount.updatedAt,
+		})
+		.from(tables.discount)
+		.leftJoin(
+			tables.organization,
+			eq(tables.discount.organizationId, tables.organization.id),
+		)
+		.where(isNotNull(tables.discount.organizationId))
+		.orderBy(desc(tables.discount.createdAt));
+
+	return c.json({
+		discounts: discounts.map((d) => ({
+			...formatDiscount(d),
+			organizationName: d.organizationName,
+		})),
+		total: discounts.length,
+	});
 });
 
 // --- Organization Discount Handlers ---

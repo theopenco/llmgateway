@@ -178,7 +178,7 @@ export function AdminShell({ children }: AdminShellProps) {
 								<Link href="/discounts" className="block">
 									<SidebarMenuButton isActive={isDiscounts} size="lg">
 										<Percent className="h-4 w-4" />
-										<span>Global Discounts</span>
+										<span>Discounts</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
