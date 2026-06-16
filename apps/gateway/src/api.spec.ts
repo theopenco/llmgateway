@@ -5215,4 +5215,310 @@ describe("api", () => {
 			expect(JSON.stringify(json)).toContain("input_schema");
 		});
 	});
+
+	describe("native /v1/messages web search response shape", () => {
+		// For Anthropic-native providers, /v1/messages must return the raw upstream
+		// Anthropic response verbatim (native passthrough) so web search blocks
+		// (server_tool_use / web_search_tool_result) and inline citations match the
+		// Messages API exactly, rather than being collapsed to a plain text block by
+		// the OpenAI round-trip.
+		const nativeWebSearchContent = [
+			{ type: "text", text: "Let me search for that." },
+			{
+				type: "server_tool_use",
+				id: "srvtoolu_1",
+				name: "web_search",
+				input: { query: "anthropic web search tool version" },
+			},
+			{
+				type: "web_search_tool_result",
+				tool_use_id: "srvtoolu_1",
+				content: [
+					{
+						type: "web_search_result",
+						title: "Web search tool",
+						url: "https://docs.anthropic.com/web-search",
+						encrypted_content: "ENCRYPTED_CONTENT_BLOB",
+						page_age: "2 days ago",
+					},
+				],
+			},
+			{
+				type: "text",
+				text: "The latest version is web_search_20250305.",
+				citations: [
+					{
+						type: "web_search_result_location",
+						cited_text: "web search tool",
+						url: "https://docs.anthropic.com/web-search",
+						title: "Web search tool",
+						encrypted_index: "ENCRYPTED_INDEX",
+					},
+				],
+			},
+		];
+
+		function spyAnthropicResponse(body: unknown, contentType: string) {
+			const originalFetch = globalThis.fetch;
+			return vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						return new Response(
+							typeof body === "string" ? body : JSON.stringify(body),
+							{ status: 200, headers: { "Content-Type": contentType } },
+						);
+					}
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+		}
+
+		test("returns native web search content blocks verbatim (non-streaming)", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const requestId = `native-ws-nonstream-${Date.now()}`;
+			const fetchSpy = spyAnthropicResponse(
+				{
+					id: "msg_ws_native",
+					type: "message",
+					role: "assistant",
+					model: "claude-sonnet-4-6",
+					content: nativeWebSearchContent,
+					stop_reason: "end_turn",
+					stop_sequence: null,
+					usage: { input_tokens: 50, output_tokens: 30 },
+				},
+				"application/json",
+			);
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+						"x-request-id": requestId,
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						messages: [
+							{
+								role: "user",
+								content: "What is the latest web search version?",
+							},
+						],
+						tools: [{ type: "web_search_20250305", name: "web_search" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				// The content array must match the upstream Anthropic body verbatim,
+				// including encrypted_content / encrypted_index / page_age / citations.
+				expect(json.content).toEqual(nativeWebSearchContent);
+				expect(json.stop_reason).toBe("end_turn");
+				// The private passthrough field must never leak to the client.
+				expect(json.__nativeAnthropicPassthrough).toBeUndefined();
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			// Billing still runs: the web_search_tool_result block is counted.
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(Number(logs[0].webSearchCost)).toBeGreaterThan(0);
+		});
+
+		test("streams native web search SSE events verbatim", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_ws_stream",
+						type: "message",
+						role: "assistant",
+						model: "claude-sonnet-4-6",
+						content: [],
+						stop_reason: null,
+						stop_sequence: null,
+						usage: { input_tokens: 50, output_tokens: 1 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: {
+						type: "server_tool_use",
+						id: "srvtoolu_1",
+						name: "web_search",
+						input: {},
+					},
+				})}\n\n`,
+				`event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: 0 })}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 1,
+					content_block: {
+						type: "web_search_tool_result",
+						tool_use_id: "srvtoolu_1",
+						content: [
+							{
+								type: "web_search_result",
+								title: "Web search tool",
+								url: "https://docs.anthropic.com/web-search",
+								encrypted_content: "ENCRYPTED_CONTENT_BLOB",
+								page_age: "2 days ago",
+							},
+						],
+					},
+				})}\n\n`,
+				`event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: 1 })}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 2,
+					content_block: { type: "text", text: "" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 2,
+					delta: { type: "text_delta", text: "Version web_search_20250305." },
+				})}\n\n`,
+				`event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: 2 })}\n\n`,
+				`event: message_delta\ndata: ${JSON.stringify({
+					type: "message_delta",
+					delta: { stop_reason: "end_turn", stop_sequence: null },
+					usage: { output_tokens: 25 },
+				})}\n\n`,
+				`event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+			].join("");
+
+			const fetchSpy = spyAnthropicResponse(sse, "text/event-stream");
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						stream: true,
+						messages: [{ role: "user", content: "Search the web." }],
+						tools: [{ type: "web_search_20250305", name: "web_search" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const raw = await res.text();
+
+				// Native Anthropic events are forwarded verbatim, not converted to
+				// OpenAI chat.completion.chunk events.
+				expect(raw).toContain("event: message_start");
+				expect(raw).toContain('"type":"server_tool_use"');
+				expect(raw).toContain('"type":"web_search_tool_result"');
+				expect(raw).toContain('"encrypted_content":"ENCRYPTED_CONTENT_BLOB"');
+				expect(raw).toContain("event: message_stop");
+				// No OpenAI-shaped output.
+				expect(raw).not.toContain("chat.completion.chunk");
+				expect(raw).not.toContain("data: [DONE]");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
+		test("does not passthrough for a forged header on /v1/chat/completions", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyAnthropicResponse(
+				{
+					id: "msg_forge",
+					type: "message",
+					role: "assistant",
+					model: "claude-sonnet-4-6",
+					content: nativeWebSearchContent,
+					stop_reason: "end_turn",
+					stop_sequence: null,
+					usage: { input_tokens: 50, output_tokens: 30 },
+				},
+				"application/json",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+						// A forged value can't match the per-process nonce.
+						"x-native-anthropic-passthrough": "1",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						messages: [{ role: "user", content: "hi" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				// Normal OpenAI envelope; passthrough must not have triggered.
+				expect(json.choices?.[0]?.message).toBeDefined();
+				expect(json.__nativeAnthropicPassthrough).toBeUndefined();
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+	});
 });

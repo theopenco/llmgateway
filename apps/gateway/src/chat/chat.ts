@@ -149,6 +149,12 @@ import {
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
 
+import {
+	NATIVE_ANTHROPIC_PASSTHROUGH_FIELD,
+	NATIVE_ANTHROPIC_PASSTHROUGH_HEADER,
+	isAnthropicNativeProvider,
+	nativeAnthropicPassthroughNonce,
+} from "./native-passthrough.js";
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
@@ -1629,6 +1635,13 @@ chat.openapi(completions, async (c) => {
 	const logIdOverride = responsesContext?.logId;
 	const finalLogId = logIdOverride ?? shortid();
 	const responsesApiData: unknown = responsesContext?.responsesApiData ?? null;
+
+	// Native Anthropic passthrough: the /v1/messages endpoint sets this header
+	// (to a per-process nonce external clients can't forge) to request the raw
+	// upstream Anthropic response verbatim for Anthropic-native providers.
+	const nativeAnthropicPassthroughRequested =
+		c.req.header(NATIVE_ANTHROPIC_PASSTHROUGH_HEADER) ===
+		nativeAnthropicPassthroughNonce;
 
 	// Wrapper that injects Responses API fields into every log entry.
 	// Only override the id for the final log entry (retried !== true) to avoid
@@ -4774,6 +4787,10 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_retention,
 			n,
 			service_tier,
+			// Namespace /v1/messages-origin requests (which always carry the nonce)
+			// separately so a native-passthrough response is never served to a
+			// direct /v1/chat/completions caller and vice versa.
+			nativeAnthropicPassthrough: nativeAnthropicPassthroughRequested,
 		};
 
 		if (stream) {
@@ -5840,6 +5857,10 @@ chat.openapi(completions, async (c) => {
 				let canceled = false;
 				let streamingError: unknown = null;
 				let doneSent = false; // Track if [DONE] has been sent downstream
+				// When true, forward raw upstream Anthropic SSE events verbatim
+				// instead of transforming to OpenAI chunks (native passthrough).
+				// Set once the serving provider is known (before the read loop).
+				let nativeAnthropicPassthroughStreaming = false;
 
 				// Raw logging variables
 				let streamingRawResponseData = ""; // Raw SSE data sent back to the client
@@ -5889,8 +5910,15 @@ chat.openapi(completions, async (c) => {
 						streamingRawResponseData += sseString;
 					}
 
-					// Capture for streaming cache if enabled
-					if (cachingEnabled && streamingCacheKey) {
+					// Capture for streaming cache if enabled. Native-passthrough
+					// streams are not cached: the cached-replay path re-injects an
+					// OpenAI metadata chunk that would corrupt a native Anthropic
+					// stream, and web-search responses are dynamic anyway.
+					if (
+						cachingEnabled &&
+						streamingCacheKey &&
+						!nativeAnthropicPassthroughStreaming
+					) {
 						streamingChunks.push({
 							data: sseData.data,
 							eventId: sseData.id ? parseInt(sseData.id, 10) : eventId,
@@ -7392,6 +7420,11 @@ chat.openapi(completions, async (c) => {
 				}
 
 				const reader = res.body.getReader();
+				// The serving provider is now final for this attempt; enable native
+				// passthrough only for Anthropic-native providers.
+				nativeAnthropicPassthroughStreaming =
+					nativeAnthropicPassthroughRequested &&
+					isAnthropicNativeProvider(usedProvider);
 				let fullContent = "";
 				let fullReasoningContent = "";
 				let finishReason = null;
@@ -8223,6 +8256,23 @@ chat.openapi(completions, async (c) => {
 									break;
 								}
 
+								// Native Anthropic passthrough: forward the raw upstream
+								// event verbatim (preserving server_tool_use /
+								// web_search_tool_result / citations) before the lossy
+								// OpenAI transform. Done here, before the null-transform
+								// skip below, so events that map to no OpenAI chunk (e.g.
+								// server_tool_use input_json_delta) are still forwarded.
+								// Billing accounting (webSearchCount, usage) below reads
+								// raw `data` and still runs.
+								if (nativeAnthropicPassthroughStreaming) {
+									await writeSSEAndCache({
+										event:
+											typeof data?.type === "string" ? data.type : undefined,
+										data: JSON.stringify(data),
+										id: String(eventId++),
+									});
+								}
+
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
 									streamFormatProvider,
@@ -8441,7 +8491,10 @@ chat.openapi(completions, async (c) => {
 
 								// When buffering for healing, strip content from chunks and buffer it
 								// We still send metadata (usage, finish_reason, tool_calls) but buffer text content
-								if (shouldBufferForHealing) {
+								if (nativeAnthropicPassthroughStreaming) {
+									// Already forwarded the raw event above; don't also emit
+									// the transformed OpenAI chunk.
+								} else if (shouldBufferForHealing) {
 									const deltaContent =
 										transformedData.choices?.[0]?.delta?.content;
 									if (deltaContent) {
@@ -9202,7 +9255,11 @@ chat.openapi(completions, async (c) => {
 									: new Error(String(sseError)),
 							);
 						}
-					} else if (!streamingError && !doneSent) {
+					} else if (
+						!streamingError &&
+						!doneSent &&
+						!nativeAnthropicPassthroughStreaming
+					) {
 						if (
 							finishReason &&
 							!sentDownstreamFinishReasonChunk &&
@@ -11638,6 +11695,21 @@ chat.openapi(completions, async (c) => {
 		...transformedMetadata,
 		...buildFinalResponseMetadata(costs.discount ?? null),
 	};
+
+	// Native Anthropic passthrough: attach the raw upstream Anthropic body so the
+	// /v1/messages handler can return it verbatim (preserving web search /
+	// citation / thinking blocks). Gated on the un-forgeable nonce, so it never
+	// reaches a direct /v1/chat/completions client. Attached before caching so
+	// cache hits also serve it; the field rides through caching unchanged (the
+	// strip/metadata helpers only touch `metadata`).
+	if (
+		nativeAnthropicPassthroughRequested &&
+		isAnthropicNativeProvider(usedProvider)
+	) {
+		(transformedResponse as Record<string, unknown>)[
+			NATIVE_ANTHROPIC_PASSTHROUGH_FIELD
+		] = json;
+	}
 
 	// Extract plugin IDs for logging
 	const pluginIds = plugins?.map((p) => p.id) ?? [];

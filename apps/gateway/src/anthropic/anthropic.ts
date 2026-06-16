@@ -4,6 +4,11 @@ import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import {
+	NATIVE_ANTHROPIC_PASSTHROUGH_FIELD,
+	NATIVE_ANTHROPIC_PASSTHROUGH_HEADER,
+	nativeAnthropicPassthroughNonce,
+} from "@/chat/native-passthrough.js";
+import {
 	buildAnthropicErrorBody,
 	getAnthropicErrorType,
 } from "@/lib/error-response.js";
@@ -656,6 +661,11 @@ anthropic.openapi(messages, async (c) => {
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 			...(sessionId ? { "x-session-id": sessionId } : {}),
+			// Ask the chat-completions pipeline to return the raw upstream
+			// Anthropic response verbatim when served by an Anthropic-native
+			// provider, so native content blocks (web search, citations,
+			// thinking) survive instead of the lossy OpenAI round-trip.
+			[NATIVE_ANTHROPIC_PASSTHROUGH_HEADER]: nativeAnthropicPassthroughNonce,
 		},
 		body: JSON.stringify(openaiRequest),
 	});
@@ -729,6 +739,52 @@ anthropic.openapi(messages, async (c) => {
 				const decoder = new TextDecoder();
 
 				let buffer = "";
+
+				// Native passthrough detection: the chat-completions pipeline emits a
+				// raw Anthropic SSE stream (which begins with `event: message_start`)
+				// when served by an Anthropic-native provider. A reconstructed stream
+				// (e.g. fallback to a non-Anthropic provider) is OpenAI chunks. Peek
+				// the first event(s) to classify; forward verbatim when native,
+				// otherwise fall through to the OpenAI->Anthropic reconstruction below
+				// (seeded with the already-read buffer).
+				let isNativePassthrough = false;
+				let classified = false;
+				while (!classified) {
+					const { done, value } = await reader.read();
+					if (done) {
+						classified = true;
+						break;
+					}
+					buffer += decoder.decode(value, { stream: true });
+					if (
+						/(^|\n)event: ?message_start(\r?\n|$)/.test(buffer) ||
+						/"type"\s*:\s*"message_start"/.test(buffer)
+					) {
+						isNativePassthrough = true;
+						classified = true;
+					} else if (
+						/"object"\s*:\s*"chat\.completion(\.chunk)?"/.test(buffer) ||
+						buffer.includes("data: [DONE]") ||
+						buffer.length > 65536
+					) {
+						classified = true;
+					}
+				}
+
+				if (isNativePassthrough) {
+					if (buffer) {
+						await stream.write(buffer);
+					}
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) {
+							break;
+						}
+						await stream.write(decoder.decode(value, { stream: true }));
+					}
+					return;
+				}
+
 				let messageId = "";
 				let model = "";
 				const contentBlocks: Array<{
@@ -1117,6 +1173,16 @@ anthropic.openapi(messages, async (c) => {
 		throw new HTTPException(500, {
 			message: `Failed to parse OpenAI response: ${error instanceof Error ? error.message : String(error)}`,
 		});
+	}
+
+	// Native Anthropic passthrough: when the pipeline served this request with an
+	// Anthropic-native provider, it attaches the raw upstream Anthropic body.
+	// Return it verbatim so web search (server_tool_use / web_search_tool_result),
+	// citations, and thinking blocks match the Messages API exactly.
+	const nativePassthrough =
+		openaiResponse?.[NATIVE_ANTHROPIC_PASSTHROUGH_FIELD];
+	if (nativePassthrough && typeof nativePassthrough === "object") {
+		return c.json(nativePassthrough);
 	}
 
 	// Transform OpenAI response to Anthropic format
