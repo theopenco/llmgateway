@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +11,7 @@ import { AudioGallery } from "@/components/playground/audio-gallery";
 import { AudioHeader } from "@/components/playground/audio-header";
 import { AudioSidebar } from "@/components/playground/audio-sidebar";
 import { AuthDialog } from "@/components/playground/auth-dialog";
+import { ChatPlanUpsell } from "@/components/pricing/chat-plan-upsell";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
@@ -662,6 +662,9 @@ export default function AudioPageClient({
 				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
 			: Number(selectedOrganization.credits) < 1
 		: false;
+	// In the Chat plan context an out-of-credits state upsells the plans inline
+	// instead of a top-up banner.
+	const showPlanUpsell = isChatPlanContext && isLowCredits;
 
 	const handleSelectOrganization = useCallback(
 		(org: Organization | null) => {
@@ -702,26 +705,18 @@ export default function AudioPageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && (
+					{isLowCredits && !isChatPlanContext && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								{isChatPlanContext
-									? chatPlanCreditErrorMessage(chatPlanSubscribed, "audio")
-									: "Low credits remaining. Top up to continue generating audio."}
+								Low credits remaining. Top up to continue generating audio.
 							</p>
-							{isChatPlanContext ? (
-								<Button variant="outline" size="sm" asChild>
-									<Link href="/pricing">View plans</Link>
-								</Button>
-							) : (
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => setShowTopUp(true)}
-								>
-									Top Up
-								</Button>
-							)}
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setShowTopUp(true)}
+							>
+								Top Up
+							</Button>
 						</div>
 					)}
 					<AudioControls
@@ -740,13 +735,21 @@ export default function AudioPageClient({
 						onGenerate={generateAudio}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
-						<div className="max-w-6xl mx-auto">
-							<AudioGallery
-								items={displayItems}
-								comparisonMode={comparisonMode}
-								onSuggestionClick={handleSuggestionClick}
+						{showPlanUpsell ? (
+							<ChatPlanUpsell
+								noun="audio"
+								isAuthenticated={!!user}
+								subscribed={chatPlanSubscribed}
 							/>
-						</div>
+						) : (
+							<div className="max-w-6xl mx-auto">
+								<AudioGallery
+									items={displayItems}
+									comparisonMode={comparisonMode}
+									onSuggestionClick={handleSuggestionClick}
+								/>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>

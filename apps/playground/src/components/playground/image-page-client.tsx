@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +11,7 @@ import { ImageControls } from "@/components/playground/image-controls";
 import { ImageGallery } from "@/components/playground/image-gallery";
 import { ImageHeader } from "@/components/playground/image-header";
 import { ImageSidebar } from "@/components/playground/image-sidebar";
+import { ChatPlanUpsell } from "@/components/pricing/chat-plan-upsell";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
@@ -790,6 +790,9 @@ export default function ImagePageClient({
 				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
 			: Number(selectedOrganization.credits) < 1
 		: false;
+	// In the Chat plan context an out-of-credits state upsells the plans inline
+	// instead of a top-up banner.
+	const showPlanUpsell = isChatPlanContext && isLowCredits;
 
 	const handleSelectOrganization = useCallback(
 		(org: Organization | null) => {
@@ -830,26 +833,18 @@ export default function ImagePageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && (
+					{isLowCredits && !isChatPlanContext && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								{isChatPlanContext
-									? chatPlanCreditErrorMessage(chatPlanSubscribed, "images")
-									: "Low credits remaining. Top up to continue generating images."}
+								Low credits remaining. Top up to continue generating images.
 							</p>
-							{isChatPlanContext ? (
-								<Button variant="outline" size="sm" asChild>
-									<Link href="/pricing">View plans</Link>
-								</Button>
-							) : (
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => setShowTopUp(true)}
-								>
-									Top Up
-								</Button>
-							)}
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setShowTopUp(true)}
+							>
+								Top Up
+							</Button>
 						</div>
 					)}
 					<ImageControls
@@ -874,17 +869,25 @@ export default function ImagePageClient({
 						setInputImages={setInputImages}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
-						<div className="max-w-6xl mx-auto">
-							<ImageGallery
-								items={displayItems}
-								comparisonMode={comparisonMode}
-								onSuggestionClick={handleSuggestionClick}
-								onUseAsReference={
-									isEditModel ? handleUseAsReference : undefined
-								}
-								onInsertPrompt={handleInsertPrompt}
+						{showPlanUpsell ? (
+							<ChatPlanUpsell
+								noun="images"
+								isAuthenticated={!!user}
+								subscribed={chatPlanSubscribed}
 							/>
-						</div>
+						) : (
+							<div className="max-w-6xl mx-auto">
+								<ImageGallery
+									items={displayItems}
+									comparisonMode={comparisonMode}
+									onSuggestionClick={handleSuggestionClick}
+									onUseAsReference={
+										isEditModel ? handleUseAsReference : undefined
+									}
+									onInsertPrompt={handleInsertPrompt}
+								/>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>
