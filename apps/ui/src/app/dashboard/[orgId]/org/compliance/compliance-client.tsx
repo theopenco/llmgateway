@@ -1,14 +1,13 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Save } from "lucide-react";
+import { Ban, Check, Save } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
-import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -21,14 +20,49 @@ import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+import { cn } from "@/lib/utils";
 
 import {
 	isProviderCompliant,
 	providers,
 	type ProviderCompliancePolicy,
+	type ProviderDefinition,
+	type ProviderId,
 } from "@llmgateway/models";
+import { providerLogoUrls } from "@llmgateway/shared/components";
 
 import { ContactSalesCard } from "./contact-sales-card";
+
+// Internal/virtual providers that should never appear in the impact preview.
+const HIDDEN_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
+
+function ProviderChip({
+	provider,
+	tone,
+}: {
+	provider: ProviderDefinition;
+	tone: "allowed" | "blocked";
+}) {
+	const Logo = providerLogoUrls[provider.id as ProviderId];
+	return (
+		<div
+			className={cn(
+				"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium",
+				tone === "allowed"
+					? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+					: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
+			)}
+		>
+			{Logo ? <Logo className="h-4 w-4 shrink-0" /> : null}
+			<span>{provider.name}</span>
+			{tone === "allowed" ? (
+				<Check className="h-3.5 w-3.5 shrink-0" />
+			) : (
+				<Ban className="h-3.5 w-3.5 shrink-0" />
+			)}
+		</div>
+	);
+}
 
 type RequirementKey = Exclude<keyof ProviderCompliancePolicy, "enabled">;
 
@@ -101,17 +135,21 @@ export function ComplianceClient() {
 	);
 
 	const { allowed, blocked } = useMemo(() => {
-		const allowedList: string[] = [];
-		const blockedList: string[] = [];
+		const allowedList: ProviderDefinition[] = [];
+		const blockedList: ProviderDefinition[] = [];
 		for (const provider of providers) {
+			if (HIDDEN_PROVIDER_IDS.has(provider.id)) {
+				continue;
+			}
 			if (isProviderCompliant(provider, policy)) {
-				allowedList.push(provider.name);
+				allowedList.push(provider);
 			} else {
-				blockedList.push(provider.name);
+				blockedList.push(provider);
 			}
 		}
 		return { allowed: allowedList, blocked: blockedList };
 	}, [policy]);
+	const totalProviders = allowed.length + blocked.length;
 
 	const canManage =
 		selectedOrganization?.plan === "enterprise" &&
@@ -243,19 +281,51 @@ export function ComplianceClient() {
 						<CardTitle>Provider Impact</CardTitle>
 						<CardDescription>
 							{policy.enabled
-								? `${allowed.length} of ${providers.length} providers meet this policy.`
+								? `${allowed.length} of ${totalProviders} providers meet this policy.`
 								: "Enable the policy to restrict which providers can be used."}
 						</CardDescription>
 					</CardHeader>
-					{policy.enabled && blocked.length > 0 && (
-						<CardContent className="space-y-2">
-							<Label>Blocked providers</Label>
-							<div className="flex flex-wrap gap-2">
-								{blocked.map((name) => (
-									<Badge key={name} variant="secondary">
-										{name}
-									</Badge>
-								))}
+					{policy.enabled && (
+						<CardContent className="space-y-6">
+							<div className="space-y-3">
+								<Label className="text-emerald-700 dark:text-emerald-400">
+									Allowed ({allowed.length})
+								</Label>
+								{allowed.length > 0 ? (
+									<div className="flex flex-wrap gap-2">
+										{allowed.map((provider) => (
+											<ProviderChip
+												key={provider.id}
+												provider={provider}
+												tone="allowed"
+											/>
+										))}
+									</div>
+								) : (
+									<p className="text-sm text-muted-foreground">
+										No providers meet this policy. Requests will be blocked.
+									</p>
+								)}
+							</div>
+							<div className="space-y-3">
+								<Label className="text-red-700 dark:text-red-400">
+									Blocked ({blocked.length})
+								</Label>
+								{blocked.length > 0 ? (
+									<div className="flex flex-wrap gap-2">
+										{blocked.map((provider) => (
+											<ProviderChip
+												key={provider.id}
+												provider={provider}
+												tone="blocked"
+											/>
+										))}
+									</div>
+								) : (
+									<p className="text-sm text-muted-foreground">
+										No providers are blocked by this policy.
+									</p>
+								)}
 							</div>
 						</CardContent>
 					)}
