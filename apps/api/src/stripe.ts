@@ -648,6 +648,85 @@ async function findDevPlanSubscriptionForSetupSession(
 	});
 }
 
+/**
+ * Cancel stale DevPass subscriptions left on the customer by an earlier checkout
+ * attempt. A setup-mode checkout creates one subscription per setup session, so
+ * a first attempt whose payment never completes leaves a dangling `incomplete`
+ * subscription that later flips to `incomplete_expired` — emitting events for a
+ * plan the org never activated and, before the id-gating fix, freezing the
+ * active plan's credits. Before activating the current session's subscription we
+ * cancel those dangling attempts so the customer is never left with duplicate
+ * DevPass subscriptions. The current session's own subscription is matched by
+ * `setupSessionId` and never cancelled — which also keeps this safe under the
+ * finalize/webhook race (both runs share the same session id).
+ */
+async function cancelStaleDevPlanSubscriptions(
+	customerId: string,
+	currentSessionId: string,
+): Promise<void> {
+	const subscriptions = await getStripe().subscriptions.list({
+		customer: customerId,
+		status: "all",
+		limit: 100,
+	});
+	const stale = subscriptions.data.filter(
+		(s) =>
+			s.metadata?.subscriptionType === "dev_plan" &&
+			s.metadata?.setupSessionId !== currentSessionId &&
+			(s.status === "incomplete" || s.status === "past_due"),
+	);
+	for (const s of stale) {
+		try {
+			await getStripe().subscriptions.cancel(s.id);
+			logger.info(
+				`Cancelled stale DevPass subscription ${s.id} (status ${s.status}) for customer ${customerId}`,
+			);
+		} catch (err) {
+			logger.warn(`Failed to cancel stale DevPass subscription ${s.id}`, {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+}
+
+/**
+ * Collapse duplicate copies of a card down to a single payment method. Each
+ * setup session saves the card as a fresh PaymentMethod object, so a retried
+ * checkout would otherwise leave several PaymentMethods for the same physical
+ * card on the customer. Keeps `keepPaymentMethodId` and detaches every other
+ * payment method that shares its fingerprint.
+ */
+async function detachDuplicateCardPaymentMethods(
+	customerId: string,
+	keepPaymentMethodId: string,
+	fingerprint: string | null,
+): Promise<void> {
+	if (!fingerprint) {
+		return;
+	}
+	const paymentMethods = await getStripe().paymentMethods.list({
+		customer: customerId,
+		type: "card",
+		limit: 100,
+	});
+	const duplicates = paymentMethods.data.filter(
+		(pm) =>
+			pm.id !== keepPaymentMethodId && pm.card?.fingerprint === fingerprint,
+	);
+	for (const pm of duplicates) {
+		try {
+			await getStripe().paymentMethods.detach(pm.id);
+			logger.info(
+				`Detached duplicate card ${pm.id} (fingerprint ${fingerprint}) from customer ${customerId}`,
+			);
+		} catch (err) {
+			logger.warn(`Failed to detach duplicate card ${pm.id}`, {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+}
+
 function shouldForceDevPlan3dsChallenge(): boolean {
 	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
 }
@@ -799,6 +878,19 @@ export async function finalizeDevPlanSetupSession(
 	await getStripe().customers.update(stripeCustomerId, {
 		invoice_settings: { default_payment_method: paymentMethod.id },
 	});
+
+	// Prevent duplicate DevPass subscriptions/cards from a retried checkout. A
+	// failed first attempt leaves a dangling `incomplete` subscription and a
+	// duplicate copy of the card on the customer; cancel the former and detach the
+	// latter before creating/activating this session's subscription. Cancel stale
+	// subscriptions before detaching cards so we never detach a card still
+	// referenced by a live subscription.
+	await cancelStaleDevPlanSubscriptions(stripeCustomerId, sessionId);
+	await detachDuplicateCardPaymentMethods(
+		stripeCustomerId,
+		paymentMethod.id,
+		fingerprint,
+	);
 
 	// The /finalize endpoint and the checkout.session.completed webhook can
 	// race for the same setup session. We guard against duplicate subscription
