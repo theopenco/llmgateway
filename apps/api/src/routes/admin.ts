@@ -7662,12 +7662,30 @@ admin.openapi(getModelProviderMappings, async (c) => {
 // ── Unstable Model Mappings ─────────────────────────────────────────────────
 
 // The candidate set of logs is bounded both ways: only the latest logs from the
-// last 24 hours, capped at UNSTABLE_MAPPINGS_LOG_LIMIT most recent rows. Retried
-// logs are excluded by default because the gateway already recovered from those
-// failures via a fallback provider, so they should not count against a mapping's
-// stability — but callers can opt to include them via `includeRetried`.
+// selected time window, capped at UNSTABLE_MAPPINGS_LOG_LIMIT most recent rows.
+// Retried logs are excluded by default because the gateway already recovered from
+// those failures via a fallback provider, so they should not count against a
+// mapping's stability — but callers can opt to include them via `includeRetried`.
 const UNSTABLE_MAPPINGS_LOG_LIMIT = 1000;
-const UNSTABLE_MAPPINGS_WINDOW = sql`now() - interval '24 hours'`;
+
+// Supported time windows for the rankings, mapping each selectable value to its
+// SQL interval bound and an hours count surfaced to the UI for the description.
+const UNSTABLE_MAPPINGS_WINDOWS = {
+	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
+	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
+	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
+	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
+} as const;
+
+const unstableMappingsWindowSchema = z.enum(["4h", "24h", "3d", "7d"]);
+
+type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
+
+function resolveUnstableMappingsWindow(
+	window: UnstableMappingsWindow | undefined,
+) {
+	return UNSTABLE_MAPPINGS_WINDOWS[window ?? "24h"];
+}
 
 // `retried` is nullable; legacy rows predate the column and are NULL. Treat
 // those as non-retried so they are not silently dropped from the rankings.
@@ -7725,6 +7743,7 @@ const getUnstableMappings = createRoute({
 		query: z.object({
 			limit: z.coerce.number().min(1).max(200).optional(),
 			includeRetried: z.enum(["true", "false"]).optional(),
+			window: unstableMappingsWindowSchema.optional(),
 		}),
 	},
 	responses: {
@@ -7747,6 +7766,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const retriedClause = includeRetried
 		? sql``
 		: unstableMappingsNotRetriedClause;
+	const { interval: windowInterval, hours: windowHours } =
+		resolveUnstableMappingsWindow(query.window);
 
 	const rows = await db.execute<{
 		used_model: string;
@@ -7761,7 +7782,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 				${tables.log.usedProvider} AS used_provider,
 				${tables.log.hasError} AS has_error
 			FROM ${tables.log}
-			WHERE ${tables.log.createdAt} >= ${UNSTABLE_MAPPINGS_WINDOW}
+			WHERE ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${UNSTABLE_MAPPINGS_LOG_LIMIT}
@@ -7807,7 +7828,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 			};
 		}),
 		sampledLogs,
-		windowHours: 24,
+		windowHours,
 		logLimit: UNSTABLE_MAPPINGS_LOG_LIMIT,
 		includeRetried,
 	});
@@ -7834,6 +7855,7 @@ const getUnstableMappingErrors = createRoute({
 			model: z.string(),
 			provider: z.string(),
 			includeRetried: z.enum(["true", "false"]).optional(),
+			window: unstableMappingsWindowSchema.optional(),
 		}),
 	},
 	responses: {
@@ -7850,9 +7872,10 @@ const getUnstableMappingErrors = createRoute({
 });
 
 admin.openapi(getUnstableMappingErrors, async (c) => {
-	const { model, provider, includeRetried } = c.req.valid("query");
+	const { model, provider, includeRetried, window } = c.req.valid("query");
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
+	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
 
 	const rows = await db.execute<{
 		status_code: string | null;
@@ -7868,7 +7891,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			WHERE ${tables.log.hasError} = true
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
-				AND ${tables.log.createdAt} >= ${UNSTABLE_MAPPINGS_WINDOW}
+				AND ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${UNSTABLE_MAPPINGS_LOG_LIMIT}
