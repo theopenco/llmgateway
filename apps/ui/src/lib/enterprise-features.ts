@@ -7,6 +7,7 @@ export interface EnterpriseFeatureDefinition {
 	longDescription: string;
 	iconName:
 		| "shield-check"
+		| "badge-check"
 		| "git-branch"
 		| "audit"
 		| "bell"
@@ -592,7 +593,7 @@ export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
 			"Define the certifications and data policies your providers must meet — SOC 2, ISO 27001, GDPR, no prompt training, no prompt logging — and the gateway refuses to route to anything that doesn't qualify.",
 		longDescription:
 			"Provider Compliance Policies turn a procurement requirement into an enforced guardrail. Pick the attributes you require and the gateway evaluates every provider against your policy on each request. Non-compliant providers are removed from automatic routing, and a request pinned to one (e.g. deepseek/deepseek-v3.2) is rejected with a 403 — before any prompt is sent upstream. Every requirement is fail-closed: a provider qualifies only if its published data policy explicitly satisfies it, so unknown attributes never slip through. The settings page previews exactly which providers are allowed and blocked under the current policy, and every block is recorded as a security event for review.",
-		iconName: "shield-check",
+		iconName: "badge-check",
 		accent: "indigo",
 		keywords: [
 			"SOC 2 LLM provider",

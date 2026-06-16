@@ -26,6 +26,7 @@ import { useMemo, useState, useEffect } from "react";
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import {
 	AnimatedActivity,
+	AnimatedBadgeCheck,
 	AnimatedBarChart3,
 	AnimatedBotMessageSquare,
 	AnimatedChartColumnBig,
@@ -414,7 +415,7 @@ function OrganizationSection({
 					<OrgNavItem
 						href={buildOrgUrl("org/compliance")}
 						label="Compliance"
-						icon={AnimatedShield}
+						icon={AnimatedBadgeCheck}
 						isActive={isActive("org/compliance")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
