@@ -150,14 +150,41 @@ export function CustomModelDialog({
 			return;
 		}
 
-		const num = (v: string) => (v.trim() === "" ? null : Number(v));
 		const str = (v: string) => (v.trim() === "" ? null : v.trim());
+
+		const parsePositiveInt = (
+			v: string,
+			label: string,
+		): number | null | undefined => {
+			if (v.trim() === "") {
+				return null;
+			}
+			const n = Number(v);
+			if (!Number.isInteger(n) || n <= 0) {
+				toast({
+					title: `Invalid ${label}`,
+					description: `${label} must be a positive whole number.`,
+					variant: "destructive",
+				});
+				return undefined;
+			}
+			return n;
+		};
+
+		const contextSize = parsePositiveInt(form.contextSize, "context size");
+		if (contextSize === undefined) {
+			return;
+		}
+		const maxOutput = parsePositiveInt(form.maxOutput, "max output");
+		if (maxOutput === undefined) {
+			return;
+		}
 
 		const body: Record<string, unknown> = {
 			modelName: form.modelName.trim(),
 			displayName: str(form.displayName),
-			contextSize: num(form.contextSize),
-			maxOutput: num(form.maxOutput),
+			contextSize,
+			maxOutput,
 			streaming: form.streaming === "unset" ? null : form.streaming,
 			supportedParameters:
 				form.supportedParameters.trim() === ""

@@ -7,7 +7,8 @@ import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { invalidateSwrByTables } from "@llmgateway/cache";
+import { db, eq, getTableName, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { providers } from "@llmgateway/models";
 
@@ -15,6 +16,8 @@ import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
 
 export const keysProvider = new OpenAPIHono<ServerTypes>();
+
+const providerKeyTableName = getTableName(tables.providerKey);
 
 // Create a schema for provider key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
@@ -697,6 +700,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 				changes,
 			},
 		});
+		// The gateway caches provider keys (incl. customModelsOnly) via SWR;
+		// invalidate so status/restriction changes take effect promptly.
+		await invalidateSwrByTables([providerKeyTableName]);
 	}
 
 	return c.json({

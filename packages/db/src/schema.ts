@@ -1137,10 +1137,16 @@ export const customModel = pgTable(
 		supportedParameters: jsonb().$type<string[]>(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
-		}).default("active"),
+		})
+			.notNull()
+			.default("active"),
 	},
 	(table) => [
-		unique().on(table.providerKeyId, table.modelName),
+		// Uniqueness applies only to live rows so a soft-deleted model name can be
+		// recreated (the route soft-deletes by setting status = "deleted").
+		uniqueIndex("custom_model_provider_key_id_model_name_unique")
+			.on(table.providerKeyId, table.modelName)
+			.where(sql`status <> 'deleted'`),
 		index("custom_model_provider_key_id_idx").on(table.providerKeyId),
 		index("custom_model_organization_id_idx").on(table.organizationId),
 	],

@@ -5,11 +5,22 @@ import { z } from "zod";
 import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { invalidateSwrByTables } from "@llmgateway/cache";
+import { db, eq, getTableName, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const customModels = new OpenAPIHono<ServerTypes>();
+
+const customModelTableName = getTableName(tables.customModel);
+
+// The gateway reads custom models through its SWR cache (keyed on the
+// custom_model table). The API writes go through the uncached client, so we
+// must explicitly invalidate after mutations or the gateway can serve stale
+// pricing/limits/rejections until the cache expires.
+async function invalidateCustomModelCache(): Promise<void> {
+	await invalidateSwrByTables([customModelTableName]);
+}
 
 const priceField = z
 	.string()
@@ -88,10 +99,14 @@ const createCustomModelSchema = z.object({
 	...customModelFields,
 });
 
-const updateCustomModelSchema = z.object({
-	...customModelFields,
-	modelName: customModelFields.modelName.optional(),
-});
+const updateCustomModelSchema = z
+	.object({
+		...customModelFields,
+		modelName: customModelFields.modelName.optional(),
+	})
+	.refine((v) => Object.keys(v).length > 0, {
+		message: "No updatable fields provided",
+	});
 
 /**
  * Resolves a custom provider key the user can manage and asserts that the
@@ -106,6 +121,7 @@ async function getManageableProviderKey(userId: string, providerKeyId: string) {
 		where: {
 			id: { eq: providerKeyId },
 			organizationId: { in: organizationIds },
+			status: { ne: "deleted" },
 		},
 		with: {
 			organization: true,
@@ -255,6 +271,8 @@ customModels.openapi(create, async (c) => {
 		},
 	});
 
+	await invalidateCustomModelCache();
+
 	return c.json({ customModel });
 });
 
@@ -352,6 +370,8 @@ customModels.openapi(update, async (c) => {
 		},
 	});
 
+	await invalidateCustomModelCache();
+
 	return c.json({ customModel }, 200);
 });
 
@@ -421,6 +441,8 @@ customModels.openapi(deleteCustomModel, async (c) => {
 			modelName: existing.modelName,
 		},
 	});
+
+	await invalidateCustomModelCache();
 
 	return c.json({ message: "Custom model deleted successfully" });
 });

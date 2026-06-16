@@ -26,11 +26,11 @@ CREATE TABLE "custom_model" (
 	"json_output" boolean,
 	"audio" boolean,
 	"supported_parameters" jsonb,
-	"status" text DEFAULT 'active',
-	CONSTRAINT "custom_model_provider_key_id_model_name_unique" UNIQUE("provider_key_id","model_name")
+	"status" text DEFAULT 'active' NOT NULL
 );
 --> statement-breakpoint
 ALTER TABLE "provider_key" ADD COLUMN "custom_models_only" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "custom_model_provider_key_id_model_name_unique" ON "custom_model" ("provider_key_id","model_name") WHERE status <> 'deleted';--> statement-breakpoint
 CREATE INDEX "custom_model_provider_key_id_idx" ON "custom_model" ("provider_key_id");--> statement-breakpoint
 CREATE INDEX "custom_model_organization_id_idx" ON "custom_model" ("organization_id");--> statement-breakpoint
 ALTER TABLE "custom_model" ADD CONSTRAINT "custom_model_provider_key_id_provider_key_id_fkey" FOREIGN KEY ("provider_key_id") REFERENCES "provider_key"("id") ON DELETE CASCADE;--> statement-breakpoint

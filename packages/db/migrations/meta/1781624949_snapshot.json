@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ead3e6f9-a736-4380-962d-e493f8960cfa",
+  "id": "65baa20f-796a-4353-aaa5-684a41850fc6",
   "prevId": "2b1f913b-84cf-4dce-a8b4-d3ce08465c84",
   "ddl": [
     {
@@ -3574,7 +3574,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": {
         "value": "'active'",
@@ -17854,6 +17854,34 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        },
+        {
+          "value": "model_name",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "status <> 'deleted'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "custom_model_provider_key_id_model_name_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "custom_model"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "provider_key_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         }
       ],
       "isUnique": false,
@@ -22300,18 +22328,6 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "api_key_hourly_stats"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "provider_key_id",
-        "model_name"
-      ],
-      "nullsNotDistinct": false,
-      "name": "custom_model_provider_key_id_model_name_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "custom_model"
     },
     {
       "nameExplicit": true,

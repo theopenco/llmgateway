@@ -2520,7 +2520,15 @@ chat.openapi(completions, async (c) => {
 				if (tools && tools.length > 0) {
 					estimatedInputTokens += Math.round(JSON.stringify(tools).length / 4);
 				}
-				const requiredContextSize = estimatedInputTokens + (max_tokens ?? 0);
+				// Reserve completion budget even when max_tokens is omitted, mirroring
+				// the auto-route default buffer, so a prompt can't fill the entire
+				// context window and leave no room for output.
+				const implicitOutputBudget = Math.min(
+					customModelEntry.maxOutput ?? 4096,
+					4096,
+				);
+				const requiredContextSize =
+					estimatedInputTokens + (max_tokens ?? implicitOutputBudget);
 				if (requiredContextSize > customModelEntry.contextSize) {
 					throw new HTTPException(400, {
 						message: `Request requires ~${requiredContextSize} tokens which exceeds the configured context size (${customModelEntry.contextSize}) for model '${requestedModel}'.`,
@@ -4024,18 +4032,17 @@ chat.openapi(completions, async (c) => {
 			id: usedInternalModel,
 			family: "custom",
 			providers: [
-				{
+				// Reuse the resolved catalog mapping (pricing, limits, capabilities)
+				// when this custom model has an enterprise catalog entry; otherwise
+				// fall back to a zero-price mock. Custom providers have no static
+				// catalog entry, so without an override the gateway cannot know their
+				// limits/capabilities — capability validation is skipped for custom
+				// providers and the upstream provider enforces its own limits.
+				customPricingMapping ?? {
 					providerId: "custom" as const,
 					externalId: usedExternalId,
 					inputPrice: "0",
 					outputPrice: "0",
-					// Custom providers have no catalog entry, so the gateway cannot
-					// know their limits (contextSize, maxOutput) or capabilities
-					// (vision, jsonOutput, ...). Leave them unset rather than
-					// guessing — capability validation is skipped for custom
-					// providers and the upstream provider enforces its own limits.
-					// `streaming` is required by the type but is never read for
-					// custom providers (streaming support comes from the catalog).
 					streaming: true,
 				},
 			],
