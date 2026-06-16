@@ -244,6 +244,8 @@ export const completionsRequestSchema = z.object({
 						.optional(),
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
+					allowed_domains: z.array(z.string()).optional(),
+					blocked_domains: z.array(z.string()).optional(),
 				}),
 			]),
 		)

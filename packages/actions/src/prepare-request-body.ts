@@ -1829,6 +1829,19 @@ export async function prepareRequestBody(
 				if (webSearchTool.max_uses) {
 					webSearch.max_uses = webSearchTool.max_uses;
 				}
+				// Anthropic accepts either allowed_domains or blocked_domains, not both.
+				if (webSearchTool.allowed_domains?.length) {
+					webSearch.allowed_domains = webSearchTool.allowed_domains;
+				} else if (webSearchTool.blocked_domains?.length) {
+					webSearch.blocked_domains = webSearchTool.blocked_domains;
+				}
+				if (webSearchTool.user_location) {
+					// Anthropic requires the discriminating `type: "approximate"`.
+					webSearch.user_location = {
+						...webSearchTool.user_location,
+						type: "approximate",
+					};
+				}
 				requestBody.tools.push(webSearch);
 			}
 

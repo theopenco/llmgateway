@@ -25,6 +25,7 @@ export function parseProviderResponse(
 	messages: any[] = [],
 	supportsReasoning = true,
 	splitTaggedReasoning = false,
+	webSearchRequested = false,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -963,6 +964,8 @@ export function parseProviderResponse(
 								},
 							});
 						}
+					} else if (webSearchRequested) {
+						webSearchCount = 1;
 					}
 				}
 			}

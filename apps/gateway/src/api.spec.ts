@@ -5065,4 +5065,154 @@ describe("api", () => {
 			expect(Number(logs[0].cost)).toBe(0);
 		});
 	});
+
+	describe("native /v1/messages server-side tools", () => {
+		// Anthropic server-side tools (e.g. web_search_20250305) carry a versioned
+		// `type` and no `description`/`input_schema`. They must pass validation and
+		// be forwarded to the provider, not rejected as malformed custom tools.
+		test("forwards Anthropic web_search server tool to the provider", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			let capturedBody: any;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						capturedBody = JSON.parse(init?.body as string);
+						return new Response(
+							JSON.stringify({
+								id: "msg_ws",
+								type: "message",
+								role: "assistant",
+								model: "claude-sonnet-4-6",
+								content: [
+									{
+										type: "text",
+										text: "The latest version is web_search_20250305.",
+									},
+								],
+								stop_reason: "end_turn",
+								stop_sequence: null,
+								usage: { input_tokens: 50, output_tokens: 10 },
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						messages: [
+							{
+								role: "user",
+								content:
+									"Search the web for the latest Anthropic web search tool version.",
+							},
+						],
+						tools: [
+							{
+								type: "web_search_20250305",
+								name: "web_search",
+								max_uses: 3,
+								allowed_domains: ["anthropic.com", "docs.anthropic.com"],
+								user_location: {
+									type: "approximate",
+									city: "San Francisco",
+									country: "US",
+								},
+							},
+						],
+					}),
+				});
+
+				// The request must NOT be rejected with a ZodError about missing
+				// `description`/`input_schema` on the server tool.
+				expect(res.status).toBe(200);
+
+				// The server tool must reach the Anthropic provider as a native
+				// web_search tool, preserving its configuration (max_uses, domain
+				// filters, user_location).
+				const forwardedTools = capturedBody?.tools ?? [];
+				const forwardedWebSearch = forwardedTools.find(
+					(t: { type?: string }) => t.type === "web_search_20250305",
+				);
+				expect(forwardedWebSearch).toBeDefined();
+				expect(forwardedWebSearch.max_uses).toBe(3);
+				expect(forwardedWebSearch.allowed_domains).toEqual([
+					"anthropic.com",
+					"docs.anthropic.com",
+				]);
+				expect(forwardedWebSearch.user_location).toEqual({
+					type: "approximate",
+					city: "San Francisco",
+					country: "US",
+				});
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
+		test("still rejects a custom tool missing input_schema", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-4-6",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "hi" }],
+					tools: [{ name: "get_weather", description: "Get the weather" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain("input_schema");
+		});
+	});
 });

@@ -519,13 +519,14 @@ export function hasMaxTokens(
 export interface WebSearchTool {
 	type: "web_search";
 	/**
-	 * User location for localized search results (OpenAI)
+	 * User location for localized search results (OpenAI and Anthropic)
 	 */
 	user_location?: {
 		type: "approximate";
 		city?: string;
 		region?: string;
 		country?: string;
+		timezone?: string;
 	};
 	/**
 	 * Controls how much context is retrieved from the web (OpenAI)
@@ -538,6 +539,16 @@ export interface WebSearchTool {
 	 * Maximum number of web searches to perform (Anthropic)
 	 */
 	max_uses?: number;
+	/**
+	 * Restrict search results to these domains (Anthropic). Mutually exclusive
+	 * with blocked_domains.
+	 */
+	allowed_domains?: string[];
+	/**
+	 * Exclude these domains from search results (Anthropic). Mutually exclusive
+	 * with allowed_domains.
+	 */
+	blocked_domains?: string[];
 }
 
 /**
