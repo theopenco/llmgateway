@@ -37,8 +37,8 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | `seconds`          | number  | yes      | Duration in seconds. Supported values depend on the model (see below)                                                      |
 | `size`             | string  | no       | `widthxheight`, limited to the sizes supported by the selected model and provider                                          |
 | `audio`            | boolean | no       | Whether to include audio in the output (default `true`). Only honored when the model supports both audio and silent output |
-| `image`            | object  | no       | Optional first frame for image-to-video generation                                                                         |
-| `last_frame`       | object  | no       | Optional ending frame when `image` is provided                                                                             |
+| `image`            | object  | no       | Optional first frame for image-to-video generation (see first/last frame inputs below)                                     |
+| `last_frame`       | object  | no       | Optional ending frame when `image` is provided (see first/last frame inputs below)                                         |
 | `reference_images` | array   | no       | One to three provider-specific image inputs                                                                                |
 | `input_reference`  | object  | no       | Alias for one or more `reference_images`                                                                                   |
 | `reference_videos` | array   | no       | One to three reference video HTTPS URLs (Seedance 2.0 only, see below)                                                     |
@@ -55,6 +55,37 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Seedance 2.0 / 2.0 Fast / 1.5 Pro | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
 
 Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance derives `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
+
+### First/last frame inputs
+
+Frame inputs interpolate a video between a starting frame and an optional ending frame. You provide the first frame as `image` and, optionally, the ending frame as `last_frame`. The gateway tags each one with the correct role for the provider, so you don't set roles yourself.
+
+| Field        | Required           | Accepted input                   | Available on                                                                             |
+| ------------ | ------------------ | -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **Seedance 2.0** (`bytedance`), Veo 3.1 (`google-vertex`, `avalanche`), `minimax`, `xai` |
+| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **Seedance 2.0** (`bytedance`), Veo 3.1 (`google-vertex`, `avalanche`)                   |
+
+#### Rules and limits
+
+- **Seedance scope.** Frame inputs are supported on **Seedance 2.0** and **Seedance 2.0 Fast** (`seedance-2-0`, `seedance-2-0-fast`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
+- **`last_frame` requires `image`.** Providing `last_frame` without `image` returns a `400`.
+- **Not combinable with references.** First/last frame inputs (`image`, `last_frame`) cannot be combined with reference inputs (`reference_images`, `input_reference`, `reference_videos`, `reference_audios`).
+
+#### Example (Seedance 2.0)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seedance-2-0",
+    "prompt": "Morph smoothly from the first frame into the last frame",
+    "seconds": 5,
+    "size": "1280x720",
+    "image": { "image_url": "https://example.com/first-frame.png" },
+    "last_frame": { "image_url": "https://example.com/last-frame.png" }
+  }'
+```
 
 ### Reference-guided generation (Seedance 2.0)
 

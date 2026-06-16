@@ -102,6 +102,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
+	if (isSeedance2ReferenceModel(rootModelId)) {
+		return providerId === undefined || providerId === "bytedance";
+	}
+
 	if (rootModelId === "minimax-hailuo-2-3") {
 		return providerId === undefined || providerId === "minimax";
 	}
@@ -223,14 +227,23 @@ function mappingSupportsVideoRequest(
 		return false;
 	}
 
-	if (
-		inputMode === "frames" &&
-		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche" &&
-		mapping.providerId !== "minimax" &&
-		mapping.providerId !== "xai"
-	) {
-		return false;
+	if (inputMode === "frames") {
+		// Match by canonical root model id — never by the upstream externalId.
+		if (mapping.providerId === "bytedance") {
+			return (
+				mapping.modelId === "seedance-2-0" ||
+				mapping.modelId === "seedance-2-0-fast"
+			);
+		}
+
+		if (
+			mapping.providerId !== "google-vertex" &&
+			mapping.providerId !== "avalanche" &&
+			mapping.providerId !== "minimax" &&
+			mapping.providerId !== "xai"
+		) {
+			return false;
+		}
 	}
 
 	if (inputMode === "reference") {
