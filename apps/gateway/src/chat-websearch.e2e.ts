@@ -19,6 +19,12 @@ const testWebSearch = process.env.TEST_WEB_SEARCH;
 // Skip all tests if TEST_WEB_SEARCH is not set
 const describeWebSearch = testWebSearch ? describe : describe.skip;
 
+// Z.ai GLM chat completions perform (and bill for) web search but currently
+// don't surface the source records back, even with `search_result: true`, so
+// there are no citation annotations to assert. The request still asks for them
+// and the parser normalizes a root-level `web_search` array when present, so
+// this exception only suppresses the annotation assertion — the web-search cost
+// assertion below still applies to Z.ai.
 const expectsWebSearchAnnotations = (model: string) =>
 	!model.startsWith("zai/");
 

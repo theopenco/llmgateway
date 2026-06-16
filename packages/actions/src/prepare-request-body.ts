@@ -1557,7 +1557,9 @@ export async function prepareRequestBody(
 			}
 
 			// Add web search tool for ZAI
-			// ZAI uses a web_search tool with enable flag and search_engine config
+			// ZAI uses a web_search tool with enable flag and search_engine config.
+			// `search_result: true` asks Z.ai to return the source records so we can
+			// surface them as citation annotations (see parse-provider-response.ts).
 			if (webSearchTool) {
 				requestBody.tools ??= [];
 				requestBody.tools.push({
@@ -1565,6 +1567,7 @@ export async function prepareRequestBody(
 					web_search: {
 						enable: true,
 						search_engine: "search-prime",
+						search_result: true,
 					},
 				});
 			}

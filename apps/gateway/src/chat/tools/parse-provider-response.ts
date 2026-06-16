@@ -948,11 +948,13 @@ export function parseProviderResponse(
 					webSearchCount = 1; // Search models bill per request, not per citation
 				}
 
-				// For ZAI, extract web search info if present
-				// ZAI includes web_search content in the response
+				// For ZAI, extract web search info if present.
+				// When `search_result: true` is requested, Z.ai returns the sources in
+				// a root-level `web_search` array (per Z.ai docs); some responses nest
+				// it under the message instead, so check both locations.
 				if (usedProvider === "zai") {
 					const webSearchResults =
-						json.choices?.[0]?.message?.web_search ?? null;
+						json.web_search ?? json.choices?.[0]?.message?.web_search ?? null;
 					if (webSearchResults && Array.isArray(webSearchResults)) {
 						webSearchCount = webSearchResults.length;
 						for (const result of webSearchResults) {
@@ -965,6 +967,9 @@ export function parseProviderResponse(
 							});
 						}
 					} else if (webSearchRequested) {
+						// GLM chat completions perform the search and bill for it, but
+						// don't always surface source records, so fall back to counting a
+						// single search when the tool was requested.
 						webSearchCount = 1;
 					}
 				}

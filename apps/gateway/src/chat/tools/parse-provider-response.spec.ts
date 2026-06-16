@@ -48,6 +48,67 @@ describe("parseProviderResponse", () => {
 			expect(result.content).toBe("Current news summary.");
 			expect(result.webSearchCount).toBe(1);
 		});
+
+		it("normalizes root-level web_search source records into annotations", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "Summary with sources.",
+						},
+						finish_reason: "stop",
+					},
+				],
+				web_search: [
+					{
+						title: "Example article",
+						link: "https://example.com/article",
+						content: "Some snippet",
+						refer: "ref_1",
+					},
+					{
+						title: "Second source",
+						link: "https://example.org/news",
+						refer: "ref_2",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"zai",
+				"glm-5.2",
+				json,
+				[],
+				true,
+				false,
+				true,
+			);
+
+			expect(result.content).toBe("Summary with sources.");
+			expect(result.webSearchCount).toBe(2);
+			expect(result.annotations).toEqual([
+				{
+					type: "url_citation",
+					url_citation: {
+						url: "https://example.com/article",
+						title: "Example article",
+					},
+				},
+				{
+					type: "url_citation",
+					url_citation: {
+						url: "https://example.org/news",
+						title: "Second source",
+					},
+				},
+			]);
+		});
 	});
 
 	describe("google reasoning output", () => {
