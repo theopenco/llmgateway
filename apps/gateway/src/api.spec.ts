@@ -10,7 +10,11 @@ import {
 	resetKeyHealth,
 } from "./lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
+import {
+	readAll,
+	waitForLogByRequestId,
+	waitForLogs,
+} from "./test-utils/test-helpers.js";
 
 describe("api", () => {
 	const harness = createGatewayApiTestHarness();
@@ -1628,6 +1632,50 @@ describe("api", () => {
 		const json = await res.json();
 		expect(JSON.stringify(json)).not.toContain("Invalid enum value");
 		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
+	});
+
+	test("/v1/images/edits logs oversized image input client errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edit-oversized",
+			token: "real-token-image-edit-oversized",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const requestId = "image-edit-oversized-request";
+		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-image-edit-oversized",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "gemini-3-pro-image-preview",
+				prompt: "Add a neon city reflection to this image",
+				images: [
+					{
+						image_url: oversizedImageDataUrl,
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.message).toContain("Image size");
+		expect(json.error.message).toContain("exceeds your current limit");
+
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("client_error");
+		expect(log.unifiedFinishReason).toBe("client_error");
+		expect(log.hasError).toBe(true);
+		expect(log.errorDetails?.statusCode).toBe(400);
+		expect(log.errorDetails?.responseText).toContain("Image size");
+		expect(log.usedProvider).toBe("llmgateway");
 	});
 
 	test("/v1/images/generations forwards X-No-Fallback to chat completions", async () => {
