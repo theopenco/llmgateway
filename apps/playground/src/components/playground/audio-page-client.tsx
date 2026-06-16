@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +20,7 @@ import {
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { getModelAudioConfig } from "@/lib/audio-gen";
+import { useApi } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
 import {
 	AUDIO_MODEL_COOKIE,
@@ -51,6 +53,7 @@ export default function AudioPageClient({
 	initialModelPreference,
 }: AudioPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const api = useApi();
 	const posthog = usePostHog();
 	const pathname = usePathname();
 	const router = useRouter();
@@ -625,14 +628,24 @@ export default function AudioPageClient({
 		[activeItems, galleryItems, pathname, router],
 	);
 
-	// Low credits check
+	// In the Chat plan context the plan status endpoint is the source of truth
+	// for remaining credits; the org row passed from the server can be stale.
+	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
+	);
 	const chatPlanCreditsRemaining =
-		selectedOrganization?.chatPlan && selectedOrganization.chatPlan !== "none"
-			? Number(selectedOrganization.chatPlanCreditsLimit ?? "0") -
-				Number(selectedOrganization.chatPlanCreditsUsed ?? "0")
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none"
+			? Number(chatPlanStatus.chatPlanCreditsRemaining)
 			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
+		? isChatPlanContext
+			? chatPlanStatus !== undefined &&
+				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
+			: Number(selectedOrganization.credits) < 1
 		: false;
 
 	const handleSelectOrganization = useCallback(
@@ -677,15 +690,23 @@ export default function AudioPageClient({
 					{isLowCredits && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								Low credits remaining. Top up to continue generating audio.
+								{isChatPlanContext
+									? "You're out of credits. Upgrade to a plan to continue generating audio."
+									: "Low credits remaining. Top up to continue generating audio."}
 							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => setShowTopUp(true)}
-							>
-								Top Up
-							</Button>
+							{isChatPlanContext ? (
+								<Button variant="outline" size="sm" asChild>
+									<Link href="/pricing">View plans</Link>
+								</Button>
+							) : (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setShowTopUp(true)}
+								>
+									Top Up
+								</Button>
+							)}
 						</div>
 					)}
 					<AudioControls
