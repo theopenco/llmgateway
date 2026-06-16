@@ -74,6 +74,12 @@ interface ImageClientErrorLogRequest {
 	aspect_ratio?: string;
 }
 
+interface ImageClientErrorLogContext {
+	apiKey: NonNullable<Awaited<ReturnType<typeof findApiKeyByToken>>>;
+	project: NonNullable<Awaited<ReturnType<typeof findProjectById>>>;
+	requestId: string;
+}
+
 const imageGenerationsResponseSchema = z.object({
 	created: z.number(),
 	data: z.array(
@@ -400,8 +406,49 @@ function getStatusText(status: number): string {
 	}
 }
 
+function createImageClientErrorLogContextResolver(
+	c: Context,
+): () => Promise<ImageClientErrorLogContext | null> {
+	let logContextPromise: Promise<ImageClientErrorLogContext | null> | null =
+		null;
+
+	return async () => {
+		logContextPromise ??= resolveImageClientErrorLogContext(c);
+		return await logContextPromise;
+	};
+}
+
+async function resolveImageClientErrorLogContext(
+	c: Context,
+): Promise<ImageClientErrorLogContext | null> {
+	const token = parseApiToken(c);
+	if (!token) {
+		return null;
+	}
+
+	const apiKey = await findApiKeyByToken(token);
+	if (!apiKey || apiKey.status !== "active") {
+		return null;
+	}
+
+	const project = await findProjectById(apiKey.projectId);
+	if (!project || project.status === "deleted") {
+		return null;
+	}
+
+	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+	c.header("x-request-id", requestId);
+
+	return {
+		apiKey,
+		project,
+		requestId,
+	};
+}
+
 async function logImageClientError(
 	c: Context,
+	getLogContext: () => Promise<ImageClientErrorLogContext | null>,
 	request: ImageClientErrorLogRequest,
 	status: number,
 	message: string,
@@ -412,23 +459,10 @@ async function logImageClientError(
 	}
 
 	try {
-		const token = parseApiToken(c);
-		if (!token) {
+		const logContext = await getLogContext();
+		if (!logContext) {
 			return;
 		}
-
-		const apiKey = await findApiKeyByToken(token);
-		if (!apiKey || apiKey.status !== "active") {
-			return;
-		}
-
-		const project = await findProjectById(apiKey.projectId);
-		if (!project || project.status === "deleted") {
-			return;
-		}
-
-		const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
-		c.header("x-request-id", requestId);
 
 		const requestedModel = request.model ?? "auto";
 		const usedModel = resolveImageRequestModel(request.model);
@@ -444,9 +478,9 @@ async function logImageClientError(
 
 		await insertLog({
 			...createLogEntry({
-				requestId,
-				project,
-				apiKey,
+				requestId: logContext.requestId,
+				project: logContext.project,
+				apiKey: logContext.apiKey,
 				usedModel,
 				usedProvider: "llmgateway",
 				requestedModel,
@@ -560,6 +594,7 @@ export const images = new OpenAPIHono<ServerTypes>();
 
 images.openapi(generations, async (c) => {
 	const startedAt = Date.now();
+	const getLogContext = createImageClientErrorLogContextResolver(c);
 
 	// Manual request parsing with better error handling
 	let rawBody: unknown;
@@ -568,6 +603,7 @@ images.openapi(generations, async (c) => {
 	} catch {
 		await logImageClientError(
 			c,
+			getLogContext,
 			{ endpoint: "images.generations" },
 			400,
 			"Invalid JSON in request body",
@@ -584,6 +620,7 @@ images.openapi(generations, async (c) => {
 		const message = `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`;
 		await logImageClientError(
 			c,
+			getLogContext,
 			buildImageClientErrorLogRequest("images.generations", rawBody),
 			400,
 			message,
@@ -925,6 +962,7 @@ async function parseMultipartEditsRequest(
  */
 async function processImageEdit(
 	c: Context,
+	getLogContext: () => Promise<ImageClientErrorLogContext | null>,
 	request: ImageEditsRequest,
 	startedAt = Date.now(),
 ) {
@@ -941,7 +979,14 @@ async function processImageEdit(
 	for (const [index, image] of request.images.entries()) {
 		if (!isSupportedInputImageUrl(image.image_url)) {
 			const message = `images[${index}].image_url must be an https URL or a base64 data URL`;
-			await logImageClientError(c, logRequest, 400, message, startedAt);
+			await logImageClientError(
+				c,
+				getLogContext,
+				logRequest,
+				400,
+				message,
+				startedAt,
+			);
 			throw new HTTPException(400, {
 				message,
 			});
@@ -961,7 +1006,14 @@ async function processImageEdit(
 						? error.message
 						: "Failed to process image input";
 				const message = `images[${index}].image_url is invalid: ${errorMessage}`;
-				await logImageClientError(c, logRequest, 400, message, startedAt);
+				await logImageClientError(
+					c,
+					getLogContext,
+					logRequest,
+					400,
+					message,
+					startedAt,
+				);
 				throw new HTTPException(400, {
 					message,
 				});
@@ -1081,6 +1133,7 @@ images.post("/edits", async (c, next) => {
 		return await next();
 	}
 
+	const getLogContext = createImageClientErrorLogContextResolver(c);
 	let request: ImageEditsRequest;
 	try {
 		request = await parseMultipartEditsRequest(c);
@@ -1088,6 +1141,7 @@ images.post("/edits", async (c, next) => {
 		if (error instanceof HTTPException && error.status >= 400) {
 			await logImageClientError(
 				c,
+				getLogContext,
 				{ endpoint: "images.edits" },
 				error.status,
 				error.message,
@@ -1097,17 +1151,19 @@ images.post("/edits", async (c, next) => {
 		throw error;
 	}
 
-	return await processImageEdit(c, request, startedAt);
+	return await processImageEdit(c, getLogContext, request, startedAt);
 });
 
 images.openapi(edits, async (c) => {
 	const startedAt = Date.now();
+	const getLogContext = createImageClientErrorLogContextResolver(c);
 	let rawBody: unknown;
 	try {
 		rawBody = await c.req.json();
 	} catch {
 		await logImageClientError(
 			c,
+			getLogContext,
 			{ endpoint: "images.edits" },
 			400,
 			"Invalid JSON in request body",
@@ -1123,6 +1179,7 @@ images.openapi(edits, async (c) => {
 		const message = `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`;
 		await logImageClientError(
 			c,
+			getLogContext,
 			buildImageClientErrorLogRequest("images.edits", rawBody),
 			400,
 			message,
@@ -1133,5 +1190,10 @@ images.openapi(edits, async (c) => {
 		});
 	}
 
-	return await processImageEdit(c, validationResult.data, startedAt);
+	return await processImageEdit(
+		c,
+		getLogContext,
+		validationResult.data,
+		startedAt,
+	);
 });
