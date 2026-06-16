@@ -2500,6 +2500,57 @@ chat.openapi(completions, async (c) => {
 				providers: [customPricingMapping],
 			};
 
+			// Enforce catalog capability flags when explicitly disabled. The shared
+			// validateModelCapabilities() intentionally skips custom providers (no
+			// static catalog), so gate here using the per-key catalog. Unset (null)
+			// flags stay permissive — the upstream provider enforces what we don't
+			// know.
+			if (customModelEntry.vision === false && hasImages) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to accept image input. Remove the image content or enable vision for this custom model.`,
+				});
+			}
+			if (customModelEntry.audio === false && hasAudio) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to accept audio input. Remove the audio content or enable audio for this custom model.`,
+				});
+			}
+			if (
+				customModelEntry.tools === false &&
+				(tool_choice !== undefined || (tools && tools.length > 0))
+			) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to support tool calls. Remove the tools/tool_choice parameter or enable tools for this custom model.`,
+				});
+			}
+			if (
+				customModelEntry.jsonOutput === false &&
+				(response_format?.type === "json_object" ||
+					response_format?.type === "json_schema")
+			) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to support JSON output mode.`,
+				});
+			}
+			if (
+				customModelEntry.reasoning === false &&
+				(reasoning_effort !== undefined || reasoning_max_tokens !== undefined)
+			) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to support reasoning. Remove the reasoning parameters or enable reasoning for this custom model.`,
+				});
+			}
+			if (customModelEntry.streaming === "false" && stream) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is configured as non-streaming. Set stream: false.`,
+				});
+			}
+			if (customModelEntry.streaming === "only" && !stream) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is configured as streaming-only. Set stream: true.`,
+				});
+			}
+
 			// Enforce context window and max output when the catalog defines them.
 			// Custom providers bypass the auto-route context filter, so check here.
 			if (

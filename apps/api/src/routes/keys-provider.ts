@@ -328,6 +328,10 @@ keysProvider.openapi(create, async (c) => {
 		},
 	});
 
+	// The gateway caches provider keys via SWR; invalidate so a newly added key
+	// is usable immediately.
+	await invalidateSwrByTables([providerKeyTableName]);
+
 	return c.json({
 		providerKey: {
 			...providerKey,
@@ -545,6 +549,10 @@ keysProvider.openapi(deleteKey, async (c) => {
 			provider: providerKey.provider,
 		},
 	});
+
+	// The gateway caches provider keys via SWR; invalidate so a deleted key
+	// stops being used immediately.
+	await invalidateSwrByTables([providerKeyTableName]);
 
 	return c.json({
 		message: "Provider key deleted successfully",
