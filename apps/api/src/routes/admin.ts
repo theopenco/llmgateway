@@ -7662,11 +7662,14 @@ admin.openapi(getModelProviderMappings, async (c) => {
 // ── Unstable Model Mappings ─────────────────────────────────────────────────
 
 // The candidate set of logs is bounded both ways: only the latest logs from the
-// selected time window, capped at UNSTABLE_MAPPINGS_LOG_LIMIT most recent rows.
-// Retried logs are excluded by default because the gateway already recovered from
-// those failures via a fallback provider, so they should not count against a
-// mapping's stability — but callers can opt to include them via `includeRetried`.
-const UNSTABLE_MAPPINGS_LOG_LIMIT = 1000;
+// selected time window, capped at the caller-supplied log limit (most recent
+// rows). Both default to the tightest setting (4h / 100 logs) for the cheapest,
+// most-critical view; callers can widen either via query params. Retried logs are
+// excluded by default because the gateway already recovered from those failures
+// via a fallback provider, so they should not count against a mapping's
+// stability — but callers can opt to include them via `includeRetried`.
+const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
+const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 10000;
 
 // Supported time windows for the rankings, mapping each selectable value to its
 // SQL interval bound and an hours count surfaced to the UI for the description.
@@ -7684,7 +7687,7 @@ type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
 function resolveUnstableMappingsWindow(
 	window: UnstableMappingsWindow | undefined,
 ) {
-	return UNSTABLE_MAPPINGS_WINDOWS[window ?? "24h"];
+	return UNSTABLE_MAPPINGS_WINDOWS[window ?? "4h"];
 }
 
 // `retried` is nullable; legacy rows predate the column and are NULL. Treat
@@ -7742,6 +7745,11 @@ const getUnstableMappings = createRoute({
 	request: {
 		query: z.object({
 			limit: z.coerce.number().min(1).max(200).optional(),
+			logLimit: z.coerce
+				.number()
+				.min(1)
+				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
+				.optional(),
 			includeRetried: z.enum(["true", "false"]).optional(),
 			window: unstableMappingsWindowSchema.optional(),
 		}),
@@ -7763,6 +7771,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
 	const includeRetried = query.includeRetried === "true";
+	const logLimit = query.logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause = includeRetried
 		? sql``
 		: unstableMappingsNotRetriedClause;
@@ -7785,7 +7794,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
 			ORDER BY ${tables.log.createdAt} DESC
-			LIMIT ${UNSTABLE_MAPPINGS_LOG_LIMIT}
+			LIMIT ${logLimit}
 		)
 		SELECT used_model,
 			used_provider,
@@ -7829,7 +7838,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		}),
 		sampledLogs,
 		windowHours,
-		logLimit: UNSTABLE_MAPPINGS_LOG_LIMIT,
+		logLimit,
 		includeRetried,
 	});
 });
@@ -7856,6 +7865,11 @@ const getUnstableMappingErrors = createRoute({
 			provider: z.string(),
 			includeRetried: z.enum(["true", "false"]).optional(),
 			window: unstableMappingsWindowSchema.optional(),
+			logLimit: z.coerce
+				.number()
+				.min(1)
+				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
+				.optional(),
 		}),
 	},
 	responses: {
@@ -7872,7 +7886,9 @@ const getUnstableMappingErrors = createRoute({
 });
 
 admin.openapi(getUnstableMappingErrors, async (c) => {
-	const { model, provider, includeRetried, window } = c.req.valid("query");
+	const { model, provider, includeRetried, window, logLimit } =
+		c.req.valid("query");
+	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
 	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
@@ -7894,7 +7910,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				AND ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
 			ORDER BY ${tables.log.createdAt} DESC
-			LIMIT ${UNSTABLE_MAPPINGS_LOG_LIMIT}
+			LIMIT ${sampleLimit}
 		)
 		SELECT error_details->>'statusCode' AS status_code,
 			error_details->>'statusText' AS status_text,

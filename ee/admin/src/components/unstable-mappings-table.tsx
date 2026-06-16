@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
-import type { UnstableWindow } from "@/components/unstable-window-toggle";
+import type { UnstableWindow } from "@/lib/unstable-mappings-params";
 
 interface UnstableMapping {
 	modelId: string;
@@ -51,11 +51,13 @@ function ErrorDetails({
 	provider,
 	includeRetried,
 	window,
+	logLimit,
 }: {
 	usedModel: string;
 	provider: string;
 	includeRetried: boolean;
 	window: UnstableWindow;
+	logLimit: number;
 }) {
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
@@ -68,6 +70,7 @@ function ErrorDetails({
 					provider,
 					includeRetried: includeRetried ? "true" : "false",
 					window,
+					logLimit,
 				},
 			},
 		},
@@ -151,10 +154,12 @@ export function UnstableMappingsTable({
 	mappings,
 	includeRetried,
 	window,
+	logLimit,
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
 	window: UnstableWindow;
+	logLimit: number;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -250,6 +255,7 @@ export function UnstableMappingsTable({
 											provider={mapping.providerId}
 											includeRetried={includeRetried}
 											window={window}
+											logLimit={logLimit}
 										/>
 									</TableCell>
 								</TableRow>
