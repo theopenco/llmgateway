@@ -1534,6 +1534,8 @@ chat.openapi(completions, async (c) => {
 				user_location: foundTool.user_location,
 				search_context_size: foundTool.search_context_size,
 				max_uses: foundTool.max_uses,
+				allowed_domains: foundTool.allowed_domains,
+				blocked_domains: foundTool.blocked_domains,
 			};
 			// Remove the web_search tool from the tools array so it's not sent as a regular tool
 			tools.splice(webSearchToolIndex, 1);

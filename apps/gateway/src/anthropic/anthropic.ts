@@ -589,6 +589,12 @@ anthropic.openapi(messages, async (c) => {
 						...(tool.user_location
 							? { user_location: tool.user_location }
 							: {}),
+						...(tool.allowed_domains
+							? { allowed_domains: tool.allowed_domains }
+							: {}),
+						...(tool.blocked_domains
+							? { blocked_domains: tool.blocked_domains }
+							: {}),
 					};
 				}
 

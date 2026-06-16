@@ -5149,6 +5149,12 @@ describe("api", () => {
 								type: "web_search_20250305",
 								name: "web_search",
 								max_uses: 3,
+								allowed_domains: ["anthropic.com", "docs.anthropic.com"],
+								user_location: {
+									type: "approximate",
+									city: "San Francisco",
+									country: "US",
+								},
 							},
 						],
 					}),
@@ -5159,13 +5165,23 @@ describe("api", () => {
 				expect(res.status).toBe(200);
 
 				// The server tool must reach the Anthropic provider as a native
-				// web_search tool.
+				// web_search tool, preserving its configuration (max_uses, domain
+				// filters, user_location).
 				const forwardedTools = capturedBody?.tools ?? [];
-				expect(
-					forwardedTools.some(
-						(t: { type?: string }) => t.type === "web_search_20250305",
-					),
-				).toBe(true);
+				const forwardedWebSearch = forwardedTools.find(
+					(t: { type?: string }) => t.type === "web_search_20250305",
+				);
+				expect(forwardedWebSearch).toBeDefined();
+				expect(forwardedWebSearch.max_uses).toBe(3);
+				expect(forwardedWebSearch.allowed_domains).toEqual([
+					"anthropic.com",
+					"docs.anthropic.com",
+				]);
+				expect(forwardedWebSearch.user_location).toEqual({
+					type: "approximate",
+					city: "San Francisco",
+					country: "US",
+				});
 			} finally {
 				fetchSpy.mockRestore();
 			}
@@ -5195,6 +5211,8 @@ describe("api", () => {
 			});
 
 			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain("input_schema");
 		});
 	});
 });
