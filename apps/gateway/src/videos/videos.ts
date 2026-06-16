@@ -2206,21 +2206,6 @@ function getInlineGoogleVertexVideoFromBodies(
 	return null;
 }
 
-async function getVideoLogIdByRequestId(
-	requestId: string,
-): Promise<string | null> {
-	const existingLog = await db
-		.select({
-			id: tables.log.id,
-		})
-		.from(tables.log)
-		.where(eq(tables.log.requestId, requestId))
-		.limit(1)
-		.then((rows) => rows[0]);
-
-	return existingLog?.id ?? null;
-}
-
 async function getPublicVideoContentUrl(
 	job: VideoJobRecord,
 	logId?: string | null,
@@ -2229,8 +2214,7 @@ async function getPublicVideoContentUrl(
 		return null;
 	}
 
-	const resolvedLogId =
-		logId ?? (await getVideoLogIdByRequestId(job.requestId));
+	const resolvedLogId = logId ?? job.logId;
 	if (
 		resolvedLogId &&
 		(job.contentUrl ||
@@ -4274,12 +4258,7 @@ videos.openapi(getVideoLogContent, async (c) => {
 	const videoJob = await db
 		.select()
 		.from(tables.videoJob)
-		.where(
-			and(
-				eq(tables.videoJob.projectId, log.projectId),
-				eq(tables.videoJob.requestId, log.requestId),
-			),
-		)
+		.where(eq(tables.videoJob.logId, log.id))
 		.limit(1)
 		.then((rows) => rows[0]);
 	if (!videoJob) {
@@ -4347,7 +4326,7 @@ videos.openapi(getVideoContent, async (c) => {
 
 	if (!job.contentUrl && !job.storageUri) {
 		if (shouldProxyDirectUpstreamVideoContent(job)) {
-			const logId = await getVideoLogIdByRequestId(job.requestId);
+			const logId = job.logId;
 			const response = await streamDirectUpstreamVideoContent(job);
 			if (logId) {
 				await markVideoDownloaded(logId);
@@ -4393,7 +4372,7 @@ videos.openapi(getVideoContent, async (c) => {
 		});
 	}
 
-	const logId = await getVideoLogIdByRequestId(job.requestId);
+	const logId = job.logId;
 	const response = await streamVideoFromUrl(contentUrl, job.contentType);
 	if (logId) {
 		await markVideoDownloaded(logId);
