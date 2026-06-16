@@ -381,7 +381,7 @@ export const xaiModels = [
 				cachedInputPrice: "0.20e-6",
 				outputPrice: "2.50e-6",
 				requestPrice: "0",
-				contextSize: 200_000,
+				contextSize: 20_000,
 				maxOutput: 8_192,
 				streaming: true,
 				vision: false,
