@@ -23,6 +23,7 @@ import {
 	complianceBlockMessage,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	isProviderIdCompliant,
 	logComplianceBlock,
 } from "@/lib/compliance.js";
 import {
@@ -3900,11 +3901,16 @@ videos.openapi(createVideo, async (c) => {
 	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
 	let complianceModelInfo: ModelDefinition = modelInfo;
 	if (videoCompliancePolicy) {
+		// A pinned provider is dispatched directly, so block it explicitly even
+		// when the model has other compliant providers (mirrors the chat path).
+		const pinnedBlocked =
+			requestedProvider !== undefined &&
+			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy);
 		const compliantProviders = filterCompliantProviders(
 			modelInfo.providers as ProviderModelMapping[],
 			videoCompliancePolicy,
 		);
-		if (compliantProviders.length === 0) {
+		if (pinnedBlocked || compliantProviders.length === 0) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
 				model: normalizedModel,

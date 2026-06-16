@@ -2578,6 +2578,12 @@ chat.openapi(completions, async (c) => {
 		let lowestPrice = Number.MAX_VALUE;
 		const now = new Date(); // Cache current time for deprecation checks
 
+		// Track whether the compliance policy is what removed every candidate, so
+		// a no-selection result fails closed with the policy 403 + security event
+		// instead of the generic errors / hardcoded fallback below.
+		let anyPreComplianceCandidate = false;
+		let anyPostComplianceCandidate = false;
+
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
 				continue;
@@ -2673,6 +2679,12 @@ chat.openapi(completions, async (c) => {
 			const complianceFilteredProviders = applyCompliancePolicy(
 				cachedFilteredProviders,
 			);
+			if (cachedFilteredProviders.length > 0) {
+				anyPreComplianceCandidate = true;
+				if (complianceFilteredProviders.length > 0) {
+					anyPostComplianceCandidate = true;
+				}
+			}
 
 			// Filter by context size requirement, reasoning capability, and deprecation status
 			const suitableProviders = complianceFilteredProviders.filter(
@@ -2871,6 +2883,22 @@ chat.openapi(completions, async (c) => {
 				usedExternalId = selectedProviders[0].externalId;
 			}
 		} else {
+			// Compliance removed every otherwise-available candidate: fail closed
+			// with the policy 403 + security event rather than the generic errors or
+			// the hardcoded fallback below.
+			if (
+				compliancePolicy &&
+				anyPreComplianceCandidate &&
+				!anyPostComplianceCandidate
+			) {
+				await logComplianceBlock(project.organizationId, {
+					apiKeyId: apiKey.id,
+					model: requestedModel,
+				});
+				throw new HTTPException(403, {
+					message: complianceBlockMessage(modelInfo.id),
+				});
+			}
 			if (effectiveFreeModelsOnly) {
 				// If free_models_only is true but no suitable model found, return error
 				throw new HTTPException(400, {
@@ -3122,8 +3150,15 @@ chat.openapi(completions, async (c) => {
 		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
 			: null;
+	// The OpenAI content filter sends prompts to OpenAI's moderation API. When the
+	// org's compliance policy disallows OpenAI, skip it so prompt data never
+	// reaches a non-compliant provider (fail closed on the data guarantee).
+	const openAiContentFilterAllowed =
+		!compliancePolicy || isProviderIdCompliant("openai", compliancePolicy);
 	const openAIContentFilterResult =
-		shouldApplyGatewayContentFilter && contentFilterMethod === "openai"
+		shouldApplyGatewayContentFilter &&
+		contentFilterMethod === "openai" &&
+		openAiContentFilterAllowed
 			? await checkOpenAIContentFilter(
 					messages as BaseMessage[],
 					{
