@@ -1650,7 +1650,6 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				.update(tables.videoJob)
 				.set({
 					resultLoggedAt: now,
-					logId,
 				})
 				.where(
 					and(
@@ -1754,7 +1753,12 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				dataStorageCost: "0",
 			});
 
-			return jobToLog;
+			await tx
+				.update(tables.videoJob)
+				.set({ logId })
+				.where(eq(tables.videoJob.id, jobToLog.id));
+
+			return { ...jobToLog, logId };
 		});
 
 		if (claimedJob?.contentUrl) {
