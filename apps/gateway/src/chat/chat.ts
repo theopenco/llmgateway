@@ -4020,12 +4020,20 @@ chat.openapi(completions, async (c) => {
 	// Check if this is an image generation model. Identify the routed mapping
 	// by (providerId, region) — externalId is upstream-only and no longer
 	// participates in mapping selection.
-	const imageGenProviderMapping = finalModelInfo?.providers.find(
-		(p) =>
-			p.providerId === usedProvider &&
-			(p.region ?? null) === (usedRegion ?? null),
-	);
+	const getUsedProviderMapping = () =>
+		finalModelInfo?.providers.find(
+			(p) =>
+				p.providerId === usedProvider &&
+				(p.region ?? null) === (usedRegion ?? null),
+		) ??
+		finalModelInfo?.providers.find(
+			(p) => p.providerId === usedProvider && p.region === undefined,
+		);
+	const imageGenProviderMapping = getUsedProviderMapping();
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
+	const usesAwsBedrockConverse = () =>
+		usedProvider === "aws-bedrock" &&
+		getUsedProviderMapping()?.apiFormat !== "openai-chat-completions";
 
 	// `usedModelMapping` is the log column that stores the upstream model id.
 	let usedModelMapping = usedExternalId;
@@ -6723,10 +6731,9 @@ chat.openapi(completions, async (c) => {
 
 					if (!res.ok) {
 						const rawErrorResponseText = await res.text();
-						const errorResponseText =
-							usedProvider === "aws-bedrock"
-								? extractAwsBedrockHttpError(res, rawErrorResponseText)
-								: rawErrorResponseText;
+						const errorResponseText = usesAwsBedrockConverse()
+							? extractAwsBedrockHttpError(res, rawErrorResponseText)
+							: rawErrorResponseText;
 
 						// If the upstream Google provider rejected the document MIME,
 						// surface a typed error event so streaming clients see the same
@@ -7416,7 +7423,11 @@ chat.openapi(completions, async (c) => {
 				// failure (e.g. "error"), preserved so the log shows the actual provider
 				// payload rather than only our synthesized error message.
 				let upstreamErrorChunkRaw: string | null = null;
-				const isAwsBedrock = usedProvider === "aws-bedrock";
+				const isAwsBedrock = usesAwsBedrockConverse();
+				const streamFormatProvider: Provider =
+					usedProvider === "aws-bedrock" && !isAwsBedrock
+						? "openai"
+						: (usedProvider as Provider);
 				const taggedReasoningStreamState = {
 					inReasoning: false,
 					pending: "",
@@ -7443,7 +7454,7 @@ chat.openapi(completions, async (c) => {
 						((usedProvider === "anthropic" ||
 							usedProvider === "vertex-anthropic") &&
 							response_format?.type === "json_object") ||
-						(usedProvider === "aws-bedrock" &&
+						(usesAwsBedrockConverse() &&
 							response_format?.type === "json_object") ||
 						usedProvider === "novita" ||
 						splitTaggedReasoning ||
@@ -8034,10 +8045,9 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
-								const awsBedrockStreamError =
-									usedProvider === "aws-bedrock"
-										? extractAwsBedrockStreamError(data)
-										: null;
+								const awsBedrockStreamError = usesAwsBedrockConverse()
+									? extractAwsBedrockStreamError(data)
+									: null;
 								if (
 									data &&
 									typeof data === "object" &&
@@ -8215,7 +8225,7 @@ chat.openapi(completions, async (c) => {
 
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
-									usedProvider,
+									streamFormatProvider,
 									usedInternalModel,
 									data,
 									messages,
@@ -8389,7 +8399,10 @@ chat.openapi(completions, async (c) => {
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
 										// First, extract tool calls to update our tracking
-										const rawToolCalls = extractToolCalls(data, usedProvider);
+										const rawToolCalls = extractToolCalls(
+											data,
+											streamFormatProvider,
+										);
 										if (rawToolCalls && rawToolCalls.length > 0) {
 											streamingToolCalls ??= [];
 											for (const newCall of rawToolCalls) {
@@ -8473,7 +8486,8 @@ chat.openapi(completions, async (c) => {
 								// Extract usage data from transformedData to update tracking variables
 								if (
 									transformedData.usage &&
-									(usedProvider === "openai" || usedProvider === "azure")
+									(streamFormatProvider === "openai" ||
+										streamFormatProvider === "azure")
 								) {
 									const usage = transformedData.usage;
 									if (
@@ -8511,8 +8525,8 @@ chat.openapi(completions, async (c) => {
 											// let the transformed message_stop chunk (mapped to
 											// "stop") clobber a refusal captured moments earlier.
 											if (
-												usedProvider !== "anthropic" &&
-												usedProvider !== "vertex-anthropic"
+												streamFormatProvider !== "anthropic" &&
+												streamFormatProvider !== "vertex-anthropic"
 											) {
 												finishReason = choice.finish_reason;
 											}
@@ -8591,7 +8605,7 @@ chat.openapi(completions, async (c) => {
 											webSearchCount = 1;
 										}
 									}
-								} else if (usedProvider === "openai") {
+								} else if (streamFormatProvider === "openai") {
 									// For OpenAI Responses API, count web_search_call.completed events
 									if (data.type === "response.web_search_call.completed") {
 										webSearchCount++;
@@ -8621,7 +8635,7 @@ chat.openapi(completions, async (c) => {
 
 								const toolCallsChunk = extractToolCalls(
 									data,
-									usedProvider,
+									streamFormatProvider,
 									transformedData,
 								);
 								if (toolCallsChunk && toolCallsChunk.length > 0) {
@@ -8663,7 +8677,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// Handle provider-specific finish reason extraction
-								switch (usedProvider) {
+								switch (streamFormatProvider) {
 									case "google-ai-studio":
 									case "glacier":
 									case "google-vertex":
@@ -8731,7 +8745,7 @@ chat.openapi(completions, async (c) => {
 								// Extract token usage using helper function
 								const usage = extractTokenUsage(
 									data,
-									usedProvider,
+									streamFormatProvider,
 									fullContent,
 									imageByteSize,
 								);
@@ -10451,10 +10465,9 @@ chat.openapi(completions, async (c) => {
 			let errorResponseText: string;
 			try {
 				const rawErrorResponseText = await res.text();
-				errorResponseText =
-					usedProvider === "aws-bedrock"
-						? extractAwsBedrockHttpError(res, rawErrorResponseText)
-						: rawErrorResponseText;
+				errorResponseText = usesAwsBedrockConverse()
+					? extractAwsBedrockHttpError(res, rawErrorResponseText)
+					: rawErrorResponseText;
 			} catch (bodyError) {
 				if (isTimeoutError(bodyError)) {
 					const errorMessage =
@@ -11419,8 +11432,7 @@ chat.openapi(completions, async (c) => {
 		(responseHealingEnabled === true ||
 			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
 				response_format?.type === "json_object") ||
-			(usedProvider === "aws-bedrock" &&
-				response_format?.type === "json_object") ||
+			(usesAwsBedrockConverse() && response_format?.type === "json_object") ||
 			usedProvider === "novita" ||
 			splitTaggedReasoning);
 
