@@ -1,7 +1,13 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { and, db, gte, modelProviderMappingHistory, sql } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	gte,
+	modelProviderMappingHistory,
+	sql,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -42,6 +48,12 @@ const listRoute = createRoute({
 	},
 });
 
+// The provider grid tolerates several minutes of staleness (the UI itself sets
+// a 5-minute staleTime), and the worker only appends new minute rows, so a
+// short read-through cache turns the heavy full-window aggregation into at most
+// one Postgres hit per window value per TTL instead of one per request.
+const STATS_CACHE_TTL_SECONDS = 300;
+
 function windowToStartDate(window: string): Date {
 	const now = new Date();
 	const startDate = new Date(now);
@@ -64,7 +76,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 	const { window = "7d" } = c.req.valid("query");
 	const startDate = windowToStartDate(window);
 
-	const rows = await db
+	const rows = await cdb
 		.select({
 			providerId: modelProviderMappingHistory.providerId,
 			logsCount: sql<string>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`,
@@ -77,7 +89,18 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		})
 		.from(modelProviderMappingHistory)
 		.where(and(gte(modelProviderMappingHistory.minuteTimestamp, startDate)))
-		.groupBy(modelProviderMappingHistory.providerId);
+		.groupBy(modelProviderMappingHistory.providerId)
+		// Pin a stable, window-scoped cache tag. Without it Drizzle keys the
+		// cache on the rendered SQL + params, and `startDate` is derived from
+		// `now` on every request, so the key would never repeat and the heavy
+		// aggregation would run against Postgres each time. autoInvalidate is off
+		// so the result expires on the TTL alone rather than being busted by the
+		// worker's continuous minute-row inserts.
+		.$withCache({
+			tag: `publicProviderStats:${window}`,
+			autoInvalidate: false,
+			config: { ex: STATS_CACHE_TTL_SECONDS },
+		});
 
 	const providers = rows.map((r) => {
 		const logsCount = Number(r.logsCount) || 0;
