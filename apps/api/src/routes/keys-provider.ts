@@ -61,6 +61,7 @@ const providerKeySchema = z.object({
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	customModelsOnly: z.boolean(),
 	organizationId: z.string(),
 });
 
@@ -122,10 +123,16 @@ const createProviderKeySchema = z.object({
 	organizationId: z.string().min(1, "Organization ID is required"),
 });
 
-// Schema for updating a provider key status
-const updateProviderKeyStatusSchema = z.object({
-	status: z.enum(["active", "inactive"]),
-});
+// Schema for updating a provider key status / settings
+const updateProviderKeyStatusSchema = z
+	.object({
+		status: z.enum(["active", "inactive"]).optional(),
+		// Custom providers only: restrict requests to catalog-defined models.
+		customModelsOnly: z.boolean().optional(),
+	})
+	.refine((v) => v.status !== undefined || v.customModelsOnly !== undefined, {
+		message: "No updatable fields provided",
+	});
 
 // Create a new provider key
 const create = createRoute({
@@ -606,7 +613,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status } = c.req.valid("json");
+	const { status, customModelsOnly } = c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
 	const organizationIds = await getActiveUserOrganizationIds(user.id);
@@ -621,6 +628,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 				in: organizationIds,
 			},
 		},
+		with: {
+			organization: true,
+		},
 	});
 
 	if (!providerKey) {
@@ -629,16 +639,53 @@ keysProvider.openapi(updateStatus, async (c) => {
 		});
 	}
 
-	// Update the provider key status
+	if (customModelsOnly !== undefined) {
+		if (providerKey.provider !== "custom") {
+			throw new HTTPException(400, {
+				message: "customModelsOnly can only be set on custom provider keys",
+			});
+		}
+		// Restricting to a custom catalog is an enterprise feature.
+		if (providerKey.organization?.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message: "Custom models require an enterprise plan",
+			});
+		}
+	}
+
+	const updates: {
+		status?: "active" | "inactive";
+		customModelsOnly?: boolean;
+	} = {};
+	if (status !== undefined) {
+		updates.status = status;
+	}
+	if (customModelsOnly !== undefined) {
+		updates.customModelsOnly = customModelsOnly;
+	}
+
+	// Update the provider key
 	const [updatedProviderKey] = await db
 		.update(tables.providerKey)
-		.set({
-			status,
-		})
+		.set(updates)
 		.where(eq(tables.providerKey.id, id))
 		.returning();
 
-	if (providerKey.status !== status) {
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	if (status !== undefined && providerKey.status !== status) {
+		changes.status = { old: providerKey.status, new: status };
+	}
+	if (
+		customModelsOnly !== undefined &&
+		providerKey.customModelsOnly !== customModelsOnly
+	) {
+		changes.customModelsOnly = {
+			old: providerKey.customModelsOnly,
+			new: customModelsOnly,
+		};
+	}
+
+	if (Object.keys(changes).length > 0) {
 		await logAuditEvent({
 			organizationId: providerKey.organizationId,
 			userId: user.id,
@@ -647,15 +694,13 @@ keysProvider.openapi(updateStatus, async (c) => {
 			resourceId: id,
 			metadata: {
 				provider: providerKey.provider,
-				changes: {
-					status: { old: providerKey.status, new: status },
-				},
+				changes,
 			},
 		});
 	}
 
 	return c.json({
-		message: `Provider key status updated to ${status}`,
+		message: "Provider key updated",
 		providerKey: {
 			...updatedProviderKey,
 			maskedToken: maskToken(updatedProviderKey.token),

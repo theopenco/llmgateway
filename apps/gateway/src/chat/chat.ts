@@ -18,10 +18,12 @@ import {
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
+	findCustomModel,
 	findEffectiveDiscount,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	type CustomModel,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
@@ -290,6 +292,41 @@ function toDataStorageCostNumber(
 	);
 	const num = Number(str);
 	return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * Builds a synthetic provider mapping (providerId "custom") from an enterprise
+ * custom model catalog entry. Used both to override the mock model info for
+ * limit/capability enforcement and as the `customPricing` override threaded into
+ * calculateCosts so custom-provider requests are billed at the catalog rates.
+ */
+function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
+	const streaming: boolean | "only" =
+		cm.streaming === "only" ? "only" : cm.streaming !== "false";
+	return {
+		providerId: "custom",
+		externalId: cm.modelName,
+		inputPrice: cm.inputPrice ?? undefined,
+		outputPrice: cm.outputPrice ?? undefined,
+		cachedInputPrice: cm.cachedInputPrice ?? undefined,
+		cacheReadInputPrice: cm.cacheReadInputPrice ?? undefined,
+		cacheWriteInputPrice: cm.cacheWriteInputPrice ?? undefined,
+		cacheWriteInputPrice1h: cm.cacheWriteInputPrice1h ?? undefined,
+		requestPrice: cm.requestPrice ?? undefined,
+		webSearchPrice: cm.webSearchPrice ?? undefined,
+		imageInputPrice: cm.imageInputPrice ?? undefined,
+		imageOutputPrice: cm.imageOutputPrice ?? undefined,
+		inputAudioPrice: cm.audioInputPrice ?? undefined,
+		contextSize: cm.contextSize ?? undefined,
+		maxOutput: cm.maxOutput ?? undefined,
+		vision: cm.vision ?? undefined,
+		tools: cm.tools ?? undefined,
+		reasoning: cm.reasoning ?? undefined,
+		jsonOutput: cm.jsonOutput ?? undefined,
+		audio: cm.audio ?? undefined,
+		supportedParameters: cm.supportedParameters ?? undefined,
+		streaming,
+	};
 }
 
 function filterRegionsByAvailableKeys(
@@ -2421,6 +2458,12 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Pricing override for custom-provider requests that match an enterprise
+	// custom model catalog entry. Threaded into every calculateCosts call below
+	// so the request is billed at the catalog rates; undefined otherwise (those
+	// requests stay unbilled, as before).
+	let customPricingMapping: ProviderModelMapping | undefined;
+
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
 		const customProviderKey = await findCustomProviderKey(
@@ -2431,6 +2474,59 @@ chat.openapi(completions, async (c) => {
 			throw new HTTPException(400, {
 				message: `Provider '${customProviderName}' not found.`,
 			});
+		}
+
+		// Resolve the per-key custom model catalog entry. When the key is
+		// restricted to its catalog, requests for undefined models are rejected so
+		// cost attribution and limits are always known.
+		const customModelEntry = await findCustomModel(
+			customProviderKey.id,
+			requestedModel,
+		);
+
+		if (customProviderKey.customModelsOnly && !customModelEntry) {
+			throw new HTTPException(400, {
+				message: `Model '${requestedModel}' is not defined in the custom catalog for provider '${customProviderName}'.`,
+			});
+		}
+
+		if (customModelEntry) {
+			customPricingMapping = customModelToProviderMapping(customModelEntry);
+
+			// Apply catalog limits + capabilities to the mock model info so the
+			// rest of the pipeline reflects the defined values.
+			modelInfo = {
+				...modelInfo,
+				providers: [customPricingMapping],
+			};
+
+			// Enforce context window and max output when the catalog defines them.
+			// Custom providers bypass the auto-route context filter, so check here.
+			if (
+				customModelEntry.maxOutput !== null &&
+				max_tokens !== undefined &&
+				max_tokens > customModelEntry.maxOutput
+			) {
+				throw new HTTPException(400, {
+					message: `max_tokens (${max_tokens}) exceeds the configured maxOutput (${customModelEntry.maxOutput}) for model '${requestedModel}'.`,
+				});
+			}
+
+			if (customModelEntry.contextSize !== null) {
+				let estimatedInputTokens =
+					messages && messages.length > 0
+						? encodeChatMessages(messages, requestedModel)
+						: 0;
+				if (tools && tools.length > 0) {
+					estimatedInputTokens += Math.round(JSON.stringify(tools).length / 4);
+				}
+				const requiredContextSize = estimatedInputTokens + (max_tokens ?? 0);
+				if (requiredContextSize > customModelEntry.contextSize) {
+					throw new HTTPException(400, {
+						message: `Request requires ~${requiredContextSize} tokens which exceeds the configured context size (${customModelEntry.contextSize}) for model '${requestedModel}'.`,
+					});
+				}
+			}
 		}
 	}
 
@@ -4869,6 +4965,7 @@ chat.openapi(completions, async (c) => {
 						cacheWrite1hTokens,
 						audioInputTokens,
 						explicitCacheUsed,
+						customPricing: customPricingMapping,
 					},
 				);
 
@@ -5077,6 +5174,7 @@ chat.openapi(completions, async (c) => {
 						audioInputTokens:
 							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
 						explicitCacheUsed,
+						customPricing: customPricingMapping,
 					},
 				);
 
@@ -5852,7 +5950,11 @@ chat.openapi(completions, async (c) => {
 						image_config?.image_quality,
 						null,
 						null,
-						{ explicitCacheUsed, servedServiceTier },
+						{
+							explicitCacheUsed,
+							servedServiceTier,
+							customPricing: customPricingMapping,
+						},
 						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -6314,7 +6416,7 @@ chat.openapi(completions, async (c) => {
 									undefined, // imageQuality
 									null, // reportedImageInputTokens
 									null, // reportedImageOutputTokens
-									{ servedServiceTier },
+									{ servedServiceTier, customPricing: customPricingMapping },
 								);
 							}
 
@@ -6785,7 +6887,7 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										{ servedServiceTier },
+										{ servedServiceTier, customPricing: customPricingMapping },
 										true,
 									)
 								: null;
@@ -7757,6 +7859,7 @@ chat.openapi(completions, async (c) => {
 											cachedAudioInputTokens,
 											explicitCacheUsed,
 											servedServiceTier,
+											customPricing: customPricingMapping,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -9198,6 +9301,7 @@ chat.openapi(completions, async (c) => {
 											cachedAudioInputTokens,
 											explicitCacheUsed,
 											servedServiceTier,
+											customPricing: customPricingMapping,
 										},
 										finishReason === "content_filter",
 									);
@@ -9549,6 +9653,7 @@ chat.openapi(completions, async (c) => {
 										cachedAudioInputTokens,
 										explicitCacheUsed,
 										servedServiceTier,
+										customPricing: customPricingMapping,
 									},
 									finishReason === "content_filter",
 								));
@@ -10256,7 +10361,7 @@ chat.openapi(completions, async (c) => {
 					undefined, // imageQuality
 					null, // reportedImageInputTokens
 					null, // reportedImageOutputTokens
-					{ servedServiceTier },
+					{ servedServiceTier, customPricing: customPricingMapping },
 				);
 			}
 
@@ -10618,7 +10723,7 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							{ servedServiceTier },
+							{ servedServiceTier, customPricing: customPricingMapping },
 							true,
 						)
 					: null;
@@ -11434,6 +11539,7 @@ chat.openapi(completions, async (c) => {
 			cachedAudioInputTokens,
 			explicitCacheUsed,
 			servedServiceTier,
+			customPricing: customPricingMapping,
 		},
 		finishReason === "content_filter",
 	);
