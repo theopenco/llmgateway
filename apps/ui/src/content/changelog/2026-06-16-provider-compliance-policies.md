@@ -7,7 +7,7 @@ summary: "Restrict routing to providers that meet your compliance requirements â
 image:
   src: "/changelog/provider-compliance-policies.png"
   alt: "Provider compliance policies on LLM Gateway: SOC 2, ISO 27001 and GDPR requirements gating which providers can be used"
-  width: 1024
+  width: 1792
   height: 1024
 ---
 
