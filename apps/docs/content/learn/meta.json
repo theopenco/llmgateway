@@ -8,9 +8,11 @@
 		"activity",
 		"agents",
 		"model-usage",
+		"model-categories",
 		"usage-metrics",
 		"api-keys",
 		"preferences",
+		"sdk-settings",
 		"provider-keys",
 		"guardrails",
 		"security-events",
@@ -24,6 +26,7 @@
 		"playground",
 		"playground-group",
 		"playground-image",
-		"playground-video"
+		"playground-video",
+		"chat-plans"
 	]
 }

@@ -1342,9 +1342,11 @@ describe("videos", () => {
 
 		expect(res.status).toBe(400);
 		await expect(res.json()).resolves.toMatchObject({
-			message: expect.stringContaining(
-				"audio=false is unsupported because this provider mapping only supports audio-enabled output",
-			),
+			error: {
+				message: expect.stringContaining(
+					"audio=false is unsupported because this provider mapping only supports audio-enabled output",
+				),
+			},
 		});
 	});
 

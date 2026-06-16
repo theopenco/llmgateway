@@ -15,9 +15,11 @@ import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
 	useImageHistory,
+	useImageHistoryItem,
 	useSaveImageHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
+import { useAppConfig } from "@/lib/config";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
 import {
@@ -44,7 +46,7 @@ interface ImagePageClientProps {
 export default function ImagePageClient({
 	models,
 	providers,
-	organizations: _organizations,
+	organizations,
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
@@ -52,6 +54,7 @@ export default function ImagePageClient({
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
+	const config = useAppConfig();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -171,34 +174,74 @@ export default function ImagePageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	// DB-persisted history
-	const { data: historyData } = useImageHistory(isAuthenticated);
+	const { data: historyData, isLoading: isHistoryLoading } = useImageHistory(
+		isAuthenticated,
+		selectedOrganization?.id,
+	);
 	const { mutate: saveImageHistory } = useSaveImageHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
 
+	// The history list is metadata-only (no base64). Image data is fetched per
+	// item below when one is selected.
 	const galleryItems = useMemo<GalleryItem[]>(() => {
 		const historical: GalleryItem[] = (historyData?.items ?? []).map(
 			(item) => ({
 				id: item.id,
 				prompt: item.prompt,
 				timestamp: new Date(item.createdAt).getTime(),
-				inputImages: item.inputImages ?? undefined,
-				models: item.models.map((m) => ({ ...m, isLoading: false })),
+				thumbnailUrl: item.models.some((m) => m.imageCount > 0)
+					? `${config.apiUrl}/playground/image-history/${item.id}/thumbnail`
+					: null,
+				models: item.models.map((m) => ({
+					modelId: m.modelId,
+					modelName: m.modelName,
+					images: [],
+					imageCount: m.imageCount,
+					error: m.error,
+					isLoading: false,
+				})),
 			}),
 		);
 		return [...activeItems, ...historical];
-	}, [activeItems, historyData]);
+	}, [activeItems, historyData, config.apiUrl]);
+
+	const { data: selectedItemDetail } = useImageHistoryItem(
+		activeItems.length === 0 ? selectedItemId : null,
+	);
 
 	const displayItems = useMemo<GalleryItem[]>(() => {
 		if (activeItems.length > 0) {
 			return activeItems;
 		}
-		if (selectedItemId) {
-			const item = galleryItems.find((i) => i.id === selectedItemId);
-			return item ? [item] : [];
+		if (!selectedItemId) {
+			return [];
+		}
+		const detail = selectedItemDetail?.item;
+		if (detail && detail.id === selectedItemId) {
+			return [
+				{
+					id: detail.id,
+					prompt: detail.prompt,
+					timestamp: new Date(detail.createdAt).getTime(),
+					inputImages: detail.inputImages ?? undefined,
+					models: detail.models.map((m) => ({ ...m, isLoading: false })),
+				},
+			];
+		}
+		// Detail still loading: render the metadata item with per-model
+		// skeletons so the gallery shows progress instead of a blank page.
+		const light = galleryItems.find((i) => i.id === selectedItemId);
+		if (light) {
+			return [
+				{
+					...light,
+					models: light.models.map((m) => ({ ...m, isLoading: !m.error })),
+				},
+			];
 		}
 		return [];
-	}, [activeItems, selectedItemId, galleryItems]);
+	}, [activeItems, selectedItemId, selectedItemDetail, galleryItems]);
 
 	// Auto-save completed active items to DB then remove from local state
 	useEffect(() => {
@@ -218,6 +261,7 @@ export default function ImagePageClient({
 					{
 						body: {
 							prompt: item.prompt,
+							organizationId: item.organizationId,
 							inputImages: item.inputImages,
 							models: item.models.map((m) => ({
 								modelId: m.modelId,
@@ -359,7 +403,7 @@ export default function ImagePageClient({
 		const isCompare = item.models.length > 1;
 		setComparisonMode(isCompare);
 		setSelectedModels(item.models.map((m) => m.modelId));
-	}, [selectedItemId, galleryItems]);
+	}, [selectedItemId, galleryItems, activeItems.length]);
 
 	// Reset image size/quality when the selected model changes and the current
 	// value isn't valid for the new model. Including the value itself in deps
@@ -387,6 +431,7 @@ export default function ImagePageClient({
 		if (!isEditModel) {
 			setInputImages([]);
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude size/quality values to avoid clobbering the user's explicit selection
 	}, [selectedModels, isEditModel]);
 
 	const getModelName = useCallback(
@@ -437,6 +482,7 @@ export default function ImagePageClient({
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				organizationId: selectedOrganization?.id,
 				inputImages:
 					inputImages.length > 0
 						? inputImages.map((img) => ({
@@ -600,8 +646,7 @@ export default function ImagePageClient({
 			inputImages,
 			posthog,
 			requiresImageInput,
-			pathname,
-			router,
+			selectedOrganization?.id,
 		],
 	);
 
@@ -709,18 +754,40 @@ export default function ImagePageClient({
 	);
 
 	// Low credits check
+	const chatPlanCreditsRemaining =
+		selectedOrganization?.chatPlan && selectedOrganization.chatPlan !== "none"
+			? Number(selectedOrganization.chatPlanCreditsLimit ?? "0") -
+				Number(selectedOrganization.chatPlanCreditsUsed ?? "0")
+			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1
+		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
 		: false;
+
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(params.toString() ? `/image?${params.toString()}` : "/image");
+		},
+		[router, searchParams],
+	);
 
 	return (
 		<SidebarProvider>
 			<div className="flex h-dvh w-full">
 				<ImageSidebar
 					galleryItems={galleryItems}
+					isHistoryLoading={isHistoryLoading}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
+					organizations={organizations}
 					selectedOrganization={selectedOrganization}
+					onSelectOrganization={handleSelectOrganization}
 					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
@@ -786,7 +853,11 @@ export default function ImagePageClient({
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id}
+			/>
 		</SidebarProvider>
 	);
 }

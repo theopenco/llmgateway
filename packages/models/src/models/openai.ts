@@ -1,5 +1,41 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Built-in voices for the legacy tts-1 / tts-1-hd models. The first entry
+ * ("alloy") is the default when the caller omits `voice`.
+ */
+const OPENAI_TTS_VOICES = [
+	"alloy",
+	"ash",
+	"coral",
+	"echo",
+	"fable",
+	"nova",
+	"onyx",
+	"sage",
+	"shimmer",
+];
+
+/**
+ * Built-in voices for gpt-4o-mini-tts, which supports a broader catalog than
+ * the legacy tts-1 models.
+ */
+const OPENAI_GPT4O_MINI_TTS_VOICES = [
+	"alloy",
+	"ash",
+	"ballad",
+	"cedar",
+	"coral",
+	"echo",
+	"fable",
+	"marin",
+	"nova",
+	"onyx",
+	"sage",
+	"shimmer",
+	"verse",
+];
+
 export const openaiModels = [
 	{
 		id: "gpt-4o-mini",
@@ -492,6 +528,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "o3",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "2e-6",
 				outputPrice: "8e-6",
 				cachedInputPrice: "0.5e-6",
@@ -509,6 +546,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "o3",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "2e-6",
 				outputPrice: "8e-6",
 				cachedInputPrice: "0.5e-6",
@@ -798,6 +836,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -827,6 +866,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -863,6 +903,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5-mini",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -892,6 +933,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5-mini",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -928,6 +970,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5-nano",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.005e-6",
@@ -957,6 +1000,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5-nano",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.005e-6",
@@ -1088,6 +1132,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "openai",
 				externalId: "gpt-5-pro",
+				deactivatedAt: new Date("2026-12-10"),
 				inputPrice: "15e-6",
 				outputPrice: "120.0e-6",
 				requestPrice: "0",
@@ -1371,6 +1416,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.4",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "2.5e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.25e-6",
@@ -1437,9 +1484,9 @@ export const openaiModels = [
 				providerId: "openai",
 				test: "skip",
 				externalId: "gpt-5.4-pro",
+				serviceTiers: ["flex"],
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
-				discount: "0.3",
 				requestPrice: "0",
 				contextSize: 1050000,
 				maxOutput: 128000,
@@ -1487,6 +1534,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.4-mini",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "0.75e-6",
 				outputPrice: "4.5e-6",
 				cachedInputPrice: "0.075e-6",
@@ -1538,6 +1587,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.4-nano",
+				serviceTiers: ["flex"],
 				inputPrice: "0.2e-6",
 				outputPrice: "1.25e-6",
 				cachedInputPrice: "0.02e-6",
@@ -1589,6 +1639,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.5",
+				serviceTiers: ["flex", "priority"],
 				inputPrice: "5.0e-6",
 				outputPrice: "30.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1655,6 +1706,7 @@ export const openaiModels = [
 				providerId: "openai",
 				test: "skip",
 				externalId: "gpt-5.5-pro",
+				serviceTiers: ["flex"],
 				inputPrice: "30.0e-6",
 				outputPrice: "180.0e-6",
 				requestPrice: "0",
@@ -1732,6 +1784,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.3-codex",
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
@@ -2060,6 +2114,83 @@ export const openaiModels = [
 				tools: false,
 				jsonOutput: false,
 				embeddings: true,
+			},
+		],
+	},
+	{
+		id: "tts-1",
+		name: "TTS-1",
+		description:
+			"OpenAI text-to-speech model optimized for real-time use. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2023-11-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "tts-1",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputCharacterPrice: "15e-6",
+				requestPrice: "0",
+				contextSize: 4096,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "tts-1-hd",
+		name: "TTS-1 HD",
+		description:
+			"OpenAI text-to-speech model optimized for quality. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2023-11-06"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "tts-1-hd",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputCharacterPrice: "30e-6",
+				requestPrice: "0",
+				contextSize: 4096,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "gpt-4o-mini-tts",
+		name: "GPT-4o Mini TTS",
+		description:
+			"OpenAI text-to-speech model with steerable delivery via instructions. Generates speech via the /v1/audio/speech endpoint.",
+		family: "openai",
+		output: ["audio"],
+		releasedAt: new Date("2025-03-20"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-4o-mini-tts",
+				// Token-billed; the gateway requests stream_format=sse so the
+				// speech.audio.done event reports usage (the binary response has none).
+				inputPrice: "0.6e-6",
+				outputPrice: "12.0e-6",
+				outputAudioPrice: "12.0e-6",
+				requestPrice: "0",
+				contextSize: 2000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: OPENAI_GPT4O_MINI_TTS_VOICES,
 			},
 		],
 	},

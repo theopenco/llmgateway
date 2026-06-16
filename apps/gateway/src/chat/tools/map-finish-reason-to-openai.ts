@@ -21,6 +21,14 @@ export function mapFinishReasonToOpenai(
 		return "content_filter";
 	}
 
+	// Anthropic-family safety-classifier refusals (`stop_reason: "refusal"` on
+	// the direct API, Vertex, and Bedrock) have no OpenAI-canonical equivalent.
+	// Surface them as "content_filter" so OpenAI-compatible clients don't fall
+	// back to "other"/"stop" for a policy refusal.
+	if (finishReason === "refusal") {
+		return "content_filter";
+	}
+
 	switch (finishReason) {
 		case "stop":
 		case "length":

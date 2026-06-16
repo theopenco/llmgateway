@@ -9,9 +9,9 @@ import {
 	type ProviderModelMapping,
 	models,
 	type PricingTier,
-	providers,
 	type ToolCall,
 	expandAllProviderRegions,
+	getSupportedServiceTiers,
 } from "@llmgateway/models";
 
 /**
@@ -20,18 +20,26 @@ import {
  * `usageMetadata.trafficType`, AI Studio via the `x-gemini-service-tier`
  * response header — NOT what the caller requested, since Google silently
  * downgrades unsupported tiers to standard. Returns 1 (no change) for the
- * standard tier, unknown tiers, or providers without configured tiers.
+ * standard tier, unknown tiers, or model mappings without configured support.
  */
 function getServiceTierMultiplier(
+	model: string,
 	provider: string,
+	region: string | null,
 	servedServiceTier: string | null | undefined,
+	providerMapping?: ProviderModelMapping,
 ): number {
 	if (!servedServiceTier) {
 		return 1;
 	}
-	const tier = providers
-		.find((p) => p.id === provider)
-		?.serviceTiers?.find((t) => t.id === servedServiceTier);
+	const mappingMultiplier =
+		providerMapping?.serviceTierMultipliers?.[servedServiceTier];
+	if (mappingMultiplier !== undefined) {
+		return mappingMultiplier;
+	}
+	const tier = getSupportedServiceTiers(model, provider, region).find(
+		(t) => t.id === servedServiceTier,
+	);
 	return tier?.multiplier ?? 1;
 }
 
@@ -39,6 +47,66 @@ interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
 	content: string;
 	name?: string;
+}
+
+/**
+ * True when a provider's terminal reason is a safety-classifier "refusal".
+ *
+ * Anthropic-family models (the direct Anthropic API, Anthropic on Vertex, and
+ * Anthropic on AWS Bedrock) emit `stop_reason: "refusal"` when a streaming
+ * classifier intervenes on a potential policy violation. Per Anthropic's
+ * documented billing policy, a refusal that arrives before any output is
+ * generated is not billed (the usage counts in that response are informational
+ * only). Callers pair this with an "any output generated?" check to decide
+ * whether to zero the cost — see {@link zeroInferenceCosts}.
+ */
+export function isRefusalFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	if (finishReason !== "refusal") {
+		return false;
+	}
+	return (
+		provider === "anthropic" ||
+		provider === "vertex-anthropic" ||
+		provider === "aws-bedrock"
+	);
+}
+
+interface MutableInferenceCosts {
+	inputCost: number | null;
+	outputCost: number | null;
+	cachedInputCost: number | null;
+	cacheWriteInputCost: number | null;
+	requestCost: number | null;
+	webSearchCost: number | null;
+	contentFilterCost: number | null;
+	imageInputCost: number | null;
+	imageOutputCost: number | null;
+	audioInputCost: number | null;
+	totalCost: number | null;
+}
+
+/**
+ * Zero out every inference cost field in-place. Used for unbilled refusals (a
+ * refusal that arrives before any output is generated) so the request is still
+ * recorded with full token usage for analytics but is not charged. Data
+ * storage cost is intentionally left untouched since retention is billed
+ * separately from inference.
+ */
+export function zeroInferenceCosts(costs: MutableInferenceCosts): void {
+	costs.inputCost = 0;
+	costs.outputCost = 0;
+	costs.cachedInputCost = 0;
+	costs.cacheWriteInputCost = 0;
+	costs.requestCost = 0;
+	costs.webSearchCost = 0;
+	costs.contentFilterCost = 0;
+	costs.imageInputCost = 0;
+	costs.imageOutputCost = 0;
+	costs.audioInputCost = 0;
+	costs.totalCost = 0;
 }
 
 /**
@@ -393,25 +461,28 @@ export async function calculateCosts(
 			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
-	// Get effective discount (checks org-specific, global, then hardcoded).
 	// Discounts are keyed by the root model ID only.
-	const hardcodedDiscount = providerInfo.discount ?? "0";
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
 		model,
-		hardcodedDiscount,
 	);
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
 
-	// Flex / Priority processing tiers scale every per-token price uniformly
-	// (Flex −50%, Priority +80%). They do NOT affect per-request, web-search, or
-	// content-filter fees, so token costs use `tokenDiscountMultiplier` while
-	// those flat fees keep the plain `discountMultiplier`. When the served tier
-	// is standard/unknown the multiplier is 1 and behavior is unchanged.
+	// Flex / Priority processing tiers scale every per-token price uniformly.
+	// They do NOT affect per-request, web-search, or content-filter fees, so token
+	// costs use `tokenDiscountMultiplier` while those flat fees keep the plain
+	// `discountMultiplier`. When the served tier is standard/unknown the
+	// multiplier is 1 and behavior is unchanged.
 	const serviceTierMultiplier = new Decimal(
-		getServiceTierMultiplier(provider, servedServiceTier),
+		getServiceTierMultiplier(
+			model,
+			provider,
+			region,
+			servedServiceTier,
+			providerInfo,
+		),
 	);
 	const tokenDiscountMultiplier = discountMultiplier.times(
 		serviceTierMultiplier,

@@ -64,12 +64,15 @@ export function HeroEnterprise({
 		<section className="relative pt-32 pb-20 sm:pt-40 sm:pb-28">
 			<div className="container mx-auto px-4 sm:px-6 lg:px-8">
 				<div className="mx-auto max-w-4xl text-center">
-					<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-muted px-4 py-1.5">
+					<Link
+						href="/blog/soc2-type-ii"
+						className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-muted px-4 py-1.5 transition-colors hover:border-blue-500/50"
+					>
 						<span className="text-xs font-mono text-blue-500">ENTERPRISE</span>
 						<span className="text-xs text-muted-foreground">
-							Production-ready LLM infrastructure
+							SOC 2 Type II certified
 						</span>
-					</div>
+					</Link>
 					<h1 className="mb-6 text-4xl font-bold tracking-tight text-balance sm:text-6xl lg:text-7xl">
 						Enterprise LLM Gateway for mission-critical applications
 					</h1>

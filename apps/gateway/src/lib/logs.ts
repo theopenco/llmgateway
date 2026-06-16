@@ -63,6 +63,13 @@ export function getUnifiedFinishReason(
 	if (finishReason === "llmgateway_content_filter") {
 		return UnifiedFinishReason.CONTENT_FILTER;
 	}
+	// Anthropic-family safety-classifier refusals surface as `stop_reason:
+	// "refusal"` across the direct API, Vertex, and Bedrock. Map it uniformly
+	// here so providers handled by the default branch below (e.g. aws-bedrock)
+	// classify refusals as content filtering rather than UNKNOWN.
+	if (finishReason === "refusal") {
+		return UnifiedFinishReason.CONTENT_FILTER;
+	}
 
 	switch (provider) {
 		case "anthropic":

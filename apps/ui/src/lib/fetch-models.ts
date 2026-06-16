@@ -14,6 +14,12 @@ export interface ApiProvider {
 	color: string | null;
 	website: string | null;
 	announcement: string | null;
+	serviceTiers?: Array<{
+		id: string;
+		name: string;
+		multiplier: number;
+		description?: string;
+	}> | null;
 	status: "active" | "inactive";
 }
 
@@ -33,6 +39,8 @@ export interface ApiModelProviderMapping {
 	imageOutputPrice: string | null;
 	imageInputTokensByResolution: Record<string, number> | null;
 	imageOutputTokensByResolution: Record<string, number> | null;
+	inputCharacterPrice: string | null;
+	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
@@ -61,6 +69,7 @@ export interface ApiModelProviderMapping {
 		cacheWriteInputPrice: string | null;
 		cacheWriteInputPrice1h: string | null;
 	}> | null;
+	serviceTiers?: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;

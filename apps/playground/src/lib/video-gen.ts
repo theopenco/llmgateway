@@ -3,8 +3,10 @@ import type { ApiModel, ApiModelProviderMapping } from "@/lib/fetch-models";
 import type { Client } from "openapi-fetch";
 
 export type VideoSize =
+	| "848x480"
 	| "1280x720"
 	| "720x1280"
+	| "1696x960"
 	| "1920x1080"
 	| "1080x1920"
 	| "3840x2160"
@@ -55,8 +57,16 @@ export interface VideoGalleryItem {
 	id: string;
 	prompt: string;
 	timestamp: number;
+	// Organization context active when the generation was started. Captured up
+	// front so the saved item is attributed to the right org even if the user
+	// switches organizations while the generation is in flight.
+	organizationId?: string;
 	frameInputs?: VideoFrameInputs;
 	referenceImages?: VideoInputImage[];
+	// Small preview images shown next to the prompt (frame/reference inputs).
+	// Data URLs for in-flight items, API input-image URLs for history items so
+	// the history list doesn't need to inline base64 payloads.
+	inputPreviews?: { src: string; label: string }[];
 	models: VideoGalleryModelResult[];
 }
 
@@ -65,8 +75,10 @@ export type VideoInputMode = "none" | "frames" | "reference";
 const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10, 12, 15];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
+	"848x480": "480p Landscape",
 	"1280x720": "720p Landscape",
 	"720x1280": "720p Portrait",
+	"1696x960": "960p Landscape",
 	"1920x1080": "1080p Landscape",
 	"1080x1920": "1080p Portrait",
 	"3840x2160": "4K Landscape",
@@ -89,6 +101,14 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 	const [providerId, rootModelId] = modelId.includes("/")
 		? modelId.split("/", 2)
 		: [undefined, modelId];
+
+	if (rootModelId === "minimax-hailuo-2-3") {
+		return providerId === undefined || providerId === "minimax";
+	}
+
+	if (rootModelId === "grok-imagine-video-1-5-preview") {
+		return providerId === undefined || providerId === "xai";
+	}
 
 	if (
 		rootModelId !== "veo-3.1-generate-preview" &&
@@ -178,16 +198,7 @@ function mappingSupportsVideoRequest(
 	inputMode: VideoInputMode,
 	size: VideoSize,
 	duration: VideoDuration,
-	audioEnabled: boolean,
 ): boolean {
-	if (audioEnabled) {
-		if (mapping.supportsVideoAudio === false) {
-			return false;
-		}
-	} else if (mapping.supportsVideoWithoutAudio !== true) {
-		return false;
-	}
-
 	if (
 		mapping.supportedVideoSizes?.length &&
 		!mapping.supportedVideoSizes.includes(size)
@@ -205,9 +216,19 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (
+		mapping.providerId === "minimax" &&
+		(size === "1920x1080" || size === "1080x1920") &&
+		duration > 6
+	) {
+		return false;
+	}
+
+	if (
 		inputMode === "frames" &&
 		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche"
+		mapping.providerId !== "avalanche" &&
+		mapping.providerId !== "minimax" &&
+		mapping.providerId !== "xai"
 	) {
 		return false;
 	}
@@ -245,20 +266,13 @@ export function getSupportedVideoSizesForSelection(
 	selectedModels: string[],
 	inputMode: VideoInputMode,
 	duration: VideoDuration,
-	audioEnabled: boolean,
 ): VideoSize[] {
 	const allSizes = getVideoSizes();
 
 	return allSizes.filter((size) =>
 		selectedModels.every((modelId) =>
 			getSelectedVideoMappings(models, modelId).some((mapping) =>
-				mappingSupportsVideoRequest(
-					mapping,
-					inputMode,
-					size,
-					duration,
-					audioEnabled,
-				),
+				mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 			),
 		),
 	);
@@ -269,18 +283,11 @@ export function getSupportedVideoDurationsForSelection(
 	selectedModels: string[],
 	inputMode: VideoInputMode,
 	size: VideoSize,
-	audioEnabled: boolean,
 ): VideoDuration[] {
 	return VIDEO_DURATIONS.filter((duration) =>
 		selectedModels.every((modelId) =>
 			getSelectedVideoMappings(models, modelId).some((mapping) =>
-				mappingSupportsVideoRequest(
-					mapping,
-					inputMode,
-					size,
-					duration,
-					audioEnabled,
-				),
+				mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 			),
 		),
 	) as VideoDuration[];
@@ -295,7 +302,6 @@ export function getSupportedVideoRequestOptions(
 	models: ApiModel[],
 	selectedModels: string[],
 	inputMode: VideoInputMode,
-	audioEnabled: boolean,
 ): SupportedVideoRequestOptions {
 	const supportedSizes = new Set<VideoSize>();
 	const supportedDurations = new Set<VideoDuration>();
@@ -304,13 +310,7 @@ export function getSupportedVideoRequestOptions(
 		for (const duration of VIDEO_DURATIONS) {
 			const isSupported = selectedModels.every((modelId) =>
 				getSelectedVideoMappings(models, modelId).some((mapping) =>
-					mappingSupportsVideoRequest(
-						mapping,
-						inputMode,
-						size,
-						duration,
-						audioEnabled,
-					),
+					mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 				),
 			);
 
@@ -333,7 +333,6 @@ export function getNormalizedVideoRequestSelection(
 	models: ApiModel[],
 	selectedModels: string[],
 	inputMode: VideoInputMode,
-	audioEnabled: boolean,
 	size: VideoSize,
 	duration: VideoDuration,
 ): { size: VideoSize; duration: VideoDuration } | null {
@@ -346,7 +345,6 @@ export function getNormalizedVideoRequestSelection(
 						inputMode,
 						candidateSize,
 						candidateDuration,
-						audioEnabled,
 					),
 				),
 			)

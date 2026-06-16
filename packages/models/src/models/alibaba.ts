@@ -12,7 +12,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen-max",
-				discount: "0.2",
 				inputPrice: "1.6e-6",
 				outputPrice: "6.4e-6",
 				regions: [
@@ -44,7 +43,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen-max-latest",
-				discount: "0.2",
 				inputPrice: "1.6e-6",
 				outputPrice: "6.4e-6",
 				regions: [
@@ -76,7 +74,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen-plus",
-				discount: "0.2",
 				inputPrice: "0.4e-6",
 				outputPrice: "1.2e-6",
 				cachedInputPrice: "0.08e-6",
@@ -190,7 +187,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen-plus-latest",
-				discount: "0.2",
 				inputPrice: "0.4e-6",
 				outputPrice: "1.2e-6",
 				cachedInputPrice: "0.08e-6",
@@ -276,7 +272,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen-flash",
-				discount: "0.2",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -364,7 +359,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen-omni-turbo",
-				discount: "0.2",
 				inputPrice: "0.2e-6",
 				outputPrice: "0.8e-6",
 				requestPrice: "0",
@@ -387,7 +381,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen-turbo",
-				discount: "0.2",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.2e-6",
 				regions: [
@@ -405,6 +398,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-13"),
 			},
 		],
 	},
@@ -419,7 +413,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen3-coder-plus",
-				discount: "0.2",
 				inputPrice: "6e-6",
 				outputPrice: "60e-6",
 				cachedInputPrice: "1.2e-6",
@@ -626,6 +619,30 @@ export const alibabaModels = [
 				tools: true,
 				jsonOutput: true,
 				deactivatedAt: new Date("2025-11-03"),
+			},
+		],
+	},
+	{
+		id: "qwen3.5-9b",
+		name: "Qwen3.5 9B",
+		description:
+			"Compact Qwen3.5 hybrid-reasoning model with tool calling and a 262K context window.",
+		family: "alibaba",
+		releasedAt: new Date("2026-06-01"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3.5-9B",
+				inputPrice: "0.1e-6",
+				outputPrice: "0.15e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 32768,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},
@@ -998,7 +1015,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen-vl-max",
-				discount: "0.2",
 				inputPrice: "0.8e-6",
 				outputPrice: "3.2e-6",
 				requestPrice: "0",
@@ -1008,6 +1024,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-13"),
 			},
 		],
 	},
@@ -1021,7 +1038,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen-vl-plus",
-				discount: "0.2",
 				inputPrice: "0.21e-6",
 				outputPrice: "0.64e-6",
 				requestPrice: "0",
@@ -1031,6 +1047,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-13"),
 			},
 		],
 	},
@@ -1045,7 +1062,6 @@ export const alibabaModels = [
 				providerId: "alibaba",
 				stability: "unstable",
 				externalId: "qwen3-next-80b-a3b-thinking",
-				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "6e-6",
 				requestPrice: "0",
@@ -1069,6 +1085,7 @@ export const alibabaModels = [
 					"response_format",
 					"tools",
 				],
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
@@ -1133,7 +1150,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3-next-80b-a3b-instruct",
-				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "2e-6",
 				requestPrice: "0",
@@ -1143,6 +1159,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
@@ -1170,7 +1187,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen3-max-preview",
-				discount: "0.2",
 				inputPrice: "3e-6",
 				outputPrice: "15e-6",
 				cachedInputPrice: "0.6e-6",
@@ -1519,7 +1535,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3.5-397b-a17b",
-				discount: "0.2",
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
 				regions: [
@@ -1633,7 +1648,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen-image-plus",
-				discount: "0.2",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.03",
@@ -1686,7 +1700,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen-image",
-				discount: "0.2",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.035",
@@ -1737,7 +1750,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwq-plus",
-				discount: "0.2",
 				inputPrice: "0.8e-6",
 				outputPrice: "2.4e-6",
 				regions: [
@@ -1762,6 +1774,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-07-13"),
 			},
 		],
 	},
@@ -1776,7 +1789,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen-coder-plus",
-				discount: "0.2",
 				inputPrice: "0.502e-6",
 				outputPrice: "1.004e-6",
 				regions: [{ id: "cn-beijing" }],
@@ -1800,7 +1812,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3-coder-flash",
-				discount: "0.2",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.5e-6",
 				cachedInputPrice: "0.06e-6",
@@ -1961,7 +1972,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3-vl-plus",
-				discount: "0.2",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.6e-6",
 				cachedInputPrice: "0.04e-6",
@@ -2095,7 +2105,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3-vl-flash",
-				discount: "0.2",
 				inputPrice: "0.05e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -2205,7 +2214,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3-vl-235b-a22b-instruct",
-				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.0e-6",
 				requestPrice: "0",
@@ -2215,6 +2223,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
@@ -2242,7 +2251,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3-vl-235b-a22b-thinking",
-				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.0e-6",
 				requestPrice: "0",
@@ -2254,6 +2262,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 			{
 				providerId: "novita",
@@ -2282,7 +2291,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen2.5-vl-32b-instruct",
-				discount: "0.2",
 				inputPrice: "1.4e-6",
 				outputPrice: "4.2e-6",
 				requestPrice: "0",
@@ -2307,7 +2315,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen3-max-2026-01-23",
-				discount: "0.2",
 				inputPrice: "1.2e-6",
 				outputPrice: "6.0e-6",
 				cachedInputPrice: "0.24e-6",
@@ -2430,6 +2437,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-08"),
 			},
 		],
 	},
@@ -2446,7 +2454,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen-image-edit-plus",
-				discount: "0.2",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.04",
@@ -2474,7 +2481,6 @@ export const alibabaModels = [
 				test: "skip",
 				providerId: "alibaba",
 				externalId: "qwen-image-edit-max",
-				discount: "0.2",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.08",
@@ -2499,7 +2505,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3.6-max-preview",
-				discount: "0.2",
 				inputPrice: "1.3e-6",
 				outputPrice: "7.8e-6",
 				cachedInputPrice: "0.13e-6",
@@ -2538,7 +2543,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3.6-plus",
-				discount: "0.2",
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.05e-6",
@@ -2579,7 +2583,6 @@ export const alibabaModels = [
 			{
 				providerId: "alibaba",
 				externalId: "qwen3.6-35b-a3b",
-				discount: "0.2",
 				inputPrice: "0.248e-6",
 				outputPrice: "1.485e-6",
 				regions: [{ id: "singapore" }],
@@ -2631,6 +2634,44 @@ export const alibabaModels = [
 					"response_format",
 					"tools",
 				],
+			},
+		],
+	},
+	{
+		id: "wan-2-6-t2v",
+		name: "Wan 2.6 Text-to-Video",
+		description:
+			"Alibaba's Wan 2.6 text-to-video model generating short clips with synchronized audio from a text prompt.",
+		family: "alibaba",
+		output: ["video"],
+		maxVideoDurationSeconds: 15,
+		releasedAt: new Date("2026-01-15"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "wan2.6-t2v",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					default: "0.08",
+					"720p": "0.08",
+					"1080p": "0.12",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1280x720", "720x1280", "1920x1080", "1080x1920"],
+				supportedVideoDurationsSeconds: [
+					2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+				],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: false,
 			},
 		],
 	},

@@ -49,8 +49,8 @@ export interface ProviderRegionConfig {
 /**
  * A selectable processing tier offered by a provider that trades latency
  * against price relative to the standard on-demand rate. Selected per-request
- * via the OpenAI-compatible `service_tier` field. Currently used by Google
- * Vertex AI (Flex / Priority PayGo).
+ * via the OpenAI-compatible `service_tier` field. Currently used by OpenAI,
+ * Google Vertex AI, and Google AI Studio.
  */
 export interface ServiceTier {
 	/** Value the client passes via `service_tier` to select this tier (e.g. "flex", "priority") */
@@ -59,8 +59,8 @@ export interface ServiceTier {
 	name: string;
 	/**
 	 * Multiplier applied to the standard input/output token prices for this
-	 * tier. 0.5 means 50% cheaper, 1.8 means an 80% premium. Multipliers are
-	 * uniform across all Gemini 2.5 models on Vertex.
+	 * tier. 0.5 means 50% cheaper, 2.5 means 2.5x standard pricing. Multipliers are
+	 * uniform for provider tiers that publish a tier-wide multiplier.
 	 */
 	multiplier: number;
 	/** Short description of the latency/availability trade-off */
@@ -182,6 +182,22 @@ export const providers: ProviderDefinition[] = [
 			iso27001: true,
 			gdpr: true,
 		},
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for slower responses and occasional resource unavailability.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 2.5,
+				description:
+					"Premium low-latency tier with faster, more consistent processing.",
+			},
+		],
 	},
 	{
 		id: "anthropic",
@@ -229,6 +245,23 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://ai.google.com",
 		announcement: null,
+		priority: 0.8,
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for variable latency and best-effort availability.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.8,
+				description:
+					"Premium low-latency tier prioritized above standard and flex traffic, at an 80% premium.",
+			},
+		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -262,6 +295,7 @@ export const providers: ProviderDefinition[] = [
 		privacyPolicyUrl: null,
 		headquarters: null,
 		dataPolicy: null,
+		priority: 1.2,
 	},
 	{
 		id: "google-vertex",
@@ -283,7 +317,6 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.8,
 		serviceTiers: [
 			{
 				id: "flex",
@@ -333,7 +366,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.9,
+		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -366,7 +399,7 @@ export const providers: ProviderDefinition[] = [
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		announcement: null,
-		priority: 0.9,
+		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -496,7 +529,6 @@ export const providers: ProviderDefinition[] = [
 		color: "#000000",
 		website: "https://x.ai",
 		announcement: null,
-		priority: 0.1,
 		termsUrl: "https://x.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://x.ai/legal/privacy-policy",
 		headquarters: "US",
@@ -535,7 +567,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.5,
+		priority: 2,
 	},
 	{
 		id: "alibaba",
@@ -619,7 +651,7 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_AWS_BEDROCK_REGION",
 			},
 		},
-		priority: 1.5,
+		priority: 2,
 		streaming: true,
 		cancellation: true,
 		color: "#FF9900",
@@ -724,7 +756,7 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
-		priority: 1.5,
+		priority: 2,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		headquarters: "US",
@@ -823,7 +855,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "perplexity",
@@ -1074,7 +1106,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.5,
+		priority: 2,
 	},
 	{
 		id: "embercloud",
@@ -1158,6 +1190,59 @@ export const providers: ProviderDefinition[] = [
 			retentionPeriod: "0 days",
 			soc2: true,
 			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
+		id: "reve",
+		name: "Reve",
+		description:
+			"Reve's image generation models with native 4K resolution and code-based controllable image creation.",
+		env: {
+			required: {
+				apiKey: "LLM_REVE_API_KEY",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#1a1a2e",
+		website: "https://reve.com",
+		announcement: null,
+		termsUrl:
+			"https://help.reve.com/hc/en-us/articles/46731550696468-Terms-of-service",
+		privacyPolicyUrl:
+			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
+		headquarters: "US",
+		dataPolicy: null,
+	},
+	{
+		id: "elevenlabs",
+		name: "ElevenLabs",
+		description:
+			"ElevenLabs provides lifelike, low-latency text-to-speech models in 70+ languages.",
+		env: {
+			required: {
+				apiKey: "LLM_ELEVENLABS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ELEVENLABS_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: true,
+		color: "#000000",
+		website: "https://elevenlabs.io",
+		announcement: null,
+		termsUrl: "https://elevenlabs.io/terms-of-use",
+		privacyPolicyUrl: "https://elevenlabs.io/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: true,
+			iso27001: false,
 			gdpr: true,
 		},
 	},

@@ -6,6 +6,7 @@ title: DevPass vs OpenCode Zen
 metaTitle: "DevPass vs OpenCode Zen: Flat Rate vs Pay-As-You-Go"
 description: "DevPass vs OpenCode Zen compared. OpenCode Zen is pay-as-you-go with zero markup on a curated model set; DevPass is a flat monthly plan for 200+ models with a fixed bill and per-request cost analytics."
 competitor: OpenCode Zen
+competitorLogo: opencode-zen
 competitorTagline: Pay-as-you-go access to a curated set of coding models
 tagline: "OpenCode Zen charges per request with no markup. DevPass charges a flat monthly rate. The question isn't which is cheaper per token — it's whether you want a predictable bill or a metered one."
 devpassPrice: "$29–$179/mo"

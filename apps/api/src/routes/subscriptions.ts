@@ -86,8 +86,8 @@ subscriptions.openapi(createProSubscription, async (c) => {
 
 	const organization = userOrganization.organization;
 
-	// Block paid subscriptions for personal orgs (dev plan only)
-	if (organization.isPersonal) {
+	// Block paid subscriptions for personal/chat orgs (dev/chat plans only)
+	if (organization.isPersonal || organization.isChat) {
 		throw new HTTPException(403, {
 			message:
 				"Paid subscriptions are not available for personal organizations. Please use Dev Plans at devpass.llmgateway.io or create a regular organization.",

@@ -7,6 +7,7 @@ export const providerLogoUrls: Partial<
 > = {
 	openai: ProviderIcons.openai,
 	anthropic: ProviderIcons.anthropic,
+	elevenlabs: ProviderIcons.elevenlabs,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
 	glacier: ProviderIcons.glacier,
 	"google-vertex": ProviderIcons["google-vertex"],
@@ -36,6 +37,7 @@ export const providerLogoUrls: Partial<
 	xiaomi: ProviderIcons.xiaomi,
 	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
+	reve: ProviderIcons.reve,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

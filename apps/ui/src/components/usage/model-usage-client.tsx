@@ -108,12 +108,12 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 					<h2 className="text-3xl font-bold tracking-tight">
 						{groupBy === "apiKey" ? "Usage by API key" : "Usage by model"}
 					</h2>
-					<div className="flex items-center space-x-2">
+					<div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
 						<Select
 							value={groupBy}
 							onValueChange={(v) => updateGroupBy(v as GroupBy)}
 						>
-							<SelectTrigger size="sm" className="w-[180px]">
+							<SelectTrigger size="sm" className="w-full sm:w-[180px]">
 								<SelectValue placeholder="Group by" />
 							</SelectTrigger>
 							<SelectContent>
@@ -128,7 +128,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 								updateApiKeyIdInUrl(value === "all" ? undefined : value)
 							}
 						>
-							<SelectTrigger size="sm" className="w-[180px]">
+							<SelectTrigger size="sm" className="w-full sm:w-[180px]">
 								<SelectValue placeholder="All API Keys" />
 							</SelectTrigger>
 							<SelectContent>

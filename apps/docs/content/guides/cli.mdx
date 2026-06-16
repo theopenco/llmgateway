@@ -1,6 +1,6 @@
 ---
 title: LLM Gateway CLI
-description: Command-line tool for scaffolding and managing LLM Gateway projects
+description: Command-line tool for scaffolding projects and managing keys, budgets, and usage
 icon: Terminal
 ---
 
@@ -8,7 +8,7 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 import { Tabs, Tab } from "fumadocs-ui/components/tabs";
 
-The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for scaffolding projects, managing AI applications, and discovering models.
+The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for scaffolding projects, discovering models, and managing your LLM Gateway account — API keys, spending budgets, and usage analytics — straight from the terminal.
 
 ## Installation
 
@@ -28,10 +28,11 @@ The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for scaffo
     npm install -g @llmgateway/cli
     ```
 
-    Then run commands directly:
+    Then run commands directly (`lg` works as a shorthand alias):
 
     ```bash
     llmgateway init
+    lg init
     ```
 
   </Tab>
@@ -58,17 +59,21 @@ npx @llmgateway/cli init --template image-generation --name my-ai-app
 </Step>
 
 <Step>
-### Configure Authentication
+### Sign In
 
-Login to save your API key locally:
+Sign in with your LLM Gateway account to unlock key management, budgets, and usage analytics:
 
 ```bash
-npx @llmgateway/cli auth login
+npx @llmgateway/cli auth login --email you@example.com
 ```
 
-This opens a browser window to authenticate with LLM Gateway. Your credentials are stored in `~/.llmgateway/config.json`.
+Or store a gateway API key only (enough for making gateway requests):
 
-Alternatively, set the `LLMGATEWAY_API_KEY` environment variable which takes precedence over the config file.
+```bash
+npx @llmgateway/cli auth login --key
+```
+
+Credentials are stored in `~/.llmgateway/config.json`. The `LLMGATEWAY_API_KEY` environment variable takes precedence over a stored key.
 
 </Step>
 
@@ -91,20 +96,20 @@ npx @llmgateway/cli dev --port 3000
 </Step>
 </Steps>
 
-## Commands
+## Project Commands
 
 ### `init`
 
 Initialize a new project from a template.
 
 ```bash
-npx @llmgateway/cli init [options]
+npx @llmgateway/cli init [directory] [options]
 ```
 
 **Options:**
 
-- `--template <name>` — Template to use (e.g., `image-generation`, `weather-agent`)
-- `--name <name>` — Project name
+- `-t, --template <name>` — Template to use (default: `image-generation`)
+- `-n, --name <name>` — Project name
 
 **Examples:**
 
@@ -118,7 +123,7 @@ npx @llmgateway/cli init --template image-generation --name my-app
 
 ### `list`
 
-Display available project templates.
+Display available project templates, grouped by category. Alias: `ls`.
 
 ```bash
 npx @llmgateway/cli list
@@ -138,9 +143,10 @@ npx @llmgateway/cli models [options]
 
 **Options:**
 
-- `--capability <type>` — Filter by capability (e.g., `chat`, `image`, `embedding`)
-- `--provider <name>` — Filter by provider (e.g., `openai`, `anthropic`, `google`)
-- `--search <term>` — Search models by name
+- `-c, --capability <type>` — Filter by capability (e.g., `image`, `text`)
+- `-p, --provider <name>` — Filter by provider (e.g., `openai`, `anthropic`)
+- `-s, --search <term>` — Search models by name
+- `--json` — Output in JSON format
 
 **Examples:**
 
@@ -160,8 +166,10 @@ npx @llmgateway/cli models --search gpt
 Add tools or API routes to an existing project.
 
 ```bash
-npx @llmgateway/cli add
+npx @llmgateway/cli add [type] [name]
 ```
+
+Runs interactively when `type` (`tool` or `route`) and `name` are omitted.
 
 **Tools available:**
 
@@ -172,26 +180,11 @@ npx @llmgateway/cli add
 **API routes available:**
 
 - `generate` — Text generation endpoint
-- `chat` — Chat completion endpoint
-
-### `auth`
-
-Manage API authentication.
-
-```bash
-# Login via browser
-npx @llmgateway/cli auth login
-
-# Check authentication status
-npx @llmgateway/cli auth status
-
-# Logout
-npx @llmgateway/cli auth logout
-```
+- `chat` — Chat completion endpoint with streaming
 
 ### `dev`
 
-Start the local development server.
+Start the local development server using your project's package manager.
 
 ```bash
 npx @llmgateway/cli dev [options]
@@ -199,11 +192,11 @@ npx @llmgateway/cli dev [options]
 
 **Options:**
 
-- `--port <number>` — Port to run on (default: 3000)
+- `-p, --port <number>` — Port to run on
 
 ### `upgrade`
 
-Update LLM Gateway dependencies in your project.
+Update LLM Gateway dependencies (`@llmgateway/ai-sdk-provider`, `@llmgateway/models`, `@llmgateway/cli`) in your project.
 
 ```bash
 npx @llmgateway/cli upgrade [options]
@@ -211,52 +204,232 @@ npx @llmgateway/cli upgrade [options]
 
 **Options:**
 
-- `--dry-run` — Show what would be updated without making changes
+- `--check` — Check for updates without installing
 
 ### `docs`
 
 Open the documentation in your browser.
 
 ```bash
-npx @llmgateway/cli docs
+npx @llmgateway/cli docs [topic]
+```
+
+**Topics:** `models`, `api`, `sdk`, `quickstart` — omit to open the docs home and see all topics.
+
+## Account Commands
+
+<Callout type="info">
+	The commands below require a dashboard session — sign in first with
+	`llmgateway auth login --email`. A gateway API key alone is not enough for
+	account management.
+</Callout>
+
+### `auth`
+
+Manage authentication (dashboard session and gateway API key).
+
+```bash
+# Sign in with email & password (full access), or paste an API key
+npx @llmgateway/cli auth login
+npx @llmgateway/cli auth login --email you@example.com
+npx @llmgateway/cli auth login --key
+
+# Check authentication status (session + API key)
+npx @llmgateway/cli auth status
+
+# Show the signed-in user
+npx @llmgateway/cli auth whoami
+
+# Remove stored session and API key
+npx @llmgateway/cli auth logout
+```
+
+### `keys`
+
+Create and manage gateway API keys.
+
+```bash
+npx @llmgateway/cli keys <subcommand>
+```
+
+#### `keys create`
+
+Create a new API key, optionally with spending limits and an expiry.
+
+```bash
+npx @llmgateway/cli keys create --description "CI key" --limit 100 --expires 30d
+```
+
+**Options:**
+
+- `-p, --project <id>` — Project the key belongs to
+- `-d, --description <text>` — Key description
+- `-l, --limit <usd>` — Total spending limit in USD (e.g. `100` or `49.99`)
+- `--period-limit <usd>` — Spending limit per rolling period in USD
+- `--period <duration>` — Rolling period for `--period-limit` (`12h`, `1d`, `2w`, `1mo`; default `1mo`)
+- `-e, --expires <ttl>` — TTL as a duration (`30d`, `12h`) or an ISO date
+- `--json` — Output in JSON format
+
+The token is only displayed once at creation time — save it immediately.
+
+#### `keys list`
+
+List API keys with spend, budget, and expiry. Alias: `keys ls`.
+
+**Options:**
+
+- `-p, --project <id>` — Filter by project
+- `--all` — Show all keys in the org (admin/owner only)
+- `--json` — Output in JSON format
+
+#### `keys update <id>`
+
+Activate or deactivate an API key.
+
+**Options:**
+
+- `--activate` — Set the key to active
+- `--deactivate` — Set the key to inactive
+- `-e, --expires <ttl>` — New expiry as a duration (`30d`) or ISO date (needed to reactivate expired keys)
+
+#### `keys limit <id>`
+
+Set spending limits on an API key (same as `budget set`).
+
+**Options:**
+
+- `-l, --limit <usd>` — Total spending limit in USD
+- `--period-limit <usd>` — Spending limit per rolling period in USD
+- `--period <duration>` — Rolling period (`12h`, `1d`, `2w`, `1mo`; default `1mo`)
+- `--clear` — Remove all spending limits
+
+#### `keys roll <id>`
+
+Regenerate the token for an API key. The old token becomes invalid immediately.
+
+**Options:**
+
+- `-y, --yes` — Skip confirmation
+
+#### `keys delete <id>`
+
+Delete an API key. Alias: `keys rm`.
+
+**Options:**
+
+- `-y, --yes` — Skip confirmation
+
+### `budget`
+
+Manage API key spending limits.
+
+```bash
+# Set a total and/or rolling-period budget
+npx @llmgateway/cli budget set <keyId> --limit 100 --period-limit 25 --period 1w
+
+# Remove all spending limits
+npx @llmgateway/cli budget set <keyId> --clear
+
+# Show budget and current spend
+npx @llmgateway/cli budget get <keyId>
+```
+
+**`budget set` options:** `-l, --limit <usd>`, `--period-limit <usd>`, `--period <duration>`, `--clear`
+
+**`budget get` options:** `-p, --project <id>`, `--json`
+
+### `usage`
+
+View usage and cost analytics.
+
+```bash
+npx @llmgateway/cli usage [options]
+```
+
+**Options:**
+
+- `-o, --org <id>` — Aggregate usage across an organization
+- `-p, --project <id>` — Filter by project
+- `-k, --api-key <id>` — Filter by API key
+- `--by <dimension>` — Break down by `model` or `key`
+- `-r, --range <range>` — Time range: `1h`, `4h`, `24h`, `7d`, `30d`, `365d` (default `7d`)
+- `--days <n>` — Look back N days instead of `--range`
+- `--from <date>` / `--to <date>` — Custom date range (`YYYY-MM-DD`)
+- `--json` — Output in JSON format
+
+**Examples:**
+
+```bash
+# Last 7 days for the default project
+npx @llmgateway/cli usage
+
+# Cost per model over the last 30 days
+npx @llmgateway/cli usage --by model --range 30d
+
+# Whole-org aggregate
+npx @llmgateway/cli usage --org <orgId>
+```
+
+#### `usage sources`
+
+Break down usage by session/agent source to see which agents or sessions are spending.
+
+```bash
+npx @llmgateway/cli usage sources [options]
+```
+
+**Options:** `-p, --project <id>`, `-r, --range <range>` (`7d`, `30d`), `--from <date>`, `--to <date>`, `--json`
+
+### `orgs`
+
+List your organizations with plan and credit balance. Alias: `orgs ls`.
+
+```bash
+npx @llmgateway/cli orgs list [--json]
+```
+
+### `projects`
+
+Manage projects and the CLI's default project.
+
+```bash
+# List projects (optionally filtered by org)
+npx @llmgateway/cli projects list [--org <id>] [--json]
+
+# Set the default project used by keys/budget/usage commands
+npx @llmgateway/cli projects use <id>
+```
+
+### `credits`
+
+Show organization credit balances.
+
+```bash
+npx @llmgateway/cli credits [--org <id>] [--json]
 ```
 
 ## Available Templates
 
-### Image Generation
+### Web Applications
 
-A full-stack application for AI image generation.
+- **`image-generation`** — Full-stack AI image generation app (Next.js 16, React 19). Multi-provider support with a unified API.
+- **`ai-chatbot`** — AI chatbot with streaming responses.
+- **`og-image-generator`** — AI-powered OG image generator.
+- **`feedback-dashboard`** — Customer feedback sentiment dashboard.
+- **`writing-assistant`** — AI writing assistant with text actions.
+- **`qa-agent`** — AI-powered QA testing agent with browser automation, real-time action timeline, and live browser preview.
 
-- **Stack:** Next.js 16, React 19, TypeScript
-- **Features:** Multi-provider support (DALL-E, Stable Diffusion), unified API
-- **Use case:** Image generation apps, creative tools
+### CLI Agents
 
-```bash
-npx @llmgateway/cli init --template image-generation
-```
-
-### QA Agent
-
-An AI-powered QA testing agent that uses browser automation to test your web app.
-
-- **Stack:** Next.js 16, React 19, TypeScript, Agent Browser
-- **Features:** Natural language testing, real-time action timeline, live browser preview
-- **Use case:** Automated QA testing, regression testing, user flow validation
+- **`weather-agent`** — Answers weather queries using tool calling.
+- **`lead-agent`** — Researches people and posts results to Discord.
+- **`changelog-generator-agent`** — Generates changelogs from git history.
+- **`email-drafter-agent`** — Drafts polished emails from rough notes.
+- **`sentiment-analyzer-agent`** — Analyzes text sentiment.
+- **`data-extractor-agent`** — Extracts structured entities from text.
 
 ```bash
 npx @llmgateway/cli init --template qa-agent
-```
-
-### Weather Agent
-
-A CLI agent demonstrating tool calling capabilities.
-
-- **Stack:** TypeScript, AI SDK, OpenAI
-- **Features:** Tool calling, real-time data, natural language
-- **Use case:** Learning tool usage, building CLI agents
-
-```bash
-npx @llmgateway/cli init --template weather-agent
 ```
 
 ## Configuration
@@ -266,17 +439,24 @@ The CLI stores configuration in `~/.llmgateway/config.json`:
 ```json
 {
 	"apiKey": "llmgtwy_...",
-	"defaultTemplate": "image-generation"
+	"defaultTemplate": "image-generation",
+	"sessionEmail": "you@example.com",
+	"defaultOrgId": "org_...",
+	"defaultProjectId": "proj_..."
 }
 ```
 
+Signing in with `auth login --email` also stores a dashboard session used by the account commands (`keys`, `budget`, `usage`, `orgs`, `projects`, `credits`).
+
 ### Environment Variables
 
-The `LLMGATEWAY_API_KEY` environment variable takes precedence over the config file:
+- `LLMGATEWAY_API_KEY` — Gateway API key; takes precedence over the config file:
 
 ```bash
 export LLMGATEWAY_API_KEY="llmgtwy_..."
 ```
+
+- `LLMGATEWAY_API_URL` — Override the management API base URL (defaults to `https://internal.llmgateway.io`), useful for self-hosted deployments.
 
 ## More Resources
 

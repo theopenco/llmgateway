@@ -37,7 +37,12 @@ export default async function VideoPage({
 		fetchProviders(),
 	]);
 
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
+	// Ensure the dedicated Chat org exists, then list it so it can back the
+	// default billing context for the playground.
+	await fetchServerData("GET", "/playground/chat-org");
+	const initialOrganizationsData = await fetchServerData("GET", "/orgs", {
+		params: { query: { includeChat: "true" } },
+	});
 
 	let initialProjectsData: { projects: Project[] } | null = null;
 	if (orgId) {
@@ -72,7 +77,7 @@ export default async function VideoPage({
 		}
 	}
 
-	const organizations = (
+	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
 		"organizations" in initialOrganizationsData
@@ -80,8 +85,16 @@ export default async function VideoPage({
 					.organizations
 			: []
 	) as Organization[];
+	// The Chat org backs the default billing context and must not appear in the
+	// dashboard org switcher.
+	const chatOrg = allOrganizations.find((o) => o.isChat) ?? null;
+	const organizations = allOrganizations.filter(
+		(o) => !o.isChat && !o.isPersonal,
+	);
 	const selectedOrganization =
-		(orgId ? organizations.find((o) => o.id === orgId) : organizations[0]) ??
+		(orgId ? organizations.find((o) => o.id === orgId) : null) ??
+		chatOrg ??
+		organizations[0] ??
 		null;
 
 	if (!initialProjectsData && selectedOrganization?.id) {

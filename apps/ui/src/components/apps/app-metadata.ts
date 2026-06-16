@@ -4,6 +4,8 @@ import {
 	ClineIcon,
 	CodexIcon,
 	CursorIcon,
+	KimiIcon,
+	MimoCodeIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -95,6 +97,22 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 		description:
 			"Open-source AI coding agent for VS Code. Works with any provider via LLM Gateway.",
 		category: "coding",
+	},
+	"kimi-code": {
+		displayName: "Kimi Code",
+		url: "https://github.com/MoonshotAI/kimi-code",
+		description:
+			"Open-source AI coding agent CLI by Moonshot AI. Point it at LLM Gateway to code with any model.",
+		category: "coding",
+		Icon: KimiIcon,
+	},
+	"mimo-code": {
+		displayName: "MiMo Code",
+		url: "https://mimo.xiaomi.com/mimocode",
+		description:
+			"AI-powered coding agent CLI by Xiaomi. Point it at LLM Gateway to code with any model.",
+		category: "coding",
+		Icon: MimoCodeIcon,
 	},
 	zed: {
 		displayName: "Zed",

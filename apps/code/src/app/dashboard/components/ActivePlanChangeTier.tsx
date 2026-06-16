@@ -115,21 +115,29 @@ export default function ActivePlanChangeTier({
 													: `Switch to ${plan.name}?`}
 											</AlertDialogTitle>
 											<AlertDialogDescription>
-												{isUpgrade ? (
-													<>
-														You&apos;ll be charged a prorated amount today for
-														the rest of your current billing period, then $
-														{plan.price}/mo going forward. Your usage allowance
-														increases to ${plan.usage} right away.
-													</>
-												) : (
-													<>
-														You&apos;ll keep your {currentName} allowance until
-														your next renewal, when you&apos;ll move to{" "}
-														{plan.name} (${plan.price}/mo, ${plan.usage} in
-														usage). No refund is issued for the current period.
-													</>
-												)}
+												<span>
+													{isUpgrade ? (
+														<>
+															You&apos;ll be charged a prorated amount today for
+															the rest of your current billing period, then $
+															{plan.price}/mo going forward. Your usage
+															allowance increases to ${plan.usage} right away.
+														</>
+													) : (
+														<>
+															You&apos;ll keep your {currentName} allowance
+															until your next renewal, when you&apos;ll move to{" "}
+															{plan.name} (${plan.price}/mo, ${plan.usage} in
+															usage). No refund is issued for the current
+															period.
+														</>
+													)}
+												</span>
+												<span className="mt-3 block text-center text-[11px] leading-relaxed">
+													Need company/address details on your invoice? Update
+													billing settings before confirming. We email the
+													invoice automatically after payment.
+												</span>
 											</AlertDialogDescription>
 										</AlertDialogHeader>
 										<AlertDialogFooter>

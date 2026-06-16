@@ -244,6 +244,52 @@ export const videoStudioSuggestions = [
 	"A hot air balloon drifting over the Cappadocia valley at sunrise",
 ] as const;
 
+export const canvasSuggestions = [
+	"A pricing page with three tiers and a highlighted popular plan",
+	"A SaaS analytics dashboard with stat cards and a recent activity table",
+	"A login form with email, password, and social sign-in buttons",
+	"A landing page hero with a headline, subtitle, and two call-to-action buttons",
+	"A user profile card with avatar, bio, and follow button",
+	"A checkout summary with line items, totals, and a pay button",
+	"A kanban board with three columns of task cards",
+	"A settings page with grouped toggles and a save button",
+	"A testimonial section with three customer quote cards",
+	"An onboarding checklist with a progress bar and completed steps",
+	"A newsletter signup section with an input and subscribe button",
+	"A FAQ section with expandable questions",
+	"A team page with a grid of member cards",
+	"A product detail layout with gallery, description, and buy button",
+	"A job board listing with filters and job cards",
+	"An invoice template with a company header and itemized table",
+	"A contact form with name, email, subject, and message fields",
+	"A weather widget showing current conditions and a 5-day forecast",
+	"A blog post layout with title, author byline, and article body",
+	"A feature comparison table for two products",
+] as const;
+
+export const audioStudioSuggestions = [
+	"Welcome to LLM Gateway — one API for every model, with unified billing and analytics.",
+	"Thanks for calling. All of our agents are currently busy, but your call is important to us.",
+	"Chapter one. The storm rolled in just after midnight, and the old lighthouse keeper knew the night would be long.",
+	"Breaking news: scientists have discovered a new species of deep-sea creature off the coast of Japan.",
+	"Take a deep breath in... and slowly release. Let the tension melt away from your shoulders.",
+	"In a world where artificial intelligence writes the headlines, one developer dares to read the documentation.",
+	"Your order has shipped! Expect delivery within three to five business days.",
+	"Good evening, passengers. We are now beginning our descent into Lisbon, where the local time is 7:45 PM.",
+	"Once upon a time, in a village nestled between two mountains, there lived a clockmaker who could repair anything but time itself.",
+	"Today's forecast calls for clear skies, a gentle breeze, and a high of 24 degrees.",
+	"Attention shoppers: the store will be closing in fifteen minutes. Please bring your final purchases to the register.",
+	"And the winner of this year's award for best original soundtrack goes to...",
+	"Step right up, ladies and gentlemen, and witness the most astonishing spectacle of the century!",
+	"This is your captain speaking. We've reached our cruising altitude of 35,000 feet.",
+	"The quick brown fox jumps over the lazy dog, while the curious cat watches from the windowsill.",
+	"Hello and welcome back to the podcast. Today we're diving into the history of the synthesizer.",
+	"Please leave your message after the tone, and we'll get back to you as soon as possible.",
+	"Five, four, three, two, one — liftoff! We have liftoff of the morning research mission.",
+	"Remember: a journey of a thousand miles begins with a single step.",
+	"It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness.",
+] as const;
+
 export function sampleSuggestions(
 	items: readonly string[],
 	count: number,

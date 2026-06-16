@@ -68,7 +68,10 @@ const HISTORY_SWR_TTL_SECONDS = 30;
  * Runs a weighted aggregation against model_provider_mapping_history with
  * the supplied tier weights. SWR-cached by (history-config-hash, modelIds)
  * so concurrent requests with the same model set + history config share
- * one DB hit, and so the gateway stays warm if Postgres falls over.
+ * one DB hit, and so the gateway stays warm if Postgres falls over. The
+ * underlying Drizzle cache is pinned to a stable tag (see below) so the
+ * per-request time-window params don't bust the key; it expires on the TTL
+ * alone so high throughput doesn't translate into constant aggregations.
  */
 export async function getProviderMetricsFromHistory(
 	combinations: Array<{
@@ -158,7 +161,21 @@ export async function getProviderMetricsFromHistory(
 					modelProviderMappingHistory.modelId,
 					modelProviderMappingHistory.providerId,
 				)
-				.$withCache({ config: { ex: HISTORY_SWR_TTL_SECONDS } });
+				// Pin a stable cache tag. Without it, Drizzle keys the cache on
+				// hashQuery(sql, params), and the params include windowStart/tier
+				// boundaries derived from Date.now() at millisecond precision — so
+				// every request produced a unique key and the cache never hit,
+				// forcing the heavy weighted aggregation to run against Postgres on
+				// every request (catastrophic under high throughput). The tag is the
+				// same timestamp-independent key the SWR mirror uses, so requests
+				// with the same model set + history config share one cached result.
+				// autoInvalidate is off: routing metrics tolerate up to
+				// HISTORY_SWR_TTL_SECONDS of staleness and expire on the TTL alone.
+				.$withCache({
+					tag: cacheKey,
+					autoInvalidate: false,
+					config: { ex: HISTORY_SWR_TTL_SECONDS },
+				});
 
 			return result as unknown as HistoryRow[];
 		},

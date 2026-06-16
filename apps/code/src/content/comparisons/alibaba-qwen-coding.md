@@ -6,6 +6,7 @@ title: DevPass vs Alibaba Qwen Coding Plan
 metaTitle: "DevPass vs Alibaba Qwen Coding Plan Compared (2026)"
 description: "DevPass vs Alibaba Cloud's Qwen coding plan compared. Alibaba's plan centers on Qwen3-Coder with high request limits; DevPass is a flat plan for 200+ models — Claude, GPT-5.5, Gemini and Qwen — under one key."
 competitor: Alibaba Qwen Coding Plan
+competitorLogo: qwen
 competitorTagline: High-volume access to Qwen3-Coder and partner models
 tagline: "Alibaba's coding plan is built around Qwen3-Coder with huge request limits. DevPass is built around choice — Qwen plus 200+ other models, including the Western flagships."
 devpassPrice: "$29–$179/mo"

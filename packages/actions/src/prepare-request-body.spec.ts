@@ -50,6 +50,7 @@ async function prepareOpenAITextRequest(options: {
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
+	serviceTier?: "flex" | "priority";
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -81,6 +82,9 @@ async function prepareOpenAITextRequest(options: {
 		options.useResponsesApi ?? false,
 		options.promptCacheKey,
 		options.promptCacheRetention,
+		true,
+		undefined,
+		options.serviceTier,
 	);
 }
 
@@ -320,6 +324,121 @@ describe("prepareRequestBody - Anthropic", () => {
 			}
 		}
 	});
+
+	test("defers auto-injection when caller supplies a 1h ttl marker in messages", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as AnthropicRequestBody;
+
+		// Long system prompt must NOT get a heuristic (5m) marker — it would
+		// precede the caller's 1h marker and Anthropic rejects that ordering.
+		expect(Array.isArray(requestBody.system)).toBe(true);
+		for (const block of requestBody.system as unknown[]) {
+			expect(getCacheControl(block)).toBeUndefined();
+		}
+
+		// No auto-injected markers in messages either (long-block heuristic and
+		// turn-boundary placement are both suppressed); only the caller's own
+		// 1h marker survives, with its ttl intact.
+		const markers: unknown[] = [];
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					const cacheControl = getCacheControl(block);
+					if (cacheControl) {
+						markers.push(cacheControl);
+					}
+				}
+			}
+		}
+		expect(markers).toEqual([{ type: "ephemeral", ttl: "1h" }]);
+	});
+
+	test("keeps auto-injection when caller markers do not use a 1h ttl", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as AnthropicRequestBody;
+
+		// ttl-less caller markers are all 5m, same as the heuristics — no
+		// ordering conflict is possible, so the existing behavior is preserved:
+		// long system prompt and turn boundary still get auto markers.
+		expect(getCacheControl((requestBody.system as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+
+		const boundaryMsg = requestBody.messages[1];
+		expect(boundaryMsg.role).toBe("assistant");
+		expect(getCacheControl((boundaryMsg.content as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+
+		const explicitMsg = requestBody.messages[2];
+		expect(getCacheControl((explicitMsg.content as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+	});
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {
@@ -427,6 +546,43 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 		})) as any;
 
 		expect(requestBody.prompt_cache_retention).toBe("24h");
+	});
+});
+
+describe("prepareRequestBody - OpenAI service tiers", () => {
+	test("should forward service_tier to OpenAI chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("flex");
+	});
+
+	test("should forward service_tier to OpenAI Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			useResponsesApi: true,
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should not forward service_tier to unsupported OpenAI models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("should not forward service_tier to Azure", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
 	});
 });
 
@@ -649,6 +805,146 @@ describe("prepareRequestBody - Google AI Studio", () => {
 				expected,
 			);
 		}
+	});
+
+	test('preserves "max" effort natively for adaptive Anthropic models', async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+		expect(requestBody.output_config.effort).toBe("max");
+	});
+
+	test('preserves "max" effort natively for adaptive Anthropic models on Bedrock', async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+		expect(requestBody.additionalModelRequestFields.output_config.effort).toBe(
+			"max",
+		);
+	});
+
+	test('sets display "summarized" for adaptive thinking on Bedrock', async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"high", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+	});
+
+	test('sets display "summarized" for adaptive thinking on Anthropic', async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"high", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+	});
+
+	test('aliases "max" effort to "high" for providers without a max tier', async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			null,
+			"gemini-2.5-pro",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"max", // reasoning_effort
+			true,
+			false,
+		)) as any;
+
+		// "max" has no Google tier, so it aliases to "high" (24576) rather than
+		// falling through to the medium default (8192).
+		expect(requestBody.generationConfig.thinkingConfig.thinkingBudget).toBe(
+			24576,
+		);
 	});
 
 	test("should not set thinkingBudget when reasoning_effort is not provided", async () => {
@@ -1387,6 +1683,109 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody.messages[0].content).toEqual([
 			{ text: "What should I do next?" },
 			{ cachePoint: { type: "default", ttl: "5m" } },
+		]);
+	});
+
+	test("suppresses heuristic cachePoints when caller supplies a 1h ttl marker in messages", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		// No heuristic cachePoint on the long system prompt and no turn-boundary
+		// cachePoint — a default-ttl (5m) point would precede the caller's 1h
+		// point, which Bedrock rejects.
+		expect(requestBody.system).toEqual([{ text: longContent }]);
+		expect(requestBody.messages[1]).toEqual({
+			role: "assistant",
+			content: [{ text: "Hi!" }],
+		});
+		expect(requestBody.messages[2].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default", ttl: "1h" } },
+		]);
+	});
+
+	test("keeps heuristic cachePoints when a caller 1h ttl is downgraded to 5m", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-3-7-sonnet",
+			null,
+			"anthropic.claude-3-7-sonnet-20250219-v1:0",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		// claude-3-7-sonnet has no 1h TTL on Bedrock, so the caller's marker is
+		// downgraded to a default (5m) cachePoint. With every point at 5m there
+		// is no ordering conflict, so the heuristics stay active.
+		expect(requestBody.system).toEqual([
+			{ text: longContent },
+			{ cachePoint: { type: "default" } },
+		]);
+		expect(requestBody.messages[1]).toEqual({
+			role: "assistant",
+			content: [{ text: "Hi!" }, { cachePoint: { type: "default" } }],
+		});
+		expect(requestBody.messages[2].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default" } },
 		]);
 	});
 

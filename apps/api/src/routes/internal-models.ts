@@ -67,6 +67,8 @@ const modelProviderMappingSchema = z.object({
 	imageOutputPrice: z.string().nullable(),
 	imageInputTokensByResolution: z.record(z.number()).nullable(),
 	imageOutputTokensByResolution: z.record(z.number()).nullable(),
+	inputCharacterPrice: z.string().nullable(),
+	outputAudioPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
 	maxOutput: z.number().nullable(),
@@ -91,6 +93,7 @@ const modelProviderMappingSchema = z.object({
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
+	serviceTiers: z.array(z.string()).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
 	status: z.enum(["active", "inactive"]),
@@ -222,12 +225,9 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					?.providers.find(
 						(provider) => provider.providerId === mapping.providerId,
 					) ?? null;
-			const globalDiscount = getGlobalDiscount(mapping.providerId, model.id);
-			// Global discount takes precedence over hardcoded mapping discount
-			const effectiveDiscount = globalDiscount ?? mapping.discount;
 			return {
 				...mapping,
-				discount: effectiveDiscount,
+				discount: getGlobalDiscount(mapping.providerId, model.id),
 				audio: sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				imageOutputPrice:
@@ -238,6 +238,14 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					sharedMapping?.imageInputTokensByResolution ?? null,
 				imageOutputTokensByResolution:
 					sharedMapping?.imageOutputTokensByResolution ?? null,
+				inputCharacterPrice:
+					sharedMapping?.inputCharacterPrice !== undefined
+						? String(sharedMapping.inputCharacterPrice)
+						: null,
+				outputAudioPrice:
+					sharedMapping?.outputAudioPrice !== undefined
+						? String(sharedMapping.outputAudioPrice)
+						: null,
 				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
 				supportedVideoDurationsSeconds:
 					sharedMapping?.supportedVideoDurationsSeconds ?? null,
@@ -284,6 +292,22 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								? String(t.cacheWriteInputPrice1h)
 								: null,
 					}));
+				})(),
+				serviceTiers: (() => {
+					const tiers = sharedMapping?.serviceTiers ?? null;
+					if (!tiers || tiers.length === 0) {
+						return null;
+					}
+					const tierRegions = sharedMapping?.serviceTierRegions;
+					if (tierRegions && tierRegions.length > 0) {
+						const effectiveRegion =
+							mapping.region ??
+							(tierRegions.includes("global") ? "global" : undefined);
+						if (!effectiveRegion || !tierRegions.includes(effectiveRegion)) {
+							return null;
+						}
+					}
+					return tiers;
 				})(),
 			};
 		}),

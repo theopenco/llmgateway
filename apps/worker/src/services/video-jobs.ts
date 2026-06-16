@@ -137,10 +137,16 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "xai":
+			return "https://api.x.ai";
 		case "bytedance":
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "minimax":
+			return "https://api.minimax.io";
+		case "alibaba":
+			return "https://dashscope-intl.aliyuncs.com";
 		default:
 			return null;
 	}
@@ -336,6 +342,7 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 		case "generating":
 			return "in_progress";
 		case "completed":
+		case "done":
 		case "success":
 		case "succeeded":
 			return "completed";
@@ -432,6 +439,7 @@ function extractContentUrl(body: Record<string, unknown>): string | null {
 		body.url,
 		body.video_url,
 		body.output_url,
+		body.video,
 		body.content,
 		body.output,
 	];
@@ -1712,6 +1720,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,
+				endUserSessionId: jobToLog.endUserSessionId,
+				endCustomerWalletId: jobToLog.endCustomerWalletId,
 				duration: Math.max(0, Date.now() - jobToLog.createdAt.getTime()),
 				requestedModel: getFormattedRequestedVideoModel(jobToLog),
 				requestedProvider: jobToLog.requestedProvider,
@@ -1818,6 +1828,147 @@ function isBytedanceVideoProvider(providerId: string): boolean {
 	return providerId === "bytedance";
 }
 
+function isMinimaxVideoProvider(providerId: string): boolean {
+	return providerId === "minimax";
+}
+
+function isAlibabaVideoProvider(providerId: string): boolean {
+	return providerId === "alibaba";
+}
+
+async function fetchAlibabaStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/api/v1/tasks/${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.message === "string"
+				? body.message
+				: `Alibaba status request failed with status ${response.status}`,
+		);
+	}
+
+	const output =
+		body.output && typeof body.output === "object"
+			? (body.output as Record<string, unknown>)
+			: {};
+	const rawStatus =
+		typeof output.task_status === "string" ? output.task_status : "PENDING";
+	const status = normalizeVideoStatus(rawStatus);
+	const videoUrl =
+		typeof output.video_url === "string" ? output.video_url : null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status,
+		progress:
+			status === "completed"
+				? 100
+				: status === "failed"
+					? 100
+					: status === "in_progress"
+						? 50
+						: 0,
+		url: videoUrl,
+		video_url: videoUrl,
+		output_url: videoUrl,
+		mime_type: videoUrl ? "video/mp4" : undefined,
+		error:
+			status === "failed"
+				? {
+						message:
+							typeof output.message === "string"
+								? output.message
+								: typeof body.message === "string"
+									? body.message
+									: "Alibaba video generation failed",
+						code:
+							typeof output.code === "string"
+								? output.code
+								: typeof body.code === "string"
+									? body.code
+									: undefined,
+						details: body,
+					}
+				: null,
+		alibaba_raw_response: body,
+	});
+}
+
+async function fetchMinimaxStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/v1/query/video_generation?task_id=${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.error === "object" &&
+			body.error &&
+			"message" in body.error &&
+			typeof body.error.message === "string"
+				? body.error.message
+				: `MiniMax status request failed with status ${response.status}`,
+		);
+	}
+
+	const rawStatus =
+		typeof body.status === "string" ? body.status : "Processing";
+	const normalizedStatus =
+		rawStatus === "Success"
+			? "completed"
+			: rawStatus === "Fail" || rawStatus === "Failed"
+				? "failed"
+				: "in_progress";
+	const fileId =
+		typeof body.file_id === "string"
+			? body.file_id
+			: typeof body.file_id === "number"
+				? String(body.file_id)
+				: null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status: normalizedStatus,
+		progress:
+			normalizedStatus === "completed"
+				? 100
+				: normalizedStatus === "failed"
+					? 100
+					: rawStatus === "Processing"
+						? 50
+						: 0,
+		file_id: fileId,
+		error:
+			normalizedStatus === "failed"
+				? {
+						message:
+							typeof body.base_resp === "object" &&
+							body.base_resp &&
+							"status_msg" in (body.base_resp as Record<string, unknown>)
+								? String((body.base_resp as Record<string, unknown>).status_msg)
+								: "MiniMax video generation failed",
+					}
+				: null,
+	});
+}
+
 async function fetchBytedanceStatus(
 	job: VideoJobRecord,
 	providerContext: ResolvedVideoProviderContext,
@@ -1899,6 +2050,14 @@ async function fetchUpstreamStatus(
 		return await fetchBytedanceStatus(job, providerContext);
 	}
 
+	if (isMinimaxVideoProvider(job.usedProvider)) {
+		return await fetchMinimaxStatus(job, providerContext);
+	}
+
+	if (isAlibabaVideoProvider(job.usedProvider)) {
+		return await fetchAlibabaStatus(job, providerContext);
+	}
+
 	return await fetchGenericVideoStatus(job, providerContext);
 }
 
@@ -1931,7 +2090,10 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "avalanche" ||
-		isGoogleVertexVideoProvider(job.usedProvider)
+		job.usedProvider === "xai" ||
+		isGoogleVertexVideoProvider(job.usedProvider) ||
+		isMinimaxVideoProvider(job.usedProvider) ||
+		isAlibabaVideoProvider(job.usedProvider)
 	) {
 		return null;
 	}

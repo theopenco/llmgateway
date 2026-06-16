@@ -7,7 +7,8 @@
  * - Azure OpenAI: `ResponsibleAIPolicyViolation`, `Microsoft's content management policy`
  * - ByteDance / DeepSeek (incl. Seedance video moderation, e.g.
  *   `OutputVideoSensitiveContentDetected`): `SensitiveContentDetected`
- * - Alibaba / DashScope: `data_inspection_failed`
+ * - Alibaba / DashScope: `data_inspection_failed`, `Green net check failed`
+ *   (Wan video green-net moderation)
  * - OpenAI safety system (e.g. Sora / gpt-image): `rejected by the safety system`
  */
 const CONTENT_FILTER_ERROR_SIGNALS = [
@@ -15,6 +16,7 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"SensitiveContentDetected",
 	"data_inspection_failed",
 	"Input data may contain inappropriate content",
+	"Green net check failed",
 	"Microsoft's content management policy",
 	"Your request was rejected by the safety system",
 ];

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,7 +19,8 @@ import {
 	useVideoHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
-import { useFetchClient } from "@/lib/fetch-client";
+import { useAppConfig } from "@/lib/config";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
 import {
 	getModelPreferenceCookie,
@@ -60,7 +62,7 @@ interface VideoPageClientProps {
 export default function VideoPageClient({
 	models,
 	providers,
-	organizations: _organizations,
+	organizations,
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
@@ -68,7 +70,9 @@ export default function VideoPageClient({
 }: VideoPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
+	const config = useAppConfig();
 	const fetchClient = useFetchClient();
+	const api = useApi();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -142,32 +146,60 @@ export default function VideoPageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 
 	// DB-persisted history
-	const { data: historyData } = useVideoHistory(isAuthenticated);
+	const { data: historyData, isLoading: isHistoryLoading } = useVideoHistory(
+		isAuthenticated,
+		selectedOrganization?.id,
+	);
 	const { mutate: saveVideoHistory } = useSaveVideoHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
 
+	// The history list carries no base64 input images, only presence flags.
+	// Previews are lazily loaded binary endpoints, indexed in the same
+	// [start, end, ...references] order the API serves them in.
 	const galleryItems = useMemo<VideoGalleryItem[]>(() => {
 		const historical: VideoGalleryItem[] = (historyData?.items ?? []).map(
-			(item) => ({
-				id: item.id,
-				prompt: item.prompt,
-				timestamp: new Date(item.createdAt).getTime(),
-				frameInputs: item.frameInputs ?? undefined,
-				referenceImages: item.referenceImages ?? undefined,
-				models: item.models.map((m) => ({
-					modelId: m.modelId,
-					modelName: m.modelName,
-					job: null,
-					videoUrl: m.videoUrl,
-					expiresAt: m.expiresAt ?? null,
-					error: m.error,
-					isLoading: false,
-				})),
-			}),
+			(item) => {
+				const inputPreviews: { src: string; label: string }[] = [];
+				const inputImageUrl = (index: number) =>
+					`${config.apiUrl}/playground/video-history/${item.id}/input-image/${index}`;
+				if (item.hasStartFrame) {
+					inputPreviews.push({
+						src: inputImageUrl(inputPreviews.length),
+						label: "First frame",
+					});
+				}
+				if (item.hasEndFrame) {
+					inputPreviews.push({
+						src: inputImageUrl(inputPreviews.length),
+						label: "Last frame",
+					});
+				}
+				for (let i = 0; i < item.referenceImageCount; i++) {
+					inputPreviews.push({
+						src: inputImageUrl(inputPreviews.length),
+						label: `Reference ${i + 1}`,
+					});
+				}
+				return {
+					id: item.id,
+					prompt: item.prompt,
+					timestamp: new Date(item.createdAt).getTime(),
+					inputPreviews,
+					models: item.models.map((m) => ({
+						modelId: m.modelId,
+						modelName: m.modelName,
+						job: null,
+						videoUrl: m.videoUrl,
+						expiresAt: m.expiresAt ?? null,
+						error: m.error,
+						isLoading: false,
+					})),
+				};
+			},
 		);
 		return [...activeItems, ...historical];
-	}, [activeItems, historyData]);
+	}, [activeItems, historyData, config.apiUrl]);
 
 	const displayItems = useMemo<VideoGalleryItem[]>(() => {
 		if (activeItems.length > 0) {
@@ -198,6 +230,7 @@ export default function VideoPageClient({
 					{
 						body: {
 							prompt: item.prompt,
+							organizationId: item.organizationId,
 							frameInputs: item.frameInputs,
 							referenceImages: item.referenceImages,
 							models: item.models.map((m) => ({
@@ -272,55 +305,63 @@ export default function VideoPageClient({
 			),
 		[selectedModels],
 	);
-	const requiresAudioSelection = useMemo(
+	const someModelsRequireImage = useMemo(
 		() =>
-			selectedModels.some(
-				(modelId) =>
-					modelId.includes("/") && !modelId.startsWith("google-vertex/"),
-			),
-		[selectedModels],
+			selectedModels.some((modelId) => {
+				const model = availableModelsById.get(modelId);
+				return model?.imageInputRequired === true;
+			}),
+		[selectedModels, availableModelsById],
 	);
-	const effectiveAudioEnabled = requiresAudioSelection ? true : audioEnabled;
-
-	useEffect(() => {
-		if (requiresAudioSelection && !audioEnabled) {
-			setAudioEnabled(true);
+	// The audio toggle is a preference, never a selection constraint: any model
+	// stays selectable, models that only support one audio mode get clamped per
+	// request in generateVideos, and the toggle locks unless every selected
+	// model supports both modes (otherwise flipping it wouldn't apply to the
+	// whole selection).
+	const selectionAudioSupport = useMemo(() => {
+		const selected = selectedModels
+			.map((modelId) => availableModelsById.get(modelId))
+			.filter((model): model is ComboboxModel => Boolean(model));
+		if (selected.length === 0) {
+			return { audio: true, silent: true };
 		}
-	}, [audioEnabled, requiresAudioSelection]);
+		return {
+			audio: selected.every((model) => model.supportsVideoAudio !== false),
+			silent: selected.every(
+				(model) => model.supportsVideoWithoutAudio === true,
+			),
+		};
+	}, [selectedModels, availableModelsById]);
+	const audioToggleLocked =
+		!selectionAudioSupport.audio || !selectionAudioSupport.silent;
+	const effectiveAudioEnabled = !selectionAudioSupport.audio
+		? false
+		: !selectionAudioSupport.silent
+			? true
+			: audioEnabled;
+	const audioToggleLockedReason = !selectionAudioSupport.audio
+		? selectionAudioSupport.silent
+			? "The selected model only generates silent video"
+			: "Audio output is fixed by each selected model"
+		: !selectionAudioSupport.silent
+			? "The selected model always generates video with audio"
+			: undefined;
 
-	const supportsSelectedAudioMode = useCallback(
-		(modelId: string, withAudio: boolean) => {
-			if (!modelId.includes("/")) {
-				return true;
-			}
-
+	const getAudioForModel = useCallback(
+		(modelId: string) => {
 			const model = availableModelsById.get(modelId);
 			if (!model) {
+				return effectiveAudioEnabled;
+			}
+			if (model.supportsVideoAudio === false) {
+				return false;
+			}
+			if (model.supportsVideoWithoutAudio !== true) {
 				return true;
 			}
-
-			return withAudio
-				? model.supportsVideoAudio !== false
-				: model.supportsVideoWithoutAudio === true;
+			return effectiveAudioEnabled;
 		},
-		[availableModelsById],
-	);
-	const isModelOptionDisabled = useCallback(
-		(modelId: string) =>
-			!supportsSelectedAudioMode(modelId, effectiveAudioEnabled),
-		[effectiveAudioEnabled, supportsSelectedAudioMode],
-	);
-	const getModelOptionDisabledReason = useCallback(
-		(modelId: string) => {
-			if (!isModelOptionDisabled(modelId)) {
-				return undefined;
-			}
-
-			return effectiveAudioEnabled
-				? "This mapping does not support audio output"
-				: "This mapping does not support silent output";
-		},
-		[effectiveAudioEnabled, isModelOptionDisabled],
+		[availableModelsById, effectiveAudioEnabled],
 	);
 
 	const returnUrl = useMemo(() => {
@@ -399,7 +440,7 @@ export default function VideoPageClient({
 		const isCompare = item.models.length > 1;
 		setComparisonMode(isCompare);
 		setSelectedModels(item.models.map((m) => m.modelId));
-	}, [selectedItemId, galleryItems]);
+	}, [selectedItemId, galleryItems, activeItems.length]);
 
 	useEffect(() => {
 		if (!canUseFrameInputs) {
@@ -452,9 +493,8 @@ export default function VideoPageClient({
 				videoGenModels,
 				selectedModels,
 				videoInputMode,
-				effectiveAudioEnabled,
 			),
-		[effectiveAudioEnabled, selectedModels, videoGenModels, videoInputMode],
+		[selectedModels, videoGenModels, videoInputMode],
 	);
 
 	useEffect(() => {
@@ -466,7 +506,6 @@ export default function VideoPageClient({
 			videoGenModels,
 			selectedModels,
 			videoInputMode,
-			effectiveAudioEnabled,
 			videoSize,
 			videoDuration,
 		);
@@ -483,7 +522,6 @@ export default function VideoPageClient({
 			setVideoDuration(normalizedSelection.duration);
 		}
 	}, [
-		effectiveAudioEnabled,
 		selectedModels,
 		videoDuration,
 		videoGenModels,
@@ -570,6 +608,13 @@ export default function VideoPageClient({
 				return;
 			}
 
+			if (someModelsRequireImage && !frameInputs.start) {
+				toast.error(
+					"Selected model requires an input image. Please add a start frame.",
+				);
+				return;
+			}
+
 			const currentPrompt = effectivePrompt.trim();
 			setIsGenerating(true);
 			posthog.capture("playground_video_generated", {
@@ -594,10 +639,23 @@ export default function VideoPageClient({
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				organizationId: selectedOrganization?.id,
 				frameInputs:
 					frameInputs.start || frameInputs.end ? { ...frameInputs } : undefined,
 				referenceImages:
 					referenceImages.length > 0 ? [...referenceImages] : undefined,
+				inputPreviews: [
+					...(frameInputs.start
+						? [{ src: frameInputs.start.dataUrl, label: "First frame" }]
+						: []),
+					...(frameInputs.end
+						? [{ src: frameInputs.end.dataUrl, label: "Last frame" }]
+						: []),
+					...referenceImages.map((ref, i) => ({
+						src: ref.dataUrl,
+						label: `Reference ${i + 1}`,
+					})),
+				],
 				models: modelsToGenerate.map((modelId) => ({
 					modelId,
 					modelName: getModelName(modelId),
@@ -640,7 +698,7 @@ export default function VideoPageClient({
 								prompt: currentPrompt,
 								size: videoSize,
 								seconds: videoDuration,
-								audio: effectiveAudioEnabled,
+								audio: getAudioForModel(modelId),
 								...(referenceImages.length === 0 &&
 								referenceVideos.length === 0 &&
 								referenceAudios.length === 0 &&
@@ -759,14 +817,15 @@ export default function VideoPageClient({
 			videoSize,
 			videoDuration,
 			effectiveAudioEnabled,
+			getAudioForModel,
 			frameInputs,
 			posthog,
 			referenceImages,
 			referenceVideos,
 			referenceAudios,
 			updateGalleryModel,
-			pathname,
-			router,
+			someModelsRequireImage,
+			selectedOrganization?.id,
 		],
 	);
 
@@ -861,18 +920,51 @@ export default function VideoPageClient({
 		[activeItems, galleryItems, pathname, router],
 	);
 
+	// In the Chat plan context the plan status endpoint is the source of truth
+	// for remaining credits; the org row passed from the server can be stale.
+	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
+	);
+	const chatPlanCreditsRemaining =
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none"
+			? Number(chatPlanStatus.chatPlanCreditsRemaining)
+			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1
+		? isChatPlanContext
+			? chatPlanStatus !== undefined &&
+				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
+			: Number(selectedOrganization.credits) < 1
 		: false;
+
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(params.toString() ? `/video?${params.toString()}` : "/video");
+		},
+		[router, searchParams],
+	);
 
 	return (
 		<SidebarProvider>
 			<div className="flex h-dvh w-full">
 				<VideoSidebar
 					galleryItems={galleryItems}
+					isHistoryLoading={isHistoryLoading}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
+					organizations={organizations}
 					selectedOrganization={selectedOrganization}
+					onSelectOrganization={handleSelectOrganization}
 					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
@@ -885,22 +977,28 @@ export default function VideoPageClient({
 						onRemoveModel={handleRemoveModel}
 						comparisonMode={comparisonMode}
 						onComparisonModeChange={handleComparisonModeChange}
-						isModelOptionDisabled={isModelOptionDisabled}
-						getModelOptionDisabledReason={getModelOptionDisabledReason}
 						hideCompare={displayItems.length > 0}
 					/>
 					{isLowCredits && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								Low credits remaining. Top up to continue generating videos.
+								{isChatPlanContext
+									? "You're out of credits. Upgrade to a plan to continue generating videos."
+									: "Low credits remaining. Top up to continue generating videos."}
 							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => setShowTopUp(true)}
-							>
-								Top Up
-							</Button>
+							{isChatPlanContext ? (
+								<Button variant="outline" size="sm" asChild>
+									<Link href="/pricing">View plans</Link>
+								</Button>
+							) : (
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setShowTopUp(true)}
+								>
+									Top Up
+								</Button>
+							)}
 						</div>
 					)}
 					<VideoControls
@@ -913,7 +1011,8 @@ export default function VideoPageClient({
 						setVideoDuration={setVideoDuration}
 						audioEnabled={effectiveAudioEnabled}
 						setAudioEnabled={setAudioEnabled}
-						audioToggleDisabled={isGenerating || requiresAudioSelection}
+						audioToggleDisabled={isGenerating || audioToggleLocked}
+						audioToggleDisabledReason={audioToggleLockedReason}
 						canUseFrameInputs={canUseFrameInputs}
 						canUseReferenceInputs={canUseReferenceInputs}
 						canUseReferenceVideoInputs={canUseReferenceVideoInputs}
@@ -930,6 +1029,7 @@ export default function VideoPageClient({
 						supportedVideoDurations={supportedVideoRequestOptions.durations}
 						isGenerating={isGenerating}
 						onGenerate={generateVideos}
+						imageInputRequired={someModelsRequireImage}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
 						<div className="max-w-6xl mx-auto">
@@ -943,7 +1043,11 @@ export default function VideoPageClient({
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id}
+			/>
 		</SidebarProvider>
 	);
 }

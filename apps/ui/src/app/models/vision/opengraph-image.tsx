@@ -8,5 +8,5 @@ export const size = ogSize;
 export const contentType = ogContentType;
 
 export default async function VisionModelsOgImage() {
-	return generateCategoryOgImage("vision");
+	return await generateCategoryOgImage("vision");
 }

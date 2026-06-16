@@ -124,6 +124,11 @@ export const xiaomiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Xiaomi retires mimo-v2-flash and auto-forwards requests to
+				// mimo-v2.5 (billed as the new model) at Beijing 2026-06-18 00:00.
+				// Deactivate at the switch so requests error instead of silently
+				// routing to a different model.
+				deactivatedAt: new Date("2026-06-17T16:00:00Z"),
 			},
 		],
 	},

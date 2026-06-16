@@ -36,8 +36,10 @@ import {
 	useUpdateMessage,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
+import { useApi } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -77,6 +79,19 @@ function isToolPart(obj: unknown): obj is ToolPart {
 		typeof (obj as ToolPart).type === "string" &&
 		(obj as ToolPart).type.startsWith("tool-")
 	);
+}
+
+// Serialize web search source-url parts for persistence alongside the message.
+function extractSourcePartsJson(parts: UIMessage["parts"]): string | undefined {
+	const sourceParts = (parts as { type: string; [key: string]: unknown }[])
+		.filter((p) => p.type === "source-url" && typeof p.url === "string")
+		.map((p) => ({
+			type: "source-url" as const,
+			sourceId: p.sourceId,
+			url: p.url,
+			...(p.title ? { title: p.title } : {}),
+		}));
+	return sourceParts.length > 0 ? JSON.stringify(sourceParts) : undefined;
 }
 
 function getFirstUserMessageText(
@@ -277,6 +292,9 @@ export default function ChatPageClient({
 	initialModelPreference,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	// In the personal context selectedOrganization is null; billing + top-ups run
+	// under the dedicated Chat org resolved here.
+	const { organization: chatOrg } = useOrganization();
 	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -340,6 +358,9 @@ export default function ChatPageClient({
 	const [showTopUp, setShowTopUp] = useState(false);
 	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
 	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
+		null,
+	);
+	const [pendingAudioModel, setPendingAudioModel] = useState<string | null>(
 		null,
 	);
 
@@ -529,6 +550,7 @@ export default function ChatPageClient({
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 
@@ -836,6 +858,17 @@ export default function ChatPageClient({
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
+	const api = useApi();
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: !!user, staleTime: 30_000 },
+	);
+	const isChatPlanStatusLoaded = chatPlanStatus !== undefined;
+	const hasChatPlanCredits =
+		isChatPlanStatusLoaded &&
+		Number(chatPlanStatus.chatPlanCreditsRemaining) > 0;
 	const updateMessage = useUpdateMessage();
 	const deleteChat = useDeleteChat();
 	const deleteComparisonChat = useDeleteChat({ silent: true });
@@ -1000,6 +1033,17 @@ export default function ChatPageClient({
 					}
 				}
 
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch (error) {
+						toast.error("Failed to parse sources: " + getErrorMessage(error));
+					}
+				}
+
 				return {
 					id: msg.id,
 					role: msg.role,
@@ -1077,6 +1121,7 @@ export default function ChatPageClient({
 					model: selectedModel,
 					webSearch: webSearchEnabled,
 					comparisonEnabled,
+					organizationId: selectedOrganization?.id ?? chatOrg?.id,
 				},
 			});
 			const newChatId = chatData.chat.id;
@@ -1102,6 +1147,34 @@ export default function ChatPageClient({
 		}
 	};
 
+	// Billing runs under the selected dashboard org, or the dedicated Chat org
+	// in the Chat plan context (matching ensureCurrentChat's
+	// selectedOrganization?.id ?? chatOrg?.id). Without resolving the Chat org
+	// here, the Chat plan context skipped credit gating entirely and
+	// unsubscribed users without credits could keep generating.
+	const ensureBillableContext = () => {
+		if (selectedOrganization) {
+			// Chat plan credits live on the Chat org and never fund dashboard-org
+			// requests, so only the org's own credits count here.
+			if (Number(selectedOrganization.credits) <= 0) {
+				setShowTopUp(true);
+				return false;
+			}
+			return true;
+		}
+		if (
+			chatOrg &&
+			Number(chatOrg.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
+			!hasChatPlanCredits
+		) {
+			// Chat plan context has no top-ups — promote the subscription plans.
+			router.push("/pricing");
+			return false;
+		}
+		return true;
+	};
+
 	const handleUserMessage = async (
 		content: string,
 		images?: Array<{
@@ -1121,8 +1194,7 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return undefined;
 		}
 
@@ -1293,8 +1365,7 @@ export default function ChatPageClient({
 			return;
 		}
 
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return;
 		}
 
@@ -1504,6 +1575,10 @@ export default function ChatPageClient({
 				setPendingVideoModel(modelId);
 				return;
 			}
+			if (def?.output?.includes("audio")) {
+				setPendingAudioModel(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			if (model) {
 				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
@@ -1610,11 +1685,15 @@ export default function ChatPageClient({
 	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
+		// Switching org changes the billing context: chats run under the selected
+		// org's project key. Route to the full chat experience (not the read-only
+		// shared-chats view) so New Chat works and credits resolve to that org.
+		const params = new URLSearchParams();
+		params.set("model", selectedModel);
 		if (org?.id) {
-			router.push(`/org/${org.id}`);
-			return;
+			params.set("orgId", org.id);
 		}
-		router.push("/");
+		router.push(`/?${params.toString()}`);
 	};
 
 	const handleOrganizationCreated = (org: Organization) => {
@@ -1946,6 +2025,7 @@ export default function ChatPageClient({
 													handleExtraPanelModelChange(index, model)
 												}
 												onVideoModelSelected={setPendingVideoModel}
+												onAudioModelSelected={setPendingAudioModel}
 												resetToken={comparisonResetToken}
 												primaryChatId={currentChatId}
 												primaryChatIdRef={chatIdRef}
@@ -1959,7 +2039,11 @@ export default function ChatPageClient({
 					</section>
 				</main>
 			</div>
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id ?? chatOrg?.id}
+			/>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 			<Dialog
 				open={pendingVideoModel !== null}
@@ -2001,6 +2085,46 @@ export default function ChatPageClient({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+			<Dialog
+				open={pendingAudioModel !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPendingAudioModel(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Switch to Audio Studio?</DialogTitle>
+						<DialogDescription>
+							{pendingAudioModel
+								? (models.find((m) => m.id === pendingAudioModel)?.name ??
+									pendingAudioModel)
+								: ""}{" "}
+							is a speech generation model. Would you like to open it in Audio
+							Studio?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setPendingAudioModel(null)}
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={() => {
+								if (pendingAudioModel) {
+									router.push(`/audio?model=${pendingAudioModel}`);
+								}
+								setPendingAudioModel(null);
+							}}
+						>
+							Open Audio Studio
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</SidebarProvider>
 	);
 }
@@ -2018,6 +2142,7 @@ interface ExtraChatPanelProps {
 	) => void;
 	onModelChange?: (model: string) => void;
 	onVideoModelSelected?: (modelId: string) => void;
+	onAudioModelSelected?: (modelId: string) => void;
 	resetToken: number;
 	primaryChatId: string | null;
 	primaryChatIdRef: React.RefObject<string | null>;
@@ -2040,6 +2165,7 @@ function ExtraChatPanel({
 	onRegisterExternalSubmit,
 	onModelChange,
 	onVideoModelSelected,
+	onAudioModelSelected,
 	resetToken,
 	primaryChatId,
 	primaryChatIdRef,
@@ -2060,10 +2186,14 @@ function ExtraChatPanel({
 				onVideoModelSelected?.(modelId);
 				return;
 			}
+			if (def?.output?.includes("audio")) {
+				onAudioModelSelected?.(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			onModelChange?.(model);
 		},
-		[onModelChange, onVideoModelSelected, models],
+		[onModelChange, onVideoModelSelected, onAudioModelSelected, models],
 	);
 	const [comparisonChatId, setComparisonChatId] = useState<string | null>(
 		initialChatId,
@@ -2128,6 +2258,8 @@ function ExtraChatPanel({
 				body: {
 					title,
 					model: selectedModel,
+					// Child comparison chats are never listed in history, so they
+					// don't need an organization context.
 					parentChatId: parentId,
 				},
 			});
@@ -2136,7 +2268,7 @@ function ExtraChatPanel({
 			comparisonChatIdRef.current = id;
 			return id;
 		},
-		[createChat, selectedModel, primaryChatId],
+		[createChat, selectedModel, primaryChatId, primaryChatIdRef],
 	);
 
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
@@ -2169,6 +2301,7 @@ function ExtraChatPanel({
 					content: textContent || undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 
@@ -2522,6 +2655,16 @@ function ExtraChatPanel({
 						}
 					} catch {
 						// ignore malformed tools
+					}
+				}
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch {
+						// ignore malformed sources
 					}
 				}
 				const metadata = parsePlaygroundMessageMetadata((msg as any).metadata);

@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	AudioLines,
 	ChevronDown,
 	ChevronUp,
 	ExternalLink,
@@ -12,6 +13,7 @@ import {
 	PenTool,
 	Plus,
 	ScrollTextIcon,
+	Sparkles,
 	UploadIcon,
 	Users,
 	FileTextIcon,
@@ -48,6 +50,11 @@ import { useAuth } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
+import {
+	SidebarChatSearch,
+	SidebarShortcutKbd,
+	useSidebarShortcut,
+} from "./sidebar-actions";
 
 import type { Skill } from "@/hooks/useSkills";
 import type { Organization } from "@/lib/types";
@@ -58,6 +65,7 @@ interface SkillsSidebarProps {
 	onSelectSkill: (skillId: string) => void;
 	isLoading?: boolean;
 	onCreateOpen: () => void;
+	onGenerateOpen: () => void;
 	onUploadOpen: () => void;
 	selectedOrganization: Organization | null;
 	className?: string;
@@ -69,6 +77,7 @@ export function SkillsSidebar({
 	onSelectSkill,
 	isLoading,
 	onCreateOpen,
+	onGenerateOpen,
 	onUploadOpen,
 	selectedOrganization,
 	className,
@@ -84,6 +93,8 @@ export function SkillsSidebar({
 	const toggleTheme = useCallback(() => {
 		setTheme(currentTheme === "dark" ? "light" : "dark");
 	}, [currentTheme, setTheme]);
+
+	const isMac = useSidebarShortcut("j", onCreateOpen);
 
 	const logout = async () => {
 		try {
@@ -157,6 +168,7 @@ export function SkillsSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
+					<SidebarChatSearch disabled />
 					<SidebarMenuItem>
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
@@ -166,6 +178,7 @@ export function SkillsSidebar({
 								>
 									<Plus className="h-4 w-4" />
 									<span>New Skill</span>
+									<SidebarShortcutKbd keys={isMac ? "⌘J" : "Alt+J"} />
 									<ChevronDown className="ml-auto h-3 w-3 text-muted-foreground" />
 								</SidebarMenuButton>
 							</DropdownMenuTrigger>
@@ -173,6 +186,10 @@ export function SkillsSidebar({
 								<DropdownMenuItem onClick={onCreateOpen}>
 									<FileTextIcon className="mr-2 h-4 w-4" />
 									Write skill
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={onGenerateOpen}>
+									<Sparkles className="mr-2 h-4 w-4" />
+									Generate with AI
 								</DropdownMenuItem>
 								<DropdownMenuItem onClick={onUploadOpen}>
 									<UploadIcon className="mr-2 h-4 w-4" />
@@ -183,7 +200,7 @@ export function SkillsSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Chat">
-							<Link href="/">
+							<Link href="/" prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -191,7 +208,7 @@ export function SkillsSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Group Chat">
-							<Link href="/group">
+							<Link href="/group" prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -199,7 +216,7 @@ export function SkillsSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Image Studio">
-							<Link href="/image">
+							<Link href="/image" prefetch={true}>
 								<ImagePlus className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -207,15 +224,23 @@ export function SkillsSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Video Studio">
-							<Link href="/video">
+							<Link href="/video" prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip="Audio Studio">
+							<Link href="/audio" prefetch={true}>
+								<AudioLines className="h-4 w-4" />
+								<span>Audio Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Canvas">
-							<Link href="/canvas">
+							<Link href="/canvas" prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>

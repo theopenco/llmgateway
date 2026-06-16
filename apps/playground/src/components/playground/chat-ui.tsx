@@ -587,11 +587,15 @@ const AssistantMessage = memo(
 				{sourceParts.length > 0 ? (
 					<Sources>
 						<SourcesTrigger count={sourceParts.length} />
-						{sourceParts.map((part, i) => (
-							<SourcesContent key={`${message.id}-${i}`}>
-								<Source href={part.url} title={part.url} />
-							</SourcesContent>
-						))}
+						<SourcesContent>
+							{sourceParts.map((part, i) => (
+								<Source
+									key={`${message.id}-source-${i}`}
+									href={part.url}
+									title={part.title ?? part.url}
+								/>
+							))}
+						</SourcesContent>
 					</Sources>
 				) : null}
 
@@ -657,8 +661,8 @@ const AssistantMessage = memo(
 const UserMessage = memo(
 	({
 		message,
-		isLastMessage,
-		status,
+		isLastMessage: _isLastMessage,
+		status: _status,
 		canEdit,
 		isEditing,
 		onEditStart,
@@ -1331,6 +1335,7 @@ export const ChatUI = ({
 		}
 	};
 	const virtualItems = virtualizer.getVirtualItems();
+	const totalSize = virtualizer.getTotalSize();
 
 	const showSubmittedLoader = status === "submitted";
 	const showErrorBanner =
@@ -1347,7 +1352,7 @@ export const ChatUI = ({
 		if (messages.length > 0 && wasAtEndRef.current) {
 			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
 		}
-	}, [virtualizer.getTotalSize(), messages.length, inputHeight]);
+	}, [totalSize, messages.length, inputHeight]);
 
 	useEffect(() => {
 		if (status === "submitted") {

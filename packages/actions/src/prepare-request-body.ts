@@ -13,6 +13,7 @@ import {
 	type PromptCacheRetention,
 	type ProviderRequestBody,
 	supportsOpenAIExtendedPromptCache,
+	supportsServiceTier,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
@@ -709,7 +710,14 @@ export async function prepareRequestBody(
 	response_format: OpenAIRequestBody["response_format"],
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max",
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
@@ -731,8 +739,19 @@ export async function prepareRequestBody(
 	prompt_cache_retention?: PromptCacheRetention,
 	providerCacheControlEnabled = true,
 	n?: number,
+	service_tier?: "auto" | "default" | "flex" | "priority",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+	const supportedServiceTier =
+		(service_tier === "flex" || service_tier === "priority") &&
+		supportsServiceTier(
+			usedInternalModel,
+			usedProvider,
+			service_tier,
+			usedRegion,
+		)
+			? service_tier
+			: undefined;
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
@@ -750,6 +769,19 @@ export async function prepareRequestBody(
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
+
+	// `max` is Anthropic's top effort tier (above `xhigh`). Providers without a
+	// native `max` level treat it as an alias for `high` (e.g. OpenAI, Google,
+	// DeepSeek). Anthropic-family branches use `reasoning_effort` directly and
+	// handle `max` natively, so they intentionally do not use this alias.
+	const genericReasoningEffort:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| undefined = reasoning_effort === "max" ? "high" : reasoning_effort;
 
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (
@@ -970,6 +1002,71 @@ export async function prepareRequestBody(
 		}
 
 		return alibabaImageRequest;
+	}
+
+	// Handle Reve image generation
+	if (imageGenerations && usedProvider === "reve") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		const imageUrls: string[] = [];
+		if (lastUserMessage) {
+			if (typeof lastUserMessage.content === "string") {
+				prompt = lastUserMessage.content;
+			} else if (Array.isArray(lastUserMessage.content)) {
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
+			}
+		}
+
+		const allowedReveAspectRatios = [
+			"16:9",
+			"3:2",
+			"4:3",
+			"1:1",
+			"2:3",
+			"9:16",
+			"auto",
+		];
+
+		if (
+			image_config?.aspect_ratio &&
+			!allowedReveAspectRatios.includes(image_config.aspect_ratio)
+		) {
+			throw new Error(
+				`Invalid aspect_ratio for Reve: "${image_config.aspect_ratio}". Allowed values: ${allowedReveAspectRatios.join(
+					", ",
+				)}`,
+			);
+		}
+
+		const reveRequest: any = {
+			prompt,
+			version: "latest",
+			...(image_config?.aspect_ratio && {
+				aspect_ratio: image_config.aspect_ratio,
+			}),
+		};
+
+		if (imageUrls.length === 1) {
+			reveRequest.reference_image = imageUrls[0];
+		} else if (imageUrls.length > 1) {
+			reveRequest.reference_images = imageUrls;
+		}
+
+		return reveRequest;
 	}
 
 	// Handle ByteDance Seedream image generation
@@ -1265,12 +1362,15 @@ export async function prepareRequestBody(
 					model: usedExternalId,
 					input: transformedMessages,
 					reasoning: {
-						effort: reasoning_effort ?? defaultEffort,
+						effort: genericReasoningEffort ?? defaultEffort,
 						summary: "detailed",
 					},
 				};
 
 				if (usedProvider === "openai") {
+					if (supportedServiceTier) {
+						responsesBody.service_tier = supportedServiceTier;
+					}
 					if (prompt_cache_key !== undefined) {
 						responsesBody.prompt_cache_key = prompt_cache_key;
 					}
@@ -1355,6 +1455,9 @@ export async function prepareRequestBody(
 			} else {
 				// Use regular chat completions format
 				if (usedProvider === "openai") {
+					if (supportedServiceTier) {
+						requestBody.service_tier = supportedServiceTier;
+					}
 					if (prompt_cache_key !== undefined) {
 						requestBody.prompt_cache_key = prompt_cache_key;
 					}
@@ -1435,7 +1538,7 @@ export async function prepareRequestBody(
 					requestBody.presence_penalty = presence_penalty;
 				}
 				if (reasoning_effort !== undefined) {
-					requestBody.reasoning_effort = reasoning_effort;
+					requestBody.reasoning_effort = genericReasoningEffort;
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;
@@ -1524,6 +1627,8 @@ export async function prepareRequestBody(
 						return 4000;
 					case "xhigh":
 						return 16000;
+					case "max":
+						return 32000;
 					default:
 						return 2000; // medium or undefined
 				}
@@ -1551,6 +1656,25 @@ export async function prepareRequestBody(
 			const nonSystemMessages = processedMessages.filter(
 				(m) => m.role !== "system",
 			);
+
+			// Anthropic requires longer-TTL cache breakpoints to come before
+			// shorter ones (processing order: tools, system, messages). The
+			// gateway's heuristics inject ttl-less markers (5m default), so when
+			// the caller placed an explicit ttl:"1h" marker in the messages, any
+			// auto-injected marker would land before it and Anthropic rejects the
+			// request ("a ttl='1h' cache_control block must not come after a
+			// ttl='5m' cache_control block"). Defer entirely to the caller's
+			// caching strategy in that case. A 1h marker only on system is safe:
+			// message-level 5m markers after it satisfy the ordering.
+			const callerUses1hTtlInMessages = nonSystemMessages.some(
+				(m) =>
+					Array.isArray(m.content) &&
+					m.content.some(
+						(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+					),
+			);
+			const autoCacheControlEnabled =
+				providerCacheControlEnabled && !callerUses1hTtlInMessages;
 
 			// Build the system field with cache_control for long prompts
 			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
@@ -1637,7 +1761,7 @@ export async function prepareRequestBody(
 						}
 
 						const shouldCache =
-							providerCacheControlEnabled &&
+							autoCacheControlEnabled &&
 							text.length >= minCacheableChars &&
 							systemCacheControlCount < maxCacheControlBlocks;
 
@@ -1678,7 +1802,7 @@ export async function prepareRequestBody(
 				userPlan,
 				systemCacheControlCount, // Pass count to respect the 4 block limit
 				minCacheableChars, // Model-specific minimum cacheable characters
-				providerCacheControlEnabled,
+				autoCacheControlEnabled,
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -1709,21 +1833,21 @@ export async function prepareRequestBody(
 			}
 
 			// Handle tool_choice parameter - transform OpenAI format to Anthropic format
-			if (tool_choice) {
+			if (resolvedToolChoice) {
 				if (
-					typeof tool_choice === "object" &&
-					tool_choice.type === "function"
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
 				) {
 					// Transform OpenAI format to Anthropic format
 					requestBody.tool_choice = {
 						type: "tool",
-						name: tool_choice.function.name,
+						name: resolvedToolChoice.function.name,
 					};
-				} else if (tool_choice === "required") {
+				} else if (resolvedToolChoice === "required") {
 					requestBody.tool_choice = { type: "any" };
-				} else if (tool_choice === "auto") {
+				} else if (resolvedToolChoice === "auto") {
 					// "auto" is the default behavior for Anthropic, omit it
-				} else if (tool_choice === "none") {
+				} else if (resolvedToolChoice === "none") {
 					requestBody.tool_choice = { type: "none" };
 				}
 			}
@@ -1734,7 +1858,10 @@ export async function prepareRequestBody(
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					// The model decides whether to engage thinking based on prompt complexity.
-					requestBody.thinking = { type: "adaptive" };
+					// `display: "summarized"` is required on Opus 4.7/4.8 to receive readable
+					// thinking text — their default flipped to "omitted" (empty thinking,
+					// signature only), unlike Opus 4.6 which defaults to "summarized".
+					requestBody.thinking = { type: "adaptive", display: "summarized" };
 					if (effort === undefined && reasoning_effort) {
 						const mapEffort = (
 							e: typeof reasoning_effort,
@@ -1749,6 +1876,8 @@ export async function prepareRequestBody(
 									return "high";
 								case "xhigh":
 									return "xhigh";
+								case "max":
+									return "max";
 								default:
 									return "high";
 							}
@@ -1858,6 +1987,25 @@ export async function prepareRequestBody(
 				(m) => m.role !== "system",
 			);
 
+			// Mirror the Anthropic branch: Bedrock enforces the same
+			// longer-TTL-first ordering for cachePoints, and heuristic injection
+			// emits ttl-less (5m default) points. When the caller placed an
+			// explicit ttl:"1h" marker in the messages — and the model actually
+			// supports 1h, i.e. the marker won't be downgraded to 5m — suppress
+			// heuristic cachePoint injection so an auto-added 5m point can't
+			// precede the caller's 1h point.
+			const bedrockCallerUses1hTtlInMessages =
+				bedrockSupports1hTtl &&
+				bedrockNonSystemMessages.some(
+					(m) =>
+						Array.isArray(m.content) &&
+						m.content.some(
+							(part) => isTextContent(part) && part.cache_control?.ttl === "1h",
+						),
+				);
+			const bedrockAutoCachePointEnabled =
+				providerCacheControlEnabled && !bedrockCallerUses1hTtlInMessages;
+
 			// Build the system field with cachePoint for long prompts.
 			// AWS Bedrock uses "cachePoint" (not "cacheControl") as a SEPARATE
 			// content block after the text block. Honor caller-supplied
@@ -1909,7 +2057,7 @@ export async function prepareRequestBody(
 					}
 
 					const shouldHeuristicCache =
-						providerCacheControlEnabled &&
+						bedrockAutoCachePointEnabled &&
 						!callerSetBedrockCacheControl &&
 						block.text.length >= bedrockMinCacheableChars &&
 						bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
@@ -2012,7 +2160,7 @@ export async function prepareRequestBody(
 
 						// Add cachePoint as separate block for long user messages (model-specific threshold)
 						const shouldCache =
-							providerCacheControlEnabled &&
+							bedrockAutoCachePointEnabled &&
 							msg.content.length >= bedrockMinCacheableChars &&
 							bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
@@ -2042,7 +2190,7 @@ export async function prepareRequestBody(
 									// Add cachePoint as separate block for long text parts
 									// (model-specific threshold)
 									const shouldCache =
-										providerCacheControlEnabled &&
+										bedrockAutoCachePointEnabled &&
 										part.text.length >= bedrockMinCacheableChars &&
 										bedrockCacheControlCount < bedrockMaxCacheControlBlocks;
 
@@ -2070,7 +2218,7 @@ export async function prepareRequestBody(
 			// the entire conversation prefix (all prior turns) so only the
 			// newest user message is uncached. This mirrors the Anthropic
 			// turn-boundary logic in transformAnthropicMessages.
-			if (providerCacheControlEnabled && bedrockMessages.length >= 3) {
+			if (bedrockAutoCachePointEnabled && bedrockMessages.length >= 3) {
 				let lastUserIdx = -1;
 				for (let i = bedrockMessages.length - 1; i >= 0; i--) {
 					if (bedrockMessages[i].role === "user") {
@@ -2148,8 +2296,12 @@ export async function prepareRequestBody(
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					requestBody.additionalModelRequestFields ??= {};
+					// `display: "summarized"` is required on Opus 4.7/4.8 to receive
+					// readable thinking text — their default flipped to "omitted"
+					// (empty thinking, signature only), unlike Opus 4.6.
 					requestBody.additionalModelRequestFields.thinking = {
 						type: "adaptive",
+						display: "summarized",
 					};
 					const mapEffort = (
 						e: typeof reasoning_effort,
@@ -2164,6 +2316,8 @@ export async function prepareRequestBody(
 								return "high";
 							case "xhigh":
 								return "xhigh";
+							case "max":
+								return "max";
 							default:
 								return "high";
 						}
@@ -2191,6 +2345,8 @@ export async function prepareRequestBody(
 								return 4000;
 							case "xhigh":
 								return 16000;
+							case "max":
+								return 32000;
 							default:
 								return 2000;
 						}
@@ -2256,23 +2412,27 @@ export async function prepareRequestBody(
 			delete requestBody.stream; // Stream is handled via URL parameter
 			delete requestBody.messages; // Not used in body for Google providers
 			// Map OpenAI tool_choice to Google's toolConfig format
-			if (tool_choice && tools && tools.filter(isFunctionTool).length > 0) {
-				if (tool_choice === "required") {
+			if (
+				resolvedToolChoice &&
+				tools &&
+				tools.filter(isFunctionTool).length > 0
+			) {
+				if (resolvedToolChoice === "required") {
 					requestBody.toolConfig = {
 						functionCallingConfig: { mode: "ANY" },
 					};
-				} else if (tool_choice === "none") {
+				} else if (resolvedToolChoice === "none") {
 					requestBody.toolConfig = {
 						functionCallingConfig: { mode: "NONE" },
 					};
 				} else if (
-					typeof tool_choice === "object" &&
-					tool_choice.type === "function"
+					typeof resolvedToolChoice === "object" &&
+					resolvedToolChoice.type === "function"
 				) {
 					requestBody.toolConfig = {
 						functionCallingConfig: {
 							mode: "ANY",
-							allowedFunctionNames: [tool_choice.function.name],
+							allowedFunctionNames: [resolvedToolChoice.function.name],
 						},
 					};
 				}
@@ -2329,6 +2489,11 @@ export async function prepareRequestBody(
 			if (top_p !== undefined) {
 				requestBody.generationConfig.topP = top_p;
 			}
+			// Google's equivalent of OpenAI's n: candidateCount (1-8, non-streaming
+			// only). Gated upstream by the mapping's supportsN/maxN/supportsNStreaming.
+			if (n !== undefined && n > 1) {
+				requestBody.generationConfig.candidateCount = n;
+			}
 
 			// Handle JSON output mode for Google
 			if (response_format?.type === "json_object") {
@@ -2361,7 +2526,7 @@ export async function prepareRequestBody(
 						// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
 							reasoning_max_tokens;
-					} else if (reasoning_effort !== undefined) {
+					} else if (genericReasoningEffort !== undefined) {
 						const getThinkingBudget = (effort: string) => {
 							switch (effort) {
 								case "minimal":
@@ -2378,7 +2543,7 @@ export async function prepareRequestBody(
 							}
 						};
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
-							getThinkingBudget(reasoning_effort);
+							getThinkingBudget(genericReasoningEffort);
 					}
 				}
 			}
@@ -2501,7 +2666,7 @@ export async function prepareRequestBody(
 				requestBody.presence_penalty = presence_penalty;
 			}
 			if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = reasoning_effort;
+				requestBody.reasoning_effort = genericReasoningEffort;
 			}
 			break;
 		}
@@ -2609,7 +2774,7 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = reasoning_effort;
+					requestBody.reasoning_effort = genericReasoningEffort;
 				}
 			}
 			if (usedProvider === "minimax" && supportsReasoning) {

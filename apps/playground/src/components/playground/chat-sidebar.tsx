@@ -3,26 +3,25 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
-	Plus,
+	AudioLines,
 	MessageSquare,
 	Edit2,
 	Trash2,
 	MoreVerticalIcon,
-	Loader2,
 	ImagePlus,
 	Film,
 	Pin,
 	PinOff,
 	Users,
+	ChevronDown,
 	ChevronUp,
 	LogOut,
 	ExternalLink,
-	Search,
 	PenTool,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import {
@@ -71,9 +70,9 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
-import { ChatSearchDialog } from "./chat-search-dialog";
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
 // import { ProjectSwitcher } from "./project-switcher";
 
 import type { Organization, Project } from "@/lib/types";
@@ -111,6 +110,8 @@ type ChatHistoryRow =
 const ROW_HEIGHT_HEADER = 28;
 const ROW_HEIGHT_SPACER = 6;
 const ROW_HEIGHT_CHAT = 52;
+
+const HISTORY_COLLAPSED_STORAGE_KEY = "playground-chat-history-collapsed";
 
 interface ChatHistoryRowProps {
 	rows: ChatHistoryRow[];
@@ -202,6 +203,166 @@ function EditChatTitleInput({
 	);
 }
 
+type ChatHistoryItemProps = Pick<
+	ChatHistoryRowProps,
+	| "currentChatId"
+	| "editingId"
+	| "editTitle"
+	| "pendingFocusChatId"
+	| "isPageLoading"
+	| "isMobile"
+	| "onChatSelect"
+	| "onEditTitleChange"
+	| "onSaveTitle"
+	| "onCancelEdit"
+	| "onDeleteChat"
+	| "onTogglePin"
+	| "onStartEdit"
+	| "onEditFocused"
+> & { chat: Chat };
+
+function ChatHistoryItem({
+	chat,
+	currentChatId,
+	editingId,
+	editTitle,
+	pendingFocusChatId,
+	isPageLoading,
+	isMobile,
+	onChatSelect,
+	onEditTitleChange,
+	onSaveTitle,
+	onCancelEdit,
+	onDeleteChat,
+	onTogglePin,
+	onStartEdit,
+	onEditFocused,
+}: ChatHistoryItemProps) {
+	const isEditing = editingId === chat.id;
+	const isActive = currentChatId === chat.id;
+	const isActionFocusable = isActive && isMobile ? undefined : -1;
+
+	return (
+		<div className="relative h-full px-2 pb-1">
+			<div className="group/chat-row relative h-full">
+				{isEditing ? (
+					<div className="flex h-full w-full items-center rounded-md px-2 pr-8 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
+						<EditChatTitleInput
+							chatId={chat.id}
+							value={editTitle}
+							shouldFocus={pendingFocusChatId === chat.id}
+							onChange={onEditTitleChange}
+							onSave={onSaveTitle}
+							onCancel={onCancelEdit}
+							onFocused={onEditFocused}
+						/>
+					</div>
+				) : (
+					<SidebarMenuButton
+						isActive={isActive}
+						onClick={() => onChatSelect?.(chat.id)}
+						className={[
+							"h-full! w-full justify-start group relative pr-2 !transition-none group-hover/chat-row:pr-[4.5rem]",
+							isActive ? "max-md:pr-[4.5rem]" : "",
+						].join(" ")}
+						type="button"
+						disabled={isPageLoading}
+					>
+						<div className="flex-1 min-w-0">
+							<div className="truncate text-sm font-medium mb-0.5">
+								{chat.title}
+							</div>
+							<div className="text-xs text-muted-foreground">
+								{chat.messageCount} messages • {formatDate(chat.updatedAt)}
+							</div>
+						</div>
+					</SidebarMenuButton>
+				)}
+				{!isEditing && (
+					<div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+						<button
+							type="button"
+							aria-label={chat.pinned ? "Unpin chat" : "Pin chat"}
+							title={chat.pinned ? "Unpin chat" : "Pin chat"}
+							tabIndex={isActionFocusable}
+							onClick={(e) => {
+								e.stopPropagation();
+								onTogglePin(chat);
+							}}
+							className={[
+								"flex h-7 w-7 items-center justify-center rounded-md text-sidebar-foreground outline-hidden transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+								"pointer-events-none opacity-0 group-hover/chat-row:pointer-events-auto group-hover/chat-row:opacity-100",
+								isActive ? "max-md:pointer-events-auto max-md:opacity-100" : "",
+							].join(" ")}
+						>
+							{chat.pinned ? (
+								<PinOff className="h-3.5 w-3.5" />
+							) : (
+								<Pin className="h-3.5 w-3.5" />
+							)}
+						</button>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<SidebarMenuAction
+									type="button"
+									tabIndex={isActionFocusable}
+									onClick={(e) => {
+										e.stopPropagation();
+									}}
+									className={[
+										"pointer-events-none static hidden h-7 w-7 cursor-pointer opacity-0 group-hover/chat-row:flex group-hover/chat-row:pointer-events-auto group-hover/chat-row:opacity-100 data-[state=open]:flex data-[state=open]:pointer-events-auto data-[state=open]:opacity-100",
+										isActive
+											? "max-md:flex max-md:pointer-events-auto max-md:opacity-100"
+											: "",
+									].join(" ")}
+								>
+									<MoreVerticalIcon className="h-3.5 w-3.5" />
+								</SidebarMenuAction>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" className="w-48">
+								<DropdownMenuItem
+									onClick={(e) => {
+										e.stopPropagation();
+										onTogglePin(chat);
+									}}
+									className="flex items-center gap-2"
+								>
+									{chat.pinned ? (
+										<PinOff className="h-4 w-4" />
+									) : (
+										<Pin className="h-4 w-4" />
+									)}
+									{chat.pinned ? "Unpin" : "Pin"}
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={(e) => {
+										e.stopPropagation();
+										onStartEdit(chat);
+									}}
+									className="flex items-center gap-2"
+								>
+									<Edit2 className="h-4 w-4" />
+									Rename
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={(e) => {
+										e.stopPropagation();
+										onDeleteChat(chat.id);
+									}}
+									className="flex items-center gap-2 text-destructive focus:text-destructive"
+								>
+									<Trash2 className="h-4 w-4" />
+									Delete
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function ChatHistoryRowComponent({
 	ariaAttributes,
 	index,
@@ -242,132 +403,25 @@ function ChatHistoryRowComponent({
 		);
 	}
 
-	const { chat } = row;
-	const isEditing = editingId === chat.id;
-	const isActive = currentChatId === chat.id;
-	const isActionFocusable = isActive && isMobile ? undefined : -1;
-
 	return (
 		<div {...ariaAttributes} style={style}>
-			<div className="relative h-full px-2 pb-1">
-				<div className="group/chat-row relative h-full">
-					{isEditing ? (
-						<div className="flex h-full w-full items-center rounded-md px-2 pr-8 text-left text-sm ring-sidebar-ring bg-sidebar-accent text-sidebar-accent-foreground">
-							<EditChatTitleInput
-								chatId={chat.id}
-								value={editTitle}
-								shouldFocus={pendingFocusChatId === chat.id}
-								onChange={onEditTitleChange}
-								onSave={onSaveTitle}
-								onCancel={onCancelEdit}
-								onFocused={onEditFocused}
-							/>
-						</div>
-					) : (
-						<SidebarMenuButton
-							isActive={isActive}
-							onClick={() => onChatSelect?.(chat.id)}
-							className={[
-								"h-full! w-full justify-start group relative pr-2 !transition-none group-hover/chat-row:pr-[4.5rem]",
-								isActive ? "max-md:pr-[4.5rem]" : "",
-							].join(" ")}
-							type="button"
-							disabled={isPageLoading}
-						>
-							<div className="flex-1 min-w-0">
-								<div className="truncate text-sm font-medium mb-0.5">
-									{chat.title}
-								</div>
-								<div className="text-xs text-muted-foreground">
-									{chat.messageCount} messages • {formatDate(chat.updatedAt)}
-								</div>
-							</div>
-						</SidebarMenuButton>
-					)}
-					{!isEditing && (
-						<div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-							<button
-								type="button"
-								aria-label={chat.pinned ? "Unpin chat" : "Pin chat"}
-								title={chat.pinned ? "Unpin chat" : "Pin chat"}
-								tabIndex={isActionFocusable}
-								onClick={(e) => {
-									e.stopPropagation();
-									onTogglePin(chat);
-								}}
-								className={[
-									"flex h-7 w-7 items-center justify-center rounded-md text-sidebar-foreground outline-hidden transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-									"pointer-events-none opacity-0 group-hover/chat-row:pointer-events-auto group-hover/chat-row:opacity-100",
-									isActive
-										? "max-md:pointer-events-auto max-md:opacity-100"
-										: "",
-								].join(" ")}
-							>
-								{chat.pinned ? (
-									<PinOff className="h-3.5 w-3.5" />
-								) : (
-									<Pin className="h-3.5 w-3.5" />
-								)}
-							</button>
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<SidebarMenuAction
-										type="button"
-										tabIndex={isActionFocusable}
-										onClick={(e) => {
-											e.stopPropagation();
-										}}
-										className={[
-											"pointer-events-none static hidden h-7 w-7 cursor-pointer opacity-0 group-hover/chat-row:flex group-hover/chat-row:pointer-events-auto group-hover/chat-row:opacity-100 data-[state=open]:flex data-[state=open]:pointer-events-auto data-[state=open]:opacity-100",
-											isActive
-												? "max-md:flex max-md:pointer-events-auto max-md:opacity-100"
-												: "",
-										].join(" ")}
-									>
-										<MoreVerticalIcon className="h-3.5 w-3.5" />
-									</SidebarMenuAction>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end" className="w-48">
-									<DropdownMenuItem
-										onClick={(e) => {
-											e.stopPropagation();
-											onTogglePin(chat);
-										}}
-										className="flex items-center gap-2"
-									>
-										{chat.pinned ? (
-											<PinOff className="h-4 w-4" />
-										) : (
-											<Pin className="h-4 w-4" />
-										)}
-										{chat.pinned ? "Unpin" : "Pin"}
-									</DropdownMenuItem>
-									<DropdownMenuItem
-										onClick={(e) => {
-											e.stopPropagation();
-											onStartEdit(chat);
-										}}
-										className="flex items-center gap-2"
-									>
-										<Edit2 className="h-4 w-4" />
-										Rename
-									</DropdownMenuItem>
-									<DropdownMenuItem
-										onClick={(e) => {
-											e.stopPropagation();
-											onDeleteChat(chat.id);
-										}}
-										className="flex items-center gap-2 text-destructive focus:text-destructive"
-									>
-										<Trash2 className="h-4 w-4" />
-										Delete
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
-						</div>
-					)}
-				</div>
-			</div>
+			<ChatHistoryItem
+				chat={row.chat}
+				currentChatId={currentChatId}
+				editingId={editingId}
+				editTitle={editTitle}
+				pendingFocusChatId={pendingFocusChatId}
+				isPageLoading={isPageLoading}
+				isMobile={isMobile}
+				onChatSelect={onChatSelect}
+				onEditTitleChange={onEditTitleChange}
+				onSaveTitle={onSaveTitle}
+				onCancelEdit={onCancelEdit}
+				onDeleteChat={onDeleteChat}
+				onTogglePin={onTogglePin}
+				onStartEdit={onStartEdit}
+				onEditFocused={onEditFocused}
+			/>
 		</div>
 	);
 }
@@ -442,16 +496,27 @@ export const ChatSidebar = function ChatSidebar({
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	// Preserve the selected organization across playground navigation so users
+	// don't have to re-pick their org on every page.
+	const orgIdParam = searchParams.get("orgId");
+	const withOrg = (path: string) =>
+		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
-	const showOrganizationSwitcher = pathname === "/";
+	const showOrganizationSwitcher = pathname === "/" || pathname === "/group";
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
 	const { theme, setTheme, systemTheme } = useTheme();
 
-	// Use real chat data from API
-	const { data: chatsData, isLoading: isChatsLoading } = useChats();
+	// Resolve the org context for chat history: the selected org, or the
+	// dedicated Chat org (backing the "Chat plan" context) when none is selected.
+	const resolvedOrgId = selectedOrganization?.id ?? organization?.id;
+
+	// Use real chat data from API, scoped to the resolved organization context.
+	const { data: chatsData, isLoading: isChatsLoading } =
+		useChats(resolvedOrgId);
 	const deleteChat = useDeleteChat();
 	const updateChat = useUpdateChat();
 
@@ -462,38 +527,29 @@ export const ChatSidebar = function ChatSidebar({
 	const [pendingFocusChatId, setPendingFocusChatId] = useState<string | null>(
 		null,
 	);
-	const [isSearchOpen, setIsSearchOpen] = useState(false);
-	const [isMac, setIsMac] = useState(false);
+	const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(
+		() =>
+			typeof document !== "undefined" &&
+			document.cookie
+				.split("; ")
+				.includes(`${HISTORY_COLLAPSED_STORAGE_KEY}=1`),
+	);
+
+	const toggleHistoryCollapsed = useCallback(() => {
+		setIsHistoryCollapsed((prev) => {
+			const next = !prev;
+			document.cookie = `${HISTORY_COLLAPSED_STORAGE_KEY}=${
+				next ? "1" : "0"
+			}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+			return next;
+		});
+	}, []);
 
 	const chats = useMemo(() => chatsData?.chats ?? [], [chatsData?.chats]);
 	const currentTheme = theme === "system" ? systemTheme : theme;
 	const toggleTheme = useCallback(() => {
 		setTheme(currentTheme === "dark" ? "light" : "dark");
 	}, [currentTheme, setTheme]);
-
-	useEffect(() => {
-		setIsMac(/(Mac|iPhone|iPad|iPod)/i.test(window.navigator.platform));
-	}, []);
-
-	useEffect(() => {
-		const handleKeyDown = (event: KeyboardEvent) => {
-			const key = event.key?.toLowerCase();
-			const isSearchShortcut = isMac
-				? event.metaKey && key === "k" && !event.altKey && !event.ctrlKey
-				: event.altKey && key === "k" && !event.metaKey && !event.ctrlKey;
-
-			if (!isSearchShortcut || event.shiftKey || event.defaultPrevented) {
-				return;
-			}
-
-			event.preventDefault();
-			setIsSearchOpen(true);
-		};
-
-		window.addEventListener("keydown", handleKeyDown);
-
-		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [isMac]);
 
 	const logout = async () => {
 		posthog.reset();
@@ -622,18 +678,8 @@ export const ChatSidebar = function ChatSidebar({
 		];
 		const rows: ChatHistoryRow[] = [];
 
-		if (pinnedChats.length > 0) {
-			rows.push({ type: "header", key: "header-pinned", title: "Pinned" });
-
-			pinnedChats.forEach((chat) => {
-				rows.push({ type: "chat", key: `chat-${chat.id}`, chat });
-			});
-
-			if (groups.some((group) => group.chats.length > 0)) {
-				rows.push({ type: "spacer", key: "spacer-pinned" });
-			}
-		}
-
+		// Pinned chats render in a separate sticky block above the scrollable
+		// list (see render), so they are intentionally excluded here.
 		groups.forEach(({ title, chats: groupedChats }, groupIndex) => {
 			if (groupedChats.length === 0) {
 				return;
@@ -655,7 +701,7 @@ export const ChatSidebar = function ChatSidebar({
 		});
 
 		return rows;
-	}, [chatGroups, pinnedChats]);
+	}, [chatGroups]);
 
 	const rowProps = useMemo<ChatHistoryRowProps>(
 		() => ({
@@ -751,38 +797,39 @@ export const ChatSidebar = function ChatSidebar({
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
-							<Link href="/" prefetch={true}>
+							<Link href={withOrg("/")} prefetch={true}>
 								<div className="flex aspect-square size-8 items-center justify-center">
 									<Logo className="size-6" />
 								</div>
 								<span className="text-lg font-bold tracking-tight">
 									LLM Gateway
 								</span>
+								<Badge
+									variant="secondary"
+									className="group-data-[collapsible=icon]:hidden"
+								>
+									Chat
+								</Badge>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							onClick={onNewChat}
-							disabled={isPageLoading}
-							tooltip="New Chat"
-							className="border border-border"
-						>
-							{isPageLoading ? (
-								<Loader2 className="h-4 w-4 animate-spin" />
-							) : (
-								<Plus className="h-4 w-4" />
-							)}
-							<span>New Chat</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
+					<SidebarChatSearch
+						disabled={pathname !== "/"}
+						onChatSelect={handleChatSelect}
+						onNewChat={onNewChat}
+					/>
+					<SidebarNewAction
+						label="New Chat"
+						onAction={onNewChat}
+						isLoading={isPageLoading}
+					/>
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild
 							tooltip="Chat"
 							isActive={pathname === "/"}
 						>
-							<Link href="/">
+							<Link href={withOrg("/")} prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -794,7 +841,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Group Chat"
 							isActive={pathname === "/group"}
 						>
-							<Link href="/group">
+							<Link href={withOrg("/group")} prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -806,7 +853,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Image Studio"
 							isActive={pathname === "/image"}
 						>
-							<Link href="/image">
+							<Link href={withOrg("/image")} prefetch={true}>
 								<ImagePlus className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -818,9 +865,21 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Video Studio"
 							isActive={pathname === "/video"}
 						>
-							<Link href="/video">
+							<Link href={withOrg("/video")} prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Audio Studio"
+							isActive={pathname === "/audio"}
+						>
+							<Link href={withOrg("/audio")} prefetch={true}>
+								<AudioLines className="h-4 w-4" />
+								<span>Audio Studio</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -830,7 +889,7 @@ export const ChatSidebar = function ChatSidebar({
 							tooltip="Canvas"
 							isActive={pathname === "/canvas"}
 						>
-							<Link href="/canvas">
+							<Link href={withOrg("/canvas")} prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>
@@ -878,28 +937,26 @@ export const ChatSidebar = function ChatSidebar({
 							</SidebarMenu>
 						</>
 					) : null}
-					<SidebarMenu className="px-2">
-						<SidebarMenuItem>
-							<SidebarMenuButton
-								type="button"
-								tooltip="Search Chats"
-								onClick={() => setIsSearchOpen(true)}
-							>
-								<Search className="h-4 w-4" />
-								<span>Search Chats</span>
-								<kbd className="ml-auto text-xs font-medium text-muted-foreground opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100 group-data-[collapsible=icon]:hidden">
-									{isMac ? "⌘K" : "Alt+K"}
-								</kbd>
-							</SidebarMenuButton>
-						</SidebarMenuItem>
-					</SidebarMenu>
 				</div>
 				<div
 					ref={listContainerRef}
 					aria-hidden={isHistoryHidden}
 					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
 				>
-					{chats.length === 0 ? (
+					<button
+						type="button"
+						onClick={toggleHistoryCollapsed}
+						aria-expanded={!isHistoryCollapsed}
+						className="flex w-full shrink-0 items-center justify-between px-5 py-2 text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground group-data-[collapsible=icon]:hidden"
+					>
+						<span>Chats</span>
+						<ChevronDown
+							className={`h-3.5 w-3.5 transition-transform duration-200 ${
+								isHistoryCollapsed ? "-rotate-90" : ""
+							}`}
+						/>
+					</button>
+					{isHistoryCollapsed ? null : chats.length === 0 ? (
 						<div className="flex flex-col items-center justify-center py-8 text-center">
 							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">
@@ -910,15 +967,47 @@ export const ChatSidebar = function ChatSidebar({
 							</p>
 						</div>
 					) : (
-						<List
-							className="min-h-0 w-full flex-1"
-							style={{ width: "100%" }}
-							rowComponent={ChatHistoryRowComponent}
-							rowCount={historyRows.length}
-							rowHeight={getChatHistoryRowHeight}
-							rowProps={rowProps}
-							overscanCount={8}
-						/>
+						<>
+							{pinnedChats.length > 0 && (
+								<div className="shrink-0 max-h-[45%] overflow-y-auto border-b border-sidebar-border/60 pb-1">
+									<div className="px-5 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
+										Pinned
+									</div>
+									{pinnedChats.map((chat) => (
+										<div key={chat.id} style={{ height: ROW_HEIGHT_CHAT }}>
+											<ChatHistoryItem
+												chat={chat}
+												currentChatId={currentChatId}
+												editingId={editingId}
+												editTitle={editTitle}
+												pendingFocusChatId={pendingFocusChatId}
+												isPageLoading={isPageLoading}
+												isMobile={isMobile}
+												onChatSelect={handleChatSelect}
+												onEditTitleChange={setEditTitle}
+												onSaveTitle={saveTitle}
+												onCancelEdit={cancelEditTitle}
+												onDeleteChat={handleDeleteChat}
+												onTogglePin={handleTogglePin}
+												onStartEdit={handleEditTitle}
+												onEditFocused={onEditFocused}
+											/>
+										</div>
+									))}
+								</div>
+							)}
+							{historyRows.length > 0 && (
+								<List
+									className="min-h-0 w-full flex-1"
+									style={{ width: "100%" }}
+									rowComponent={ChatHistoryRowComponent}
+									rowCount={historyRows.length}
+									rowHeight={getChatHistoryRowHeight}
+									rowProps={rowProps}
+									overscanCount={8}
+								/>
+							)}
+						</>
 					)}
 				</div>
 			</SidebarContent>
@@ -926,8 +1015,13 @@ export const ChatSidebar = function ChatSidebar({
 			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
-						organization={organization}
+						organization={
+							!selectedOrganization || selectedOrganization.isChat
+								? organization
+								: selectedOrganization
+						}
 						isLoading={isOrgLoading}
+						isChatPlanOrg={!selectedOrganization || selectedOrganization.isChat}
 					/>
 				</div>
 				<SidebarMenu>
@@ -1004,12 +1098,6 @@ export const ChatSidebar = function ChatSidebar({
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
-			<ChatSearchDialog
-				open={isSearchOpen}
-				onOpenChange={setIsSearchOpen}
-				onNewChat={onNewChat}
-				onChatSelect={handleChatSelect}
-			/>
 		</Sidebar>
 	);
 };

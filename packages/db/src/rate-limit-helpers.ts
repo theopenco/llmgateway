@@ -1,6 +1,6 @@
 import { and, eq, isNull, or } from "drizzle-orm";
 
-import { db } from "./db.js";
+import { cdb } from "./cdb.js";
 import { rateLimit as rateLimitTable } from "./schema.js";
 
 export type RateLimitSource =
@@ -19,10 +19,21 @@ interface RateLimitMatch {
 	model: string | null;
 	maxRpm: number | null;
 	maxRpd: number | null;
+	enforcement: "per_org" | "global";
 }
 
 /**
  * Result of rate limit lookup with precedence information.
+ *
+ * `rpmShared`/`rpdShared` are true when the matched limit is a global row
+ * (organizationId = null) configured for shared enforcement, meaning the
+ * counter is shared across all orgs rather than bucketed per-org.
+ *
+ * For shared limits, `rpmProvider`/`rpmModel` (and the rpd equivalents) carry
+ * the matched row's target so callers can key the shared counter by what the
+ * limit actually covers — `null` means the row left that dimension as a
+ * wildcard (all providers / all models). They are undefined for non-shared
+ * limits, which are keyed per request.
  */
 export interface EffectiveRateLimit {
 	maxRpm: number;
@@ -31,6 +42,12 @@ export interface EffectiveRateLimit {
 	rpdSource: RateLimitSource;
 	rpmRateLimitId?: string;
 	rpdRateLimitId?: string;
+	rpmShared?: boolean;
+	rpdShared?: boolean;
+	rpmProvider?: string | null;
+	rpmModel?: string | null;
+	rpdProvider?: string | null;
+	rpdModel?: string | null;
 }
 
 const rateLimitPrecedence: Array<{
@@ -95,7 +112,14 @@ function pickRateLimitByPrecedence(
 	provider: string,
 	model: string,
 	getLimitValue: (rateLimit: RateLimitMatch) => number | null,
-): { limit: number; source: RateLimitSource; rateLimitId?: string } {
+): {
+	limit: number;
+	source: RateLimitSource;
+	rateLimitId?: string;
+	shared: boolean;
+	provider: string | null;
+	model: string | null;
+} {
 	for (const precedence of rateLimitPrecedence) {
 		const match = rateLimits.find(
 			(rateLimit) =>
@@ -107,6 +131,9 @@ function pickRateLimitByPrecedence(
 				limit: getLimitValue(match) ?? 0,
 				source: precedence.source,
 				rateLimitId: match.id,
+				shared: match.organizationId === null && match.enforcement === "global",
+				provider: match.provider,
+				model: match.model,
 			};
 		}
 	}
@@ -114,12 +141,18 @@ function pickRateLimitByPrecedence(
 	return {
 		limit: 0,
 		source: "none",
+		shared: false,
+		provider: null,
+		model: null,
 	};
 }
 
 /**
  * Get the effective rate limits for a given organization, provider, and model.
- * Uses the uncached database client so admin changes take effect immediately.
+ * Uses the cached database client (cdb) so this hot, per-request lookup is served
+ * from the Drizzle cache instead of hitting Postgres on every gateway request.
+ * The WHERE clause is time-independent, so the cache key stays stable. Admin
+ * changes propagate within the cache TTL (default 60s).
  *
  * Rate limits are always keyed by the root model ID — provider-specific model
  * names are reserved for upstream requests and are never persisted as a
@@ -138,7 +171,7 @@ export async function getEffectiveRateLimit(
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
-	const rateLimits = await db
+	const rateLimits = await cdb
 		.select({
 			id: rateLimitTable.id,
 			organizationId: rateLimitTable.organizationId,
@@ -146,6 +179,7 @@ export async function getEffectiveRateLimit(
 			model: rateLimitTable.model,
 			maxRpm: rateLimitTable.maxRpm,
 			maxRpd: rateLimitTable.maxRpd,
+			enforcement: rateLimitTable.enforcement,
 		})
 		.from(rateLimitTable)
 		.where(
@@ -186,5 +220,11 @@ export async function getEffectiveRateLimit(
 		rpdSource: rpd.source,
 		rpmRateLimitId: rpm.rateLimitId,
 		rpdRateLimitId: rpd.rateLimitId,
+		rpmShared: rpm.shared,
+		rpdShared: rpd.shared,
+		rpmProvider: rpm.shared ? rpm.provider : undefined,
+		rpmModel: rpm.shared ? rpm.model : undefined,
+		rpdProvider: rpd.shared ? rpd.provider : undefined,
+		rpdModel: rpd.shared ? rpd.model : undefined,
 	};
 }

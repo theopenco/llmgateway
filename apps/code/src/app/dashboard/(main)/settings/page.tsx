@@ -9,6 +9,10 @@ const DevPlanSettings = dynamic(
 	() => import("@/app/dashboard/components/DevPlanSettings"),
 );
 
+const DeleteAccount = dynamic(
+	() => import("@/app/dashboard/components/DeleteAccount"),
+);
+
 export default function SettingsPage() {
 	const { user } = useUser();
 	const { data: devPlanStatus } = useDevPlanStatus();
@@ -42,7 +46,10 @@ export default function SettingsPage() {
 			<DevPlanSettings
 				devPlanAllowAllModels={devPlanStatus.devPlanAllowAllModels ?? false}
 				retentionLevel={devPlanStatus.retentionLevel ?? "none"}
+				defaultRoutingStrategy={devPlanStatus.defaultRoutingStrategy ?? "auto"}
 			/>
+
+			<DeleteAccount />
 		</div>
 	);
 }

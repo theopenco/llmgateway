@@ -36,8 +36,12 @@ export default async function GroupPage({
 		fetchProviders(),
 	]);
 
-	// Fetch organizations server-side
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
+	// Ensure the dedicated Chat org exists, then list it so it can back the
+	// default billing context for the playground.
+	await fetchServerData("GET", "/playground/chat-org");
+	const initialOrganizationsData = await fetchServerData("GET", "/orgs", {
+		params: { query: { includeChat: "true" } },
+	});
 
 	// Fetch projects for the specific organization (if provided)
 	let initialProjectsData: { projects: Project[] } | null = null;
@@ -75,7 +79,7 @@ export default async function GroupPage({
 		}
 	}
 
-	const organizations = (
+	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
 		"organizations" in initialOrganizationsData
@@ -83,8 +87,16 @@ export default async function GroupPage({
 					.organizations
 			: []
 	) as Organization[];
+	// The Chat org backs the default billing context and must not appear in the
+	// dashboard org switcher.
+	const chatOrg = allOrganizations.find((o) => o.isChat) ?? null;
+	const organizations = allOrganizations.filter(
+		(o) => !o.isChat && !o.isPersonal,
+	);
 	const selectedOrganization =
-		(orgId ? organizations.find((o) => o.id === orgId) : organizations[0]) ??
+		(orgId ? organizations.find((o) => o.id === orgId) : null) ??
+		chatOrg ??
+		organizations[0] ??
 		null;
 
 	// Ensure we have projects for the selected organization (when orgId not provided)

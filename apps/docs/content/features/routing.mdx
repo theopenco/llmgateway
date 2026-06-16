@@ -149,6 +149,54 @@ This transparency allows you to understand and debug routing decisions.
 	considering cost efficiency.
 </Callout>
 
+### Routing Strategy
+
+By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it:
+
+| Strategy           | Behavior                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `auto` _(default)_ | Full weighted smart-routing score (price, uptime, throughput, latency, cache).       |
+| `price`            | Gives price a **90% relative weight**, so the cheapest provider almost always wins.  |
+| `throughput`       | Gives throughput a **90% relative weight**, so the fastest-generating provider wins. |
+| `latency`          | Gives latency a **90% relative weight**, so the lowest time-to-first-token wins.     |
+
+Each non-`auto` strategy keeps a small (10%) uptime weight, and the [exponential uptime penalty](#smart-routing-algorithm) still applies on top. This means the dominant pick is still skipped in favor of another provider when it has extremely bad uptime — you get the cheapest (or fastest) provider that is actually healthy, not one that is effectively down.
+
+Because time-to-first-token is only measured for streaming requests, `routing: "latency"` only biases streaming requests; for non-streaming requests it falls back to selecting on uptime.
+
+```bash
+# Always pick the cheapest healthy provider for this model
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": "price"
+  }'
+```
+
+```bash
+# Always pick the highest-throughput healthy provider for this model
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": "throughput"
+  }'
+```
+
+<Callout type="info">
+	The `routing` field only applies to model-id routing. Combining it with a
+	specific provider (e.g. `openai/gpt-4o`) returns a `400` error, since the
+	strategy can't influence a pinned provider — remove the provider prefix to use
+	a strategy. On **coding (dev) plans**, only `auto` and `price` are allowed;
+	the other strategies return a `400` error because they would bypass the
+	prompt-cache–aware routing those plans depend on.
+</Callout>
+
 ### Sticky Session Routing
 
 When a model is served by multiple providers, every request is normally scored independently — so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix hit the **same** provider.
@@ -178,27 +226,29 @@ For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived
 
 #### How pinning works
 
-When a session id is present, the provider (and region) is chosen **deterministically** using [rendezvous hashing](https://en.wikipedia.org/wiki/Rendezvous_hashing) over the available providers, rather than the weighted score. The same session always maps to the same provider as long as that provider remains available.
+On a session's **first** request the provider is chosen by the normal weighted smart-routing score — the same price-, priority-, uptime-, and throughput-aware algorithm used for non-sticky requests. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
 
-Because the choice is deterministic per session, sticky requests **bypass both the weighted scoring and the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
+Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
 #### Falling back when a provider is down
 
-Stickiness yields only when the pinned provider is effectively unavailable. A session is re-pinned to another provider when its provider:
+An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
 
+- Drops below the session uptime threshold (default 85%),
 - Is filtered out by health checks (e.g. excluded for low uptime), or
 - Fails the request and is dropped by the [automatic retry & fallback](#automatic-retry--fallback) loop.
 
-Rendezvous hashing guarantees a **minimal-disruption** reshuffle: when one provider drops out, only the sessions pinned to that provider move — every other session keeps its provider. When the provider recovers and re-enters the available pool, affected sessions pin back to it.
+Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
 
 The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
 
 <Callout type="info">
-	Sticky routing optimizes for cache locality over per-request price. A session
-	stays on its provider even if a cheaper or faster alternative is momentarily
-	available, since the prompt-cache savings typically outweigh the difference.
-	Requests without a session id are unaffected and continue to use the weighted
-	smart-routing algorithm.
+	Sticky routing optimizes for cache locality over per-request churn. Once a
+	session is pinned it stays on its provider even if a cheaper or faster
+	alternative becomes momentarily available, since the prompt-cache savings
+	typically outweigh the difference — but the initial pick still respects price
+	and priority. Requests without a session id are unaffected and continue to use
+	the weighted smart-routing algorithm.
 </Callout>
 
 ### Provider-Specific Routing

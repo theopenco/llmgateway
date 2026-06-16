@@ -1,4 +1,15 @@
 export {
+	CLAW_FORK_PATTERN,
+	CODING_AGENTS,
+	detectCodingAgentFromReferer,
+	detectCodingAgentFromTitle,
+	getSupportedAgentsList,
+	isRecognizedCodingAgent,
+	normalizeSourceToAgentId,
+	type CodingAgentDefinition,
+} from "./coding-agents.js";
+
+export {
 	AUTO_TOP_UP_DEFAULT_AMOUNT,
 	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	calculateFees,
@@ -11,12 +22,37 @@ export {
 } from "./fees.js";
 
 export {
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
 	DEV_PLAN_PRICES,
 	type DevPlanCycle,
 	type DevPlanTier,
 	getDevPlanCreditsLimit,
+	getDevPlanPremiumWeeklyLimit,
+	getRemainingPremiumWeeklyAllowance,
 	getProratedCreditDelta,
+	isPremiumWeekExpired,
 } from "./dev-plans.js";
+
+export {
+	CHAT_PLAN_PRICES,
+	CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS,
+	type ChatPlanCycle,
+	type ChatPlanTier,
+	CHAT_PLAN_CREDITS_MULTIPLIERS,
+	getChatPlanCreditsLimit,
+	getChatPlanCreditsMultiplier,
+	getChatPlanCreditsMultipliers,
+	isChatPlanModelAllowed,
+} from "./chat-plans.js";
+
+export {
+	getModelCategory,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
+	isPremiumModel,
+	type ModelCategory,
+} from "./model-categories.js";
 
 export {
 	HealthChecker,
@@ -93,5 +129,7 @@ export {
 	type RoutingTimeoutsConfig,
 	type RoutingWeightsConfig,
 } from "./routing-config.js";
+
+export { assertSafeWebhookUrl, isPrivateOrReservedIp } from "./url-safety.js";
 
 export * from "./components/ui/index.js";

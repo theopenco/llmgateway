@@ -29,6 +29,12 @@ describe("isContentFilterErrorText", () => {
 		).toBe(true);
 	});
 
+	test("detects Alibaba DashScope Wan green-net moderation", () => {
+		expect(
+			isContentFilterErrorText("Green net check failed for input text"),
+		).toBe(true);
+	});
+
 	test("returns false for generic upstream errors and empty input", () => {
 		expect(isContentFilterErrorText("Internal server error")).toBe(false);
 		expect(isContentFilterErrorText("the task id was not found")).toBe(false);

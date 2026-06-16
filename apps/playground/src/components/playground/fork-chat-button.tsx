@@ -2,7 +2,7 @@
 
 import { Loader2, GitFork } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ export function ForkChatButton({
 	const didAutoForkRef = useRef(false);
 	const [isNavigating, setIsNavigating] = useState(false);
 
-	const fork = async () => {
+	const fork = useCallback(async () => {
 		if (!user) {
 			setIsNavigating(true);
 			const returnUrl = `/share/${shareId}?fork=1`;
@@ -46,7 +46,7 @@ export function ForkChatButton({
 			setIsNavigating(false);
 			toast.error(getErrorMessage(error));
 		}
-	};
+	}, [user, shareId, router, forkChat]);
 
 	useEffect(() => {
 		if (
@@ -66,7 +66,7 @@ export function ForkChatButton({
 			scroll: false,
 		});
 		void fork();
-	}, [isLoading, pathname, router, searchParams, user]);
+	}, [fork, isLoading, pathname, router, searchParams, user]);
 
 	const isBusy = isLoading || forkChat.isPending || isNavigating;
 	const buttonLabel = isLoading
