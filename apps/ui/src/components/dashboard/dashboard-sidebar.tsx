@@ -412,6 +412,14 @@ function OrganizationSection({
 						toggleSidebar={toggleSidebar}
 					/>
 					<OrgNavItem
+						href={buildOrgUrl("org/compliance")}
+						label="Compliance"
+						icon={AnimatedShield}
+						isActive={isActive("org/compliance")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
 						href={buildOrgUrl("org/security-events")}
 						label="Security Events"
 						icon={AnimatedShieldAlert}

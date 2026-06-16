@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "provider_compliance_policy" json;

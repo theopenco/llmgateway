@@ -135,6 +135,7 @@ import {
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
+	isProviderCompliant,
 } from "@llmgateway/models";
 import {
 	detectCodingAgentFromReferer,
@@ -2415,6 +2416,70 @@ chat.openapi(completions, async (c) => {
 			)
 		: routingExpandedModelProviders;
 
+	// Enterprise provider compliance guardrails: drop providers that do not meet
+	// the org's required certifications/data policies, and block the request when
+	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
+	const compliancePolicy =
+		organization.plan === "enterprise" &&
+		organization.providerCompliancePolicy?.enabled
+			? organization.providerCompliancePolicy
+			: undefined;
+
+	const filterCompliantProviders = <T extends { providerId: string }>(
+		list: T[],
+	): T[] => {
+		if (!compliancePolicy) {
+			return list;
+		}
+		return list.filter((p) => {
+			const definition = getProviderDefinition(p.providerId);
+			return definition
+				? isProviderCompliant(definition, compliancePolicy)
+				: false;
+		});
+	};
+
+	const enforceCompliancePolicy = async () => {
+		if (!compliancePolicy) {
+			return;
+		}
+		iamFilteredModelProviders = filterCompliantProviders(
+			iamFilteredModelProviders,
+		);
+		expandedIamFilteredModelProviders = filterCompliantProviders(
+			expandedIamFilteredModelProviders,
+		);
+		// A pinned provider (e.g. "deepseek/...") is selected directly rather than
+		// from the filtered array, so check it explicitly. Auto/unpinned routing
+		// relies on the emptiness check below.
+		const pinnedDefinition =
+			usedProvider && usedProvider !== "llmgateway" && usedProvider !== "custom"
+				? getProviderDefinition(usedProvider)
+				: undefined;
+		const pinnedBlocked =
+			pinnedDefinition !== undefined &&
+			!isProviderCompliant(pinnedDefinition, compliancePolicy);
+		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
+			try {
+				await logViolation(
+					project.organizationId,
+					{
+						ruleId: "provider_compliance",
+						ruleName: "Provider compliance policy",
+						category: "provider_compliance",
+						action: "block",
+					},
+					{ apiKeyId: apiKey.id, model: requestedModel },
+				);
+			} catch {
+				// Silently ignore logging failures
+			}
+			throw new HTTPException(403, {
+				message: `This request was blocked by your organization's provider compliance policy. No available provider for ${modelInfo.id} meets the required certifications. Contact your LLMGateway admin to adjust the policy.`,
+			});
+		}
+	};
+
 	if (isDevPlanRestricted) {
 		iamFilteredModelProviders = iamFilteredModelProviders.filter(
 			providerSupportsCachedInput,
@@ -2427,6 +2492,8 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 	}
+
+	await enforceCompliancePolicy();
 
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
@@ -2881,6 +2948,7 @@ chat.openapi(completions, async (c) => {
 			expandedIamFilteredModelProviders =
 				expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
 		}
+		await enforceCompliancePolicy();
 	} else if (
 		(usedProvider === "llmgateway" && usedInternalModel === "custom") ||
 		usedInternalModel === "custom"

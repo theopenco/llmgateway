@@ -18,6 +18,7 @@ import { customAlphabet } from "nanoid";
 
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
+import type { ProviderCompliancePolicy } from "@llmgateway/models";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -206,6 +207,10 @@ export const organization = pgTable(
 		})
 			.notNull()
 			.default("none"),
+		// Enterprise provider compliance guardrails. When enabled, the gateway
+		// only routes to providers meeting the required certifications/data
+		// policies. Null = no policy configured.
+		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),

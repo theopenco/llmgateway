@@ -144,6 +144,100 @@ describe("api", () => {
 		expect(logs[0].finishReason).toBe("stop");
 	});
 
+	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
+		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
+		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, blockPromptLogging: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-block",
+			token: "real-token-compliance-block",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-block",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-block",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello compliance!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+
+		const violations = await db.query.guardrailViolation.findMany({
+			where: { organizationId: { eq: "org-id" } },
+		});
+		expect(violations.some((v) => v.category === "provider_compliance")).toBe(
+			true,
+		);
+	});
+
+	test("/v1/chat/completions allows providers meeting the compliance policy", async () => {
+		// OpenAI's dataPolicy has soc2: true, so a requireSoc2 policy lets it through.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-allow",
+			token: "real-token-compliance-allow",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-allow",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-allow",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello compliant!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-unsupported-service-tier",
