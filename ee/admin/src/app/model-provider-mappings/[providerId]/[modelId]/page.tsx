@@ -66,6 +66,7 @@ export default async function MappingDetailPage({
 				<MappingDetailClient
 					providerId={providerId}
 					modelId={decodedModelId}
+					region={region}
 					mapping={data.mapping}
 				/>
 			</Suspense>

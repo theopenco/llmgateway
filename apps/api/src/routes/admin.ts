@@ -5837,6 +5837,7 @@ const getMappingHistory = createRoute({
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
 			projectId: z.string().optional(),
+			region: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -5854,9 +5855,30 @@ admin.openapi(getMappingHistory, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
+	const region = query.region;
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = new Date(startDate);
 	hourStartDate.setMinutes(0, 0, 0);
+
+	// When a region is given, restrict the minute-level mapping history to the
+	// exact regional mapping(s). The hourly project rollups have no region
+	// dimension, so region scoping only applies to the minute-granularity source.
+	const regionMappingFilter =
+		region !== undefined
+			? inArray(
+					modelProviderMappingHistory.modelProviderMappingId,
+					db
+						.select({ id: tables.modelProviderMapping.id })
+						.from(tables.modelProviderMapping)
+						.where(
+							and(
+								eq(tables.modelProviderMapping.providerId, providerId),
+								eq(tables.modelProviderMapping.modelId, modelId),
+								eq(tables.modelProviderMapping.region, region),
+							),
+						),
+				)
+			: undefined;
 
 	if (projectId) {
 		const rows = await db
@@ -5957,6 +5979,7 @@ admin.openapi(getMappingHistory, async (c) => {
 					eq(modelProviderMappingHistory.providerId, providerId),
 					eq(modelProviderMappingHistory.modelId, modelId),
 					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+					regionMappingFilter,
 				),
 			)
 			.groupBy(modelProviderMappingHistory.minuteTimestamp)
