@@ -16,6 +16,40 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("parseProviderResponse", () => {
+	describe("zai web search", () => {
+		it("counts requested web search when the response omits result metadata", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "Current news summary.",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"zai",
+				"glm-5.2",
+				json,
+				[],
+				true,
+				false,
+				true,
+			);
+
+			expect(result.content).toBe("Current news summary.");
+			expect(result.webSearchCount).toBe(1);
+		});
+	});
+
 	describe("google reasoning output", () => {
 		it("treats missing thought text as null when only thought signatures are returned", () => {
 			const json = {

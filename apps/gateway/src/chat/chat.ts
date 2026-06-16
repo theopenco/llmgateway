@@ -7401,7 +7401,7 @@ chat.openapi(completions, async (c) => {
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
-				let webSearchCount = 0; // Track web search calls for cost calculation
+				let webSearchCount = usedProvider === "zai" && webSearchTool ? 1 : 0; // Track web search calls for cost calculation
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
@@ -11377,6 +11377,7 @@ chat.openapi(completions, async (c) => {
 		messages,
 		supportsReasoning,
 		splitTaggedReasoning,
+		!!webSearchTool,
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {
