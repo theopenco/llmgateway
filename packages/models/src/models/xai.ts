@@ -372,7 +372,7 @@ export const xaiModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
-				regions: [{ id: "us-west-2" }],
+				regions: [{ id: "global" }, { id: "us" }, { id: "us-west-2" }],
 			},
 			{
 				providerId: "azure-ai-foundry",

@@ -23,7 +23,10 @@ function getBedrockMantleBaseUrl(url: string, region?: string): string {
 		return appendPath(url, "/openai/v1");
 	}
 	if (url.includes("bedrock-runtime.")) {
-		const mantleRegion = region === "us-west-2" ? region : "us-west-2";
+		const mantleRegion =
+			region === "global" || region === "us"
+				? "us-west-2"
+				: (region ?? "us-west-2");
 		return `https://bedrock-mantle.${mantleRegion}.api.aws/openai/v1`;
 	}
 	return appendPath(url, "/openai/v1");

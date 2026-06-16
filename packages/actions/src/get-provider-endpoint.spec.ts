@@ -633,27 +633,49 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
-		it("routes Grok 4.3 through the Bedrock Mantle OpenAI endpoint", () => {
-			const endpoint = getProviderEndpoint(
-				"aws-bedrock",
-				undefined,
-				"grok-4.3",
-				undefined,
-				false,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				"us-west-2",
-				true,
-				"grok-4.3",
-			);
+		it.each([
+			{
+				region: undefined,
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "global",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "us",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "us-west-2",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+		])(
+			"routes Grok 4.3 through the Bedrock Mantle OpenAI endpoint for $region",
+			({ region, endpoint: expectedEndpoint }) => {
+				const endpoint = getProviderEndpoint(
+					"aws-bedrock",
+					undefined,
+					"grok-4.3",
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					region,
+					true,
+					"grok-4.3",
+				);
 
-			expect(endpoint).toBe(
-				"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
-			);
-		});
+				expect(endpoint).toBe(expectedEndpoint);
+			},
+		);
 
 		it("keeps a custom Grok 4.3 Bedrock Mantle base URL", () => {
 			const endpoint = getProviderEndpoint(
