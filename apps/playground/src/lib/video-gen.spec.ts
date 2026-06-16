@@ -286,4 +286,32 @@ describe("Seedance 2.0 reference capabilities", () => {
 		expect(options.sizes).toHaveLength(0);
 		expect(options.durations).toHaveLength(0);
 	});
+
+	test("frame mode keeps size/duration options for Seedance 2.0", () => {
+		const model = makeModel([makeSeedanceMapping()], "seedance-2-0");
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-2-0"],
+			"frames",
+		);
+
+		expect(options.sizes).toContain("1280x720");
+		expect(options.sizes).toContain("1920x1080");
+		expect(options.durations).toContain(10);
+	});
+
+	test("frame mode is rejected for non-2.0 bytedance models", () => {
+		const model = makeModel(
+			[makeSeedanceMapping({ modelId: "seedance-1-5-pro" })],
+			"seedance-1-5-pro",
+		);
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-1-5-pro"],
+			"frames",
+		);
+
+		expect(options.sizes).toHaveLength(0);
+		expect(options.durations).toHaveLength(0);
+	});
 });

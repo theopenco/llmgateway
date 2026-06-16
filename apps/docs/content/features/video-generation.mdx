@@ -69,7 +69,7 @@ Frame inputs interpolate a video between a starting frame and an optional ending
 
 - **Seedance scope.** Frame inputs are supported on **Seedance 2.0** and **Seedance 2.0 Fast** (`seedance-2-0`, `seedance-2-0-fast`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
 - **`last_frame` requires `image`.** Providing `last_frame` without `image` returns a `400`.
-- **Not combinable with references.** First/last frame inputs (`image`, `last_frame`) cannot be combined with reference inputs (`reference_images`, `reference_videos`, `reference_audios`).
+- **Not combinable with references.** First/last frame inputs (`image`, `last_frame`) cannot be combined with reference inputs (`reference_images`, `input_reference`, `reference_videos`, `reference_audios`).
 
 #### Example (Seedance 2.0)
 

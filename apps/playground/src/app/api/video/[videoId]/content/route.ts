@@ -11,6 +11,7 @@ import { getUser } from "@/lib/getUser";
 export const dynamic = "force-dynamic";
 
 const SESSION_COOKIE_KEY = "better-auth.session_token";
+const STATUS_TIMEOUT_MS = 10_000;
 
 export async function GET(
 	req: Request,
@@ -37,15 +38,27 @@ export async function GET(
 	// playback works for any video the user can access regardless of which
 	// playground API key is currently active.
 	const { apiBackendUrl } = getConfig();
-	const statusResponse = await fetch(
-		`${apiBackendUrl}/video/${encodeURIComponent(videoId)}`,
-		{
-			headers: {
-				Cookie: cookieHeader,
+	let statusResponse: Response;
+	try {
+		statusResponse = await fetch(
+			`${apiBackendUrl}/video/${encodeURIComponent(videoId)}`,
+			{
+				headers: {
+					Cookie: cookieHeader,
+				},
+				cache: "no-store",
+				signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
 			},
-			cache: "no-store",
-		},
-	);
+		);
+	} catch (error) {
+		if (error instanceof Error && error.name === "TimeoutError") {
+			return NextResponse.json(
+				{ error: "Video content request timed out" },
+				{ status: 504 },
+			);
+		}
+		throw error;
+	}
 
 	if (!statusResponse.ok) {
 		const body = await readGatewayResponseBody(statusResponse);
@@ -66,6 +79,8 @@ export async function GET(
 		);
 	}
 
+	// No timeout here: this streams the (potentially large) video body, and a
+	// fixed timeout would abort slow but healthy downloads mid-stream.
 	const rangeHeader = req.headers.get("Range");
 	const response = await fetch(sourceUrl, {
 		headers: {
