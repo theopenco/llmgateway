@@ -25,6 +25,16 @@ import type { ServerTypes } from "@/vars.js";
 export const organization = new OpenAPIHono<ServerTypes>();
 
 // Define schemas directly with Zod instead of using createSelectSchema
+const providerCompliancePolicySchema = z.object({
+	enabled: z.boolean(),
+	requireSoc2: z.boolean().optional(),
+	requireIso27001: z.boolean().optional(),
+	requireSoc2OrIso27001: z.boolean().optional(),
+	requireGdpr: z.boolean().optional(),
+	blockApiTraining: z.boolean().optional(),
+	blockPromptLogging: z.boolean().optional(),
+});
+
 const organizationSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -39,6 +49,7 @@ const organizationSchema = z.object({
 	plan: z.enum(["free", "pro", "enterprise"]),
 	planExpiresAt: z.date().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	autoTopUpEnabled: z.boolean(),
 	autoTopUpThreshold: z.string().nullable(),
@@ -96,6 +107,9 @@ const updateOrganizationSchema = z.object({
 	billingTaxId: z.string().optional(),
 	billingNotes: z.string().optional(),
 	retentionLevel: z.enum(["retain", "none"]).optional(),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
 	autoTopUpAmount: z
@@ -444,6 +458,7 @@ organization.openapi(updateOrganization, async (c) => {
 		billingTaxId,
 		billingNotes,
 		retentionLevel,
+		providerCompliancePolicy,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
 		autoTopUpAmount,
@@ -491,6 +506,24 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	// Provider compliance policies are an enterprise feature managed by owners
+	// and admins (matching the Guardrails settings page).
+	if (providerCompliancePolicy !== undefined) {
+		if (userOrganization.organization?.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message: "Provider compliance policies require an enterprise plan",
+			});
+		}
+		if (
+			userOrganization.role !== "owner" &&
+			userOrganization.role !== "admin"
+		) {
+			throw new HTTPException(403, {
+				message: "Only owners and admins can manage compliance policies",
+			});
+		}
+	}
+
 	const updateData: any = {};
 	if (name !== undefined) {
 		updateData.name = name;
@@ -512,6 +545,9 @@ organization.openapi(updateOrganization, async (c) => {
 	}
 	if (retentionLevel !== undefined) {
 		updateData.retentionLevel = retentionLevel;
+	}
+	if (providerCompliancePolicy !== undefined) {
+		updateData.providerCompliancePolicy = providerCompliancePolicy;
 	}
 	if (autoTopUpEnabled !== undefined) {
 		updateData.autoTopUpEnabled = autoTopUpEnabled;
@@ -575,6 +611,16 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.retentionLevel = {
 			old: oldOrg.retentionLevel,
 			new: retentionLevel,
+		};
+	}
+	if (
+		providerCompliancePolicy !== undefined &&
+		JSON.stringify(oldOrg.providerCompliancePolicy ?? null) !==
+			JSON.stringify(providerCompliancePolicy ?? null)
+	) {
+		changes.providerCompliancePolicy = {
+			old: oldOrg.providerCompliancePolicy,
+			new: providerCompliancePolicy,
 		};
 	}
 	if (

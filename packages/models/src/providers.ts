@@ -82,6 +82,24 @@ export interface ProviderAdditionalLink {
 	link: string;
 }
 
+/**
+ * Organization-level compliance policy. When enabled, the gateway only routes
+ * to providers whose {@link ProviderDataPolicy} explicitly satisfies every
+ * active requirement (fail-closed: unknown/`null` attributes never satisfy a
+ * requirement). Configurable on enterprise plans only.
+ */
+export interface ProviderCompliancePolicy {
+	enabled: boolean;
+	requireSoc2?: boolean;
+	requireIso27001?: boolean;
+	requireSoc2OrIso27001?: boolean;
+	requireGdpr?: boolean;
+	/** Require the provider to NOT train on API prompts (apiTraining === false). */
+	blockApiTraining?: boolean;
+	/** Require the provider to NOT log prompts (promptLogging === false). */
+	blockPromptLogging?: boolean;
+}
+
 export interface ProviderDefinition {
 	id: string;
 	name: string;
@@ -1304,6 +1322,44 @@ export function getServiceTier(
 	return getProviderDefinition(providerId)?.serviceTiers?.find(
 		(t) => t.id === tierId,
 	);
+}
+
+/**
+ * Whether a provider satisfies an organization's compliance policy. Fail-closed:
+ * any active requirement that the provider's {@link ProviderDataPolicy} does not
+ * explicitly satisfy (including a missing `dataPolicy`) makes the provider
+ * non-compliant. A disabled policy treats every provider as compliant.
+ */
+export function isProviderCompliant(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	if (!policy.enabled) {
+		return true;
+	}
+	const dataPolicy = provider.dataPolicy;
+	if (policy.requireSoc2 && dataPolicy?.soc2 !== true) {
+		return false;
+	}
+	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
+		return false;
+	}
+	if (
+		policy.requireSoc2OrIso27001 &&
+		!(dataPolicy?.soc2 === true || dataPolicy?.iso27001 === true)
+	) {
+		return false;
+	}
+	if (policy.requireGdpr && dataPolicy?.gdpr !== true) {
+		return false;
+	}
+	if (policy.blockApiTraining && dataPolicy?.apiTraining !== false) {
+		return false;
+	}
+	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
+		return false;
+	}
+	return true;
 }
 
 /**
