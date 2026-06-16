@@ -36,7 +36,7 @@ vi.mock("@/routes/payments.js", async (importOriginal) => {
 const ORG_ID = "test-dev-plan-org";
 const SUBSCRIPTION_ID = "sub_dev_plan_upgrade";
 
-describe("POST /dev-plans/change-tier", () => {
+describe("dev plan tier changes", () => {
 	let token: string;
 	let nowSeconds: number;
 	let dateNowSpy: ReturnType<typeof vi.spyOn>;
@@ -70,6 +70,105 @@ describe("POST /dev-plans/change-tier", () => {
 		dateNowSpy.mockRestore();
 		await db.delete(tables.transaction);
 		await deleteAll();
+	});
+
+	it("previews prorated upgrade charge and credit deltas", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "lite",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: {
+							id: "price_lite",
+						},
+					},
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier-preview", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toEqual({
+			currentTier: "lite",
+			newTier: "pro",
+			isUpgrade: true,
+			amountDueCents: 2500,
+			currency: "USD",
+			remainingFraction: 0.5,
+			currentCreditsLimit: 87,
+			proratedCreditDelta: 75,
+			newCreditsLimit: 162,
+			billingPeriodStart: new Date((nowSeconds - 500) * 1000).toISOString(),
+			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
+		});
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
+		expect(stripeMock.invoices.create).not.toHaveBeenCalled();
+	});
+
+	it("rejects upgrade if the expected charge no longer matches", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "lite",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: {
+							id: "price_lite",
+						},
+					},
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 2400,
+			}),
+		});
+
+		expect(res.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
+		expect(stripeMock.invoices.create).not.toHaveBeenCalled();
 	});
 
 	it("charges and grants prorated upgrade deltas while preserving usage", async () => {
@@ -135,6 +234,7 @@ describe("POST /dev-plans/change-tier", () => {
 			},
 			body: JSON.stringify({
 				newTier: "pro",
+				expectedAmountDueCents: 2500,
 			}),
 		});
 

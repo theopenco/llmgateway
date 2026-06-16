@@ -64,13 +64,18 @@ export default function BillingClient({
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
 
-	const handleChangeTier = async (newTier: PlanTier): Promise<void> => {
+	const handleChangeTier = async (
+		newTier: PlanTier,
+		expectedAmountDueCents?: number,
+	): Promise<void> => {
 		// Cycle is intentionally not sent — the server preserves the existing
 		// monthly/annual cadence by reading it from the org's stored devPlanCycle
 		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
 		try {
-			await changeTierMutation.mutateAsync({ body: { newTier } });
+			await changeTierMutation.mutateAsync({
+				body: { newTier, expectedAmountDueCents },
+			});
 			if (posthogKey) {
 				posthog.capture("dev_plan_tier_changed", { newTier });
 			}

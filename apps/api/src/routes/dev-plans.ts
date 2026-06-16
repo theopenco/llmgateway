@@ -123,6 +123,34 @@ function getRemainingBillingPeriodFraction(
 	return Math.min(1, Math.max(0, (periodEnd - nowSeconds) / periodSeconds));
 }
 
+function getDevPlanUpgradeAmountCents(
+	currentTier: DevPlanTier,
+	newTier: DevPlanTier,
+	remainingFraction: number,
+) {
+	const fullDeltaCents =
+		(DEV_PLAN_PRICES[newTier] - DEV_PLAN_PRICES[currentTier]) * 100;
+	return Math.max(0, Math.round(fullDeltaCents * remainingFraction));
+}
+
+function getDevPlanTierChangeCreditPreview(
+	currentTier: DevPlanTier,
+	newTier: DevPlanTier,
+	remainingFraction: number,
+) {
+	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
+	const currentCreditsLimit = getDevPlanCreditsLimit(currentTier);
+	const proratedCreditDelta = isUpgrade
+		? getProratedCreditDelta(currentTier, newTier, remainingFraction)
+		: 0;
+
+	return {
+		currentCreditsLimit,
+		proratedCreditDelta,
+		newCreditsLimit: currentCreditsLimit + proratedCreditDelta,
+	};
+}
+
 async function cleanupFailedUpgradeInvoice(params: {
 	invoiceId: string | null;
 	invoiceItemId: string | null;
@@ -170,10 +198,11 @@ async function collectDevPlanUpgradeCharge(params: {
 		});
 	}
 
-	const fullDeltaCents =
-		(DEV_PLAN_PRICES[params.newTier] - DEV_PLAN_PRICES[params.currentTier]) *
-		100;
-	const amountCents = Math.round(fullDeltaCents * params.remainingFraction);
+	const amountCents = getDevPlanUpgradeAmountCents(
+		params.currentTier,
+		params.newTier,
+		params.remainingFraction,
+	);
 
 	if (amountCents <= 0) {
 		return null;
@@ -793,6 +822,131 @@ devPlans.openapi(resume, async (c) => {
 	}
 });
 
+const changeTierPreviewBodySchema = z.object({
+	newTier: z.enum(["lite", "pro", "max"]),
+});
+
+const changeTierBodySchema = changeTierPreviewBodySchema.extend({
+	expectedAmountDueCents: z.number().int().nonnegative().optional(),
+});
+
+const tierChangePreviewResponseSchema = z.object({
+	currentTier: z.enum(["lite", "pro", "max"]),
+	newTier: z.enum(["lite", "pro", "max"]),
+	isUpgrade: z.boolean(),
+	amountDueCents: z.number().int().nonnegative(),
+	currency: z.literal("USD"),
+	remainingFraction: z.number(),
+	currentCreditsLimit: z.number(),
+	proratedCreditDelta: z.number(),
+	newCreditsLimit: z.number(),
+	billingPeriodStart: z.string(),
+	billingPeriodEnd: z.string(),
+});
+
+// Preview the exact charge and credit change for a dev plan tier change.
+const changeTierPreview = createRoute({
+	method: "post",
+	path: "/change-tier-preview",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: changeTierPreviewBodySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: tierChangePreviewResponseSchema,
+				},
+			},
+			description: "Dev plan tier change preview",
+		},
+	},
+});
+
+devPlans.openapi(changeTierPreview, async (c) => {
+	const user = c.get("user");
+	const { newTier } = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (!personalOrg.devPlanStripeSubscriptionId) {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	if (personalOrg.devPlan === newTier) {
+		throw new HTTPException(400, {
+			message: `Already on ${newTier} plan`,
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	const currentTier: DevPlanTier = personalOrg.devPlan;
+	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
+	const subscription = await getStripe().subscriptions.retrieve(
+		personalOrg.devPlanStripeSubscriptionId,
+	);
+	const subscriptionItem = subscription.items.data[0];
+
+	if (!subscriptionItem) {
+		throw new HTTPException(500, {
+			message: "Subscription item not found",
+		});
+	}
+
+	const remainingFraction = getRemainingBillingPeriodFraction(subscriptionItem);
+	const amountDueCents = isUpgrade
+		? getDevPlanUpgradeAmountCents(currentTier, newTier, remainingFraction)
+		: 0;
+	const creditPreview = getDevPlanTierChangeCreditPreview(
+		currentTier,
+		newTier,
+		remainingFraction,
+	);
+
+	return c.json({
+		currentTier,
+		newTier,
+		isUpgrade,
+		amountDueCents,
+		currency: "USD" as const,
+		remainingFraction,
+		currentCreditsLimit: creditPreview.currentCreditsLimit,
+		proratedCreditDelta: creditPreview.proratedCreditDelta,
+		newCreditsLimit: creditPreview.newCreditsLimit,
+		billingPeriodStart: new Date(
+			subscriptionItem.current_period_start * 1000,
+		).toISOString(),
+		billingPeriodEnd: new Date(
+			subscriptionItem.current_period_end * 1000,
+		).toISOString(),
+	});
+});
+
 // Upgrade or downgrade dev plan tier
 const changeTier = createRoute({
 	method: "post",
@@ -801,9 +955,7 @@ const changeTier = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						newTier: z.enum(["lite", "pro", "max"]),
-					}),
+					schema: changeTierBodySchema,
 				},
 			},
 		},
@@ -824,7 +976,7 @@ const changeTier = createRoute({
 
 devPlans.openapi(changeTier, async (c) => {
 	const user = c.get("user");
-	const { newTier } = c.req.valid("json");
+	const { newTier, expectedAmountDueCents } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -913,6 +1065,19 @@ devPlans.openapi(changeTier, async (c) => {
 
 		const remainingFraction =
 			getRemainingBillingPeriodFraction(subscriptionItem);
+		const amountDueCents = isUpgrade
+			? getDevPlanUpgradeAmountCents(currentTier, newTier, remainingFraction)
+			: 0;
+
+		if (
+			typeof expectedAmountDueCents === "number" &&
+			expectedAmountDueCents !== amountDueCents
+		) {
+			throw new HTTPException(409, {
+				message:
+					"The upgrade amount changed before payment. Refresh the preview and try again.",
+			});
+		}
 
 		// Tier changes suppress Stripe's default proration invoice so we can
 		// charge the prorated upgrade amount with DevPass-specific metadata and
@@ -982,19 +1147,17 @@ devPlans.openapi(changeTier, async (c) => {
 			: null;
 
 		if (isUpgrade) {
-			const proratedCreditDelta = getProratedCreditDelta(
+			const creditPreview = getDevPlanTierChangeCreditPreview(
 				currentTier,
 				newTier,
 				remainingFraction,
 			);
-			const newCreditsLimit =
-				getDevPlanCreditsLimit(currentTier) + proratedCreditDelta;
 
 			await db
 				.update(tables.organization)
 				.set({
 					devPlan: newTier,
-					devPlanCreditsLimit: newCreditsLimit.toString(),
+					devPlanCreditsLimit: creditPreview.newCreditsLimit.toString(),
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 
