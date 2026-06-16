@@ -21,6 +21,10 @@ import {
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
+import {
+	chatPlanCreditErrorMessage,
+	isInsufficientCreditsError,
+} from "@/lib/credit-error";
 import { useApi } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
@@ -445,6 +449,19 @@ export default function ImagePageClient({
 		[availableModels],
 	);
 
+	// In the Chat plan context the plan status endpoint is the source of truth
+	// for remaining credits; the org row passed from the server can be stale.
+	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
+	);
+	const chatPlanSubscribed = Boolean(
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none",
+	);
+
 	const generateImages = useCallback(
 		async (overridePrompt?: string | unknown) => {
 			const effectivePrompt =
@@ -563,9 +580,14 @@ export default function ImagePageClient({
 
 						if (!response.ok) {
 							const errorData = await response.json().catch(() => null);
-							throw new Error(
+							const rawMessage =
 								errorData?.error ??
-									`HTTP ${response.status}: ${response.statusText}`,
+								`HTTP ${response.status}: ${response.statusText}`;
+							throw new Error(
+								isChatPlanContext &&
+								isInsufficientCreditsError(response.status, rawMessage)
+									? chatPlanCreditErrorMessage(chatPlanSubscribed, "images")
+									: rawMessage,
 							);
 						}
 
@@ -650,6 +672,8 @@ export default function ImagePageClient({
 			posthog,
 			requiresImageInput,
 			selectedOrganization?.id,
+			isChatPlanContext,
+			chatPlanSubscribed,
 		],
 	);
 
@@ -756,15 +780,6 @@ export default function ImagePageClient({
 		[handleNewChat],
 	);
 
-	// In the Chat plan context the plan status endpoint is the source of truth
-	// for remaining credits; the org row passed from the server can be stale.
-	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
-	const { data: chatPlanStatus } = api.useQuery(
-		"get",
-		"/chat-plans/status",
-		undefined,
-		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
-	);
 	const chatPlanCreditsRemaining =
 		chatPlanStatus && chatPlanStatus.chatPlan !== "none"
 			? Number(chatPlanStatus.chatPlanCreditsRemaining)
