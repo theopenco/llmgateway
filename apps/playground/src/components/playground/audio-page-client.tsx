@@ -706,7 +706,7 @@ export default function AudioPageClient({
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
 								{isChatPlanContext
-									? "You're out of credits. Upgrade to a plan to continue generating audio."
+									? chatPlanCreditErrorMessage(chatPlanSubscribed, "audio")
 									: "Low credits remaining. Top up to continue generating audio."}
 							</p>
 							{isChatPlanContext ? (
