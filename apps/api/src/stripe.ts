@@ -3578,6 +3578,37 @@ export async function handleSubscriptionUpdated(
 		metadata?.subscriptionType === "dev_plan" ||
 		organization.devPlanStripeSubscriptionId === subscription.id;
 
+	// A subscription event can target a *superseded* subscription — e.g. an
+	// abandoned first checkout attempt whose payment never completed and that
+	// Stripe later marks `incomplete_expired`. Its metadata still carries
+	// `subscriptionType: dev_plan`/`chat_plan`, so the metadata-based detection
+	// above would let that stale event mutate billing state (expiry/cancel flags)
+	// and — far worse — `freezeDevPlanCredits` would pin the *active* plan's
+	// credit limit to current usage, silently throttling a healthy subscriber.
+	// Once the org has activated a specific subscription, only that subscription
+	// may drive these changes. (handleInvoicePaymentFailed already gates isDevPlan
+	// on this matching id; this mirrors it for subscription.updated.)
+	if (
+		isDevPlan &&
+		organization.devPlanStripeSubscriptionId &&
+		organization.devPlanStripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale dev-plan subscription.updated ${subscription.id} for org ${organizationId} (active sub: ${organization.devPlanStripeSubscriptionId}, status: ${subscription.status})`,
+		);
+		return;
+	}
+	if (
+		isChatPlan &&
+		organization.chatPlanStripeSubscriptionId &&
+		organization.chatPlanStripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale chat-plan subscription.updated ${subscription.id} for org ${organizationId} (active sub: ${organization.chatPlanStripeSubscriptionId}, status: ${subscription.status})`,
+		);
+		return;
+	}
+
 	// Update plan expiration date
 	const expiresAt = currentPeriodEnd
 		? new Date(currentPeriodEnd * 1000)

@@ -39,13 +39,14 @@ function makeUpdatedEvent(overrides: {
 	cancelAtPeriodEnd: boolean;
 	status?: Stripe.Subscription.Status;
 	metadata?: Record<string, string>;
+	subscriptionId?: string;
 }): Stripe.CustomerSubscriptionUpdatedEvent {
 	return {
 		id: "evt_test_updated",
 		type: "customer.subscription.updated",
 		data: {
 			object: {
-				id: SUB_ID,
+				id: overrides.subscriptionId ?? SUB_ID,
 				customer: "cus_test_feedback",
 				cancel_at_period_end: overrides.cancelAtPeriodEnd,
 				status: overrides.status ?? "active",
@@ -381,6 +382,45 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		expect(org?.devPlanCreditsLimit).toBe("90");
 		expect(org?.devPlanCreditsFrozen).toBe(true);
 		expect(org?.devPlanCreditsLimitBeforeFreeze).toBe("312");
+	});
+
+	test("does NOT freeze when a superseded (stale) subscription expires", async () => {
+		// Repro of the production incident: the customer's first DevPass checkout
+		// attempt failed and its incomplete subscription later flipped to
+		// `incomplete_expired`. Their *active* subscription is a different id. The
+		// stale expiry event must not freeze the healthy plan.
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "19.67",
+			devPlanCreditsFrozen: false,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({
+				cancelAtPeriodEnd: false,
+				status: "incomplete_expired",
+				subscriptionId: "sub_stale_first_attempt",
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+				},
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsFrozen).toBe(false);
+		// The stale event must not touch the active subscription's expiry/cancel
+		// flags either.
+		expect(org?.devPlanCancelled).toBe(false);
 	});
 });
 
