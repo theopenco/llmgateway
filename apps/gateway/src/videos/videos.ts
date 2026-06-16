@@ -855,7 +855,7 @@ function isSoraVideoModelName(externalId: string): boolean {
 	return externalId === "sora-2" || externalId === "sora-2-pro";
 }
 
-function isBytedanceReferenceModel(externalId: string): boolean {
+function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
 		externalId === "dreamina-seedance-2-0-fast-260128"
@@ -934,17 +934,23 @@ function getVideoProviderConstraintReasons(
 		);
 	}
 
-	if (
-		!isSoraVideoModelName(provider.externalId) &&
-		inputMode === "frames" &&
-		!isGoogleVertexVideoProvider(provider.providerId) &&
-		provider.providerId !== "avalanche" &&
-		provider.providerId !== "minimax" &&
-		provider.providerId !== "xai"
-	) {
-		reasons.push(
-			"frame inputs are currently only supported through google-vertex, avalanche, minimax, or xai",
-		);
+	if (!isSoraVideoModelName(provider.externalId) && inputMode === "frames") {
+		if (provider.providerId === "bytedance") {
+			if (!isBytedanceSeedance2Model(provider.externalId)) {
+				reasons.push(
+					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+				);
+			}
+		} else if (
+			!isGoogleVertexVideoProvider(provider.providerId) &&
+			provider.providerId !== "avalanche" &&
+			provider.providerId !== "minimax" &&
+			provider.providerId !== "xai"
+		) {
+			reasons.push(
+				"frame inputs are currently only supported through google-vertex, avalanche, minimax, xai, or bytedance",
+			);
+		}
 	}
 
 	if (inputMode === "reference") {
@@ -969,7 +975,7 @@ function getVideoProviderConstraintReasons(
 		}
 
 		if (provider.providerId === "bytedance") {
-			if (!isBytedanceReferenceModel(provider.externalId)) {
+			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
 					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
 				);
@@ -3159,6 +3165,7 @@ async function createBytedanceVideoJob(
 	includeAudio: boolean,
 	firstFrameInput: VideoImageInput | undefined,
 	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
 	processedReferenceImages: ProcessedVideoImageInput[],
 	referenceVideoUrls: string[],
 	referenceAudioUrls: string[],
@@ -3182,6 +3189,16 @@ async function createBytedanceVideoJob(
 				url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
 			},
 			role: "first_frame",
+		});
+	}
+
+	if (processedLastFrame) {
+		content.push({
+			type: "image_url",
+			image_url: {
+				url: `data:${processedLastFrame.mimeType};base64,${processedLastFrame.bytesBase64Encoded}`,
+			},
+			role: "last_frame",
 		});
 	}
 
@@ -3552,6 +3569,7 @@ async function createUpstreamVideoJob(
 				includeAudio,
 				firstFrameInput,
 				processedFirstFrame,
+				processedLastFrame,
 				processedReferenceImages,
 				referenceVideoUrls,
 				referenceAudioUrls,

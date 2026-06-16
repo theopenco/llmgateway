@@ -102,6 +102,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
+	if (isSeedance2ReferenceModel(rootModelId)) {
+		return providerId === undefined || providerId === "bytedance";
+	}
+
 	if (rootModelId === "minimax-hailuo-2-3") {
 		return providerId === undefined || providerId === "minimax";
 	}

@@ -1015,6 +1015,103 @@ describe("videos", () => {
 		}
 	});
 
+	test("/v1/videos forwards frame inputs to bytedance Seedance 2.0", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Morph from the first frame into the last frame",
+				size: "1280x720",
+				seconds: 5,
+				image: {
+					image_url: "data:image/png;base64,aGVsbG8=",
+				},
+				last_frame: {
+					image_url: "data:image/png;base64,d29ybGQ=",
+				},
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedProvider).toBe("bytedance");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.firstFrame).toEqual({
+			bytesBase64Encoded: "aGVsbG8=",
+			mimeType: "image/png",
+		});
+		expect(mockVideo?.lastFrame).toEqual({
+			bytesBase64Encoded: "d29ybGQ=",
+			mimeType: "image/png",
+		});
+	});
+
+	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "bytedance/seedance-1-5-pro",
+				prompt: "Morph from the first frame into the last frame",
+				size: "1280x720",
+				seconds: 5,
+				image: {
+					image_url: "data:image/png;base64,aGVsbG8=",
+				},
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"frame inputs are currently only supported on bytedance Seedance 2.0",
+		);
+	});
+
 	test("/v1/videos forwards reference images to google-vertex preview", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
