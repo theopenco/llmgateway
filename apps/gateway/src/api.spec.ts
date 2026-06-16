@@ -1660,6 +1660,9 @@ describe("api", () => {
 					{
 						image_url: oversizedImageDataUrl,
 					},
+					{
+						image_url: oversizedImageDataUrl,
+					},
 				],
 			}),
 		});
@@ -1676,6 +1679,11 @@ describe("api", () => {
 		expect(log.errorDetails?.statusCode).toBe(400);
 		expect(log.errorDetails?.responseText).toContain("Image size");
 		expect(log.usedProvider).toBe("llmgateway");
+
+		const logs = await db.query.log.findMany({
+			where: { requestId: { eq: requestId } },
+		});
+		expect(logs).toHaveLength(1);
 	});
 
 	test("/v1/images/generations forwards X-No-Fallback to chat completions", async () => {

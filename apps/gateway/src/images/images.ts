@@ -975,51 +975,53 @@ async function processImageEdit(
 		quality: request.quality,
 		aspect_ratio: request.aspect_ratio,
 	};
-	const imageUrls: string[] = [];
-	for (const [index, image] of request.images.entries()) {
-		if (!isSupportedInputImageUrl(image.image_url)) {
-			const message = `images[${index}].image_url must be an https URL or a base64 data URL`;
-			await logImageClientError(
-				c,
-				getLogContext,
-				logRequest,
-				400,
-				message,
-				startedAt,
+	const { imageResults, imageCount } = await (async () => {
+		try {
+			const imageUrls: string[] = [];
+			for (const [index, image] of request.images.entries()) {
+				if (!isSupportedInputImageUrl(image.image_url)) {
+					throw new HTTPException(400, {
+						message: `images[${index}].image_url must be an https URL or a base64 data URL`,
+					});
+				}
+				imageUrls.push(image.image_url);
+			}
+
+			const isProd = process.env.NODE_ENV === "production";
+			const imageResults = await Promise.all(
+				imageUrls.map(async (url, index) => {
+					try {
+						return await processImageUrl(url, isProd);
+					} catch (error) {
+						const errorMessage =
+							error instanceof Error
+								? error.message
+								: "Failed to process image input";
+						throw new HTTPException(400, {
+							message: `images[${index}].image_url is invalid: ${errorMessage}`,
+						});
+					}
+				}),
 			);
-			throw new HTTPException(400, {
-				message,
-			});
-		}
-		imageUrls.push(image.image_url);
-	}
-
-	const isProd = process.env.NODE_ENV === "production";
-
-	const imageResults = await Promise.all(
-		imageUrls.map(async (url, index) => {
-			try {
-				return await processImageUrl(url, isProd);
-			} catch (error) {
-				const errorMessage =
-					error instanceof Error
-						? error.message
-						: "Failed to process image input";
-				const message = `images[${index}].image_url is invalid: ${errorMessage}`;
+			return { imageResults, imageCount: imageUrls.length };
+		} catch (error) {
+			if (
+				error instanceof HTTPException &&
+				error.status >= 400 &&
+				error.status < 500
+			) {
 				await logImageClientError(
 					c,
 					getLogContext,
 					logRequest,
-					400,
-					message,
+					error.status,
+					error.message,
 					startedAt,
 				);
-				throw new HTTPException(400, {
-					message,
-				});
 			}
-		}),
-	);
+			throw error;
+		}
+	})();
 
 	const contentParts: Array<Record<string, unknown>> = [];
 
@@ -1083,7 +1085,7 @@ async function processImageEdit(
 	logger.debug("Images Edit API - forwarding to chat completions", {
 		model,
 		prompt: request.prompt.slice(0, 200),
-		imageCount: imageUrls.length,
+		imageCount,
 		n: request.n,
 		size: request.size,
 		aspectRatio: request.aspect_ratio,
