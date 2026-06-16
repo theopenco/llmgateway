@@ -17,7 +17,6 @@ CREATE TABLE "custom_model" (
 	"request_price" text,
 	"web_search_price" text,
 	"image_input_price" text,
-	"image_output_price" text,
 	"audio_input_price" text,
 	"streaming" text,
 	"vision" boolean,

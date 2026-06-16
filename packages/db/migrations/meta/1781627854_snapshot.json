@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "65baa20f-796a-4353-aaa5-684a41850fc6",
+  "id": "88c48806-b7e3-4bca-a37e-99e7aa268a05",
   "prevId": "2b1f913b-84cf-4dce-a8b4-d3ce08465c84",
   "ddl": [
     {
@@ -3450,19 +3450,6 @@
       "generated": null,
       "identity": null,
       "name": "image_input_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "image_output_price",
       "entityType": "columns",
       "schema": "public",
       "table": "custom_model"

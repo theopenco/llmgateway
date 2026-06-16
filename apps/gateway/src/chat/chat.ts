@@ -315,7 +315,6 @@ function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
 		requestPrice: cm.requestPrice ?? undefined,
 		webSearchPrice: cm.webSearchPrice ?? undefined,
 		imageInputPrice: cm.imageInputPrice ?? undefined,
-		imageOutputPrice: cm.imageOutputPrice ?? undefined,
 		inputAudioPrice: cm.audioInputPrice ?? undefined,
 		contextSize: cm.contextSize ?? undefined,
 		maxOutput: cm.maxOutput ?? undefined,

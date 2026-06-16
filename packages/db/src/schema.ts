@@ -1125,8 +1125,11 @@ export const customModel = pgTable(
 		cacheWriteInputPrice1h: text(),
 		requestPrice: text(),
 		webSearchPrice: text(),
+		// Custom models are text-output only. Multi-modal *input* (image/audio)
+		// is still supported and priced via the input fields above; output
+		// generation pricing (image/video/audio out) is intentionally omitted
+		// because it is too provider-specific to bill generically.
 		imageInputPrice: text(),
-		imageOutputPrice: text(),
 		audioInputPrice: text(),
 		streaming: text({ enum: ["true", "false", "only"] }),
 		vision: boolean(),

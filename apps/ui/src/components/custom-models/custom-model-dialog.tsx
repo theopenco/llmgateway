@@ -38,7 +38,6 @@ interface PriceFieldDef {
 		| "requestPrice"
 		| "webSearchPrice"
 		| "imageInputPrice"
-		| "imageOutputPrice"
 		| "audioInputPrice";
 	label: string;
 }
@@ -53,7 +52,6 @@ const PRICE_FIELDS: PriceFieldDef[] = [
 	{ key: "requestPrice", label: "Per-request price" },
 	{ key: "webSearchPrice", label: "Web search price" },
 	{ key: "imageInputPrice", label: "Image input price" },
-	{ key: "imageOutputPrice", label: "Image output price" },
 	{ key: "audioInputPrice", label: "Audio input price" },
 ];
 
@@ -242,8 +240,9 @@ export function CustomModelDialog({
 							{isEdit ? "Edit custom model" : "Add custom model"}
 						</DialogTitle>
 						<DialogDescription>
-							Define pricing, limits and capabilities for a model served through
-							this custom provider. All fields except the model id are optional.
+							Define pricing, limits and capabilities for a text-output model
+							served through this custom provider. Multi-modal input (images,
+							audio) is supported. All fields except the model id are optional.
 						</DialogDescription>
 					</DialogHeader>
 
