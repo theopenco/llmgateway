@@ -5,6 +5,7 @@ import {
 	db,
 	eq,
 	followUpEmail,
+	inArray,
 	organization,
 	project,
 	projectHourlyStats,
@@ -213,16 +214,8 @@ export async function processNoPurchaseEmails(): Promise<void> {
 	const eligibleOrgs = await db
 		.select({
 			organizationId: organization.id,
-			ownerUserId: userOrganization.userId,
 		})
 		.from(organization)
-		.innerJoin(
-			userOrganization,
-			and(
-				eq(userOrganization.organizationId, organization.id),
-				eq(userOrganization.role, "owner"),
-			),
-		)
 		.where(
 			and(
 				sql`${organization.createdAt} < ${twentyFourHoursAgo}`,
@@ -241,18 +234,10 @@ export async function processNoPurchaseEmails(): Promise<void> {
 					WHERE ${transaction.type} = 'credit_topup'
 					AND ${transaction.status} = 'completed'
 				)`,
-				// The no_purchase nudge is a per-user concern, not per-org: a single
-				// owner can have several credit-less orgs. Skip the org if its owner
-				// already received this email on ANY of their orgs, so they aren't
-				// emailed once per organization.
-				sql`NOT EXISTS (
-					SELECT 1
-					FROM ${followUpEmail} sent
-					JOIN ${userOrganization} sent_owner
-						ON sent_owner.organization_id = sent.organization_id
-						AND sent_owner.role = 'owner'
-					WHERE sent.email_type = 'no_purchase'
-					AND sent_owner.user_id = ${userOrganization.userId}
+				sql`${organization.id} NOT IN (
+					SELECT ${followUpEmail.organizationId}
+					FROM ${followUpEmail}
+					WHERE ${followUpEmail.emailType} = 'no_purchase'
 				)`,
 				// Skip orgs whose owner already subscribes to a DevPass plan on any
 				// of their organizations — they shouldn't be nudged to add credits.
@@ -271,27 +256,57 @@ export async function processNoPurchaseEmails(): Promise<void> {
 			),
 		);
 
-	// Guard against emailing the same owner more than once within a single run:
-	// two of their orgs can both pass the cross-run SQL check before either has
-	// a recorded send.
-	const handledOwners = new Set<string>();
-	for (const { organizationId, ownerUserId } of eligibleOrgs) {
+	// Resolve the recipient for each org up front so we can deduplicate on the
+	// actual address the email is delivered to (billingEmail, falling back to the
+	// owner). Keying on the recipient — not org ownership — means a shared billing
+	// contact is nudged once across all their orgs, while a co-owner with their
+	// own address still gets nudged for their own credit-less org.
+	const candidates: { organizationId: string; email: string }[] = [];
+	for (const { organizationId } of eligibleOrgs) {
 		if (isStopRequested()) {
 			break;
 		}
-		if (handledOwners.has(ownerUserId)) {
+		const email = await getOrgRecipientEmail(organizationId);
+		if (!email) {
+			logger.warn("No email found for org, skipping no_purchase follow-up", {
+				organizationId,
+			});
+			continue;
+		}
+		candidates.push({ organizationId, email });
+	}
+
+	if (candidates.length === 0) {
+		return;
+	}
+
+	// Recipients already nudged in a previous run, matched on the recorded
+	// recipient address (sentTo) rather than current org ownership, which can
+	// change after the fact.
+	const recipientEmails = [...new Set(candidates.map((c) => c.email))];
+	const priorSends = await db
+		.select({ sentTo: followUpEmail.sentTo })
+		.from(followUpEmail)
+		.where(
+			and(
+				eq(followUpEmail.emailType, "no_purchase"),
+				inArray(followUpEmail.sentTo, recipientEmails),
+			),
+		);
+	const handledRecipients = new Set(priorSends.map((r) => r.sentTo));
+
+	for (const { organizationId, email } of candidates) {
+		if (isStopRequested()) {
+			break;
+		}
+		// Within-run guard: two orgs sharing a recipient both pass the cross-run
+		// check above before either send is recorded.
+		if (handledRecipients.has(email)) {
 			continue;
 		}
 		try {
-			const email = await getOrgRecipientEmail(organizationId);
-			if (!email) {
-				logger.warn("No email found for org, skipping no_purchase follow-up", {
-					organizationId,
-				});
-				continue;
-			}
 			await sendAndRecord(organizationId, "no_purchase", email);
-			handledOwners.add(ownerUserId);
+			handledRecipients.add(email);
 		} catch (error) {
 			logger.error(
 				`Error sending no_purchase follow-up for org ${organizationId}`,

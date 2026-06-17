@@ -75,7 +75,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 		expect(sent).toHaveLength(0);
 	});
 
-	it("sends the no_purchase email only once when the owner has multiple credit-less orgs", async () => {
+	it("nudges a shared recipient only once across multiple credit-less orgs", async () => {
 		const [owner] = await db
 			.insert(user)
 			.values({
@@ -85,13 +85,14 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			})
 			.returning();
 
+		// Both orgs bill the same address, so the recipient must be nudged once.
 		const [orgA] = await db
 			.insert(organization)
 			.values({
 				name: "Org A",
 				status: "active",
 				devPlan: "none",
-				billingEmail: owner.email,
+				billingEmail: "shared@example.com",
 				createdAt: TWO_DAYS_AGO,
 			})
 			.returning();
@@ -102,7 +103,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 				name: "Org B",
 				status: "active",
 				devPlan: "none",
-				billingEmail: owner.email,
+				billingEmail: "shared@example.com",
 				createdAt: TWO_DAYS_AGO,
 			})
 			.returning();
@@ -120,8 +121,9 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.where(eq(followUpEmail.emailType, "no_purchase"));
 		expect(sent).toHaveLength(1);
 		expect([orgA.id, orgB.id]).toContain(sent[0].organizationId);
+		expect(sent[0].sentTo).toBe("shared@example.com");
 
-		// A subsequent run must not email the owner again via the other org.
+		// A subsequent run must not email the same recipient again via the other org.
 		await processNoPurchaseEmails();
 
 		const sentAfter = await db
@@ -129,6 +131,58 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.from(followUpEmail)
 			.where(eq(followUpEmail.emailType, "no_purchase"));
 		expect(sentAfter).toHaveLength(1);
+	});
+
+	it("nudges each distinct recipient even when orgs share an owner", async () => {
+		const [owner] = await db
+			.insert(user)
+			.values({
+				email: "distinct@example.com",
+				name: "Distinct Recipient User",
+				emailVerified: true,
+			})
+			.returning();
+
+		// Same owner, but each org bills a different address — both addresses are
+		// legitimate, never-nudged recipients and should each receive the email.
+		const [orgA] = await db
+			.insert(organization)
+			.values({
+				name: "Org A",
+				status: "active",
+				devPlan: "none",
+				billingEmail: "billing-a@example.com",
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		const [orgB] = await db
+			.insert(organization)
+			.values({
+				name: "Org B",
+				status: "active",
+				devPlan: "none",
+				billingEmail: "billing-b@example.com",
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		await db.insert(userOrganization).values([
+			{ userId: owner.id, organizationId: orgA.id, role: "owner" },
+			{ userId: owner.id, organizationId: orgB.id, role: "owner" },
+		]);
+
+		await processNoPurchaseEmails();
+
+		const sent = await db
+			.select()
+			.from(followUpEmail)
+			.where(eq(followUpEmail.emailType, "no_purchase"));
+		expect(sent).toHaveLength(2);
+		expect(sent.map((s) => s.sentTo).sort()).toEqual([
+			"billing-a@example.com",
+			"billing-b@example.com",
+		]);
 	});
 
 	it("skips personal (DevPass) and chat orgs, only nudging the normal org", async () => {
