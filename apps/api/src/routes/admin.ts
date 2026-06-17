@@ -7595,52 +7595,54 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		return { startDate, endDateExclusive };
 	})();
 
-	const statsJoin = dateRange
+	// Ranges longer than 24h aggregate the hourly rollup so a full-window scan
+	// across every mapping doesn't read minute rows (mirrors the models list).
+	const mappingHistory = dateRange
+		? pickMappingHistoryTable(
+				isHourlyRange(dateRange.startDate, dateRange.endDateExclusive),
+			)
+		: null;
+
+	const statsJoin = mappingHistory
 		? db
 				.select({
-					mappingId: modelProviderMappingHistory.modelProviderMappingId,
+					mappingId: mappingHistory.table.modelProviderMappingId,
 					logsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.logsCount}), 0)`.as(
 							"logsCount",
 						),
 					errorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.errorsCount}), 0)`.as(
 							"errorsCount",
 						),
 					clientErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.clientErrorsCount}), 0)`.as(
 							"clientErrorsCount",
 						),
 					gatewayErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.gatewayErrorsCount}), 0)`.as(
 							"gatewayErrorsCount",
 						),
 					upstreamErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.upstreamErrorsCount}), 0)`.as(
 							"upstreamErrorsCount",
 						),
 					cachedCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
-					cost: sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
+					cost: sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 						"cost",
 					),
 				})
-				.from(modelProviderMappingHistory)
+				.from(mappingHistory.table)
 				.where(
 					and(
-						gte(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.startDate,
-						),
-						lt(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.endDateExclusive,
-						),
+						gte(mappingHistory.bucket, dateRange!.startDate),
+						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
 					),
 				)
-				.groupBy(modelProviderMappingHistory.modelProviderMappingId)
+				.groupBy(mappingHistory.table.modelProviderMappingId)
 				.as("mapping_stats_sub")
 		: db
 				.select({
@@ -7658,41 +7660,35 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				.from(tables.modelProviderMapping)
 				.as("mapping_stats_sub");
 
-	const totalsPromise = dateRange
+	const totalsPromise = mappingHistory
 		? db
 				.select({
 					totalRequests:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.logsCount}), 0)`.as(
 							"totalRequests",
 						),
 					totalTokens:
-						sql<number>`COALESCE(SUM(CAST(${modelProviderMappingHistory.totalTokens} AS NUMERIC)), 0)`.as(
+						sql<number>`COALESCE(SUM(CAST(${mappingHistory.table.totalTokens} AS NUMERIC)), 0)`.as(
 							"totalTokens",
 						),
 					totalCost:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 							"totalCost",
 						),
 				})
-				.from(modelProviderMappingHistory)
+				.from(mappingHistory.table)
 				.innerJoin(
 					tables.modelProviderMapping,
 					eq(
-						modelProviderMappingHistory.modelProviderMappingId,
+						mappingHistory.table.modelProviderMappingId,
 						tables.modelProviderMapping.id,
 					),
 				)
 				.where(
 					and(
 						whereClause,
-						gte(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.startDate,
-						),
-						lt(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.endDateExclusive,
-						),
+						gte(mappingHistory.bucket, dateRange!.startDate),
+						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
 					),
 				)
 		: Promise.resolve([
