@@ -724,6 +724,108 @@ describe("videos", () => {
 		expect(logs[0].cost).toBe(2.8);
 	});
 
+	test("/v1/videos bills xAI 480p video and image input separately", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5-preview",
+				prompt: "A cat walking through a neon alley",
+				size: "848x480",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "xai/grok-imagine-video-1-5-preview" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].imageInputCost).toBe(0.01);
+		expect(logs[0].videoOutputCost).toBe(0.48);
+		expect(logs[0].cost).toBe(0.49);
+	});
+
+	test("/v1/videos bills xAI 720p at the 720p rate", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5-preview",
+				prompt: "A cat walking across a rooftop at sunset",
+				size: "1280x720",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "xai/grok-imagine-video-1-5-preview" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].imageInputCost).toBe(0.01);
+		expect(logs[0].videoOutputCost).toBe(0.84);
+		expect(logs[0].cost).toBe(0.85);
+	});
+
 	test("/v1/videos supports completed google-vertex jobs", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;

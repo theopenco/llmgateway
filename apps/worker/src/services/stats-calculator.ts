@@ -5,8 +5,11 @@ import {
 	modelProviderMapping,
 	modelProviderMappingHistory,
 	modelHistory,
+	modelProviderMappingHistoryHourly,
+	modelHistoryHourly,
 	log,
 	sql,
+	asc,
 	eq,
 	gte,
 	lt,
@@ -18,7 +21,13 @@ import { logger } from "@llmgateway/logger";
 const BACKFILL_DURATION_SECONDS =
 	Number(process.env.BACKFILL_DURATION_SECONDS) || 300;
 
+// Safety cap on how many hourly buckets a single backfill pass will compute,
+// so a large gap (or a corrupt timestamp) can't tie the worker up indefinitely.
+const HOURLY_BACKFILL_MAX_ITERATIONS =
+	Number(process.env.HOURLY_BACKFILL_MAX_ITERATIONS) || 24 * 400;
+
 const ONE_MINUTE_MS = 60 * 1000;
+const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
 const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
 const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
 const usedRegionSql = sql<
@@ -160,6 +169,30 @@ function getCurrentMinuteStart(): Date {
 function getPreviousMinuteStart(): Date {
 	const currentMinute = getCurrentMinuteStart();
 	return new Date(currentMinute.getTime() - ONE_MINUTE_MS);
+}
+
+/**
+ * Helper function to round any date to the start of its hour (00 minutes, 00
+ * seconds, 00 milliseconds). Mirrors roundToMinuteStart so hourly buckets align
+ * to the same wall-clock basis as the minute history they roll up.
+ */
+function roundToHourStart(date: Date): Date {
+	return new Date(
+		date.getFullYear(),
+		date.getMonth(),
+		date.getDate(),
+		date.getHours(),
+		0,
+		0,
+		0,
+	);
+}
+
+/**
+ * Helper function to get the start of the current hour (rounded down)
+ */
+function getCurrentHourStart(): Date {
+	return roundToHourStart(new Date());
 }
 
 /**
@@ -852,6 +885,304 @@ export async function calculateCurrentMinuteHistory() {
 		);
 	} catch (error) {
 		logger.error("Error calculating current minute history:", error as Error);
+		throw error;
+	}
+}
+
+/**
+ * Roll up one hour of model_history (the 60 minute rows) into a single
+ * model_history_hourly row per model. Idempotent: re-running an hour recomputes
+ * its totals from the current minute data and overwrites the existing row.
+ * @param targetHour Any time within the hour to aggregate
+ */
+async function calculateModelHistoryForHour(targetHour: Date) {
+	const roundedHour = roundToHourStart(targetHour);
+	const hourEnd = new Date(roundedHour.getTime() + ONE_HOUR_MS);
+	const database = db;
+
+	const hourlyStats = await database
+		.select({
+			modelId: modelHistory.modelId,
+			logsCount: sql<number>`coalesce(sum(${modelHistory.logsCount}), 0)::int`,
+			errorsCount: sql<number>`coalesce(sum(${modelHistory.errorsCount}), 0)::int`,
+			clientErrorsCount: sql<number>`coalesce(sum(${modelHistory.clientErrorsCount}), 0)::int`,
+			gatewayErrorsCount: sql<number>`coalesce(sum(${modelHistory.gatewayErrorsCount}), 0)::int`,
+			upstreamErrorsCount: sql<number>`coalesce(sum(${modelHistory.upstreamErrorsCount}), 0)::int`,
+			completedCount: sql<number>`coalesce(sum(${modelHistory.completedCount}), 0)::int`,
+			lengthLimitCount: sql<number>`coalesce(sum(${modelHistory.lengthLimitCount}), 0)::int`,
+			contentFilterCount: sql<number>`coalesce(sum(${modelHistory.contentFilterCount}), 0)::int`,
+			toolCallsCount: sql<number>`coalesce(sum(${modelHistory.toolCallsCount}), 0)::int`,
+			canceledCount: sql<number>`coalesce(sum(${modelHistory.canceledCount}), 0)::int`,
+			unknownFinishCount: sql<number>`coalesce(sum(${modelHistory.unknownFinishCount}), 0)::int`,
+			cachedCount: sql<number>`coalesce(sum(${modelHistory.cachedCount}), 0)::int`,
+			totalInputTokens: sql<number>`coalesce(sum(${modelHistory.totalInputTokens}), 0)::int`,
+			totalOutputTokens: sql<number>`coalesce(sum(${modelHistory.totalOutputTokens}), 0)::int`,
+			totalTokens: sql<number>`coalesce(sum(${modelHistory.totalTokens}), 0)::int`,
+			totalReasoningTokens: sql<number>`coalesce(sum(${modelHistory.totalReasoningTokens}), 0)::int`,
+			totalCachedTokens: sql<number>`coalesce(sum(${modelHistory.totalCachedTokens}), 0)::int`,
+			totalDuration: sql<number>`coalesce(sum(${modelHistory.totalDuration}), 0)::int`,
+			totalTimeToFirstToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstToken}), 0)::int`,
+			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstReasoningToken}), 0)::int`,
+			totalCost: sql<number>`coalesce(sum(${modelHistory.totalCost}), 0)`,
+		})
+		.from(modelHistory)
+		.where(
+			and(
+				gte(modelHistory.minuteTimestamp, roundedHour),
+				lt(modelHistory.minuteTimestamp, hourEnd),
+			),
+		)
+		.groupBy(modelHistory.modelId);
+
+	for (const row of hourlyStats) {
+		const { modelId, ...stats } = row;
+		await database
+			.insert(modelHistoryHourly)
+			.values({ modelId, hourTimestamp: roundedHour, ...stats })
+			.onConflictDoUpdate({
+				target: [modelHistoryHourly.modelId, modelHistoryHourly.hourTimestamp],
+				set: { ...stats, updatedAt: new Date() },
+			});
+	}
+
+	return { totalModels: hourlyStats.length };
+}
+
+/**
+ * Roll up one hour of model_provider_mapping_history (the 60 minute rows) into a
+ * single model_provider_mapping_history_hourly row per mapping. Idempotent.
+ * @param targetHour Any time within the hour to aggregate
+ */
+async function calculateMappingHistoryForHour(targetHour: Date) {
+	const roundedHour = roundToHourStart(targetHour);
+	const hourEnd = new Date(roundedHour.getTime() + ONE_HOUR_MS);
+	const database = db;
+
+	const hourlyStats = await database
+		.select({
+			modelProviderMappingId:
+				modelProviderMappingHistory.modelProviderMappingId,
+			modelId: modelProviderMappingHistory.modelId,
+			providerId: modelProviderMappingHistory.providerId,
+			logsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::int`,
+			errorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.errorsCount}), 0)::int`,
+			clientErrorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount}), 0)::int`,
+			gatewayErrorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.gatewayErrorsCount}), 0)::int`,
+			upstreamErrorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.upstreamErrorsCount}), 0)::int`,
+			completedCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.completedCount}), 0)::int`,
+			lengthLimitCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.lengthLimitCount}), 0)::int`,
+			contentFilterCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.contentFilterCount}), 0)::int`,
+			toolCallsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.toolCallsCount}), 0)::int`,
+			canceledCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.canceledCount}), 0)::int`,
+			unknownFinishCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.unknownFinishCount}), 0)::int`,
+			cachedCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.cachedCount}), 0)::int`,
+			totalInputTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalInputTokens}), 0)::int`,
+			totalOutputTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalOutputTokens}), 0)::int`,
+			totalTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTokens}), 0)::int`,
+			totalReasoningTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalReasoningTokens}), 0)::int`,
+			totalCachedTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCachedTokens}), 0)::int`,
+			totalDuration: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalDuration}), 0)::int`,
+			totalTimeToFirstToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)::int`,
+			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken}), 0)::int`,
+			totalCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCost}), 0)`,
+		})
+		.from(modelProviderMappingHistory)
+		.where(
+			and(
+				gte(modelProviderMappingHistory.minuteTimestamp, roundedHour),
+				lt(modelProviderMappingHistory.minuteTimestamp, hourEnd),
+			),
+		)
+		.groupBy(
+			modelProviderMappingHistory.modelProviderMappingId,
+			modelProviderMappingHistory.modelId,
+			modelProviderMappingHistory.providerId,
+		);
+
+	for (const row of hourlyStats) {
+		const { modelProviderMappingId, modelId, providerId, ...stats } = row;
+		await database
+			.insert(modelProviderMappingHistoryHourly)
+			.values({
+				modelProviderMappingId,
+				modelId,
+				providerId,
+				hourTimestamp: roundedHour,
+				...stats,
+			})
+			.onConflictDoUpdate({
+				target: [
+					modelProviderMappingHistoryHourly.modelProviderMappingId,
+					modelProviderMappingHistoryHourly.hourTimestamp,
+				],
+				set: { ...stats, updatedAt: new Date() },
+			});
+	}
+
+	return { totalMappings: hourlyStats.length };
+}
+
+/**
+ * Roll up a single hour of minute history into the hourly summary tables.
+ */
+async function calculateHistoryForHour(targetHour: Date) {
+	const mappingResult = await calculateMappingHistoryForHour(targetHour);
+	const modelResult = await calculateModelHistoryForHour(targetHour);
+	return { mappingResult, modelResult };
+}
+
+/**
+ * Calculate the hourly summary for the previous (now-complete) hour and refresh
+ * the current in-progress hour so dashboards see recent data without waiting for
+ * the hour to close. Called once per minutely tick.
+ */
+export async function calculateHourlyHistory() {
+	const currentHourStart = getCurrentHourStart();
+	const previousHourStart = new Date(currentHourStart.getTime() - ONE_HOUR_MS);
+
+	try {
+		await calculateHistoryForHour(previousHourStart);
+		await calculateHistoryForHour(currentHourStart);
+
+		logger.debug(
+			`Recorded hourly history for ${previousHourStart.toISOString()} and ${currentHourStart.toISOString()}`,
+		);
+	} catch (error) {
+		logger.error("Error calculating hourly history:", error as Error);
+		throw error;
+	}
+}
+
+/**
+ * Backfill missing hourly summary rows by walking every completed hour from the
+ * earliest minute-history entry up to the previous complete hour and recomputing
+ * only the hours absent from EITHER summary table. Detecting missing hours
+ * (rather than resuming from the latest entry) is what makes this robust: the
+ * minutely loop writes the current and previous hour on startup, so the latest
+ * hourly entry is never a reliable "everything before this is done" watermark —
+ * resuming from it would strand the older gap. Recomputing any hour missing from
+ * one table also heals a table left behind by a partial write. The in-progress
+ * current hour is excluded (the live loop owns it).
+ */
+export async function backfillHourlyHistoryIfNeeded() {
+	logger.info("Checking for missing hourly history periods to backfill...");
+
+	try {
+		const database = db;
+
+		const currentHourStart = getCurrentHourStart();
+		const previousHourStart = new Date(
+			currentHourStart.getTime() - ONE_HOUR_MS,
+		);
+
+		// Earliest minute-history entry across both source tables — the oldest hour
+		// the hourly rollup could possibly cover.
+		const earliestMappingMinute = await database
+			.select({ minuteTimestamp: modelProviderMappingHistory.minuteTimestamp })
+			.from(modelProviderMappingHistory)
+			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp))
+			.limit(1);
+
+		const earliestModelMinute = await database
+			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
+			.from(modelHistory)
+			.orderBy(asc(modelHistory.minuteTimestamp))
+			.limit(1);
+
+		let earliestMinute: Date | null = null;
+		if (earliestMappingMinute.length > 0 && earliestModelMinute.length > 0) {
+			earliestMinute = new Date(
+				Math.min(
+					earliestMappingMinute[0]!.minuteTimestamp.getTime(),
+					earliestModelMinute[0]!.minuteTimestamp.getTime(),
+				),
+			);
+		} else if (earliestMappingMinute.length > 0) {
+			earliestMinute = earliestMappingMinute[0]!.minuteTimestamp;
+		} else if (earliestModelMinute.length > 0) {
+			earliestMinute = earliestModelMinute[0]!.minuteTimestamp;
+		}
+
+		if (!earliestMinute) {
+			logger.info("No minute history found. Skipping hourly backfill.");
+			return;
+		}
+
+		const startHour = roundToHourStart(earliestMinute);
+		if (startHour > previousHourStart) {
+			logger.info(
+				"Hourly history is up to date (no completed hours to roll up).",
+			);
+			return;
+		}
+
+		// Hours already summarized in each table (excluding the in-progress current
+		// hour). An hour is recomputed only when it is missing from either set.
+		const [mappingHours, modelHours] = await Promise.all([
+			database
+				.select({
+					hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
+				})
+				.from(modelProviderMappingHistoryHourly)
+				.where(
+					lt(modelProviderMappingHistoryHourly.hourTimestamp, currentHourStart),
+				),
+			database
+				.select({ hourTimestamp: modelHistoryHourly.hourTimestamp })
+				.from(modelHistoryHourly)
+				.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart)),
+		]);
+
+		const mappingHourSet = new Set(
+			mappingHours.map((r) => r.hourTimestamp.getTime()),
+		);
+		const modelHourSet = new Set(
+			modelHours.map((r) => r.hourTimestamp.getTime()),
+		);
+
+		logger.info(
+			`Backfilling missing hourly history from ${startHour.toISOString()} to ${previousHourStart.toISOString()}`,
+		);
+
+		let hour = startHour;
+		let scanned = 0;
+		let computed = 0;
+		while (
+			hour <= previousHourStart &&
+			scanned < HOURLY_BACKFILL_MAX_ITERATIONS
+		) {
+			const ms = hour.getTime();
+			if (!mappingHourSet.has(ms) || !modelHourSet.has(ms)) {
+				const result = await calculateHistoryForHour(hour);
+				logger.info(
+					`Backfilled hourly history for ${hour.toISOString()}: ${result.mappingResult.totalMappings} mappings, ${result.modelResult.totalModels} models`,
+				);
+				computed++;
+			}
+
+			const nextHour = roundToHourStart(new Date(hour.getTime() + ONE_HOUR_MS));
+			if (nextHour.getTime() <= hour.getTime()) {
+				logger.error(
+					`Loop safety break: Time calculation error at ${hour.toISOString()}`,
+				);
+				break;
+			}
+
+			hour = nextHour;
+			scanned++;
+		}
+
+		if (scanned >= HOURLY_BACKFILL_MAX_ITERATIONS) {
+			logger.warn(
+				`Hourly backfill stopped at iteration limit ${HOURLY_BACKFILL_MAX_ITERATIONS} to prevent runaway backfill`,
+			);
+		}
+
+		logger.info(
+			`Hourly backfill complete: scanned ${scanned} hour(s), computed ${computed} missing.`,
+		);
+	} catch (error) {
+		logger.error("Error during hourly history backfill:", error as Error);
 		throw error;
 	}
 }

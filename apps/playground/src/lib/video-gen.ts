@@ -110,7 +110,7 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "minimax";
 	}
 
-	if (rootModelId === "grok-imagine-video-1-5-preview") {
+	if (isGrokImagineVideoModel(rootModelId)) {
 		return providerId === undefined || providerId === "xai";
 	}
 
@@ -130,6 +130,14 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 
 function isSeedance2ReferenceModel(rootModelId: string): boolean {
 	return rootModelId === "seedance-2-0" || rootModelId === "seedance-2-0-fast";
+}
+
+function isGrokImagineVideoModel(rootModelId: string): boolean {
+	return (
+		rootModelId === "grok-imagine-video-1-5" ||
+		rootModelId === "grok-imagine-video-1-5-preview" ||
+		rootModelId === "grok-imagine-video-1.5-preview"
+	);
 }
 
 export function supportsVideoReferenceInput(modelId: string): boolean {

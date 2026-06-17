@@ -4442,6 +4442,10 @@ videos.openapi(createVideo, async (c) => {
 			routingMetadata: enrichedRoutingMetadata ?? null,
 			upstreamCreateResponse: {
 				...upstreamResponse,
+				llmgateway_requested_size: videoSize.size,
+				llmgateway_requested_resolution: videoSize.resolution,
+				llmgateway_requested_duration_seconds: videoDurationSeconds,
+				llmgateway_input_image_count: inputImageCount,
 				...(debugMode
 					? {
 							llmgateway_raw_request: rawBody,

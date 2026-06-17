@@ -36,7 +36,10 @@ function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 		"12h": "12h",
 		"24h": "24h",
 		"2d": "2d",
+		"3d": "3d",
 		"7d": "7d",
+		"30d": "30d",
+		"90d": "90d",
 	};
 	return map[pageWindow] ?? "24h";
 }
