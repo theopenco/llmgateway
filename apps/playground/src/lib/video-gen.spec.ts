@@ -329,5 +329,11 @@ describe("Grok Imagine Video 1.5 capabilities", () => {
 		expect(supportsVideoFrameInput("xai/grok-imagine-video-1-5-preview")).toBe(
 			true,
 		);
+		expect(supportsVideoFrameInput("grok-imagine-video-1.5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1.5-preview")).toBe(
+			true,
+		);
 	});
 });

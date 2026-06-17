@@ -135,7 +135,8 @@ function isSeedance2ReferenceModel(rootModelId: string): boolean {
 function isGrokImagineVideoModel(rootModelId: string): boolean {
 	return (
 		rootModelId === "grok-imagine-video-1.5" ||
-		rootModelId === "grok-imagine-video-1-5-preview"
+		rootModelId === "grok-imagine-video-1-5-preview" ||
+		rootModelId === "grok-imagine-video-1.5-preview"
 	);
 }
 
