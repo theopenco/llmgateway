@@ -723,7 +723,6 @@ export const providers: ProviderDefinition[] = [
 				{ id: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
 				{ id: "ap-northeast-2", label: "Asia Pacific (Seoul)" },
 				{ id: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
-				{ id: "ap-southeast-4", label: "Asia Pacific (Melbourne)" },
 			],
 			endpointMap: {
 				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
@@ -746,8 +745,6 @@ export const providers: ProviderDefinition[] = [
 					"https://bedrock-runtime.ap-northeast-2.amazonaws.com",
 				"ap-southeast-1":
 					"https://bedrock-runtime.ap-southeast-1.amazonaws.com",
-				"ap-southeast-4":
-					"https://bedrock-runtime.ap-southeast-4.amazonaws.com",
 			},
 			modelPrefixMap: {
 				global: "global.",
@@ -767,7 +764,6 @@ export const providers: ProviderDefinition[] = [
 				"ap-northeast-1": "",
 				"ap-northeast-2": "",
 				"ap-southeast-1": "",
-				"ap-southeast-4": "",
 			},
 		},
 		termsUrl: "https://aws.amazon.com/service-terms",
