@@ -93,6 +93,26 @@ const nextConfig: NextConfig = {
 				destination: "/legal/privacy",
 				permanent: true,
 			},
+			{
+				source: "/models/grok-4.3",
+				destination: "/models/grok-4-3",
+				permanent: true,
+			},
+			{
+				source: "/models/grok-4.3/xai",
+				destination: "/models/grok-4-3/xai",
+				permanent: true,
+			},
+			{
+				source: "/models/grok-4.3/aws-bedrock",
+				destination: "/models/grok-4-3/aws-bedrock",
+				permanent: true,
+			},
+			{
+				source: "/models/grok-4.3/azure-ai-foundry",
+				destination: "/models/grok-4-3/azure-ai-foundry",
+				permanent: true,
+			},
 		];
 	},
 	async rewrites() {

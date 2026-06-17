@@ -1,8 +1,8 @@
 "use client";
 
 import { format, parseISO } from "date-fns";
-import { useState } from "react";
-import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
+import { useMemo, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from "recharts";
 
 import {
 	Card,
@@ -47,6 +47,16 @@ export function SignupsChart({
 	totals: { signups: number; paidCustomers: number };
 }) {
 	const [activeChart, setActiveChart] = useState<ActiveChart>("signups");
+
+	const dailyData = useMemo(
+		() =>
+			data.map((point, index) => ({
+				date: point.date,
+				daily:
+					point[activeChart] - (index > 0 ? data[index - 1][activeChart] : 0),
+			})),
+		[data, activeChart],
+	);
 
 	return (
 		<Card>
@@ -114,6 +124,46 @@ export function SignupsChart({
 						/>
 					</LineChart>
 				</ChartContainer>
+				<div className="mt-2 px-2 sm:px-0">
+					<p className="mb-1 px-2 text-xs text-muted-foreground sm:px-3">
+						New {chartConfig[activeChart].label.toLowerCase()} per day
+					</p>
+					<ChartContainer
+						config={chartConfig}
+						className="aspect-auto h-[60px] w-full"
+					>
+						<BarChart data={dailyData} margin={{ left: 12, right: 12 }}>
+							<XAxis dataKey="date" hide />
+							<ChartTooltip
+								cursor={false}
+								content={
+									<ChartTooltipContent
+										className="w-[160px]"
+										labelFormatter={(value: string) => {
+											const date = parseISO(value);
+											return format(date, "MMM d, yyyy");
+										}}
+										formatter={(value) => (
+											<>
+												<span className="text-muted-foreground">
+													New {chartConfig[activeChart].label.toLowerCase()}
+												</span>
+												<span className="ml-auto font-mono font-medium tabular-nums">
+													{numberFormatter.format(Number(value))}
+												</span>
+											</>
+										)}
+									/>
+								}
+							/>
+							<Bar
+								dataKey="daily"
+								fill={`var(--color-${activeChart})`}
+								radius={1}
+							/>
+						</BarChart>
+					</ChartContainer>
+				</div>
 			</CardContent>
 		</Card>
 	);
