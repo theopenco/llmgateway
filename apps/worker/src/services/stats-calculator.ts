@@ -1055,9 +1055,12 @@ export async function calculateHourlyHistory() {
 
 /**
  * Backfill missing hourly summary rows. Resumes from the earliest of the two
- * summary tables' latest hours (re-running that boundary hour so a partial write
- * heals), or — when either table is empty — from the earliest minute-history
- * entry, and walks forward to the previous complete hour.
+ * summary tables' latest COMPLETED hours (re-running that boundary hour so a
+ * partial write heals), or — when either table has no completed hour — from the
+ * earliest minute-history entry, and walks forward to the previous complete
+ * hour. The in-progress current hour is ignored when choosing the resume point
+ * (the live loop owns it) so a freshly-written current-hour row can't mask
+ * older minute history that still needs rolling up.
  */
 export async function backfillHourlyHistoryIfNeeded() {
 	logger.info("Checking for missing hourly history periods to backfill...");
@@ -1065,18 +1068,32 @@ export async function backfillHourlyHistoryIfNeeded() {
 	try {
 		const database = db;
 
-		// Most recent hourly entry across both summary tables.
+		const currentHourStart = getCurrentHourStart();
+		const previousHourStart = new Date(
+			currentHourStart.getTime() - ONE_HOUR_MS,
+		);
+
+		// Most recent COMPLETED hourly entry across both summary tables. The
+		// in-progress current hour is excluded: the minutely loop writes that row
+		// on startup, possibly before this backfill runs, and treating it as the
+		// resume point would make a fresh deploy think it's up to date and never
+		// roll up the older minute history (the current hour is owned by the live
+		// loop anyway).
 		const latestMappingHourly = await database
 			.select({
 				hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
 			})
 			.from(modelProviderMappingHistoryHourly)
+			.where(
+				lt(modelProviderMappingHistoryHourly.hourTimestamp, currentHourStart),
+			)
 			.orderBy(sql`${modelProviderMappingHistoryHourly.hourTimestamp} DESC`)
 			.limit(1);
 
 		const latestModelHourly = await database
 			.select({ hourTimestamp: modelHistoryHourly.hourTimestamp })
 			.from(modelHistoryHourly)
+			.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart))
 			.orderBy(sql`${modelHistoryHourly.hourTimestamp} DESC`)
 			.limit(1);
 
@@ -1140,11 +1157,6 @@ export async function backfillHourlyHistoryIfNeeded() {
 
 			startHour = roundToHourStart(earliestMinute);
 		}
-
-		const currentHourStart = getCurrentHourStart();
-		const previousHourStart = new Date(
-			currentHourStart.getTime() - ONE_HOUR_MS,
-		);
 
 		if (startHour > previousHourStart) {
 			logger.info(

@@ -1716,6 +1716,49 @@ describe("stats-calculator", () => {
 			expect(elevenHour?.logsCount).toBe(7);
 		});
 
+		it("should ignore the live current-hour row and still backfill older history", async () => {
+			// Older minute history that pre-dates the deploy (hour 10:00).
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T10:30:00.000Z"),
+				logsCount: 4,
+			});
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp: new Date("2024-01-01T10:30:00.000Z"),
+				logsCount: 4,
+			});
+
+			// The minutely loop already wrote the in-progress current hour (12:00)
+			// into both tables before this backfill runs.
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T12:00:00.000Z"),
+				logsCount: 1,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				hourTimestamp: new Date("2024-01-01T12:00:00.000Z"),
+				logsCount: 1,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			// The live 12:00 row must NOT be treated as "up to date": the 10:00
+			// history has to be rolled up.
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const tenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T10:00:00.000Z").getTime(),
+			);
+			expect(tenHour?.logsCount).toBe(4);
+		});
+
 		it("should not backfill when hourly history is up to date", async () => {
 			// Both tables already hold the current (in-progress) hour 12:00, so the
 			// previous complete hour 11:00 is covered and there is nothing to do.
