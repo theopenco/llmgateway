@@ -27,6 +27,7 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
@@ -609,6 +610,15 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
+
+	// Enterprise provider compliance policy: speech resolves to a single
+	// provider, so block before sending if it doesn't meet the org's policy.
+	await assertProviderCompliant(organization, providerId, {
+		organizationId: project.organizationId,
+		modelId: modelDefId,
+		apiKeyId: apiKey.id,
+		model: requestedModel,
+	});
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();

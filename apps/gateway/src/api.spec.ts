@@ -10,7 +10,11 @@ import {
 	resetKeyHealth,
 } from "./lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
+import {
+	readAll,
+	waitForLogByRequestId,
+	waitForLogs,
+} from "./test-utils/test-helpers.js";
 
 describe("api", () => {
 	const harness = createGatewayApiTestHarness();
@@ -142,6 +146,145 @@ describe("api", () => {
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBe(1);
 		expect(logs[0].finishReason).toBe("stop");
+	});
+
+	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
+		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
+		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, blockPromptLogging: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-block",
+			token: "real-token-compliance-block",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-block",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-block",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello compliance!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+
+		const violations = await db.query.guardrailViolation.findMany({
+			where: { organizationId: { eq: "org-id" } },
+		});
+		expect(violations.some((v) => v.category === "provider_compliance")).toBe(
+			true,
+		);
+	});
+
+	test("/v1/chat/completions allows providers meeting the compliance policy", async () => {
+		// OpenAI's dataPolicy has soc2: true, so a requireSoc2 policy lets it through.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-allow",
+			token: "real-token-compliance-allow",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-allow",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-allow",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello compliant!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/embeddings is blocked by the compliance policy too", async () => {
+		// Compliance enforcement also covers non-chat endpoints. text-embedding-3-small
+		// resolves to OpenAI, whose dataPolicy has promptLogging: true.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, blockPromptLogging: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-embeddings",
+			token: "real-token-compliance-embeddings",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-embeddings",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-embeddings",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				input: "Hello compliance!",
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
 	});
 
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
@@ -1628,6 +1771,58 @@ describe("api", () => {
 		const json = await res.json();
 		expect(JSON.stringify(json)).not.toContain("Invalid enum value");
 		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
+	});
+
+	test("/v1/images/edits logs oversized image input client errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edit-oversized",
+			token: "real-token-image-edit-oversized",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const requestId = "image-edit-oversized-request";
+		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-image-edit-oversized",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "gemini-3-pro-image-preview",
+				prompt: "Add a neon city reflection to this image",
+				images: [
+					{
+						image_url: oversizedImageDataUrl,
+					},
+					{
+						image_url: oversizedImageDataUrl,
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.message).toContain("Image size");
+		expect(json.error.message).toContain("exceeds your current limit");
+
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("client_error");
+		expect(log.unifiedFinishReason).toBe("client_error");
+		expect(log.hasError).toBe(true);
+		expect(log.errorDetails?.statusCode).toBe(400);
+		expect(log.errorDetails?.responseText).toContain("Image size");
+		expect(log.usedProvider).toBe("llmgateway");
+
+		const logs = await db.query.log.findMany({
+			where: { requestId: { eq: requestId } },
+		});
+		expect(logs).toHaveLength(1);
 	});
 
 	test("/v1/images/generations forwards X-No-Fallback to chat completions", async () => {

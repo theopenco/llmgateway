@@ -19,6 +19,7 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
@@ -405,6 +406,15 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		wallet,
 		models.find((m) => m.id === moderationModelId),
 	);
+
+	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
+	// before sending if the org's policy doesn't permit it.
+	await assertProviderCompliant(organization, "openai", {
+		organizationId: project.organizationId,
+		modelId: moderationModelId,
+		apiKeyId: apiKey.id,
+		model: upstreamModel,
+	});
 
 	const retentionLevel = organization.retentionLevel ?? "none";
 

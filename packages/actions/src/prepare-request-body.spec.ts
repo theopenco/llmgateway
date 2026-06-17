@@ -1634,6 +1634,42 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should keep Grok 4.3 as Bedrock Mantle OpenAI chat completions", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"grok-4.3",
+			"us-west-2",
+			"xai.grok-4.3",
+			[{ role: "user", content: "Hello!" }],
+			true,
+			0.2,
+			128,
+			0.9,
+			undefined,
+			undefined,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			"high",
+			true,
+			false,
+		)) as any;
+
+		expect(requestBody).toMatchObject({
+			model: "xai.grok-4.3",
+			messages: [{ role: "user", content: "Hello!" }],
+			stream: true,
+			stream_options: { include_usage: true },
+			temperature: 0.2,
+			max_completion_tokens: 128,
+			top_p: 0.9,
+			response_format: { type: "json_object" },
+			reasoning: { effort: "high" },
+		});
+		expect(requestBody.inferenceConfig).toBeUndefined();
+		expect(requestBody.system).toBeUndefined();
+	});
+
 	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
@@ -2524,6 +2560,42 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 
 			expect(requestBody.max_completion_tokens).toBe(32000);
 			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("azure-ai-foundry", () => {
+		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
+			const requestBody = (await prepareRequestBody(
+				"azure-ai-foundry",
+				"grok-4.3",
+				null,
+				"grok-4.3",
+				[{ role: "user", content: "Hello!" }],
+				true,
+				0.2,
+				8192,
+				0.9,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"medium",
+				true,
+			)) as unknown as Record<string, unknown>;
+
+			expect(requestBody.model).toBe("grok-4.3");
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: "Hello!" },
+			]);
+			expect(requestBody.stream).toBe(true);
+			expect(requestBody.stream_options).toEqual({ include_usage: true });
+			expect(requestBody.temperature).toBe(0.2);
+			expect(requestBody.max_tokens).toBe(8192);
+			expect(requestBody.max_completion_tokens).toBeUndefined();
+			expect(requestBody.top_p).toBe(0.9);
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.inferenceConfig).toBeUndefined();
 		});
 	});
 

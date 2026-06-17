@@ -160,6 +160,36 @@ describe("parseProviderResponse", () => {
 	});
 
 	describe("aws-bedrock cachedTokens", () => {
+		it("parses OpenAI-compatible Bedrock Mantle chat responses", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							content: "Hello from Grok",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 12,
+					completion_tokens: 5,
+					total_tokens: 17,
+					prompt_tokens_details: {
+						cached_tokens: 3,
+					},
+				},
+			};
+
+			const result = parseProviderResponse("aws-bedrock", "xai.grok-4.3", json);
+
+			expect(result.content).toBe("Hello from Grok");
+			expect(result.finishReason).toBe("stop");
+			expect(result.promptTokens).toBe(12);
+			expect(result.completionTokens).toBe(5);
+			expect(result.totalTokens).toBe(17);
+			expect(result.cachedTokens).toBe(3);
+		});
+
 		it("returns cachedTokens as 0 when cacheReadInputTokens is 0", () => {
 			const json = {
 				output: {

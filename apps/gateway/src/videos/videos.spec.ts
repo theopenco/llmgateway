@@ -269,6 +269,64 @@ describe("videos", () => {
 		);
 	});
 
+	test("/v1/videos logs oversized reference image client errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-video-oversized-image",
+			token: "real-token-video-oversized-image",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-video-oversized-image",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = "video-oversized-reference-image-request";
+		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-video-oversized-image",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Animate this product reference image",
+				size: "1280x720",
+				seconds: 5,
+				reference_images: [
+					{
+						image_url: oversizedImageDataUrl,
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.message).toContain("Invalid image input");
+		expect(json.error.message).toContain("Image size");
+		expect(json.error.message).toContain("exceeds your current limit");
+
+		const logs = await db.query.log.findMany({
+			where: { requestId: { eq: requestId } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].finishReason).toBe("client_error");
+		expect(logs[0].unifiedFinishReason).toBe("client_error");
+		expect(logs[0].hasError).toBe(true);
+		expect(logs[0].errorDetails?.statusCode).toBe(400);
+		expect(logs[0].errorDetails?.responseText).toContain("Image size");
+		expect(logs[0].usedProvider).toBe("bytedance");
+	});
+
 	test("/v1/videos rejects non-https reference audios", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

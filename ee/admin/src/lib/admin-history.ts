@@ -32,6 +32,7 @@ export async function getMappingHistory(
 	modelId: string,
 	window: HistoryWindow,
 	projectId?: string,
+	region?: string,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -39,7 +40,11 @@ export async function getMappingHistory(
 		{
 			params: {
 				path: { providerId, modelId },
-				query: { window, ...(projectId ? { projectId } : {}) },
+				query: {
+					window,
+					...(projectId ? { projectId } : {}),
+					...(region ? { region } : {}),
+				},
 			},
 		},
 	);
@@ -79,6 +84,7 @@ export async function getMappingDetail(
 	providerId: string,
 	modelId: string,
 	window?: HistoryWindow,
+	region?: string,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(
@@ -88,6 +94,7 @@ export async function getMappingDetail(
 				path: { providerId, modelId: encodeURIComponent(modelId) },
 				query: {
 					...(window ? { window } : {}),
+					...(region ? { region } : {}),
 				} as any,
 			},
 		},

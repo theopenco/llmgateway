@@ -57,6 +57,46 @@ export function parseProviderResponse(
 
 	switch (usedProvider) {
 		case "aws-bedrock": {
+			if (Array.isArray(json.choices)) {
+				const allChoices = json.choices;
+				toolResults = allChoices[0]?.message?.tool_calls ?? null;
+
+				let aggregatedContent = "";
+				let aggregatedReasoning = "";
+				let hasContent = false;
+				let hasReasoning = false;
+				for (const choice of allChoices) {
+					const cContent = choice?.message?.content;
+					if (typeof cContent === "string") {
+						aggregatedContent += cContent;
+						hasContent = true;
+					}
+					const cReasoning =
+						choice?.message?.reasoning ??
+						choice?.message?.reasoning_content ??
+						extractReasoningDetailsText(choice?.message?.reasoning_details) ??
+						null;
+					if (typeof cReasoning === "string" && cReasoning.length > 0) {
+						aggregatedReasoning += cReasoning;
+						hasReasoning = true;
+					}
+				}
+
+				content = hasContent ? aggregatedContent : null;
+				reasoningContent = hasReasoning ? aggregatedReasoning : null;
+				finishReason = allChoices[0]?.finish_reason ?? null;
+				promptTokens = json.usage?.prompt_tokens ?? null;
+				completionTokens = json.usage?.completion_tokens ?? null;
+				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
+				totalTokens =
+					json.usage?.total_tokens ??
+					(promptTokens !== null && completionTokens !== null
+						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						: null);
+				break;
+			}
+
 			// AWS Bedrock Converse API format
 			// Response format: { output: { message: { content: [{text: "..."}], role: "assistant" }}, stopReason: "end_turn", usage: {...} }
 			const message = json.output?.message;

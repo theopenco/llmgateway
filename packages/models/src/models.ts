@@ -334,6 +334,11 @@ export interface ProviderModelMapping {
 	 */
 	supportsResponsesApi?: boolean;
 	/**
+	 * Provider-specific request/endpoint format when a provider has multiple API
+	 * surfaces for different models. Defaults to the provider's native format.
+	 */
+	apiFormat?: "openai-chat-completions";
+	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;
 	 * mappings opt in to the subset actually supported by the upstream model.
