@@ -229,6 +229,12 @@ export async function processNoPurchaseEmails(): Promise<void> {
 				sql`${organization.createdAt} > ${maxAgeAgo}`,
 				eq(organization.devPlan, "none"),
 				eq(organization.status, "active"),
+				// Only nudge normal pay-as-you-go team orgs. Personal orgs back the
+				// DevPass coding product and chat orgs back chat.llmgateway.io — both
+				// have their own billing and are hidden from the dashboard, so they
+				// should never receive the "add credits" email.
+				eq(organization.isPersonal, false),
+				eq(organization.isChat, false),
 				sql`${organization.id} NOT IN (
 					SELECT ${transaction.organizationId}
 					FROM ${transaction}

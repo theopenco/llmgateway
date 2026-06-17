@@ -131,6 +131,104 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 		expect(sentAfter).toHaveLength(1);
 	});
 
+	it("skips personal (DevPass) and chat orgs, only nudging the normal org", async () => {
+		const [owner] = await db
+			.insert(user)
+			.values({
+				email: "scoped@example.com",
+				name: "Scoped User",
+				emailVerified: true,
+			})
+			.returning();
+
+		const [personalOrg] = await db
+			.insert(organization)
+			.values({
+				name: "Personal",
+				status: "active",
+				isPersonal: true,
+				devPlan: "none",
+				billingEmail: owner.email,
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		const [chatOrg] = await db
+			.insert(organization)
+			.values({
+				name: "Chat",
+				status: "active",
+				isChat: true,
+				devPlan: "none",
+				billingEmail: owner.email,
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		const [normalOrg] = await db
+			.insert(organization)
+			.values({
+				name: "Default",
+				status: "active",
+				devPlan: "none",
+				billingEmail: owner.email,
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		await db.insert(userOrganization).values([
+			{ userId: owner.id, organizationId: personalOrg.id, role: "owner" },
+			{ userId: owner.id, organizationId: chatOrg.id, role: "owner" },
+			{ userId: owner.id, organizationId: normalOrg.id, role: "owner" },
+		]);
+
+		await processNoPurchaseEmails();
+
+		const sent = await db
+			.select()
+			.from(followUpEmail)
+			.where(eq(followUpEmail.emailType, "no_purchase"));
+		expect(sent).toHaveLength(1);
+		expect(sent[0].organizationId).toBe(normalOrg.id);
+	});
+
+	it("does not nudge an owner whose only orgs are personal or chat", async () => {
+		const [owner] = await db
+			.insert(user)
+			.values({
+				email: "chatonly@example.com",
+				name: "Chat Only User",
+				emailVerified: true,
+			})
+			.returning();
+
+		const [chatOrg] = await db
+			.insert(organization)
+			.values({
+				name: "Chat",
+				status: "active",
+				isChat: true,
+				devPlan: "none",
+				billingEmail: owner.email,
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		await db.insert(userOrganization).values({
+			userId: owner.id,
+			organizationId: chatOrg.id,
+			role: "owner",
+		});
+
+		await processNoPurchaseEmails();
+
+		const sent = await db
+			.select()
+			.from(followUpEmail)
+			.where(eq(followUpEmail.emailType, "no_purchase"));
+		expect(sent).toHaveLength(0);
+	});
+
 	it("sends the no_purchase email when the owner has no DevPass", async () => {
 		const [freeUser] = await db
 			.insert(user)
