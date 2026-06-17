@@ -1170,6 +1170,13 @@
       "when": 1781729055340,
       "tag": "1781729055_quiet_major_mapleleaf",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "8",
+      "when": 1781736979628,
+      "tag": "1781736979_redundant_santa_claus",
+      "breakpoints": true
     }
   ]
 }
