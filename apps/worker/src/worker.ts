@@ -725,15 +725,22 @@ export async function cleanupExpiredLogData(): Promise<void> {
 // (public provider stats), so 90 days leaves a comfortable buffer.
 const MODEL_HISTORY_RETENTION_DAYS = 90;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
+// Cap the work per run so a single cleanup reliably finishes well within the
+// lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog. The loop
+// runs hourly, so any remaining rows are drained over subsequent runs. At
+// steady state (a few thousand expiring rows per hour) this cap is never hit.
+const MODEL_HISTORY_MAX_BATCHES_PER_RUN = 50;
 
 async function cleanupModelHistoryTable(
 	table: typeof tables.modelHistory | typeof tables.modelProviderMappingHistory,
 	cutoffDate: Date,
-): Promise<number> {
+	maxBatches: number,
+): Promise<{ deleted: number; batches: number }> {
 	let totalDeleted = 0;
+	let batches = 0;
 	let hasMoreRecords = true;
 
-	while (hasMoreRecords && !isStopRequested()) {
+	while (hasMoreRecords && batches < maxBatches && !isStopRequested()) {
 		const batchDeleted = await db.transaction(async (tx) => {
 			// Prefer the minuteTimestamp index over a sequential scan; SET LOCAL
 			// resets automatically when the transaction commits.
@@ -763,13 +770,14 @@ async function cleanupModelHistoryTable(
 		});
 
 		totalDeleted += batchDeleted;
+		batches++;
 
 		if (batchDeleted < MODEL_HISTORY_CLEANUP_BATCH_SIZE) {
 			hasMoreRecords = false;
 		}
 	}
 
-	return totalDeleted;
+	return { deleted: totalDeleted, batches };
 }
 
 export async function cleanupExpiredModelHistory(): Promise<void> {
@@ -789,14 +797,19 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
 		);
 
-		const mappingDeleted = await cleanupModelHistoryTable(
+		const mapping = await cleanupModelHistoryTable(
 			tables.modelProviderMappingHistory,
 			cutoffDate,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
 		);
-		const modelDeleted = await cleanupModelHistoryTable(
+		const model = await cleanupModelHistoryTable(
 			tables.modelHistory,
 			cutoffDate,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN - mapping.batches,
 		);
+
+		const mappingDeleted = mapping.deleted;
+		const modelDeleted = model.deleted;
 
 		if (mappingDeleted > 0 || modelDeleted > 0) {
 			logger.info(
@@ -2128,7 +2141,6 @@ async function runDataRetentionLoop() {
 		while (!isStopRequested()) {
 			try {
 				await cleanupExpiredLogData();
-				await cleanupExpiredModelHistory();
 
 				await interruptibleSleep(interval);
 			} catch (error) {
@@ -2142,6 +2154,33 @@ async function runDataRetentionLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Data retention loop stopped");
+	}
+}
+
+async function runModelHistoryRetentionLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 3600 : 60) * 1000; // hourly in prod, 1 minute in dev
+	logger.info(
+		`Starting model history retention loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await cleanupExpiredModelHistory();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in model history retention loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Model history retention loop stopped");
 	}
 }
 
@@ -2645,6 +2684,7 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
+	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
 	void runWebhookDeliveryLoop();
