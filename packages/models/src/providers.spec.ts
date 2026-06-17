@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
-import { formatServiceTierMultiplier, getServiceTier } from "./providers.js";
+import { anthropicModels } from "./models/anthropic.js";
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+	providers,
+} from "./providers.js";
 
 describe("getServiceTier", () => {
 	it("returns the configured Vertex Flex / Priority tiers", () => {
@@ -164,4 +169,102 @@ describe("model service tier support", () => {
 			),
 		).toBe(false);
 	});
+});
+
+describe("AWS Bedrock Anthropic regions", () => {
+	it("supports current Anthropic geo profile prefixes", () => {
+		const bedrockProvider = providers.find(
+			(provider) => provider.id === "aws-bedrock",
+		);
+
+		expect(bedrockProvider?.regionConfig?.modelPrefixMap).toMatchObject({
+			global: "global.",
+			us: "us.",
+			eu: "eu.",
+			au: "au.",
+			jp: "jp.",
+		});
+	});
+
+	const expectedRegionsByModelId = new Map<string, string[]>([
+		["claude-sonnet-4-5", ["global", "us", "eu", "au", "jp"]],
+		["claude-sonnet-4-5-20250929", ["global", "us", "eu", "au", "jp"]],
+		["claude-sonnet-4-6", ["global", "us", "eu", "au", "jp", "eu-west-2"]],
+		[
+			"claude-haiku-4-5",
+			[
+				"global",
+				"us",
+				"eu",
+				"au",
+				"jp",
+				"us-east-1",
+				"eu-north-1",
+				"eu-west-1",
+				"ap-northeast-1",
+				"ap-southeast-4",
+			],
+		],
+		[
+			"claude-haiku-4-5-20251001",
+			[
+				"global",
+				"us",
+				"eu",
+				"au",
+				"jp",
+				"us-east-1",
+				"eu-north-1",
+				"eu-west-1",
+				"ap-northeast-1",
+				"ap-southeast-4",
+			],
+		],
+		["claude-opus-4-5-20251101", ["global", "us", "eu"]],
+		["claude-opus-4-6", ["global", "us", "eu", "au", "eu-west-2"]],
+		[
+			"claude-opus-4-7",
+			[
+				"global",
+				"us",
+				"eu",
+				"jp",
+				"au",
+				"us-east-1",
+				"eu-north-1",
+				"eu-west-1",
+				"ap-southeast-4",
+			],
+		],
+		[
+			"claude-opus-4-8",
+			[
+				"global",
+				"us",
+				"eu",
+				"jp",
+				"au",
+				"us-east-1",
+				"eu-north-1",
+				"eu-west-1",
+				"ap-northeast-1",
+				"ap-southeast-4",
+			],
+		],
+	]);
+
+	for (const [modelId, expectedRegions] of expectedRegionsByModelId) {
+		it(`matches AWS Bedrock region support for ${modelId}`, () => {
+			const model = anthropicModels.find(
+				(candidate) => candidate.id === modelId,
+			);
+			const bedrockMapping = model?.providers.find(
+				(provider) => provider.providerId === "aws-bedrock",
+			);
+
+			expect(bedrockMapping?.regions?.map((region) => region.id)).toEqual(
+				expectedRegions,
+			);
+		});
+	}
 });
