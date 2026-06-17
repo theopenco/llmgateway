@@ -1945,6 +1945,20 @@ export const modelProviderMappingHistory = pgTable(
 			table.modelId,
 			table.minuteTimestamp,
 		),
+		// Covering index for the public provider stats aggregation
+		// (filter by minuteTimestamp range, group by providerId, sum metrics).
+		// Including the summed columns as trailing keys enables an index-only
+		// scan so Postgres never has to touch the heap for this query.
+		index("model_provider_mapping_history_provider_stats_idx").on(
+			table.minuteTimestamp,
+			table.providerId,
+			table.logsCount,
+			table.errorsCount,
+			table.cachedCount,
+			table.totalTimeToFirstToken,
+			table.totalOutputTokens,
+			table.totalDuration,
+		),
 	],
 );
 
