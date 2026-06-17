@@ -1054,9 +1054,10 @@ export async function calculateHourlyHistory() {
 }
 
 /**
- * Backfill missing hourly summary rows. Starts from the hour after the most
- * recent hourly entry, or — when the hourly tables are empty — from the earliest
- * minute-history entry, and walks forward to the previous complete hour.
+ * Backfill missing hourly summary rows. Resumes from the earliest of the two
+ * summary tables' latest hours (re-running that boundary hour so a partial write
+ * heals), or — when either table is empty — from the earliest minute-history
+ * entry, and walks forward to the previous complete hour.
  */
 export async function backfillHourlyHistoryIfNeeded() {
 	logger.info("Checking for missing hourly history periods to backfill...");
@@ -1079,26 +1080,31 @@ export async function backfillHourlyHistoryIfNeeded() {
 			.orderBy(sql`${modelHistoryHourly.hourTimestamp} DESC`)
 			.limit(1);
 
+		// Resume from the EARLIEST of the two tables' latest hours, not the latest.
+		// calculateHistoryForHour writes the mapping table before the model table,
+		// so a crash between them leaves one table an hour (or more) behind. Taking
+		// the min — and re-running that shared boundary hour below — lets the
+		// idempotent upserts heal the lagging table and any partial write, whereas
+		// max would skip the gap permanently. If either table is empty it needs its
+		// full history, so fall through to the earliest-minute path.
 		let lastHour: Date | null = null;
 		if (latestMappingHourly.length > 0 && latestModelHourly.length > 0) {
 			lastHour = new Date(
-				Math.max(
+				Math.min(
 					latestMappingHourly[0]!.hourTimestamp.getTime(),
 					latestModelHourly[0]!.hourTimestamp.getTime(),
 				),
 			);
-		} else if (latestMappingHourly.length > 0) {
-			lastHour = latestMappingHourly[0]!.hourTimestamp;
-		} else if (latestModelHourly.length > 0) {
-			lastHour = latestModelHourly[0]!.hourTimestamp;
 		}
 
 		let startHour: Date;
 		if (lastHour) {
-			// Resume from the hour after the last summarized hour.
-			startHour = roundToHourStart(new Date(lastHour.getTime() + ONE_HOUR_MS));
+			// Re-run the shared boundary hour (overlap) so a partial write to it is
+			// recomputed, then continue forward.
+			startHour = roundToHourStart(lastHour);
 		} else {
-			// Nothing summarized yet: start from the earliest minute-history entry.
+			// Nothing summarized in one or both tables: start from the earliest
+			// minute-history entry so an empty table gets its full history.
 			const earliestMappingMinute = await database
 				.select({
 					minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,

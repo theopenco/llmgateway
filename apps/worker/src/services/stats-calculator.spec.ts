@@ -1618,10 +1618,18 @@ describe("stats-calculator", () => {
 			expect(currentHourRow).toBeUndefined();
 		});
 
-		it("should resume from the hour after the latest hourly entry", async () => {
-			// Already-summarized hour at 10:00
+		it("should resume from the shared latest hour when both tables are populated", async () => {
+			// Both summary tables already finalized hour 10:00 (no minute data there,
+			// so the overlap re-run must leave the row untouched).
 			await db.insert(modelHistoryHourly).values({
 				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
+				logsCount: 99,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
 				hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
 				logsCount: 99,
 			});
@@ -1636,7 +1644,7 @@ describe("stats-calculator", () => {
 			await backfillHourlyHistoryIfNeeded();
 
 			const modelHourly = await db.select().from(modelHistoryHourly);
-			// Untouched existing 10:00 row + freshly backfilled 11:00 row
+			// Existing 10:00 row preserved (no minute data to recompute it from)
 			const tenHour = modelHourly.find(
 				(r) =>
 					r.hourTimestamp.getTime() ===
@@ -1651,11 +1659,76 @@ describe("stats-calculator", () => {
 			expect(elevenHour?.logsCount).toBe(7);
 		});
 
-		it("should not backfill when hourly history is up to date", async () => {
-			// previousHourStart is 11:00; a row there means nothing to do
+		it("should heal a table left behind by a partial write", async () => {
+			// Minute data exists in both tables for hours 10 and 11.
+			for (const minute of [
+				new Date("2024-01-01T10:30:00.000Z"),
+				new Date("2024-01-01T11:30:00.000Z"),
+			]) {
+				const logsCount = minute.getUTCHours() === 10 ? 3 : 7;
+				await db.insert(modelHistory).values({
+					modelId: "gpt-4",
+					minuteTimestamp: minute,
+					logsCount,
+				});
+				await db.insert(modelProviderMappingHistory).values({
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: minute,
+					logsCount,
+				});
+			}
+
+			// Simulate a crash after the mapping rollup wrote hours 10 and 11 but
+			// before the model rollup got past hour 10: the model table is behind.
+			await db.insert(modelProviderMappingHistoryHourly).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
+					logsCount: 3,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					hourTimestamp: new Date("2024-01-01T11:00:00.000Z"),
+					logsCount: 7,
+				},
+			]);
 			await db.insert(modelHistoryHourly).values({
 				modelId: "gpt-4",
-				hourTimestamp: new Date("2024-01-01T11:00:00.000Z"),
+				hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
+				logsCount: 3,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			// max() would resume at 12:00 and skip the gap; min() heals it.
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const elevenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T11:00:00.000Z").getTime(),
+			);
+			expect(elevenHour?.logsCount).toBe(7);
+		});
+
+		it("should not backfill when hourly history is up to date", async () => {
+			// Both tables already hold the current (in-progress) hour 12:00, so the
+			// previous complete hour 11:00 is covered and there is nothing to do.
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T12:00:00.000Z"),
+				logsCount: 5,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				hourTimestamp: new Date("2024-01-01T12:00:00.000Z"),
 				logsCount: 5,
 			});
 
