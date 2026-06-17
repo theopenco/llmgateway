@@ -83,6 +83,9 @@ export const googleModels = [
 				webSearchPrice: "0.035", // $35 per 1000 prompts
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				supportsN: true,
+				supportsNStreaming: false,
+				maxN: 8,
 			},
 			{
 				providerId: "google-vertex",
@@ -121,6 +124,9 @@ export const googleModels = [
 				webSearchPrice: "0.035", // $35 per 1000 prompts
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				supportsN: true,
+				supportsNStreaming: false,
+				maxN: 8,
 			},
 		],
 	},
@@ -446,6 +452,9 @@ export const googleModels = [
 				webSearchPrice: "0.035", // $35 per 1000 prompts
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				supportsN: true,
+				supportsNStreaming: false,
+				maxN: 8,
 			},
 			{
 				providerId: "google-vertex",
@@ -470,6 +479,9 @@ export const googleModels = [
 				webSearchPrice: "0.035", // $35 per 1000 prompts
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				supportsN: true,
+				supportsNStreaming: false,
+				maxN: 8,
 			},
 		],
 	},
@@ -500,6 +512,9 @@ export const googleModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				supportsN: true,
+				supportsNStreaming: false,
+				maxN: 8,
 			},
 			{
 				providerId: "google-vertex",
@@ -520,6 +535,9 @@ export const googleModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				supportsN: true,
+				supportsNStreaming: false,
+				maxN: 8,
 			},
 		],
 	},
@@ -564,6 +582,9 @@ export const googleModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				supportsN: true,
+				supportsNStreaming: false,
+				maxN: 8,
 			},
 		],
 	},

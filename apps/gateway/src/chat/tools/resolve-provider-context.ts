@@ -520,17 +520,31 @@ export async function resolveProviderContext(
 	}
 
 	// --- n parameter validation ---
-	// Mirror the initial-path supportsN check (chat.ts) so retry fallbacks
-	// don't silently drop n by routing to a mapping that doesn't natively
-	// accept multiple choices.
-	if (
-		options.n !== undefined &&
-		options.n > 1 &&
-		!providerMappingForSelected?.supportsN
-	) {
-		throw new HTTPException(400, {
-			message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
-		});
+	// Mirror the initial-path supportsN/maxN/supportsNStreaming checks
+	// (chat.ts) so retry fallbacks don't silently drop n by routing to a
+	// mapping that doesn't natively accept multiple choices.
+	if (options.n !== undefined && options.n > 1) {
+		if (!providerMappingForSelected?.supportsN) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+			});
+		}
+		if (
+			providerMappingForSelected.maxN !== undefined &&
+			options.n > providerMappingForSelected.maxN
+		) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} supports at most ${providerMappingForSelected.maxN} choices per request (n <= ${providerMappingForSelected.maxN}).`,
+			});
+		}
+		if (
+			options.effectiveStream &&
+			providerMappingForSelected.supportsNStreaming === false
+		) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices with streaming. Send a non-streaming request instead.`,
+			});
+		}
 	}
 
 	// --- requestCanBeCanceled ---

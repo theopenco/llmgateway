@@ -20,6 +20,13 @@ import {
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
+	complianceBlockMessage,
+	filterCompliantProviders,
+	getActiveCompliancePolicy,
+	isProviderIdCompliant,
+	logComplianceBlock,
+} from "@/lib/compliance.js";
+import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
@@ -45,6 +52,7 @@ import {
 	sql,
 	shortid,
 	tables,
+	UnifiedFinishReason,
 	type InferSelectModel,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
@@ -622,6 +630,19 @@ interface ProcessedVideoImageInput {
 
 type VideoInputMode = "none" | "frames" | "reference";
 
+function getFormattedRequestedVideoModel(
+	normalizedModel: string,
+	requestedProvider: string | undefined,
+): string {
+	return requestedProvider
+		? `${requestedProvider}/${normalizedModel}`
+		: normalizedModel;
+}
+
+function getFormattedUsedVideoModel(provider: Provider, model: string): string {
+	return `${provider}/${model}`;
+}
+
 function getVideoImageFileExtension(mimeType: string): string {
 	switch (mimeType) {
 		case "image/jpeg":
@@ -855,7 +876,7 @@ function isSoraVideoModelName(externalId: string): boolean {
 	return externalId === "sora-2" || externalId === "sora-2-pro";
 }
 
-function isBytedanceReferenceModel(externalId: string): boolean {
+function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
 		externalId === "dreamina-seedance-2-0-fast-260128"
@@ -934,17 +955,23 @@ function getVideoProviderConstraintReasons(
 		);
 	}
 
-	if (
-		!isSoraVideoModelName(provider.externalId) &&
-		inputMode === "frames" &&
-		!isGoogleVertexVideoProvider(provider.providerId) &&
-		provider.providerId !== "avalanche" &&
-		provider.providerId !== "minimax" &&
-		provider.providerId !== "xai"
-	) {
-		reasons.push(
-			"frame inputs are currently only supported through google-vertex, avalanche, minimax, or xai",
-		);
+	if (!isSoraVideoModelName(provider.externalId) && inputMode === "frames") {
+		if (provider.providerId === "bytedance") {
+			if (!isBytedanceSeedance2Model(provider.externalId)) {
+				reasons.push(
+					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+				);
+			}
+		} else if (
+			!isGoogleVertexVideoProvider(provider.providerId) &&
+			provider.providerId !== "avalanche" &&
+			provider.providerId !== "minimax" &&
+			provider.providerId !== "xai"
+		) {
+			reasons.push(
+				"frame inputs are currently only supported through google-vertex, avalanche, minimax, xai, or bytedance",
+			);
+		}
 	}
 
 	if (inputMode === "reference") {
@@ -969,7 +996,7 @@ function getVideoProviderConstraintReasons(
 		}
 
 		if (provider.providerId === "bytedance") {
-			if (!isBytedanceReferenceModel(provider.externalId)) {
+			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
 					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
 				);
@@ -3159,6 +3186,7 @@ async function createBytedanceVideoJob(
 	includeAudio: boolean,
 	firstFrameInput: VideoImageInput | undefined,
 	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
 	processedReferenceImages: ProcessedVideoImageInput[],
 	referenceVideoUrls: string[],
 	referenceAudioUrls: string[],
@@ -3182,6 +3210,16 @@ async function createBytedanceVideoJob(
 				url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
 			},
 			role: "first_frame",
+		});
+	}
+
+	if (processedLastFrame) {
+		content.push({
+			type: "image_url",
+			image_url: {
+				url: `data:${processedLastFrame.mimeType};base64,${processedLastFrame.bytesBase64Encoded}`,
+			},
+			role: "last_frame",
 		});
 	}
 
@@ -3552,6 +3590,7 @@ async function createUpstreamVideoJob(
 				includeAudio,
 				firstFrameInput,
 				processedFirstFrame,
+				processedLastFrame,
 				processedReferenceImages,
 				referenceVideoUrls,
 				referenceAudioUrls,
@@ -3738,6 +3777,158 @@ async function processVideoImageInputs(
 	).filter((image): image is ProcessedVideoImageInput => image !== null);
 }
 
+function buildVideoClientErrorRoutingMetadata(
+	routingMetadata: RoutingMetadata | undefined,
+	providerContext: ProviderContext,
+	modelId: string,
+	statusCode: number,
+): RoutingMetadata | null {
+	const routingAttempt: RoutingAttempt = {
+		provider: providerContext.providerId,
+		model: modelId,
+		status_code: statusCode,
+		error_type: "client_error",
+		succeeded: false,
+	};
+
+	if (!routingMetadata) {
+		return {
+			availableProviders: [providerContext.providerId],
+			selectedProvider: providerContext.providerId,
+			selectionReason: "client_error",
+			providerScores: [
+				{
+					providerId: providerContext.providerId,
+					score: 0,
+					price: 0,
+					failed: true,
+					status_code: statusCode,
+					error_type: "client_error",
+				},
+			],
+			routing: [routingAttempt],
+		};
+	}
+
+	return {
+		...routingMetadata,
+		selectedProvider: providerContext.providerId,
+		routing: [routingAttempt],
+		providerScores: routingMetadata.providerScores.map((score) =>
+			score.providerId === providerContext.providerId
+				? {
+						...score,
+						failed: true,
+						status_code: statusCode,
+						error_type: "client_error",
+					}
+				: score,
+		),
+	};
+}
+
+async function insertVideoClientErrorLog(options: {
+	request: z.infer<typeof createVideoRequestSchema>;
+	requestId: string;
+	apiKey: GatewayApiKey;
+	project: InferSelectModel<typeof tables.project>;
+	organization: InferSelectModel<typeof tables.organization>;
+	normalizedModel: string;
+	requestedProvider: string | undefined;
+	providerContext: ProviderContext;
+	upstreamModelName: string;
+	routingMetadata: RoutingMetadata | undefined;
+	statusCode: number;
+	message: string;
+	startedAt: number;
+}): Promise<void> {
+	const responseText = options.message;
+	await db.insert(tables.log).values({
+		requestId: options.requestId,
+		organizationId: options.organization.id,
+		projectId: options.project.id,
+		apiKeyId: options.apiKey.id,
+		endUserSessionId: options.apiKey.endUserSession?.id ?? null,
+		endCustomerWalletId: options.apiKey.endCustomerWalletId ?? null,
+		duration: Math.max(0, Date.now() - options.startedAt),
+		timeToFirstToken: null,
+		timeToFirstReasoningToken: null,
+		requestedModel: getFormattedRequestedVideoModel(
+			options.normalizedModel,
+			options.requestedProvider,
+		),
+		requestedProvider: options.requestedProvider ?? null,
+		usedModel: getFormattedUsedVideoModel(
+			options.providerContext.providerId,
+			options.normalizedModel,
+		),
+		usedModelMapping: options.upstreamModelName,
+		usedProvider: options.providerContext.providerId,
+		responseSize: responseText.length,
+		content: null,
+		reasoningContent: null,
+		finishReason: "client_error",
+		unifiedFinishReason: UnifiedFinishReason.CLIENT_ERROR,
+		promptTokens: null,
+		completionTokens: null,
+		totalTokens: null,
+		reasoningTokens: null,
+		cachedTokens: null,
+		cacheWriteTokens: null,
+		messages:
+			options.organization.retentionLevel === "retain"
+				? [
+						{
+							role: "user",
+							content: options.request.prompt,
+						},
+					]
+				: null,
+		hasError: true,
+		errorDetails: {
+			statusCode: options.statusCode,
+			statusText: "Bad Request",
+			responseText,
+		},
+		cost: 0,
+		inputCost: 0,
+		outputCost: 0,
+		cachedInputCost: 0,
+		cacheWriteInputCost: 0,
+		requestCost: 0,
+		webSearchCost: 0,
+		contentFilterCost: null,
+		imageInputTokens: null,
+		imageOutputTokens: null,
+		imageInputCost: null,
+		imageOutputCost: null,
+		audioInputTokens: null,
+		audioInputCost: null,
+		videoOutputCost: 0,
+		estimatedCost: false,
+		discount: null,
+		pricingTier: null,
+		serviceTier: null,
+		canceled: false,
+		streamed: false,
+		cached: false,
+		mode: options.project.mode,
+		usedMode: options.providerContext.usedMode,
+		routingMetadata: buildVideoClientErrorRoutingMetadata(
+			options.routingMetadata,
+			options.providerContext,
+			options.normalizedModel,
+			options.statusCode,
+		),
+		processedAt: null,
+		rawRequest: null,
+		rawResponse: null,
+		upstreamRequest: null,
+		upstreamResponse: null,
+		dataStorageCost: "0",
+	});
+}
+
 async function uploadAvalancheBase64Image(
 	providerContext: ProviderContext,
 	image: ProcessedVideoImageInput,
@@ -3800,6 +3991,7 @@ async function getAvalancheImageUrl(
 }
 
 videos.openapi(createVideo, async (c) => {
+	const startedAt = Date.now();
 	const { rawBody, request } = await parseJsonBody(c);
 	const { apiKey, project, organization, wallet, requestId, routingCfg } =
 		await requireRequestContext(c);
@@ -3871,6 +4063,32 @@ videos.openapi(createVideo, async (c) => {
 		});
 	}
 
+	// Enterprise provider compliance policy: restrict video routing to providers
+	// that meet the org's policy, and block before dispatch if none qualify.
+	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	let complianceModelInfo: ModelDefinition = modelInfo;
+	if (videoCompliancePolicy) {
+		// A pinned provider is dispatched directly, so block it explicitly even
+		// when the model has other compliant providers (mirrors the chat path).
+		const pinnedBlocked =
+			requestedProvider !== undefined &&
+			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy);
+		const compliantProviders = filterCompliantProviders(
+			modelInfo.providers as ProviderModelMapping[],
+			videoCompliancePolicy,
+		);
+		if (pinnedBlocked || compliantProviders.length === 0) {
+			await logComplianceBlock(project.organizationId, {
+				apiKeyId: apiKey.id,
+				model: normalizedModel,
+			});
+			throw new HTTPException(403, {
+				message: complianceBlockMessage(normalizedModel),
+			});
+		}
+		complianceModelInfo = { ...modelInfo, providers: compliantProviders };
+	}
+
 	const {
 		providerMapping,
 		providerContext,
@@ -3878,7 +4096,7 @@ videos.openapi(createVideo, async (c) => {
 		routingMetadata,
 		orderedMappings,
 	} = await resolveVideoExecution(
-		modelInfo,
+		complianceModelInfo,
 		requestedProvider,
 		videoSize,
 		videoDurationSeconds,
@@ -3900,10 +4118,34 @@ videos.openapi(createVideo, async (c) => {
 	let selectedProviderContext = providerContext;
 	let selectedUpstreamModelName = upstreamModelName;
 	let enrichedRoutingMetadata = routingMetadata;
-	const processedFirstFrame = await processVideoImageInput(firstFrameInput);
-	const processedLastFrameInput = await processVideoImageInput(lastFrameInput);
-	const processedReferenceImages =
-		await processVideoImageInputs(referenceImageInputs);
+	let processedFirstFrame: ProcessedVideoImageInput | null;
+	let processedLastFrameInput: ProcessedVideoImageInput | null;
+	let processedReferenceImages: ProcessedVideoImageInput[];
+	try {
+		processedFirstFrame = await processVideoImageInput(firstFrameInput);
+		processedLastFrameInput = await processVideoImageInput(lastFrameInput);
+		processedReferenceImages =
+			await processVideoImageInputs(referenceImageInputs);
+	} catch (error) {
+		if (error instanceof HTTPException && error.status >= 400) {
+			await insertVideoClientErrorLog({
+				request,
+				requestId,
+				apiKey,
+				project,
+				organization,
+				normalizedModel,
+				requestedProvider,
+				providerContext: selectedProviderContext,
+				upstreamModelName: selectedUpstreamModelName,
+				routingMetadata: enrichedRoutingMetadata,
+				statusCode: error.status,
+				message: error.message,
+				startedAt,
+			});
+		}
+		throw error;
+	}
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviders = new Set<string>();
 	let retryCount = 0;

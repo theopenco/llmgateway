@@ -238,6 +238,20 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it("routes Grok 4.3 through the Azure AI Foundry endpoint", () => {
+			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
+
+			const endpoint = getProviderEndpoint(
+				"azure-ai-foundry",
+				undefined,
+				"grok-4.3",
+			);
+
+			expect(endpoint).toBe(
+				"https://gkapitech.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview",
+			);
+		});
+
 		it("throws when no resource is configured", () => {
 			delete process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 
@@ -616,6 +630,72 @@ describe("getProviderEndpoint", () => {
 			// Falls back to the hardcoded "global." prefix, not the env "us."
 			expect(endpoint).toBe(
 				"https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it.each([
+			{
+				region: undefined,
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "global",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "us",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "us-west-2",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+		])(
+			"routes Grok 4.3 through the Bedrock Mantle OpenAI endpoint for $region",
+			({ region, endpoint: expectedEndpoint }) => {
+				const endpoint = getProviderEndpoint(
+					"aws-bedrock",
+					undefined,
+					"grok-4.3",
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					region,
+					true,
+					"grok-4.3",
+				);
+
+				expect(endpoint).toBe(expectedEndpoint);
+			},
+		);
+
+		it("keeps a custom Grok 4.3 Bedrock Mantle base URL", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				"https://bedrock-proxy.internal/openai/v1",
+				"grok-4.3",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us-west-2",
+				true,
+				"grok-4.3",
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-proxy.internal/openai/v1/chat/completions",
 			);
 		});
 	});

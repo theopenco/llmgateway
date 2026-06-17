@@ -11,6 +11,7 @@ import { AudioGallery } from "@/components/playground/audio-gallery";
 import { AudioHeader } from "@/components/playground/audio-header";
 import { AudioSidebar } from "@/components/playground/audio-sidebar";
 import { AuthDialog } from "@/components/playground/auth-dialog";
+import { ChatPlanUpsell } from "@/components/pricing/chat-plan-upsell";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
@@ -19,6 +20,11 @@ import {
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { getModelAudioConfig } from "@/lib/audio-gen";
+import {
+	chatPlanCreditErrorMessage,
+	isInsufficientCreditsError,
+} from "@/lib/credit-error";
+import { useApi } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
 import {
 	AUDIO_MODEL_COOKIE,
@@ -51,6 +57,7 @@ export default function AudioPageClient({
 	initialModelPreference,
 }: AudioPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const api = useApi();
 	const posthog = usePostHog();
 	const pathname = usePathname();
 	const router = useRouter();
@@ -363,6 +370,19 @@ export default function AudioPageClient({
 		[availableModels],
 	);
 
+	// In the Chat plan context the plan status endpoint is the source of truth
+	// for remaining credits; the org row passed from the server can be stale.
+	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
+	);
+	const chatPlanSubscribed = Boolean(
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none",
+	);
+
 	const generateAudio = useCallback(
 		async (overridePrompt?: string | unknown) => {
 			const effectivePrompt =
@@ -453,9 +473,14 @@ export default function AudioPageClient({
 
 						if (!response.ok) {
 							const errorData = await response.json().catch(() => null);
-							throw new Error(
+							const rawMessage =
 								errorData?.error ??
-									`HTTP ${response.status}: ${response.statusText}`,
+								`HTTP ${response.status}: ${response.statusText}`;
+							throw new Error(
+								isChatPlanContext &&
+								isInsufficientCreditsError(response.status, rawMessage)
+									? chatPlanCreditErrorMessage(chatPlanSubscribed, "audio")
+									: rawMessage,
 							);
 						}
 
@@ -539,6 +564,8 @@ export default function AudioPageClient({
 			instructions,
 			posthog,
 			selectedOrganization,
+			isChatPlanContext,
+			chatPlanSubscribed,
 		],
 	);
 
@@ -625,15 +652,19 @@ export default function AudioPageClient({
 		[activeItems, galleryItems, pathname, router],
 	);
 
-	// Low credits check
 	const chatPlanCreditsRemaining =
-		selectedOrganization?.chatPlan && selectedOrganization.chatPlan !== "none"
-			? Number(selectedOrganization.chatPlanCreditsLimit ?? "0") -
-				Number(selectedOrganization.chatPlanCreditsUsed ?? "0")
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none"
+			? Number(chatPlanStatus.chatPlanCreditsRemaining)
 			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
+		? isChatPlanContext
+			? chatPlanStatus !== undefined &&
+				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
+			: Number(selectedOrganization.credits) < 1
 		: false;
+	// In the Chat plan context an out-of-credits state upsells the plans inline
+	// instead of a top-up banner.
+	const showPlanUpsell = isChatPlanContext && isLowCredits;
 
 	const handleSelectOrganization = useCallback(
 		(org: Organization | null) => {
@@ -674,7 +705,7 @@ export default function AudioPageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && (
+					{isLowCredits && !isChatPlanContext && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
 								Low credits remaining. Top up to continue generating audio.
@@ -704,13 +735,21 @@ export default function AudioPageClient({
 						onGenerate={generateAudio}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
-						<div className="max-w-6xl mx-auto">
-							<AudioGallery
-								items={displayItems}
-								comparisonMode={comparisonMode}
-								onSuggestionClick={handleSuggestionClick}
+						{showPlanUpsell ? (
+							<ChatPlanUpsell
+								noun="audio"
+								isAuthenticated={!!user}
+								subscribed={chatPlanSubscribed}
 							/>
-						</div>
+						) : (
+							<div className="max-w-6xl mx-auto">
+								<AudioGallery
+									items={displayItems}
+									comparisonMode={comparisonMode}
+									onSuggestionClick={handleSuggestionClick}
+								/>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>

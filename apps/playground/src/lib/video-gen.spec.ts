@@ -5,6 +5,7 @@ import {
 	getSupportedVideoRequestOptions,
 	getSupportedVideoSizesForSelection,
 	getNormalizedVideoRequestSelection,
+	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
 	supportsVideoReferenceAudioInput,
@@ -214,6 +215,15 @@ describe("Seedance 2.0 reference capabilities", () => {
 		});
 	}
 
+	test("supportsVideoFrameInput is true for Seedance 2.0 bytedance", () => {
+		expect(supportsVideoFrameInput("seedance-2-0")).toBe(true);
+		expect(supportsVideoFrameInput("seedance-2-0-fast")).toBe(true);
+		expect(supportsVideoFrameInput("bytedance/seedance-2-0")).toBe(true);
+		expect(supportsVideoFrameInput("bytedance/seedance-2-0-fast")).toBe(true);
+		expect(supportsVideoFrameInput("bytedance/seedance-1-5-pro")).toBe(false);
+		expect(supportsVideoFrameInput("google-vertex/seedance-2-0")).toBe(false);
+	});
+
 	test("supportsVideoReferenceInput is true for Seedance 2.0", () => {
 		expect(supportsVideoReferenceInput("seedance-2-0")).toBe(true);
 		expect(supportsVideoReferenceInput("seedance-2-0-fast")).toBe(true);
@@ -271,6 +281,34 @@ describe("Seedance 2.0 reference capabilities", () => {
 			[model],
 			["seedance-1-5-pro"],
 			"reference",
+		);
+
+		expect(options.sizes).toHaveLength(0);
+		expect(options.durations).toHaveLength(0);
+	});
+
+	test("frame mode keeps size/duration options for Seedance 2.0", () => {
+		const model = makeModel([makeSeedanceMapping()], "seedance-2-0");
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-2-0"],
+			"frames",
+		);
+
+		expect(options.sizes).toContain("1280x720");
+		expect(options.sizes).toContain("1920x1080");
+		expect(options.durations).toContain(10);
+	});
+
+	test("frame mode is rejected for non-2.0 bytedance models", () => {
+		const model = makeModel(
+			[makeSeedanceMapping({ modelId: "seedance-1-5-pro" })],
+			"seedance-1-5-pro",
+		);
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-1-5-pro"],
+			"frames",
 		);
 
 		expect(options.sizes).toHaveLength(0);

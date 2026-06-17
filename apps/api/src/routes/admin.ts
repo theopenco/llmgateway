@@ -2927,6 +2927,33 @@ const deleteGlobalDiscount = createRoute({
 	},
 });
 
+// --- All Organization Discounts (across all organizations) ---
+
+const orgDiscountSchema = discountSchema.extend({
+	organizationName: z.string().nullable(),
+});
+
+const orgDiscountsListSchema = z.object({
+	discounts: z.array(orgDiscountSchema),
+	total: z.number(),
+});
+
+const getAllOrganizationDiscounts = createRoute({
+	method: "get",
+	path: "/discounts/organizations",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: orgDiscountsListSchema.openapi({}),
+				},
+			},
+			description: "List of all organization-specific discounts.",
+		},
+	},
+});
+
 // --- Organization Discounts ---
 
 const getOrganizationDiscounts = createRoute({
@@ -3196,6 +3223,37 @@ admin.openapi(deleteGlobalDiscount, async (c) => {
 	}
 
 	return c.json({ success: true });
+});
+
+admin.openapi(getAllOrganizationDiscounts, async (c) => {
+	const discounts = await db
+		.select({
+			id: tables.discount.id,
+			organizationId: tables.discount.organizationId,
+			organizationName: tables.organization.name,
+			provider: tables.discount.provider,
+			model: tables.discount.model,
+			discountPercent: tables.discount.discountPercent,
+			reason: tables.discount.reason,
+			expiresAt: tables.discount.expiresAt,
+			createdAt: tables.discount.createdAt,
+			updatedAt: tables.discount.updatedAt,
+		})
+		.from(tables.discount)
+		.leftJoin(
+			tables.organization,
+			eq(tables.discount.organizationId, tables.organization.id),
+		)
+		.where(isNotNull(tables.discount.organizationId))
+		.orderBy(desc(tables.discount.createdAt));
+
+	return c.json({
+		discounts: discounts.map((d) => ({
+			...formatDiscount(d),
+			organizationName: d.organizationName,
+		})),
+		total: discounts.length,
+	});
 });
 
 // --- Organization Discount Handlers ---
@@ -5837,6 +5895,7 @@ const getMappingHistory = createRoute({
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
 			projectId: z.string().optional(),
+			region: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -5854,9 +5913,30 @@ admin.openapi(getMappingHistory, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
+	const region = query.region;
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = new Date(startDate);
 	hourStartDate.setMinutes(0, 0, 0);
+
+	// When a region is given, restrict the minute-level mapping history to the
+	// exact regional mapping(s). The hourly project rollups have no region
+	// dimension, so region scoping only applies to the minute-granularity source.
+	const regionMappingFilter =
+		region !== undefined
+			? inArray(
+					modelProviderMappingHistory.modelProviderMappingId,
+					db
+						.select({ id: tables.modelProviderMapping.id })
+						.from(tables.modelProviderMapping)
+						.where(
+							and(
+								eq(tables.modelProviderMapping.providerId, providerId),
+								eq(tables.modelProviderMapping.modelId, modelId),
+								eq(tables.modelProviderMapping.region, region),
+							),
+						),
+				)
+			: undefined;
 
 	if (projectId) {
 		const rows = await db
@@ -5957,6 +6037,7 @@ admin.openapi(getMappingHistory, async (c) => {
 					eq(modelProviderMappingHistory.providerId, providerId),
 					eq(modelProviderMappingHistory.modelId, modelId),
 					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+					regionMappingFilter,
 				),
 			)
 			.groupBy(modelProviderMappingHistory.minuteTimestamp)
@@ -6382,6 +6463,7 @@ const getMappingDetail = createRoute({
 		}),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			region: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -6398,6 +6480,7 @@ admin.openapi(getMappingDetail, async (c) => {
 	const { providerId, modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const region = query.region;
 	const startDate = getHistoryStartDate(window);
 
 	const mappingRow = await db
@@ -6438,6 +6521,9 @@ admin.openapi(getMappingDetail, async (c) => {
 			and(
 				eq(tables.modelProviderMapping.providerId, providerId),
 				eq(tables.modelProviderMapping.modelId, modelId),
+				region !== undefined
+					? eq(tables.modelProviderMapping.region, region)
+					: undefined,
 			),
 		)
 		.limit(1);
@@ -7628,6 +7714,286 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		totalRequests: Number(totalsResult?.totalRequests ?? 0),
 		totalTokens: Number(totalsResult?.totalTokens ?? 0),
 		totalCost: Number(totalsResult?.totalCost ?? 0),
+	});
+});
+
+// ── Unstable Model Mappings ─────────────────────────────────────────────────
+
+// The candidate set of logs is bounded both ways: only the latest logs from the
+// selected time window, capped at the caller-supplied log limit (most recent
+// rows). Both default to the tightest setting (4h / 100 logs) for the cheapest,
+// most-critical view; callers can widen either via query params. Retried logs are
+// excluded by default because the gateway already recovered from those failures
+// via a fallback provider, so they should not count against a mapping's
+// stability — but callers can opt to include them via `includeRetried`.
+const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
+const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 10000;
+
+// Supported time windows for the rankings, mapping each selectable value to its
+// SQL interval bound and an hours count surfaced to the UI for the description.
+const UNSTABLE_MAPPINGS_WINDOWS = {
+	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
+	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
+	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
+	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
+} as const;
+
+const unstableMappingsWindowSchema = z.enum(["4h", "24h", "3d", "7d"]);
+
+type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
+
+function resolveUnstableMappingsWindow(
+	window: UnstableMappingsWindow | undefined,
+) {
+	return UNSTABLE_MAPPINGS_WINDOWS[window ?? "4h"];
+}
+
+// `retried` is nullable; legacy rows predate the column and are NULL. Treat
+// those as non-retried so they are not silently dropped from the rankings.
+const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
+
+// Gateway logs store `used_model` as the display value `provider/model[:region]`
+// (for example `openai/gpt-5-nano` or `alibaba/glm-4.6:cn-beijing`), but the
+// mapping detail page and the `model_provider_mapping` table key off the bare
+// `model_id` plus `region`. Split the provider prefix and region suffix so the
+// table can link to the exact regional mapping rather than a root/other region.
+function parseUsedModel(
+	usedModel: string,
+	usedProvider: string,
+): { modelId: string; region: string | null } {
+	let rest = usedModel;
+	const prefix = `${usedProvider}/`;
+	if (rest.startsWith(prefix)) {
+		rest = rest.slice(prefix.length);
+	} else if (rest.includes("/")) {
+		rest = rest.slice(rest.indexOf("/") + 1);
+	}
+	const regionIdx = rest.lastIndexOf(":");
+	return regionIdx === -1
+		? { modelId: rest, region: null }
+		: { modelId: rest.slice(0, regionIdx), region: rest.slice(regionIdx + 1) };
+}
+
+const unstableMappingEntrySchema = z.object({
+	modelId: z.string(),
+	// Region suffix parsed from `used_model`, if any. Needed to disambiguate
+	// regional mappings, which are unique on (model_id, provider_id, region).
+	region: z.string().nullable(),
+	// The raw `used_model` log value (`provider/model[:region]`); the error-detail
+	// drilldown queries logs by this exact value.
+	usedModel: z.string(),
+	providerId: z.string(),
+	providerName: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	errorRate: z.number(),
+});
+
+const unstableMappingsListSchema = z.object({
+	mappings: z.array(unstableMappingEntrySchema),
+	sampledLogs: z.number(),
+	windowHours: z.number(),
+	logLimit: z.number(),
+	includeRetried: z.boolean(),
+});
+
+const getUnstableMappings = createRoute({
+	method: "get",
+	path: "/unstable-mappings",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(200).optional(),
+			logLimit: z.coerce
+				.number()
+				.min(1)
+				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
+				.optional(),
+			includeRetried: z.enum(["true", "false"]).optional(),
+			window: unstableMappingsWindowSchema.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableMappingsListSchema.openapi({}),
+				},
+			},
+			description:
+				"Model-provider mappings ranked by error rate over the latest non-retried logs.",
+		},
+	},
+});
+
+admin.openapi(getUnstableMappings, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	const includeRetried = query.includeRetried === "true";
+	const logLimit = query.logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
+	const retriedClause = includeRetried
+		? sql``
+		: unstableMappingsNotRetriedClause;
+	const { interval: windowInterval, hours: windowHours } =
+		resolveUnstableMappingsWindow(query.window);
+
+	const rows = await db.execute<{
+		used_model: string;
+		used_provider: string;
+		logs_count: string;
+		errors_count: string;
+		error_rate: string;
+		sampled_logs: string;
+	}>(sql`
+		WITH recent_logs AS (
+			SELECT ${tables.log.usedModel} AS used_model,
+				${tables.log.usedProvider} AS used_provider,
+				${tables.log.hasError} AS has_error
+			FROM ${tables.log}
+			WHERE ${tables.log.createdAt} >= ${windowInterval}
+				${retriedClause}
+			ORDER BY ${tables.log.createdAt} DESC
+			LIMIT ${logLimit}
+		)
+		SELECT used_model,
+			used_provider,
+			COUNT(*) AS logs_count,
+			COUNT(*) FILTER (WHERE has_error) AS errors_count,
+			COUNT(*) FILTER (WHERE has_error)::float / COUNT(*) AS error_rate,
+			(SELECT COUNT(*) FROM recent_logs) AS sampled_logs
+		FROM recent_logs
+		GROUP BY used_model, used_provider
+		HAVING COUNT(*) FILTER (WHERE has_error) > 0
+		ORDER BY error_rate DESC, errors_count DESC
+		LIMIT ${limit}
+	`);
+
+	const resultRows = rows.rows;
+	const providerIds = [...new Set(resultRows.map((r) => r.used_provider))];
+	const providerRows =
+		providerIds.length > 0
+			? await db.query.provider.findMany({
+					where: { id: { in: providerIds } },
+				})
+			: [];
+	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
+
+	const sampledLogs =
+		resultRows.length > 0 ? Number(resultRows[0].sampled_logs) : 0;
+
+	return c.json({
+		mappings: resultRows.map((r) => {
+			const { modelId, region } = parseUsedModel(r.used_model, r.used_provider);
+			return {
+				modelId,
+				region,
+				usedModel: r.used_model,
+				providerId: r.used_provider,
+				providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
+				logsCount: Number(r.logs_count),
+				errorsCount: Number(r.errors_count),
+				errorRate: Number(r.error_rate),
+			};
+		}),
+		sampledLogs,
+		windowHours,
+		logLimit,
+		includeRetried,
+	});
+});
+
+const unstableMappingErrorDetailSchema = z.object({
+	statusCode: z.number().nullable(),
+	statusText: z.string().nullable(),
+	responseText: z.string().nullable(),
+	cause: z.string().nullable(),
+	count: z.number(),
+});
+
+const unstableMappingErrorsSchema = z.object({
+	errors: z.array(unstableMappingErrorDetailSchema),
+	sampledErrors: z.number(),
+});
+
+const getUnstableMappingErrors = createRoute({
+	method: "get",
+	path: "/unstable-mappings/errors",
+	request: {
+		query: z.object({
+			model: z.string(),
+			provider: z.string(),
+			includeRetried: z.enum(["true", "false"]).optional(),
+			window: unstableMappingsWindowSchema.optional(),
+			logLimit: z.coerce
+				.number()
+				.min(1)
+				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
+				.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableMappingErrorsSchema.openapi({}),
+				},
+			},
+			description:
+				"Top 10 error details for a mapping over the latest error logs.",
+		},
+	},
+});
+
+admin.openapi(getUnstableMappingErrors, async (c) => {
+	const { model, provider, includeRetried, window, logLimit } =
+		c.req.valid("query");
+	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
+	const retriedClause =
+		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
+	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
+
+	const rows = await db.execute<{
+		status_code: string | null;
+		status_text: string | null;
+		response_text: string | null;
+		cause: string | null;
+		count: string;
+		sampled_errors: string;
+	}>(sql`
+		WITH recent_errors AS (
+			SELECT ${tables.log.errorDetails} AS error_details
+			FROM ${tables.log}
+			WHERE ${tables.log.hasError} = true
+				AND ${tables.log.usedModel} = ${model}
+				AND ${tables.log.usedProvider} = ${provider}
+				AND ${tables.log.createdAt} >= ${windowInterval}
+				${retriedClause}
+			ORDER BY ${tables.log.createdAt} DESC
+			LIMIT ${sampleLimit}
+		)
+		SELECT error_details->>'statusCode' AS status_code,
+			error_details->>'statusText' AS status_text,
+			LEFT(error_details->>'responseText', 2000) AS response_text,
+			error_details->>'cause' AS cause,
+			COUNT(*) AS count,
+			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
+		FROM recent_errors
+		GROUP BY status_code, status_text, response_text, cause
+		ORDER BY count DESC
+		LIMIT 10
+	`);
+
+	const sampledErrors =
+		rows.rows.length > 0 ? Number(rows.rows[0].sampled_errors) : 0;
+
+	return c.json({
+		errors: rows.rows.map((r) => ({
+			statusCode: r.status_code !== null ? Number(r.status_code) : null,
+			statusText: r.status_text,
+			responseText: r.response_text,
+			cause: r.cause,
+			count: Number(r.count),
+		})),
+		sampledErrors,
 	});
 });
 

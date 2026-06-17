@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +11,7 @@ import { VideoControls } from "@/components/playground/video-controls";
 import { VideoGallery } from "@/components/playground/video-gallery";
 import { VideoHeader } from "@/components/playground/video-header";
 import { VideoSidebar } from "@/components/playground/video-sidebar";
+import { ChatPlanUpsell } from "@/components/pricing/chat-plan-upsell";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
@@ -20,6 +20,10 @@ import {
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
+import {
+	chatPlanCreditErrorMessage,
+	isInsufficientCreditsError,
+} from "@/lib/credit-error";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
 import {
@@ -596,6 +600,19 @@ export default function VideoPageClient({
 		[],
 	);
 
+	// In the Chat plan context the plan status endpoint is the source of truth
+	// for remaining credits; the org row passed from the server can be stale.
+	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
+	);
+	const chatPlanSubscribed = Boolean(
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none",
+	);
+
 	const generateVideos = useCallback(
 		async (overridePrompt?: string | unknown) => {
 			const effectivePrompt =
@@ -742,9 +759,14 @@ export default function VideoPageClient({
 
 						if (!response.ok) {
 							const errorData = await response.json().catch(() => null);
-							throw new Error(
+							const rawMessage =
 								errorData?.error ??
-									`HTTP ${response.status}: ${response.statusText}`,
+								`HTTP ${response.status}: ${response.statusText}`;
+							throw new Error(
+								isChatPlanContext &&
+								isInsufficientCreditsError(response.status, rawMessage)
+									? chatPlanCreditErrorMessage(chatPlanSubscribed, "videos")
+									: rawMessage,
 							);
 						}
 
@@ -826,6 +848,8 @@ export default function VideoPageClient({
 			updateGalleryModel,
 			someModelsRequireImage,
 			selectedOrganization?.id,
+			isChatPlanContext,
+			chatPlanSubscribed,
 		],
 	);
 
@@ -920,15 +944,6 @@ export default function VideoPageClient({
 		[activeItems, galleryItems, pathname, router],
 	);
 
-	// In the Chat plan context the plan status endpoint is the source of truth
-	// for remaining credits; the org row passed from the server can be stale.
-	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
-	const { data: chatPlanStatus } = api.useQuery(
-		"get",
-		"/chat-plans/status",
-		undefined,
-		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
-	);
 	const chatPlanCreditsRemaining =
 		chatPlanStatus && chatPlanStatus.chatPlan !== "none"
 			? Number(chatPlanStatus.chatPlanCreditsRemaining)
@@ -939,6 +954,9 @@ export default function VideoPageClient({
 				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
 			: Number(selectedOrganization.credits) < 1
 		: false;
+	// In the Chat plan context an out-of-credits state upsells the plans inline
+	// instead of a top-up banner.
+	const showPlanUpsell = isChatPlanContext && isLowCredits;
 
 	const handleSelectOrganization = useCallback(
 		(org: Organization | null) => {
@@ -979,26 +997,18 @@ export default function VideoPageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && (
+					{isLowCredits && !isChatPlanContext && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								{isChatPlanContext
-									? "You're out of credits. Upgrade to a plan to continue generating videos."
-									: "Low credits remaining. Top up to continue generating videos."}
+								Low credits remaining. Top up to continue generating videos.
 							</p>
-							{isChatPlanContext ? (
-								<Button variant="outline" size="sm" asChild>
-									<Link href="/pricing">View plans</Link>
-								</Button>
-							) : (
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() => setShowTopUp(true)}
-								>
-									Top Up
-								</Button>
-							)}
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setShowTopUp(true)}
+							>
+								Top Up
+							</Button>
 						</div>
 					)}
 					<VideoControls
@@ -1032,13 +1042,21 @@ export default function VideoPageClient({
 						imageInputRequired={someModelsRequireImage}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
-						<div className="max-w-6xl mx-auto">
-							<VideoGallery
-								items={displayItems}
-								comparisonMode={comparisonMode}
-								onSuggestionClick={handleSuggestionClick}
+						{showPlanUpsell ? (
+							<ChatPlanUpsell
+								noun="videos"
+								isAuthenticated={!!user}
+								subscribed={chatPlanSubscribed}
 							/>
-						</div>
+						) : (
+							<div className="max-w-6xl mx-auto">
+								<VideoGallery
+									items={displayItems}
+									comparisonMode={comparisonMode}
+									onSuggestionClick={handleSuggestionClick}
+								/>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>

@@ -1,0 +1,65 @@
+---
+title: Compliance
+description: Restrict routing to providers that meet your compliance requirements (SOC 2, ISO 27001, GDPR, no prompt training, no prompt logging)
+icon: BadgeCheck
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Provider Compliance Policies
+
+Provider compliance policies let you guarantee that requests are only ever routed to providers that meet your organization's regulatory requirements. When a request would be routed to a provider that doesn't meet the policy, the gateway blocks it **before any data leaves the gateway**.
+
+<Callout type="info">
+	Provider compliance policies are available on the [**Enterprise
+	plan**](https://llmgateway.io/enterprise) for organization owners and admins.
+</Callout>
+
+## Requirements
+
+Enable a policy under **Settings → Compliance** in the dashboard and toggle the requirements you need:
+
+| Requirement                | A provider is allowed when…         |
+| -------------------------- | ----------------------------------- |
+| **SOC 2 (Type 2)**         | it holds a SOC 2 certification      |
+| **ISO 27001**              | it holds an ISO 27001 certification |
+| **SOC 2 or ISO 27001**     | it holds either SOC 2 or ISO 27001  |
+| **GDPR compliant**         | it is GDPR compliant                |
+| **No training on prompts** | it does not train on API prompts    |
+| **No prompt logging**      | it does not log prompts             |
+
+Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
+
+The settings page shows a live preview of which providers are allowed and which are blocked under the current policy, so you can see the impact before saving.
+
+## Enforcement
+
+When no available provider for a model meets the policy — or a pinned provider is non-compliant — the gateway returns a `403`:
+
+```json
+{
+	"error": {
+		"message": "This request was blocked by your organization's provider compliance policy. No available provider for deepseek-v3.2 meets the required certifications. Contact your LLMGateway admin to adjust the policy."
+	}
+}
+```
+
+This applies to both routing modes:
+
+- **Automatic routing** — non-compliant providers are removed from the candidate set, and the request is blocked if none remain.
+- **Pinned providers** — a request such as `deepseek/deepseek-v3.2` is blocked when that specific provider does not meet the policy.
+
+Each block is recorded as a **security event** so administrators can review what was rejected and why.
+
+## Access Control
+
+Only organization **owners** and **admins** can view and change the compliance policy.
+
+## Related
+
+- [Data Retention](/features/data-retention) — control whether request and response payloads are stored.
+- [Guardrails](/features/guardrails) — detect and block harmful or sensitive content.
+
+## Get Started
+
+Provider compliance policies are an Enterprise feature. [Contact us](https://llmgateway.io/enterprise) to enable Enterprise for your organization.

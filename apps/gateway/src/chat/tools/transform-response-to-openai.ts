@@ -1,3 +1,4 @@
+import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { formatUsedModelForDisplay } from "./resolve-provider-context.js";
 
@@ -367,6 +368,87 @@ export function transformResponseToOpenai(
 		case "glacier":
 		case "google-vertex":
 		case "quartz": {
+			// Multi-candidate responses (n > 1 via candidateCount) map each Google
+			// candidate to its own OpenAI choice. The pre-parsed content/reasoning
+			// arguments aggregate every candidate for the log row, so re-extract
+			// per-candidate output from the (de-duplicated) raw parts here. The
+			// single-candidate path keeps using the pre-parsed values, which also
+			// carry response healing and image-generation labels.
+			const googleCandidates = dedupeGoogleCandidateParts(
+				Array.isArray(json?.candidates) ? json.candidates : [],
+				usedProvider,
+			);
+			const googleChoices =
+				googleCandidates.length > 1
+					? googleCandidates.map((candidate: any, position: number) => {
+							const candidateParts = candidate?.content?.parts ?? [];
+							const candidateContent = candidateParts
+								.filter((part: any) => !part.thought)
+								.map((part: any) => part.text)
+								.join("");
+							const candidateReasoning = candidateParts
+								.filter((part: any) => part.thought)
+								.map((part: any) => part.text)
+								.join("");
+							const candidateIndex = candidate.index ?? position;
+							const candidateToolCalls = candidateParts
+								.filter((part: any) => part.functionCall)
+								.map((part: any, fcIndex: number) => ({
+									// Same id scheme as parse-provider-response so choice 0's
+									// ids line up with the cached thought signatures.
+									id: `${part.functionCall.name}_${candidateIndex}_${fcIndex}`,
+									type: "function",
+									function: {
+										name: part.functionCall.name,
+										arguments: JSON.stringify(part.functionCall.args ?? {}),
+									},
+								}));
+							return {
+								index: candidateIndex,
+								message: {
+									role: "assistant",
+									content:
+										candidateContent.length > 0 ? candidateContent : null,
+									...(candidateReasoning.length > 0 && {
+										reasoning: candidateReasoning,
+									}),
+									...(candidateToolCalls.length > 0 && {
+										tool_calls: candidateToolCalls,
+									}),
+									...(position === 0 &&
+										images &&
+										images.length > 0 && { images }),
+									...(position === 0 &&
+										annotations &&
+										annotations.length > 0 && { annotations }),
+								},
+								finish_reason: mapFinishReasonToOpenai(
+									candidate.finishReason ?? finishReason,
+									usedProvider,
+									candidateToolCalls.length > 0,
+								),
+							};
+						})
+					: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: content,
+									...(reasoningContent !== null && {
+										reasoning: reasoningContent,
+									}),
+									...(toolResults && { tool_calls: toolResults }),
+									...(images && images.length > 0 && { images }),
+									...(annotations && annotations.length > 0 && { annotations }),
+								},
+								finish_reason: mapFinishReasonToOpenai(
+									finishReason,
+									usedProvider,
+									!!toolResults,
+								),
+							},
+						];
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",
@@ -377,26 +459,7 @@ export function transformResponseToOpenai(
 					undefined,
 					usedRegion,
 				),
-				choices: [
-					{
-						index: 0,
-						message: {
-							role: "assistant",
-							content: content,
-							...(reasoningContent !== null && {
-								reasoning: reasoningContent,
-							}),
-							...(toolResults && { tool_calls: toolResults }),
-							...(images && images.length > 0 && { images }),
-							...(annotations && annotations.length > 0 && { annotations }),
-						},
-						finish_reason: mapFinishReasonToOpenai(
-							finishReason,
-							usedProvider,
-							!!toolResults,
-						),
-					},
-				],
+				choices: googleChoices,
 				usage: buildUsageObject(
 					promptTokens,
 					completionTokens,
@@ -870,11 +933,16 @@ export function transformResponseToOpenai(
 					// Update content and finish_reason with parsed values
 					if (transformedResponse.choices?.[0]?.message) {
 						const message = transformedResponse.choices[0].message;
-						// Update content with parsed content (handles JSON unwrapping for Mistral/Novita)
-						if (content !== null) {
+						// The parsed content/reasoning aggregate every choice for the
+						// log row when n > 1, so only write them back into choice 0
+						// for single-choice responses — otherwise choice 0 would
+						// carry the concatenation of all choices. (Single-choice
+						// updates handle JSON unwrapping for Mistral/Novita.)
+						const isSingleChoice = transformedResponse.choices.length === 1;
+						if (content !== null && isSingleChoice) {
 							message.content = content;
 						}
-						if (reasoningContent !== null) {
+						if (reasoningContent !== null && isSingleChoice) {
 							message.reasoning = reasoningContent;
 							// Remove the old reasoning_content field if it exists
 							delete message.reasoning_content;

@@ -1882,6 +1882,15 @@ async function seed() {
 		role: "owner",
 	});
 
+	// Also make the default admin (admin@example.com) an admin of the enterprise
+	// org so it can be reached by switching orgs with the same login.
+	await upsert(tables.userOrganization, {
+		id: "enterprise-admin-user-org-id",
+		userId: "test-user-id",
+		organizationId: "enterprise-org-id",
+		role: "admin",
+	});
+
 	await upsert(tables.project, {
 		id: "enterprise-project-id",
 		name: "Enterprise Project",
