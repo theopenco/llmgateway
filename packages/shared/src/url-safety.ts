@@ -115,16 +115,25 @@ export function assertSafeWebhookUrl(rawUrl: string): URL {
 	return url;
 }
 
-const PROVIDER_ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
+/**
+ * Whether tenant-supplied provider base URLs must be SSRF-validated (https-only,
+ * no private/reserved/internal destinations). Enforced by default — including on
+ * the hosted multi-tenant deployment. Self-hosted operators who intentionally
+ * point providers at an internal or http-only model server (e.g. a local Ollama)
+ * can opt out by setting `ALLOW_INSECURE_PROVIDER_URLS=true`.
+ */
+export function isProviderUrlGuardEnabled(): boolean {
+	return process.env.ALLOW_INSECURE_PROVIDER_URLS !== "true";
+}
 
 /**
  * Validate a tenant-supplied provider `baseUrl` (custom provider or BYOK base
  * URL override) before it is stored or used as a `fetch()` destination. Must be
- * http(s) and must not point at a private/loopback/link-local/metadata IP
- * literal or an obvious internal hostname. Throws `Error` with a descriptive
- * message; returns the parsed URL on success. Does NOT resolve DNS — node
- * callers should additionally resolve the host and re-check the resolved IPs to
- * defeat DNS rebinding (see `assertSafeProviderUrl` in `url-safety-node`).
+ * https and must not point at a private/loopback/link-local/metadata IP literal
+ * or an obvious internal hostname. Throws `Error` with a descriptive message;
+ * returns the parsed URL on success. Does NOT resolve DNS — node callers should
+ * additionally resolve the host and re-check the resolved IPs to defeat DNS
+ * rebinding (see `assertSafeProviderUrl` in `url-safety-node`).
  */
 export function assertSafeProviderBaseUrl(rawUrl: string): URL {
 	let url: URL;
@@ -134,8 +143,8 @@ export function assertSafeProviderBaseUrl(rawUrl: string): URL {
 		throw new Error("Invalid provider base URL");
 	}
 
-	if (!PROVIDER_ALLOWED_PROTOCOLS.has(url.protocol)) {
-		throw new Error("Provider base URL must use http or https");
+	if (url.protocol !== "https:") {
+		throw new Error("Provider base URL must use https");
 	}
 
 	const host = url.hostname.toLowerCase();

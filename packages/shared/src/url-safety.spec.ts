@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	assertSafeProviderBaseUrl,
 	isPrivateOrReservedIp,
+	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
 
 describe("isPrivateOrReservedIp", () => {
@@ -34,13 +35,19 @@ describe("isPrivateOrReservedIp", () => {
 });
 
 describe("assertSafeProviderBaseUrl", () => {
-	it("accepts public http(s) endpoints", () => {
+	it("accepts public https endpoints", () => {
 		expect(() =>
 			assertSafeProviderBaseUrl("https://api.openai.com"),
 		).not.toThrow();
 		expect(() =>
-			assertSafeProviderBaseUrl("http://api.example.com:8080/v1"),
+			assertSafeProviderBaseUrl("https://api.example.com:8080/v1"),
 		).not.toThrow();
+	});
+
+	it("rejects http endpoints (even public)", () => {
+		expect(() =>
+			assertSafeProviderBaseUrl("http://api.example.com:8080/v1"),
+		).toThrow();
 	});
 
 	it("rejects loopback and reserved IP literals", () => {
@@ -66,9 +73,33 @@ describe("assertSafeProviderBaseUrl", () => {
 		}
 	});
 
-	it("rejects non-http(s) schemes and malformed URLs", () => {
+	it("rejects non-https schemes and malformed URLs", () => {
 		expect(() => assertSafeProviderBaseUrl("file:///etc/passwd")).toThrow();
 		expect(() => assertSafeProviderBaseUrl("gopher://127.0.0.1")).toThrow();
 		expect(() => assertSafeProviderBaseUrl("not a url")).toThrow();
+	});
+});
+
+describe("isProviderUrlGuardEnabled", () => {
+	const originalFlag = process.env.ALLOW_INSECURE_PROVIDER_URLS;
+
+	afterEach(() => {
+		if (originalFlag === undefined) {
+			delete process.env.ALLOW_INSECURE_PROVIDER_URLS;
+		} else {
+			process.env.ALLOW_INSECURE_PROVIDER_URLS = originalFlag;
+		}
+	});
+
+	it("is enabled by default and when the flag is not exactly 'true'", () => {
+		delete process.env.ALLOW_INSECURE_PROVIDER_URLS;
+		expect(isProviderUrlGuardEnabled()).toBe(true);
+		process.env.ALLOW_INSECURE_PROVIDER_URLS = "false";
+		expect(isProviderUrlGuardEnabled()).toBe(true);
+	});
+
+	it("is disabled only when explicitly opted out", () => {
+		process.env.ALLOW_INSECURE_PROVIDER_URLS = "true";
+		expect(isProviderUrlGuardEnabled()).toBe(false);
 	});
 });

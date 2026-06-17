@@ -134,6 +134,7 @@ export {
 	assertSafeProviderBaseUrl,
 	assertSafeWebhookUrl,
 	isPrivateOrReservedIp,
+	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
 
 export * from "./components/ui/index.js";

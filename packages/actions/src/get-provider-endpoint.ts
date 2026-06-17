@@ -8,7 +8,10 @@ import {
 	getProviderEnvValue,
 	getProviderEnvConfig,
 } from "@llmgateway/models";
-import { assertSafeProviderBaseUrl } from "@llmgateway/shared";
+import {
+	assertSafeProviderBaseUrl,
+	isProviderUrlGuardEnabled,
+} from "@llmgateway/shared";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
@@ -149,10 +152,11 @@ export function getProviderEndpoint(
 	}
 
 	if (baseUrl) {
-		// SSRF guard: a tenant-supplied provider base URL must never point at an
-		// internal/loopback/reserved address. Enforced on the hosted multi-tenant
-		// deployment; self-hosted installs may target internal model servers.
-		if (process.env.HOSTED === "true") {
+		// SSRF guard: a tenant-supplied provider base URL must never be http or
+		// point at an internal/loopback/reserved address. Enforced by default;
+		// self-hosted installs can opt out via ALLOW_INSECURE_PROVIDER_URLS to
+		// target internal/http model servers.
+		if (isProviderUrlGuardEnabled()) {
 			assertSafeProviderBaseUrl(baseUrl);
 		}
 		url = baseUrl;

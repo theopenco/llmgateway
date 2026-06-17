@@ -11,22 +11,15 @@ import { lookup } from "node:dns/promises";
 import {
 	assertSafeProviderBaseUrl,
 	isPrivateOrReservedIp,
+	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
 
 /**
- * Whether tenant-supplied provider base URLs must be SSRF-validated. Enabled on
- * the hosted multi-tenant deployment; self-hosted single-tenant installs may
- * legitimately point providers at internal/local model servers.
- */
-export function isProviderUrlGuardEnabled(): boolean {
-	return process.env.HOSTED === "true";
-}
-
-/**
  * Validate a provider `baseUrl` is safe to use as an outbound `fetch()` target:
- * http(s), not an internal host/IP literal, and whose hostname does not resolve
- * to a private/reserved address. No-op unless the provider URL guard is enabled
- * (see `isProviderUrlGuardEnabled`). Throws `Error` on an unsafe target.
+ * https, not an internal host/IP literal, and whose hostname does not resolve to
+ * a private/reserved address. No-op when the guard is disabled via
+ * `ALLOW_INSECURE_PROVIDER_URLS` (see `isProviderUrlGuardEnabled`). Throws
+ * `Error` on an unsafe target.
  */
 export async function assertSafeProviderUrl(rawUrl: string): Promise<void> {
 	if (!isProviderUrlGuardEnabled()) {

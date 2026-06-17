@@ -702,35 +702,38 @@ describe("getProviderEndpoint", () => {
 });
 
 describe("getProviderEndpoint SSRF guard", () => {
-	const originalHosted = process.env.HOSTED;
+	const originalFlag = process.env.ALLOW_INSECURE_PROVIDER_URLS;
 
 	afterEach(() => {
-		if (originalHosted === undefined) {
-			delete process.env.HOSTED;
+		if (originalFlag === undefined) {
+			delete process.env.ALLOW_INSECURE_PROVIDER_URLS;
 		} else {
-			process.env.HOSTED = originalHosted;
+			process.env.ALLOW_INSECURE_PROVIDER_URLS = originalFlag;
 		}
 	});
 
-	it("rejects internal base URLs when HOSTED", () => {
-		process.env.HOSTED = "true";
+	it("rejects internal and http base URLs by default", () => {
+		delete process.env.ALLOW_INSECURE_PROVIDER_URLS;
 		expect(() =>
-			getProviderEndpoint("custom", "http://127.0.0.1:7777", "custom"),
+			getProviderEndpoint("custom", "https://127.0.0.1:7777", "custom"),
 		).toThrow();
 		expect(() =>
-			getProviderEndpoint("custom", "http://169.254.169.254", "custom"),
+			getProviderEndpoint("custom", "https://169.254.169.254", "custom"),
+		).toThrow();
+		expect(() =>
+			getProviderEndpoint("custom", "http://api.example.com", "custom"),
 		).toThrow();
 	});
 
-	it("allows public base URLs when HOSTED", () => {
-		process.env.HOSTED = "true";
+	it("allows public https base URLs by default", () => {
+		delete process.env.ALLOW_INSECURE_PROVIDER_URLS;
 		expect(
 			getProviderEndpoint("custom", "https://api.example.com", "custom"),
 		).toBe("https://api.example.com/v1/chat/completions");
 	});
 
-	it("allows internal base URLs when not HOSTED (self-hosted)", () => {
-		delete process.env.HOSTED;
+	it("allows internal/http base URLs when opted out (self-hosted)", () => {
+		process.env.ALLOW_INSECURE_PROVIDER_URLS = "true";
 		expect(
 			getProviderEndpoint("custom", "http://127.0.0.1:7777", "custom"),
 		).toBe("http://127.0.0.1:7777/v1/chat/completions");
