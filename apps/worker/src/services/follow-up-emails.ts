@@ -5,6 +5,7 @@ import {
 	db,
 	eq,
 	followUpEmail,
+	inArray,
 	organization,
 	project,
 	projectHourlyStats,
@@ -221,6 +222,12 @@ export async function processNoPurchaseEmails(): Promise<void> {
 				sql`${organization.createdAt} > ${maxAgeAgo}`,
 				eq(organization.devPlan, "none"),
 				eq(organization.status, "active"),
+				// Only nudge normal pay-as-you-go team orgs. Personal orgs back the
+				// DevPass coding product and chat orgs back chat.llmgateway.io — both
+				// have their own billing and are hidden from the dashboard, so they
+				// should never receive the "add credits" email.
+				eq(organization.isPersonal, false),
+				eq(organization.isChat, false),
 				sql`${organization.id} NOT IN (
 					SELECT ${transaction.organizationId}
 					FROM ${transaction}
@@ -249,19 +256,57 @@ export async function processNoPurchaseEmails(): Promise<void> {
 			),
 		);
 
+	// Resolve the recipient for each org up front so we can deduplicate on the
+	// actual address the email is delivered to (billingEmail, falling back to the
+	// owner). Keying on the recipient — not org ownership — means a shared billing
+	// contact is nudged once across all their orgs, while a co-owner with their
+	// own address still gets nudged for their own credit-less org.
+	const candidates: { organizationId: string; email: string }[] = [];
 	for (const { organizationId } of eligibleOrgs) {
 		if (isStopRequested()) {
 			break;
 		}
+		const email = await getOrgRecipientEmail(organizationId);
+		if (!email) {
+			logger.warn("No email found for org, skipping no_purchase follow-up", {
+				organizationId,
+			});
+			continue;
+		}
+		candidates.push({ organizationId, email });
+	}
+
+	if (candidates.length === 0) {
+		return;
+	}
+
+	// Recipients already nudged in a previous run, matched on the recorded
+	// recipient address (sentTo) rather than current org ownership, which can
+	// change after the fact.
+	const recipientEmails = [...new Set(candidates.map((c) => c.email))];
+	const priorSends = await db
+		.select({ sentTo: followUpEmail.sentTo })
+		.from(followUpEmail)
+		.where(
+			and(
+				eq(followUpEmail.emailType, "no_purchase"),
+				inArray(followUpEmail.sentTo, recipientEmails),
+			),
+		);
+	const handledRecipients = new Set(priorSends.map((r) => r.sentTo));
+
+	for (const { organizationId, email } of candidates) {
+		if (isStopRequested()) {
+			break;
+		}
+		// Within-run guard: two orgs sharing a recipient both pass the cross-run
+		// check above before either send is recorded.
+		if (handledRecipients.has(email)) {
+			continue;
+		}
 		try {
-			const email = await getOrgRecipientEmail(organizationId);
-			if (!email) {
-				logger.warn("No email found for org, skipping no_purchase follow-up", {
-					organizationId,
-				});
-				continue;
-			}
 			await sendAndRecord(organizationId, "no_purchase", email);
+			handledRecipients.add(email);
 		} catch (error) {
 			logger.error(
 				`Error sending no_purchase follow-up for org ${organizationId}`,

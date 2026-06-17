@@ -315,3 +315,25 @@ describe("Seedance 2.0 reference capabilities", () => {
 		expect(options.durations).toHaveLength(0);
 	});
 });
+
+describe("Grok Imagine Video 1.5 capabilities", () => {
+	test("supportsVideoFrameInput is true for grok-imagine-video-1-5", () => {
+		expect(supportsVideoFrameInput("grok-imagine-video-1-5")).toBe(true);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1-5")).toBe(true);
+	});
+
+	test("supportsVideoFrameInput is true for grok-imagine-video-1-5-preview", () => {
+		expect(supportsVideoFrameInput("grok-imagine-video-1-5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1-5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("grok-imagine-video-1.5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1.5-preview")).toBe(
+			true,
+		);
+	});
+});
