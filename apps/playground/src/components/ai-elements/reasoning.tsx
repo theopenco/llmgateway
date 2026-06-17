@@ -14,9 +14,8 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ComponentProps, ReactNode } from "react";
-import type { BundledTheme } from "shiki";
 
-const shikiTheme: [BundledTheme, BundledTheme] = [
+const shikiTheme: ComponentProps<typeof Streamdown>["shikiTheme"] = [
 	"github-light",
 	"github-dark",
 ];

@@ -110,7 +110,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "minimax";
 	}
 
-	if (rootModelId === "grok-imagine-video-1.5") {
+	if (
+		rootModelId === "grok-imagine-video-1.5" ||
+		rootModelId === "grok-imagine-video-1.5-preview"
+	) {
 		return providerId === undefined || providerId === "xai";
 	}
 
