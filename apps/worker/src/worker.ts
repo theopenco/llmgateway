@@ -725,10 +725,12 @@ export async function cleanupExpiredLogData(): Promise<void> {
 // (public provider stats), so 90 days leaves a comfortable buffer.
 const MODEL_HISTORY_RETENTION_DAYS = 90;
 const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
-// Cap the work per run so a single cleanup reliably finishes well within the
-// lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog. The loop
-// runs hourly, so any remaining rows are drained over subsequent runs. At
-// steady state (a few thousand expiring rows per hour) this cap is never hit.
+// Cap the work per run (per table) so a single cleanup reliably finishes well
+// within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
+// The loop runs hourly, so any remaining rows are drained over subsequent runs.
+// At steady state (~640 rows/min across both tables, i.e. a handful of batches
+// per hour) this cap is never approached; it only bounds the initial backlog
+// drain. Each table gets its own budget so neither starves the other.
 const MODEL_HISTORY_MAX_BATCHES_PER_RUN = 50;
 
 async function cleanupModelHistoryTable(
@@ -805,7 +807,7 @@ export async function cleanupExpiredModelHistory(): Promise<void> {
 		const model = await cleanupModelHistoryTable(
 			tables.modelHistory,
 			cutoffDate,
-			MODEL_HISTORY_MAX_BATCHES_PER_RUN - mapping.batches,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
 		);
 
 		const mappingDeleted = mapping.deleted;
