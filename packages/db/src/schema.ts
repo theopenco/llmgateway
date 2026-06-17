@@ -2009,6 +2009,129 @@ export const modelHistory = pgTable(
 	],
 );
 
+// Hourly rollup of model_provider_mapping_history. Each row summarizes one
+// hour by summing the 60 minute rows for a mapping, for cheap long-range
+// queries that don't need minute granularity.
+export const modelProviderMappingHistoryHourly = pgTable(
+	"model_provider_mapping_history_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
+		providerId: text().notNull(), // Provider ID (e.g., "openai")
+		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		// Unique timestamp key for one-hour intervals (rounded down to the hour)
+		hourTimestamp: timestamp().notNull(),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		cachedCount: integer().notNull().default(0),
+		totalInputTokens: integer().notNull().default(0),
+		totalOutputTokens: integer().notNull().default(0),
+		totalTokens: integer().notNull().default(0),
+		totalReasoningTokens: integer().notNull().default(0),
+		totalCachedTokens: integer().notNull().default(0),
+		totalDuration: integer().notNull().default(0),
+		totalTimeToFirstToken: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		totalCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint ensures one record per mapping-hour combination
+		unique().on(table.modelProviderMappingId, table.hourTimestamp),
+		// Index for ORDER BY hourTimestamp DESC queries
+		index("mpm_history_hourly_ts_idx").on(table.hourTimestamp),
+		// Composite index for aggregation queries by providerId
+		index("mpm_history_hourly_ts_provider_idx").on(
+			table.hourTimestamp,
+			table.providerId,
+		),
+		// Composite index for aggregation queries by modelId
+		index("mpm_history_hourly_ts_model_idx").on(
+			table.hourTimestamp,
+			table.modelId,
+		),
+		// Index for admin model detail queries (filter by model + time range)
+		index("mpm_history_hourly_model_ts_idx").on(
+			table.modelId,
+			table.hourTimestamp,
+		),
+		// Covering index for the public provider stats aggregation
+		// (filter by hourTimestamp range, group by providerId, sum metrics).
+		index("mpm_history_hourly_provider_stats_idx").on(
+			table.hourTimestamp,
+			table.providerId,
+			table.logsCount,
+			table.errorsCount,
+			table.cachedCount,
+			table.totalTimeToFirstToken,
+			table.totalOutputTokens,
+			table.totalDuration,
+		),
+	],
+);
+
+// Hourly rollup of model_history. Each row summarizes one hour by summing the
+// 60 minute rows for a model.
+export const modelHistoryHourly = pgTable(
+	"model_history_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(),
+		// Unique timestamp key for one-hour intervals (rounded down to the hour)
+		hourTimestamp: timestamp().notNull(),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		cachedCount: integer().notNull().default(0),
+		totalInputTokens: integer().notNull().default(0),
+		totalOutputTokens: integer().notNull().default(0),
+		totalTokens: integer().notNull().default(0),
+		totalReasoningTokens: integer().notNull().default(0),
+		totalCachedTokens: integer().notNull().default(0),
+		totalDuration: integer().notNull().default(0),
+		totalTimeToFirstToken: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		totalCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint ensures one record per model-hour combination
+		unique().on(table.modelId, table.hourTimestamp),
+		// Index for ORDER BY hourTimestamp DESC queries
+		index("model_history_hourly_ts_idx").on(table.hourTimestamp),
+		// Index for admin model history queries (filter by model + time range)
+		index("model_history_hourly_model_ts_idx").on(
+			table.modelId,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization

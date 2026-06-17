@@ -7,6 +7,8 @@ import {
 	modelProviderMapping,
 	modelProviderMappingHistory,
 	modelHistory,
+	modelProviderMappingHistoryHourly,
+	modelHistoryHourly,
 	log,
 	organization,
 	project,
@@ -19,7 +21,9 @@ import {
 import {
 	calculateMinutelyHistory,
 	calculateAggregatedStatistics,
+	calculateHourlyHistory,
 	backfillHistoryIfNeeded,
+	backfillHourlyHistoryIfNeeded,
 } from "./stats-calculator.js";
 
 // Mock current time for consistent testing
@@ -32,6 +36,8 @@ describe("stats-calculator", () => {
 
 		// Clean up test data before each test
 		await db.delete(log);
+		await db.delete(modelProviderMappingHistoryHourly);
+		await db.delete(modelHistoryHourly);
 		await db.delete(modelProviderMappingHistory);
 		await db.delete(modelHistory);
 		await db.delete(modelProviderMapping);
@@ -1415,6 +1421,260 @@ describe("stats-calculator", () => {
 			expect(sortedTimestamps[sortedTimestamps.length - 1]?.getTime()).toBe(
 				new Date("2024-01-01T12:29:00.000Z").getTime(),
 			);
+		});
+	});
+
+	describe("calculateHourlyHistory", () => {
+		// mockDate is 12:30Z → current hour 12:00, previous hour 11:00
+		const currentHour = new Date("2024-01-01T12:00:00.000Z");
+		const previousHour = new Date("2024-01-01T11:00:00.000Z");
+
+		it("should roll up minute history into hourly summaries", async () => {
+			await db.insert(modelHistory).values([
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					logsCount: 10,
+					errorsCount: 1,
+					cachedCount: 2,
+					totalOutputTokens: 100,
+					totalDuration: 1000,
+				},
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					logsCount: 5,
+					errorsCount: 0,
+					cachedCount: 1,
+					totalOutputTokens: 50,
+					totalDuration: 500,
+				},
+				// Previous hour entry should roll up into the 11:00 bucket
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T11:30:00.000Z"),
+					logsCount: 7,
+					errorsCount: 2,
+					cachedCount: 0,
+					totalOutputTokens: 70,
+					totalDuration: 700,
+				},
+			]);
+
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					logsCount: 10,
+					errorsCount: 1,
+					cachedCount: 2,
+					totalOutputTokens: 100,
+					totalDuration: 1000,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					logsCount: 5,
+					errorsCount: 0,
+					cachedCount: 1,
+					totalOutputTokens: 50,
+					totalDuration: 500,
+				},
+			]);
+
+			await calculateHourlyHistory();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const gptCurrent = modelHourly.find(
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			expect(gptCurrent?.logsCount).toBe(15);
+			expect(gptCurrent?.errorsCount).toBe(1);
+			expect(gptCurrent?.cachedCount).toBe(3);
+			expect(gptCurrent?.totalOutputTokens).toBe(150);
+			expect(gptCurrent?.totalDuration).toBe(1500);
+
+			const gptPrevious = modelHourly.find(
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.hourTimestamp.getTime() === previousHour.getTime(),
+			);
+			expect(gptPrevious?.logsCount).toBe(7);
+			expect(gptPrevious?.errorsCount).toBe(2);
+
+			const mappingHourly = await db
+				.select()
+				.from(modelProviderMappingHistoryHourly);
+			const mappingCurrent = mappingHourly.find(
+				(r) =>
+					r.modelProviderMappingId === "mapping-1" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			expect(mappingCurrent?.modelId).toBe("gpt-4");
+			expect(mappingCurrent?.providerId).toBe("openai");
+			expect(mappingCurrent?.logsCount).toBe(15);
+			expect(mappingCurrent?.cachedCount).toBe(3);
+			expect(mappingCurrent?.totalOutputTokens).toBe(150);
+		});
+
+		it("should overwrite existing hourly rows rather than accumulate", async () => {
+			// Pre-existing hourly row with stale values
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: currentHour,
+				logsCount: 999,
+				errorsCount: 999,
+			});
+
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+				logsCount: 4,
+				errorsCount: 1,
+			});
+
+			await calculateHourlyHistory();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const gptCurrent = modelHourly.find(
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			// Recomputed from minute data, not added to the stale 999
+			expect(gptCurrent?.logsCount).toBe(4);
+			expect(gptCurrent?.errorsCount).toBe(1);
+		});
+	});
+
+	describe("backfillHourlyHistoryIfNeeded", () => {
+		it("should backfill from the earliest minute entry when hourly is empty", async () => {
+			// mockDate 12:30Z → previous complete hour is 11:00; current hour 12:00
+			// is in progress and must NOT be produced by backfill.
+			await db.insert(modelHistory).values([
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T10:30:00.000Z"),
+					logsCount: 3,
+				},
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T11:30:00.000Z"),
+					logsCount: 7,
+				},
+			]);
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T10:30:00.000Z"),
+					logsCount: 3,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T11:30:00.000Z"),
+					logsCount: 7,
+				},
+			]);
+
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const hours = modelHourly
+				.map((r) => r.hourTimestamp.getTime())
+				.sort((a, b) => a - b);
+			expect(new Set(hours).size).toBe(2);
+			expect(hours[0]).toBe(new Date("2024-01-01T10:00:00.000Z").getTime());
+			expect(hours[1]).toBe(new Date("2024-01-01T11:00:00.000Z").getTime());
+
+			const tenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T10:00:00.000Z").getTime(),
+			);
+			expect(tenHour?.logsCount).toBe(3);
+			const elevenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T11:00:00.000Z").getTime(),
+			);
+			expect(elevenHour?.logsCount).toBe(7);
+
+			// Current (in-progress) hour must not be backfilled
+			const currentHourRow = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T12:00:00.000Z").getTime(),
+			);
+			expect(currentHourRow).toBeUndefined();
+		});
+
+		it("should resume from the hour after the latest hourly entry", async () => {
+			// Already-summarized hour at 10:00
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
+				logsCount: 99,
+			});
+
+			// Minute data only in the 11:00 hour
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T11:30:00.000Z"),
+				logsCount: 7,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			// Untouched existing 10:00 row + freshly backfilled 11:00 row
+			const tenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T10:00:00.000Z").getTime(),
+			);
+			expect(tenHour?.logsCount).toBe(99);
+			const elevenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T11:00:00.000Z").getTime(),
+			);
+			expect(elevenHour?.logsCount).toBe(7);
+		});
+
+		it("should not backfill when hourly history is up to date", async () => {
+			// previousHourStart is 11:00; a row there means nothing to do
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T11:00:00.000Z"),
+				logsCount: 5,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			expect(modelHourly).toHaveLength(1);
+			expect(modelHourly[0]?.logsCount).toBe(5);
+		});
+
+		it("should do nothing when no minute history exists", async () => {
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const mappingHourly = await db
+				.select()
+				.from(modelProviderMappingHistoryHourly);
+			expect(modelHourly).toHaveLength(0);
+			expect(mappingHourly).toHaveLength(0);
 		});
 	});
 });
