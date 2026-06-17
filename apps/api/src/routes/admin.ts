@@ -9,6 +9,13 @@ import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import { notDevpassFilter } from "@/utils/devpass-filter.js";
+import {
+	HOURLY_BUCKET_THRESHOLD_MINUTES,
+	floorToHourStart,
+	isHourlyRange,
+	pickMappingHistoryTable,
+	pickModelHistoryTable,
+} from "@/utils/history-window.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -4624,10 +4631,6 @@ const HISTORY_WINDOW_MINUTES: Record<string, number> = {
 	"90d": 129600,
 };
 
-// Windows longer than 24h read the hourly rollup tables instead of the minute
-// tables, so a 30d/90d range scans hours rather than millions of minute rows.
-const HOURLY_BUCKET_THRESHOLD_MINUTES = 1440;
-
 function getHistoryStartDate(window: string): Date {
 	const minutes = HISTORY_WINDOW_MINUTES[window] ?? 240;
 	const ms = minutes * 60 * 1000;
@@ -4638,66 +4641,6 @@ function isHourlyWindow(window: string): boolean {
 	return (
 		(HISTORY_WINDOW_MINUTES[window] ?? 240) > HOURLY_BUCKET_THRESHOLD_MINUTES
 	);
-}
-
-// Same threshold as isHourlyWindow but for the list endpoints, which take an
-// explicit [from, to) range instead of a named window.
-function isHourlyRange(from: Date, to: Date): boolean {
-	return (
-		to.getTime() - from.getTime() > HOURLY_BUCKET_THRESHOLD_MINUTES * 60 * 1000
-	);
-}
-
-// Floor a date to the start of its hour so the hourly-table range filter aligns
-// to bucket boundaries.
-function floorToHourStart(date: Date): Date {
-	const d = new Date(date);
-	d.setMinutes(0, 0, 0);
-	return d;
-}
-
-// The minute and hourly history tables share identical metric column names and
-// differ only in their timestamp column. These pickers return the right source
-// for a window plus its bucket column, so aggregate/timeseries queries can serve
-// both without duplicating every SUM(). The hourly table is cast to the minute
-// table's type because the metric columns line up exactly at runtime; callers
-// must use the returned `bucket` for any timestamp predicate (never
-// `table.minuteTimestamp`, which does not exist on the hourly table).
-function pickMappingHistoryTable(hourly: boolean): {
-	table: typeof modelProviderMappingHistory;
-	bucket:
-		| typeof modelProviderMappingHistory.minuteTimestamp
-		| typeof modelProviderMappingHistoryHourly.hourTimestamp;
-} {
-	if (hourly) {
-		return {
-			table:
-				modelProviderMappingHistoryHourly as unknown as typeof modelProviderMappingHistory,
-			bucket: modelProviderMappingHistoryHourly.hourTimestamp,
-		};
-	}
-	return {
-		table: modelProviderMappingHistory,
-		bucket: modelProviderMappingHistory.minuteTimestamp,
-	};
-}
-
-function pickModelHistoryTable(hourly: boolean): {
-	table: typeof modelHistory;
-	bucket:
-		| typeof modelHistory.minuteTimestamp
-		| typeof modelHistoryHourly.hourTimestamp;
-} {
-	if (hourly) {
-		return {
-			table: modelHistoryHourly as unknown as typeof modelHistory,
-			bucket: modelHistoryHourly.hourTimestamp,
-		};
-	}
-	return {
-		table: modelHistory,
-		bucket: modelHistory.minuteTimestamp,
-	};
 }
 
 // Model detail – lists providers that serve a given model (with stats)
