@@ -100,6 +100,17 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "cost", label: "Cost" },
 ];
 
+// Windows longer than 24h are served from the hourly rollup tables; 24h and
+// below come from the per-minute history tables. Mirrors the API's
+// isHourlyWindow threshold.
+const HOURLY_WINDOWS = new Set<HistoryWindow>(["2d", "3d", "7d", "30d", "90d"]);
+
+export function historyBucketSource(
+	window: HistoryWindow,
+): "hourly" | "minute" {
+	return HOURLY_WINDOWS.has(window) ? "hourly" : "minute";
+}
+
 function formatTimestamp(ts: string, window: HistoryWindow): string {
 	const date = new Date(ts);
 	// Long ranges are day-bucketed visually — drop the time-of-day noise.
@@ -234,7 +245,19 @@ export function HistoryChart({
 			<CardHeader className="space-y-4 pb-2">
 				<div className="flex items-start justify-between gap-4">
 					<div>
-						<CardTitle className="text-base">{title}</CardTitle>
+						<div className="flex items-center gap-2">
+							<CardTitle className="text-base">{title}</CardTitle>
+							<span
+								className="rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+								title={
+									historyBucketSource(window) === "hourly"
+										? "Aggregated from the hourly rollup tables (windows > 24h)"
+										: "Aggregated from the per-minute history tables (windows ≤ 24h)"
+								}
+							>
+								{historyBucketSource(window)} buckets
+							</span>
+						</div>
 						{description && <CardDescription>{description}</CardDescription>}
 					</div>
 					{!externalWindow && (

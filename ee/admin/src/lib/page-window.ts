@@ -55,6 +55,20 @@ const allValidWindows = new Set<PageWindow>([
 	"90d",
 ]);
 
+// Windows longer than 24h are aggregated from the hourly rollup tables; 24h and
+// below from the per-minute history tables. Mirrors the API's hourly threshold.
+const HOURLY_PAGE_WINDOWS = new Set<PageWindow>([
+	"2d",
+	"3d",
+	"7d",
+	"30d",
+	"90d",
+]);
+
+export function pageBucketSource(window: PageWindow): "hourly" | "minute" {
+	return HOURLY_PAGE_WINDOWS.has(window) ? "hourly" : "minute";
+}
+
 export function parsePageWindow(value: string | undefined): PageWindow {
 	if (value && allValidWindows.has(value as PageWindow)) {
 		return value as PageWindow;

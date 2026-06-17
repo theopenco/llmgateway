@@ -1659,6 +1659,70 @@ describe("stats-calculator", () => {
 			expect(elevenHour?.logsCount).toBe(7);
 		});
 
+		it("should fill an older gap even when a recent hour is already present", async () => {
+			// Minute data spans hours 9, 10, 11 in both tables.
+			for (const [minute, logsCount] of [
+				[new Date("2024-01-01T09:30:00.000Z"), 2],
+				[new Date("2024-01-01T10:30:00.000Z"), 3],
+				[new Date("2024-01-01T11:30:00.000Z"), 7],
+			] as const) {
+				await db.insert(modelHistory).values({
+					modelId: "gpt-4",
+					minuteTimestamp: minute,
+					logsCount,
+				});
+				await db.insert(modelProviderMappingHistory).values({
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: minute,
+					logsCount,
+				});
+			}
+
+			// The live minutely loop already wrote only the most recent completed
+			// hour (11:00); hours 9 and 10 are an unfilled gap behind it.
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T11:00:00.000Z"),
+				logsCount: 999,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				hourTimestamp: new Date("2024-01-01T11:00:00.000Z"),
+				logsCount: 999,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			// The older gap (9:00, 10:00) must be filled...
+			expect(
+				modelHourly.find(
+					(r) =>
+						r.hourTimestamp.getTime() ===
+						new Date("2024-01-01T09:00:00.000Z").getTime(),
+				)?.logsCount,
+			).toBe(2);
+			expect(
+				modelHourly.find(
+					(r) =>
+						r.hourTimestamp.getTime() ===
+						new Date("2024-01-01T10:00:00.000Z").getTime(),
+				)?.logsCount,
+			).toBe(3);
+			// ...while the already-present recent hour is left untouched.
+			expect(
+				modelHourly.find(
+					(r) =>
+						r.hourTimestamp.getTime() ===
+						new Date("2024-01-01T11:00:00.000Z").getTime(),
+				)?.logsCount,
+			).toBe(999);
+		});
+
 		it("should heal a table left behind by a partial write", async () => {
 			// Minute data exists in both tables for hours 10 and 11.
 			for (const minute of [

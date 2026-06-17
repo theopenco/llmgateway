@@ -1054,13 +1054,15 @@ export async function calculateHourlyHistory() {
 }
 
 /**
- * Backfill missing hourly summary rows. Resumes from the earliest of the two
- * summary tables' latest COMPLETED hours (re-running that boundary hour so a
- * partial write heals), or — when either table has no completed hour — from the
- * earliest minute-history entry, and walks forward to the previous complete
- * hour. The in-progress current hour is ignored when choosing the resume point
- * (the live loop owns it) so a freshly-written current-hour row can't mask
- * older minute history that still needs rolling up.
+ * Backfill missing hourly summary rows by walking every completed hour from the
+ * earliest minute-history entry up to the previous complete hour and recomputing
+ * only the hours absent from EITHER summary table. Detecting missing hours
+ * (rather than resuming from the latest entry) is what makes this robust: the
+ * minutely loop writes the current and previous hour on startup, so the latest
+ * hourly entry is never a reliable "everything before this is done" watermark —
+ * resuming from it would strand the older gap. Recomputing any hour missing from
+ * one table also heals a table left behind by a partial write. The in-progress
+ * current hour is excluded (the live loop owns it).
  */
 export async function backfillHourlyHistoryIfNeeded() {
 	logger.info("Checking for missing hourly history periods to backfill...");
@@ -1073,112 +1075,90 @@ export async function backfillHourlyHistoryIfNeeded() {
 			currentHourStart.getTime() - ONE_HOUR_MS,
 		);
 
-		// Most recent COMPLETED hourly entry across both summary tables. The
-		// in-progress current hour is excluded: the minutely loop writes that row
-		// on startup, possibly before this backfill runs, and treating it as the
-		// resume point would make a fresh deploy think it's up to date and never
-		// roll up the older minute history (the current hour is owned by the live
-		// loop anyway).
-		const latestMappingHourly = await database
-			.select({
-				hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
-			})
-			.from(modelProviderMappingHistoryHourly)
-			.where(
-				lt(modelProviderMappingHistoryHourly.hourTimestamp, currentHourStart),
-			)
-			.orderBy(sql`${modelProviderMappingHistoryHourly.hourTimestamp} DESC`)
+		// Earliest minute-history entry across both source tables — the oldest hour
+		// the hourly rollup could possibly cover.
+		const earliestMappingMinute = await database
+			.select({ minuteTimestamp: modelProviderMappingHistory.minuteTimestamp })
+			.from(modelProviderMappingHistory)
+			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp))
 			.limit(1);
 
-		const latestModelHourly = await database
-			.select({ hourTimestamp: modelHistoryHourly.hourTimestamp })
-			.from(modelHistoryHourly)
-			.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart))
-			.orderBy(sql`${modelHistoryHourly.hourTimestamp} DESC`)
+		const earliestModelMinute = await database
+			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
+			.from(modelHistory)
+			.orderBy(asc(modelHistory.minuteTimestamp))
 			.limit(1);
 
-		// Resume from the EARLIEST of the two tables' latest hours, not the latest.
-		// calculateHistoryForHour writes the mapping table before the model table,
-		// so a crash between them leaves one table an hour (or more) behind. Taking
-		// the min — and re-running that shared boundary hour below — lets the
-		// idempotent upserts heal the lagging table and any partial write, whereas
-		// max would skip the gap permanently. If either table is empty it needs its
-		// full history, so fall through to the earliest-minute path.
-		let lastHour: Date | null = null;
-		if (latestMappingHourly.length > 0 && latestModelHourly.length > 0) {
-			lastHour = new Date(
+		let earliestMinute: Date | null = null;
+		if (earliestMappingMinute.length > 0 && earliestModelMinute.length > 0) {
+			earliestMinute = new Date(
 				Math.min(
-					latestMappingHourly[0]!.hourTimestamp.getTime(),
-					latestModelHourly[0]!.hourTimestamp.getTime(),
+					earliestMappingMinute[0]!.minuteTimestamp.getTime(),
+					earliestModelMinute[0]!.minuteTimestamp.getTime(),
 				),
 			);
+		} else if (earliestMappingMinute.length > 0) {
+			earliestMinute = earliestMappingMinute[0]!.minuteTimestamp;
+		} else if (earliestModelMinute.length > 0) {
+			earliestMinute = earliestModelMinute[0]!.minuteTimestamp;
 		}
 
-		let startHour: Date;
-		if (lastHour) {
-			// Re-run the shared boundary hour (overlap) so a partial write to it is
-			// recomputed, then continue forward.
-			startHour = roundToHourStart(lastHour);
-		} else {
-			// Nothing summarized in one or both tables: start from the earliest
-			// minute-history entry so an empty table gets its full history.
-			const earliestMappingMinute = await database
-				.select({
-					minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
-				})
-				.from(modelProviderMappingHistory)
-				.orderBy(asc(modelProviderMappingHistory.minuteTimestamp))
-				.limit(1);
-
-			const earliestModelMinute = await database
-				.select({ minuteTimestamp: modelHistory.minuteTimestamp })
-				.from(modelHistory)
-				.orderBy(asc(modelHistory.minuteTimestamp))
-				.limit(1);
-
-			let earliestMinute: Date | null = null;
-			if (earliestMappingMinute.length > 0 && earliestModelMinute.length > 0) {
-				earliestMinute = new Date(
-					Math.min(
-						earliestMappingMinute[0]!.minuteTimestamp.getTime(),
-						earliestModelMinute[0]!.minuteTimestamp.getTime(),
-					),
-				);
-			} else if (earliestMappingMinute.length > 0) {
-				earliestMinute = earliestMappingMinute[0]!.minuteTimestamp;
-			} else if (earliestModelMinute.length > 0) {
-				earliestMinute = earliestModelMinute[0]!.minuteTimestamp;
-			}
-
-			if (!earliestMinute) {
-				logger.info("No minute history found. Skipping hourly backfill.");
-				return;
-			}
-
-			startHour = roundToHourStart(earliestMinute);
+		if (!earliestMinute) {
+			logger.info("No minute history found. Skipping hourly backfill.");
+			return;
 		}
 
+		const startHour = roundToHourStart(earliestMinute);
 		if (startHour > previousHourStart) {
 			logger.info(
-				`Hourly history is up to date. Last entry: ${lastHour ? lastHour.toISOString() : "none"}`,
+				"Hourly history is up to date (no completed hours to roll up).",
 			);
 			return;
 		}
 
+		// Hours already summarized in each table (excluding the in-progress current
+		// hour). An hour is recomputed only when it is missing from either set.
+		const [mappingHours, modelHours] = await Promise.all([
+			database
+				.select({
+					hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
+				})
+				.from(modelProviderMappingHistoryHourly)
+				.where(
+					lt(modelProviderMappingHistoryHourly.hourTimestamp, currentHourStart),
+				),
+			database
+				.select({ hourTimestamp: modelHistoryHourly.hourTimestamp })
+				.from(modelHistoryHourly)
+				.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart)),
+		]);
+
+		const mappingHourSet = new Set(
+			mappingHours.map((r) => r.hourTimestamp.getTime()),
+		);
+		const modelHourSet = new Set(
+			modelHours.map((r) => r.hourTimestamp.getTime()),
+		);
+
 		logger.info(
-			`Backfilling hourly history from ${startHour.toISOString()} to ${previousHourStart.toISOString()}`,
+			`Backfilling missing hourly history from ${startHour.toISOString()} to ${previousHourStart.toISOString()}`,
 		);
 
 		let hour = startHour;
-		let iterationCount = 0;
+		let scanned = 0;
+		let computed = 0;
 		while (
 			hour <= previousHourStart &&
-			iterationCount < HOURLY_BACKFILL_MAX_ITERATIONS
+			scanned < HOURLY_BACKFILL_MAX_ITERATIONS
 		) {
-			const result = await calculateHistoryForHour(hour);
-			logger.info(
-				`Backfilled hourly history for ${hour.toISOString()}: ${result.mappingResult.totalMappings} mappings, ${result.modelResult.totalModels} models`,
-			);
+			const ms = hour.getTime();
+			if (!mappingHourSet.has(ms) || !modelHourSet.has(ms)) {
+				const result = await calculateHistoryForHour(hour);
+				logger.info(
+					`Backfilled hourly history for ${hour.toISOString()}: ${result.mappingResult.totalMappings} mappings, ${result.modelResult.totalModels} models`,
+				);
+				computed++;
+			}
 
 			const nextHour = roundToHourStart(new Date(hour.getTime() + ONE_HOUR_MS));
 			if (nextHour.getTime() <= hour.getTime()) {
@@ -1189,14 +1169,18 @@ export async function backfillHourlyHistoryIfNeeded() {
 			}
 
 			hour = nextHour;
-			iterationCount++;
+			scanned++;
 		}
 
-		if (iterationCount >= HOURLY_BACKFILL_MAX_ITERATIONS) {
+		if (scanned >= HOURLY_BACKFILL_MAX_ITERATIONS) {
 			logger.warn(
 				`Hourly backfill stopped at iteration limit ${HOURLY_BACKFILL_MAX_ITERATIONS} to prevent runaway backfill`,
 			);
 		}
+
+		logger.info(
+			`Hourly backfill complete: scanned ${scanned} hour(s), computed ${computed} missing.`,
+		);
 	} catch (error) {
 		logger.error("Error during hourly history backfill:", error as Error);
 		throw error;
