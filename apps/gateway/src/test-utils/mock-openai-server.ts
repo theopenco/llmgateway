@@ -388,6 +388,13 @@ function getMockVideoSizeMetadata(size: unknown): {
 	height: number;
 } {
 	switch (size) {
+		case "848x480":
+			return {
+				size,
+				resolution: "480p",
+				width: 848,
+				height: 480,
+			};
 		case "720x1280":
 			return {
 				size,
@@ -1608,6 +1615,45 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 				? Number(body.seconds)
 				: typeof body.seconds === "number"
 					? body.seconds
+					: 8,
+		resolution: videoSize.resolution,
+		width: videoSize.width,
+		height: videoSize.height,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json(job);
+});
+
+mockOpenAIServer.post("/v1/videos/generations", async (c) => {
+	const body = await c.req.json();
+	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as Parameters<typeof c.status>[0]);
+		return c.json(statusTrigger.errorResponse);
+	}
+	videoCounter++;
+	const id = `video_${videoCounter}`;
+	const videoSize = getMockVideoSizeMetadata(body.size);
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: body.model ?? "grok-imagine-video-1.5",
+		status: "queued",
+		progress: 0,
+		firstFrame: extractMockVideoImage(body.image),
+		size: videoSize.size,
+		duration:
+			typeof body.duration === "number"
+				? body.duration
+				: typeof body.duration === "string"
+					? Number(body.duration)
 					: 8,
 		resolution: videoSize.resolution,
 		width: videoSize.width,
