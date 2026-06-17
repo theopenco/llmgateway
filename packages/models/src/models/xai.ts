@@ -801,19 +801,19 @@ export const xaiModels = [
 		],
 	},
 	{
-		id: "grok-imagine-video-1-5-preview",
-		name: "Grok Imagine Video 1.5 Preview",
+		id: "grok-imagine-video-1-5",
+		name: "Grok Imagine Video 1.5",
 		description:
 			"xAI's image-to-video generation model. Requires an input image. Creates videos up to 15 seconds at 480p or 720p.",
 		imageInputRequired: true,
 		family: "xai",
 		output: ["video"],
-		releasedAt: new Date("2026-05-30"),
+		releasedAt: new Date("2026-06-17"),
 		providers: [
 			{
 				test: "skip",
 				providerId: "xai",
-				externalId: "grok-imagine-video-1.5-preview",
+				externalId: "grok-imagine-video-1.5",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0",
