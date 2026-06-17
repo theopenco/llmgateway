@@ -27,7 +27,7 @@
 		"@llmgateway/logger": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/auto-instrumentations-node": "0.76.0",
-		"@opentelemetry/core": "2.1.0",
+		"@opentelemetry/core": "2.8.0",
 		"@opentelemetry/resources": "2.1.0",
 		"@opentelemetry/sdk-node": "0.218.0",
 		"@opentelemetry/sdk-trace-base": "2.2.0",
