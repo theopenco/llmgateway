@@ -2268,7 +2268,7 @@ function ExtraChatPanel({
 			comparisonChatIdRef.current = id;
 			return id;
 		},
-		[createChat, selectedModel, primaryChatId],
+		[createChat, selectedModel, primaryChatId, primaryChatIdRef],
 	);
 
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =

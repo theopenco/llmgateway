@@ -6,6 +6,7 @@ title: DevPass vs FirePass by Fireworks
 metaTitle: "DevPass vs FirePass (Fireworks): One Model or 200+?"
 description: "DevPass vs FirePass by Fireworks compared. FirePass is $49/mo for unlimited Kimi K2.6 Turbo only; DevPass is a flat plan for 200+ models — Claude, GPT-5.5, Gemini and the open-weight coders — under one key."
 competitor: FirePass by Fireworks
+competitorLogo: fireworks
 competitorTagline: Unlimited Kimi K2.6 Turbo for personal coding
 tagline: "FirePass gives you one model with no token meter. DevPass gives you 200+ models with a usage allowance. The trade is unlimited-but-single versus broad-but-metered."
 devpassPrice: "$29–$179/mo"

@@ -16,6 +16,40 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("parseProviderResponse", () => {
+	describe("zai web search", () => {
+		it("counts requested web search when the response omits result metadata", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "Current news summary.",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"zai",
+				"glm-5.2",
+				json,
+				[],
+				true,
+				false,
+				true,
+			);
+
+			expect(result.content).toBe("Current news summary.");
+			expect(result.webSearchCount).toBe(1);
+		});
+	});
+
 	describe("google reasoning output", () => {
 		it("treats missing thought text as null when only thought signatures are returned", () => {
 			const json = {
@@ -55,7 +89,107 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("google multi-candidate (n > 1)", () => {
+		it("aggregates content across de-duplicated candidates and keys tool calls to candidate 0", () => {
+			// AI Studio quirk: candidate 0's parts also contain a copy of every
+			// other candidate's parts. The aggregate must count each candidate
+			// exactly once and tool calls must come from candidate 0 only.
+			const json = {
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{ text: "first thought", thought: true },
+								{ text: "Variant one." },
+								{
+									functionCall: {
+										name: "get_weather",
+										args: { city: "Paris" },
+									},
+								},
+								// duplicated copy of candidate 1's parts
+								{ text: "Variant two." },
+								{
+									functionCall: { name: "get_weather", args: { city: "Rome" } },
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+					{
+						content: {
+							role: "model",
+							parts: [
+								{ text: "Variant two." },
+								{
+									functionCall: { name: "get_weather", args: { city: "Rome" } },
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 1,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 10,
+					candidatesTokenCount: 20,
+					totalTokenCount: 30,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-2.5-flash",
+				json,
+			);
+
+			expect(result.content).toBe("Variant one.Variant two.");
+			expect(result.reasoningContent).toBe("first thought");
+			// Candidate 0's own tool call only — neither the duplicated copy
+			// nor candidate 1's own call belong to the choice-0 tool results.
+			expect(result.toolResults).toHaveLength(1);
+			expect(result.toolResults?.[0].function.name).toBe("get_weather");
+			expect(result.toolResults?.[0].function.arguments).toBe(
+				JSON.stringify({ city: "Paris" }),
+			);
+			expect(result.promptTokens).toBe(10);
+			expect(result.completionTokens).toBe(20);
+		});
+	});
+
 	describe("aws-bedrock cachedTokens", () => {
+		it("parses OpenAI-compatible Bedrock Mantle chat responses", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							content: "Hello from Grok",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 12,
+					completion_tokens: 5,
+					total_tokens: 17,
+					prompt_tokens_details: {
+						cached_tokens: 3,
+					},
+				},
+			};
+
+			const result = parseProviderResponse("aws-bedrock", "xai.grok-4.3", json);
+
+			expect(result.content).toBe("Hello from Grok");
+			expect(result.finishReason).toBe("stop");
+			expect(result.promptTokens).toBe(12);
+			expect(result.completionTokens).toBe(5);
+			expect(result.totalTokens).toBe(17);
+			expect(result.cachedTokens).toBe(3);
+		});
+
 		it("returns cachedTokens as 0 when cacheReadInputTokens is 0", () => {
 			const json = {
 				output: {

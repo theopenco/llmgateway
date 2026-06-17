@@ -18,6 +18,7 @@ import { customAlphabet } from "nanoid";
 
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
+import type { ProviderCompliancePolicy } from "@llmgateway/models";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -206,6 +207,10 @@ export const organization = pgTable(
 		})
 			.notNull()
 			.default("none"),
+		// Enterprise provider compliance guardrails. When enabled, the gateway
+		// only routes to providers meeting the required certifications/data
+		// policies. Null = no policy configured.
+		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -2004,6 +2009,20 @@ export const modelProviderMappingHistory = pgTable(
 			table.providerId,
 			table.modelId,
 			table.minuteTimestamp,
+		),
+		// Covering index for the public provider stats aggregation
+		// (filter by minuteTimestamp range, group by providerId, sum metrics).
+		// Including the summed columns as trailing keys enables an index-only
+		// scan so Postgres never has to touch the heap for this query.
+		index("model_provider_mapping_history_provider_stats_idx").on(
+			table.minuteTimestamp,
+			table.providerId,
+			table.logsCount,
+			table.errorsCount,
+			table.cachedCount,
+			table.totalTimeToFirstToken,
+			table.totalOutputTokens,
+			table.totalDuration,
 		),
 	],
 );

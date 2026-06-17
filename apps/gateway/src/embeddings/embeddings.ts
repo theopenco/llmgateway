@@ -27,6 +27,7 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
@@ -606,6 +607,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
+
+	// Enterprise provider compliance policy: embeddings resolve to a single
+	// provider, so block the request before any data is sent if that provider
+	// doesn't meet the org's required certifications/data policies.
+	await assertProviderCompliant(organization, providerId, {
+		organizationId: project.organizationId,
+		modelId: modelDefId,
+		apiKeyId: apiKey.id,
+		model: requestedModel,
+	});
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();

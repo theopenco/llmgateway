@@ -6,6 +6,7 @@ title: DevPass vs OpenCode Go
 metaTitle: "DevPass vs OpenCode Go: Best AI Coding Plan in 2026?"
 description: "DevPass vs OpenCode Go compared — pricing, models, and limits. OpenCode Go is $10/mo for 14 open-weight models; DevPass adds Claude, GPT-5.5 and Gemini for flat-rate access to 200+ under one key."
 competitor: OpenCode Go
+competitorLogo: opencode-go
 competitorTagline: Low-cost subscription for open-weight coding models
 tagline: "Both hand you a flat monthly coding subscription. Only one also gives you Claude Opus 4.7, GPT-5.5 and Gemini 3.1 Pro next to the open-weight models — with a per-request cost dashboard."
 devpassPrice: "$29–$179/mo"

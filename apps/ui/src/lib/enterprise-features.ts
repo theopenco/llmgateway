@@ -7,6 +7,7 @@ export interface EnterpriseFeatureDefinition {
 	longDescription: string;
 	iconName:
 		| "shield-check"
+		| "badge-check"
 		| "git-branch"
 		| "audit"
 		| "bell"
@@ -579,6 +580,102 @@ export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
 				question: "Does white-label work with our SSO?",
 				answer:
 					"Yes. The white-labeled deployment uses your [[sso-saml]] configuration so users authenticate against your IdP, not a separate LLM Gateway account.",
+			},
+		],
+	},
+	{
+		slug: "compliance",
+		title: "Provider Compliance Policies",
+		subtitle: "Only route to providers you're allowed to use",
+		tagline:
+			"Block non-compliant providers before any data leaves the gateway.",
+		description:
+			"Define the certifications and data policies your providers must meet — SOC 2, ISO 27001, GDPR, no prompt training, no prompt logging — and the gateway refuses to route to anything that doesn't qualify.",
+		longDescription:
+			"Provider Compliance Policies turn a procurement requirement into an enforced guardrail. Pick the attributes you require and the gateway evaluates every provider against your policy on each request. Non-compliant providers are removed from automatic routing, and a request pinned to one (e.g. deepseek/deepseek-v3.2) is rejected with a 403 — before any prompt is sent upstream. Every requirement is fail-closed: a provider qualifies only if its published data policy explicitly satisfies it, so unknown attributes never slip through. The settings page previews exactly which providers are allowed and blocked under the current policy, and every block is recorded as a security event for review.",
+		iconName: "badge-check",
+		accent: "indigo",
+		keywords: [
+			"SOC 2 LLM provider",
+			"ISO 27001 AI gateway",
+			"GDPR LLM compliance",
+			"no training on prompts",
+			"AI vendor compliance policy",
+		],
+		benefits: [
+			{
+				title: "Certification-based routing",
+				description:
+					"Require SOC 2, ISO 27001 (or either), and GDPR. Providers without the certifications you mandate are never used.",
+			},
+			{
+				title: "Data-handling guarantees",
+				description:
+					"Require providers that don't train on prompts and don't log them — enforced on every request, not just documented.",
+			},
+			{
+				title: "Fail-closed by default",
+				description:
+					"A provider qualifies only if its data policy explicitly meets each requirement. Unknown attributes are treated as non-compliant.",
+			},
+			{
+				title: "Blocked, with a paper trail",
+				description:
+					"Non-compliant requests return a clear 403 and are recorded as security events so admins can see what was rejected and why.",
+			},
+		],
+		useCases: [
+			{
+				title: "Regulated industries",
+				description:
+					"Insurance, healthcare, and finance teams that may only use providers holding specific certifications.",
+			},
+			{
+				title: "Data-residency and privacy mandates",
+				description:
+					"Guarantee prompts never reach a provider that trains on or logs them.",
+			},
+			{
+				title: "Vendor allow-lists without manual policing",
+				description:
+					"Encode your approved-vendor bar once; the gateway enforces it on every request across all projects.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Enable a policy",
+				description:
+					"Under Settings → Compliance, turn on the policy and toggle the certifications and data policies you require.",
+			},
+			{
+				step: "02",
+				title: "Preview the impact",
+				description:
+					"The settings page shows exactly which providers would be allowed and which blocked under the current policy.",
+			},
+			{
+				step: "03",
+				title: "Enforced on every request",
+				description:
+					"The gateway filters providers per request and blocks anything non-compliant with a 403, logging a security event.",
+			},
+		],
+		faq: [
+			{
+				question: "What happens to a request that can't meet the policy?",
+				answer:
+					"It's blocked with a 403 explaining the policy before any data is sent upstream, and recorded as a security event. This applies to both automatic routing and pinned providers.",
+			},
+			{
+				question: "How is provider compliance determined?",
+				answer:
+					"Each provider carries published data-policy metadata (SOC 2, ISO 27001, GDPR, prompt training, prompt logging). A provider qualifies only if that metadata explicitly satisfies every requirement you enable — unknown attributes fail closed.",
+			},
+			{
+				question: "Who can manage the policy?",
+				answer:
+					"Organization owners and admins on the Enterprise plan. See also [[audit-logs]] and [[guardrails]].",
 			},
 		],
 	},

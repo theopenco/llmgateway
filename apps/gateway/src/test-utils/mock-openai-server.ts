@@ -1466,6 +1466,56 @@ async function handleGoogleGenerateContent(c: Context) {
 	const userMessage =
 		body.contents?.find?.((entry: any) => entry.role === "user")?.parts?.[0]
 			?.text ?? "";
+
+	const candidateCount =
+		typeof body.generationConfig?.candidateCount === "number"
+			? body.generationConfig.candidateCount
+			: 1;
+	if (candidateCount > 8 || candidateCount < 1) {
+		c.status(400);
+		return c.json({
+			error: {
+				code: 400,
+				message:
+					"* GenerateContentRequest.generation_config.candidate_count: candidate_count must be in the range [1, 8].\n",
+				status: "INVALID_ARGUMENT",
+			},
+		});
+	}
+	if (candidateCount > 1) {
+		// Mirror the real AI Studio quirk: candidate 0's parts contain its own
+		// output followed by a verbatim copy of every other candidate's parts,
+		// so tests exercise the gateway's de-duplication.
+		const variantPart = (i: number) => ({
+			text: `Google variant ${i + 1} for: "${userMessage}"`,
+		});
+		const candidates = Array.from({ length: candidateCount }, (_, i) => ({
+			content: {
+				parts:
+					i === 0
+						? [
+								variantPart(0),
+								...Array.from({ length: candidateCount - 1 }, (__, j) =>
+									variantPart(j + 1),
+								),
+							]
+						: [variantPart(i)],
+				role: "model",
+			},
+			finishReason: "STOP",
+			index: i,
+		}));
+		const candidatesTokenCount = 20 * candidateCount;
+		return c.json({
+			candidates,
+			usageMetadata: {
+				promptTokenCount: 10,
+				candidatesTokenCount,
+				totalTokenCount: 10 + candidatesTokenCount,
+			},
+		});
+	}
+
 	return c.json({
 		candidates: [
 			{
@@ -1704,6 +1754,75 @@ mockOpenAIServer.post("/api/v1/jobs/createTask", async (c) => {
 		data: {
 			taskId: id,
 		},
+	});
+});
+
+mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
+	const body = await c.req.json();
+	const content = Array.isArray(body.content) ? body.content : [];
+	const promptItem = content.find(
+		(item: unknown): item is { text: string } =>
+			!!item &&
+			typeof item === "object" &&
+			(item as Record<string, unknown>).type === "text",
+	);
+	const prompt =
+		promptItem && typeof promptItem.text === "string" ? promptItem.text : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	const parseFrameByRole = (role: string) => {
+		const item = content.find(
+			(entry: unknown): entry is Record<string, unknown> =>
+				!!entry &&
+				typeof entry === "object" &&
+				(entry as Record<string, unknown>).role === role,
+		);
+		const url =
+			item &&
+			typeof item.image_url === "object" &&
+			item.image_url !== null &&
+			typeof (item.image_url as Record<string, unknown>).url === "string"
+				? ((item.image_url as Record<string, unknown>).url as string)
+				: undefined;
+		if (!url) {
+			return undefined;
+		}
+		const match = url.match(/^data:([^;]+);base64,(.*)$/);
+		if (!match) {
+			return undefined;
+		}
+		return {
+			mimeType: match[1],
+			bytesBase64Encoded: match[2],
+		};
+	};
+
+	videoCounter++;
+	const id = `bytedance_task_${videoCounter}`;
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "seedance-2-0",
+		status: "queued",
+		progress: 0,
+		firstFrame: parseFrameByRole("first_frame"),
+		lastFrame: parseFrameByRole("last_frame"),
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json({
+		id,
+		status: "queued",
 	});
 });
 

@@ -661,8 +661,8 @@ const AssistantMessage = memo(
 const UserMessage = memo(
 	({
 		message,
-		isLastMessage,
-		status,
+		isLastMessage: _isLastMessage,
+		status: _status,
 		canEdit,
 		isEditing,
 		onEditStart,
@@ -1335,6 +1335,7 @@ export const ChatUI = ({
 		}
 	};
 	const virtualItems = virtualizer.getVirtualItems();
+	const totalSize = virtualizer.getTotalSize();
 
 	const showSubmittedLoader = status === "submitted";
 	const showErrorBanner =
@@ -1351,7 +1352,7 @@ export const ChatUI = ({
 		if (messages.length > 0 && wasAtEndRef.current) {
 			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
 		}
-	}, [virtualizer.getTotalSize(), messages.length, inputHeight]);
+	}, [totalSize, messages.length, inputHeight]);
 
 	useEffect(() => {
 		if (status === "submitted") {

@@ -28,6 +28,9 @@ const comparisons = defineCollection({
 		description: z.string(),
 		// Hero
 		competitor: z.string(),
+		// Key into the brand-logos registry (e.g. "cursor", "opencode"). When
+		// omitted the UI falls back to a monogram tile built from the competitor.
+		competitorLogo: z.string().optional(),
 		competitorTagline: z.string(),
 		tagline: z.string(),
 		devpassPrice: z.string(),

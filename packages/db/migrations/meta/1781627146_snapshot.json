@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "88c48806-b7e3-4bca-a37e-99e7aa268a05",
+  "id": "056db92c-b186-4712-843a-d4a2b8c35122",
   "prevId": "2b1f913b-84cf-4dce-a8b4-d3ce08465c84",
   "ddl": [
     {
@@ -73,12 +73,6 @@
     {
       "isRlsEnabled": false,
       "name": "chat_support_read_status",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "custom_model",
       "entityType": "tables",
       "schema": "public"
     },
@@ -3213,366 +3207,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "chat_support_read_status"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "provider_key_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "model_name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "display_name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "context_size",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "max_output",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "input_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "output_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "cached_input_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "cache_read_input_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "cache_write_input_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "cache_write_input_price1h",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "request_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "web_search_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "image_input_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "audio_input_price",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "streaming",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "vision",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "tools",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "reasoning",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "json_output",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "audio",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "supported_parameters",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'active'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "custom_model"
     },
     {
       "type": "text",
@@ -10260,6 +9894,19 @@
       "table": "organization"
     },
     {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_compliance_policy",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -14514,22 +14161,6 @@
       "table": "provider_key"
     },
     {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "custom_models_only",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_key"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -17836,76 +17467,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "provider_key_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "model_name",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "status <> 'deleted'",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "custom_model_provider_key_id_model_name_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "provider_key_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "custom_model_provider_key_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "custom_model_organization_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -20640,40 +20201,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "provider_key_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "provider_key",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "custom_model_provider_key_id_provider_key_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "custom_model_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "custom_model"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -21758,16 +21285,6 @@
       "name": "chat_support_read_status_pkey",
       "schema": "public",
       "table": "chat_support_read_status",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "custom_model_pkey",
-      "schema": "public",
-      "table": "custom_model",
       "entityType": "pks"
     },
     {
