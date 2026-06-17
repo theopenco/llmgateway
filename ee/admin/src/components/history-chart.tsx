@@ -32,7 +32,10 @@ export type HistoryWindow =
 	| "12h"
 	| "24h"
 	| "2d"
-	| "7d";
+	| "3d"
+	| "7d"
+	| "30d"
+	| "90d";
 
 export interface HistoryDataPoint {
 	timestamp: string;
@@ -83,7 +86,10 @@ export const windowOptions: { value: HistoryWindow; label: string }[] = [
 	{ value: "12h", label: "12h" },
 	{ value: "24h", label: "24h" },
 	{ value: "2d", label: "2d" },
+	{ value: "3d", label: "3d" },
 	{ value: "7d", label: "7d" },
+	{ value: "30d", label: "30d" },
+	{ value: "90d", label: "90d" },
 ];
 
 const metricTabs: { key: ActiveMetric; label: string }[] = [
@@ -96,7 +102,12 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 
 function formatTimestamp(ts: string, window: HistoryWindow): string {
 	const date = new Date(ts);
-	const dayWindows = new Set(["2d", "7d"]);
+	// Long ranges are day-bucketed visually — drop the time-of-day noise.
+	const longWindows = new Set(["30d", "90d"]);
+	if (longWindows.has(window)) {
+		return format(date, "MMM d");
+	}
+	const dayWindows = new Set(["2d", "3d", "7d"]);
 	if (dayWindows.has(window)) {
 		return format(date, "MMM d HH:mm");
 	}
