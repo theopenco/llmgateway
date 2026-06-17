@@ -1,7 +1,16 @@
 "use client";
 
 import { format, parseISO } from "date-fns";
-import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
+import { useMemo } from "react";
+import {
+	Bar,
+	BarChart,
+	CartesianGrid,
+	Cell,
+	Line,
+	LineChart,
+	XAxis,
+} from "recharts";
 
 import {
 	Card,
@@ -42,6 +51,9 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
+const POSITIVE_COLOR = "hsl(142 71% 45%)";
+const NEGATIVE_COLOR = "hsl(0 72% 51%)";
+
 export function RevenueChart({
 	data,
 	totalNet,
@@ -49,6 +61,15 @@ export function RevenueChart({
 	data: TimeseriesDataPoint[];
 	totalNet: number;
 }) {
+	const dailyData = useMemo(
+		() =>
+			data.map((point, index) => ({
+				date: point.date,
+				dailyNet: point.net - (index > 0 ? data[index - 1].net : 0),
+			})),
+		[data],
+	);
+
 	return (
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
@@ -131,6 +152,47 @@ export function RevenueChart({
 						/>
 					</LineChart>
 				</ChartContainer>
+				<div className="mt-2 px-2 sm:px-0">
+					<p className="mb-1 px-2 text-xs text-muted-foreground sm:px-3">
+						Net gain per day
+					</p>
+					<ChartContainer
+						config={chartConfig}
+						className="aspect-auto h-[60px] w-full"
+					>
+						<BarChart data={dailyData} margin={{ left: 12, right: 12 }}>
+							<XAxis dataKey="date" hide />
+							<ChartTooltip
+								cursor={false}
+								content={
+									<ChartTooltipContent
+										className="w-[180px]"
+										labelFormatter={(value: string) => {
+											const date = parseISO(value);
+											return format(date, "MMM d, yyyy");
+										}}
+										formatter={(value) => (
+											<>
+												<span className="text-muted-foreground">Net gain</span>
+												<span className="ml-auto font-mono font-medium tabular-nums">
+													{currencyFormatter.format(Number(value))}
+												</span>
+											</>
+										)}
+									/>
+								}
+							/>
+							<Bar dataKey="dailyNet" radius={1}>
+								{dailyData.map((point) => (
+									<Cell
+										key={point.date}
+										fill={point.dailyNet >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR}
+									/>
+								))}
+							</Bar>
+						</BarChart>
+					</ChartContainer>
+				</div>
 			</CardContent>
 		</Card>
 	);
