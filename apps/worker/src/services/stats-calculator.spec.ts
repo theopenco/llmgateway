@@ -1551,6 +1551,84 @@ describe("stats-calculator", () => {
 			expect(gptCurrent?.logsCount).toBe(4);
 			expect(gptCurrent?.errorsCount).toBe(1);
 		});
+
+		it("should roll up token totals exceeding the 32-bit integer range", async () => {
+			// Each minute fits in a 32-bit int, but the hourly sum (4e9) exceeds
+			// 2,147,483,647, which would throw if the rollup narrowed tokens to int.
+			const minuteTokens = 2_000_000_000;
+			const hourTokens = minuteTokens * 2;
+
+			await db.insert(modelHistory).values([
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					totalInputTokens: minuteTokens,
+					totalOutputTokens: minuteTokens,
+					totalTokens: minuteTokens,
+					totalReasoningTokens: minuteTokens,
+					totalCachedTokens: minuteTokens,
+				},
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					totalInputTokens: minuteTokens,
+					totalOutputTokens: minuteTokens,
+					totalTokens: minuteTokens,
+					totalReasoningTokens: minuteTokens,
+					totalCachedTokens: minuteTokens,
+				},
+			]);
+
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					totalInputTokens: minuteTokens,
+					totalOutputTokens: minuteTokens,
+					totalTokens: minuteTokens,
+					totalReasoningTokens: minuteTokens,
+					totalCachedTokens: minuteTokens,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					totalInputTokens: minuteTokens,
+					totalOutputTokens: minuteTokens,
+					totalTokens: minuteTokens,
+					totalReasoningTokens: minuteTokens,
+					totalCachedTokens: minuteTokens,
+				},
+			]);
+
+			await calculateHourlyHistory();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const gptCurrent = modelHourly.find(
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			expect(gptCurrent?.totalInputTokens).toBe(hourTokens);
+			expect(gptCurrent?.totalOutputTokens).toBe(hourTokens);
+			expect(gptCurrent?.totalTokens).toBe(hourTokens);
+			expect(gptCurrent?.totalReasoningTokens).toBe(hourTokens);
+			expect(gptCurrent?.totalCachedTokens).toBe(hourTokens);
+
+			const mappingHourly = await db
+				.select()
+				.from(modelProviderMappingHistoryHourly);
+			const mappingCurrent = mappingHourly.find(
+				(r) =>
+					r.modelProviderMappingId === "mapping-1" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			expect(mappingCurrent?.totalTokens).toBe(hourTokens);
+			expect(mappingCurrent?.totalInputTokens).toBe(hourTokens);
+		});
 	});
 
 	describe("backfillHourlyHistoryIfNeeded", () => {

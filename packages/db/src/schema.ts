@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+	bigint,
 	boolean,
 	check,
 	decimal,
@@ -2038,11 +2039,13 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		canceledCount: integer().notNull().default(0),
 		unknownFinishCount: integer().notNull().default(0),
 		cachedCount: integer().notNull().default(0),
-		totalInputTokens: integer().notNull().default(0),
-		totalOutputTokens: integer().notNull().default(0),
-		totalTokens: integer().notNull().default(0),
-		totalReasoningTokens: integer().notNull().default(0),
-		totalCachedTokens: integer().notNull().default(0),
+		// Token totals sum 60 minute rows, so a high-volume hour can exceed the
+		// 32-bit integer range; use bigint to avoid overflow on the rollup.
+		totalInputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalOutputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalReasoningTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalCachedTokens: bigint({ mode: "number" }).notNull().default(0),
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
@@ -2109,11 +2112,13 @@ export const modelHistoryHourly = pgTable(
 		canceledCount: integer().notNull().default(0),
 		unknownFinishCount: integer().notNull().default(0),
 		cachedCount: integer().notNull().default(0),
-		totalInputTokens: integer().notNull().default(0),
-		totalOutputTokens: integer().notNull().default(0),
-		totalTokens: integer().notNull().default(0),
-		totalReasoningTokens: integer().notNull().default(0),
-		totalCachedTokens: integer().notNull().default(0),
+		// Token totals sum 60 minute rows, so a high-volume hour can exceed the
+		// 32-bit integer range; use bigint to avoid overflow on the rollup.
+		totalInputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalOutputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalReasoningTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalCachedTokens: bigint({ mode: "number" }).notNull().default(0),
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
