@@ -1,5 +1,5 @@
 const CREDIT_ERROR_PATTERN =
-	/(available credits|insufficient (?:credits|balance|funds)|add credits|out of credits|not enough credits|requires at least)/i;
+	/(available credits|insufficient (?:credits|balance|funds)|add credits|out of credits|not enough credits)/i;
 
 /**
  * The gateway returns HTTP 402 for credit/balance shortfalls (and an
