@@ -32,6 +32,10 @@
 		"./routing-config": {
 			"types": "./dist/routing-config.d.ts",
 			"import": "./dist/routing-config.js"
+		},
+		"./url-safety-node": {
+			"types": "./dist/url-safety-node.d.ts",
+			"import": "./dist/url-safety-node.js"
 		}
 	},
 	"module": "./dist/index.js",

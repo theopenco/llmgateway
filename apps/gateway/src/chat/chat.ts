@@ -155,6 +155,7 @@ import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
+import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -4799,6 +4800,14 @@ chat.openapi(completions, async (c) => {
 			providerKey !== undefined,
 			usedInternalModel,
 		);
+
+		// SSRF guard: a tenant-supplied provider base URL must not resolve to an
+		// internal/reserved address. Re-checked here (in addition to registration)
+		// to also defeat DNS rebinding and any URL stored before the guard
+		// existed. No-op unless the hosted guard is enabled.
+		if (providerKey?.baseUrl) {
+			await assertSafeProviderUrl(providerKey.baseUrl);
+		}
 
 		// If region is still unset but the provider supports regions, resolve the
 		// default region so it appears in logs and metadata.

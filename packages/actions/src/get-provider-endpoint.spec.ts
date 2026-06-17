@@ -700,3 +700,39 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 });
+
+describe("getProviderEndpoint SSRF guard", () => {
+	const originalHosted = process.env.HOSTED;
+
+	afterEach(() => {
+		if (originalHosted === undefined) {
+			delete process.env.HOSTED;
+		} else {
+			process.env.HOSTED = originalHosted;
+		}
+	});
+
+	it("rejects internal base URLs when HOSTED", () => {
+		process.env.HOSTED = "true";
+		expect(() =>
+			getProviderEndpoint("custom", "http://127.0.0.1:7777", "custom"),
+		).toThrow();
+		expect(() =>
+			getProviderEndpoint("custom", "http://169.254.169.254", "custom"),
+		).toThrow();
+	});
+
+	it("allows public base URLs when HOSTED", () => {
+		process.env.HOSTED = "true";
+		expect(
+			getProviderEndpoint("custom", "https://api.example.com", "custom"),
+		).toBe("https://api.example.com/v1/chat/completions");
+	});
+
+	it("allows internal base URLs when not HOSTED (self-hosted)", () => {
+		delete process.env.HOSTED;
+		expect(
+			getProviderEndpoint("custom", "http://127.0.0.1:7777", "custom"),
+		).toBe("http://127.0.0.1:7777/v1/chat/completions");
+	});
+});

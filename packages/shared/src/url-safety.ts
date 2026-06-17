@@ -114,3 +114,46 @@ export function assertSafeWebhookUrl(rawUrl: string): URL {
 
 	return url;
 }
+
+const PROVIDER_ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
+
+/**
+ * Validate a tenant-supplied provider `baseUrl` (custom provider or BYOK base
+ * URL override) before it is stored or used as a `fetch()` destination. Must be
+ * http(s) and must not point at a private/loopback/link-local/metadata IP
+ * literal or an obvious internal hostname. Throws `Error` with a descriptive
+ * message; returns the parsed URL on success. Does NOT resolve DNS — node
+ * callers should additionally resolve the host and re-check the resolved IPs to
+ * defeat DNS rebinding (see `assertSafeProviderUrl` in `url-safety-node`).
+ */
+export function assertSafeProviderBaseUrl(rawUrl: string): URL {
+	let url: URL;
+	try {
+		url = new URL(rawUrl);
+	} catch {
+		throw new Error("Invalid provider base URL");
+	}
+
+	if (!PROVIDER_ALLOWED_PROTOCOLS.has(url.protocol)) {
+		throw new Error("Provider base URL must use http or https");
+	}
+
+	const host = url.hostname.toLowerCase();
+
+	if (
+		BLOCKED_HOSTS.has(host) ||
+		BLOCKED_HOST_SUFFIXES.some((s) => host.endsWith(s))
+	) {
+		throw new Error("Provider base URL points at a disallowed internal host");
+	}
+
+	const isIpLiteral =
+		IPV4_RE.test(host) || host.includes(":") || rawUrl.includes("[");
+	if (isIpLiteral && isPrivateOrReservedIp(host)) {
+		throw new Error(
+			"Provider base URL points at a private or reserved address",
+		);
+	}
+
+	return url;
+}

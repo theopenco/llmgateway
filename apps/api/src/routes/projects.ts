@@ -241,13 +241,21 @@ projects.openapi(updateProject, async (c) => {
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
 	);
-	if (
-		isUpdatingEndUserSettings &&
-		projectUserOrg?.role !== "owner" &&
-		projectUserOrg?.role !== "admin"
-	) {
+	const isAdminOrOwner =
+		projectUserOrg?.role === "owner" || projectUserOrg?.role === "admin";
+	if (isUpdatingEndUserSettings && !isAdminOrOwner) {
 		throw new HTTPException(403, {
 			message: "Only organization owners and admins can update SDK settings",
+		});
+	}
+
+	// Changing the billing mode (e.g. enabling BYOK "api-keys" mode) is a
+	// privileged operation: it controls whether tenant-supplied provider keys
+	// and base URLs are used for inference. Restrict it to owners/admins.
+	if (mode !== undefined && !isAdminOrOwner) {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can change the project mode",
 		});
 	}
 

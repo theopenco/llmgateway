@@ -10,6 +10,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { providers } from "@llmgateway/models";
+import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
@@ -210,6 +211,22 @@ keysProvider.openapi(create, async (c) => {
 		throw new HTTPException(400, {
 			message: "Custom providers require both a name and base URL",
 		});
+	}
+
+	// SSRF guard: reject base URLs that resolve to internal/reserved addresses
+	// before they are stored or used as an outbound fetch target. No-op unless
+	// the hosted provider URL guard is enabled.
+	if (baseUrl) {
+		try {
+			await assertSafeProviderUrl(baseUrl);
+		} catch (error) {
+			throw new HTTPException(400, {
+				message:
+					error instanceof Error
+						? error.message
+						: "Provider base URL is not allowed",
+			});
+		}
 	}
 
 	if (provider === "custom" && name) {
