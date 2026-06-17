@@ -96,6 +96,7 @@ function getStripe(): Stripe {
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
+const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
@@ -715,6 +716,102 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		);
 	} finally {
 		await releaseLock(DATA_RETENTION_LOCK_KEY);
+	}
+}
+
+// Delete model/mapping history rows older than the retention window. These
+// tables gain one row per active model (and per mapping) every minute and
+// otherwise grow unbounded. The longest read window over them is 30 days
+// (public provider stats), so 90 days leaves a comfortable buffer.
+const MODEL_HISTORY_RETENTION_DAYS = 90;
+const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
+
+async function cleanupModelHistoryTable(
+	table: typeof tables.modelHistory | typeof tables.modelProviderMappingHistory,
+	cutoffDate: Date,
+): Promise<number> {
+	let totalDeleted = 0;
+	let hasMoreRecords = true;
+
+	while (hasMoreRecords && !isStopRequested()) {
+		const batchDeleted = await db.transaction(async (tx) => {
+			// Prefer the minuteTimestamp index over a sequential scan; SET LOCAL
+			// resets automatically when the transaction commits.
+			await tx.execute(sql`SET LOCAL random_page_cost = 1.1`);
+
+			const recordsToDelete = await tx
+				.select({ id: table.id })
+				.from(table)
+				.where(lt(table.minuteTimestamp, cutoffDate))
+				.limit(MODEL_HISTORY_CLEANUP_BATCH_SIZE)
+				.for("update", { skipLocked: true });
+
+			if (recordsToDelete.length === 0) {
+				return 0;
+			}
+
+			const idsToDelete = recordsToDelete.map((r) => r.id);
+
+			// Use `= ANY($1)` with a single array param instead of inArray()'s
+			// variable-length `IN (...)`, so pg_stat_statements fingerprints
+			// every batch identically.
+			await tx
+				.delete(table)
+				.where(sql`${table.id} = ANY(${sql.param(idsToDelete)}::text[])`);
+
+			return recordsToDelete.length;
+		});
+
+		totalDeleted += batchDeleted;
+
+		if (batchDeleted < MODEL_HISTORY_CLEANUP_BATCH_SIZE) {
+			hasMoreRecords = false;
+		}
+	}
+
+	return totalDeleted;
+}
+
+export async function cleanupExpiredModelHistory(): Promise<void> {
+	if (process.env.ENABLE_DATA_RETENTION_CLEANUP !== "true") {
+		return;
+	}
+
+	const lockAcquired = await acquireLock(MODEL_HISTORY_RETENTION_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		logger.info("Starting model history retention cleanup...");
+
+		const cutoffDate = new Date(
+			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
+		);
+
+		const mappingDeleted = await cleanupModelHistoryTable(
+			tables.modelProviderMappingHistory,
+			cutoffDate,
+		);
+		const modelDeleted = await cleanupModelHistoryTable(
+			tables.modelHistory,
+			cutoffDate,
+		);
+
+		if (mappingDeleted > 0 || modelDeleted > 0) {
+			logger.info(
+				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
+			);
+		}
+
+		logger.info("Model history retention cleanup completed successfully");
+	} catch (error) {
+		logger.error(
+			"Error during model history retention cleanup",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	} finally {
+		await releaseLock(MODEL_HISTORY_RETENTION_LOCK_KEY);
 	}
 }
 
@@ -2031,6 +2128,7 @@ async function runDataRetentionLoop() {
 		while (!isStopRequested()) {
 			try {
 				await cleanupExpiredLogData();
+				await cleanupExpiredModelHistory();
 
 				await interruptibleSleep(interval);
 			} catch (error) {
