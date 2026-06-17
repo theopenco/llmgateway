@@ -221,6 +221,7 @@ describe("AWS Bedrock Anthropic regions", () => {
 			],
 		],
 		["claude-opus-4-5-20251101", ["global", "us", "eu"]],
+		["claude-opus-4-1-20250805", ["us"]],
 		["claude-opus-4-6", ["global", "us", "eu", "au", "eu-west-2"]],
 		[
 			"claude-opus-4-7",
