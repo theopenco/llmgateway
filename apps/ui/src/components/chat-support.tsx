@@ -49,8 +49,6 @@ const ESCALATION_THRESHOLD = 3;
 
 const CLIENT_ID_KEY = "chat_support_client_id";
 
-// Starter questions offered when a conversation has no messages yet, so visitors
-// can pick a common question instead of typing from scratch.
 const SUGGESTED_QUESTIONS = [
 	"How do I get started with LLM Gateway?",
 	"Which models and providers are supported?",
@@ -58,8 +56,6 @@ const SUGGESTED_QUESTIONS = [
 ];
 
 // Phrases that signal the visitor wants a human rather than the AI assistant.
-// Matching any of these surfaces the escalation action immediately, regardless
-// of how many messages they've sent.
 const HUMAN_REQUEST_PATTERN =
 	/\b(?:human|real|live)\s+(?:operator|person|agent|help|support|being|rep(?:resentative)?)\b|\b(?:talk|speak|connect|chat)\s+(?:to|with)\s+(?:a\s+)?(?:human|person|someone|agent|operator|rep(?:resentative)?|support|staff)\b|\b(?:need|want|get|reach)\s+(?:a\s+)?(?:human|real\s+person|live\s+agent|person)\b|\bhuman\s+operator\b/i;
 
@@ -286,8 +282,6 @@ export function ChatSupport() {
 	};
 
 	const userMessageCount = messages.filter((m) => m.role === "user").length;
-	// Surface escalation either after a few back-and-forths or as soon as the
-	// visitor explicitly asks for a human in any of their messages.
 	const requestedHuman = useMemo(
 		() =>
 			messages.some(
