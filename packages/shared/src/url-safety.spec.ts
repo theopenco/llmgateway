@@ -35,9 +35,26 @@ describe("isPrivateOrReservedIp", () => {
 		expect(isPrivateOrReservedIp("::ffff:0808:0808")).toBe(false); // 8.8.8.8
 	});
 
+	it("flags IANA special-use IPv4 ranges", () => {
+		for (const ip of [
+			"192.0.0.1", // 192.0.0.0/24
+			"192.0.2.5", // TEST-NET-1
+			"192.88.99.1", // 6to4 relay anycast
+			"198.18.0.1", // benchmarking 198.18.0.0/15
+			"198.19.255.1", // benchmarking
+			"198.51.100.7", // TEST-NET-2
+			"203.0.113.7", // TEST-NET-3
+			"240.0.0.1", // reserved/future
+		]) {
+			expect(isPrivateOrReservedIp(ip)).toBe(true);
+		}
+	});
+
 	it("allows public IPs", () => {
 		expect(isPrivateOrReservedIp("8.8.8.8")).toBe(false);
 		expect(isPrivateOrReservedIp("1.1.1.1")).toBe(false);
+		expect(isPrivateOrReservedIp("198.16.0.1")).toBe(false); // just below 198.18/15
+		expect(isPrivateOrReservedIp("198.20.0.1")).toBe(false); // just above 198.18/15
 	});
 });
 

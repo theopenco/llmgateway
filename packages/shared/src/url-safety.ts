@@ -19,7 +19,7 @@ export function isPrivateOrReservedIp(ip: string): boolean {
 		if (octets.some((o) => o < 0 || o > 255)) {
 			return true; // malformed → treat as unsafe
 		}
-		const [a, b] = octets;
+		const [a, b, c] = octets;
 		if (a === 10) {
 			return true; // 10.0.0.0/8
 		}
@@ -41,8 +41,27 @@ export function isPrivateOrReservedIp(ip: string): boolean {
 		if (a === 100 && b >= 64 && b <= 127) {
 			return true; // CGNAT 100.64.0.0/10
 		}
+		// Other IANA special-use ranges that should never be a provider target.
+		if (a === 192 && b === 0 && c === 0) {
+			return true; // 192.0.0.0/24 IETF protocol assignments
+		}
+		if (a === 192 && b === 0 && c === 2) {
+			return true; // 192.0.2.0/24 TEST-NET-1
+		}
+		if (a === 192 && b === 88 && c === 99) {
+			return true; // 192.88.99.0/24 6to4 relay anycast
+		}
+		if (a === 198 && (b === 18 || b === 19)) {
+			return true; // 198.18.0.0/15 benchmarking
+		}
+		if (a === 198 && b === 51 && c === 100) {
+			return true; // 198.51.100.0/24 TEST-NET-2
+		}
+		if (a === 203 && b === 0 && c === 113) {
+			return true; // 203.0.113.0/24 TEST-NET-3
+		}
 		if (a >= 224) {
-			return true; // multicast / reserved
+			return true; // multicast / reserved / 240.0.0.0-4 future use
 		}
 		return false;
 	}
