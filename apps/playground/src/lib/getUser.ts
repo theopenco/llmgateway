@@ -35,9 +35,9 @@ export async function getUser(options?: GetUserOptions) {
 		return null;
 	}
 
-	const user: User = await data.json();
+	const { user }: { user: User } = await data.json();
 
-	if (posthog) {
+	if (posthog && user?.id) {
 		posthog.identify({
 			distinctId: user.id,
 			properties: {
