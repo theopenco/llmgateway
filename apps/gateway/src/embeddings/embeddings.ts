@@ -970,6 +970,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				const fetchSignal = createCombinedSignal(controller);
 				upstreamResponse = await fetch(attempt.upstreamUrl, {
 					method: "POST",
+					// SSRF: never follow redirects on an authenticated provider request. A
+					// tenant-supplied baseUrl could 3xx to an internal host at request
+					// time, and a redirect would also leak the upstream token.
+					redirect: "error",
 					headers: {
 						"Content-Type": "application/json",
 						...getProviderHeaders(providerId, attempt.usedToken, { requestId }),

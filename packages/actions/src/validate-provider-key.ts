@@ -251,6 +251,9 @@ export async function validateProviderKey(
 
 		const response = await fetch(endpoint, {
 			method: "POST",
+			// SSRF: never follow redirects when validating a tenant-supplied baseUrl,
+			// which could 3xx to an internal host (and would leak the upstream token).
+			redirect: "error",
 			headers,
 			body: JSON.stringify(payload),
 		});
