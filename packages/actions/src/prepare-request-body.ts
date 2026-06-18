@@ -18,6 +18,7 @@ import {
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
+import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
@@ -103,7 +104,10 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	const response = await fetch(url);
+	// SSRF: the URL comes from the request body, so validate it does not resolve
+	// to an internal host and refuse redirects before fetching.
+	await assertSafeUserContentUrl(url);
+	const response = await fetch(url, { redirect: "error" });
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,

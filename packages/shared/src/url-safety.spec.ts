@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+	assertSafeContentUrl,
 	assertSafeProviderBaseUrl,
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,
@@ -101,6 +102,54 @@ describe("assertSafeProviderBaseUrl", () => {
 		expect(() => assertSafeProviderBaseUrl("file:///etc/passwd")).toThrow();
 		expect(() => assertSafeProviderBaseUrl("gopher://127.0.0.1")).toThrow();
 		expect(() => assertSafeProviderBaseUrl("not a url")).toThrow();
+	});
+});
+
+describe("assertSafeContentUrl", () => {
+	it("accepts public https media URLs", () => {
+		expect(() =>
+			assertSafeContentUrl("https://cdn.example.com/image.png"),
+		).not.toThrow();
+		expect(() =>
+			assertSafeContentUrl("https://example.com:8443/video.mp4"),
+		).not.toThrow();
+	});
+
+	it("rejects http URLs (even public)", () => {
+		expect(() =>
+			assertSafeContentUrl("http://cdn.example.com/image.png"),
+		).toThrow("Content URL must use https");
+	});
+
+	it("rejects loopback and reserved IP literals", () => {
+		for (const url of [
+			"http://127.0.0.1/x.png",
+			"https://169.254.169.254/latest/meta-data",
+			"http://10.0.0.5/a.jpg",
+			"http://192.168.1.1/a.jpg",
+			"https://[::1]/a.jpg",
+		]) {
+			expect(() => assertSafeContentUrl(url)).toThrow();
+		}
+	});
+
+	it("rejects internal hostnames", () => {
+		for (const url of [
+			"http://localhost/a.png",
+			"http://metadata.google.internal/x",
+			"https://foo.internal/x.png",
+			"https://service.local/x.png",
+		]) {
+			expect(() => assertSafeContentUrl(url)).toThrow();
+		}
+	});
+
+	it("rejects non-https schemes and malformed URLs", () => {
+		expect(() => assertSafeContentUrl("file:///etc/passwd")).toThrow();
+		expect(() => assertSafeContentUrl("gopher://127.0.0.1")).toThrow();
+		expect(() => assertSafeContentUrl("not a url")).toThrow(
+			"Invalid content URL",
+		);
 	});
 });
 

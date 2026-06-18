@@ -131,6 +131,7 @@ export {
 } from "./routing-config.js";
 
 export {
+	assertSafeContentUrl,
 	assertSafeProviderBaseUrl,
 	assertSafeWebhookUrl,
 	isPrivateOrReservedIp,

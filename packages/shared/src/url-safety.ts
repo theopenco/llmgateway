@@ -195,3 +195,43 @@ export function assertSafeProviderBaseUrl(rawUrl: string): URL {
 
 	return url;
 }
+
+/**
+ * Validate a user-supplied content URL (an image/video/document URL embedded in
+ * a chat-completion, image, or video request) that the gateway will fetch
+ * server-side. Same SSRF rules as provider base URLs: must be https and must not
+ * point at a private/loopback/link-local/metadata IP literal or an obvious
+ * internal hostname. Throws `Error` with a descriptive message; returns the
+ * parsed URL on success. Does NOT resolve DNS — `assertSafeUserContentUrl` in
+ * url-safety-node wraps this with a DNS lookup so a hostname resolving to an
+ * internal address is also rejected.
+ */
+export function assertSafeContentUrl(rawUrl: string): URL {
+	let url: URL;
+	try {
+		url = new URL(rawUrl);
+	} catch {
+		throw new Error("Invalid content URL");
+	}
+
+	if (url.protocol !== "https:") {
+		throw new Error("Content URL must use https");
+	}
+
+	const host = url.hostname.toLowerCase();
+
+	if (
+		BLOCKED_HOSTS.has(host) ||
+		BLOCKED_HOST_SUFFIXES.some((s) => host.endsWith(s))
+	) {
+		throw new Error("Content URL points at a disallowed internal host");
+	}
+
+	const isIpLiteral =
+		IPV4_RE.test(host) || host.includes(":") || rawUrl.includes("[");
+	if (isIpLiteral && isPrivateOrReservedIp(host)) {
+		throw new Error("Content URL points at a private or reserved address");
+	}
+
+	return url;
+}
