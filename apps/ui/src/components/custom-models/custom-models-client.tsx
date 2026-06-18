@@ -190,9 +190,19 @@ export function CustomModelsClient() {
 						<CardHeader>
 							<CardTitle>Enterprise feature</CardTitle>
 							<CardDescription>
-								A custom model catalog requires an enterprise plan. Existing
-								catalog entries keep working, but creating or editing them needs
-								an upgrade.
+								A custom model catalog requires an enterprise plan. Define
+								per-key pricing, context and output limits, and capabilities so
+								requests through your custom providers are billed and enforced
+								instead of running unpriced.{" "}
+								<Link
+									href="https://docs.llmgateway.io/features/custom-providers#custom-model-catalog"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="underline underline-offset-4"
+								>
+									Learn how custom models work
+								</Link>
+								.
 							</CardDescription>
 						</CardHeader>
 					</Card>
