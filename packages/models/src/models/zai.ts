@@ -39,8 +39,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
-				// Embercloud does not expose reasoning content in responses
-				reasoningOutput: "omit",
 				jsonOutput: true,
 				supportedParameters: [
 					"messages",
@@ -58,6 +56,7 @@ export const zaiModels = [
 					"tool_choice",
 					"parallel_tool_calls",
 					"reasoning",
+					"reasoning_effort",
 				],
 			},
 		],
