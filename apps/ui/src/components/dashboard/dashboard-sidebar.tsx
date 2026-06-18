@@ -135,7 +135,7 @@ const PROJECT_SETTINGS = [
 	},
 	{
 		href: "settings/sdk",
-		label: "SDK",
+		label: "Payments SDK",
 	},
 	{
 		href: "settings/routing",

@@ -92,6 +92,9 @@ export function SdkSettings({
 	const { toast } = useToast();
 	const api = useApi();
 	const queryClient = useQueryClient();
+	// The Payments SDK is a preview feature that must be opted into in the
+	// database. Until then, the settings are shown read-only as a preview.
+	const isPreview = !initialProject.paymentsSdkEnabled;
 	const [endUserEnabled, setEndUserEnabled] = useState(
 		initialProject.endUserEnabled,
 	);
@@ -249,6 +252,22 @@ export function SdkSettings({
 
 	return (
 		<div className="space-y-8">
+			{isPreview && (
+				<div className="rounded-md border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/30">
+					<p className="font-medium text-blue-900 dark:text-blue-200">
+						Preview — opt-in only
+					</p>
+					<p className="mt-1 text-sm text-blue-900/80 dark:text-blue-200/80">
+						The Payments SDK lets you embed end-user payments and sessions into
+						your own site — your users get their own wallet, buy credits, and
+						pay per request through LLM Gateway. It is a payments feature, not
+						an AI client SDK like the OpenAI SDK. This feature is currently in
+						preview and enabled on an opt-in basis. The settings below are
+						read-only until it is enabled for your project — contact us to get
+						access.
+					</p>
+				</div>
+			)}
 			<section className="space-y-4">
 				<div>
 					<h3 className="text-lg font-medium">End-user Sessions</h3>
@@ -262,6 +281,7 @@ export function SdkSettings({
 						<Switch
 							checked={endUserEnabled}
 							onCheckedChange={setEndUserEnabled}
+							disabled={isPreview}
 							aria-label="Enable end-user sessions"
 						/>
 						<div className="space-y-1">
@@ -280,6 +300,7 @@ export function SdkSettings({
 							max={100}
 							step={0.01}
 							value={markupPercent}
+							disabled={isPreview}
 							onChange={(event) => setMarkupPercent(Number(event.target.value))}
 						/>
 					</div>
@@ -290,6 +311,7 @@ export function SdkSettings({
 							value={allowedOriginsText}
 							onChange={(event) => setAllowedOriginsText(event.target.value)}
 							placeholder="https://app.example.com"
+							disabled={isPreview}
 							className="min-h-28 font-mono text-sm"
 						/>
 						<p className="text-muted-foreground text-sm">
@@ -300,7 +322,7 @@ export function SdkSettings({
 						<Button
 							type="button"
 							onClick={saveSettings}
-							disabled={updateProject.isPending}
+							disabled={isPreview || updateProject.isPending}
 						>
 							{updateProject.isPending ? "Saving..." : "Save Settings"}
 						</Button>
@@ -321,7 +343,7 @@ export function SdkSettings({
 							type="button"
 							variant="outline"
 							onClick={() => void createSecret(true)}
-							disabled={createPlatformKey.isPending}
+							disabled={isPreview || createPlatformKey.isPending}
 						>
 							<KeyRound className="h-4 w-4" />
 							Create Test Key
@@ -329,7 +351,7 @@ export function SdkSettings({
 						<Button
 							type="button"
 							onClick={() => void createSecret(false)}
-							disabled={createPlatformKey.isPending}
+							disabled={isPreview || createPlatformKey.isPending}
 						>
 							<KeyRound className="h-4 w-4" />
 							{createPlatformKey.isPending ? "Creating..." : "Create Live Key"}

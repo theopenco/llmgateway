@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
 	async redirects() {
 		return [
 			{
+				source: "/blog/embeddable-ai-credits-stripe-for-ai",
+				destination: "/blog/embeddable-payments-sdk",
+				permanent: true,
+			},
+			{
 				source: "/models/sherlock-dash-alpha",
 				destination: "/models/grok-4-1-fast-non-reasoning",
 				permanent: true,
