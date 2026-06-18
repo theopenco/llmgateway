@@ -2416,7 +2416,9 @@ async function streamVideoFromUrl(
 	contentUrl: string,
 	contentType?: string | null,
 ): Promise<Response> {
-	const upstreamResponse = await fetch(contentUrl);
+	// SSRF: refuse redirects so a tenant-controlled content URL cannot 3xx the
+	// gateway onward to an internal host whose body would then be streamed back.
+	const upstreamResponse = await fetch(contentUrl, { redirect: "error" });
 	if (!upstreamResponse.ok || !upstreamResponse.body) {
 		throw new HTTPException(502, {
 			message: "Failed to fetch video content from upstream provider",
@@ -2539,6 +2541,8 @@ async function streamDirectUpstreamVideoContent(
 			`/v1/files/retrieve?file_id=${fileId}`,
 		);
 		const retrieveResponse = await fetch(retrieveUrl, {
+			// SSRF: never follow redirects on a tenant-baseUrl provider request.
+			redirect: "error",
 			headers: getProviderHeaders(
 				providerContext.providerId,
 				providerContext.token,
@@ -2568,6 +2572,9 @@ async function streamDirectUpstreamVideoContent(
 	}
 
 	const upstreamResponse = await fetch(contentUrl, {
+		// SSRF: never follow redirects on a tenant-controlled content/baseUrl
+		// request; the followed body would be streamed back to the caller.
+		redirect: "error",
 		headers: getProviderHeaders(
 			providerContext.providerId,
 			providerContext.token,
@@ -2643,7 +2650,8 @@ async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
 ): Promise<Record<string, unknown>> {
-	const response = await fetch(url, init);
+	// SSRF: never follow redirects on a tenant-baseUrl provider request.
+	const response = await fetch(url, { ...init, redirect: "error" });
 	const text = await response.text();
 	let body: Record<string, unknown> = {};
 
