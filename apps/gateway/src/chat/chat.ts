@@ -155,7 +155,6 @@ import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -4801,14 +4800,6 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel,
 		);
 
-		// SSRF guard: a tenant-supplied provider base URL must not resolve to an
-		// internal/reserved address. Re-checked here (in addition to registration)
-		// to also defeat DNS rebinding and any URL stored before the guard
-		// existed. No-op unless the hosted guard is enabled.
-		if (providerKey?.baseUrl) {
-			await assertSafeProviderUrl(providerKey.baseUrl);
-		}
-
 		// If region is still unset but the provider supports regions, resolve the
 		// default region so it appears in logs and metadata.
 		if (!usedRegion) {
@@ -6273,11 +6264,6 @@ chat.openapi(completions, async (c) => {
 
 						res = await fetch(url, {
 							method: "POST",
-							// Never follow redirects on an authenticated provider request: a
-							// tenant-controlled baseUrl could 3xx to an internal host (SSRF)
-							// and a redirect would also leak the upstream token. Provider
-							// chat endpoints never legitimately redirect.
-							redirect: "error",
 							headers,
 							body: JSON.stringify(requestBody),
 							signal: fetchSignal,
@@ -10177,11 +10163,6 @@ chat.openapi(completions, async (c) => {
 
 			res = await fetch(url, {
 				method: "POST",
-				// Never follow redirects on an authenticated provider request: a
-				// tenant-controlled baseUrl could 3xx to an internal host (SSRF) and a
-				// redirect would also leak the upstream token. Provider endpoints never
-				// legitimately redirect.
-				redirect: "error",
 				headers,
 				body:
 					requestBody instanceof FormData

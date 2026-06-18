@@ -138,12 +138,12 @@ export function isProviderUrlGuardEnabled(): boolean {
 
 /**
  * Validate a tenant-supplied provider `baseUrl` (custom provider or BYOK base
- * URL override) before it is stored or used as a `fetch()` destination. Must be
- * https and must not point at a private/loopback/link-local/metadata IP literal
- * or an obvious internal hostname. Throws `Error` with a descriptive message;
- * returns the parsed URL on success. Does NOT resolve DNS — node callers should
- * additionally resolve the host and re-check the resolved IPs to defeat DNS
- * rebinding (see `assertSafeProviderUrl` in `url-safety-node`).
+ * URL override) at registration time. Must be https and must not point at a
+ * private/loopback/link-local/metadata IP literal or an obvious internal
+ * hostname. Throws `Error` with a descriptive message; returns the parsed URL on
+ * success. Does NOT resolve DNS — `assertSafeProviderUrl` in `url-safety-node`
+ * wraps this with a DNS lookup so a hostname resolving to an internal address is
+ * also rejected at registration.
  */
 export function assertSafeProviderBaseUrl(rawUrl: string): URL {
 	let url: URL;

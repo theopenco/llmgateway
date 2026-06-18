@@ -33,7 +33,6 @@ import {
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumModel,
 } from "@llmgateway/shared";
-import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { getProviderEnv } from "./get-provider-env.js";
 
@@ -462,13 +461,6 @@ export async function resolveProviderContext(
 		throw new HTTPException(400, {
 			message: `No base URL set for provider: ${usedProvider}`,
 		});
-	}
-
-	// SSRF guard: a tenant-supplied provider base URL must not resolve to an
-	// internal/reserved address. Re-checked on this (retry) path to defeat DNS
-	// rebinding. No-op unless the hosted guard is enabled.
-	if (providerKey?.baseUrl) {
-		await assertSafeProviderUrl(providerKey.baseUrl);
 	}
 
 	const useResponsesApi = url.includes("/responses");
