@@ -1,7 +1,5 @@
-import { cookies } from "next/headers";
-
 import PostHogClient from "@/app/posthog";
-import { getConfig } from "@/lib/config-server";
+import { fetchServerData } from "@/lib/server-api";
 
 import type { User } from "better-auth/types";
 
@@ -11,33 +9,17 @@ interface GetUserOptions {
 
 export async function getUser(options?: GetUserOptions) {
 	const posthog = PostHogClient();
-	const config = getConfig();
-	const cookieStore = await cookies();
 
-	const key = "better-auth.session_token";
-	// Get session cookie for authentication
-	const sessionCookie = cookieStore.get(`${key}`);
-	const secureSessionCookie = cookieStore.get(`__Secure-${key}`);
-
-	const data = await fetch(`${config.apiBackendUrl}/user/me`, {
-		method: "GET",
-		headers: {
-			Cookie: secureSessionCookie
-				? `__Secure-${key}=${secureSessionCookie.value}`
-				: sessionCookie
-					? `${key}=${sessionCookie.value}`
-					: "",
-		},
+	const data = await fetchServerData<{ user: User }>("GET", "/user/me", {
 		signal: options?.signal,
 	});
+	const user = data?.user;
 
-	if (!data.ok) {
+	if (!user) {
 		return null;
 	}
 
-	const user: User = await data.json();
-
-	if (posthog) {
+	if (posthog && user.id) {
 		posthog.identify({
 			distinctId: user.id,
 			properties: {

@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
 
 import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
-import { formatServiceTierMultiplier, getServiceTier } from "./providers.js";
+import { anthropicModels } from "./models/anthropic.js";
+import { models } from "./models.js";
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+	providers,
+} from "./providers.js";
+
+interface ProviderWithRegions {
+	regions?: readonly { id: string }[];
+}
+
+const hasRegions = (provider: unknown): provider is ProviderWithRegions =>
+	typeof provider === "object" && provider !== null && "regions" in provider;
+
+const getRegionIds = (provider: unknown) =>
+	hasRegions(provider)
+		? (provider.regions?.map((region) => region.id) ?? [])
+		: [];
 
 describe("getServiceTier", () => {
 	it("returns the configured Vertex Flex / Priority tiers", () => {
@@ -164,4 +182,71 @@ describe("model service tier support", () => {
 			),
 		).toBe(false);
 	});
+});
+
+describe("AWS Bedrock Anthropic regions", () => {
+	it("supports current Anthropic geo profile prefixes", () => {
+		const bedrockProvider = providers.find(
+			(provider) => provider.id === "aws-bedrock",
+		);
+
+		expect(bedrockProvider?.regionConfig?.modelPrefixMap).toMatchObject({
+			global: "global.",
+			us: "us.",
+			eu: "eu.",
+			au: "au.",
+			jp: "jp.",
+		});
+	});
+
+	it("does not expose unused AWS Bedrock regions", () => {
+		const bedrockProvider = providers.find(
+			(provider) => provider.id === "aws-bedrock",
+		);
+		const configuredRegions =
+			bedrockProvider?.regionConfig?.regions.map((region) => region.id) ?? [];
+		const usedRegions = new Set(
+			models.flatMap((model) =>
+				model.providers.flatMap((provider) =>
+					provider.providerId === "aws-bedrock" ? getRegionIds(provider) : [],
+				),
+			),
+		);
+
+		expect(
+			configuredRegions.filter((region) => !usedRegions.has(region)),
+		).toEqual([]);
+		expect(
+			Object.keys(bedrockProvider?.regionConfig?.endpointMap ?? {}),
+		).toEqual(configuredRegions);
+		expect(
+			Object.keys(bedrockProvider?.regionConfig?.modelPrefixMap ?? {}),
+		).toEqual(configuredRegions);
+	});
+
+	const expectedRegionsByModelId = new Map<string, string[]>([
+		["claude-sonnet-4-5", ["global", "us", "eu", "au", "jp"]],
+		["claude-sonnet-4-5-20250929", ["global", "us", "eu", "au", "jp"]],
+		["claude-sonnet-4-6", ["global", "us", "eu", "au", "jp", "eu-west-2"]],
+		["claude-haiku-4-5", ["global", "us", "eu", "au", "jp"]],
+		["claude-haiku-4-5-20251001", ["global", "us", "eu", "au", "jp"]],
+		["claude-opus-4-5-20251101", ["global", "us", "eu"]],
+		["claude-opus-4-1-20250805", ["us"]],
+		["claude-opus-4-6", ["global", "us", "eu", "au", "eu-west-2"]],
+		["claude-opus-4-7", ["global", "us", "eu", "jp", "au"]],
+		["claude-opus-4-8", ["global", "us", "eu", "jp", "au"]],
+	]);
+
+	for (const [modelId, expectedRegions] of expectedRegionsByModelId) {
+		it(`matches AWS Bedrock region support for ${modelId}`, () => {
+			const model = anthropicModels.find(
+				(candidate) => candidate.id === modelId,
+			);
+			const bedrockMapping = model?.providers.find(
+				(provider) => provider.providerId === "aws-bedrock",
+			);
+
+			expect(getRegionIds(bedrockMapping)).toEqual(expectedRegions);
+		});
+	}
 });
