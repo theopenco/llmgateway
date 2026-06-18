@@ -22,8 +22,8 @@ Here is how **LLM Gateway** simplifies API key rotation into a painless, zero-do
 
 ---
 
-### What is API Key Rotation?
-**API key rotation** is the security practice of systematically replacing authentication credentials (API keys) on a scheduled basis or in response to a suspected breach. In LLM applications, key rotation ensures that access to underlying AI models remains secure without disrupting production services or causing query downtime.
+## What is API Key Rotation?
+**API key rotation** is the security practice of systematically replacing authentication credentials (API keys) on a scheduled basis or in response to a suspected breach. In LLM applications, key rotation ensures that access to underlying AI models remains secure without disrupting production services or or causing query downtime.
 
 ---
 
@@ -66,7 +66,7 @@ If you have 10 microservices calling Anthropic, you have to deploy all 10. If yo
 2. Go to your LLM Gateway **Provider Keys** dashboard.
 3. Replace the existing key and click **Save**.
 
-```
+```text
 [ Your App ] ---> ( Same Gateway Key ) ---> [ LLM Gateway ] ---> ( Rotating Provider Keys ) ---> [ LLM Providers ]
                                                                  *Updated once in dashboard*
                                                                  *No app redeployments needed*
