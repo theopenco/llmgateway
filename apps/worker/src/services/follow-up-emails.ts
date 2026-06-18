@@ -226,8 +226,7 @@ export async function processNoPurchaseEmails(): Promise<void> {
 				// DevPass coding product and chat orgs back chat.llmgateway.io — both
 				// have their own billing and are hidden from the dashboard, so they
 				// should never receive the "add credits" email.
-				eq(organization.isPersonal, false),
-				eq(organization.isChat, false),
+				eq(organization.kind, "default"),
 				sql`${organization.id} NOT IN (
 					SELECT ${transaction.organizationId}
 					FROM ${transaction}

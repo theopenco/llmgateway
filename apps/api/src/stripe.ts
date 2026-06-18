@@ -1383,7 +1383,7 @@ async function handleCheckoutSessionCompleted(
 		} else {
 			// Handle regular pro subscription
 			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
-			if (organization.isPersonal) {
+			if (organization.kind === "devpass") {
 				logger.warn(
 					`Skipping plan: "pro" for personal org ${organizationId} - personal orgs should use devPlan field`,
 				);
@@ -4044,7 +4044,10 @@ async function handleSubscriptionCreated(
 	// DevPass subscriptions (personal orgs) use the devPlan field — they must
 	// not be coerced to plan="pro" or have stripeSubscriptionId set, which is
 	// reserved for regular Pro subscriptions on team orgs.
-	if (metadata?.subscriptionType === "dev_plan" || organization.isPersonal) {
+	if (
+		metadata?.subscriptionType === "dev_plan" ||
+		organization.kind === "devpass"
+	) {
 		logger.info(
 			`Skipping plan: "pro" for dev plan / personal org ${organizationId}`,
 		);

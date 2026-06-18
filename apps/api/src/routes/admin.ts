@@ -679,7 +679,7 @@ admin.openapi(getMetrics, async (c) => {
 					WHERE t.organization_id = ${tables.organization.id}
 					AND (
 						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
-						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.isPersonal} = true)
+						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.kind} = 'devpass')
 					)
 				)`,
 			),
@@ -9512,7 +9512,7 @@ const DEV_PLAN_TX_TYPES = [
 
 // Pre-rename rows for what is now a dev plan. The same `subscription_*` types
 // are STILL written today for non-personal org Pro subs, so always pair them
-// with `organization.isPersonal = true` to avoid counting org Pro revenue.
+// with `organization.kind = 'devpass'` to avoid counting org Pro revenue.
 const LEGACY_DEV_PLAN_TX_TYPES = [
 	"subscription_start",
 	"subscription_cancel",
@@ -9667,7 +9667,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.project.organizationId, tables.organization.id),
-				eq(tables.organization.isPersonal, true),
+				eq(tables.organization.kind, "devpass"),
 			),
 		)
 		.groupBy(tables.project.organizationId)
@@ -9693,7 +9693,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.transaction.organizationId, tables.organization.id),
-				eq(tables.organization.isPersonal, true),
+				eq(tables.organization.kind, "devpass"),
 			),
 		)
 		.where(
@@ -9748,7 +9748,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.transaction.organizationId, tables.organization.id),
-				eq(tables.organization.isPersonal, true),
+				eq(tables.organization.kind, "devpass"),
 			),
 		)
 		.where(
@@ -9788,10 +9788,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const conditions = [];
 
 	// DevPass scope: subscribers (devPlan != 'none') OR (showChurned && has past dev_plan_start).
-	// Only personal orgs can hold a DevPass plan — restrict to isPersonal=true
+	// Only personal orgs can hold a DevPass plan — restrict to kind='devpass'
 	// so the churned list doesn't surface non-personal "Default Organization"
 	// rows that happen to share legacy `subscription_*` history with org Pro.
-	conditions.push(eq(tables.organization.isPersonal, true));
+	conditions.push(eq(tables.organization.kind, "devpass"));
 	if (showChurned) {
 		conditions.push(
 			or(
@@ -10093,7 +10093,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 					inArray(refundOriginalTx.type, [...DEV_PLAN_TX_TYPES]),
 					and(
 						inArray(refundOriginalTx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.isPersonal, true),
+						eq(tables.organization.kind, "devpass"),
 					),
 				),
 			),
@@ -10274,7 +10274,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 					eq(tables.transaction.type, "dev_plan_start"),
 					and(
 						eq(tables.transaction.type, "subscription_start"),
-						eq(tables.organization.isPersonal, true),
+						eq(tables.organization.kind, "devpass"),
 					),
 				),
 			);
@@ -10327,7 +10327,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 					inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
 					and(
 						inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.isPersonal, true),
+						eq(tables.organization.kind, "devpass"),
 					),
 				),
 				sql`NOT EXISTS (
@@ -10384,7 +10384,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 					inArray(originalTx.type, [...DEV_PLAN_TX_TYPES]),
 					and(
 						inArray(originalTx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.isPersonal, true),
+						eq(tables.organization.kind, "devpass"),
 					),
 				),
 			),
@@ -10425,7 +10425,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 						WHERE t.organization_id = ${tables.organization.id}
 						AND (
 							t.type = 'dev_plan_start'
-							OR (t.type = 'subscription_start' AND ${tables.organization.isPersonal} = true)
+							OR (t.type = 'subscription_start' AND ${tables.organization.kind} = 'devpass')
 						)
 					)`,
 				)!,
@@ -10527,7 +10527,7 @@ admin.openapi(getDevpassUsage, async (c) => {
 			WHERE t.organization_id = ${tables.organization.id}
 			AND (
 				t.type = 'dev_plan_start'
-				OR (t.type = 'subscription_start' AND ${tables.organization.isPersonal} = true)
+				OR (t.type = 'subscription_start' AND ${tables.organization.kind} = 'devpass')
 			)
 		)`,
 	)!;
@@ -10751,9 +10751,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	// refunds netted), cost is every project's provider cost. Legacy
 	// `subscription_*` rows are only DevPass revenue on personal orgs (they are
 	// org Pro subs otherwise), so only count them when the org is personal.
-	const allTimeRevenueTypes = org.isPersonal
-		? [...DEV_PLAN_TX_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES]
-		: [...DEV_PLAN_TX_TYPES];
+	const allTimeRevenueTypes =
+		org.kind === "devpass"
+			? [...DEV_PLAN_TX_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES]
+			: [...DEV_PLAN_TX_TYPES];
 	const [allTimeCostRow] = await db
 		.select({
 			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
@@ -11369,7 +11370,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.project.organizationId, tables.organization.id),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 			),
 		)
 		.groupBy(tables.project.organizationId)
@@ -11393,7 +11394,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.transaction.organizationId, tables.organization.id),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 			),
 		)
 		.where(
@@ -11443,7 +11444,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.transaction.organizationId, tables.organization.id),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 			),
 		)
 		.where(
@@ -11481,8 +11482,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 
 	// Chat Plan scope: subscribers (chatPlan != 'none') OR (showChurned && has
 	// past chat_plan_start). Chat plans live on the dedicated Chat org, so
-	// restrict to isChat=true.
-	conditions.push(eq(tables.organization.isChat, true));
+	// restrict to kind='chat'.
+	conditions.push(eq(tables.organization.kind, "chat"));
 	if (showChurned) {
 		conditions.push(
 			or(
@@ -11670,7 +11671,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.from(tables.organization)
 		.where(
 			and(
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				ne(tables.organization.chatPlan, "none"),
 				or(
 					isNull(tables.organization.chatPlanExpiresAt),
@@ -11723,7 +11724,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.type, "chat_plan_start"),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				eq(tables.organization.chatPlan, "none"),
 			),
 		);
@@ -11774,7 +11775,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, monthStart),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				inArray(refundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
 			),
 		);
@@ -11789,7 +11790,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.from(tables.organization)
 		.where(
 			and(
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				ne(tables.organization.chatPlan, "none"),
 				or(
 					isNull(tables.organization.chatPlanExpiresAt),
@@ -11814,7 +11815,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				ne(tables.organization.chatPlan, "none"),
 				or(
 					isNull(tables.organization.chatPlanExpiresAt),
@@ -11946,7 +11947,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 			.where(
 				and(
 					eq(tables.transaction.type, "chat_plan_start"),
-					eq(tables.organization.isChat, true),
+					eq(tables.organization.kind, "chat"),
 				),
 			);
 		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
@@ -11980,7 +11981,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
@@ -12028,7 +12029,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 				inArray(originalTx.type, [...CHAT_PLAN_TX_TYPES]),
@@ -12059,7 +12060,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				gte(projectHourlyStats.hourTimestamp, startDate),
 				lte(projectHourlyStats.hourTimestamp, endDate),
 				or(
@@ -12162,7 +12163,7 @@ admin.openapi(getChatPlansUsage, async (c) => {
 	// Filter: only chat orgs that are or were ever on a Chat Plan. Mirrors the
 	// cost-per-day query in /chat-plans/timeseries.
 	const chatPlanOrgFilter = and(
-		eq(tables.organization.isChat, true),
+		eq(tables.organization.kind, "chat"),
 		or(
 			ne(tables.organization.chatPlan, "none"),
 			sql`EXISTS (
@@ -12300,7 +12301,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 	const now = new Date();
 
 	const org = await db.query.organization.findFirst({
-		where: { id: { eq: orgId }, isChat: { eq: true } },
+		where: { id: { eq: orgId }, kind: { eq: "chat" } },
 	});
 
 	if (!org) {

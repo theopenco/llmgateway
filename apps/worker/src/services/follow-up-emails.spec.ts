@@ -42,7 +42,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.values({
 				name: "Personal",
 				status: "active",
-				isPersonal: true,
+				kind: "devpass",
 				devPlan: "lite",
 				billingEmail: devpassUser.email,
 				createdAt: TWO_DAYS_AGO,
@@ -200,7 +200,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.values({
 				name: "Personal",
 				status: "active",
-				isPersonal: true,
+				kind: "devpass",
 				devPlan: "none",
 				billingEmail: owner.email,
 				createdAt: TWO_DAYS_AGO,
@@ -212,7 +212,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.values({
 				name: "Chat",
 				status: "active",
-				isChat: true,
+				kind: "chat",
 				devPlan: "none",
 				billingEmail: owner.email,
 				createdAt: TWO_DAYS_AGO,
@@ -261,7 +261,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.values({
 				name: "Chat",
 				status: "active",
-				isChat: true,
+				kind: "chat",
 				devPlan: "none",
 				billingEmail: owner.email,
 				createdAt: TWO_DAYS_AGO,

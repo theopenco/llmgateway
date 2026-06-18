@@ -224,12 +224,17 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
-		// Dev Plans fields (for personal accounts)
-		isPersonal: boolean().notNull().default(false),
-		// Marks the dedicated per-user "Chat" org that backs chat.llmgateway.io.
-		// Like isPersonal, these orgs are hidden from the dashboard org switcher
-		// and cannot be deleted or managed as team orgs.
-		isChat: boolean().notNull().default(false),
+		// Organization kind:
+		// - "default": regular dashboard/team org.
+		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
+		// - "chat": dedicated per-user "Chat" org backing chat.llmgateway.io.
+		// "devpass" and "chat" orgs are hidden from the dashboard org switcher and
+		// cannot be deleted or managed as team orgs.
+		kind: text({
+			enum: ["default", "chat", "devpass"],
+		})
+			.notNull()
+			.default("default"),
 		devPlan: text({
 			enum: ["none", "lite", "pro", "max"],
 		})

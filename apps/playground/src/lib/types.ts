@@ -77,8 +77,7 @@ export interface Organization {
 	createdAt: string;
 	updatedAt: string;
 	name: string;
-	isPersonal: boolean;
-	isChat: boolean;
+	kind: "default" | "chat" | "devpass";
 	credits: string;
 	chatPlan?: "none" | "starter" | "plus" | "pro";
 	chatPlanCreditsLimit?: string | null;

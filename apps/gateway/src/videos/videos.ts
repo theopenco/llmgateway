@@ -4004,7 +4004,7 @@ videos.openapi(createVideo, async (c) => {
 	const { apiKey, project, organization, wallet, requestId, routingCfg } =
 		await requireRequestContext(c);
 
-	if (organization.isPersonal && organization.devPlan !== "none") {
+	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
 			message:
 				"Video generation is not available for coding plans. Coding plans only include text-based inference.",

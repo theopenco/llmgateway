@@ -295,7 +295,7 @@ projects.openapi(updateProject, async (c) => {
 		// from what the gateway will actually honor.
 		const projectOrg = projectUserOrg?.organization;
 		if (
-			projectOrg?.isPersonal &&
+			projectOrg?.kind === "devpass" &&
 			projectOrg.devPlan !== "none" &&
 			defaultRoutingStrategy !== "auto" &&
 			defaultRoutingStrategy !== "price"

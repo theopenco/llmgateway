@@ -1016,12 +1016,14 @@ export const ChatSidebar = function ChatSidebar({
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
 						organization={
-							!selectedOrganization || selectedOrganization.isChat
+							!selectedOrganization || selectedOrganization.kind === "chat"
 								? organization
 								: selectedOrganization
 						}
 						isLoading={isOrgLoading}
-						isChatPlanOrg={!selectedOrganization || selectedOrganization.isChat}
+						isChatPlanOrg={
+							!selectedOrganization || selectedOrganization.kind === "chat"
+						}
 					/>
 				</div>
 				<SidebarMenu>
