@@ -58,11 +58,21 @@ export function isPrivateOrReservedIp(ip: string): boolean {
 		if (host.startsWith("fc") || host.startsWith("fd")) {
 			return true; // ULA fc00::/7
 		}
+		// IPv4-mapped IPv6 in dotted form, e.g. ::ffff:127.0.0.1
 		const mapped = host.match(
 			/(?:::ffff:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/,
 		);
 		if (mapped) {
 			return isPrivateOrReservedIp(mapped[1]);
+		}
+		// IPv4-mapped IPv6 in hex form, e.g. ::ffff:7f00:1 (127.0.0.1) or
+		// ::ffff:a9fe:a9fe (169.254.169.254) — dns.lookup can surface this shape.
+		const mappedHex = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+		if (mappedHex) {
+			const high = parseInt(mappedHex[1], 16);
+			const low = parseInt(mappedHex[2], 16);
+			const ipv4 = `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
+			return isPrivateOrReservedIp(ipv4);
 		}
 		return false;
 	}

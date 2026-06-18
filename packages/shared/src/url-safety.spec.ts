@@ -28,6 +28,13 @@ describe("isPrivateOrReservedIp", () => {
 		}
 	});
 
+	it("flags IPv4-mapped IPv6 in hex form (DNS rebinding shape)", () => {
+		expect(isPrivateOrReservedIp("::ffff:7f00:1")).toBe(true); // 127.0.0.1
+		expect(isPrivateOrReservedIp("::ffff:a9fe:a9fe")).toBe(true); // 169.254.169.254
+		expect(isPrivateOrReservedIp("::ffff:0a00:0001")).toBe(true); // 10.0.0.1
+		expect(isPrivateOrReservedIp("::ffff:0808:0808")).toBe(false); // 8.8.8.8
+	});
+
 	it("allows public IPs", () => {
 		expect(isPrivateOrReservedIp("8.8.8.8")).toBe(false);
 		expect(isPrivateOrReservedIp("1.1.1.1")).toBe(false);

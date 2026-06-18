@@ -6273,6 +6273,11 @@ chat.openapi(completions, async (c) => {
 
 						res = await fetch(url, {
 							method: "POST",
+							// Never follow redirects on an authenticated provider request: a
+							// tenant-controlled baseUrl could 3xx to an internal host (SSRF)
+							// and a redirect would also leak the upstream token. Provider
+							// chat endpoints never legitimately redirect.
+							redirect: "error",
 							headers,
 							body: JSON.stringify(requestBody),
 							signal: fetchSignal,
@@ -10172,6 +10177,11 @@ chat.openapi(completions, async (c) => {
 
 			res = await fetch(url, {
 				method: "POST",
+				// Never follow redirects on an authenticated provider request: a
+				// tenant-controlled baseUrl could 3xx to an internal host (SSRF) and a
+				// redirect would also leak the upstream token. Provider endpoints never
+				// legitimately redirect.
+				redirect: "error",
 				headers,
 				body:
 					requestBody instanceof FormData
