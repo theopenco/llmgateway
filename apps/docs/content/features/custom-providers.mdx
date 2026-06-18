@@ -50,18 +50,20 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ### Custom Provider Name
 
-- **Format**: Lowercase letters only (`a-z`)
-- **Examples**: `mycompany`, `internal`, `testing`
-- **Invalid**: `MyCompany`, `my-company`, `my_company`, `123test`
+- **Format**: Lowercase letters (`a-z`) with optional single hyphens between them
+- **Examples**: `mycompany`, `internal`, `my-company`, `eu-west`
+- **Invalid**: `MyCompany`, `my_company`, `123test`, `-mycompany`, `my-`, `my--company`
 
 <Callout type="warn">
-	The custom provider name must match the regex pattern `/^[a-z]+$/` exactly.
+	The custom provider name must match the regex pattern `/^[a-z]+(-[a-z]+)*$/`
+	exactly.
 </Callout>
 
 ### Base URL
 
-- Must be a valid HTTPS URL
-- Should point to your provider's base endpoint
+- Must be a valid URL pointing to your provider's base endpoint
+- Use an `https://` URL for hosted providers; an `http://` URL is allowed when
+  self-hosting (for example a service on your own network)
 - LLMGateway will append `/v1/chat/completions` automatically
 - **Example**: `https://api.example.com` → `https://api.example.com/v1/chat/completions`
 

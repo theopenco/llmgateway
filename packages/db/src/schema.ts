@@ -1080,7 +1080,7 @@ export const providerKey = pgTable(
 			.$onUpdate(() => new Date()),
 		token: text().notNull(),
 		provider: text().notNull(),
-		name: text(), // Optional name for custom providers (lowercase a-z only)
+		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
 		baseUrl: text(), // Optional base URL for custom providers
 		options: jsonb().$type<ProviderKeyOptions>(),
 		// When true (custom providers only), requests through this key are

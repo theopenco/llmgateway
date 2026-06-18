@@ -118,10 +118,14 @@ export function CreateProviderKeyDialog({
 			return;
 		}
 
-		if (selectedProvider === "custom" && !/^[a-z]+$/.test(customName)) {
+		if (
+			selectedProvider === "custom" &&
+			!/^[a-z]+(-[a-z]+)*$/.test(customName)
+		) {
 			toast({
 				title: "Error",
-				description: "Custom name must contain only lowercase letters a-z",
+				description:
+					"Custom name must contain only lowercase letters a-z and single hyphens between them",
 				variant: "destructive",
 			});
 			return;
@@ -448,7 +452,7 @@ export function CreateProviderKeyDialog({
 									placeholder="myprovider"
 									value={customName}
 									onChange={(e) => setCustomName(e.target.value.toLowerCase())}
-									pattern="[a-z]+"
+									pattern="[a-z]+(-[a-z]+)*"
 									required
 								/>
 								<p className="text-sm text-muted-foreground">

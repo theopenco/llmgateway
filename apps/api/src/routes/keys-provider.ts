@@ -85,7 +85,10 @@ const createProviderKeySchema = z.object({
 		),
 	name: z
 		.string()
-		.regex(/^[a-z]+$/, "Name must contain only lowercase letters a-z")
+		.regex(
+			/^[a-z]+(-[a-z]+)*$/,
+			"Name must contain only lowercase letters a-z and single hyphens between them",
+		)
 		.optional(),
 	baseUrl: z.string().url().optional(),
 	options: z
