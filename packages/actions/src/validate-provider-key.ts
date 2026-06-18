@@ -78,7 +78,8 @@ function getValidationModel(
 				isDeactivated ||
 				providerMapping.imageGenerations ||
 				providerMapping.videoGenerations ||
-				providerMapping.embeddings
+				providerMapping.embeddings ||
+				providerMapping.speechGenerations
 			) {
 				return [];
 			}

@@ -9,6 +9,13 @@ import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import { notDevpassFilter } from "@/utils/devpass-filter.js";
+import {
+	HOURLY_BUCKET_THRESHOLD_MINUTES,
+	floorToHourStart,
+	isHourlyRange,
+	pickMappingHistoryTable,
+	pickModelHistoryTable,
+} from "@/utils/history-window.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -4624,10 +4631,6 @@ const HISTORY_WINDOW_MINUTES: Record<string, number> = {
 	"90d": 129600,
 };
 
-// Windows longer than 24h read the hourly rollup tables instead of the minute
-// tables, so a 30d/90d range scans hours rather than millions of minute rows.
-const HOURLY_BUCKET_THRESHOLD_MINUTES = 1440;
-
 function getHistoryStartDate(window: string): Date {
 	const minutes = HISTORY_WINDOW_MINUTES[window] ?? 240;
 	const ms = minutes * 60 * 1000;
@@ -4638,66 +4641,6 @@ function isHourlyWindow(window: string): boolean {
 	return (
 		(HISTORY_WINDOW_MINUTES[window] ?? 240) > HOURLY_BUCKET_THRESHOLD_MINUTES
 	);
-}
-
-// Same threshold as isHourlyWindow but for the list endpoints, which take an
-// explicit [from, to) range instead of a named window.
-function isHourlyRange(from: Date, to: Date): boolean {
-	return (
-		to.getTime() - from.getTime() > HOURLY_BUCKET_THRESHOLD_MINUTES * 60 * 1000
-	);
-}
-
-// Floor a date to the start of its hour so the hourly-table range filter aligns
-// to bucket boundaries.
-function floorToHourStart(date: Date): Date {
-	const d = new Date(date);
-	d.setMinutes(0, 0, 0);
-	return d;
-}
-
-// The minute and hourly history tables share identical metric column names and
-// differ only in their timestamp column. These pickers return the right source
-// for a window plus its bucket column, so aggregate/timeseries queries can serve
-// both without duplicating every SUM(). The hourly table is cast to the minute
-// table's type because the metric columns line up exactly at runtime; callers
-// must use the returned `bucket` for any timestamp predicate (never
-// `table.minuteTimestamp`, which does not exist on the hourly table).
-function pickMappingHistoryTable(hourly: boolean): {
-	table: typeof modelProviderMappingHistory;
-	bucket:
-		| typeof modelProviderMappingHistory.minuteTimestamp
-		| typeof modelProviderMappingHistoryHourly.hourTimestamp;
-} {
-	if (hourly) {
-		return {
-			table:
-				modelProviderMappingHistoryHourly as unknown as typeof modelProviderMappingHistory,
-			bucket: modelProviderMappingHistoryHourly.hourTimestamp,
-		};
-	}
-	return {
-		table: modelProviderMappingHistory,
-		bucket: modelProviderMappingHistory.minuteTimestamp,
-	};
-}
-
-function pickModelHistoryTable(hourly: boolean): {
-	table: typeof modelHistory;
-	bucket:
-		| typeof modelHistory.minuteTimestamp
-		| typeof modelHistoryHourly.hourTimestamp;
-} {
-	if (hourly) {
-		return {
-			table: modelHistoryHourly as unknown as typeof modelHistory,
-			bucket: modelHistoryHourly.hourTimestamp,
-		};
-	}
-	return {
-		table: modelHistory,
-		bucket: modelHistory.minuteTimestamp,
-	};
 }
 
 // Model detail – lists providers that serve a given model (with stats)
@@ -7595,52 +7538,54 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		return { startDate, endDateExclusive };
 	})();
 
-	const statsJoin = dateRange
+	// Ranges longer than 24h aggregate the hourly rollup so a full-window scan
+	// across every mapping doesn't read minute rows (mirrors the models list).
+	const mappingHistory = dateRange
+		? pickMappingHistoryTable(
+				isHourlyRange(dateRange.startDate, dateRange.endDateExclusive),
+			)
+		: null;
+
+	const statsJoin = mappingHistory
 		? db
 				.select({
-					mappingId: modelProviderMappingHistory.modelProviderMappingId,
+					mappingId: mappingHistory.table.modelProviderMappingId,
 					logsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.logsCount}), 0)`.as(
 							"logsCount",
 						),
 					errorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.errorsCount}), 0)`.as(
 							"errorsCount",
 						),
 					clientErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.clientErrorsCount}), 0)`.as(
 							"clientErrorsCount",
 						),
 					gatewayErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.gatewayErrorsCount}), 0)`.as(
 							"gatewayErrorsCount",
 						),
 					upstreamErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.upstreamErrorsCount}), 0)`.as(
 							"upstreamErrorsCount",
 						),
 					cachedCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
-					cost: sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
+					cost: sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 						"cost",
 					),
 				})
-				.from(modelProviderMappingHistory)
+				.from(mappingHistory.table)
 				.where(
 					and(
-						gte(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.startDate,
-						),
-						lt(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.endDateExclusive,
-						),
+						gte(mappingHistory.bucket, dateRange!.startDate),
+						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
 					),
 				)
-				.groupBy(modelProviderMappingHistory.modelProviderMappingId)
+				.groupBy(mappingHistory.table.modelProviderMappingId)
 				.as("mapping_stats_sub")
 		: db
 				.select({
@@ -7658,41 +7603,35 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				.from(tables.modelProviderMapping)
 				.as("mapping_stats_sub");
 
-	const totalsPromise = dateRange
+	const totalsPromise = mappingHistory
 		? db
 				.select({
 					totalRequests:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.logsCount}), 0)`.as(
 							"totalRequests",
 						),
 					totalTokens:
-						sql<number>`COALESCE(SUM(CAST(${modelProviderMappingHistory.totalTokens} AS NUMERIC)), 0)`.as(
+						sql<number>`COALESCE(SUM(CAST(${mappingHistory.table.totalTokens} AS NUMERIC)), 0)`.as(
 							"totalTokens",
 						),
 					totalCost:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 							"totalCost",
 						),
 				})
-				.from(modelProviderMappingHistory)
+				.from(mappingHistory.table)
 				.innerJoin(
 					tables.modelProviderMapping,
 					eq(
-						modelProviderMappingHistory.modelProviderMappingId,
+						mappingHistory.table.modelProviderMappingId,
 						tables.modelProviderMapping.id,
 					),
 				)
 				.where(
 					and(
 						whereClause,
-						gte(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.startDate,
-						),
-						lt(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.endDateExclusive,
-						),
+						gte(mappingHistory.bucket, dateRange!.startDate),
+						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
 					),
 				)
 		: Promise.resolve([
