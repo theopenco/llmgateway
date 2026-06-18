@@ -635,22 +635,75 @@ function transformContentForResponsesApi(content: any, role: string): any {
 }
 
 /**
+ * Thrown when a tool/function result message in a Responses-API request cannot
+ * be paired with a preceding function call. OpenAI's Responses API requires
+ * every `function_call_output` to reference an existing `function_call` via
+ * `call_id`. When the caller omits `tool_call_id` *and* there is no unmatched
+ * prior tool call to recover it from, the request is malformed, so the gateway
+ * maps this to HTTP 400 instead of a generic 500.
+ */
+export class OrphanedToolMessageError extends Error {
+	public constructor(message: string) {
+		super(message);
+		this.name = "OrphanedToolMessageError";
+	}
+}
+
+/**
  * Transforms messages for OpenAI's Responses API format.
  * The Responses API uses a flat list of "items" rather than messages:
  * - Regular messages become items with role/content
  * - Assistant tool_calls become separate { type: "function_call" } items
- * - Tool result messages become { type: "function_call_output" } items
+ * - Tool result messages (role "tool" and the legacy role "function") become
+ *   { type: "function_call_output" } items
  * Content types are also transformed (text -> input_text/output_text, image_url -> input_image)
+ *
+ * Tool results are paired with their function call via `call_id`. The Chat
+ * Completions spec requires `tool_call_id` on `tool` messages, but real callers
+ * sometimes omit it (legacy `function` role results carry only `name`, and some
+ * clients drop the id when replaying history). To stay compatible we recover
+ * the id from the preceding unmatched function calls: by explicit id, then by
+ * matching function name, then by oldest-first ordering.
  */
 function transformMessagesForResponsesApi(messages: any[]): any[] {
 	const items: any[] = [];
 
+	// FIFO of function calls emitted from assistant tool_calls that have not yet
+	// been consumed by a function_call_output. Used to recover the call_id of a
+	// tool/function result message that omits tool_call_id.
+	const pendingCalls: { callId: string; name?: string }[] = [];
+
+	const resolveCallId = (msg: any): string | undefined => {
+		// Explicit tool_call_id always wins.
+		if (msg.tool_call_id) {
+			const idx = pendingCalls.findIndex((c) => c.callId === msg.tool_call_id);
+			if (idx !== -1) {
+				pendingCalls.splice(idx, 1);
+			}
+			return msg.tool_call_id;
+		}
+		// Legacy `function` role (and tool messages that carry a function name):
+		// pair with the earliest pending call sharing that name.
+		if (msg.name) {
+			const idx = pendingCalls.findIndex((c) => c.name === msg.name);
+			if (idx !== -1) {
+				return pendingCalls.splice(idx, 1)[0].callId;
+			}
+		}
+		// Fall back to the oldest unmatched call (ordered tool turns).
+		if (pendingCalls.length > 0) {
+			return pendingCalls.shift()?.callId;
+		}
+		return undefined;
+	};
+
 	for (const msg of messages) {
-		// Tool result messages become function_call_output items
-		if (msg.role === "tool") {
-			if (!msg.tool_call_id) {
-				throw new Error(
-					"tool message is missing tool_call_id, required for Responses API function_call_output",
+		// Tool/function result messages become function_call_output items
+		if (msg.role === "tool" || msg.role === "function") {
+			const callId = resolveCallId(msg);
+			if (!callId) {
+				throw new OrphanedToolMessageError(
+					"tool message could not be matched to a preceding tool call (missing tool_call_id with no unmatched prior function_call); the Responses API requires every function_call_output to reference a function_call",
 				);
 			}
 			const output =
@@ -661,7 +714,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 						: "";
 			items.push({
 				type: "function_call_output",
-				call_id: msg.tool_call_id,
+				call_id: callId,
 				output,
 			});
 			continue;
@@ -688,6 +741,10 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 					call_id: toolCall.id,
 					name: toolCall.function.name,
 					arguments: toolCall.function.arguments,
+				});
+				pendingCalls.push({
+					callId: toolCall.id,
+					name: toolCall.function?.name,
 				});
 			}
 			continue;

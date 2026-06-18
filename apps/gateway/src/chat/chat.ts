@@ -96,6 +96,7 @@ import {
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
+	OrphanedToolMessageError,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
 	UnsupportedAudioFormatError,
@@ -5773,7 +5774,8 @@ chat.openapi(completions, async (c) => {
 		if (
 			e instanceof InvalidFileContentError ||
 			e instanceof UnsupportedAudioFormatError ||
-			e instanceof UnsupportedDocumentFormatError
+			e instanceof UnsupportedDocumentFormatError ||
+			e instanceof OrphanedToolMessageError
 		) {
 			try {
 				await insertLogEntry({

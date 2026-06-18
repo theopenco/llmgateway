@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import {
 	InvalidFileContentError,
+	OrphanedToolMessageError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 } from "@llmgateway/actions";
@@ -161,6 +162,11 @@ app.onError((error, c) => {
 			mimeType: error.mimeType,
 			providerTarget: error.providerTarget,
 		});
+		return renderGatewayError(c, 400, error.message);
+	}
+
+	if (error instanceof OrphanedToolMessageError) {
+		logger.warn("Orphaned tool message", { message: error.message });
 		return renderGatewayError(c, 400, error.message);
 	}
 
