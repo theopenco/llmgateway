@@ -2,8 +2,8 @@
 id: blog-api-key-rotation
 slug: api-key-rotation
 date: 2026-06-18
-title: "Zero-Downtime API Key Rotation: The Secure LLM Guide"
-summary: "Rotating API keys shouldn't cause downtime for production AI. Learn how LLM Gateway enables zero-downtime key rotation for both providers and the gateway."
+title: "API Key Rotation - How we secure your api keys"
+summary: "Rotating API keys shouldn't cause service interruption for production AI. Learn how LLM Gateway enables secure key rotation for both providers and the gateway."
 categories: ["Guides", "Engineering"]
 image:
   src: "/blog/api-key-rotation.png"
@@ -18,16 +18,16 @@ But in most traditional setups, rotating API keys is a stressful event. It usual
 
 When your application integrates directly with multiple LLM providers (OpenAI, Anthropic, Gemini, etc.), this operational complexity is multiplied by the number of providers you use.
 
-Here is how **LLM Gateway** simplifies API key rotation into a painless, zero-downtime process—both for your backend LLM provider credentials and the keys your applications use to call the gateway.
+Here is how **LLM Gateway** simplifies API key rotation into a painless, secure process—both for your backend LLM provider credentials and the keys your applications use to call the gateway.
 
 ---
 
 ## What is API Key Rotation?
-**API key rotation** is the security practice of systematically replacing authentication credentials (API keys) on a scheduled basis or in response to a suspected breach. In LLM applications, key rotation ensures that access to underlying AI models remains secure without disrupting production services or or causing query downtime.
+**API key rotation** is the security practice of systematically replacing authentication credentials (API keys) on a scheduled basis or in response to a suspected breach. In AI applications, key rotation ensures that access to underlying AI models remains secure without disrupting production services or causing query interruptions.
 
 ---
 
-## Why API Key Rotation Matters for LLM Apps
+## Why API Key Rotation Matters for AI Apps
 
 According to the [GitGuardian State of Secrets Sprawl Report](https://www.gitguardian.com/state-of-secrets-sprawl), credentials leaked in public repositories increased by 112% year-over-year, with AI provider keys (like OpenAI and Anthropic) becoming high-value targets for attackers looking to siphon credits or scrape training data.
 
@@ -44,7 +44,7 @@ Furthermore, compliance standards like SOC 2 and ISO 27001 mandate periodic cred
 | :--- | :--- | :--- |
 | **Provider Keys** | Requires code redeployments in every microservice. | Single-click dashboard update; zero code changes. |
 | **Gateway Keys** | Not applicable (no gateway layer). | Double-key roll with concurrent active keys. |
-| **Downtime Risk** | High (timing mismatch during propagation). | Zero (both keys active during transition). |
+| **Downtime Risk** | High (timing mismatch during propagation). | None (both keys active during transition). |
 | **Automation** | Complex custom scripting. | Native TTL (Time-to-Live) expiration. |
 
 ---
@@ -78,7 +78,7 @@ The gateway immediately begins using the new credential for all subsequent reque
 
 ## 2. Rotating Gateway Keys: The "Double-Key Roll" Pattern
 
-If you need to rotate the API key your application uses to connect to LLM Gateway (e.g. `llmgtwy_...`), you cannot avoid updating your application configuration. However, you *can* avoid downtime.
+If you need to rotate the API key your application uses to connect to LLM Gateway (e.g. `llmgtwy_...`), you cannot avoid updating your application configuration. However, you *can* avoid service interruption.
 
 LLM Gateway supports **multiple concurrent active keys** per project. This enables a seamless transition path known as the "Double-Key Roll" pattern.
 
@@ -86,7 +86,7 @@ LLM Gateway supports **multiple concurrent active keys** per project. This enabl
 1. Generate New Key (Both old and new keys active)
 2. Deploy Config Update (Traffic begins shifting to new key)
 3. Monitor Logs (Verify 100% of traffic is on new key)
-4. Deactivate & Delete Old Key (Zero downtime transition complete)
+4. Deactivate & Delete Old Key (Secure transition complete)
 ```
 
 ### Step 1: Create a new API Key
@@ -129,23 +129,11 @@ This is highly recommended for:
 
 If an expired key needs to be reactivated, you can do so in the UI by explicitly setting a new expiration date.
 
----
 
-## How This Compares to OpenRouter
 
-If your team has evaluated [OpenRouter](https://openrouter.ai/) for multi-model routing or API key aggregation, you might wonder how its security architecture handles key management and rotation.
+## Best Practices for Secure AI Key Management
 
-While OpenRouter supports creating multiple API keys and provides a Management API to programmatically generate and revoke keys (which is useful for automating rotation via third-party secret managers like Infisical), there are key differences in security depth and deployment flexibility:
-
-1. **Self-Hosting vs. Cloud-Only Storage:** OpenRouter is a proprietary, cloud-only service. This means your rotated API keys (including any provider credentials you add via OpenRouter BYOK) must be stored in their database. For teams in highly regulated industries or with strict data residency constraints, this third-party exposure is a risk. LLM Gateway is open-source (AGPLv3) and self-hostable, allowing you to keep all rotated credentials in your own private cloud or Docker environment.
-2. **Native Expiration (TTL):** OpenRouter keys remain valid indefinitely until manually deleted or revoked via API scripts. LLM Gateway includes native, built-in TTL (Time-to-Live) settings, allowing you to generate keys that automatically deactivate after a set duration.
-3. **Bring Your Own Keys (BYOK) Costs:** While both platforms allow you to route requests through your own provider credentials (BYOK), LLM Gateway offers BYOK with 0% platform markup, making the transition to secure, key-managed infrastructure cost-free.
-
----
-
-## Best Practices for Secure LLM Key Management
-
-To keep your LLM infrastructure secure, follow these principles:
+To keep your AI infrastructure secure, follow these principles:
 
 1. **Use Project-Specific Keys:** Never use a single API key for both development and production. Create separate projects in LLM Gateway and assign dedicated keys to each environment.
 2. **Apply IAM Rules:** Narrow the scope of your keys. If a service only needs to run translation tasks using `gemini-2.5-flash`, configure an IAM rule on that key denying access to all other models. If the key is leaked, the exposure is limited.
