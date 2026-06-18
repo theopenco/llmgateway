@@ -26,6 +26,20 @@ import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
 
+/**
+ * Thrown when a tool message reaches the Responses API transform without a
+ * `tool_call_id`, which is required to build a `function_call_output` item.
+ * The gateway maps this to HTTP 400 and writes a client_error log row so the
+ * rejected request still shows up in the user's activity history instead of
+ * surfacing as a generic 500 with no log.
+ */
+export class MissingToolCallIdError extends Error {
+	public constructor(message: string) {
+		super(message);
+		this.name = "MissingToolCallIdError";
+	}
+}
+
 function getProviderMapping(
 	modelDef: ModelDefinition | undefined,
 	usedProvider: ProviderId,
@@ -649,7 +663,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		// Tool result messages become function_call_output items
 		if (msg.role === "tool") {
 			if (!msg.tool_call_id) {
-				throw new Error(
+				throw new MissingToolCallIdError(
 					"tool message is missing tool_call_id, required for Responses API function_call_output",
 				);
 			}
