@@ -1,6 +1,5 @@
 "use client";
 
-import { OrganizationBillingEmailSettings } from "@/components/settings/organization-billing-email-settings";
 import { OrganizationIdSettings } from "@/components/settings/organization-id-settings";
 import { OrganizationNameSettings } from "@/components/settings/organization-name-settings";
 import {
@@ -40,17 +39,6 @@ export default function PreferencesPage() {
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<OrganizationNameSettings />
-						</CardContent>
-					</Card>
-					<Card>
-						<CardHeader>
-							<CardTitle>Billing Email</CardTitle>
-							<CardDescription>
-								Manage your organization's billing email address.
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="space-y-6">
-							<OrganizationBillingEmailSettings />
 						</CardContent>
 					</Card>
 				</div>
