@@ -29,7 +29,7 @@ Here is how **LLM Gateway** simplifies API key rotation into a painless, zero-do
 
 ## Why API Key Rotation Matters for LLM Apps
 
-According to the [GitGuardian State of Secrets Spillage Report](https://www.gitguardian.com/state-of-secrets-spillage), credentials leaked in public repositories increased by 112% year-over-year, with AI provider keys (like OpenAI and Anthropic) becoming high-value targets for attackers looking to siphon credits or scrape training data.
+According to the [GitGuardian State of Secrets Sprawl Report](https://www.gitguardian.com/state-of-secrets-sprawl), credentials leaked in public repositories increased by 112% year-over-year, with AI provider keys (like OpenAI and Anthropic) becoming high-value targets for attackers looking to siphon credits or scrape training data.
 
 Furthermore, compliance standards like SOC 2 and ISO 27001 mandate periodic credential rotation—typically every 90 days—to limit the blast radius of any potential leak. (We recently wrote about our own [SOC 2 Type II compliance journey](/blog/soc2-type-ii), where credential security and audit logs are key requirements.)
 
