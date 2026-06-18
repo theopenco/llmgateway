@@ -148,6 +148,55 @@ describe("api", () => {
 		expect(logs[0].finishReason).toBe("stop");
 	});
 
+	test("/v1/messages accepts thinking blocks in conversation history", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "What is 2+2?" },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "thinking",
+								thinking: "The user is asking for basic arithmetic.",
+								signature: "sig-abc",
+							},
+							{ type: "text", text: "4" },
+						],
+					},
+					{ role: "user", content: "Thanks!" },
+				],
+			}),
+		});
+
+		// Before the fix this returned 400 with a Zod invalid_union error
+		// because `thinking` blocks weren't whitelisted in the content schema.
+		expect(res.status).toBe(200);
+	});
+
 	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
 		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
 		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.
