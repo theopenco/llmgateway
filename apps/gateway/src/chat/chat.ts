@@ -2348,26 +2348,30 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	if (isDevPlanRestricted) {
-		if (!isCodingModel(modelInfo)) {
-			throw new HTTPException(403, {
-				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at devpass.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
-			});
-		}
+	if (isDevPlanRestricted && !isCodingModel(modelInfo)) {
+		throw new HTTPException(403, {
+			message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at devpass.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+		});
+	}
 
+	// Direct provider/mapping pinning is never allowed on coding plans,
+	// regardless of `devPlanAllowAllModels` — that toggle only controls which
+	// models are available, not whether routing can be pinned to a single
+	// provider. The gateway must own routing so it can prefer cached mappings.
+	if (isDevPlan) {
 		if (
 			requestedProvider &&
 			requestedProvider !== "llmgateway" &&
 			requestedProvider !== "custom"
 		) {
 			throw new HTTPException(403, {
-				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
 			});
 		}
 
 		if (requestedProvider === "custom") {
 			throw new HTTPException(403, {
-				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing. You can enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
 			});
 		}
 	}

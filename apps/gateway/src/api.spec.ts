@@ -102,6 +102,38 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions rejects direct provider pinning for dev-plan orgs even with allowAllModels", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// allowAllModels only widens which models are available — it must never
+		// let a coding plan pin a specific provider/mapping.
+		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Direct provider routing is not available on coding plans",
+		);
+	});
+
 	test("/v1/chat/completions e2e success", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
