@@ -97,20 +97,20 @@ export function AuthDialog({
 		: "/signup";
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-background/95 p-4 backdrop-blur-sm">
-			<div className="my-8 w-full max-w-lg rounded-2xl border bg-card p-8 shadow-2xl">
+		<div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/95 p-4 backdrop-blur-sm sm:items-center">
+			<div className="my-4 w-full max-w-lg rounded-2xl border bg-card p-5 shadow-2xl sm:my-8 sm:p-8">
 				<div className="flex items-center gap-2">
 					<Logo className="size-6" />
 					<span className="text-base font-semibold">LLM Gateway</span>
 					<Badge>Chat</Badge>
 				</div>
 
-				<h1 className="mt-6 text-2xl font-semibold leading-tight tracking-tight">
+				<h1 className="mt-5 text-xl font-semibold leading-tight tracking-tight sm:mt-6 sm:text-2xl">
 					{title}
 				</h1>
 				<p className="mt-3 text-sm text-muted-foreground">{description}</p>
 
-				<div className="mt-6 flex items-center gap-3">
+				<div className="mt-5 flex items-center gap-3 sm:mt-6">
 					{PROVIDER_LOGOS.map((provider) => {
 						const Icon = getProviderIcon(provider);
 						return (
@@ -123,7 +123,7 @@ export function AuthDialog({
 					})}
 				</div>
 
-				<div className="mt-6 grid gap-2.5 sm:grid-cols-2">
+				<div className="mt-5 grid gap-2.5 sm:mt-6 sm:grid-cols-2">
 					{FEATURES.map((feature) => {
 						const Icon = feature.icon;
 						return (
@@ -159,7 +159,7 @@ export function AuthDialog({
 					))}
 				</ul>
 
-				<div className="mt-8 flex flex-col gap-3">
+				<div className="mt-6 flex flex-col gap-3 sm:mt-8">
 					<Button size="lg" className="w-full" asChild>
 						<Link href={signupUrl}>Start free</Link>
 					</Button>
