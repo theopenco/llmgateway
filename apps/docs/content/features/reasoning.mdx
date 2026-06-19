@@ -16,7 +16,7 @@ You can find all reasoning-enabled models on our [models page with reasoning fil
 
 - OpenAI's GPT-5 series (e.g., `gpt-5`, `gpt-5-mini`)
   - Note: GPT-5 models use reasoning but currently do not return the reasoning content in the response.
-- Anthropic's Claude 3.7 Sonnet, Claude Sonnet 4, and Claude Opus 4 / 4.5 / 4.6 / 4.7 / 4.8
+- Anthropic's Claude Sonnet and Claude Opus models
 - Google's Gemini 2.0 Flash Thinking and Gemini 2.5 Pro
 - GPT OSS models such as `gpt-oss-120b` and `gpt-oss-20b`
 - Z.AI's reasoning models
@@ -162,23 +162,13 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ### Supported Models
 
-The `reasoning.max_tokens` parameter is supported by:
+`reasoning.max_tokens` is supported by Anthropic Claude and Google Gemini thinking models. To see exactly which models support reasoning, filter the [models page by the reasoning capability](https://llmgateway.io/models?filters=1&reasoning=true). When using auto-routing or root models with `reasoning.max_tokens`, only providers that support this feature will be considered.
 
-- **Anthropic Claude**: Claude 3.7 Sonnet, Claude Sonnet 4, Claude Opus 4, Claude Opus 4.5, Claude Opus 4.6, Claude Opus 4.7, Claude Opus 4.8
-- **Google Gemini**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 3 Pro Preview
-
-When using auto-routing or root models with `reasoning.max_tokens`, only providers that support this feature will be considered.
-
-<Callout type="info">
-	**Adaptive reasoning (Claude Opus 4.6 / 4.7 / 4.8).** These models use
-	Anthropic's adaptive thinking, where the model itself decides how much to
-	think based on the difficulty of the prompt. Control the depth with
-	`reasoning_effort` (or `reasoning.effort`) — `low`, `medium`, `high`, `xhigh`,
-	or `max`. A `reasoning.max_tokens` value is still accepted on these models,
-	but it is routed to adaptive thinking rather than enforced as an exact budget.
-	For easy prompts the model may reason only briefly (or skip visible reasoning)
-	and begin its answer almost immediately even at `high` effort — this is
-	expected adaptive behavior, not a disabled-reasoning bug.
+<Callout type="warning">
+	Anthropic's newer Claude Opus models use [adaptive
+	thinking](#adaptive-thinking-claude-opus) and do **not** honor an exact
+	`reasoning.max_tokens` budget — the value is mapped onto an effort level
+	instead. Prefer `reasoning_effort` / `reasoning.effort` for those models.
 </Callout>
 
 ### Provider-Specific Constraints
@@ -198,6 +188,31 @@ If you specify `reasoning.max_tokens` for a model that doesn't support it, you'l
 		"code": "model_not_supported"
 	}
 }
+```
+
+## Adaptive Thinking (Claude Opus)
+
+Anthropic's newer Claude Opus models — **Claude Opus 4.6 and later** — use **adaptive thinking** instead of a fixed reasoning budget. With adaptive thinking, the model itself decides how much to reason based on the difficulty of each prompt. This changes how the reasoning parameters behave:
+
+- **No exact reasoning-token budget.** These models do not accept an explicit thinking budget, so `reasoning.max_tokens` is **not** enforced as a hard limit. For backward compatibility the gateway still accepts the parameter and maps the requested budget onto an effort level (`< 2k → low`, `< 8k → medium`, `< 24k → high`, otherwise `xhigh`) so it still influences depth — but the exact token count is not guaranteed. Prefer `reasoning_effort` / `reasoning.effort` for these models.
+- **Effort is a hint, not a fixed depth.** Even when you specify a `reasoning_effort` such as `high`, the model can dynamically decide to reason only briefly — or skip visible reasoning entirely — for simple prompts and begin its answer almost immediately, while thinking more on harder ones. This is expected adaptive behavior, not reasoning being disabled.
+
+Control the depth with `reasoning_effort` or `reasoning.effort` (`low`, `medium`, `high`, `xhigh`, `max`); the gateway translates this into Anthropic's adaptive `output_config.effort`.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-opus-4-6",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain the P vs NP problem and why it matters."
+      }
+    ],
+    "reasoning_effort": "high"
+  }'
 ```
 
 ## Streaming Reasoning Content

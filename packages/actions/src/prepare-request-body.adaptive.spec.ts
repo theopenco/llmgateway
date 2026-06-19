@@ -87,4 +87,41 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 			display: "summarized",
 		});
 	});
+
+	// A bare reasoning.max_tokens budget can't be enforced on adaptive models
+	// (they reject budget_tokens), so it is bucketed into an effort level instead
+	// of being dropped: <2k -> low, <8k -> medium, <24k -> high, else xhigh.
+	for (const model of [
+		"claude-opus-4-6",
+		"claude-opus-4-7",
+		"claude-opus-4-8",
+	]) {
+		test.each([
+			[1024, "low"],
+			[4096, "medium"],
+			[8000, "high"],
+			[16000, "high"],
+			[32000, "xhigh"],
+		] as const)(
+			`${model} buckets reasoning.max_tokens=%i to effort %s`,
+			async (maxTokens, expected) => {
+				const body = await buildAnthropicBody(model, {
+					reasoning_max_tokens: maxTokens,
+				});
+				expect(body.thinking).toEqual({
+					type: "adaptive",
+					display: "summarized",
+				});
+				expect(body.output_config?.effort).toBe(expected);
+			},
+		);
+	}
+
+	test("explicit reasoning_effort wins over a max_tokens budget", async () => {
+		const body = await buildAnthropicBody("claude-opus-4-6", {
+			reasoning_effort: "low",
+			reasoning_max_tokens: 32000,
+		});
+		expect(body.output_config?.effort).toBe("low");
+	});
 });

@@ -26,6 +26,63 @@ import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
 
+type AdaptiveEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * Resolve `output_config.effort` for adaptive-thinking Anthropic models
+ * (Opus 4.6+). Precedence: explicit `effort`, then `reasoning_effort` mapped
+ * onto the adaptive scale, then `reasoning.max_tokens` bucketed into an effort
+ * level. Adaptive models reject `budget_tokens`, so a requested budget is
+ * translated into a depth hint instead of being dropped. Returns undefined when
+ * no reasoning controls were sent, leaving the model at its default depth.
+ */
+function resolveAdaptiveEffort(
+	effort: "low" | "medium" | "high" | undefined,
+	reasoning_effort:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max"
+		| undefined,
+	reasoning_max_tokens: number | undefined,
+): AdaptiveEffort | undefined {
+	if (effort !== undefined) {
+		return effort;
+	}
+	if (reasoning_effort) {
+		switch (reasoning_effort) {
+			case "minimal":
+			case "low":
+				return "low";
+			case "medium":
+				return "medium";
+			case "xhigh":
+				return "xhigh";
+			case "max":
+				return "max";
+			case "high":
+			default:
+				return "high";
+		}
+	}
+	if (reasoning_max_tokens !== undefined) {
+		if (reasoning_max_tokens < 2000) {
+			return "low";
+		}
+		if (reasoning_max_tokens < 8000) {
+			return "medium";
+		}
+		if (reasoning_max_tokens < 24000) {
+			return "high";
+		}
+		return "xhigh";
+	}
+	return undefined;
+}
+
 function getProviderMapping(
 	modelDef: ModelDefinition | undefined,
 	usedProvider: ProviderId,
@@ -1908,28 +1965,21 @@ export async function prepareRequestBody(
 					// thinking text — their default flipped to "omitted" (empty thinking,
 					// signature only), unlike Opus 4.6 which defaults to "summarized".
 					requestBody.thinking = { type: "adaptive", display: "summarized" };
-					if (effort === undefined && reasoning_effort) {
-						const mapEffort = (
-							e: typeof reasoning_effort,
-						): "low" | "medium" | "high" | "xhigh" | "max" => {
-							switch (e) {
-								case "minimal":
-								case "low":
-									return "low";
-								case "medium":
-									return "medium";
-								case "high":
-									return "high";
-								case "xhigh":
-									return "xhigh";
-								case "max":
-									return "max";
-								default:
-									return "high";
-							}
-						};
-						requestBody.output_config ??= {};
-						requestBody.output_config.effort = mapEffort(reasoning_effort);
+					// Explicit `effort` is applied below alongside the other optional
+					// parameters; here we derive the adaptive depth from
+					// `reasoning_effort` or, failing that, bucket a requested
+					// `reasoning.max_tokens` into an effort level so the budget still
+					// influences depth instead of being silently dropped.
+					if (effort === undefined) {
+						const adaptiveEffort = resolveAdaptiveEffort(
+							undefined,
+							reasoning_effort,
+							reasoning_max_tokens,
+						);
+						if (adaptiveEffort !== undefined) {
+							requestBody.output_config ??= {};
+							requestBody.output_config.effort = adaptiveEffort;
+						}
 					}
 				} else {
 					requestBody.thinking = {
@@ -2380,28 +2430,11 @@ export async function prepareRequestBody(
 						type: "adaptive",
 						display: "summarized",
 					};
-					const mapEffort = (
-						e: typeof reasoning_effort,
-					): "low" | "medium" | "high" | "xhigh" | "max" => {
-						switch (e) {
-							case "minimal":
-							case "low":
-								return "low";
-							case "medium":
-								return "medium";
-							case "high":
-								return "high";
-							case "xhigh":
-								return "xhigh";
-							case "max":
-								return "max";
-							default:
-								return "high";
-						}
-					};
-					const adaptiveEffort =
-						effort ??
-						(reasoning_effort ? mapEffort(reasoning_effort) : undefined);
+					const adaptiveEffort = resolveAdaptiveEffort(
+						effort,
+						reasoning_effort,
+						reasoning_max_tokens,
+					);
 					if (adaptiveEffort !== undefined) {
 						requestBody.additionalModelRequestFields.output_config = {
 							effort: adaptiveEffort,
