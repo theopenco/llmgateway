@@ -1943,9 +1943,9 @@ export const modelProviderMapping = pgTable(
 	},
 	(table) => [
 		unique().on(table.modelId, table.providerId, table.region),
-		index("model_provider_mapping_model_id_status_idx").on(
-			table.modelId,
+		index("model_provider_mapping_status_model_id_idx").on(
 			table.status,
+			table.modelId,
 		),
 	],
 );

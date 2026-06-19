@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "5cdf8f2d-c5a3-4733-8a93-4cc90cbe08c5",
+  "id": "540493b9-7fe9-480e-85ed-63e92662078d",
   "prevId": "703166e7-bf3c-4da9-93a1-bdbc81ad32f4",
   "ddl": [
     {
@@ -19814,14 +19814,14 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "model_id",
+          "value": "status",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
           "opclass": null
         },
         {
-          "value": "status",
+          "value": "model_id",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -19833,7 +19833,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "model_provider_mapping_model_id_status_idx",
+      "name": "model_provider_mapping_status_model_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping"
