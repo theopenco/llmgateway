@@ -85,7 +85,7 @@ export const ChatHeader = ({
 			<div className="flex min-w-0 flex-1 items-center gap-3">
 				{isTemporaryChat ? null : <SidebarTrigger />}
 				{showGlobalModelSelector ? (
-					<ButtonGroup className="min-w-0 max-w-[180px] sm:max-w-[300px]">
+					<ButtonGroup className="w-full min-w-0 max-w-[180px] sm:max-w-[300px]">
 						<ModelSelector
 							models={models}
 							providers={providers}
