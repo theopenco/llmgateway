@@ -385,6 +385,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											sizes="(max-width: 1280px) 100vw, 1120px"
 											priority
 										/>
 										<Image
@@ -393,6 +394,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											sizes="(max-width: 1280px) 100vw, 1120px"
 											priority
 										/>
 									</div>
