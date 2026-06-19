@@ -10668,7 +10668,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	const now = new Date();
 
 	const org = await db.query.organization.findFirst({
-		where: { id: { eq: orgId } },
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
 	});
 
 	if (!org) {

@@ -303,7 +303,7 @@ describe("API auth hooks functionality", () => {
 		).toBe(true);
 		expect(
 			organizations.some(
-				(org) => org?.name === "Default Organization" && org.kind !== "devpass",
+				(org) => org?.name === "Default Organization" && org.kind === "default",
 			),
 		).toBe(true);
 	});

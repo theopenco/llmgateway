@@ -18,7 +18,7 @@ function isActiveDashboardOrganization(userOrganization: {
 	return (
 		userOrganization.organization !== null &&
 		userOrganization.organization.status !== "deleted" &&
-		userOrganization.organization.kind !== "devpass"
+		userOrganization.organization.kind === "default"
 	);
 }
 

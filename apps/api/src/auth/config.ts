@@ -935,7 +935,7 @@ The LLM Gateway Team`.trim();
 						(uo) => uo.organization?.status !== "deleted",
 					);
 					const hasActiveDashboardOrganization = activeOrganizations.some(
-						(uo) => uo.organization && uo.organization.kind !== "devpass",
+						(uo) => uo.organization?.kind === "default",
 					);
 					const hasActivePersonalOrganization = activeOrganizations.some(
 						(uo) => uo.organization?.kind === "devpass",

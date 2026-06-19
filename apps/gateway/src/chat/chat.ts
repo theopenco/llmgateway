@@ -2374,11 +2374,11 @@ chat.openapi(completions, async (c) => {
 
 	// Chat plan Starter tier is restricted to non-premium models. Plus and Pro
 	// tiers have access to everything. This applies to all requests on a
-	// personal org with chatPlan === "starter" — there's no per-request
+	// chat org with chatPlan === "starter" — there's no per-request
 	// "promote to regular credits" path, so an unrestricted Starter would
-	// silently burn dev-plan/regular credits instead of nudging the upgrade.
+	// silently burn chat-plan/regular credits instead of nudging the upgrade.
 	const isStarterChatPlan = Boolean(
-		organization?.kind === "devpass" && organization.chatPlan === "starter",
+		organization?.kind === "chat" && organization.chatPlan === "starter",
 	);
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
