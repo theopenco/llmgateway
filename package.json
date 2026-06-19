@@ -114,7 +114,8 @@
 			"@grpc/grpc-js": ">=1.14.4",
 			"esbuild@>=0.17.0 <0.28.1": "^0.28.1",
 			"form-data@<2.5.6": "^2.5.6",
-			"form-data@>=4.0.0 <4.0.6": "^4.0.6"
+			"form-data@>=4.0.0 <4.0.6": "^4.0.6",
+			"undici@<6.27.0": "^6.27.0"
 		},
 		"packageExtensions": {
 			"@hookform/resolvers": {
