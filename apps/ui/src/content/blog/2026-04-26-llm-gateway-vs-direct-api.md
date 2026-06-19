@@ -91,7 +91,7 @@ If your codebase has a file called `llm-client.ts` or `ai-provider.ts` that's st
 | Concern                     | Direct API                        | LLM Gateway                               |
 | --------------------------- | --------------------------------- | ----------------------------------------- |
 | Setup                       | SDK install                       | SDK install + base URL change             |
-| Multiple providers          | One adapter per provider          | One API, 300+ models                      |
+| Multiple providers          | One adapter per provider          | One API, 280+ models                      |
 | Failover on outage          | Retry same provider               | Reroute to healthy provider automatically |
 | Cost tracking               | Provider console + spreadsheet    | Per-request, tagged, in dashboard         |
 | Caching                     | Roll your own                     | Toggle in project settings                |

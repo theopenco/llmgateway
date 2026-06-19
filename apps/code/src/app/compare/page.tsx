@@ -59,7 +59,7 @@ export default function CompareIndexPage() {
 						</h1>
 						<p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-pretty text-muted-foreground">
 							Single-vendor plans and single-model deals each do one thing well.
-							DevPass gives you all 200+ models — frontier and open-weight —
+							DevPass gives you all 280+ models — frontier and open-weight —
 							under one key. Here&apos;s how it stacks up.
 						</p>
 
@@ -142,7 +142,7 @@ export default function CompareIndexPage() {
 								Every comparison weighs the same trade: a single-vendor or
 								single-tool plan versus{" "}
 								<span className="font-medium text-foreground">
-									one key to 200+ models
+									one key to 280+ models
 								</span>{" "}
 								at provider rates, with a per-request cost dashboard and
 								commercial use on every tier.

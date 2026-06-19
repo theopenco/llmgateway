@@ -11,7 +11,7 @@ const PAGE_URL = "https://llmgateway.io/token-cost-calculator";
 export const metadata: Metadata = {
 	title: "LLM Token Cost Calculator — Compare AI API Pricing",
 	description:
-		"Free LLM token cost calculator. Estimate and compare API pricing for GPT-4o, Claude, Gemini, and 200+ models, then see how much you save with LLM Gateway's cheapest-provider routing and zero platform markup.",
+		"Free LLM token cost calculator. Estimate and compare API pricing for GPT-4o, Claude, Gemini, and 280+ models, then see how much you save with LLM Gateway's cheapest-provider routing and zero platform markup.",
 	keywords: [
 		"LLM token cost calculator",
 		"AI API pricing calculator",
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
 		url: PAGE_URL,
 		title: "LLM Token Cost Calculator — Compare AI API Pricing",
 		description:
-			"Estimate token costs across GPT-4o, Claude, Gemini, and 200+ models and compare official pricing against LLM Gateway's cheapest-provider routing.",
+			"Estimate token costs across GPT-4o, Claude, Gemini, and 280+ models and compare official pricing against LLM Gateway's cheapest-provider routing.",
 		images: [{ url: "/opengraph.png?v=1" }],
 	},
 	twitter: {
@@ -69,7 +69,7 @@ const appSchema = {
 	operatingSystem: "Web",
 	url: PAGE_URL,
 	description:
-		"Free calculator to estimate and compare LLM token costs across GPT-4o, Claude, Gemini, and 200+ models, with cheapest-provider routing from LLM Gateway.",
+		"Free calculator to estimate and compare LLM token costs across GPT-4o, Claude, Gemini, and 280+ models, with cheapest-provider routing from LLM Gateway.",
 	offers: {
 		"@type": "Offer",
 		price: "0",

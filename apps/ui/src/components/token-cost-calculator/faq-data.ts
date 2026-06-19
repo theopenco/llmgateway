@@ -38,7 +38,7 @@ export const CALCULATOR_FAQ: CalculatorFaqItem[] = [
 		question:
 			"What is the cheapest way to call LLMs like GPT-4o, Claude, and Gemini?",
 		answer:
-			"Route through a gateway that compares providers and picks the lowest price per request. Because LLM Gateway supports 200+ models behind one OpenAI-compatible API, you can switch models or providers based on cost without rewriting your integration.",
+			"Route through a gateway that compares providers and picks the lowest price per request. Because LLM Gateway supports 280+ models behind one OpenAI-compatible API, you can switch models or providers based on cost without rewriting your integration.",
 	},
 	{
 		question: "Is the token cost calculator free to use?",

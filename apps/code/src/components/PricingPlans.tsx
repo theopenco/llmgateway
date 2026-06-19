@@ -26,7 +26,7 @@ const plans: PlanContent[] = [
 		description: "For occasional AI-assisted coding",
 		tagline: "Casual hobby work",
 		features: [
-			"All 200+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
+			"All 280+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
 			"Works with Claude Code, OpenCode, SoulForge & every OpenAI-compatible tool",
 			"Real-time usage dashboard with per-request cost",
 			"Switch tiers any time — prorated",

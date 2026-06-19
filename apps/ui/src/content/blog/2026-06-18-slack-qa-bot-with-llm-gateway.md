@@ -3,7 +3,7 @@ id: blog-slack-qa-bot-with-llm-gateway
 slug: slack-qa-bot-with-llm-gateway
 date: 2026-06-18
 title: "Building a Slack Q&A Bot with LLM Gateway and Chat SDK"
-summary: "A walkthrough of our new open-source template: a Slack bot that streams AI answers, keeps thread context, and searches the web — backed by LLM Gateway so you can switch between 300+ models with one API key."
+summary: "A walkthrough of our new open-source template: a Slack bot that streams AI answers, keeps thread context, and searches the web — backed by LLM Gateway so you can switch between 280+ models with one API key."
 categories: ["Engineering"]
 image:
   src: "/blog/slack-qa-bot-with-llm-gateway.png"
@@ -14,7 +14,7 @@ image:
 
 Most teams already live in Slack. So when someone has a question — "what's the difference between TCP and UDP?", "summarize this thread for me", "what changed in the latest Next.js release?" — the lowest-friction place to ask it is the channel they're already typing in, not a separate tab.
 
-We built a [Slack Q&A bot template](https://github.com/theopenco/llmgateway-templates/tree/main/templates/slack-qa-bot) for exactly that. Mention it, open its assistant pane, or DM it, and it streams an answer back, remembers the thread, and cites its sources. It's open source, and because it routes through LLM Gateway, you can point it at any of 300+ models with a single API key.
+We built a [Slack Q&A bot template](https://github.com/theopenco/llmgateway-templates/tree/main/templates/slack-qa-bot) for exactly that. Mention it, open its assistant pane, or DM it, and it streams an answer back, remembers the thread, and cites its sources. It's open source, and because it routes through LLM Gateway, you can point it at any of 280+ models with a single API key.
 
 This post is a walkthrough of how it works and the decisions behind it.
 

@@ -308,14 +308,14 @@ export function TokenCostCalculatorClient() {
 						Calculate your true LLM token costs
 					</h1>
 					<p className="text-lg text-muted-foreground text-balance leading-relaxed max-w-2xl mx-auto">
-						See exactly what GPT-4o, Claude, Gemini, and 200+ models cost at
+						See exactly what GPT-4o, Claude, Gemini, and 280+ models cost at
 						official rates, then how much less you&apos;d pay routing each
 						request through LLM Gateway&apos;s cheapest provider.
 					</p>
 					<div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
 						<span className="flex items-center gap-1.5">
 							<Check className="h-4 w-4 text-green-500" />
-							200+ models
+							280+ models
 						</span>
 						<span className="flex items-center gap-1.5">
 							<Check className="h-4 w-4 text-green-500" />

@@ -111,7 +111,7 @@ LLM Gateway is an orchestration layer you don't have to build. Behind one OpenAI
 - **Caching** — a project-level toggle, Redis-backed, TTL from 10 seconds to a year
 - **Guardrails** — prompt injection, PII, jailbreak, and secret detection with block/redact/warn rules
 - **Observability** — per-request cost, latency, tokens, provider, and cache status in one dashboard
-- **300+ models across 25+ providers** — including image and video generation through the same API
+- **280+ models across 35+ providers** — including image and video generation through the same API
 
 ```typescript
 import OpenAI from "openai";
