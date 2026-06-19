@@ -5,11 +5,14 @@ import {
 	Calculator,
 	Check,
 	Copy,
+	FileText,
 	Linkedin,
 	Plus,
 	Share2,
+	SlidersHorizontal,
 	X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
@@ -17,149 +20,46 @@ import { ModelSelector } from "@/components/models/playground-model-selector";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
 import { Input } from "@/lib/components/input";
+import {
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@/lib/components/tabs";
 import { XIcon } from "@/lib/icons/XIcon";
 
 import {
-	models,
 	providers,
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 
+import {
+	computeRowCost,
+	formatPricePerMillion,
+	formatTokenCount,
+	formatUsd,
+	getCheapestProvider,
+	getModelById,
+	getOfficialProvider,
+	getProviderName,
+	getTextModels,
+	parseModelFromSelector,
+} from "./calc-utils";
+
 import type { ProviderDefinition } from "@llmgateway/models";
 
-// ─── Derived model list ─────────────────────────────────────────────────────
+// The tokenizer chunk ships ~1 MB of BPE ranks; load it lazily so it never
+// blocks the page's LCP. The estimator tab below stays in the light bundle.
+const TokenizerPanel = dynamic(
+	() => import("./tokenizer-panel").then((m) => m.TokenizerPanel),
+	{
+		ssr: false,
+		loading: () => <TokenizerPanelSkeleton />,
+	},
+);
 
-const now = new Date();
-
-const textModelDefs = (models as unknown as ModelDefinition[]).filter((m) => {
-	if (m.id === "custom" || m.id === "auto") {
-		return false;
-	}
-	if (m.output?.includes("image")) {
-		return false;
-	}
-	if (m.output?.includes("video")) {
-		return false;
-	}
-	const hasActiveProvider = m.providers.some(
-		(p) => !p.deactivatedAt || new Date(p.deactivatedAt) > now,
-	);
-	return hasActiveProvider;
-});
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function getModelById(modelId: string): ModelDefinition | undefined {
-	return (models as unknown as ModelDefinition[]).find((m) => m.id === modelId);
-}
-
-function getProviderName(providerId: string): string {
-	const p = (providers as unknown as ProviderDefinition[]).find(
-		(p) => p.id === providerId,
-	);
-	return p?.name ?? providerId;
-}
-
-/** Get the "official" provider mapping — the one matching the model's family */
-function getOfficialProvider(
-	model: ModelDefinition,
-): ProviderModelMapping | undefined {
-	return model.providers.find((p) => p.providerId === model.family);
-}
-
-/** Get the cheapest active provider for a model weighted by actual token usage */
-function getCheapestProvider(
-	model: ModelDefinition,
-	inputTokens: number,
-	outputTokens: number,
-): ProviderModelMapping | undefined {
-	const activeProviders = model.providers.filter(
-		(p) => !p.deactivatedAt || new Date(p.deactivatedAt) > now,
-	);
-	if (activeProviders.length === 0) {
-		return undefined;
-	}
-
-	function hasPricing(p: ProviderModelMapping): boolean {
-		if (inputTokens > 0 && p.inputPrice === undefined) {
-			return false;
-		}
-		if (outputTokens > 0 && p.outputPrice === undefined) {
-			return false;
-		}
-		return true;
-	}
-
-	function weightedCost(p: ProviderModelMapping): number {
-		if (!hasPricing(p)) {
-			return Infinity;
-		}
-		const inPrice = Number(p.inputPrice ?? "0");
-		const outPrice = Number(p.outputPrice ?? "0");
-		const inCost = inPrice * inputTokens;
-		const outCost = outPrice * outputTokens;
-		return inCost + outCost;
-	}
-
-	const pricedProviders = activeProviders.filter(hasPricing);
-	if (pricedProviders.length === 0) {
-		return activeProviders[0];
-	}
-
-	return pricedProviders.reduce((cheapest, current) =>
-		weightedCost(current) < weightedCost(cheapest) ? current : cheapest,
-	);
-}
-
-function parseModelFromSelector(selectorValue: string): {
-	modelId: string;
-	providerId: string;
-} | null {
-	if (!selectorValue) {
-		return null;
-	}
-	if (selectorValue.includes("/")) {
-		const [providerId, modelId] = selectorValue.split("/");
-		return { modelId, providerId };
-	}
-	return { modelId: selectorValue, providerId: "" };
-}
-
-// ─── Formatting ─────────────────────────────────────────────────────────────
-
-function formatUsd(value: number): string {
-	if (value >= 1_000_000) {
-		return `$${(value / 1_000_000).toFixed(2)}M`;
-	}
-	if (value >= 10_000) {
-		return `$${(value / 1_000).toFixed(1)}K`;
-	}
-	if (value >= 1_000) {
-		return `$${(value / 1_000).toFixed(2)}K`;
-	}
-	if (value >= 1) {
-		return `$${value.toFixed(2)}`;
-	}
-	if (value >= 0.001) {
-		return `$${value.toFixed(4)}`;
-	}
-	return `$${value.toFixed(6)}`;
-}
-
-function formatPricePerMillion(pricePerToken: number): string {
-	return `$${(pricePerToken * 1e6).toFixed(2)}`;
-}
-
-function formatTokenCount(tokens: number): string {
-	if (tokens >= 1_000_000) {
-		return `${(tokens / 1_000_000).toFixed(1)}M`;
-	}
-	if (tokens >= 1_000) {
-		return `${(tokens / 1_000).toFixed(0)}K`;
-	}
-	return tokens.toLocaleString();
-}
+const textModelDefs = getTextModels();
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -182,109 +82,6 @@ const TOKEN_PRESETS = [
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export function TokenCostCalculatorClient() {
-	const [rows, setRows] = useState<ModelRow[]>(() => [
-		{
-			id: `row-${++rowCounter}`,
-			selectorValue: "openai/gpt-4o-mini",
-			inputTokens: 1_000_000,
-			outputTokens: 100_000,
-		},
-	]);
-
-	const addRow = useCallback(() => {
-		setRows((prev) => [
-			...prev,
-			{
-				id: `row-${++rowCounter}`,
-				selectorValue: "",
-				inputTokens: 1_000_000,
-				outputTokens: 100_000,
-			},
-		]);
-	}, []);
-
-	const removeRow = useCallback((id: string) => {
-		setRows((prev) =>
-			prev.length > 1 ? prev.filter((r) => r.id !== id) : prev,
-		);
-	}, []);
-
-	const updateRow = useCallback(
-		(id: string, update: Partial<Omit<ModelRow, "id">>) => {
-			setRows((prev) =>
-				prev.map((r) => (r.id === id ? { ...r, ...update } : r)),
-			);
-		},
-		[],
-	);
-
-	// ─── Calculations ─────────────────────────────────────────────────────────
-
-	const calculations = useMemo(() => {
-		let officialTotal = 0;
-		let gatewayTotal = 0;
-
-		const rowDetails = rows.map((row) => {
-			const parsed = parseModelFromSelector(row.selectorValue);
-			if (!parsed) {
-				return {
-					row,
-					model: null,
-					officialMapping: null,
-					cheapestMapping: null,
-					officialCost: 0,
-					gatewayCost: 0,
-				};
-			}
-
-			const model = getModelById(parsed.modelId);
-			if (!model) {
-				return {
-					row,
-					model: null,
-					officialMapping: null,
-					cheapestMapping: null,
-					officialCost: 0,
-					gatewayCost: 0,
-				};
-			}
-
-			const officialMapping = getOfficialProvider(model) ?? null;
-			const cheapestMapping =
-				getCheapestProvider(model, row.inputTokens, row.outputTokens) ?? null;
-
-			const officialInputPrice = Number(officialMapping?.inputPrice ?? "0");
-			const officialOutputPrice = Number(officialMapping?.outputPrice ?? "0");
-			const officialInputCost = row.inputTokens * officialInputPrice;
-			const officialOutputCost = row.outputTokens * officialOutputPrice;
-			const officialCost = officialInputCost + officialOutputCost;
-
-			const cheapestInputPrice = Number(cheapestMapping?.inputPrice ?? "0");
-			const cheapestOutputPrice = Number(cheapestMapping?.outputPrice ?? "0");
-			const gatewayInputCost = row.inputTokens * cheapestInputPrice;
-			const gatewayOutputCost = row.outputTokens * cheapestOutputPrice;
-			const gatewayCost = gatewayInputCost + gatewayOutputCost;
-
-			officialTotal += officialCost;
-			gatewayTotal += gatewayCost;
-
-			return {
-				row,
-				model,
-				officialMapping,
-				cheapestMapping,
-				officialCost,
-				gatewayCost,
-			};
-		});
-
-		const savings = officialTotal - gatewayTotal;
-		const savingsPercent =
-			officialTotal > 0 ? ((savings / officialTotal) * 100).toFixed(1) : "0";
-
-		return { rowDetails, officialTotal, gatewayTotal, savings, savingsPercent };
-	}, [rows]);
-
 	return (
 		<div className="relative overflow-hidden pt-32 pb-20 sm:pt-40 sm:pb-28">
 			{/* Decorative backdrop */}
@@ -305,21 +102,21 @@ export function TokenCostCalculatorClient() {
 						</span>
 					</div>
 					<h1 className="mb-6 text-4xl font-bold tracking-tight text-balance sm:text-5xl lg:text-6xl">
-						Calculate your true LLM token costs
+						Count your tokens. Compare every model&apos;s cost.
 					</h1>
 					<p className="text-lg text-muted-foreground text-balance leading-relaxed max-w-2xl mx-auto">
-						See exactly what GPT-4o, Claude, Gemini, and 280+ models cost at
-						official rates, then how much less you&apos;d pay routing each
-						request through LLM Gateway&apos;s cheapest provider.
+						Paste any prompt to get its exact token count, then see what it
+						costs on GPT-5, Claude, Gemini, and 280+ models — priced at each
+						provider&apos;s cheapest live rate with zero platform markup.
 					</p>
 					<div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
 						<span className="flex items-center gap-1.5">
 							<Check className="h-4 w-4 text-green-500" />
-							280+ models
+							Real tokenizer, in your browser
 						</span>
 						<span className="flex items-center gap-1.5">
 							<Check className="h-4 w-4 text-green-500" />
-							Zero platform markup
+							280+ models
 						</span>
 						<span className="flex items-center gap-1.5">
 							<Check className="h-4 w-4 text-green-500" />
@@ -328,33 +125,31 @@ export function TokenCostCalculatorClient() {
 					</div>
 				</div>
 
-				<div className="mx-auto max-w-5xl space-y-6">
-					{/* Model rows */}
-					{rows.map((row, index) => (
-						<ModelRowCard
-							key={row.id}
-							row={row}
-							index={index}
-							canRemove={rows.length > 1}
-							onUpdate={updateRow}
-							onRemove={removeRow}
-						/>
-					))}
+				<div className="mx-auto max-w-5xl">
+					<Tabs defaultValue="tokens" className="gap-8">
+						<div className="flex justify-center">
+							<TabsList className="h-11">
+								<TabsTrigger value="tokens" className="px-5">
+									<FileText className="h-4 w-4 mr-2" />
+									Count from text
+								</TabsTrigger>
+								<TabsTrigger value="estimate" className="px-5">
+									<SlidersHorizontal className="h-4 w-4 mr-2" />
+									Estimate by volume
+								</TabsTrigger>
+							</TabsList>
+						</div>
 
-					{/* Add model button */}
-					<button
-						type="button"
-						onClick={addRow}
-						className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border-2 border-dashed border-border hover:border-blue-500/50 hover:bg-blue-500/5 transition-all text-muted-foreground hover:text-blue-500"
-					>
-						<Plus className="h-4 w-4" />
-						<span className="text-sm font-medium">Add another model</span>
-					</button>
+						<TabsContent value="tokens">
+							<TokenizerPanel />
+						</TabsContent>
 
-					{/* Results */}
-					<ResultsPanel calculations={calculations} />
+						<TabsContent value="estimate">
+							<EstimatePanel />
+						</TabsContent>
+					</Tabs>
 
-					{/* CTA */}
+					{/* Shared CTA */}
 					<div className="mt-16 space-y-6">
 						<Card className="p-6 sm:p-8 border-border bg-gradient-to-br from-muted/50 to-muted/30">
 							<div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
@@ -412,6 +207,130 @@ export function TokenCostCalculatorClient() {
 	);
 }
 
+function TokenizerPanelSkeleton() {
+	return (
+		<div className="space-y-6">
+			<Card className="p-5 sm:p-6 border-border bg-card/50">
+				<div className="h-4 w-56 rounded bg-muted animate-pulse" />
+				<div className="mt-3 h-[160px] w-full rounded-md bg-muted/60 animate-pulse" />
+				<div className="mt-4 grid grid-cols-3 gap-3">
+					{[0, 1, 2].map((i) => (
+						<div
+							key={i}
+							className="h-16 rounded-lg bg-muted/60 animate-pulse"
+						/>
+					))}
+				</div>
+			</Card>
+		</div>
+	);
+}
+
+// ─── Estimate Panel (manual volume entry) ────────────────────────────────────
+
+function EstimatePanel() {
+	const [rows, setRows] = useState<ModelRow[]>(() => [
+		{
+			id: `row-${++rowCounter}`,
+			selectorValue: "openai/gpt-4o-mini",
+			inputTokens: 1_000_000,
+			outputTokens: 100_000,
+		},
+	]);
+
+	const addRow = useCallback(() => {
+		setRows((prev) => [
+			...prev,
+			{
+				id: `row-${++rowCounter}`,
+				selectorValue: "",
+				inputTokens: 1_000_000,
+				outputTokens: 100_000,
+			},
+		]);
+	}, []);
+
+	const removeRow = useCallback((id: string) => {
+		setRows((prev) =>
+			prev.length > 1 ? prev.filter((r) => r.id !== id) : prev,
+		);
+	}, []);
+
+	const updateRow = useCallback(
+		(id: string, update: Partial<Omit<ModelRow, "id">>) => {
+			setRows((prev) =>
+				prev.map((r) => (r.id === id ? { ...r, ...update } : r)),
+			);
+		},
+		[],
+	);
+
+	const calculations = useMemo(() => {
+		let officialTotal = 0;
+		let gatewayTotal = 0;
+
+		const rowDetails = rows.map((row) => {
+			const parsed = parseModelFromSelector(row.selectorValue);
+			const model = parsed ? getModelById(parsed.modelId) : undefined;
+			if (!model) {
+				return {
+					row,
+					model: null,
+					officialMapping: null,
+					cheapestMapping: null,
+					officialCost: 0,
+					gatewayCost: 0,
+				};
+			}
+
+			const cost = computeRowCost(model, row.inputTokens, row.outputTokens);
+			officialTotal += cost.officialCost;
+			gatewayTotal += cost.gatewayCost;
+
+			return {
+				row,
+				model,
+				officialMapping: cost.officialMapping ?? null,
+				cheapestMapping: cost.cheapestMapping ?? null,
+				officialCost: cost.officialCost,
+				gatewayCost: cost.gatewayCost,
+			};
+		});
+
+		const savings = officialTotal - gatewayTotal;
+		const savingsPercent =
+			officialTotal > 0 ? ((savings / officialTotal) * 100).toFixed(1) : "0";
+
+		return { rowDetails, officialTotal, gatewayTotal, savings, savingsPercent };
+	}, [rows]);
+
+	return (
+		<div className="space-y-6">
+			{rows.map((row, index) => (
+				<ModelRowCard
+					key={row.id}
+					row={row}
+					index={index}
+					canRemove={rows.length > 1}
+					onUpdate={updateRow}
+					onRemove={removeRow}
+				/>
+			))}
+
+			<button
+				type="button"
+				onClick={addRow}
+				className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border-2 border-dashed border-border hover:border-blue-500/50 hover:bg-blue-500/5 transition-all text-muted-foreground hover:text-blue-500"
+			>
+				<Plus className="h-4 w-4" />
+				<span className="text-sm font-medium">Add another model</span>
+			</button>
+
+			<ResultsPanel calculations={calculations} />
+		</div>
+	);
+}
+
 // ─── Model Row Card ─────────────────────────────────────────────────────────
 
 function ModelRowCard({
@@ -428,11 +347,11 @@ function ModelRowCard({
 	onRemove: (id: string) => void;
 }) {
 	const parsed = parseModelFromSelector(row.selectorValue);
-	const model = parsed ? getModelById(parsed.modelId) : null;
-	const officialMapping = model ? getOfficialProvider(model) : null;
+	const model = parsed ? getModelById(parsed.modelId) : undefined;
+	const officialMapping = model ? getOfficialProvider(model) : undefined;
 	const cheapestMapping = model
-		? (getCheapestProvider(model, row.inputTokens, row.outputTokens) ?? null)
-		: null;
+		? getCheapestProvider(model, row.inputTokens, row.outputTokens)
+		: undefined;
 
 	const handlePreset = (preset: (typeof TOKEN_PRESETS)[number]) => {
 		onUpdate(row.id, {
@@ -464,7 +383,6 @@ function ModelRowCard({
 			</div>
 
 			<div className="grid gap-4 sm:grid-cols-[1fr_1fr_1fr] items-end">
-				{/* Model selector */}
 				<div>
 					<label
 						htmlFor={`model-${row.id}`}
@@ -483,7 +401,6 @@ function ModelRowCard({
 					/>
 				</div>
 
-				{/* Input tokens */}
 				<div>
 					<label
 						htmlFor={`inputTokens-${row.id}`}
@@ -506,7 +423,6 @@ function ModelRowCard({
 					/>
 				</div>
 
-				{/* Output tokens */}
 				<div>
 					<label
 						htmlFor={`outputTokens-${row.id}`}
@@ -530,7 +446,6 @@ function ModelRowCard({
 				</div>
 			</div>
 
-			{/* Quick presets */}
 			<div className="mt-3 flex flex-wrap gap-1.5">
 				{TOKEN_PRESETS.map((preset) => (
 					<button
@@ -549,7 +464,6 @@ function ModelRowCard({
 				))}
 			</div>
 
-			{/* Price info row */}
 			{model && officialMapping && cheapestMapping && (
 				<div className="mt-4 pt-4 border-t border-border grid gap-3 sm:grid-cols-2">
 					<div className="flex items-center justify-between sm:justify-start gap-4">
@@ -686,7 +600,6 @@ function ResultsPanel({
 
 	return (
 		<div className="space-y-4">
-			{/* Summary cards */}
 			<div className="grid gap-3 sm:grid-cols-3">
 				<Card className="p-5 border-border bg-card/50">
 					<p className="text-xs font-medium text-muted-foreground mb-1">
@@ -715,7 +628,7 @@ function ResultsPanel({
 						You Save
 					</p>
 					<p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-						{savings > 0 ? formatUsd(savings) : "$0.00"}
+						{savings > 0 ? formatUsd(savings) : "$0"}
 					</p>
 					<p className="text-xs text-muted-foreground mt-1">
 						{savings > 0
@@ -725,7 +638,6 @@ function ResultsPanel({
 				</Card>
 			</div>
 
-			{/* Share bar */}
 			<div className="flex flex-col gap-4 rounded-xl border border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-blue-600/5 p-5 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex items-start gap-3">
 					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400">
@@ -775,7 +687,6 @@ function ResultsPanel({
 				</div>
 			</div>
 
-			{/* Breakdown table */}
 			<Card className="border-border overflow-hidden">
 				<div className="overflow-x-auto">
 					<table className="w-full text-sm">
@@ -862,7 +773,6 @@ function ResultsPanel({
 				</div>
 			</Card>
 
-			{/* Savings highlight */}
 			{savings > 0 && (
 				<Card className="border-2 border-green-500/30 bg-gradient-to-br from-green-500/10 to-green-600/5 p-8 text-center">
 					<p className="text-sm text-muted-foreground mb-2">
@@ -886,7 +796,6 @@ function ResultsPanel({
 				</Card>
 			)}
 
-			{/* Feature highlights */}
 			<div className="grid gap-3 sm:grid-cols-3">
 				<div className="flex items-start gap-3 p-4 rounded-xl border border-border bg-card/50">
 					<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
