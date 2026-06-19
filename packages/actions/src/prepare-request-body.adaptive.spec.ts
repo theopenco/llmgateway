@@ -22,7 +22,7 @@ interface AdaptiveThinkingBody {
 async function buildAnthropicBody(
 	internalModel: string,
 	opts: {
-		reasoning_effort?: "low" | "medium" | "high" | "xhigh";
+		reasoning_effort?: "none" | "low" | "medium" | "high" | "xhigh";
 		reasoning_max_tokens?: number;
 	},
 ): Promise<AdaptiveThinkingBody> {
@@ -123,5 +123,13 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 			reasoning_max_tokens: 32000,
 		});
 		expect(body.output_config?.effort).toBe("low");
+	});
+
+	test("reasoning_effort 'none' disables thinking on adaptive models", async () => {
+		const body = await buildAnthropicBody("claude-opus-4-6", {
+			reasoning_effort: "none",
+		});
+		expect(body.thinking).toBeUndefined();
+		expect(body.output_config?.effort).toBeUndefined();
 	});
 });

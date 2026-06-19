@@ -54,18 +54,22 @@ function resolveAdaptiveEffort(
 	}
 	if (reasoning_effort) {
 		switch (reasoning_effort) {
+			// "none" disables reasoning; it carries no depth, so request no effort.
+			// (Anthropic/Bedrock normalize it to `undefined` upstream before reaching
+			// here — this case keeps the mapping correct if that ever changes.)
+			case "none":
+				return undefined;
 			case "minimal":
 			case "low":
 				return "low";
 			case "medium":
 				return "medium";
+			case "high":
+				return "high";
 			case "xhigh":
 				return "xhigh";
 			case "max":
 				return "max";
-			case "high":
-			default:
-				return "high";
 		}
 	}
 	if (reasoning_max_tokens !== undefined) {
