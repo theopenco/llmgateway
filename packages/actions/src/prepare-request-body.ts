@@ -674,12 +674,16 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 	const pendingCalls: { callId: string; name?: string }[] = [];
 
 	const resolveCallId = (msg: any): string | undefined => {
-		// Explicit tool_call_id always wins.
+		// Explicit tool_call_id wins, but only if it references a real pending
+		// call. An id that matches nothing is orphaned (OpenAI would reject the
+		// function_call_output), so return undefined to surface a clean 400
+		// rather than blindly trusting it.
 		if (msg.tool_call_id) {
 			const idx = pendingCalls.findIndex((c) => c.callId === msg.tool_call_id);
-			if (idx !== -1) {
-				pendingCalls.splice(idx, 1);
+			if (idx === -1) {
+				return undefined;
 			}
+			pendingCalls.splice(idx, 1);
 			return msg.tool_call_id;
 		}
 		// Legacy `function` role (and tool messages that carry a function name):

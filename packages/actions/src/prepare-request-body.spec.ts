@@ -2909,6 +2909,32 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				),
 			).rejects.toBeInstanceOf(OrphanedToolMessageError);
 		});
+
+		test("throws when explicit tool_call_id matches no preceding call", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather in Berlin?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_abc",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+						{
+							role: "tool",
+							tool_call_id: "call_does_not_exist",
+							content: JSON.stringify({ temperature: 17 }),
+						},
+					]),
+				),
+			).rejects.toBeInstanceOf(OrphanedToolMessageError);
+		});
 	});
 
 	describe("google-ai-studio", () => {
