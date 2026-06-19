@@ -402,7 +402,7 @@ describe("worker", () => {
 			process.env.ENABLE_DATA_RETENTION_CLEANUP = "true";
 
 			// eslint-disable-next-line no-mixed-operators
-			const oldTimestamp = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000);
+			const oldTimestamp = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
 			// eslint-disable-next-line no-mixed-operators
 			const recentTimestamp = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000);
 
