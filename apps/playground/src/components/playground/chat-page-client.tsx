@@ -16,7 +16,9 @@ import {
 	type ChatSidebarHandle,
 } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
+import { RegionSelector } from "@/components/playground/region-selector";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import {
 	Dialog,
 	DialogContent,
@@ -1782,6 +1784,9 @@ export default function ChatPageClient({
 							providers={providers}
 							selectedModel={selectedModel}
 							setSelectedModel={handleSelectModel}
+							availableRegions={availableRegions}
+							selectedRegion={selectedRegion}
+							onRegionChange={handleRegionChange}
 							comparisonEnabled={comparisonEnabled}
 							hideCompare={messages.length > 0}
 							onComparisonEnabledChange={(enabled) => {
@@ -1966,9 +1971,6 @@ export default function ChatPageClient({
 													prev.filter((s) => s.id !== id),
 												)
 											}
-											availableRegions={availableRegions}
-											selectedRegion={selectedRegion}
-											onRegionChange={handleRegionChange}
 										/>
 									</div>
 								</div>
@@ -2023,9 +2025,6 @@ export default function ChatPageClient({
 										onRemoveSkill={(id) =>
 											setActiveSkills((prev) => prev.filter((s) => s.id !== id))
 										}
-										availableRegions={availableRegions}
-										selectedRegion={selectedRegion}
-										onRegionChange={handleRegionChange}
 									/>
 								</div>
 							)}
@@ -2801,7 +2800,7 @@ function ExtraChatPanel({
 				<span className="text-xs font-medium text-muted-foreground">
 					Model {panelIndex}
 				</span>
-				<div className="w-full max-w-xs">
+				<ButtonGroup className="w-full min-w-0 max-w-xs">
 					<ModelSelector
 						models={models}
 						providers={providers}
@@ -2809,7 +2808,12 @@ function ExtraChatPanel({
 						onValueChange={handleModelChange}
 						placeholder="Select a model..."
 					/>
-				</div>
+					<RegionSelector
+						availableRegions={panelAvailableRegions}
+						selectedRegion={panelSelectedRegion}
+						onRegionChange={handlePanelRegionChange}
+					/>
+				</ButtonGroup>
 			</div>
 			<div className="flex-1 min-h-0">
 				<ChatUI
@@ -2873,9 +2877,6 @@ function ExtraChatPanel({
 							setActiveSkills((prev) => prev.filter((s) => s.id !== id));
 						}
 					}}
-					availableRegions={panelAvailableRegions}
-					selectedRegion={panelSelectedRegion}
-					onRegionChange={handlePanelRegionChange}
 				/>
 			</div>
 		</div>

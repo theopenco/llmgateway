@@ -71,6 +71,12 @@ interface ModelSelectorProps {
 	mode?: "chat" | "video" | "image" | "audio";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
+	/**
+	 * When true, regional provider mappings are listed as separate selectable
+	 * entries (each labeled with its region) instead of being collapsed into a
+	 * single base entry with a region dropdown. Used by group chat.
+	 */
+	showRegionalVariants?: boolean;
 }
 
 interface FilterState {
@@ -742,6 +748,9 @@ function ModelEntryRowComponent({
 							</div>
 							<span className="text-xs text-muted-foreground truncate">
 								{disabledReason ?? provider?.name}
+								{!disabledReason && mapping?.region && (
+									<span className="ml-1">({mapping.region})</span>
+								)}
 							</span>
 						</div>
 					</div>
@@ -797,6 +806,7 @@ export function ModelSelector({
 	mode = "chat",
 	isOptionDisabled,
 	getOptionDisabledReason,
+	showRegionalVariants = false,
 }: ModelSelectorProps) {
 	const { isFavorite, toggleFavorite } = useFavoriteModels();
 	const isMobile = useIsMobile();
@@ -957,7 +967,7 @@ export function ModelSelector({
 			});
 
 			for (const mp of m.mappings) {
-				if (mp.region) {
+				if (mp.region && !showRegionalVariants) {
 					continue;
 				}
 				const isDeactivated =
@@ -984,7 +994,7 @@ export function ModelSelector({
 			}
 		}
 		return out;
-	}, [models, providers]);
+	}, [models, providers, showRegionalVariants]);
 
 	// Defer search input value to keep typing responsive with large lists
 	const deferredSearch = React.useDeferredValue(searchQuery);

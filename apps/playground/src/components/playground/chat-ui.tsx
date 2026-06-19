@@ -11,7 +11,6 @@ import {
 	GitFork,
 	Loader2,
 	ExternalLinkIcon,
-	MapPin,
 	PlusIcon,
 	ScrollTextIcon,
 	TrendingDown,
@@ -252,9 +251,6 @@ interface ChatUIProps {
 	activeSkills?: Skill[];
 	onSelectSkill?: (skill: Skill) => void;
 	onRemoveSkill?: (skillId: string) => void;
-	availableRegions?: string[];
-	selectedRegion?: string;
-	onRegionChange?: (region: string) => void;
 }
 
 function getRandomHeroSuggestionGroups(): Record<
@@ -1021,9 +1017,6 @@ export const ChatUI = ({
 	activeSkills = [],
 	onSelectSkill,
 	onRemoveSkill,
-	availableRegions = [],
-	selectedRegion,
-	onRegionChange,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -1713,27 +1706,6 @@ export const ChatUI = ({
 							/>
 						</PromptInputTools>
 						<div className="flex items-center gap-2">
-							{availableRegions.length > 0 && (
-								<Select
-									value={selectedRegion ?? "__default__"}
-									onValueChange={(val) =>
-										onRegionChange?.(val === "__default__" ? "" : val)
-									}
-								>
-									<SelectTrigger size="sm" className="min-w-[120px]">
-										<MapPin size={16} />
-										<SelectValue placeholder="Region" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="__default__">Default</SelectItem>
-										{availableRegions.map((r) => (
-											<SelectItem key={r} value={r}>
-												{r}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							)}
 							{supportsReasoning && (
 								<Select
 									value={reasoningEffort ? reasoningEffort : "off"}
