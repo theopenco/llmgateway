@@ -1349,6 +1349,9 @@ export const log = pgTable(
 		index("log_project_id_session_id_idx")
 			.on(table.projectId, table.sessionId, table.createdAt)
 			.where(sql`session_id IS NOT NULL`),
+		// Index for activity-log filtering by api key. api_key_id is globally
+		// unique so it determines the project; no project_id prefix needed.
+		index("log_api_key_id_created_at_idx").on(table.apiKeyId, table.createdAt),
 		index("log_end_customer_wallet_id_created_at_idx")
 			.on(table.endCustomerWalletId, table.createdAt)
 			.where(sql`end_customer_wallet_id IS NOT NULL`),
