@@ -13,7 +13,11 @@ export function JsonLd({ data }: JsonLdProps) {
 		<script
 			type="application/ld+json"
 			// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-			dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+			dangerouslySetInnerHTML={{
+				// Escape `<` so a `</script>` (or `<!--`) inside the data can't
+				// break out of the script tag.
+				__html: JSON.stringify(data).replace(/</g, "\\u003c"),
+			}}
 		/>
 	);
 }
