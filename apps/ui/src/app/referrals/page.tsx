@@ -51,9 +51,9 @@ export const metadata: Metadata = {
 const sellingPoints = [
 	{
 		icon: Network,
-		title: "210+ Models, One API",
+		title: "280+ Models, One API",
 		description:
-			"Access OpenAI, Anthropic, Google, Meta, Mistral, and 25+ providers through a single OpenAI-compatible endpoint. Zero code changes to switch providers.",
+			"Access OpenAI, Anthropic, Google, Meta, Mistral, and 35+ providers through a single OpenAI-compatible endpoint. Zero code changes to switch providers.",
 		href: "/features/unified-api-interface",
 		accent: "text-violet-500 dark:text-violet-400",
 		accentBg: "bg-violet-500/10",

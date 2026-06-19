@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "1ece4c39-fd2b-4fce-bdae-5e453cc49c83",
+  "id": "540493b9-7fe9-480e-85ed-63e92662078d",
   "prevId": "703166e7-bf3c-4da9-93a1-bdbc81ad32f4",
   "ddl": [
     {
@@ -11231,17 +11231,33 @@
       "table": "organization"
     },
     {
-      "type": "text",
+      "type": "boolean",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": {
-        "value": "'default'",
+        "value": "false",
         "type": "unknown"
       },
       "generated": null,
       "identity": null,
-      "name": "kind",
+      "name": "is_personal",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "is_chat",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -19803,6 +19819,13 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        },
+        {
+          "value": "model_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         }
       ],
       "isUnique": false,
@@ -19810,7 +19833,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "model_provider_mapping_status_idx",
+      "name": "model_provider_mapping_status_model_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping"

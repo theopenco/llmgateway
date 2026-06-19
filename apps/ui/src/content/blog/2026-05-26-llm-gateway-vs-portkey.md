@@ -21,7 +21,7 @@ We built LLM Gateway, so we're biased. We'll still tell you where Portkey is the
 | Feature                  | LLM Gateway                                           | Portkey                                                  |
 | ------------------------ | ----------------------------------------------------- | -------------------------------------------------------- |
 | Core model               | Unified gateway + dashboard, all-in-one               | AI gateway + LLMOps platform (observability/prompts)     |
-| Models                   | 300+ models, 25+ providers                            | 1,600+ models, 250+ providers (vendor claim)             |
+| Models                   | 280+ models, 35+ providers                            | 1,600+ models, 250+ providers (vendor claim)             |
 | API compatibility        | OpenAI-compatible                                     | OpenAI-compatible                                        |
 | Deployment               | Managed cloud or self-hosted (1 Docker image)         | Managed cloud; open-source gateway; enterprise self-host |
 | Open source              | Full platform (AGPLv3)                                | Gateway/router only (MIT); platform is proprietary       |
@@ -103,7 +103,7 @@ Portkey has invested heavily in observability: dozens of metrics, distributed tr
 
 ### The Largest Model Catalog Claim
 
-Portkey markets access to 1,600+ models across 250+ providers. LLM Gateway supports 300+ models across 25+ providers — curated and tested rather than maximal. If sheer breadth of long-tail providers is the deciding factor, Portkey advertises more.
+Portkey markets access to 1,600+ models across 250+ providers. LLM Gateway supports 280+ models across 35+ providers — curated and tested rather than maximal. If sheer breadth of long-tail providers is the deciding factor, Portkey advertises more.
 
 ### A Bigger Enterprise Governance Surface
 

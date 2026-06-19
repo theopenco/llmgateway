@@ -251,4 +251,4 @@ New models launch every week. Prices drop. Capabilities shift. The model that's 
 
 This is the strongest argument for using a gateway rather than integrating directly with a single provider. When the landscape shifts, you change a model name in your configuration instead of rewriting your integration.
 
-**[Browse 300+ models on LLM Gateway](/models)** | **[Try the Playground](/playground)** | **[Create a free account](/signup)**
+**[Browse 280+ models on LLM Gateway](/models)** | **[Try the Playground](/playground)** | **[Create a free account](/signup)**

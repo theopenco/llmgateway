@@ -2,8 +2,8 @@
 id: blog-introducing-llmgateway-playground
 slug: introducing-llmgateway-playground
 date: 2025-10-14
-title: Introducing LLM Gateway Chat — Test 180+ Models in One Interface
-summary: Compare GPT-5, Claude, Gemini, and 180+ other models side by side. Generate images, test prompts, and find the best model for your use case.
+title: Introducing LLM Gateway Chat — Test 280+ Models in One Interface
+summary: Compare GPT-5, Claude, Gemini, and 280+ other models side by side. Generate images, test prompts, and find the best model for your use case.
 categories: ["Announcements"]
 image:
   src: "/blog/introducing-chat-llmgateway.png"

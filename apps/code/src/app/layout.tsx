@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 		template: "%s | DevPass by LLM Gateway",
 	},
 	description:
-		"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool. 200+ models, one API key.",
+		"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool. 280+ models, one API key.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
@@ -58,7 +58,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
-			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 200+ models.",
+			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 280+ models.",
 		images: ["/opengraph.png?v=1"],
 		creator: "@llmgateway",
 	},
