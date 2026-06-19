@@ -16,9 +16,7 @@ import {
 	type ChatSidebarHandle,
 } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
-import { RegionSelector } from "@/components/playground/region-selector";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import {
 	Dialog,
 	DialogContent,
@@ -1784,9 +1782,6 @@ export default function ChatPageClient({
 							providers={providers}
 							selectedModel={selectedModel}
 							setSelectedModel={handleSelectModel}
-							availableRegions={availableRegions}
-							selectedRegion={selectedRegion}
-							onRegionChange={handleRegionChange}
 							comparisonEnabled={comparisonEnabled}
 							hideCompare={messages.length > 0}
 							onComparisonEnabledChange={(enabled) => {
@@ -1948,6 +1943,9 @@ export default function ChatPageClient({
 											setImageQuality={setImageQuality}
 											imageCount={imageCount}
 											setImageCount={setImageCount}
+											availableRegions={availableRegions}
+											selectedRegion={selectedRegion}
+											onRegionChange={handleRegionChange}
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
@@ -2005,6 +2003,9 @@ export default function ChatPageClient({
 										supportsWebSearch={supportsWebSearch}
 										webSearchEnabled={webSearchEnabled}
 										setWebSearchEnabled={setWebSearchEnabled}
+										availableRegions={availableRegions}
+										selectedRegion={selectedRegion}
+										onRegionChange={handleRegionChange}
 										onUserMessage={handleUserMessage}
 										onEditUserMessage={handleEditUserMessage}
 										isLoading={isLoading || isChatLoading}
@@ -2212,9 +2213,9 @@ function ExtraChatPanel({
 	const [selectedModel, setSelectedModel] = useState(initialModel);
 	const handleModelChange = useCallback(
 		(model: string) => {
-			const modelId = model.includes("/")
-				? (model.split("/")[1] ?? model)
-				: model;
+			const modelId = (
+				model.includes("/") ? (model.split("/")[1] ?? model) : model
+			).split(":")[0];
 			const def = models.find((m) => m.id === modelId);
 			if (def?.output?.includes("video")) {
 				onVideoModelSelected?.(modelId);
@@ -2800,7 +2801,7 @@ function ExtraChatPanel({
 				<span className="text-xs font-medium text-muted-foreground">
 					Model {panelIndex}
 				</span>
-				<ButtonGroup className="w-full min-w-0 max-w-xs">
+				<div className="w-full min-w-0 max-w-xs">
 					<ModelSelector
 						models={models}
 						providers={providers}
@@ -2808,12 +2809,7 @@ function ExtraChatPanel({
 						onValueChange={handleModelChange}
 						placeholder="Select a model..."
 					/>
-					<RegionSelector
-						availableRegions={panelAvailableRegions}
-						selectedRegion={panelSelectedRegion}
-						onRegionChange={handlePanelRegionChange}
-					/>
-				</ButtonGroup>
+				</div>
 			</div>
 			<div className="flex-1 min-h-0">
 				<ChatUI
@@ -2845,6 +2841,9 @@ function ExtraChatPanel({
 					supportsWebSearch={supportsWebSearch}
 					webSearchEnabled={webSearchEnabled}
 					setWebSearchEnabled={setWebSearchEnabled}
+					availableRegions={panelAvailableRegions}
+					selectedRegion={panelSelectedRegion}
+					onRegionChange={handlePanelRegionChange}
 					onUserMessage={handlePanelUserMessage}
 					forkChat={
 						comparisonChatId && status === "ready"

@@ -2,10 +2,8 @@
 
 import { ModelSelector } from "@/components/model-selector";
 import { McpServersDialog } from "@/components/playground/mcp-servers-dialog";
-import { RegionSelector } from "@/components/playground/region-selector";
 import { ShareChatDialog } from "@/components/playground/share-chat-dialog";
 import { TempChatSwitcher } from "@/components/playground/temp-chat-switcher";
-import { ButtonGroup } from "@/components/ui/button-group";
 import { Label } from "@/components/ui/label";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
@@ -20,9 +18,6 @@ interface ChatHeaderProps {
 	providers: ApiProvider[];
 	selectedModel: string;
 	setSelectedModel: (model: string) => void;
-	availableRegions?: string[];
-	selectedRegion?: string;
-	onRegionChange?: (region: string) => void;
 	comparisonEnabled: boolean;
 	onComparisonEnabledChange: (enabled: boolean) => void;
 	hideCompare?: boolean;
@@ -55,9 +50,6 @@ export const ChatHeader = ({
 	providers,
 	selectedModel,
 	setSelectedModel,
-	availableRegions = [],
-	selectedRegion,
-	onRegionChange,
 	comparisonEnabled,
 	onComparisonEnabledChange,
 	hideCompare = false,
@@ -85,7 +77,7 @@ export const ChatHeader = ({
 			<div className="flex min-w-0 flex-1 items-center gap-3">
 				{isTemporaryChat ? null : <SidebarTrigger />}
 				{showGlobalModelSelector ? (
-					<ButtonGroup className="w-full min-w-0 max-w-[180px] sm:max-w-[300px]">
+					<div className="w-full min-w-0 max-w-[360px] sm:max-w-[420px]">
 						<ModelSelector
 							models={models}
 							providers={providers}
@@ -93,12 +85,7 @@ export const ChatHeader = ({
 							onValueChange={setSelectedModel}
 							placeholder="Search and select a model..."
 						/>
-						<RegionSelector
-							availableRegions={availableRegions}
-							selectedRegion={selectedRegion}
-							onRegionChange={(region) => onRegionChange?.(region)}
-						/>
-					</ButtonGroup>
+					</div>
 				) : null}
 			</div>
 			<div className="ml-3 flex items-center gap-3">
