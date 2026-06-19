@@ -5,6 +5,7 @@ import {
 	getSupportedVideoRequestOptions,
 	getSupportedVideoSizesForSelection,
 	getNormalizedVideoRequestSelection,
+	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
 	supportsVideoReferenceAudioInput,
@@ -96,7 +97,6 @@ describe("getSupportedVideoDurationsForSelection", () => {
 			["veo-3.1-generate-preview"],
 			"none",
 			"1280x720",
-			true,
 		);
 		expect(durations).toContain(10);
 	});
@@ -108,7 +108,6 @@ describe("getSupportedVideoDurationsForSelection", () => {
 			["veo-3.1-generate-preview"],
 			"frames",
 			"1280x720",
-			true,
 		);
 		expect(durations).not.toContain(10);
 		expect(durations).toEqual(expect.arrayContaining([4, 6, 8]));
@@ -123,7 +122,6 @@ describe("getSupportedVideoDurationsForSelection", () => {
 			["veo-3.1-generate-preview"],
 			"frames",
 			"1280x720",
-			true,
 		);
 		expect(durations).toContain(10);
 	});
@@ -139,13 +137,11 @@ describe("getSupportedVideoRequestOptions", () => {
 			models,
 			selected,
 			"frames",
-			true,
 		);
 		const textOptions = getSupportedVideoRequestOptions(
 			models,
 			selected,
 			"none",
-			true,
 		);
 
 		expect(framesOptions.durations).not.toContain(10);
@@ -160,7 +156,6 @@ describe("getNormalizedVideoRequestSelection", () => {
 			[model],
 			["veo-3.1-generate-preview"],
 			"frames",
-			true,
 			"1280x720",
 			10,
 		);
@@ -175,7 +170,6 @@ describe("getNormalizedVideoRequestSelection", () => {
 			[model],
 			["veo-3.1-generate-preview"],
 			"none",
-			true,
 			"1280x720",
 			10,
 		);
@@ -194,14 +188,12 @@ describe("getSupportedVideoSizesForSelection", () => {
 			selected,
 			"none",
 			8,
-			true,
 		);
 		const frameSizes = getSupportedVideoSizesForSelection(
 			models,
 			selected,
 			"frames",
 			8,
-			true,
 		);
 
 		expect(frameSizes).toEqual(textSizes);
@@ -222,6 +214,15 @@ describe("Seedance 2.0 reference capabilities", () => {
 			...overrides,
 		});
 	}
+
+	test("supportsVideoFrameInput is true for Seedance 2.0 bytedance", () => {
+		expect(supportsVideoFrameInput("seedance-2-0")).toBe(true);
+		expect(supportsVideoFrameInput("seedance-2-0-fast")).toBe(true);
+		expect(supportsVideoFrameInput("bytedance/seedance-2-0")).toBe(true);
+		expect(supportsVideoFrameInput("bytedance/seedance-2-0-fast")).toBe(true);
+		expect(supportsVideoFrameInput("bytedance/seedance-1-5-pro")).toBe(false);
+		expect(supportsVideoFrameInput("google-vertex/seedance-2-0")).toBe(false);
+	});
 
 	test("supportsVideoReferenceInput is true for Seedance 2.0", () => {
 		expect(supportsVideoReferenceInput("seedance-2-0")).toBe(true);
@@ -264,7 +265,6 @@ describe("Seedance 2.0 reference capabilities", () => {
 			[model],
 			["seedance-2-0"],
 			"reference",
-			true,
 		);
 
 		expect(options.sizes).toContain("1280x720");
@@ -281,10 +281,59 @@ describe("Seedance 2.0 reference capabilities", () => {
 			[model],
 			["seedance-1-5-pro"],
 			"reference",
-			true,
 		);
 
 		expect(options.sizes).toHaveLength(0);
 		expect(options.durations).toHaveLength(0);
+	});
+
+	test("frame mode keeps size/duration options for Seedance 2.0", () => {
+		const model = makeModel([makeSeedanceMapping()], "seedance-2-0");
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-2-0"],
+			"frames",
+		);
+
+		expect(options.sizes).toContain("1280x720");
+		expect(options.sizes).toContain("1920x1080");
+		expect(options.durations).toContain(10);
+	});
+
+	test("frame mode is rejected for non-2.0 bytedance models", () => {
+		const model = makeModel(
+			[makeSeedanceMapping({ modelId: "seedance-1-5-pro" })],
+			"seedance-1-5-pro",
+		);
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["seedance-1-5-pro"],
+			"frames",
+		);
+
+		expect(options.sizes).toHaveLength(0);
+		expect(options.durations).toHaveLength(0);
+	});
+});
+
+describe("Grok Imagine Video 1.5 capabilities", () => {
+	test("supportsVideoFrameInput is true for grok-imagine-video-1-5", () => {
+		expect(supportsVideoFrameInput("grok-imagine-video-1-5")).toBe(true);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1-5")).toBe(true);
+	});
+
+	test("supportsVideoFrameInput is true for grok-imagine-video-1-5-preview", () => {
+		expect(supportsVideoFrameInput("grok-imagine-video-1-5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1-5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("grok-imagine-video-1.5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1.5-preview")).toBe(
+			true,
+		);
 	});
 });

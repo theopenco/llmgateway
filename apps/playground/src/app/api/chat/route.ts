@@ -180,8 +180,53 @@ function mergeGatewayResponseMetadata(
 	};
 }
 
+interface GatewaySourceCitation {
+	url: string;
+	title?: string;
+}
+
+// The gateway surfaces web search results as OpenAI-style `url_citation`
+// annotations, which the AI SDK provider does not forward as source parts
+// when streaming — so they are captured here from the raw SSE side-channel.
+function extractUrlCitations(value: unknown): GatewaySourceCitation[] {
+	if (!isRecord(value) || !Array.isArray(value.choices)) {
+		return [];
+	}
+
+	const citations: GatewaySourceCitation[] = [];
+	for (const choice of value.choices) {
+		if (!isRecord(choice)) {
+			continue;
+		}
+		for (const container of [choice.delta, choice.message]) {
+			if (!isRecord(container) || !Array.isArray(container.annotations)) {
+				continue;
+			}
+			for (const annotation of container.annotations) {
+				if (
+					!isRecord(annotation) ||
+					annotation.type !== "url_citation" ||
+					!isRecord(annotation.url_citation)
+				) {
+					continue;
+				}
+				const url = readString(annotation.url_citation.url);
+				if (url) {
+					citations.push({
+						url,
+						title: readString(annotation.url_citation.title),
+					});
+				}
+			}
+		}
+	}
+
+	return citations;
+}
+
 function createGatewayMetadataCaptureStream(
 	onMetadata: (metadata: GatewayResponseMetadata) => void,
+	onCitations?: (citations: GatewaySourceCitation[]) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
 	const decoder = new TextDecoder();
 	let buffer = "";
@@ -202,6 +247,12 @@ function createGatewayMetadataCaptureStream(
 				const metadata = extractGatewayResponseMetadata(parsed);
 				if (metadata) {
 					onMetadata(metadata);
+				}
+				if (onCitations) {
+					const citations = extractUrlCitations(parsed);
+					if (citations.length > 0) {
+						onCitations(citations);
+					}
 				}
 			} catch {
 				// Ignore non-JSON stream events.
@@ -588,13 +639,26 @@ export async function POST(req: Request) {
 			...metadata,
 		};
 	};
+	const collectedCitations: GatewaySourceCitation[] = [];
+	const seenCitationUrls = new Set<string>();
+	const captureGatewayCitations = (citations: GatewaySourceCitation[]) => {
+		for (const citation of citations) {
+			if (!seenCitationUrls.has(citation.url)) {
+				seenCitationUrls.add(citation.url);
+				collectedCitations.push(citation);
+			}
+		}
+	};
 	const gatewayFetch: typeof fetch = async (input, init) => {
 		const response = await fetch(input, init);
 		const contentType = response.headers.get("content-type") ?? "";
 
 		if (contentType.includes("text/event-stream") && response.body) {
 			const providerStream = response.body.pipeThrough(
-				createGatewayMetadataCaptureStream(captureGatewayMetadata),
+				createGatewayMetadataCaptureStream(
+					captureGatewayMetadata,
+					captureGatewayCitations,
+				),
 			);
 
 			return new Response(providerStream, {
@@ -1113,7 +1177,34 @@ export async function POST(req: Request) {
 				return undefined;
 			},
 		});
-		const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
+		// The provider drops gateway web-search annotations when streaming, so
+		// citations captured from the raw SSE are re-emitted as source-url parts
+		// at the end of each step, where the UI renders them as Sources.
+		type PlaygroundUIMessageChunk =
+			typeof uiStream extends ReadableStream<infer TChunk> ? TChunk : never;
+		let emittedCitationCount = 0;
+		const uiStreamWithSources = uiStream.pipeThrough(
+			new TransformStream<PlaygroundUIMessageChunk, PlaygroundUIMessageChunk>({
+				transform(chunk, controller) {
+					if (chunk.type === "finish-step") {
+						while (emittedCitationCount < collectedCitations.length) {
+							const citation = collectedCitations[emittedCitationCount];
+							controller.enqueue({
+								type: "source-url",
+								sourceId: `gateway-citation-${emittedCitationCount}`,
+								url: citation.url,
+								...(citation.title ? { title: citation.title } : {}),
+							} as PlaygroundUIMessageChunk);
+							emittedCitationCount++;
+						}
+					}
+					controller.enqueue(chunk);
+				},
+			}),
+		);
+		const sseStream = uiStreamWithSources.pipeThrough(
+			new JsonToSseTransformStream(),
+		);
 
 		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
 		// timeouts on long-running requests (e.g. tool calls, reasoning).

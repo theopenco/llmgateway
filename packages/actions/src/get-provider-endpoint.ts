@@ -1,6 +1,7 @@
 import {
 	models,
 	providers,
+	expandAllProviderRegions,
 	type ProviderDefinition,
 	type ProviderModelMapping,
 	type ProviderId,
@@ -9,6 +10,27 @@ import {
 } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
+
+function appendPath(url: string, path: string): string {
+	return `${url.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+function getBedrockMantleBaseUrl(url: string, region?: string): string {
+	if (url.includes("/openai/v1")) {
+		return url;
+	}
+	if (url.includes("bedrock-mantle.")) {
+		return appendPath(url, "/openai/v1");
+	}
+	if (url.includes("bedrock-runtime.")) {
+		const mantleRegion =
+			region === "global" || region === "us"
+				? "us-west-2"
+				: (region ?? "us-west-2");
+		return `https://bedrock-mantle.${mantleRegion}.api.aws/openai/v1`;
+	}
+	return appendPath(url, "/openai/v1");
+}
 
 function buildVertexCompatibleEndpoint(
 	provider: "google-vertex" | "quartz",
@@ -76,12 +98,23 @@ export function getProviderEndpoint(
 	modelId?: string,
 ): string {
 	let externalId = model;
+	let providerMapping: ProviderModelMapping | undefined;
 	if (model && model !== "custom") {
 		const modelInfo = models.find((m) => m.id === (modelId ?? model));
 		if (modelInfo) {
-			const providerMapping = modelInfo.providers.find(
-				(p) => p.providerId === provider,
+			const expandedProviderMappings = expandAllProviderRegions(
+				modelInfo.providers,
 			);
+			providerMapping =
+				expandedProviderMappings.find(
+					(p) =>
+						p.providerId === provider &&
+						(region ? p.region === region : !p.region),
+				) ??
+				expandedProviderMappings.find(
+					(p) => p.providerId === provider && !p.region,
+				) ??
+				expandedProviderMappings.find((p) => p.providerId === provider);
 			if (providerMapping) {
 				externalId = providerMapping.externalId;
 			}
@@ -443,6 +476,11 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
+			if (providerMapping?.apiFormat === "openai-chat-completions") {
+				const mantleBaseUrl = getBedrockMantleBaseUrl(url, region);
+				return appendPath(mantleBaseUrl, "/chat/completions");
+			}
+
 			const awsRegionPrefix = region
 				? (
 						providers.find((p) => p.id === "aws-bedrock") as

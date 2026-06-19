@@ -8,6 +8,7 @@ import {
 	type OpenAIRequestBody,
 } from "@llmgateway/models";
 import {
+	applyRoutingPreference,
 	buildProviderPriorityDefaults,
 	resolveRoutingConfig,
 } from "@llmgateway/shared/routing-config";
@@ -933,7 +934,10 @@ describe("getCheapestFromAvailableProviders", () => {
 			},
 		);
 
-		expect(cheapestProvider?.provider.providerId).toBe("avalanche");
+		// google-vertex and avalanche have identical per-second pricing, so this
+		// is a price tie; the price-only path deterministically selects the
+		// first-listed provider (google-vertex).
+		expect(cheapestProvider?.provider.providerId).toBe("google-vertex");
 
 		const vertexScore = cheapestProvider?.metadata.providerScores.find(
 			(provider) => provider.providerId === "google-vertex",
@@ -1517,6 +1521,84 @@ describe("getCheapestFromAvailableProviders", () => {
 			});
 			expect(result).not.toBeNull();
 			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
+		});
+	});
+
+	describe("getCheapestFromAvailableProviders zero-price routing", () => {
+		const freeVsPaidModel = {
+			id: "free-vs-paid-model",
+			name: "Free vs Paid Model",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					externalId: "free-openai",
+					inputPrice: "0",
+					outputPrice: "0",
+					streaming: true as const,
+				},
+				{
+					providerId: "deepseek" as const,
+					externalId: "paid-deepseek",
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					streaming: true as const,
+				},
+			],
+		};
+
+		const equalPriority = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, deepseek: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		// The free provider has slightly worse uptime than the paid one. Under the
+		// "price" strategy the free provider must still win — uptime's 10% weight
+		// must not let a paid provider beat a free one on cost.
+		const metricsMap = new Map([
+			[
+				metricsKey(freeVsPaidModel.id, "openai", undefined),
+				{
+					modelId: freeVsPaidModel.id,
+					providerId: "openai",
+					uptime: 99,
+					averageLatency: 200,
+					throughput: 100,
+					totalRequests: 100,
+				},
+			],
+			[
+				metricsKey(freeVsPaidModel.id, "deepseek", undefined),
+				{
+					modelId: freeVsPaidModel.id,
+					providerId: "deepseek",
+					uptime: 100,
+					averageLatency: 200,
+					throughput: 100,
+					totalRequests: 100,
+				},
+			],
+		]);
+
+		it("selects the free provider under the price strategy", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				freeVsPaidModel.providers,
+				freeVsPaidModel,
+				{
+					metricsMap,
+					routingConfig: applyRoutingPreference(equalPriority, "price"),
+				},
+			);
+			expect(result?.provider.providerId).toBe("openai");
+		});
+
+		it("still selects the free provider under default weighted routing", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				freeVsPaidModel.providers,
+				freeVsPaidModel,
+				{ metricsMap, routingConfig: equalPriority },
+			);
+			expect(result?.provider.providerId).toBe("openai");
 		});
 	});
 });

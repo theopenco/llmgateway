@@ -1,46 +1,49 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { getGatewayErrorMessage } from "./utils";
 
 describe("getGatewayErrorMessage", () => {
-	test("returns plain string bodies", () => {
-		expect(getGatewayErrorMessage("upstream exploded", "fallback")).toBe(
-			"upstream exploded",
+	const fallback = "Video creation failed";
+
+	it("returns a plain string body", () => {
+		expect(getGatewayErrorMessage("boom", fallback)).toBe("boom");
+	});
+
+	it("returns a top-level message", () => {
+		expect(getGatewayErrorMessage({ message: "nope" }, fallback)).toBe("nope");
+	});
+
+	it("returns a string error field", () => {
+		expect(getGatewayErrorMessage({ error: "denied" }, fallback)).toBe(
+			"denied",
 		);
 	});
 
-	test("reads root-level message", () => {
-		expect(
-			getGatewayErrorMessage({ message: "root message" }, "fallback"),
-		).toBe("root message");
-	});
-
-	test("reads root-level error string", () => {
-		expect(getGatewayErrorMessage({ error: "flat error" }, "fallback")).toBe(
-			"flat error",
-		);
-	});
-
-	test("reads the OpenAI error envelope", () => {
+	it("unwraps the nested gateway error envelope", () => {
 		expect(
 			getGatewayErrorMessage(
 				{
 					error: {
-						message:
-							"Model grok-imagine-video-1-5-preview requires an input image.",
+						message: "Image size not allowed on the free plan",
 						type: "invalid_request_error",
 						param: null,
 						code: null,
 					},
 				},
-				"fallback",
+				fallback,
 			),
-		).toBe("Model grok-imagine-video-1-5-preview requires an input image.");
+		).toBe("Image size not allowed on the free plan");
 	});
 
-	test("falls back when the envelope has no message", () => {
-		expect(getGatewayErrorMessage({ error: {} }, "fallback")).toBe("fallback");
-		expect(getGatewayErrorMessage(null, "fallback")).toBe("fallback");
-		expect(getGatewayErrorMessage("", "fallback")).toBe("fallback");
+	it("falls back when the error object has no message", () => {
+		expect(getGatewayErrorMessage({ error: { code: 400 } }, fallback)).toBe(
+			fallback,
+		);
+	});
+
+	it("falls back for empty or unknown bodies", () => {
+		expect(getGatewayErrorMessage(null, fallback)).toBe(fallback);
+		expect(getGatewayErrorMessage("", fallback)).toBe(fallback);
+		expect(getGatewayErrorMessage({}, fallback)).toBe(fallback);
 	});
 });

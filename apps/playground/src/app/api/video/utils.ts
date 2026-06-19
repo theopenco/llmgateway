@@ -27,15 +27,20 @@ export function getGatewayErrorMessage(
 		}
 
 		if ("error" in body) {
-			const error = (body as { error: unknown }).error;
+			const { error } = body as { error: unknown };
+
 			if (typeof error === "string" && error.length > 0) {
 				return error;
 			}
+
+			// The gateway returns OpenAI-/Anthropic-compatible error envelopes
+			// where `error` is an object with a nested `message`.
 			if (
 				error &&
 				typeof error === "object" &&
 				"message" in error &&
-				typeof (error as { message: unknown }).message === "string"
+				typeof (error as { message: unknown }).message === "string" &&
+				(error as { message: string }).message.length > 0
 			) {
 				return (error as { message: string }).message;
 			}

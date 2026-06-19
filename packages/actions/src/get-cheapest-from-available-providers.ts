@@ -696,6 +696,19 @@ export async function getCheapestFromAvailableProviders<
 		providerScores[0].price,
 	);
 
+	// When the cheapest provider is free (minPrice == 0), the price/minPrice ratio
+	// is undefined, so without this a free and a paid provider would both score 0
+	// on price and the decision would fall to uptime/throughput — letting a paid
+	// provider beat a free one even under `routing: "price"`. Rank paid providers
+	// against the cheapest *positive* price instead, so a free provider always
+	// scores best (0) while paid providers stay ordered among themselves.
+	const minPositivePrice = providerScores.reduce<Decimal | null>((min, p) => {
+		if (p.price.gt(0) && (min === null || p.price.lt(min))) {
+			return p.price;
+		}
+		return min;
+	}, null);
+
 	const uptimes = providerScores.map(
 		(p) => p.uptime ?? thresholds.defaultUptime,
 	);
@@ -717,7 +730,9 @@ export async function getCheapestFromAvailableProviders<
 		// This preserves the actual magnitude of price differences
 		const priceScore = minPrice.gt(0)
 			? providerScore.price.div(minPrice).minus(1)
-			: new Decimal(0);
+			: providerScore.price.gt(0) && minPositivePrice
+				? providerScore.price.div(minPositivePrice)
+				: new Decimal(0);
 
 		// Uptime ratio: 0 = best uptime, proportional penalty for worse uptime
 		const uptime = providerScore.uptime ?? thresholds.defaultUptime;

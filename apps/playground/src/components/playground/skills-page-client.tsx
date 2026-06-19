@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { CreateSkillDialog } from "@/components/playground/create-skill-dialog";
+import { GenerateSkillDialog } from "@/components/playground/generate-skill-dialog";
 import { SkillsHeader } from "@/components/playground/skills-header";
 import { SkillsSidebar } from "@/components/playground/skills-sidebar";
 import { UploadSkillDialog } from "@/components/playground/upload-skill-dialog";
@@ -61,6 +62,7 @@ export default function SkillsPageClient({
 	}, [initialSkillId]);
 
 	const [createOpen, setCreateOpen] = useState(false);
+	const [generateOpen, setGenerateOpen] = useState(false);
 	const [uploadOpen, setUploadOpen] = useState(false);
 	const [viewMode, setViewMode] = useState<"rendered" | "raw">("rendered");
 	const [skillToDelete, setSkillToDelete] = useState<Skill | null>(null);
@@ -109,6 +111,7 @@ export default function SkillsPageClient({
 				onSelectSkill={handleSelectSkill}
 				isLoading={isLoading}
 				onCreateOpen={() => setCreateOpen(true)}
+				onGenerateOpen={() => setGenerateOpen(true)}
 				onUploadOpen={() => setUploadOpen(true)}
 				selectedOrganization={selectedOrganization}
 			/>
@@ -127,6 +130,12 @@ export default function SkillsPageClient({
 			<CreateSkillDialog
 				open={createOpen}
 				onOpenChange={setCreateOpen}
+				onSuccess={handleCreateSuccess}
+			/>
+
+			<GenerateSkillDialog
+				open={generateOpen}
+				onOpenChange={setGenerateOpen}
 				onSuccess={handleCreateSuccess}
 			/>
 

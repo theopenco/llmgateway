@@ -15,6 +15,7 @@ const sharedMessageSchema = z.object({
 	documents: z.string().nullable().optional(),
 	reasoning: z.string().nullable(),
 	tools: z.string().nullable(),
+	sources: z.string().nullable().optional(),
 	metadata: z.record(z.unknown()).nullable().optional(),
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
@@ -143,7 +144,10 @@ publicChatShares.openapi(getSharedChat, async (c) => {
 		return c.json({ message: "Shared chat not found" }, 404);
 	}
 
-	const messages = sharedMessageSchema.array().parse(share.messages);
+	const messages = sharedMessageSchema
+		.array()
+		.parse(share.messages)
+		.map((message) => ({ ...message, sources: message.sources ?? null }));
 
 	return c.json(
 		{

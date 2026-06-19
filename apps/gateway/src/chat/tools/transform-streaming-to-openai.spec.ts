@@ -179,6 +179,32 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it("maps AWS Bedrock messageStop refusal to content_filter", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"aws-bedrock",
+			"anthropic.claude-fable-5",
+			{
+				__aws_event_type: "messageStop",
+				stopReason: "refusal",
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			object: "chat.completion.chunk",
+			choices: [
+				{
+					index: 0,
+					delta: {},
+					finish_reason: "content_filter",
+				},
+			],
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
 	it("maps AWS Bedrock metadata cache creation details", () => {
 		warn.mockClear();
 

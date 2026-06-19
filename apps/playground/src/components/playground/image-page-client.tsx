@@ -11,13 +11,21 @@ import { ImageControls } from "@/components/playground/image-controls";
 import { ImageGallery } from "@/components/playground/image-gallery";
 import { ImageHeader } from "@/components/playground/image-header";
 import { ImageSidebar } from "@/components/playground/image-sidebar";
+import { ChatPlanUpsell } from "@/components/pricing/chat-plan-upsell";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
 	useImageHistory,
+	useImageHistoryItem,
 	useSaveImageHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
+import { useAppConfig } from "@/lib/config";
+import {
+	chatPlanCreditErrorMessage,
+	isInsufficientCreditsError,
+} from "@/lib/credit-error";
+import { useApi } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
 import {
@@ -51,7 +59,9 @@ export default function ImagePageClient({
 	initialModelPreference,
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const api = useApi();
 	const posthog = usePostHog();
+	const config = useAppConfig();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -179,29 +189,66 @@ export default function ImagePageClient({
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
 
+	// The history list is metadata-only (no base64). Image data is fetched per
+	// item below when one is selected.
 	const galleryItems = useMemo<GalleryItem[]>(() => {
 		const historical: GalleryItem[] = (historyData?.items ?? []).map(
 			(item) => ({
 				id: item.id,
 				prompt: item.prompt,
 				timestamp: new Date(item.createdAt).getTime(),
-				inputImages: item.inputImages ?? undefined,
-				models: item.models.map((m) => ({ ...m, isLoading: false })),
+				thumbnailUrl: item.models.some((m) => m.imageCount > 0)
+					? `${config.apiUrl}/playground/image-history/${item.id}/thumbnail`
+					: null,
+				models: item.models.map((m) => ({
+					modelId: m.modelId,
+					modelName: m.modelName,
+					images: [],
+					imageCount: m.imageCount,
+					error: m.error,
+					isLoading: false,
+				})),
 			}),
 		);
 		return [...activeItems, ...historical];
-	}, [activeItems, historyData]);
+	}, [activeItems, historyData, config.apiUrl]);
+
+	const { data: selectedItemDetail } = useImageHistoryItem(
+		activeItems.length === 0 ? selectedItemId : null,
+	);
 
 	const displayItems = useMemo<GalleryItem[]>(() => {
 		if (activeItems.length > 0) {
 			return activeItems;
 		}
-		if (selectedItemId) {
-			const item = galleryItems.find((i) => i.id === selectedItemId);
-			return item ? [item] : [];
+		if (!selectedItemId) {
+			return [];
+		}
+		const detail = selectedItemDetail?.item;
+		if (detail && detail.id === selectedItemId) {
+			return [
+				{
+					id: detail.id,
+					prompt: detail.prompt,
+					timestamp: new Date(detail.createdAt).getTime(),
+					inputImages: detail.inputImages ?? undefined,
+					models: detail.models.map((m) => ({ ...m, isLoading: false })),
+				},
+			];
+		}
+		// Detail still loading: render the metadata item with per-model
+		// skeletons so the gallery shows progress instead of a blank page.
+		const light = galleryItems.find((i) => i.id === selectedItemId);
+		if (light) {
+			return [
+				{
+					...light,
+					models: light.models.map((m) => ({ ...m, isLoading: !m.error })),
+				},
+			];
 		}
 		return [];
-	}, [activeItems, selectedItemId, galleryItems]);
+	}, [activeItems, selectedItemId, selectedItemDetail, galleryItems]);
 
 	// Auto-save completed active items to DB then remove from local state
 	useEffect(() => {
@@ -363,7 +410,7 @@ export default function ImagePageClient({
 		const isCompare = item.models.length > 1;
 		setComparisonMode(isCompare);
 		setSelectedModels(item.models.map((m) => m.modelId));
-	}, [selectedItemId, galleryItems]);
+	}, [selectedItemId, galleryItems, activeItems.length]);
 
 	// Reset image size/quality when the selected model changes and the current
 	// value isn't valid for the new model. Including the value itself in deps
@@ -391,6 +438,7 @@ export default function ImagePageClient({
 		if (!isEditModel) {
 			setInputImages([]);
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude size/quality values to avoid clobbering the user's explicit selection
 	}, [selectedModels, isEditModel]);
 
 	const getModelName = useCallback(
@@ -399,6 +447,19 @@ export default function ImagePageClient({
 			return model?.name ?? modelId;
 		},
 		[availableModels],
+	);
+
+	// In the Chat plan context the plan status endpoint is the source of truth
+	// for remaining credits; the org row passed from the server can be stale.
+	const isChatPlanContext = Boolean(selectedOrganization?.kind === "chat");
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
+	);
+	const chatPlanSubscribed = Boolean(
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none",
 	);
 
 	const generateImages = useCallback(
@@ -519,9 +580,14 @@ export default function ImagePageClient({
 
 						if (!response.ok) {
 							const errorData = await response.json().catch(() => null);
-							throw new Error(
+							const rawMessage =
 								errorData?.error ??
-									`HTTP ${response.status}: ${response.statusText}`,
+								`HTTP ${response.status}: ${response.statusText}`;
+							throw new Error(
+								isChatPlanContext &&
+								isInsufficientCreditsError(response.status, rawMessage)
+									? chatPlanCreditErrorMessage(chatPlanSubscribed, "images")
+									: rawMessage,
 							);
 						}
 
@@ -605,8 +671,9 @@ export default function ImagePageClient({
 			inputImages,
 			posthog,
 			requiresImageInput,
-			pathname,
-			router,
+			selectedOrganization?.id,
+			isChatPlanContext,
+			chatPlanSubscribed,
 		],
 	);
 
@@ -713,15 +780,19 @@ export default function ImagePageClient({
 		[handleNewChat],
 	);
 
-	// Low credits check
 	const chatPlanCreditsRemaining =
-		selectedOrganization?.chatPlan && selectedOrganization.chatPlan !== "none"
-			? Number(selectedOrganization.chatPlanCreditsLimit ?? "0") -
-				Number(selectedOrganization.chatPlanCreditsUsed ?? "0")
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none"
+			? Number(chatPlanStatus.chatPlanCreditsRemaining)
 			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1 && chatPlanCreditsRemaining <= 0
+		? isChatPlanContext
+			? chatPlanStatus !== undefined &&
+				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
+			: Number(selectedOrganization.credits) < 1
 		: false;
+	// In the Chat plan context an out-of-credits state upsells the plans inline
+	// instead of a top-up banner.
+	const showPlanUpsell = isChatPlanContext && isLowCredits;
 
 	const handleSelectOrganization = useCallback(
 		(org: Organization | null) => {
@@ -762,7 +833,7 @@ export default function ImagePageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && (
+					{isLowCredits && !isChatPlanContext && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
 								Low credits remaining. Top up to continue generating images.
@@ -798,17 +869,25 @@ export default function ImagePageClient({
 						setInputImages={setInputImages}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
-						<div className="max-w-6xl mx-auto">
-							<ImageGallery
-								items={displayItems}
-								comparisonMode={comparisonMode}
-								onSuggestionClick={handleSuggestionClick}
-								onUseAsReference={
-									isEditModel ? handleUseAsReference : undefined
-								}
-								onInsertPrompt={handleInsertPrompt}
+						{showPlanUpsell ? (
+							<ChatPlanUpsell
+								noun="images"
+								isAuthenticated={!!user}
+								subscribed={chatPlanSubscribed}
 							/>
-						</div>
+						) : (
+							<div className="max-w-6xl mx-auto">
+								<ImageGallery
+									items={displayItems}
+									comparisonMode={comparisonMode}
+									onSuggestionClick={handleSuggestionClick}
+									onUseAsReference={
+										isEditModel ? handleUseAsReference : undefined
+									}
+									onInsertPrompt={handleInsertPrompt}
+								/>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>

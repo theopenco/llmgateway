@@ -81,6 +81,19 @@ function isToolPart(obj: unknown): obj is ToolPart {
 	);
 }
 
+// Serialize web search source-url parts for persistence alongside the message.
+function extractSourcePartsJson(parts: UIMessage["parts"]): string | undefined {
+	const sourceParts = (parts as { type: string; [key: string]: unknown }[])
+		.filter((p) => p.type === "source-url" && typeof p.url === "string")
+		.map((p) => ({
+			type: "source-url" as const,
+			sourceId: p.sourceId,
+			url: p.url,
+			...(p.title ? { title: p.title } : {}),
+		}));
+	return sourceParts.length > 0 ? JSON.stringify(sourceParts) : undefined;
+}
+
 function getFirstUserMessageText(
 	messages: { role: string; parts?: { type: string; text?: string }[] }[],
 ): string | null {
@@ -537,6 +550,7 @@ export default function ChatPageClient({
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 
@@ -1019,6 +1033,17 @@ export default function ChatPageClient({
 					}
 				}
 
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch (error) {
+						toast.error("Failed to parse sources: " + getErrorMessage(error));
+					}
+				}
+
 				return {
 					id: msg.id,
 					role: msg.role,
@@ -1122,6 +1147,34 @@ export default function ChatPageClient({
 		}
 	};
 
+	// Billing runs under the selected dashboard org, or the dedicated Chat org
+	// in the Chat plan context (matching ensureCurrentChat's
+	// selectedOrganization?.id ?? chatOrg?.id). Without resolving the Chat org
+	// here, the Chat plan context skipped credit gating entirely and
+	// unsubscribed users without credits could keep generating.
+	const ensureBillableContext = () => {
+		if (selectedOrganization) {
+			// Chat plan credits live on the Chat org and never fund dashboard-org
+			// requests, so only the org's own credits count here.
+			if (Number(selectedOrganization.credits) <= 0) {
+				setShowTopUp(true);
+				return false;
+			}
+			return true;
+		}
+		if (
+			chatOrg &&
+			Number(chatOrg.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
+			!hasChatPlanCredits
+		) {
+			// Chat plan context has no top-ups — promote the subscription plans.
+			router.push("/pricing");
+			return false;
+		}
+		return true;
+	};
+
 	const handleUserMessage = async (
 		content: string,
 		images?: Array<{
@@ -1141,13 +1194,7 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (
-			selectedOrganization &&
-			Number(selectedOrganization.credits) <= 0 &&
-			isChatPlanStatusLoaded &&
-			!hasChatPlanCredits
-		) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return undefined;
 		}
 
@@ -1318,13 +1365,7 @@ export default function ChatPageClient({
 			return;
 		}
 
-		if (
-			selectedOrganization &&
-			Number(selectedOrganization.credits) <= 0 &&
-			isChatPlanStatusLoaded &&
-			!hasChatPlanCredits
-		) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return;
 		}
 
@@ -1685,7 +1726,7 @@ export default function ChatPageClient({
 	return (
 		<SidebarProvider>
 			<h1 className="sr-only">
-				LLM Gateway Playground - Chat with 210+ AI Models
+				LLM Gateway Playground - Chat with 280+ AI Models
 			</h1>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				{isTemporaryChat ? null : (
@@ -2227,7 +2268,7 @@ function ExtraChatPanel({
 			comparisonChatIdRef.current = id;
 			return id;
 		},
-		[createChat, selectedModel, primaryChatId],
+		[createChat, selectedModel, primaryChatId, primaryChatIdRef],
 	);
 
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
@@ -2260,6 +2301,7 @@ function ExtraChatPanel({
 					content: textContent || undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 
@@ -2613,6 +2655,16 @@ function ExtraChatPanel({
 						}
 					} catch {
 						// ignore malformed tools
+					}
+				}
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch {
+						// ignore malformed sources
 					}
 				}
 				const metadata = parsePlaygroundMessageMetadata((msg as any).metadata);

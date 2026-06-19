@@ -6,17 +6,41 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
+
+type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
+
+// Coding plans optimize for prompt caching, so only "auto" and "price" are
+// selectable. The throughput/latency options are shown but disabled.
+const ROUTING_OPTIONS: Array<{
+	value: RoutingStrategy;
+	label: string;
+	allowed: boolean;
+}> = [
+	{ value: "auto", label: "Automatic (recommended)", allowed: true },
+	{ value: "price", label: "Cheapest", allowed: true },
+	{ value: "throughput", label: "Highest throughput", allowed: false },
+	{ value: "latency", label: "Lowest latency", allowed: false },
+];
 
 interface DevPlanSettingsProps {
 	devPlanAllowAllModels: boolean;
 	retentionLevel: "retain" | "none";
+	defaultRoutingStrategy: RoutingStrategy;
 }
 
 export default function DevPlanSettings({
 	devPlanAllowAllModels: initialAllowAllModels,
 	retentionLevel: initialRetentionLevel,
+	defaultRoutingStrategy: initialRoutingStrategy,
 }: DevPlanSettingsProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -27,6 +51,11 @@ export default function DevPlanSettings({
 		initialRetentionLevel === "retain",
 	);
 	const [isUpdatingRetention, setIsUpdatingRetention] = useState(false);
+
+	const [routingStrategy, setRoutingStrategy] = useState<RoutingStrategy>(
+		initialRoutingStrategy,
+	);
+	const [isUpdatingRouting, setIsUpdatingRouting] = useState(false);
 
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -60,6 +89,27 @@ export default function DevPlanSettings({
 		}
 	};
 
+	const handleRoutingChange = async (value: string) => {
+		const strategy = value as RoutingStrategy;
+		if (strategy !== "auto" && strategy !== "price") {
+			return;
+		}
+		const previous = routingStrategy;
+		setRoutingStrategy(strategy);
+		setIsUpdatingRouting(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { defaultRoutingStrategy: strategy },
+			});
+			toast.success("Routing strategy updated");
+		} catch {
+			setRoutingStrategy(previous);
+			toast.error("Failed to update routing strategy");
+		} finally {
+			setIsUpdatingRouting(false);
+		}
+	};
+
 	const handleRetentionToggle = async (checked: boolean) => {
 		setIsUpdatingRetention(true);
 		try {
@@ -82,6 +132,54 @@ export default function DevPlanSettings({
 		<div>
 			<h2 className="mb-4 font-semibold">Settings</h2>
 			<div className="space-y-4">
+				<div className="rounded-xl border p-5 space-y-4">
+					<div className="flex items-center justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label htmlFor="routing-strategy" className="text-sm font-medium">
+								Default routing strategy
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								How the gateway picks a provider when a model is served by more
+								than one. Throughput and latency strategies aren&apos;t
+								available on coding plans because they bypass prompt-cache–aware
+								routing.{" "}
+								<a
+									href="https://docs.llmgateway.io/features/routing#routing-strategy"
+									target="_blank"
+									rel="noreferrer"
+									className="underline underline-offset-2"
+								>
+									Learn more
+								</a>
+							</p>
+						</div>
+						<Select
+							value={routingStrategy}
+							onValueChange={handleRoutingChange}
+							disabled={isUpdatingRouting}
+						>
+							<SelectTrigger
+								id="routing-strategy"
+								size="sm"
+								className="w-[180px]"
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{ROUTING_OPTIONS.map((option) => (
+									<SelectItem
+										key={option.value}
+										value={option.value}
+										disabled={!option.allowed}
+									>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				</div>
+
 				<div className="rounded-xl border p-5 space-y-4">
 					<div className="flex items-center justify-between gap-4">
 						<div className="space-y-0.5">

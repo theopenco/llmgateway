@@ -93,7 +93,7 @@ export function Graph() {
 							</h2>
 							<p className="mt-4 text-muted-foreground max-w-xl">
 								Your app sends one request. We route it to OpenAI, Anthropic,
-								Google, or any of 40+ providers—automatically picking the best
+								Google, or any of 35+ providers—automatically picking the best
 								path.
 							</p>
 						</div>

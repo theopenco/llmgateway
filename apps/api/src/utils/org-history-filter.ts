@@ -16,7 +16,7 @@ export async function buildOrgHistoryFilter(
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: organizationId } },
 	});
-	if (!org || org.isChat) {
+	if (!org || org.kind === "chat") {
 		return or(eq(column, organizationId), isNull(column));
 	}
 	return eq(column, organizationId);

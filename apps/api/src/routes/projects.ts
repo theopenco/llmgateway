@@ -5,11 +5,15 @@ import { z } from "zod";
 import { getUserOrganizationIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const projects = new OpenAPIHono<ServerTypes>();
+
+// Default billing mode for a newly created project. Members below admin/owner
+// may only create projects in this mode (see createProjectForOrg).
+const DEFAULT_PROJECT_MODE = "hybrid" as const;
 
 // Define schema directly with Zod instead of using createSelectSchema
 const projectSchema = z.object({
@@ -22,6 +26,7 @@ const projectSchema = z.object({
 	cacheDurationSeconds: z.number(),
 	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
+	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
@@ -43,6 +48,9 @@ const updateProjectSchema = z.object({
 	cacheDurationSeconds: z.number().min(10).max(31536000).optional(), // Min 10 seconds, max 1 year
 	providerCacheControlEnabled: z.boolean().optional(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]).optional(),
+	defaultRoutingStrategy: z
+		.enum(["auto", "price", "throughput", "latency"])
+		.optional(),
 	endUserEnabled: z.boolean().optional(),
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
@@ -194,6 +202,7 @@ projects.openapi(updateProject, async (c) => {
 		cacheDurationSeconds,
 		providerCacheControlEnabled,
 		mode,
+		defaultRoutingStrategy,
 		endUserEnabled,
 		endUserMarkupPercent,
 		allowedOrigins,
@@ -236,13 +245,23 @@ projects.openapi(updateProject, async (c) => {
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
 	);
-	if (
-		isUpdatingEndUserSettings &&
-		projectUserOrg?.role !== "owner" &&
-		projectUserOrg?.role !== "admin"
-	) {
+	const isAdminOrOwner =
+		projectUserOrg?.role === "owner" || projectUserOrg?.role === "admin";
+	if (isUpdatingEndUserSettings && !isAdminOrOwner) {
 		throw new HTTPException(403, {
 			message: "Only organization owners and admins can update SDK settings",
+		});
+	}
+
+	// Changing the billing mode (e.g. enabling BYOK "api-keys" mode) is a
+	// privileged operation: it controls whether tenant-supplied provider keys
+	// and base URLs are used for inference. Restrict it to owners/admins, but
+	// only when the value actually changes so clients that PATCH the full
+	// settings object with an unchanged mode are not rejected.
+	if (mode !== undefined && mode !== project.mode && !isAdminOrOwner) {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can change the project mode",
 		});
 	}
 
@@ -269,6 +288,26 @@ projects.openapi(updateProject, async (c) => {
 		updateData.mode = mode;
 	}
 
+	if (defaultRoutingStrategy !== undefined) {
+		// Personal coding-plan projects optimize for prompt caching, so only the
+		// default weighted routing or the price strategy are allowed — mirror the
+		// /dev-plans/settings restriction so the stored default never diverges
+		// from what the gateway will actually honor.
+		const projectOrg = projectUserOrg?.organization;
+		if (
+			projectOrg?.kind === "devpass" &&
+			projectOrg.devPlan !== "none" &&
+			defaultRoutingStrategy !== "auto" &&
+			defaultRoutingStrategy !== "price"
+		) {
+			throw new HTTPException(400, {
+				message:
+					'Only the "auto" and "price" routing strategies are available on coding plans.',
+			});
+		}
+		updateData.defaultRoutingStrategy = defaultRoutingStrategy;
+	}
+
 	if (endUserEnabled !== undefined) {
 		updateData.endUserEnabled = endUserEnabled;
 	}
@@ -282,7 +321,11 @@ projects.openapi(updateProject, async (c) => {
 		updateData.allowedOrigins = normalizedAllowedOrigins;
 	}
 
-	const [updatedProject] = await db
+	// Roll through the cached client so its onMutate invalidates the gateway's
+	// cached project lookups (Drizzle cache + SWR mirror) for the project table.
+	// Otherwise settings like defaultRoutingStrategy/mode/caching would keep
+	// using the previous value until the cache expires (up to the SWR TTL).
+	const [updatedProject] = await cdb
 		.update(tables.project)
 		.set(updateData)
 		.where(eq(tables.project.id, id))
@@ -322,6 +365,15 @@ projects.openapi(updateProject, async (c) => {
 	}
 	if (mode !== undefined && mode !== project.mode) {
 		changes.mode = { old: project.mode, new: mode };
+	}
+	if (
+		defaultRoutingStrategy !== undefined &&
+		defaultRoutingStrategy !== project.defaultRoutingStrategy
+	) {
+		changes.defaultRoutingStrategy = {
+			old: project.defaultRoutingStrategy,
+			new: defaultRoutingStrategy,
+		};
 	}
 	if (
 		endUserEnabled !== undefined &&
@@ -436,7 +488,7 @@ export async function createProjectForOrg(
 		cachingEnabled = false,
 		cacheDurationSeconds = 60,
 		providerCacheControlEnabled = true,
-		mode = "hybrid",
+		mode = DEFAULT_PROJECT_MODE,
 	} = input;
 
 	if (!options.skipAccessCheck) {
@@ -454,6 +506,21 @@ export async function createProjectForOrg(
 		) {
 			throw new HTTPException(403, {
 				message: "You do not have access to this organization",
+			});
+		}
+
+		// Setting a non-default billing mode (e.g. BYOK "api-keys") is privileged,
+		// mirroring the PATCH guard: a member must not be able to create a project
+		// in a privileged mode to sidestep the update-time role check.
+		const isAdminOrOwner =
+			userOrganization.role === "owner" || userOrganization.role === "admin";
+		if (
+			input.mode !== undefined &&
+			input.mode !== DEFAULT_PROJECT_MODE &&
+			!isAdminOrOwner
+		) {
+			throw new HTTPException(403, {
+				message: "Only organization owners and admins can set the project mode",
 			});
 		}
 	}

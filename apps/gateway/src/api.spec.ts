@@ -10,7 +10,11 @@ import {
 	resetKeyHealth,
 } from "./lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
+import {
+	readAll,
+	waitForLogByRequestId,
+	waitForLogs,
+} from "./test-utils/test-helpers.js";
 
 describe("api", () => {
 	const harness = createGatewayApiTestHarness();
@@ -142,6 +146,194 @@ describe("api", () => {
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBe(1);
 		expect(logs[0].finishReason).toBe("stop");
+	});
+
+	test("/v1/messages accepts thinking blocks in conversation history", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "What is 2+2?" },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "thinking",
+								thinking: "The user is asking for basic arithmetic.",
+								signature: "sig-abc",
+							},
+							{ type: "text", text: "4" },
+						],
+					},
+					{ role: "user", content: "Thanks!" },
+				],
+			}),
+		});
+
+		// Before the fix this returned 400 with a Zod invalid_union error
+		// because `thinking` blocks weren't whitelisted in the content schema.
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
+		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
+		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, blockPromptLogging: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-block",
+			token: "real-token-compliance-block",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-block",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-block",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello compliance!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+
+		const violations = await db.query.guardrailViolation.findMany({
+			where: { organizationId: { eq: "org-id" } },
+		});
+		expect(violations.some((v) => v.category === "provider_compliance")).toBe(
+			true,
+		);
+	});
+
+	test("/v1/chat/completions allows providers meeting the compliance policy", async () => {
+		// OpenAI's dataPolicy has soc2: true, so a requireSoc2 policy lets it through.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-allow",
+			token: "real-token-compliance-allow",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-allow",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-allow",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello compliant!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/embeddings is blocked by the compliance policy too", async () => {
+		// Compliance enforcement also covers non-chat endpoints. text-embedding-3-small
+		// resolves to OpenAI, whose dataPolicy has promptLogging: true.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, blockPromptLogging: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-embeddings",
+			token: "real-token-compliance-embeddings",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-embeddings",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-embeddings",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				input: "Hello compliance!",
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
 	});
 
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
@@ -1628,6 +1820,58 @@ describe("api", () => {
 		const json = await res.json();
 		expect(JSON.stringify(json)).not.toContain("Invalid enum value");
 		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
+	});
+
+	test("/v1/images/edits logs oversized image input client errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edit-oversized",
+			token: "real-token-image-edit-oversized",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const requestId = "image-edit-oversized-request";
+		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-image-edit-oversized",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "gemini-3-pro-image-preview",
+				prompt: "Add a neon city reflection to this image",
+				images: [
+					{
+						image_url: oversizedImageDataUrl,
+					},
+					{
+						image_url: oversizedImageDataUrl,
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.message).toContain("Image size");
+		expect(json.error.message).toContain("exceeds your current limit");
+
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("client_error");
+		expect(log.unifiedFinishReason).toBe("client_error");
+		expect(log.hasError).toBe(true);
+		expect(log.errorDetails?.statusCode).toBe(400);
+		expect(log.errorDetails?.responseText).toContain("Image size");
+		expect(log.usedProvider).toBe("llmgateway");
+
+		const logs = await db.query.log.findMany({
+			where: { requestId: { eq: requestId } },
+		});
+		expect(logs).toHaveLength(1);
 	});
 
 	test("/v1/images/generations forwards X-No-Fallback to chat completions", async () => {
@@ -4616,6 +4860,603 @@ describe("api", () => {
 			expect(
 				json.metadata.routing[json.metadata.routing.length - 1].succeeded,
 			).toBe(true);
+		});
+
+		test("forwards n to Google as candidateCount and de-dupes candidate 0", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-google",
+				token: "real-token-n-google",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-google",
+				token: "google-test-key",
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-google",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash",
+					n: 3,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			// The mock Google server echoes candidateCount back as that many
+			// candidates — and replicates the real AI Studio quirk where
+			// candidate 0's parts also contain a copy of every other candidate's
+			// parts. Receiving 3 distinct choices proves both the forwarding and
+			// the gateway-side de-duplication.
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(Array.isArray(json.choices)).toBe(true);
+			expect(json.choices).toHaveLength(3);
+			expect(json.choices[0].index).toBe(0);
+			expect(json.choices[1].index).toBe(1);
+			expect(json.choices[2].index).toBe(2);
+			expect(json.choices[0].message.content).toContain("Google variant 1");
+			expect(json.choices[0].message.content).not.toContain("Google variant 2");
+			expect(json.choices[0].message.content).not.toContain("Google variant 3");
+			expect(json.choices[1].message.content).toContain("Google variant 2");
+			expect(json.choices[2].message.content).toContain("Google variant 3");
+			for (const choice of json.choices) {
+				expect(choice.finish_reason).toBe("stop");
+			}
+
+			// Input tokens counted once; output across all candidates — mirrors
+			// Google's multi-candidate billing.
+			expect(json.usage.prompt_tokens).toBe(10);
+			expect(json.usage.completion_tokens).toBe(60);
+			expect(json.usage.total_tokens).toBe(70);
+
+			// Log row content column should aggregate every candidate's content
+			// (after de-duplication), not just candidate 0.
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].streamed).toBe(false);
+			expect(logs[0].content).toContain("Google variant 1");
+			expect(logs[0].content).toContain("Google variant 2");
+			expect(logs[0].content).toContain("Google variant 3");
+			// De-duplication: candidate 0's duplicated copies must not double
+			// the variants in the aggregated log content.
+			expect((logs[0].content?.match(/Google variant 2/g) ?? []).length).toBe(
+				1,
+			);
+		});
+
+		test("rejects n > 1 with streaming on Google models", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-google-stream",
+				token: "real-token-n-google-stream",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-google-stream",
+				token: "google-test-key",
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Google rejects candidateCount > 1 on streamGenerateContent, so the
+			// gateway must 400 with a precise message before calling upstream.
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-google-stream",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash",
+					n: 3,
+					stream: true,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const text = await res.text();
+			expect(text).toContain(
+				"does not support the n parameter for multiple choices with streaming",
+			);
+		});
+
+		test("rejects n above Google's candidateCount cap", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-n-google-cap",
+				token: "real-token-n-google-cap",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-n-google-cap",
+				token: "google-test-key",
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Google caps candidateCount at 8; the gateway surfaces a clear 400
+			// instead of forwarding and bubbling Google's INVALID_ARGUMENT.
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-n-google-cap",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash",
+					n: 9,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const text = await res.text();
+			expect(text).toContain("supports at most 8 choices per request");
+		});
+	});
+
+	describe("refusal billing", () => {
+		// Anthropic-family models emit stop_reason "refusal" when a safety
+		// classifier blocks the response. Per Anthropic's billing policy, a
+		// refusal that arrives before any output is generated is not billed; a
+		// refusal that already produced output is billed for what was generated.
+		function spyRefusalResponse(
+			matchUrlFragment: string,
+			body: unknown,
+		): ReturnType<typeof vi.spyOn> {
+			const originalFetch = globalThis.fetch;
+			return vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(matchUrlFragment)) {
+						return new Response(JSON.stringify(body), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						});
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+		}
+
+		test("anthropic refusal with no output is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyRefusalResponse(`${mockServerUrl}/v1/messages`, {
+				id: "msg_refusal",
+				type: "message",
+				role: "assistant",
+				model: "claude-opus-4-8",
+				content: [],
+				stop_reason: "refusal",
+				stop_sequence: null,
+				usage: { input_tokens: 100, output_tokens: 0 },
+			});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Trigger a refusal" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				// Client sees the OpenAI-canonical content_filter reason.
+				expect(json.choices[0].finish_reason).toBe("content_filter");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			// Raw provider reason preserved; unified reason classified.
+			expect(logs[0].finishReason).toBe("refusal");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			expect(logs[0].hasError).toBe(false);
+			// A refusal before any output is generated must not be charged.
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].inputCost)).toBe(0);
+			expect(Number(logs[0].outputCost)).toBe(0);
+			// Usage tokens are still recorded for analytics (informational only).
+			expect(Number(logs[0].promptTokens)).toBe(100);
+		});
+
+		test("anthropic refusal after partial output is still billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyRefusalResponse(`${mockServerUrl}/v1/messages`, {
+				id: "msg_refusal_partial",
+				type: "message",
+				role: "assistant",
+				model: "claude-opus-4-8",
+				content: [{ type: "text", text: "Here is the start of an answer" }],
+				stop_reason: "refusal",
+				stop_sequence: null,
+				usage: { input_tokens: 100, output_tokens: 20 },
+			});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Trigger a refusal" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("refusal");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			// Output was generated before the refusal, so it is billed normally:
+			// 100 input * 5e-6 + 20 output * 25e-6 = 0.001.
+			expect(Number(logs[0].cost)).toBeCloseTo(0.001);
+		});
+
+		test("aws-bedrock refusal with no output is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "aws-test-key",
+				provider: "aws-bedrock",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyRefusalResponse("/converse", {
+				output: { message: { content: [], role: "assistant" } },
+				stopReason: "refusal",
+				usage: { inputTokens: 100, outputTokens: 0, totalTokens: 100 },
+			});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "aws-bedrock/claude-opus-4-8",
+						messages: [{ role: "user", content: "Trigger a refusal" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.choices[0].finish_reason).toBe("content_filter");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("refusal");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			expect(logs[0].hasError).toBe(false);
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].promptTokens)).toBe(100);
+		});
+
+		test("streaming anthropic refusal with no output is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Anthropic surfaces streaming-classifier refusals as a message_delta
+			// with stop_reason "refusal" and no generated content.
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_stream_refusal",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: message_delta\ndata: ${JSON.stringify({
+					type: "message_delta",
+					delta: { stop_reason: "refusal", stop_sequence: null },
+					usage: { output_tokens: 0 },
+				})}\n\n`,
+				`event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+			].join("");
+
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						const stream = new ReadableStream({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode(sse));
+								controller.close();
+							},
+						});
+						return new Response(stream, {
+							status: 200,
+							headers: { "Content-Type": "text/event-stream" },
+						});
+					}
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Trigger a refusal" }],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(
+					streamResult.chunks.some(
+						(chunk) => chunk.choices?.[0]?.finish_reason === "content_filter",
+					),
+				).toBe(true);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("refusal");
+			expect(logs[0].unifiedFinishReason).toBe("content_filter");
+			expect(Number(logs[0].cost)).toBe(0);
+		});
+	});
+
+	describe("native /v1/messages server-side tools", () => {
+		// Anthropic server-side tools (e.g. web_search_20250305) carry a versioned
+		// `type` and no `description`/`input_schema`. They must pass validation and
+		// be forwarded to the provider, not rejected as malformed custom tools.
+		test("forwards Anthropic web_search server tool to the provider", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			let capturedBody: any;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						capturedBody = JSON.parse(init?.body as string);
+						return new Response(
+							JSON.stringify({
+								id: "msg_ws",
+								type: "message",
+								role: "assistant",
+								model: "claude-sonnet-4-6",
+								content: [
+									{
+										type: "text",
+										text: "The latest version is web_search_20250305.",
+									},
+								],
+								stop_reason: "end_turn",
+								stop_sequence: null,
+								usage: { input_tokens: 50, output_tokens: 10 },
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						messages: [
+							{
+								role: "user",
+								content:
+									"Search the web for the latest Anthropic web search tool version.",
+							},
+						],
+						tools: [
+							{
+								type: "web_search_20250305",
+								name: "web_search",
+								max_uses: 3,
+								allowed_domains: ["anthropic.com", "docs.anthropic.com"],
+								user_location: {
+									type: "approximate",
+									city: "San Francisco",
+									country: "US",
+								},
+							},
+						],
+					}),
+				});
+
+				// The request must NOT be rejected with a ZodError about missing
+				// `description`/`input_schema` on the server tool.
+				expect(res.status).toBe(200);
+
+				// The server tool must reach the Anthropic provider as a native
+				// web_search tool, preserving its configuration (max_uses, domain
+				// filters, user_location).
+				const forwardedTools = capturedBody?.tools ?? [];
+				const forwardedWebSearch = forwardedTools.find(
+					(t: { type?: string }) => t.type === "web_search_20250305",
+				);
+				expect(forwardedWebSearch).toBeDefined();
+				expect(forwardedWebSearch.max_uses).toBe(3);
+				expect(forwardedWebSearch.allowed_domains).toEqual([
+					"anthropic.com",
+					"docs.anthropic.com",
+				]);
+				expect(forwardedWebSearch.user_location).toEqual({
+					type: "approximate",
+					city: "San Francisco",
+					country: "US",
+				});
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
+		test("still rejects a custom tool missing input_schema", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-4-6",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "hi" }],
+					tools: [{ name: "get_weather", description: "Get the weather" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain("input_schema");
 		});
 	});
 });

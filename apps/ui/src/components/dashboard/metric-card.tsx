@@ -24,7 +24,7 @@ export function MetricCard({
 	tooltip?: string;
 }) {
 	return (
-		<div className="bg-card text-card-foreground flex flex-col justify-between gap-3 rounded-xl border border-border/60 p-5 shadow-sm">
+		<div className="bg-card text-card-foreground flex flex-col justify-between gap-3 rounded-xl border border-border/60 p-4 shadow-sm sm:p-5">
 			<div className="flex items-start justify-between gap-3">
 				<div className="min-w-0 flex-1">
 					<div className="flex items-center gap-1.5">
@@ -50,7 +50,7 @@ export function MetricCard({
 							</TooltipProvider>
 						) : null}
 					</div>
-					<p className="mt-2 text-2xl font-semibold tabular-nums break-all">
+					<p className="mt-2 text-xl font-semibold tabular-nums break-all sm:text-2xl">
 						{value}
 					</p>
 					{subtitle ? (
@@ -60,7 +60,7 @@ export function MetricCard({
 				{icon ? (
 					<div
 						className={cn(
-							"inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs",
+							"hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs sm:inline-flex",
 							accent === "green" &&
 								"border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
 							accent === "blue" &&

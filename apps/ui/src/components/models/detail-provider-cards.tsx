@@ -129,7 +129,10 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 								copiedModel={copiedModel}
 								isImageGen={isImageGen}
 							/>
-							<ModelCtaButton modelId={`${providerId}/${model.id}`} />
+							<ModelCtaButton
+								modelId={`${providerId}/${model.id}`}
+								output={model.output}
+							/>
 						</div>
 					);
 				})}

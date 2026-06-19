@@ -8,11 +8,11 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Ship an AI App in 10 Minutes",
 	description:
-		"Clone a production-ready AI template, connect to 300+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
+		"Clone a production-ready AI template, connect to 280+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
 	openGraph: {
 		title: "Ship an AI App in 10 Minutes | LLM Gateway",
 		description:
-			"Clone a production-ready AI template, connect to 300+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
+			"Clone a production-ready AI template, connect to 280+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
 	},
 };
 
@@ -96,7 +96,7 @@ export default function ShipPage() {
 						</h1>
 						<p className="text-lg text-muted-foreground leading-relaxed">
 							Production-ready templates powered by LLM Gateway. Clone,
-							configure, and deploy — with access to 300+ models from every
+							configure, and deploy — with access to 280+ models from every
 							major provider.
 						</p>
 						<div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
@@ -196,7 +196,7 @@ export default function ShipPage() {
 						</h2>
 						<p className="text-lg text-muted-foreground">
 							Create a free LLM Gateway account, grab an API key, and start
-							building with any of our 300+ supported models.
+							building with any of our 280+ supported models.
 						</p>
 						<div className="flex flex-col sm:flex-row gap-4 justify-center">
 							<Link

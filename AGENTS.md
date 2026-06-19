@@ -18,6 +18,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - `pnpm build` - Build all applications for production. ALWAYS run this after finishing work on a feature. ALWAYS run a full build to make sure things fork.
 - `pnpm clean` - Clean build artifacts and cache directories
 
+To build a single app, ALWAYS use a Turbo filter (`turbo run build --filter=<app>`), e.g. `turbo run build --filter=gateway`. NEVER use `pnpm --filter <app> build` for builds: that runs the app's `tsc` directly without rebuilding workspace dependency packages first, so it compiles against stale `dist/` artifacts and produces spurious errors (missing `@llmgateway/*` modules, "value not in type union", etc.). Turbo's `build` depends on `^build`, so a Turbo filter builds the dependency packages in topological order first.
+
 ### Code Quality
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
@@ -169,6 +171,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Never force push on main/default branch; force pushing is only acceptable on feature branches
 - When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
+- Always open pull requests as normal ready-for-review PRs, not draft PRs, unless the user explicitly asks for a draft PR
 - When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works

@@ -1382,10 +1382,11 @@ async function handleCheckoutSessionCompleted(
 			}
 		} else {
 			// Handle regular pro subscription
-			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
-			if (organization.isPersonal) {
+			// Skip setting plan to "pro" for non-default orgs - devpass orgs use the
+			// devPlan field and chat orgs use the chatPlan field instead.
+			if (organization.kind !== "default") {
 				logger.warn(
-					`Skipping plan: "pro" for personal org ${organizationId} - personal orgs should use devPlan field`,
+					`Skipping plan: "pro" for ${organization.kind} org ${organizationId} - non-default orgs use product-specific plan fields`,
 				);
 				return;
 			}
@@ -4041,12 +4042,16 @@ async function handleSubscriptionCreated(
 		`Found organization: ${organization.name} (${organization.id}) for subscription creation`,
 	);
 
-	// DevPass subscriptions (personal orgs) use the devPlan field — they must
+	// DevPass/Chat subscriptions use the devPlan/chatPlan fields — they must
 	// not be coerced to plan="pro" or have stripeSubscriptionId set, which is
 	// reserved for regular Pro subscriptions on team orgs.
-	if (metadata?.subscriptionType === "dev_plan" || organization.isPersonal) {
+	if (
+		metadata?.subscriptionType === "dev_plan" ||
+		metadata?.subscriptionType === "chat_plan" ||
+		organization.kind !== "default"
+	) {
 		logger.info(
-			`Skipping plan: "pro" for dev plan / personal org ${organizationId}`,
+			`Skipping plan: "pro" for dev/chat plan or ${organization.kind} org ${organizationId}`,
 		);
 		return;
 	}

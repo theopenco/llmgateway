@@ -61,6 +61,18 @@ const anthropicMessageSchema = z.object({
 					content: z.union([z.string(), z.array(z.unknown())]).optional(),
 					is_error: z.boolean().optional(),
 				}),
+				// Extended-thinking blocks echoed back in conversation history. They
+				// carry no value for the internal OpenAI-format request, so they're
+				// accepted here and stripped during transformation.
+				z.object({
+					type: z.literal("thinking"),
+					thinking: z.string(),
+					signature: z.string().optional(),
+				}),
+				z.object({
+					type: z.literal("redacted_thinking"),
+					data: z.string(),
+				}),
 			]),
 		),
 	]),
@@ -88,11 +100,51 @@ const anthropicMessageSchema = z.object({
 		.optional(),
 });
 
-const anthropicToolSchema = z.object({
+// Standard Anthropic "custom" tools: a name plus a JSON schema describing the
+// parameters the model should produce.
+const anthropicCustomToolSchema = z.object({
+	type: z.literal("custom").optional(),
 	name: z.string(),
-	description: z.string(),
+	description: z.string().optional(),
 	input_schema: z.record(z.unknown()),
+	cache_control: z
+		.object({
+			type: z.enum(["ephemeral"]),
+			ttl: z.enum(["5m", "1h"]).optional(),
+		})
+		.nullish(),
 });
+
+// Anthropic server-side tools (e.g. web_search_20250305, code_execution_*).
+// These are executed by Anthropic, carry a versioned `type` instead of an
+// `input_schema`, and must not be validated as custom tools.
+const anthropicServerToolSchema = z.object({
+	type: z.string(),
+	name: z.string(),
+	max_uses: z.number().optional(),
+	allowed_domains: z.array(z.string()).optional(),
+	blocked_domains: z.array(z.string()).optional(),
+	user_location: z
+		.object({
+			type: z.literal("approximate").optional(),
+			city: z.string().optional(),
+			region: z.string().optional(),
+			country: z.string().optional(),
+			timezone: z.string().optional(),
+		})
+		.optional(),
+	cache_control: z
+		.object({
+			type: z.enum(["ephemeral"]),
+			ttl: z.enum(["5m", "1h"]).optional(),
+		})
+		.nullish(),
+});
+
+const anthropicToolSchema = z.union([
+	anthropicCustomToolSchema,
+	anthropicServerToolSchema,
+]);
 
 const anthropicRequestSchema = z.object({
 	model: z.string().openapi({
@@ -487,26 +539,31 @@ anthropic.openapi(messages, async (c) => {
 				// For multi-modal content, or text content with cache_control markers,
 				// transform blocks while preserving cache_control so the inner
 				// completions path can forward it to Anthropic.
-				const content = message.content.map((block) => {
-					if (block.type === "text" && block.text) {
-						return {
-							type: "text",
-							text: block.text,
-							...(block.cache_control && {
-								cache_control: block.cache_control,
-							}),
-						};
-					}
-					if (block.type === "image" && block.source) {
-						return {
-							type: "image_url",
-							image_url: {
-								url: `data:${block.source.media_type};base64,${block.source.data}`,
-							},
-						};
-					}
-					return block;
-				});
+				const content = message.content
+					.filter(
+						(block) =>
+							block.type !== "thinking" && block.type !== "redacted_thinking",
+					)
+					.map((block) => {
+						if (block.type === "text" && block.text) {
+							return {
+								type: "text",
+								text: block.text,
+								...(block.cache_control && {
+									cache_control: block.cache_control,
+								}),
+							};
+						}
+						if (block.type === "image" && block.source) {
+							return {
+								type: "image_url",
+								image_url: {
+									url: `data:${block.source.media_type};base64,${block.source.data}`,
+								},
+							};
+						}
+						return block;
+					});
 
 				openaiMessages.push({
 					role: message.role,
@@ -522,17 +579,49 @@ anthropic.openapi(messages, async (c) => {
 		}
 	}
 
-	// Transform tools if provided
+	// Transform tools if provided. Custom tools map to OpenAI function tools;
+	// Anthropic server-side tools (e.g. web_search_20250305) carry a versioned
+	// `type` and no `input_schema`, so they're translated to the internal
+	// `web_search` tool the chat completions endpoint understands. Server tools
+	// we can't represent are dropped (with a warning) rather than rejected.
 	let openaiTools;
 	if (anthropicRequest.tools) {
-		openaiTools = anthropicRequest.tools.map((tool) => ({
-			type: "function",
-			function: {
-				name: tool.name,
-				description: tool.description,
-				parameters: tool.input_schema,
-			},
-		}));
+		openaiTools = anthropicRequest.tools
+			.map((tool) => {
+				if ("input_schema" in tool) {
+					return {
+						type: "function",
+						function: {
+							name: tool.name,
+							description: tool.description,
+							parameters: tool.input_schema,
+						},
+					};
+				}
+
+				if (tool.type.startsWith("web_search")) {
+					return {
+						type: "web_search",
+						...(tool.max_uses !== undefined ? { max_uses: tool.max_uses } : {}),
+						...(tool.user_location
+							? { user_location: tool.user_location }
+							: {}),
+						...(tool.allowed_domains
+							? { allowed_domains: tool.allowed_domains }
+							: {}),
+						...(tool.blocked_domains
+							? { blocked_domains: tool.blocked_domains }
+							: {}),
+					};
+				}
+
+				logger.warn("Dropping unsupported Anthropic server tool", {
+					type: tool.type,
+					name: tool.name,
+				});
+				return null;
+			})
+			.filter((tool): tool is NonNullable<typeof tool> => tool !== null);
 	}
 
 	// Build OpenAI request
@@ -544,7 +633,7 @@ anthropic.openapi(messages, async (c) => {
 		stream: anthropicRequest.stream,
 	};
 
-	if (openaiTools) {
+	if (openaiTools && openaiTools.length > 0) {
 		openaiRequest.tools = openaiTools;
 	}
 

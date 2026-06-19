@@ -24,12 +24,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Pricing — DevPass",
 	description:
-		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models. Pair with SoulForge to cut another ~50% of tokens.",
+		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 280+ models. Pair with SoulForge to cut another ~50% of tokens.",
 	alternates: { canonical: "/pricing" },
 	openGraph: {
 		title: "Pricing — DevPass",
 		description:
-			"Flat-rate AI coding plans. Every plan includes 200+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
+			"Flat-rate AI coding plans. Every plan includes 280+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
 	},
 };
 
@@ -56,7 +56,7 @@ const productSchema = {
 	"@type": "Product",
 	name: "DevPass by LLM Gateway",
 	description:
-		"Flat-rate AI coding plans with access to 200+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
+		"Flat-rate AI coding plans with access to 280+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
 	brand: {
 		"@type": "Brand",
 		name: "LLM Gateway",
@@ -312,7 +312,7 @@ export default function PricingPage() {
 							Premium-tier frontier models (Anthropic Opus, OpenAI
 							Pro/reasoning, Gemini Pro, Grok 4) are subject to a weekly
 							fair-use allowance ($10 / $50 / $140 for Lite / Pro / Max) in
-							addition to the monthly credit allowance. All other 190+ models
+							addition to the monthly credit allowance. All other 280+ models
 							use the full monthly allowance with the 3x multiplier.
 						</p>
 					</div>

@@ -2,7 +2,9 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyIcon, MoreHorizontal } from "lucide-react";
+import Link from "next/link";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -48,6 +50,7 @@ interface ProviderKeysListProps {
 			baseUrl: string | null;
 			options: ProviderKeyOptions | null;
 			status: "active" | "inactive" | "deleted" | null;
+			customModelsOnly: boolean;
 			organizationId: string;
 			maskedToken: string;
 		}[];
@@ -74,6 +77,7 @@ export function ProviderKeysList({
 }: ProviderKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const { buildOrgUrl } = useDashboardNavigation();
 
 	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
 
@@ -186,16 +190,16 @@ export function ProviderKeysList({
 
 					return (
 						<div key={provider.id} className="border border-border rounded-lg">
-							<div className="flex items-center justify-between gap-4 p-4">
-								<div className="flex items-center gap-3">
-									<div className="flex items-center justify-center w-10 h-10 rounded-lg bg-background border">
+							<div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+								<div className="flex items-start gap-3 sm:items-center">
+									<div className="flex shrink-0 items-center justify-center w-10 h-10 rounded-lg bg-background border">
 										{LogoComponent ? (
 											<LogoComponent className="h-6 w-6" />
 										) : (
 											<div className="w-6 h-6 bg-muted rounded" />
 										)}
 									</div>
-									<div className="flex flex-col">
+									<div className="flex min-w-0 flex-col">
 										<div className="flex items-center gap-2 flex-wrap">
 											<span className="font-medium">{provider.name}</span>
 											{providerKeys.length > 0 && (
@@ -217,7 +221,11 @@ export function ProviderKeysList({
 									selectedOrganization={selectedOrganization}
 									preselectedProvider={provider.id}
 								>
-									<Button variant="outline" size="sm">
+									<Button
+										variant="outline"
+										size="sm"
+										className="w-full sm:w-auto sm:shrink-0"
+									>
 										Add Key
 									</Button>
 								</CreateProviderKeyDialog>
@@ -276,6 +284,17 @@ export function ProviderKeysList({
 												</DropdownMenuTrigger>
 												<DropdownMenuContent align="end">
 													<DropdownMenuLabel>Actions</DropdownMenuLabel>
+													{provider.id === "custom" && (
+														<DropdownMenuItem asChild>
+															<Link
+																href={
+																	`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
+																}
+															>
+																Manage models
+															</Link>
+														</DropdownMenuItem>
+													)}
 													<DropdownMenuItem
 														onClick={() =>
 															toggleStatus(providerKey.id, providerKey.status)

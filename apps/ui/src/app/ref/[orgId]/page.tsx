@@ -37,7 +37,7 @@ export async function generateMetadata({
 	const title = `${info.name} invited you to join LLM Gateway`;
 	const description = info.referralBonusEnabled
 		? `Sign up through ${info.name} and get a ${info.referralBonusPercent}% bonus on your first top-up.`
-		: `Sign up through ${info.name} and start using 210+ LLM models through one API.`;
+		: `Sign up through ${info.name} and start using 280+ LLM models through one API.`;
 
 	return {
 		title,
@@ -48,7 +48,7 @@ export async function generateMetadata({
 }
 
 const benefits = [
-	"Access 210+ models from OpenAI, Anthropic, Google, and 25+ providers through one API",
+	"Access 280+ models from OpenAI, Anthropic, Google, and 35+ providers through one API",
 	"Automatic failover keeps your requests flowing when a provider goes down",
 	"Just a 5% platform fee — bring your own keys and pay zero",
 	"Built-in guardrails, prompt caching, and request-level analytics",
@@ -100,7 +100,7 @@ export default async function ReferralLandingPage({
 						</h1>
 
 						<p className="text-pretty text-base text-muted-foreground sm:text-lg md:text-xl">
-							One OpenAI-compatible API for 210+ models across every major
+							One OpenAI-compatible API for 280+ models across every major
 							provider. Sign up to claim your invite.
 						</p>
 

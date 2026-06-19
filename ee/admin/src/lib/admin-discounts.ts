@@ -30,6 +30,12 @@ export async function deleteGlobalDiscount(
 	return data?.success ?? false;
 }
 
+export async function getAllOrganizationDiscounts() {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/discounts/organizations");
+	return data ?? null;
+}
+
 export async function getOrganizationDiscounts(orgId: string) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/organizations/{orgId}/discounts", {
