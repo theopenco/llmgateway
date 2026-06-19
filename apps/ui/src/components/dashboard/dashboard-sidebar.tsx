@@ -405,6 +405,14 @@ function OrganizationSection({
 						toggleSidebar={toggleSidebar}
 					/>
 					<OrgNavItem
+						href={buildOrgUrl("org/custom-models")}
+						label="Custom Models"
+						icon={AnimatedBotMessageSquare}
+						isActive={isActive("org/custom-models")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
 						href={buildOrgUrl("org/guardrails")}
 						label="Guardrails"
 						icon={AnimatedShield}

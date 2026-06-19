@@ -20,7 +20,7 @@ We built LLM Gateway, so we're biased — but we'll tell you where LiteLLM is th
 
 | Feature               | LLM Gateway                                           | LiteLLM                             |
 | --------------------- | ----------------------------------------------------- | ----------------------------------- |
-| Models                | 300+ models, 25+ providers                            | 100+ providers via SDK              |
+| Models                | 280+ models, 35+ providers                            | 100+ providers via SDK              |
 | API compatibility     | OpenAI-compatible                                     | OpenAI-compatible                   |
 | Deployment            | Managed cloud or self-hosted (Docker)                 | Self-hosted (Python proxy)          |
 | Infrastructure to run | None (managed) or 1 Docker command (self-host)        | Yes — you run and scale the proxy   |

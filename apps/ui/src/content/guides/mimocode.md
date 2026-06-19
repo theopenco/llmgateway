@@ -123,7 +123,7 @@ Once registered, you can set them as your default model or small model using the
 
 ## Why Use LLM Gateway with MiMo Code?
 
-- **210+ models** — Access GPT-5.5, Gemini, Llama, DeepSeek, and more in a single CLI configuration.
+- **280+ models** — Access GPT-5.5, Gemini, Llama, DeepSeek, and more in a single CLI configuration.
 - **Unified cost tracking** — Get a detailed breakdown of costs per prompt and session in your dashboard.
 - **Response caching** — Automatically cache repeated requests (such as parsing or building commands) to save API costs.
 - **Automatic fallback** — Keep coding even if a provider encounters temporary downtime.

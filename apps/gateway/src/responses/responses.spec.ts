@@ -10,6 +10,7 @@ import {
 	createCompletionEvents,
 	createFailedEvent,
 } from "./tools/convert-streaming-to-responses.js";
+import { resolveItemReferences } from "./tools/response-state.js";
 
 vi.mock("@llmgateway/db", async (importOriginal) => {
 	const actual = await importOriginal<Record<string, unknown>>();
@@ -20,6 +21,9 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 				from: vi.fn().mockReturnValue({
 					where: vi.fn().mockReturnValue({
 						limit: vi.fn().mockResolvedValue([]),
+						orderBy: vi.fn().mockReturnValue({
+							limit: vi.fn().mockResolvedValue([]),
+						}),
 					}),
 				}),
 			}),
@@ -31,6 +35,14 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 		},
 	};
 });
+
+const redisGet = vi.fn();
+vi.mock("@llmgateway/cache", () => ({
+	redisClient: {
+		get: (...args: unknown[]) => redisGet(...args),
+		set: vi.fn().mockResolvedValue("OK"),
+	},
+}));
 
 vi.mock("@llmgateway/logger", () => ({
 	logger: {
@@ -95,6 +107,24 @@ describe("responsesRequestSchema", () => {
 
 		expect(result.success).toBe(true);
 		expect(result.data?.reasoning?.effort).toBe("high");
+	});
+
+	it("accepts item_reference items mixed with messages and outputs", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: [
+				{ role: "developer", content: "be helpful" },
+				{ role: "user", content: "hi" },
+				{ type: "item_reference", id: "fc_97KANutVc7ZxBoNerPUN1FE2" },
+				{
+					type: "function_call_output",
+					call_id: "call_rvsx8tvgGBCjGB8HitLxPG1F",
+					output: "done",
+				},
+			],
+		});
+
+		expect(result.success).toBe(true);
 	});
 });
 
@@ -625,5 +655,77 @@ describe("streaming conversion", () => {
 		expect(data.type).toBe("response.failed");
 		expect(data.response.status).toBe("failed");
 		expect(data.response.id).toBe(state.responseId);
+	});
+});
+
+describe("resolveItemReferences", () => {
+	const storedFunctionCall = {
+		type: "function_call",
+		id: "fc_97KANutVc7ZxBoNerPUN1FE2",
+		call_id: "call_rvsx8tvgGBCjGB8HitLxPG1F",
+		name: "view_image",
+		arguments: '{"path":"/tmp/a.png"}',
+		status: "completed",
+	};
+
+	it("returns input unchanged when there are no item_reference items", async () => {
+		const input = [
+			{ role: "user", content: "hi" },
+			{ type: "function_call_output", call_id: "call_1", output: "done" },
+		];
+		const result = await resolveItemReferences(input, "project_1");
+		expect(result).toBe(input);
+		expect(redisGet).not.toHaveBeenCalled();
+	});
+
+	it("replaces an item_reference with the resolved stored item", async () => {
+		redisGet.mockResolvedValueOnce(JSON.stringify(storedFunctionCall));
+		const input = [
+			{ role: "developer", content: "be helpful" },
+			{ role: "user", content: "hi" },
+			{ type: "item_reference", id: "fc_97KANutVc7ZxBoNerPUN1FE2" },
+			{
+				type: "function_call_output",
+				call_id: "call_rvsx8tvgGBCjGB8HitLxPG1F",
+				output: "done",
+			},
+		];
+
+		const resolved = await resolveItemReferences(input, "project_1");
+
+		expect(resolved[2]).toEqual(storedFunctionCall);
+
+		// The resolved function_call must convert into an assistant tool_calls
+		// message that precedes the tool result, otherwise strict providers reject
+		// the orphaned tool message.
+		const messages = convertResponsesInputToMessages(
+			resolved as Parameters<typeof convertResponsesInputToMessages>[0],
+		);
+		const assistantIdx = messages.findIndex((m) => m.role === "assistant");
+		const toolIdx = messages.findIndex((m) => m.role === "tool");
+		expect(assistantIdx).toBeGreaterThanOrEqual(0);
+		expect(toolIdx).toBeGreaterThan(assistantIdx);
+		expect(messages[assistantIdx]!.tool_calls).toEqual([
+			{
+				id: "call_rvsx8tvgGBCjGB8HitLxPG1F",
+				type: "function",
+				function: {
+					name: "view_image",
+					arguments: '{"path":"/tmp/a.png"}',
+				},
+			},
+		]);
+	});
+
+	it("drops item_reference items that cannot be resolved", async () => {
+		redisGet.mockResolvedValueOnce(null);
+		const input = [
+			{ role: "user", content: "hi" },
+			{ type: "item_reference", id: "fc_missing" },
+		];
+
+		const resolved = await resolveItemReferences(input, "project_1");
+
+		expect(resolved).toEqual([{ role: "user", content: "hi" }]);
 	});
 });

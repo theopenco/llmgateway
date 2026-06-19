@@ -37,7 +37,7 @@ const tools: Tool[] = [
 	{
 		name: "chat",
 		description:
-			"Send messages to any LLM and get responses. Supports 200+ models from OpenAI, Anthropic, Google, and more.",
+			"Send messages to any LLM and get responses. Supports 280+ models from OpenAI, Anthropic, Google, and more.",
 		icon: MessageSquare,
 		parameters: ["model", "messages", "temperature", "max_tokens"],
 		example: `{
@@ -300,7 +300,7 @@ export function McpContent() {
 					{[
 						{
 							icon: Server,
-							title: "200+ Models",
+							title: "280+ Models",
 							description:
 								"Access models from OpenAI, Anthropic, Google & more",
 						},

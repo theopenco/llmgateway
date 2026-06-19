@@ -6,7 +6,7 @@ description: Use any model with Pi coding agent through LLM Gateway — GPT-5.5,
 date: 2026-05-13
 ---
 
-[Pi](https://pi.dev) is a minimal terminal-based coding agent that gives an AI full access to read, write, edit, and run shell commands in your project. By pointing Pi at LLM Gateway, you can use any of our 200+ models with full cost tracking and caching.
+[Pi](https://pi.dev) is a minimal terminal-based coding agent that gives an AI full access to read, write, edit, and run shell commands in your project. By pointing Pi at LLM Gateway, you can use any of our 280+ models with full cost tracking and caching.
 
 ## Quick Start
 

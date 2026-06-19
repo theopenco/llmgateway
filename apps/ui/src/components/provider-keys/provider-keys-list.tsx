@@ -2,7 +2,9 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyIcon, MoreHorizontal } from "lucide-react";
+import Link from "next/link";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -48,6 +50,7 @@ interface ProviderKeysListProps {
 			baseUrl: string | null;
 			options: ProviderKeyOptions | null;
 			status: "active" | "inactive" | "deleted" | null;
+			customModelsOnly: boolean;
 			organizationId: string;
 			maskedToken: string;
 		}[];
@@ -74,6 +77,7 @@ export function ProviderKeysList({
 }: ProviderKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const { buildOrgUrl } = useDashboardNavigation();
 
 	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
 
@@ -280,6 +284,17 @@ export function ProviderKeysList({
 												</DropdownMenuTrigger>
 												<DropdownMenuContent align="end">
 													<DropdownMenuLabel>Actions</DropdownMenuLabel>
+													{provider.id === "custom" && (
+														<DropdownMenuItem asChild>
+															<Link
+																href={
+																	`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
+																}
+															>
+																Manage models
+															</Link>
+														</DropdownMenuItem>
+													)}
 													<DropdownMenuItem
 														onClick={() =>
 															toggleStatus(providerKey.id, providerKey.status)

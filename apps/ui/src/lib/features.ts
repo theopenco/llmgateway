@@ -105,7 +105,7 @@ console.log(completion.choices[0].message.content);`,
 		id: "multi-provider",
 		slug: "multi-provider-support",
 		title: "Multi-Provider Support",
-		subtitle: "Access 19+ LLM providers through one gateway",
+		subtitle: "Access 35+ LLM providers through one gateway",
 		description: "Connect to various LLM providers through a single gateway.",
 		longDescription:
 			"LLM Gateway supports over 19 different LLM providers, including OpenAI, Anthropic, Google, AWS Bedrock, Azure, and many more. Access cutting-edge models from multiple providers without managing separate integrations.",
@@ -113,12 +113,12 @@ console.log(completion.choices[0].message.content);`,
 		demoComponent: "multi-provider",
 		benefits: [
 			{
-				title: "19+ Providers",
+				title: "35+ Providers",
 				description:
 					"OpenAI, Anthropic, Google, Together AI, Groq, xAI, and more",
 			},
 			{
-				title: "100+ Models",
+				title: "280+ Models",
 				description: "Access to the latest and greatest AI models",
 			},
 			{

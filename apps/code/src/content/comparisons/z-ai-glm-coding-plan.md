@@ -4,11 +4,11 @@ slug: z-ai-glm-coding-plan
 date: 2026-06-02
 title: DevPass vs z.ai GLM Coding Plan
 metaTitle: "DevPass vs z.ai GLM Coding Plan: One Vendor or 200+?"
-description: "DevPass vs the z.ai GLM Coding Plan compared. z.ai is a low-cost, GLM-only subscription billed quarterly; DevPass is a flat monthly plan for 200+ models — Claude, GPT-5.5, Gemini and GLM — under one key."
+description: "DevPass vs the z.ai GLM Coding Plan compared. z.ai is a low-cost, GLM-only subscription billed quarterly; DevPass is a flat monthly plan for 280+ models — Claude, GPT-5.5, Gemini and GLM — under one key."
 competitor: z.ai GLM Coding Plan
 competitorLogo: zai
 competitorTagline: Low-cost subscription for Zhipu's GLM models
-tagline: "z.ai's coding plan is one of the cheapest ways to run GLM. DevPass costs more but isn't tied to a single vendor — GLM is just one of 200+ models on every plan."
+tagline: "z.ai's coding plan is one of the cheapest ways to run GLM. DevPass costs more but isn't tied to a single vendor — GLM is just one of 280+ models on every plan."
 devpassPrice: "$29–$179/mo"
 competitorPrice: "~$10–$80/mo"
 verdict: "The z.ai GLM Coding Plan is outstanding value if GLM models are all you need — a few dollars a month for GLM-5.1 and friends, billed quarterly. DevPass is single-vendor's opposite: GLM plus Claude, GPT-5.5, Gemini and every other major model, under one key, billed monthly with no quarterly commitment. Pick z.ai to go all-in on GLM; pick DevPass to keep GLM and everything else."
@@ -67,7 +67,7 @@ The defining trait is focus: it's a **single-vendor** plan. Every model on it co
 
 ## What is DevPass?
 
-DevPass by LLM Gateway is a flat-rate plan that's single-vendor's opposite. It bundles **200+ models behind one key** — the GLM family _and_ Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, Kimi, Qwen, DeepSeek and the rest. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost dashboard, monthly or annual billing, and the freedom to switch models mid-session without touching your config.
+DevPass by LLM Gateway is a flat-rate plan that's single-vendor's opposite. It bundles **280+ models behind one key** — the GLM family _and_ Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, Kimi, Qwen, DeepSeek and the rest. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost dashboard, monthly or annual billing, and the freedom to switch models mid-session without touching your config.
 
 ## Single vendor vs the whole field
 

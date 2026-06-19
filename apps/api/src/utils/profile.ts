@@ -174,7 +174,7 @@ export async function computeProfileData(
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {

@@ -57,8 +57,10 @@ import {
 } from "./services/project-stats-aggregator.js";
 import {
 	backfillHistoryIfNeeded,
+	backfillHourlyHistoryIfNeeded,
 	calculateAggregatedStatistics,
 	calculateCurrentMinuteHistory,
+	calculateHourlyHistory,
 	calculateMinutelyHistory,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
@@ -1910,6 +1912,15 @@ async function runMinutelyHistoryLoop() {
 			);
 		}
 
+		try {
+			await calculateHourlyHistory();
+		} catch (error) {
+			logger.error(
+				"Error in initial hourly history calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+
 		while (!isStopRequested()) {
 			// Calculate delay to next minute boundary
 			const now = new Date();
@@ -1935,6 +1946,15 @@ async function runMinutelyHistoryLoop() {
 			} catch (error) {
 				logger.error(
 					"Error in minutely history calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+
+			try {
+				await calculateHourlyHistory();
+			} catch (error) {
+				logger.error(
+					"Error in hourly history calculation",
 					error instanceof Error ? error : new Error(String(error)),
 				);
 			}
@@ -2631,6 +2651,12 @@ export async function startWorker() {
 	void backfillHistoryIfNeeded()
 		.then(() => {
 			logger.info("History backfill check completed");
+			// Hourly summaries roll up the minute history, so backfill them only
+			// after the minute backfill has had a chance to fill recent gaps.
+			return backfillHourlyHistoryIfNeeded();
+		})
+		.then(() => {
+			logger.info("Hourly history backfill check completed");
 		})
 		.catch((error) => {
 			logger.error(
@@ -2648,6 +2674,9 @@ export async function startWorker() {
 		`- Credit processing: processes up to ${CREDIT_BATCH_SIZE} logs per batch`,
 	);
 	logger.info("- Minutely history: runs at the first second of every minute");
+	logger.info(
+		"- Hourly history: rolls up minute history into hourly summaries each minute",
+	);
 	logger.info(
 		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
 	);

@@ -49,6 +49,20 @@ const ESCALATION_THRESHOLD = 3;
 
 const CLIENT_ID_KEY = "chat_support_client_id";
 
+const SUGGESTED_QUESTIONS = [
+	"How do I get started with LLM Gateway?",
+	"Which models and providers are supported?",
+	"How does pricing and billing work?",
+];
+
+// Phrases that signal the visitor wants a human rather than the AI assistant.
+const HUMAN_REQUEST_PATTERN =
+	/\b(?:human|real|live)\s+(?:operator|person|agent|help|support|being|rep(?:resentative)?)\b|\b(?:talk|speak|connect|chat)\s+(?:to|with)\s+(?:a\s+)?(?:human|person|someone|agent|operator|rep(?:resentative)?|support|staff)\b|\b(?:need|want|get|reach)\s+(?:a\s+)?(?:human|real\s+person|live\s+agent|person)\b|\bhuman\s+operator\b/i;
+
+function wantsHuman(text: string): boolean {
+	return HUMAN_REQUEST_PATTERN.test(text);
+}
+
 interface ConversationMessage {
 	id: string;
 	role: "user" | "assistant" | "admin";
@@ -268,7 +282,15 @@ export function ChatSupport() {
 	};
 
 	const userMessageCount = messages.filter((m) => m.role === "user").length;
-	const showEscalation = !escalated && userMessageCount >= ESCALATION_THRESHOLD;
+	const requestedHuman = useMemo(
+		() =>
+			messages.some(
+				(m) => m.role === "user" && wantsHuman(getTextFromParts(m)),
+			),
+		[messages],
+	);
+	const showEscalation =
+		!escalated && (userMessageCount >= ESCALATION_THRESHOLD || requestedHuman);
 	const canResolve = !isResolved && userMessageCount >= 1;
 
 	const escalateMutation = useMutation({
@@ -388,6 +410,14 @@ export function ChatSupport() {
 		setText("");
 	};
 
+	const handleSuggestion = (question: string) => {
+		if (isLoading) {
+			return;
+		}
+		void sendMessage({ text: question });
+		setText("");
+	};
+
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
@@ -492,12 +522,32 @@ export function ChatSupport() {
 						<div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
 							<div className="flex flex-col gap-3">
 								{messages.length === 0 && (
-									<div className="flex justify-start">
-										<div className="max-w-[85%] rounded-2xl bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
-											Hi{effectiveName ? ` ${effectiveName}` : ""}! I&apos;m the
-											LLM Gateway support assistant. How can I help you today?
+									<>
+										<div className="flex justify-start">
+											<div className="max-w-[85%] rounded-2xl bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
+												Hi{effectiveName ? ` ${effectiveName}` : ""}! I&apos;m
+												the LLM Gateway support assistant. How can I help you
+												today?
+											</div>
 										</div>
-									</div>
+										<div className="flex flex-col items-start gap-2">
+											<span className="px-1 text-xs text-muted-foreground">
+												Suggested questions
+											</span>
+											{SUGGESTED_QUESTIONS.map((question) => (
+												<button
+													key={question}
+													type="button"
+													onClick={() => handleSuggestion(question)}
+													disabled={isLoading}
+													className="max-w-[85%] rounded-2xl border border-border bg-background px-3.5 py-2 text-left text-sm leading-relaxed text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+													style={{ touchAction: "manipulation" }}
+												>
+													{question}
+												</button>
+											))}
+										</div>
+									</>
 								)}
 								{messages.map((message, index) => {
 									const content = getTextFromParts(message);

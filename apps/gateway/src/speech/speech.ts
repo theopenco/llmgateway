@@ -592,7 +592,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	if (organization.isPersonal && organization.devPlan !== "none") {
+	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
 			message:
 				"Speech generation is not available for coding plans. Coding plans only include text-based inference.",
@@ -866,6 +866,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				const fetchSignal = createCombinedSignal(controller);
 				upstreamResponse = await fetch(attempt.upstreamUrl, {
 					method: "POST",
+					// SSRF: never follow redirects on an authenticated provider request. A
+					// tenant-supplied baseUrl could 3xx to an internal host at request
+					// time, and a redirect would also leak the upstream token.
+					redirect: "error",
 					headers: {
 						"Content-Type": "application/json",
 						...getProviderHeaders(providerId, attempt.usedToken, { requestId }),

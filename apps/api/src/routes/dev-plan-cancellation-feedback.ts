@@ -21,7 +21,7 @@ async function findUserPersonalOrg(userId: string) {
 		where: { userId: { eq: userId } },
 		with: { organization: true },
 	});
-	return userOrgs.find((uo) => uo.organization?.isPersonal === true)
+	return userOrgs.find((uo) => uo.organization?.kind === "devpass")
 		?.organization;
 }
 

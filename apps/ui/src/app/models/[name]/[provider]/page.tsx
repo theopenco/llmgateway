@@ -28,7 +28,6 @@ import { Badge } from "@/lib/components/badge";
 import {
 	buildRatingSchema,
 	digitalOfferFields,
-	hasFullRatingData,
 	type ModelRatingsData,
 } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
@@ -213,7 +212,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 	const productSchema = {
 		"@context": "https://schema.org",
-		"@type": hasFullRatingData(ratingsData) ? "Product" : "Service",
+		"@type": "Product",
 		name: `${modelDef.name ?? modelDef.id} on ${providerInfo?.name ?? decodedProvider}`,
 		description:
 			modelDef.description ??

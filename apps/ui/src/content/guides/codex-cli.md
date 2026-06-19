@@ -6,7 +6,7 @@ description: Use any model with OpenAI's Codex CLI through LLM Gateway. One conf
 date: 2026-03-19
 ---
 
-Codex CLI is OpenAI's open-source terminal coding agent. By default it connects to OpenAI's API, but with LLM Gateway you can route it through a single gateway—use GPT-5.3 Codex, Gemini, Claude, or any of 180+ models while keeping full cost visibility.
+Codex CLI is OpenAI's open-source terminal coding agent. By default it connects to OpenAI's API, but with LLM Gateway you can route it through a single gateway—use GPT-5.3 Codex, Gemini, Claude, or any of 280+ models while keeping full cost visibility.
 
 One config file. No code changes. Full cost tracking in your dashboard.
 
