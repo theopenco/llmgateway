@@ -29,7 +29,7 @@ export async function getOrCreatePersonalOrg(user: PersonalOrgUser) {
 		const [newOrg] = await tx
 			.insert(tables.organization)
 			.values({
-				name: "Personal",
+				name: "DevPass",
 				kind: "devpass",
 				billingEmail: user.email,
 				// DevPass orgs retain request/response data by default; users can

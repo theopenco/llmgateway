@@ -40,7 +40,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 		const [personalOrg] = await db
 			.insert(organization)
 			.values({
-				name: "Personal",
+				name: "DevPass",
 				status: "active",
 				kind: "devpass",
 				devPlan: "lite",
@@ -198,7 +198,7 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 		const [personalOrg] = await db
 			.insert(organization)
 			.values({
-				name: "Personal",
+				name: "DevPass",
 				status: "active",
 				kind: "devpass",
 				devPlan: "none",
