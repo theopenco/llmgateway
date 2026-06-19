@@ -9993,6 +9993,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.from(tables.organization)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				ne(tables.organization.devPlan, "none"),
 				or(
 					isNull(tables.organization.devPlanExpiresAt),
@@ -10038,6 +10039,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				eq(tables.transaction.type, "dev_plan_start"),
 				eq(tables.organization.devPlan, "none"),
 			),
@@ -10047,8 +10049,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const [startsRow] = await db
 		.select({ count: sql<number>`COUNT(*)` })
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				eq(tables.transaction.type, "dev_plan_start"),
 				gte(tables.transaction.createdAt, monthStart),
 			),
@@ -10058,8 +10065,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const [endsRow] = await db
 		.select({ count: sql<number>`COUNT(*)` })
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				inArray(tables.transaction.type, ["dev_plan_cancel", "dev_plan_end"]),
 				gte(tables.transaction.createdAt, monthStart),
 			),
@@ -10068,7 +10080,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 
 	// Refunds this month for DevPass transactions. Mirrors the timeseries
 	// refund query (joins credit_refund rows to their original tx and filters
-	// to dev plan types, plus legacy subscription_* rows on personal orgs) but
+	// to dev plan types, plus legacy subscription_* rows on DevPass orgs) but
 	// aggregates to a single month total so the KPI strip reflects refund
 	// activity that the snapshot-based MRR cards can't show.
 	const refundOriginalTx = aliasedTable(
@@ -10094,13 +10106,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, monthStart),
-				or(
-					inArray(refundOriginalTx.type, [...DEV_PLAN_TX_TYPES]),
-					and(
-						inArray(refundOriginalTx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.kind, "devpass"),
-					),
-				),
+				eq(tables.organization.kind, "devpass"),
+				inArray(refundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		);
 	const refundsThisMonth = Number(refundsRow?.count ?? 0);
@@ -10115,6 +10125,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.from(tables.organization)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				ne(tables.organization.devPlan, "none"),
 				or(
 					isNull(tables.organization.devPlanExpiresAt),
@@ -10138,7 +10149,12 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			realCostSub,
 			eq(tables.organization.id, realCostSub.organizationId),
 		)
-		.where(ne(tables.organization.devPlan, "none"));
+		.where(
+			and(
+				eq(tables.organization.kind, "devpass"),
+				ne(tables.organization.devPlan, "none"),
+			),
+		);
 	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
 	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
 	const totalMargin = totalMrrCycle - totalRealCostCycle;
@@ -10255,8 +10271,9 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 
 	// Resolve range. When no from/to is provided, default to all-time
 	// (anchored to the earliest dev plan start, falling back to today).
-	// Includes legacy `subscription_start` rows for personal orgs so subscribers
-	// from before the dev_plan_* rename also extend the chart range.
+	// Scoped to DevPass orgs (kind = 'devpass') so legacy `subscription_start`
+	// rows written before the dev_plan_* rename also extend the chart range,
+	// while org Pro `subscription_*` rows are excluded.
 	let startDate: Date;
 	let endDate: Date;
 	if (query.from && query.to) {
@@ -10275,12 +10292,12 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				eq(tables.transaction.organizationId, tables.organization.id),
 			)
 			.where(
-				or(
-					eq(tables.transaction.type, "dev_plan_start"),
-					and(
-						eq(tables.transaction.type, "subscription_start"),
-						eq(tables.organization.kind, "devpass"),
-					),
+				and(
+					eq(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, [
+						"dev_plan_start",
+						"subscription_start",
+					]),
 				),
 			);
 		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
@@ -10295,8 +10312,8 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	}
 
 	// Revenue per day from completed DevPass transactions. Joins organization
-	// so legacy `subscription_*` rows can be counted only when the org is
-	// personal (where they are pre-rename dev plan rows, not org Pro).
+	// and scopes to kind = 'devpass' so legacy `subscription_*` rows are counted
+	// only on DevPass orgs (where they are pre-rename dev plan rows, not org Pro).
 	// Sums `amount` (actual dollars paid) — `creditAmount` is the credits
 	// granted (price × DEV_PLAN_CREDITS_MULTIPLIER) and would over-report
 	// revenue, and is null on legacy `subscription_*` rows so they would
@@ -10328,13 +10345,11 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
-				or(
-					inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
-					and(
-						inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.kind, "devpass"),
-					),
-				),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 				sql`NOT EXISTS (
 					SELECT 1 FROM ${tables.transaction} dup
 					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
@@ -10385,23 +10400,20 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
-				or(
-					inArray(originalTx.type, [...DEV_PLAN_TX_TYPES]),
-					and(
-						inArray(originalTx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.kind, "devpass"),
-					),
-				),
+				eq(tables.organization.kind, "devpass"),
+				inArray(originalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Provider cost per day for projects belonging to orgs that are or were
-	// ever on a DevPass plan (i.e. currently devPlan != 'none' OR have a
-	// historical dev_plan_start, OR a legacy subscription_start while personal).
-	// This approximates "DevPass usage" without reconstructing daily plan
-	// membership.
+	// Provider cost per day for projects belonging to DevPass orgs
+	// (kind = 'devpass'), which is stable across the subscription lifecycle so
+	// churned orgs (devPlan = 'none') are still included without reconstructing
+	// daily plan membership.
 	const costPerDay = await db
 		.select({
 			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
@@ -10423,17 +10435,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			and(
 				gte(projectHourlyStats.hourTimestamp, startDate),
 				lte(projectHourlyStats.hourTimestamp, endDate),
-				or(
-					ne(tables.organization.devPlan, "none"),
-					sql`EXISTS (
-						SELECT 1 FROM ${tables.transaction} t
-						WHERE t.organization_id = ${tables.organization.id}
-						AND (
-							t.type = 'dev_plan_start'
-							OR (t.type = 'subscription_start' AND ${tables.organization.kind} = 'devpass')
-						)
-					)`,
-				)!,
+				eq(tables.organization.kind, "devpass"),
 			),
 		)
 		.groupBy(sql`DATE(${projectHourlyStats.hourTimestamp})`)
@@ -10523,19 +10525,9 @@ admin.openapi(getDevpassUsage, async (c) => {
 		endDate.setUTCHours(23, 59, 59, 999);
 	}
 
-	// Filter: only orgs that are or were ever on a DevPass plan.
-	// Mirrors the cost-per-day query in /devpass/timeseries.
-	const devpassOrgFilter = or(
-		ne(tables.organization.devPlan, "none"),
-		sql`EXISTS (
-			SELECT 1 FROM ${tables.transaction} t
-			WHERE t.organization_id = ${tables.organization.id}
-			AND (
-				t.type = 'dev_plan_start'
-				OR (t.type = 'subscription_start' AND ${tables.organization.kind} = 'devpass')
-			)
-		)`,
-	)!;
+	// Filter: only DevPass orgs (kind = 'devpass'). Stable across the
+	// subscription lifecycle, so churned orgs (devPlan = 'none') stay included.
+	const devpassOrgFilter = eq(tables.organization.kind, "devpass");
 
 	// Models + providers: use the per-project hourly model aggregator so the
 	// dashboard reads from rollups instead of the raw `log` table. Joins
