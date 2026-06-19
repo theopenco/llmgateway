@@ -1599,6 +1599,35 @@ export default function ChatPageClient({
 		[pathname, router, comparisonEnabled, extraPanelModels, models],
 	);
 
+	const {
+		providerId: selectedProviderId,
+		modelId: selectedModelId,
+		region: selectedRegion,
+	} = useMemo(() => parseModelSelectorValue(selectedModel), [selectedModel]);
+
+	const availableRegions = useMemo(() => {
+		if (!selectedProviderId) {
+			return [];
+		}
+		const def = models.find((m) => m.id === selectedModelId);
+		if (!def) {
+			return [];
+		}
+		return def.mappings
+			.filter((m) => m.providerId === selectedProviderId && m.region)
+			.map((m) => m.region as string);
+	}, [models, selectedProviderId, selectedModelId]);
+
+	const handleRegionChange = useCallback(
+		(region: string) => {
+			const newValue = region
+				? `${selectedProviderId}/${selectedModelId}:${region}`
+				: `${selectedProviderId}/${selectedModelId}`;
+			handleSelectModel(newValue);
+		},
+		[selectedProviderId, selectedModelId, handleSelectModel],
+	);
+
 	const handleExtraPanelModelChange = useCallback(
 		(index: number, model: string) => {
 			setExtraPanelModels((prev) => {
@@ -1937,6 +1966,9 @@ export default function ChatPageClient({
 													prev.filter((s) => s.id !== id),
 												)
 											}
+											availableRegions={availableRegions}
+											selectedRegion={selectedRegion}
+											onRegionChange={handleRegionChange}
 										/>
 									</div>
 								</div>
@@ -1991,6 +2023,9 @@ export default function ChatPageClient({
 										onRemoveSkill={(id) =>
 											setActiveSkills((prev) => prev.filter((s) => s.id !== id))
 										}
+										availableRegions={availableRegions}
+										selectedRegion={selectedRegion}
+										onRegionChange={handleRegionChange}
 									/>
 								</div>
 							)}
@@ -2431,6 +2466,35 @@ function ExtraChatPanel({
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
+	const {
+		providerId: panelProviderId,
+		modelId: panelModelId,
+		region: panelSelectedRegion,
+	} = useMemo(() => parseModelSelectorValue(selectedModel), [selectedModel]);
+
+	const panelAvailableRegions = useMemo(() => {
+		if (!panelProviderId) {
+			return [];
+		}
+		const def = models.find((m) => m.id === panelModelId);
+		if (!def) {
+			return [];
+		}
+		return def.mappings
+			.filter((m) => m.providerId === panelProviderId && m.region)
+			.map((m) => m.region as string);
+	}, [models, panelProviderId, panelModelId]);
+
+	const handlePanelRegionChange = useCallback(
+		(region: string) => {
+			const newValue = region
+				? `${panelProviderId}/${panelModelId}:${region}`
+				: `${panelProviderId}/${panelModelId}`;
+			handleModelChange(newValue);
+		},
+		[panelProviderId, panelModelId, handleModelChange],
+	);
+
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
 		if (config.usesPixelDimensions) {
@@ -2809,6 +2873,9 @@ function ExtraChatPanel({
 							setActiveSkills((prev) => prev.filter((s) => s.id !== id));
 						}
 					}}
+					availableRegions={panelAvailableRegions}
+					selectedRegion={panelSelectedRegion}
+					onRegionChange={handlePanelRegionChange}
 				/>
 			</div>
 		</div>

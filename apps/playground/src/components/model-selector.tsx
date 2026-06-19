@@ -742,9 +742,6 @@ function ModelEntryRowComponent({
 							</div>
 							<span className="text-xs text-muted-foreground truncate">
 								{disabledReason ?? provider?.name}
-								{!disabledReason && mapping?.region && (
-									<span className="ml-1">({mapping.region})</span>
-								)}
 							</span>
 						</div>
 					</div>
@@ -960,6 +957,9 @@ export function ModelSelector({
 			});
 
 			for (const mp of m.mappings) {
+				if (mp.region) {
+					continue;
+				}
 				const isDeactivated =
 					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
 				if (!isDeactivated) {
@@ -2268,6 +2268,36 @@ export function ModelSelector({
 														</div>
 													) : null;
 												})()}
+												{(() => {
+													if (!previewEntry.mapping) {
+														return null;
+													}
+													const regions = previewEntry.model.mappings
+														.filter(
+															(m) =>
+																m.providerId ===
+																	previewEntry.mapping!.providerId && m.region,
+														)
+														.map((m) => m.region as string);
+													return regions.length > 0 ? (
+														<div className="space-y-1">
+															<h5 className="font-medium text-xs">
+																Available Regions
+															</h5>
+															<div className="flex flex-wrap gap-1">
+																{regions.map((r) => (
+																	<Badge
+																		key={r}
+																		variant="secondary"
+																		className="text-[10px] px-1.5 py-0.5"
+																	>
+																		{r}
+																	</Badge>
+																))}
+															</div>
+														</div>
+													) : null;
+												})()}
 											</>
 										)}
 									</>
@@ -2785,6 +2815,36 @@ export function ModelSelector({
 																</Badge>
 															);
 														})}
+													</div>
+												</div>
+											) : null;
+										})()}
+										{(() => {
+											if (!selectedDetails.mapping) {
+												return null;
+											}
+											const regions = selectedDetails.model.mappings
+												.filter(
+													(m) =>
+														m.providerId ===
+															selectedDetails.mapping!.providerId && m.region,
+												)
+												.map((m) => m.region as string);
+											return regions.length > 0 ? (
+												<div className="space-y-2">
+													<h5 className="font-medium text-sm">
+														Available Regions
+													</h5>
+													<div className="flex flex-wrap gap-1.5">
+														{regions.map((r) => (
+															<Badge
+																key={r}
+																variant="secondary"
+																className="text-xs px-2 py-1"
+															>
+																{r}
+															</Badge>
+														))}
 													</div>
 												</div>
 											) : null;
