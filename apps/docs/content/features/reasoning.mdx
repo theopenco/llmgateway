@@ -16,7 +16,7 @@ You can find all reasoning-enabled models on our [models page with reasoning fil
 
 - OpenAI's GPT-5 series (e.g., `gpt-5`, `gpt-5-mini`)
   - Note: GPT-5 models use reasoning but currently do not return the reasoning content in the response.
-- Anthropic's Claude 3.7 Sonnet
+- Anthropic's Claude 3.7 Sonnet, Claude Sonnet 4, and Claude Opus 4 / 4.5 / 4.6 / 4.7 / 4.8
 - Google's Gemini 2.0 Flash Thinking and Gemini 2.5 Pro
 - GPT OSS models such as `gpt-oss-120b` and `gpt-oss-20b`
 - Z.AI's reasoning models
@@ -164,10 +164,22 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 The `reasoning.max_tokens` parameter is supported by:
 
-- **Anthropic Claude**: Claude 3.7 Sonnet, Claude Sonnet 4, Claude Opus 4, Claude Opus 4.5
+- **Anthropic Claude**: Claude 3.7 Sonnet, Claude Sonnet 4, Claude Opus 4, Claude Opus 4.5, Claude Opus 4.6, Claude Opus 4.7, Claude Opus 4.8
 - **Google Gemini**: Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 3 Pro Preview
 
 When using auto-routing or root models with `reasoning.max_tokens`, only providers that support this feature will be considered.
+
+<Callout type="info">
+	**Adaptive reasoning (Claude Opus 4.6 / 4.7 / 4.8).** These models use
+	Anthropic's adaptive thinking, where the model itself decides how much to
+	think based on the difficulty of the prompt. Control the depth with
+	`reasoning_effort` (or `reasoning.effort`) — `low`, `medium`, `high`, `xhigh`,
+	or `max`. A `reasoning.max_tokens` value is still accepted on these models,
+	but it is routed to adaptive thinking rather than enforced as an exact budget.
+	For easy prompts the model may reason only briefly (or skip visible reasoning)
+	and begin its answer almost immediately even at `high` effort — this is
+	expected adaptive behavior, not a disabled-reasoning bug.
+</Callout>
 
 ### Provider-Specific Constraints
 
