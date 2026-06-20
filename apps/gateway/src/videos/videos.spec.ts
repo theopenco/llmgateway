@@ -707,7 +707,7 @@ describe("videos", () => {
 		});
 	});
 
-	test("/v1/videos bills AtlasCloud audio and silent output at separate rates", async () => {
+	test("/v1/videos bills AtlasCloud 4K audio and silent output at the same rate", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -738,7 +738,7 @@ describe("videos", () => {
 				body: JSON.stringify({
 					model: "atlascloud/kling-v3-0",
 					prompt: `A precise product turntable, audio=${audio}`,
-					size: "1280x720",
+					size: "3840x2160",
 					seconds: 5,
 					audio,
 				}),
@@ -750,7 +750,7 @@ describe("videos", () => {
 			});
 			const mockVideo = getMockVideo(videoJob!.upstreamId);
 			expect(mockVideo?.requestBody).toMatchObject({
-				model: "kwaivgi/kling-v3.0-std/text-to-video",
+				model: "kwaivgi/kling-v3.0-4k/text-to-video",
 				sound: audio,
 			});
 			setMockVideoStatus(videoJob!.upstreamId, "completed");
@@ -766,10 +766,10 @@ describe("videos", () => {
 		expect(logs).toHaveLength(2);
 		const videoOutputCosts = logs.map((log) => log.videoOutputCost ?? 0).sort();
 		const totalCosts = logs.map((log) => log.cost ?? 0).sort();
-		expect(videoOutputCosts[0]).toBeCloseTo(0.42, 6);
-		expect(videoOutputCosts[1]).toBeCloseTo(0.63, 6);
-		expect(totalCosts[0]).toBeCloseTo(0.42, 6);
-		expect(totalCosts[1]).toBeCloseTo(0.63, 6);
+		expect(videoOutputCosts[0]).toBeCloseTo(2.1, 6);
+		expect(videoOutputCosts[1]).toBeCloseTo(2.1, 6);
+		expect(totalCosts[0]).toBeCloseTo(2.1, 6);
+		expect(totalCosts[1]).toBeCloseTo(2.1, 6);
 	});
 
 	test("/v1/videos restricts reference inputs to Seedance 2.0 models", async () => {
