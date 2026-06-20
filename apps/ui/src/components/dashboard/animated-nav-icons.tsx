@@ -114,6 +114,21 @@ export function AnimatedBarChart3({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// ChartArea — trend line draws itself across the axes
+export function AnimatedChartArea({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<path d="M3 3v16a2 2 0 0 0 2 2h16" />
+			<motion.path
+				d="M7 15l3-4 3 2 4-6"
+				initial={false}
+				animate={isHovered ? { pathLength: [0, 1] } : { pathLength: 1 }}
+				transition={{ duration: 0.5, ease: "easeInOut" }}
+			/>
+		</svg>
+	);
+}
+
 // Key — rotates like turning a lock
 export function AnimatedKey({ isHovered }: AnimatedIconProps) {
 	return (

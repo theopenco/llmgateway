@@ -29,6 +29,7 @@ import {
 	AnimatedBadgeCheck,
 	AnimatedBarChart3,
 	AnimatedBotMessageSquare,
+	AnimatedChartArea,
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
 	AnimatedKey,
@@ -117,6 +118,11 @@ const PROJECT_NAVIGATION: readonly {
 		icon: AnimatedChartColumnBig,
 	},
 	{
+		href: "analytics",
+		label: "Analytics",
+		icon: AnimatedChartArea,
+	},
+	{
 		href: "usage",
 		label: "Usage & Metrics",
 		icon: AnimatedBarChart3,
@@ -168,6 +174,10 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/team",
 		label: "Team",
+	},
+	{
+		href: "org/members",
+		label: "Members",
 	},
 	{
 		href: "org/audit-logs",
