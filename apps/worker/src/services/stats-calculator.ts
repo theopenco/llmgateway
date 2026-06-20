@@ -382,56 +382,39 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 
 		const stat = activeModelsMap.get(modelEntry.modelId);
 
-		// Use actual stats if available, otherwise create zero stats
-		const logsCount = stat?.logsCount ?? 0;
-		const errorsCount = stat?.errorsCount ?? 0;
-		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
-		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
-		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
-		const completedCount = stat?.completedCount ?? 0;
-		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
-		const contentFilterCount = stat?.contentFilterCount ?? 0;
-		const toolCallsCount = stat?.toolCallsCount ?? 0;
-		const canceledCount = stat?.canceledCount ?? 0;
-		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
-		const cachedCount = stat?.cachedCount ?? 0;
-		const totalInputTokens = stat?.totalInputTokens ?? 0;
-		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
-		const totalTokens = stat?.totalTokens ?? 0;
-		const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
-		const totalCachedTokens = stat?.totalCachedTokens ?? 0;
-		const totalDuration = stat?.totalDuration ?? 0;
-		const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
-		const totalTimeToFirstReasoningToken =
-			stat?.totalTimeToFirstReasoningToken ?? 0;
-		const totalCost = stat?.totalCost ?? 0;
+		// Skip models with no traffic this minute: an all-zero row carries no
+		// information (every reader uses COALESCE(SUM(...)) and treats absent
+		// rows as zero), so we avoid writing it.
+		if (!stat) {
+			continue;
+		}
 
 		// Collect the history record for this minute; written in one bulk upsert
 		// below instead of a per-model round-trip.
 		modelHistoryValues.push({
 			modelId: modelEntry.modelId,
 			minuteTimestamp: roundedTargetMinute,
-			logsCount,
-			errorsCount,
-			clientErrorsCount,
-			gatewayErrorsCount,
-			upstreamErrorsCount,
-			completedCount,
-			lengthLimitCount,
-			contentFilterCount,
-			toolCallsCount,
-			canceledCount,
-			unknownFinishCount,
-			cachedCount,
-			totalInputTokens,
-			totalOutputTokens,
-			totalTokens,
-			totalReasoningTokens,
-			totalCachedTokens,
-			totalDuration,
-			totalTimeToFirstToken,
-			totalTimeToFirstReasoningToken,
-			totalCost,
+			logsCount: stat.logsCount,
+			errorsCount: stat.errorsCount,
+			clientErrorsCount: stat.clientErrorsCount,
+			gatewayErrorsCount: stat.gatewayErrorsCount,
+			upstreamErrorsCount: stat.upstreamErrorsCount,
+			completedCount: stat.completedCount,
+			lengthLimitCount: stat.lengthLimitCount,
+			contentFilterCount: stat.contentFilterCount,
+			toolCallsCount: stat.toolCallsCount,
+			canceledCount: stat.canceledCount,
+			unknownFinishCount: stat.unknownFinishCount,
+			cachedCount: stat.cachedCount,
+			totalInputTokens: stat.totalInputTokens,
+			totalOutputTokens: stat.totalOutputTokens,
+			totalTokens: stat.totalTokens,
+			totalReasoningTokens: stat.totalReasoningTokens,
+			totalCachedTokens: stat.totalCachedTokens,
+			totalDuration: stat.totalDuration,
+			totalTimeToFirstToken: stat.totalTimeToFirstToken,
+			totalTimeToFirstReasoningToken: stat.totalTimeToFirstReasoningToken,
+			totalCost: stat.totalCost,
 		});
 	}
 
@@ -653,31 +636,14 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const key = `${mapping.modelId}-${mapping.providerId}-${mapping.region ?? ""}`;
 		const stat = activeMappingsMap.get(key);
 
-		// Use actual stats if available, otherwise create zero stats
-		const logsCount = stat?.logsCount ?? 0;
-		const errorsCount = stat?.errorsCount ?? 0;
-		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
-		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
-		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
-		const completedCount = stat?.completedCount ?? 0;
-		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
-		const contentFilterCount = stat?.contentFilterCount ?? 0;
-		const toolCallsCount = stat?.toolCallsCount ?? 0;
-		const canceledCount = stat?.canceledCount ?? 0;
-		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
-		const cachedCount = stat?.cachedCount ?? 0;
-		const totalInputTokens = stat?.totalInputTokens ?? 0;
-		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
-		const totalTokens = stat?.totalTokens ?? 0;
-		const totalReasoningTokens = stat?.totalReasoningTokens ?? 0;
-		const totalCachedTokens = stat?.totalCachedTokens ?? 0;
-		const totalDuration = stat?.totalDuration ?? 0;
-		const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
-		const totalTimeToFirstReasoningToken =
-			stat?.totalTimeToFirstReasoningToken ?? 0;
-		const totalCost = stat?.totalCost ?? 0;
+		// Skip mappings with no traffic this minute: an all-zero row carries no
+		// information (every reader uses COALESCE(SUM(...)) and treats absent
+		// rows as zero), so we avoid writing it.
+		if (!stat) {
+			continue;
+		}
 
-		if (logsCount > 0) {
+		if (stat.logsCount > 0) {
 			activeMappingsCount++;
 		}
 
@@ -688,27 +654,27 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			providerId: mapping.providerId,
 			modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
 			minuteTimestamp: roundedTargetMinute,
-			logsCount,
-			errorsCount,
-			clientErrorsCount,
-			gatewayErrorsCount,
-			upstreamErrorsCount,
-			completedCount,
-			lengthLimitCount,
-			contentFilterCount,
-			toolCallsCount,
-			canceledCount,
-			unknownFinishCount,
-			cachedCount,
-			totalInputTokens,
-			totalOutputTokens,
-			totalTokens,
-			totalReasoningTokens,
-			totalCachedTokens,
-			totalDuration,
-			totalTimeToFirstToken,
-			totalTimeToFirstReasoningToken,
-			totalCost,
+			logsCount: stat.logsCount,
+			errorsCount: stat.errorsCount,
+			clientErrorsCount: stat.clientErrorsCount,
+			gatewayErrorsCount: stat.gatewayErrorsCount,
+			upstreamErrorsCount: stat.upstreamErrorsCount,
+			completedCount: stat.completedCount,
+			lengthLimitCount: stat.lengthLimitCount,
+			contentFilterCount: stat.contentFilterCount,
+			toolCallsCount: stat.toolCallsCount,
+			canceledCount: stat.canceledCount,
+			unknownFinishCount: stat.unknownFinishCount,
+			cachedCount: stat.cachedCount,
+			totalInputTokens: stat.totalInputTokens,
+			totalOutputTokens: stat.totalOutputTokens,
+			totalTokens: stat.totalTokens,
+			totalReasoningTokens: stat.totalReasoningTokens,
+			totalCachedTokens: stat.totalCachedTokens,
+			totalDuration: stat.totalDuration,
+			totalTimeToFirstToken: stat.totalTimeToFirstToken,
+			totalTimeToFirstReasoningToken: stat.totalTimeToFirstReasoningToken,
+			totalCost: stat.totalCost,
 		});
 	}
 

@@ -29,6 +29,33 @@ import {
 // Mock current time for consistent testing
 const mockDate = new Date("2024-01-01T12:30:00.000Z");
 
+function makeLog(
+	id: string,
+	minute: Date,
+	modelId: string,
+	providerId: string,
+) {
+	return {
+		id,
+		requestId: `req-${id}`,
+		organizationId: "org-1",
+		projectId: "proj-1",
+		apiKeyId: "key-1",
+		duration: 1000,
+		requestedModel: modelId,
+		requestedProvider: providerId,
+		usedModel: `${providerId}/${modelId}`,
+		usedProvider: providerId,
+		responseSize: 100,
+		hasError: false,
+		completionTokens: "100",
+		unifiedFinishReason: "completed",
+		mode: "api-keys" as const,
+		usedMode: "api-keys" as const,
+		createdAt: new Date(minute.getTime() + 30000),
+	};
+}
+
 describe("stats-calculator", () => {
 	beforeEach(async () => {
 		// Mock Date to have consistent time-based tests
@@ -869,36 +896,22 @@ describe("stats-calculator", () => {
 
 			await calculateMinutelyHistory();
 
-			// Should create history records for existing mappings only, ignoring the invalid log
+			// The invalid log references no known mapping, so no history rows are
+			// written (zero-traffic rows are skipped entirely).
 			const historyRecords = await db
 				.select()
 				.from(modelProviderMappingHistory);
-			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // Our test mappings
-
-			// All should have zero stats since the log was for non-existent model/provider
-			for (const record of historyRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-			}
+			expect(historyRecords).toHaveLength(0);
 		});
 
 		it("should handle empty logs gracefully", async () => {
 			await calculateMinutelyHistory();
 
-			// Should create history records for all mappings with zero stats
+			// With no traffic, no history rows are written.
 			const historyRecords = await db
 				.select()
 				.from(modelProviderMappingHistory);
-			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // Our test mappings
-
-			// All should have zero stats since no logs were inserted
-			for (const record of historyRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.errorsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-				expect(record.totalDuration).toBe(0);
-				expect(record.cachedCount).toBe(0);
-			}
+			expect(historyRecords).toHaveLength(0);
 		});
 
 		it("should update existing history records on conflict", async () => {
@@ -941,13 +954,14 @@ describe("stats-calculator", () => {
 
 			await calculateMinutelyHistory();
 
-			// Should have records for both mappings (including inactive one)
+			// Only the trafficked mapping (gpt-4/openai) gets a row; the inactive
+			// claude mapping is skipped.
 			const historyRecords = await db
 				.select()
 				.from(modelProviderMappingHistory);
-			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // At least the 2 test mappings
+			expect(historyRecords).toHaveLength(1);
 
-			// Check the active mapping was updated
+			// Check the active mapping was updated (existing row upserted)
 			const gptRecord = historyRecords.find(
 				(r) => r.modelId === "gpt-4" && r.providerId === "openai",
 			);
@@ -955,18 +969,16 @@ describe("stats-calculator", () => {
 			expect(gptRecord?.logsCount).toBe(1);
 			expect(gptRecord?.totalOutputTokens).toBe(100);
 
-			// Check inactive mapping has zero stats
+			// Inactive mapping has no row (zero-traffic rows are skipped)
 			const claudeRecord = historyRecords.find(
 				(r) =>
 					r.modelId === "claude-3-5-sonnet" && r.providerId === "anthropic",
 			);
-			expect(claudeRecord).toBeTruthy();
-			expect(claudeRecord?.logsCount).toBe(0);
-			expect(claudeRecord?.totalOutputTokens).toBe(0);
+			expect(claudeRecord).toBeUndefined();
 
-			// Check that model history was also created
+			// Check that model history was also created for the trafficked model only
 			const modelHistoryRecords = await db.select().from(modelHistory);
-			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least 2 models
+			expect(modelHistoryRecords).toHaveLength(1);
 
 			const gptModelRecord = modelHistoryRecords.find(
 				(r) => r.modelId === "gpt-4",
@@ -978,42 +990,22 @@ describe("stats-calculator", () => {
 			const claudeModelRecord = modelHistoryRecords.find(
 				(r) => r.modelId === "claude-3-5-sonnet",
 			);
-			expect(claudeModelRecord).toBeTruthy();
-			expect(claudeModelRecord?.logsCount).toBe(0); // No logs for claude in this test
-			expect(claudeModelRecord?.totalOutputTokens).toBe(0);
+			expect(claudeModelRecord).toBeUndefined();
 		});
 
-		it("should create entries for inactive model-provider mappings", async () => {
-			// Don't insert any logs, so all mappings should be inactive
+		it("should not create entries for inactive model-provider mappings", async () => {
+			// Don't insert any logs, so all mappings are inactive this minute
 
 			await calculateMinutelyHistory();
 
-			// Should create history records for all model-provider mappings
+			// No history rows are written for mappings without traffic
 			const historyRecords = await db
 				.select()
 				.from(modelProviderMappingHistory);
-			expect(historyRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test mappings
+			expect(historyRecords).toHaveLength(0);
 
-			// All should have zero stats since no logs were inserted
-			for (const record of historyRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.errorsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-				expect(record.totalDuration).toBe(0);
-				expect(record.cachedCount).toBe(0);
-			}
-
-			// Check model history was also created with zero stats
 			const modelHistoryRecords = await db.select().from(modelHistory);
-			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test models
-
-			for (const record of modelHistoryRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.errorsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-				expect(record.totalDuration).toBe(0);
-				expect(record.cachedCount).toBe(0);
-			}
+			expect(modelHistoryRecords).toHaveLength(0);
 		});
 	});
 
@@ -1102,22 +1094,14 @@ describe("stats-calculator", () => {
 			expect(anthropicMapping?.logsCount).toBe(1);
 		});
 
-		it("should create model history entries for inactive models", async () => {
-			// Don't insert any logs, so all models should have zero stats
+		it("should not create model history entries for inactive models", async () => {
+			// Don't insert any logs, so all models are inactive this minute
 
 			await calculateMinutelyHistory();
 
+			// No model history rows are written without traffic
 			const modelHistoryRecords = await db.select().from(modelHistory);
-			expect(modelHistoryRecords.length).toBeGreaterThanOrEqual(2); // At least our 2 test models
-
-			// All should have zero stats since no logs were inserted
-			for (const record of modelHistoryRecords) {
-				expect(record.logsCount).toBe(0);
-				expect(record.errorsCount).toBe(0);
-				expect(record.totalOutputTokens).toBe(0);
-				expect(record.totalDuration).toBe(0);
-				expect(record.cachedCount).toBe(0);
-			}
+			expect(modelHistoryRecords).toHaveLength(0);
 		});
 
 		it("should handle model history conflicts with upsert", async () => {
@@ -1330,6 +1314,20 @@ describe("stats-calculator", () => {
 			// Set time to 12:30 so we backfill from 12:25 to 12:29 (5 minutes)
 			vi.setSystemTime(new Date("2024-01-01T12:30:00.000Z"));
 
+			// Seed traffic for both mappings in each backfilled minute so backfill
+			// produces rows (zero-traffic minutes are skipped).
+			const backfillMinutes = [25, 26, 27, 28, 29].map(
+				(m) => new Date(`2024-01-01T12:${m}:00.000Z`),
+			);
+			await db
+				.insert(log)
+				.values(
+					backfillMinutes.flatMap((minute, i) => [
+						makeLog(`gpt-${i}`, minute, "gpt-4", "openai"),
+						makeLog(`claude-${i}`, minute, "claude-3-5-sonnet", "anthropic"),
+					]),
+				);
+
 			await backfillHistoryIfNeeded();
 
 			const historyRecords = await db
@@ -1401,6 +1399,20 @@ describe("stats-calculator", () => {
 				totalCachedTokens: 0,
 				totalDuration: 2000,
 			});
+
+			// Seed traffic for the missing minutes (12:26-12:29) so backfill produces
+			// rows (zero-traffic minutes are skipped).
+			const missingMinutes = [26, 27, 28, 29].map(
+				(m) => new Date(`2024-01-01T12:${m}:00.000Z`),
+			);
+			await db
+				.insert(log)
+				.values(
+					missingMinutes.flatMap((minute, i) => [
+						makeLog(`gpt-${i}`, minute, "gpt-4", "openai"),
+						makeLog(`claude-${i}`, minute, "claude-3-5-sonnet", "anthropic"),
+					]),
+				);
 
 			await backfillHistoryIfNeeded();
 

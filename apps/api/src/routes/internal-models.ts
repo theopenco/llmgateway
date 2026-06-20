@@ -592,8 +592,10 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 	const { modelId } = c.req.valid("param");
 
 	const WINDOW_MINUTES = 240; // 4h
-	const WINDOW_MS = WINDOW_MINUTES * 60_000;
-	const since = new Date(Date.now() - WINDOW_MS);
+	const MINUTE_MS = 60_000;
+	const WINDOW_MS = WINDOW_MINUTES * MINUTE_MS;
+	const now = Date.now();
+	const since = new Date(now - WINDOW_MS);
 
 	// Active providers serving this model — included even if they have no
 	// recent traffic so the page can render an idle state for them.
@@ -726,6 +728,38 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			totalTokens: Number(r.totalTokens),
 		});
 		byProvider.set(key, entry);
+	}
+
+	// The worker only persists per-minute rows for mappings that had traffic, so
+	// idle minutes are absent from `rows`. Fill the window to a dense minute grid
+	// (zero rows for idle minutes) so the time series renders without gaps, which
+	// reproduces the previous behavior when all-zero rows were written.
+	const gridStart = Math.ceil(since.getTime() / MINUTE_MS) * MINUTE_MS;
+	const gridEnd = Math.floor(now / MINUTE_MS) * MINUTE_MS;
+	const gridTimestamps: string[] = [];
+	for (let t = gridStart; t <= gridEnd; t += MINUTE_MS) {
+		gridTimestamps.push(new Date(t).toISOString());
+	}
+
+	for (const entry of byProvider.values()) {
+		const pointsByTimestamp = new Map(
+			entry.points.map((pt) => [pt.timestamp, pt]),
+		);
+		entry.points = gridTimestamps.map(
+			(timestamp) =>
+				pointsByTimestamp.get(timestamp) ?? {
+					timestamp,
+					logsCount: 0,
+					errorsCount: 0,
+					clientErrorsCount: 0,
+					gatewayErrorsCount: 0,
+					upstreamErrorsCount: 0,
+					cachedCount: 0,
+					totalDuration: 0,
+					totalTimeToFirstToken: 0,
+					totalTokens: 0,
+				},
+		);
 	}
 
 	const providers = Array.from(byProvider.values()).map((p) => {
