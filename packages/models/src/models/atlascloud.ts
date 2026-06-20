@@ -92,7 +92,7 @@ export const atlascloudModels = [
 			"720p_video": "0.084",
 			"1080p_audio": "0.168",
 			"1080p_video": "0.112",
-			"4k_audio": "0.63",
+			"4k_audio": "0.42",
 			"4k_video": "0.42",
 		},
 	}),
