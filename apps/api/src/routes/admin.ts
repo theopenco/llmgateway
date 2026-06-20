@@ -10153,6 +10153,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			and(
 				eq(tables.organization.kind, "devpass"),
 				ne(tables.organization.devPlan, "none"),
+				or(
+					isNull(tables.organization.devPlanExpiresAt),
+					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+				)!,
 			),
 		);
 	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
