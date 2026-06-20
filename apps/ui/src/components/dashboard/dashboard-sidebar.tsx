@@ -475,6 +475,7 @@ function OrganizationSection({
 								isActive("org/policies") ||
 								isActive("org/preferences") ||
 								isActive("org/team") ||
+								isActive("org/members") ||
 								isActive("org/audit-logs")
 							}
 							tooltip="Settings"

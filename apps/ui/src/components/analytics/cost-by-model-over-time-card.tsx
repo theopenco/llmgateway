@@ -1,6 +1,6 @@
 "use client";
 
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { useCallback, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
@@ -97,7 +97,10 @@ export function CostByModelOverTimeCard({
 
 	const formatTimestamp = useCallback(
 		(ts: string) => {
-			const date = new Date(ts);
+			// parseISO reads date-only strings ("2026-06-20") as local midnight,
+			// avoiding the UTC-midnight off-by-one that new Date() causes in
+			// negative-offset timezones.
+			const date = parseISO(ts);
 			return bucket === "hour"
 				? format(date, "MMM d HH:mm")
 				: format(date, "MMM d");
@@ -205,7 +208,7 @@ export function CostByModelOverTimeCard({
 												payload={sortedPayload}
 												labelFormatter={(value: string) =>
 													format(
-														new Date(value),
+														parseISO(value),
 														bucket === "hour" ? "MMM d, HH:mm" : "MMM d, yyyy",
 													)
 												}

@@ -89,7 +89,7 @@ export function MembersClient() {
 		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
 	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
 
-	const { data, isLoading } = api.useQuery(
+	const { data, isLoading, error } = api.useQuery(
 		"get",
 		"/analytics/members",
 		{ params: { query: { organizationId, from: fromStr, to: toStr } } },
@@ -156,6 +156,15 @@ export function MembersClient() {
 												className="py-10 text-center text-muted-foreground"
 											>
 												Loading…
+											</TableCell>
+										</TableRow>
+									) : error ? (
+										<TableRow>
+											<TableCell
+												colSpan={7}
+												className="text-destructive py-10 text-center"
+											>
+												Failed to load member usage. Please try again.
 											</TableCell>
 										</TableRow>
 									) : members.length === 0 ? (

@@ -1,7 +1,7 @@
 "use client";
 
 import { format, subDays } from "date-fns";
-import { ArrowLeftIcon, Boxes, Layers, Sparkles } from "lucide-react";
+import { ArrowLeftIcon, Boxes, Layers, Mail, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -10,9 +10,13 @@ import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useTeamMembers } from "@/hooks/useTeam";
+import { useUser } from "@/hooks/useUser";
+import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
+	CardDescription,
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
@@ -35,8 +39,16 @@ export function MemberDetailClient() {
 	const userId = params.userId as string;
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const { buildOrgUrl } = useDashboardNavigation();
+	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const { user } = useUser();
+	const { data: teamData } = useTeamMembers(organizationId);
+
+	const currentUserRole = teamData?.members.find(
+		(member) => member.userId === user?.id,
+	)?.role;
+	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
 	useEffect(() => {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
@@ -64,7 +76,7 @@ export function MemberDetailClient() {
 				query: { organizationId, from: fromStr, to: toStr },
 			},
 		},
-		{ enabled: !!organizationId && !!userId },
+		{ enabled: !!organizationId && !!userId && isEnterprise && isAdmin },
 	);
 
 	const summary = data?.summary;
@@ -123,6 +135,53 @@ export function MemberDetailClient() {
 	];
 
 	const memberName = data?.member.name || data?.member.email || "Member";
+
+	if (!isEnterprise || !isAdmin) {
+		return (
+			<div className="flex flex-col">
+				<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
+					<Link
+						href={
+							`${buildOrgUrl("org/members")}?from=${fromStr}&to=${toStr}` as Route
+						}
+						className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+						prefetch={true}
+					>
+						<ArrowLeftIcon className="h-4 w-4" />
+						Back to members
+					</Link>
+					{!isEnterprise ? (
+						<Card className="max-w-2xl">
+							<CardHeader>
+								<CardTitle>Enterprise Feature</CardTitle>
+								<CardDescription>
+									Per-member usage analytics are available on the Enterprise
+									plan
+								</CardDescription>
+							</CardHeader>
+							<CardContent>
+								<Button asChild>
+									<a href="mailto:contact@llmgateway.io">
+										<Mail className="mr-2 h-4 w-4" />
+										Contact Sales
+									</a>
+								</Button>
+							</CardContent>
+						</Card>
+					) : (
+						<Card className="max-w-2xl">
+							<CardHeader>
+								<CardTitle>Admins only</CardTitle>
+								<CardDescription>
+									Only organization owners and admins can view member usage.
+								</CardDescription>
+							</CardHeader>
+						</Card>
+					)}
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex flex-col">

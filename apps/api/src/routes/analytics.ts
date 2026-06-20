@@ -39,8 +39,13 @@ function resolveDateRange(
 } {
 	if (from && to) {
 		const startDate = new Date(from + "T00:00:00Z");
-		startDate.setUTCHours(0, 0, 0, 0);
 		const endDate = new Date(to + "T00:00:00Z");
+		if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+			throw new HTTPException(400, {
+				message: "Invalid from/to date (expected YYYY-MM-DD)",
+			});
+		}
+		startDate.setUTCHours(0, 0, 0, 0);
 		endDate.setUTCHours(23, 59, 59, 999);
 		return { startDate, endDate };
 	}

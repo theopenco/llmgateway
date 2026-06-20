@@ -176,5 +176,8 @@ export function buildModelTimeseries(
 }
 
 export function sanitizeKey(model: string): string {
-	return model.replace(/[^a-zA-Z0-9]/g, "_");
+	// Encode each non-alphanumeric char as its code point so distinct model ids
+	// (e.g. "claude-3.5" vs "claude-3-5") can't collapse into the same key and
+	// overwrite each other in the chart. Output stays CSS-var safe.
+	return model.replace(/[^a-zA-Z0-9]/g, (c) => `_${c.charCodeAt(0)}_`);
 }
