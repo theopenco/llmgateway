@@ -25,6 +25,11 @@ const pricingFeatures: PricingFeature[] = [
 		enterprise: "Volume discounts",
 	},
 	{
+		name: "Free Trial",
+		free: "Free forever",
+		enterprise: "30-day trial",
+	},
+	{
 		name: "Models",
 		description: "280+ unique models across 35+ providers",
 		learnMoreLink: "/models",
@@ -105,18 +110,50 @@ const pricingFeatures: PricingFeature[] = [
 		enterprise: true,
 	},
 	{
-		name: "Data Policy-Based Routing",
-		description: "Route based on data policies",
+		name: "Enterprise Audit Logs",
+		description: "Immutable, SIEM-ready audit trails",
+		learnMoreLink: "/enterprise/audit-logs",
+		learnMoreText: "Learn more →",
 		free: false,
 		enterprise: true,
 	},
 	{
-		name: "Managed Policy Enforcement",
+		name: "Enterprise Guardrails",
+		description: "Prompt injection, PII & secret detection",
+		learnMoreLink: "/enterprise/guardrails",
+		learnMoreText: "Learn more →",
+		free: false,
+		enterprise: true,
+	},
+	{
+		name: "Per-Project Routing Overrides",
+		description: "Region pinning, fallback & cost ceilings per project",
+		learnMoreLink: "/enterprise/routing-overrides",
+		learnMoreText: "Learn more →",
+		free: false,
+		enterprise: true,
+	},
+	{
+		name: "Provider Compliance Policies",
+		description: "Route only to SOC 2 / ISO 27001 / GDPR providers",
+		learnMoreLink: "/enterprise/compliance",
+		learnMoreText: "Learn more →",
+		free: false,
+		enterprise: true,
+	},
+	{
+		name: "Discord & Slack Alerts",
+		description: "Real-time webhook alerts to your channels",
+		learnMoreLink: "/enterprise/discord-notifications",
+		learnMoreText: "Learn more →",
 		free: false,
 		enterprise: true,
 	},
 	{
 		name: "SSO/SAML",
+		description: "SAML 2.0 & OIDC with SCIM provisioning",
+		learnMoreLink: "/enterprise/sso-saml",
+		learnMoreText: "Learn more →",
 		free: false,
 		enterprise: true,
 	},
@@ -127,6 +164,9 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Chat App (Whitelabel)",
+		description: "Ship the playground under your own brand & domain",
+		learnMoreLink: "/enterprise/white-label",
+		learnMoreText: "Learn more →",
 		free: false,
 		enterprise: true,
 	},
@@ -152,7 +192,7 @@ const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Support",
 		free: "Discord Community",
-		enterprise: "24/7 SLA + Discord channel",
+		enterprise: "24/7 SLA + Slack channel",
 	},
 ];
 
@@ -193,6 +233,9 @@ export function PricingTable() {
 									<div className="text-2xl font-bold mt-1">Custom</div>
 									<div className="text-sm text-muted-foreground">
 										Contact us
+									</div>
+									<div className="mt-1 text-xs font-medium text-blue-600 dark:text-blue-400">
+										30-day trial
 									</div>
 								</th>
 							</tr>
