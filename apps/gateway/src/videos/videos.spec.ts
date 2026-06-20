@@ -724,6 +724,10 @@ describe("videos", () => {
 			baseUrl: mockServerUrl,
 		});
 
+		const seconds = 5;
+		const fourKPerSecondPrice = 0.42;
+		const expectedCost = fourKPerSecondPrice * seconds;
+
 		for (const [requestId, audio] of [
 			["atlascloud-audio-request", true],
 			["atlascloud-silent-request", false],
@@ -739,7 +743,7 @@ describe("videos", () => {
 					model: "atlascloud/kling-v3-0",
 					prompt: `A precise product turntable, audio=${audio}`,
 					size: "3840x2160",
-					seconds: 5,
+					seconds,
 					audio,
 				}),
 			});
@@ -766,10 +770,10 @@ describe("videos", () => {
 		expect(logs).toHaveLength(2);
 		const videoOutputCosts = logs.map((log) => log.videoOutputCost ?? 0).sort();
 		const totalCosts = logs.map((log) => log.cost ?? 0).sort();
-		expect(videoOutputCosts[0]).toBeCloseTo(2.1, 6);
-		expect(videoOutputCosts[1]).toBeCloseTo(2.1, 6);
-		expect(totalCosts[0]).toBeCloseTo(2.1, 6);
-		expect(totalCosts[1]).toBeCloseTo(2.1, 6);
+		expect(videoOutputCosts[0]).toBeCloseTo(expectedCost, 6);
+		expect(videoOutputCosts[1]).toBeCloseTo(expectedCost, 6);
+		expect(totalCosts[0]).toBeCloseTo(expectedCost, 6);
+		expect(totalCosts[1]).toBeCloseTo(expectedCost, 6);
 	});
 
 	test("/v1/videos restricts reference inputs to Seedance 2.0 models", async () => {
