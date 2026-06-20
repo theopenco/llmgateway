@@ -1807,6 +1807,13 @@ export async function processLogQueue(): Promise<number> {
 let isWorkerRunning = false;
 let activeLoops = 0;
 let stopFailed = false;
+// Gate minute-history retention on the hourly backfill having completed this
+// process. The hourly rollups are reconstructed from minute rows on startup
+// (backfillHourlyHistoryIfNeeded walks oldest->newest); pruning minute rows
+// older than 30d before that finishes would permanently truncate the
+// kept-forever hourly history. Defaults false so a failed/never-run backfill
+// leaves cleanup disabled rather than risking data loss.
+let hourlyBackfillComplete = false;
 
 // Independent worker loops
 async function runLogQueueLoop(loopIndex = 0) {
@@ -2192,7 +2199,13 @@ async function runModelHistoryRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await cleanupExpiredModelHistory();
+				if (hourlyBackfillComplete) {
+					await cleanupExpiredModelHistory();
+				} else {
+					logger.info(
+						"Skipping model history cleanup until hourly backfill completes",
+					);
+				}
 
 				await interruptibleSleep(interval);
 			} catch (error) {
@@ -2660,6 +2673,8 @@ export async function startWorker() {
 		})
 		.then(() => {
 			logger.info("Hourly history backfill check completed");
+			// Hourly rollups are now populated, so minute-history pruning is safe.
+			hourlyBackfillComplete = true;
 		})
 		.catch((error) => {
 			logger.error(
