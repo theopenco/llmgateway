@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-	MissingToolCallIdError,
-	prepareRequestBody,
-} from "./prepare-request-body.js";
+import { prepareRequestBody, RequestError } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
@@ -511,7 +508,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 		expect(requestBody.prompt_cache_retention).toBe("in_memory");
 	});
 
-	test("should throw a typed MissingToolCallIdError for tool messages without tool_call_id", async () => {
+	test("should throw a typed RequestError for tool messages without tool_call_id", async () => {
 		await expect(
 			prepareRequestBody(
 				"openai",
@@ -544,7 +541,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 				undefined,
 				true,
 			),
-		).rejects.toBeInstanceOf(MissingToolCallIdError);
+		).rejects.toBeInstanceOf(RequestError);
 	});
 
 	test("should not forward OpenAI prompt cache controls to Azure", async () => {

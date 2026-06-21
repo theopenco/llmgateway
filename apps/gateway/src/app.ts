@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import {
 	InvalidFileContentError,
-	MissingToolCallIdError,
+	RequestError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 } from "@llmgateway/actions";
@@ -165,9 +165,12 @@ app.onError((error, c) => {
 		return renderGatewayError(c, 400, error.message);
 	}
 
-	if (error instanceof MissingToolCallIdError) {
-		logger.warn("Missing tool_call_id", { message: error.message });
-		return renderGatewayError(c, 400, error.message);
+	if (error instanceof RequestError) {
+		logger.warn("Invalid request", {
+			message: error.message,
+			statusCode: error.statusCode,
+		});
+		return renderGatewayError(c, error.statusCode, error.message);
 	}
 
 	if (error instanceof HTTPException) {
