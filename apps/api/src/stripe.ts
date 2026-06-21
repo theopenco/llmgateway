@@ -25,6 +25,7 @@ import {
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
+import { resolveDevPassBillingDetails } from "./utils/devpass-billing.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
@@ -1047,15 +1048,12 @@ export async function finalizeDevPlanSetupSession(
 			.returning();
 
 		try {
+			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
-				billingEmail: organization.billingEmail,
-				billingCompany: organization.billingCompany,
-				billingAddress: organization.billingAddress,
-				billingTaxId: organization.billingTaxId,
-				billingNotes: organization.billingNotes,
+				...billingDetails,
 				lineItems: [
 					{
 						description: `Dev Plan ${devPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
@@ -1410,15 +1408,13 @@ async function handleCheckoutSessionCompleted(
 
 				// Generate and email invoice
 				try {
+					const billingDetails =
+						await resolveDevPassBillingDetails(organization);
 					await generateAndEmailInvoice({
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
-						billingEmail: organization.billingEmail,
-						billingCompany: organization.billingCompany,
-						billingAddress: organization.billingAddress,
-						billingTaxId: organization.billingTaxId,
-						billingNotes: organization.billingNotes,
+						...billingDetails,
 						lineItems: [
 							{
 								description: `Dev Plan ${devPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
@@ -3107,15 +3103,12 @@ export async function handleInvoicePaymentSucceeded(event: {
 			.returning();
 
 		try {
+			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
-				billingEmail: organization.billingEmail,
-				billingCompany: organization.billingCompany,
-				billingAddress: organization.billingAddress,
-				billingTaxId: organization.billingTaxId,
-				billingNotes: organization.billingNotes,
+				...billingDetails,
 				lineItems: [
 					{
 						description: `Dev Plan ${initialDevPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
@@ -3227,17 +3220,42 @@ export async function handleInvoicePaymentSucceeded(event: {
 		);
 
 		// Create transaction record for dev plan renewal
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "dev_plan_renewal",
-			amount: (invoice.amount_paid / 100).toString(),
-			creditAmount: creditsLimit.toString(),
-			currency: invoice.currency.toUpperCase(),
-			status: "completed",
-			stripePaymentIntentId: (invoice as any).payment_intent,
-			stripeInvoiceId: invoice.id,
-			description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
-		});
+		const [renewalTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_renewal",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
+			})
+			.returning();
+
+		try {
+			const billingDetails = await resolveDevPassBillingDetails(organization);
+			await generateAndEmailInvoice({
+				invoiceNumber: renewalTransaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				...billingDetails,
+				lineItems: [
+					{
+						description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (DevPass renewal invoice); suppressing failure",
+				e as Error,
+			);
+		}
 
 		// Reset credits used and update billing cycle start. Also reset the
 		// limit to the full tier allotment: mid-cycle tier changes leave the

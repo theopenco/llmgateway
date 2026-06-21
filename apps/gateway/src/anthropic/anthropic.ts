@@ -673,6 +673,15 @@ anthropic.openapi(messages, async (c) => {
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 			...(sessionId ? { "x-session-id": sessionId } : {}),
+			// Signal to the inner /v1/chat/completions handler that the caller used
+			// Anthropic's explicit-budget thinking API (`thinking.type: "enabled"`).
+			// On adaptive-only models the budget maps to an unsupported
+			// reasoning.max_tokens; the inner handler uses this to mirror Anthropic's
+			// own "use adaptive thinking" 400 (and log it as a client_error) instead
+			// of surfacing the confusing OpenAI-flavored capability error.
+			...(anthropicRequest.thinking?.type === "enabled"
+				? { "x-llmgateway-thinking-type": "enabled" }
+				: {}),
 		},
 		body: JSON.stringify(openaiRequest),
 	});
@@ -684,27 +693,30 @@ anthropic.openapi(messages, async (c) => {
 		});
 		const errorData = await response.text();
 
+		// The upstream here is our own /v1/chat/completions, which returns an
+		// OpenAI envelope `{ error: { message, type, ... } }`. Surface that inner
+		// message directly (both streaming and non-streaming) instead of dumping
+		// the raw JSON, so native Anthropic clients get a clean error string.
+		let parsedError: unknown = null;
+		try {
+			parsedError = JSON.parse(errorData);
+		} catch {
+			parsedError = null;
+		}
+		const innerMessage =
+			parsedError &&
+			typeof parsedError === "object" &&
+			"error" in parsedError &&
+			parsedError.error &&
+			typeof parsedError.error === "object" &&
+			"message" in parsedError.error &&
+			typeof parsedError.error.message === "string"
+				? parsedError.error.message
+				: errorData || response.statusText;
+
 		if (anthropicRequest.stream) {
-			let parsedError: unknown = null;
-			try {
-				parsedError = JSON.parse(errorData);
-			} catch {
-				parsedError = null;
-			}
 			// Derive the Anthropic error type from the HTTP status so streamed
-			// errors match the non-streaming path. The upstream here is our own
-			// /v1/chat/completions, which returns an OpenAI envelope whose `type`
-			// (e.g. invalid_request_error) would otherwise pass through verbatim.
-			const innerMessage =
-				parsedError &&
-				typeof parsedError === "object" &&
-				"error" in parsedError &&
-				parsedError.error &&
-				typeof parsedError.error === "object" &&
-				"message" in parsedError.error &&
-				typeof parsedError.error.message === "string"
-					? parsedError.error.message
-					: errorData || response.statusText;
+			// errors match the non-streaming path.
 			const errorEvent = buildAnthropicErrorEvent({
 				type: "error",
 				error: {
@@ -726,7 +738,7 @@ anthropic.openapi(messages, async (c) => {
 
 		return c.json(
 			buildAnthropicErrorBody({
-				message: `Request failed: ${errorData}`,
+				message: innerMessage,
 				status: response.status,
 			}),
 			response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,

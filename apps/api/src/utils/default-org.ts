@@ -22,6 +22,24 @@ function isActiveDashboardOrganization(userOrganization: {
 	);
 }
 
+// Find the user's default dashboard organization without creating one. Used by
+// flows that only need to read the default org's settings (e.g. resolving
+// DevPass invoice billing details) and must not create rows in a webhook.
+export async function findDefaultOrganization(userId: string) {
+	const userOrganizations = await db.query.userOrganization.findMany({
+		where: {
+			userId,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	return (
+		userOrganizations.find(isActiveDashboardOrganization)?.organization ?? null
+	);
+}
+
 export async function getOrCreateDefaultOrganization(
 	user: DefaultOrganizationUser,
 	options: DefaultOrganizationOptions = {},

@@ -1,0 +1,75 @@
+---
+title: Google Cloud
+description: Deploy LLM Gateway on Google Cloud with GKE, Cloud SQL, Memorystore, and Secret Manager.
+icon: Cloud
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+<Callout type="info">
+	**Deploy in one command.** Our [Enterprise
+	plan](https://llmgateway.io/enterprise) includes Terraform modules that
+	provision the cluster, database, cache, networking, and secrets and deploy LLM
+	Gateway on Google Cloud — no manual setup required. [Learn
+	more](https://llmgateway.io/enterprise).
+</Callout>
+
+This guide covers a production deployment of LLM Gateway on Google Cloud using GKE for the application services and managed Google Cloud services for the backing stores.
+
+## Architecture
+
+| Component  | Google Cloud service               |
+| ---------- | ---------------------------------- |
+| Compute    | Google Kubernetes Engine (GKE)     |
+| PostgreSQL | Cloud SQL for PostgreSQL           |
+| Redis      | Memorystore for Redis              |
+| Secrets    | Secret Manager                     |
+| Ingress    | GKE Ingress / Cloud Load Balancing |
+
+## What to configure
+
+### 1. PostgreSQL — Cloud SQL
+
+Create a Cloud SQL for PostgreSQL instance with a private IP. Enable automated backups and high availability. Note the connection details for `DATABASE_URL`.
+
+### 2. Redis — Memorystore
+
+Create a Memorystore for Redis instance in the same VPC and use its endpoint for `REDIS_URL`. Enable a read replica for production.
+
+### 3. Compute — GKE
+
+Create a GKE cluster (Autopilot or Standard) sized for your traffic. GKE provisions an HTTP(S) load balancer automatically when you create an Ingress for the gateway.
+
+### 4. Networking
+
+Use a private VPC and connect Cloud SQL via Private Service Access and Memorystore via its private endpoint. Restrict access so only the GKE workloads can reach the database and cache, and expose only the gateway to the internet.
+
+### 5. Secrets — Secret Manager
+
+Store `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Secret Manager. Sync them into the cluster with the [External Secrets Operator](https://external-secrets.io/) or the Secret Manager CSI driver.
+
+## Deploy the Helm chart
+
+With the backing services in place, deploy LLM Gateway with the [Helm chart](/self-host/kubernetes), pointing it at your Cloud SQL and Memorystore endpoints:
+
+```bash
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
+```
+
+```yaml
+config:
+  DATABASE_URL: "postgres://user:password@your-cloud-sql-ip:5432/llmgateway"
+  REDIS_URL: "redis://your-memorystore-ip:6379"
+  AUTH_SECRET: "from-secret-manager"
+  GATEWAY_API_KEY_HASH_SECRET: "from-secret-manager"
+```
+
+See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.
+
+<Callout type="info">
+	**Prefer not to wire this up by hand?** The [Enterprise
+	plan](https://llmgateway.io/enterprise) ships Terraform modules that stand up
+	the entire Google Cloud stack — GKE, Cloud SQL, Memorystore, networking, and
+	secrets — and deploy LLM Gateway in one command. [Talk to
+	us](https://llmgateway.io/enterprise#contact).
+</Callout>
