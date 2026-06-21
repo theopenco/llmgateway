@@ -735,7 +735,9 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 	// (zero rows for idle minutes) so the time series renders without gaps, which
 	// reproduces the previous behavior when all-zero rows were written.
 	const gridStart = Math.ceil(since.getTime() / MINUTE_MS) * MINUTE_MS;
-	const gridEnd = Math.floor(now / MINUTE_MS) * MINUTE_MS;
+	// Use now-1 so an exact minute boundary doesn't add a 241st (empty, just-
+	// started) bucket; the series stays a stable WINDOW_MINUTES length.
+	const gridEnd = Math.floor((now - 1) / MINUTE_MS) * MINUTE_MS;
 	const gridTimestamps: string[] = [];
 	for (let t = gridStart; t <= gridEnd; t += MINUTE_MS) {
 		gridTimestamps.push(new Date(t).toISOString());

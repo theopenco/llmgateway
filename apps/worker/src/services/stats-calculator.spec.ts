@@ -1007,6 +1007,60 @@ describe("stats-calculator", () => {
 			const modelHistoryRecords = await db.select().from(modelHistory);
 			expect(modelHistoryRecords).toHaveLength(0);
 		});
+
+		it("should delete stale rows when traffic drops to zero for a minute", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			// Simulate a row written by an earlier pass (e.g. before a same-provider
+			// retry got linked and filtered out) that now has no traffic.
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp: previousMinuteStart,
+				logsCount: 1,
+				errorsCount: 1,
+				upstreamErrorsCount: 1,
+			});
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: previousMinuteStart,
+				logsCount: 1,
+				errorsCount: 1,
+				upstreamErrorsCount: 1,
+			});
+
+			// Only the claude mapping has traffic this minute.
+			await db
+				.insert(log)
+				.values([
+					makeLog(
+						"log-1",
+						previousMinuteStart,
+						"claude-3-5-sonnet",
+						"anthropic",
+					),
+				]);
+
+			await calculateMinutelyHistory();
+
+			// The stale gpt-4 rows must be removed (not left as phantom counts).
+			const mappingRecords = await db
+				.select()
+				.from(modelProviderMappingHistory);
+			expect(
+				mappingRecords.find((r) => r.modelProviderMappingId === "mapping-1"),
+			).toBeUndefined();
+			expect(
+				mappingRecords.find((r) => r.modelProviderMappingId === "mapping-2"),
+			).toBeTruthy();
+
+			const modelRecords = await db.select().from(modelHistory);
+			expect(modelRecords.find((r) => r.modelId === "gpt-4")).toBeUndefined();
+			expect(
+				modelRecords.find((r) => r.modelId === "claude-3-5-sonnet"),
+			).toBeTruthy();
+		});
 	});
 
 	describe("model history tracking", () => {
@@ -1306,6 +1360,65 @@ describe("stats-calculator", () => {
 			const openaiProvider = providers[0]!;
 			expect(openaiProvider.logsCount).toBe(0); // Should remain 0
 			expect(openaiProvider.statsUpdatedAt).toBeNull(); // Should not be updated
+		});
+
+		it("should reset stats for entities that aged out of the window", async () => {
+			const now = new Date("2024-01-01T12:30:00.000Z");
+
+			// Stale persisted stats for entities with no recent history (sparse
+			// history no longer emits zero rows to age these out).
+			await db
+				.update(provider)
+				.set({ logsCount: 100, errorsCount: 10 })
+				.where(eq(provider.id, "openai"));
+			await db
+				.update(model)
+				.set({ logsCount: 100, errorsCount: 10 })
+				.where(eq(model.id, "gpt-4"));
+			await db
+				.update(modelProviderMapping)
+				.set({ logsCount: 100, errorsCount: 10 })
+				.where(eq(modelProviderMapping.id, "mapping-1"));
+
+			// Recent traffic for a different entity that should keep its stats.
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "claude-3-5-sonnet",
+				providerId: "anthropic",
+				modelProviderMappingId: "mapping-2",
+				minuteTimestamp: minutesAgo(now, 5),
+				logsCount: 5,
+				errorsCount: 1,
+			});
+
+			await calculateAggregatedStatistics();
+
+			const openai = (
+				await db.select().from(provider).where(eq(provider.id, "openai"))
+			)[0]!;
+			expect(openai.logsCount).toBe(0); // Aged out → reset
+			const gpt4 = (
+				await db.select().from(model).where(eq(model.id, "gpt-4"))
+			)[0]!;
+			expect(gpt4.logsCount).toBe(0); // Aged out → reset
+			const mapping1 = (
+				await db
+					.select()
+					.from(modelProviderMapping)
+					.where(eq(modelProviderMapping.id, "mapping-1"))
+			)[0]!;
+			expect(mapping1.logsCount).toBe(0); // Aged out → reset
+
+			const anthropic = (
+				await db.select().from(provider).where(eq(provider.id, "anthropic"))
+			)[0]!;
+			expect(anthropic.logsCount).toBe(5); // Still active → window aggregate
+			const mapping2 = (
+				await db
+					.select()
+					.from(modelProviderMapping)
+					.where(eq(modelProviderMapping.id, "mapping-2"))
+			)[0]!;
+			expect(mapping2.logsCount).toBe(5); // Still active → window aggregate
 		});
 	});
 

@@ -11,9 +11,11 @@ import {
 	sql,
 	asc,
 	eq,
+	gt,
 	gte,
 	lt,
 	and,
+	notInArray,
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -434,6 +436,21 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			});
 	}
 
+	// Remove any row left over for this minute from an earlier pass whose traffic
+	// has since dropped to zero (e.g. a same-provider-region retry got linked and
+	// filtered out). Without this the phantom row would keep counting.
+	const presentModelIds = modelHistoryValues.map((value) => value.modelId);
+	await database
+		.delete(modelHistory)
+		.where(
+			presentModelIds.length > 0
+				? and(
+						eq(modelHistory.minuteTimestamp, roundedTargetMinute),
+						notInArray(modelHistory.modelId, presentModelIds),
+					)
+				: eq(modelHistory.minuteTimestamp, roundedTargetMinute),
+		);
+
 	return {
 		totalModels: allModels.length,
 		activeModels: modelStats.length,
@@ -698,6 +715,29 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				set: mappingHistoryUpsertSet,
 			});
 	}
+
+	// Remove any row left over for this minute from an earlier pass whose traffic
+	// has since dropped to zero (e.g. a same-provider-region retry got linked and
+	// filtered out). Without this the phantom row would keep counting.
+	const presentMappingIds = mappingHistoryValues.map(
+		(value) => value.modelProviderMappingId,
+	);
+	await database
+		.delete(modelProviderMappingHistory)
+		.where(
+			presentMappingIds.length > 0
+				? and(
+						eq(
+							modelProviderMappingHistory.minuteTimestamp,
+							roundedTargetMinute,
+						),
+						notInArray(
+							modelProviderMappingHistory.modelProviderMappingId,
+							presentMappingIds,
+						),
+					)
+				: eq(modelProviderMappingHistory.minuteTimestamp, roundedTargetMinute),
+		);
 
 	return {
 		totalMappings: allMappings.length,
@@ -1394,6 +1434,62 @@ export async function calculateAggregatedStatistics() {
 		logger.debug(
 			`Updated statistics for ${mappingUpdateCount} model-provider mappings`,
 		);
+
+		// Zero out entities whose traffic has fully aged out of the rollup window.
+		// With sparse history they no longer appear in the aggregate, so without an
+		// explicit reset their last nonzero counts would persist indefinitely.
+		const zeroStats = {
+			logsCount: 0,
+			errorsCount: 0,
+			clientErrorsCount: 0,
+			gatewayErrorsCount: 0,
+			upstreamErrorsCount: 0,
+			cachedCount: 0,
+			statsUpdatedAt: now,
+			updatedAt: now,
+		};
+
+		const aggregatedProviderIds = [...providerMap.keys()];
+		await database
+			.update(provider)
+			.set(zeroStats)
+			.where(
+				aggregatedProviderIds.length > 0
+					? and(
+							gt(provider.logsCount, 0),
+							notInArray(provider.id, aggregatedProviderIds),
+						)
+					: gt(provider.logsCount, 0),
+			);
+
+		const aggregatedModelIds = [...modelMap.keys()];
+		await database
+			.update(model)
+			.set(zeroStats)
+			.where(
+				aggregatedModelIds.length > 0
+					? and(
+							gt(model.logsCount, 0),
+							notInArray(model.id, aggregatedModelIds),
+						)
+					: gt(model.logsCount, 0),
+			);
+
+		const aggregatedMappingIds = mappingAggregates
+			.map((row) => row.modelProviderMappingId)
+			.filter((id): id is string => Boolean(id));
+		await database
+			.update(modelProviderMapping)
+			.set(zeroStats)
+			.where(
+				aggregatedMappingIds.length > 0
+					? and(
+							gt(modelProviderMapping.logsCount, 0),
+							notInArray(modelProviderMapping.id, aggregatedMappingIds),
+						)
+					: gt(modelProviderMapping.logsCount, 0),
+			);
+
 		logger.debug("Aggregated statistics calculation completed successfully");
 	} catch (error) {
 		logger.error("Error calculating aggregated statistics:", error as Error);
