@@ -1316,19 +1316,25 @@ export async function batchProcessLogs(): Promise<number> {
 						logger.debug(
 							`Charged ${remainingCost.toString()} overflow to chat plan virtual credits for organization ${orgId}`,
 						);
-					} else if (org && org.kind !== "default") {
-						// Non-default orgs (devpass/chat) run entirely on virtual plan
-						// credits — their `credits` field is unused. Never subtract from
-						// it. With no active plan pool to absorb the cost (e.g. usage that
-						// drained after the plan was cancelled and its virtual-credit pool
-						// was torn down), the residual is written off.
+					} else if (
+						org &&
+						org.kind !== "default" &&
+						new Decimal(org.credits ?? "0").lessThanOrEqualTo(0)
+					) {
+						// Cancelled-plan residual for a non-default org (devpass/chat)
+						// with no real credit balance: the in-flight usage was authorized
+						// by a plan whose virtual-credit pool has since been torn down, and
+						// there is nothing real to charge. Write it off rather than driving
+						// the credits field negative. Chat pay-as-you-go orgs that hold a
+						// positive balance fall through and are debited below.
 						logger.debug(
-							`Wrote off ${remainingCost.toString()} for non-default organization ${orgId} (no real-credit deduction)`,
+							`Wrote off ${remainingCost.toString()} for non-default organization ${orgId} with no credit balance`,
 						);
 					} else {
-						// Default org: deduct from real credits. This may go negative; the
-						// balance is reconciled when the org next tops up, so flooring here
-						// would lose usage that was genuinely incurred.
+						// Default orgs and chat pay-as-you-go orgs: deduct the real credits
+						// balance that authorized the request at the gateway. May go
+						// negative; the balance is reconciled when the org next tops up, so
+						// flooring here would lose usage that was genuinely incurred.
 						const costStr = remainingCost.toString();
 						await tx
 							.update(organization)

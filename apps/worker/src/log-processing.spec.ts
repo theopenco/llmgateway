@@ -655,13 +655,14 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBeCloseTo(-0.04, 10);
 		});
 
-		test("should never touch real credits for non-default (devpass) orgs", async () => {
-			// devpass/chat orgs run on virtual plan credits; the `credits` field
-			// is unused. Usage that drains after the plan was cancelled (no active
-			// pool) must be written off, never subtracted from `credits`.
+		test("should write off devpass residual when there is no credit balance", async () => {
+			// devpass orgs run on dev-plan virtual credits and hold no real
+			// balance. Usage that drains after the plan was cancelled (no active
+			// pool, zero credits) must be written off, never driving `credits`
+			// negative.
 			await db
 				.update(organization)
-				.set({ credits: "0.01", kind: "devpass", devPlan: "none" })
+				.set({ credits: "0.00", kind: "devpass", devPlan: "none" })
 				.where(eq(organization.id, testOrg.id));
 
 			await db.insert(log).values({
@@ -688,7 +689,43 @@ describe("Log Processing", () => {
 			});
 
 			// Unchanged — written off rather than charged to real credits.
-			expect(Number(updatedOrg!.credits)).toBe(0.01);
+			expect(Number(updatedOrg!.credits)).toBe(0);
+		});
+
+		test("should debit real credits for chat pay-as-you-go orgs", async () => {
+			// A chat org with a positive pay-as-you-go balance and no chat plan
+			// is authorized by `credits` at the gateway, so the worker must debit
+			// `credits` — not write the usage off (which would let it spend the
+			// same balance indefinitely).
+			await db
+				.update(organization)
+				.set({ credits: "0.10", kind: "chat", chatPlan: "none" })
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-chat-payg",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(0.05, 10);
 		});
 
 		test("should charge dev plan overflow to virtual credits, not real credits", async () => {
