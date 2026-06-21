@@ -14,6 +14,7 @@ Currently available models:
 
 - **Veo 3.1** through `avalanche` (1080p, 4k) and `google-vertex` (720p, 1080p, 4k)
 - **Seedance 2.0**, **Seedance 2.0 Fast**, and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p)
+- **KLING v3.0** and **KLING v3.0 Turbo** through `atlascloud` (720p, 1080p; KLING v3.0 also 4k)
 
 You can find the current list of video-capable models on our [models page with the video filter enabled](https://llmgateway.io/models?filters=1&videoGeneration=true) or programmatically through the [/v1/models endpoint](/v1_models).
 
@@ -53,21 +54,26 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Veo 3.1                           | `google-vertex` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `4`, `6`, `8`, `10` |
 | Veo 3.1                           | `avalanche`     | `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                         | `8`                 |
 | Seedance 2.0 / 2.0 Fast / 1.5 Pro | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
+| KLING v3.0                        | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `5`, `10`           |
+| KLING v3.0 Turbo                  | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
 
-Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance derives `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
+Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance and KLING v3.0 derive `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
+
+**KLING v3.0 Turbo** always generates audio and does not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
 
 ### First/last frame inputs
 
 Frame inputs interpolate a video between a starting frame and an optional ending frame. You provide the first frame as `image` and, optionally, the ending frame as `last_frame`. The gateway tags each one with the correct role for the provider, so you don't set roles yourself.
 
-| Field        | Required           | Accepted input                   | Available on                                                                             |
-| ------------ | ------------------ | -------------------------------- | ---------------------------------------------------------------------------------------- |
-| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **Seedance 2.0** (`bytedance`), Veo 3.1 (`google-vertex`, `avalanche`), `minimax`, `xai` |
-| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **Seedance 2.0** (`bytedance`), Veo 3.1 (`google-vertex`, `avalanche`)                   |
+| Field        | Required           | Accepted input                   | Available on                                                                                                                    |
+| ------------ | ------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **Seedance 2.0** (`bytedance`), **KLING v3.0 / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`, `avalanche`), `minimax`, `xai` |
+| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **Seedance 2.0** (`bytedance`), **KLING v3.0 / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`, `avalanche`)                   |
 
 #### Rules and limits
 
 - **Seedance scope.** Frame inputs are supported on **Seedance 2.0** and **Seedance 2.0 Fast** (`seedance-2-0`, `seedance-2-0-fast`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
+- **KLING scope.** Frame inputs are supported on **KLING v3.0** and **KLING v3.0 Turbo** (`kling-v3-0`, `kling-v3-0-turbo`). The gateway uploads base64 frames to AtlasCloud's media endpoint automatically, so both HTTPS URLs and base64 data URLs are accepted.
 - **`last_frame` requires `image`.** Providing `last_frame` without `image` returns a `400`.
 - **Not combinable with references.** First/last frame inputs (`image`, `last_frame`) cannot be combined with reference inputs (`reference_images`, `input_reference`, `reference_videos`, `reference_audios`).
 
@@ -84,6 +90,21 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
     "size": "1280x720",
     "image": { "image_url": "https://example.com/first-frame.png" },
     "last_frame": { "image_url": "https://example.com/last-frame.png" }
+  }'
+```
+
+#### Example (KLING v3.0 image-to-video)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kling-v3-0",
+    "prompt": "Animate the scene with gentle camera motion",
+    "seconds": 5,
+    "size": "1280x720",
+    "image": { "image_url": "https://example.com/first-frame.png" }
   }'
 ```
 
@@ -110,7 +131,7 @@ You can mix all three reference types in one request. The `prompt` can be a ligh
 - **HTTPS only for video and audio.** `reference_videos` and `reference_audios` must be publicly reachable HTTPS URLs (the provider fetches them). base64 data URLs are rejected for video/audio; images may be HTTPS URLs or base64 data URLs.
 - **Reference video resolution.** Seedance requires reference video frames to be at least ~409,600 pixels (roughly 480p or larger). Low-resolution clips such as 360p are rejected with a `400`.
 - **Not combinable with frames.** Reference inputs (`reference_images`, `reference_videos`, `reference_audios`) cannot be combined with the first/last frame inputs (`image`, `last_frame`).
-- **Provider scope.** Reference videos and audio are only supported on Seedance 2.0 models; sending them to other models returns a `400`.
+- **Provider scope.** Reference videos and audio are only supported on Seedance 2.0 models; sending them to other models returns a `400`. **KLING v3.0** does not support any reference inputs (`reference_images`, `reference_videos`, `reference_audios`); use first/last frame inputs instead.
 - **Moderation still applies.** The output is subject to the provider's content moderation. Blocked generations finish as `failed` and are logged with a `content_filter` finish reason.
 
 #### Examples
@@ -181,7 +202,7 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 Video generation requires at least `$1.00` in available organization credits before the job is submitted upstream.
 
-Pricing is per second of generated video. For Seedance, enabling audio can increase the per-second rate on models that price audio and video separately.
+Pricing is per second of generated video. For Seedance and KLING v3.0, enabling audio can increase the per-second rate on models that price audio and video separately.
 
 Veo 3.1:
 
@@ -206,6 +227,16 @@ Seedance (ByteDance):
 | `seedance-2-0-fast` | `bytedance` | 1080p      | `$0.2722 / second`  | `$0.2722 / second`  |
 | `seedance-1-5-pro`  | `bytedance` | 720p       | `$0.05184 / second` | `$0.02592 / second` |
 | `seedance-1-5-pro`  | `bytedance` | 1080p      | `$0.1166 / second`  | `$0.05832 / second` |
+
+KLING (AtlasCloud):
+
+| Model              | Provider     | Resolution | With audio        | Video only        |
+| ------------------ | ------------ | ---------- | ----------------- | ----------------- |
+| `kling-v3-0`       | `atlascloud` | 720p       | `$0.126 / second` | `$0.084 / second` |
+| `kling-v3-0`       | `atlascloud` | 1080p      | `$0.168 / second` | `$0.112 / second` |
+| `kling-v3-0`       | `atlascloud` | 4k         | `$0.42 / second`  | `$0.42 / second`  |
+| `kling-v3-0-turbo` | `atlascloud` | 720p       | `$0.168 / second` | n/a (audio only)  |
+| `kling-v3-0-turbo` | `atlascloud` | 1080p      | `$0.21 / second`  | n/a (audio only)  |
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/videos" \
@@ -256,6 +287,8 @@ Typical statuses:
 `google-vertex` follows Vertex AI's long-running operation flow. The gateway submits Veo generation with `predictLongRunning`, polls with `fetchPredictOperation`, and streams the final bytes through the gateway content endpoint once the operation is done.
 
 `bytedance` uses the ModelArk `/contents/generations/tasks` endpoint. The gateway submits the job, polls the upstream task status, and exposes the final video bytes through the gateway content endpoint once the task succeeds.
+
+`atlascloud` uses the AtlasCloud `/api/v1/model/generateVideo` endpoint and polls `/api/v1/model/prediction/{id}` for status. The gateway resolves the upstream KLING variant (standard, turbo, or 4k) and task type (text-to-video or image-to-video) from your request, then streams the final video bytes through the gateway content endpoint once the prediction completes.
 
 ## Download the Video
 
