@@ -4,6 +4,7 @@ import { db, tables } from "@llmgateway/db";
 
 import {
 	handleInvoicePaymentSucceeded,
+	handlePaymentIntentFailed,
 	handleSubscriptionUpdated,
 } from "./stripe.js";
 import { deleteAll } from "./testing.js";
@@ -38,13 +39,14 @@ function makeUpdatedEvent(overrides: {
 	cancelAtPeriodEnd: boolean;
 	status?: Stripe.Subscription.Status;
 	metadata?: Record<string, string>;
+	subscriptionId?: string;
 }): Stripe.CustomerSubscriptionUpdatedEvent {
 	return {
 		id: "evt_test_updated",
 		type: "customer.subscription.updated",
 		data: {
 			object: {
-				id: SUB_ID,
+				id: overrides.subscriptionId ?? SUB_ID,
 				customer: "cus_test_feedback",
 				cancel_at_period_end: overrides.cancelAtPeriodEnd,
 				status: overrides.status ?? "active",
@@ -380,5 +382,129 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		expect(org?.devPlanCreditsLimit).toBe("90");
 		expect(org?.devPlanCreditsFrozen).toBe(true);
 		expect(org?.devPlanCreditsLimitBeforeFreeze).toBe("312");
+	});
+
+	test("does NOT freeze when a superseded (stale) subscription expires", async () => {
+		// Repro of the production incident: the customer's first DevPass checkout
+		// attempt failed and its incomplete subscription later flipped to
+		// `incomplete_expired`. Their *active* subscription is a different id. The
+		// stale expiry event must not freeze the healthy plan.
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "19.67",
+			devPlanCreditsFrozen: false,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({
+				cancelAtPeriodEnd: false,
+				status: "incomplete_expired",
+				subscriptionId: "sub_stale_first_attempt",
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+				},
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsFrozen).toBe(false);
+		// The stale event must not touch the active subscription's expiry/cancel
+		// flags either.
+		expect(org?.devPlanCancelled).toBe(false);
+	});
+});
+
+function makeFailedPaymentIntentEvent(overrides: {
+	amount: number;
+	metadata: Record<string, string>;
+	id?: string;
+}): Stripe.PaymentIntentPaymentFailedEvent {
+	return {
+		id: "evt_test_pi_failed",
+		type: "payment_intent.payment_failed",
+		data: {
+			object: {
+				id: overrides.id ?? "pi_test_failed_001",
+				customer: "cus_test_pi_failed",
+				amount: overrides.amount,
+				currency: "usd",
+				metadata: overrides.metadata,
+				last_payment_error: {
+					message: "Your card was declined.",
+					code: "card_declined",
+					decline_code: "generic_decline",
+				},
+			},
+		},
+	} as unknown as Stripe.PaymentIntentPaymentFailedEvent;
+}
+
+describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("does not record a credit_topup for a failed subscription invoice payment", async () => {
+		await seedDevPlanOrg();
+
+		await handlePaymentIntentFailed(
+			makeFailedPaymentIntentEvent({
+				amount: 7900,
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+				},
+			}),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+
+		// Subscription-failure tracking still runs (count bumped, dunning email).
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.paymentFailureCount).toBe(1);
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+	});
+
+	test("records a credit_topup for a failed manual credit purchase", async () => {
+		await seedDevPlanOrg();
+
+		await handlePaymentIntentFailed(
+			makeFailedPaymentIntentEvent({
+				amount: 5150,
+				metadata: {
+					organizationId: ORG_ID,
+					baseAmount: "50",
+				},
+			}),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("credit_topup");
+		expect(txns[0].status).toBe("failed");
+		expect(txns[0].creditAmount).toBe("50");
 	});
 });
