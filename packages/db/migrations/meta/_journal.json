@@ -1205,6 +1205,20 @@
       "when": 1781974034275,
       "tag": "1781974034_quick_professor_monster",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "8",
+      "when": 1782081254691,
+      "tag": "1782081254_military_random",
+      "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "8",
+      "when": 1782081362367,
+      "tag": "1782081362_smiling_jackal",
+      "breakpoints": true
     }
   ]
 }
