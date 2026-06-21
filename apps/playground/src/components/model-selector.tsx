@@ -955,6 +955,16 @@ export function ModelSelector({
 				continue;
 			}
 
+			// Hide fully deactivated models: if every provider mapping is
+			// deactivated there's nothing left to route to, so skip the model
+			// (including its root "auto-select" entry) entirely.
+			const hasActiveMapping = m.mappings.some(
+				(mp) => !(mp.deactivatedAt && new Date(mp.deactivatedAt) <= now),
+			);
+			if (!hasActiveMapping) {
+				continue;
+			}
+
 			// Add root model entry (auto-routing)
 			const aliasText = m.aliases?.join(" ") ?? "";
 			const rootSearchText = normalize(
