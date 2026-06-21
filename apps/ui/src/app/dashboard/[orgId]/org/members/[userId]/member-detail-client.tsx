@@ -1,7 +1,7 @@
 "use client";
 
 import { format, subDays } from "date-fns";
-import { ArrowLeftIcon, Boxes, Layers, Mail, Sparkles } from "lucide-react";
+import { ArrowLeftIcon, Boxes, Mail, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
@@ -127,11 +127,6 @@ export function MemberDetailClient() {
 			value: data?.topProviders[0]?.key ?? "—",
 			icon: Boxes,
 		},
-		{
-			label: "Most used app",
-			value: data?.topApps[0]?.key ?? "—",
-			icon: Layers,
-		},
 	];
 
 	const memberName = data?.member.name || data?.member.email || "Member";
@@ -231,7 +226,7 @@ export function MemberDetailClient() {
 					))}
 				</div>
 
-				<div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+				<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 					{mostUsed.map((item) => (
 						<Card key={item.label}>
 							<CardHeader className="pb-2">
@@ -255,89 +250,46 @@ export function MemberDetailClient() {
 					description={`Top models by cost for ${memberName}`}
 				/>
 
-				<div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-					<Card>
-						<CardHeader>
-							<CardTitle className="text-base">Top providers</CardTitle>
-						</CardHeader>
-						<CardContent>
-							<Table>
-								<TableHeader>
+				<Card>
+					<CardHeader>
+						<CardTitle className="text-base">Top providers</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Provider</TableHead>
+									<TableHead className="text-right">Cost</TableHead>
+									<TableHead className="text-right">Requests</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{(data?.topProviders.length ?? 0) === 0 ? (
 									<TableRow>
-										<TableHead>Provider</TableHead>
-										<TableHead className="text-right">Cost</TableHead>
-										<TableHead className="text-right">Requests</TableHead>
+										<TableCell
+											colSpan={3}
+											className="py-6 text-center text-muted-foreground"
+										>
+											No data
+										</TableCell>
 									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{(data?.topProviders.length ?? 0) === 0 ? (
-										<TableRow>
-											<TableCell
-												colSpan={3}
-												className="py-6 text-center text-muted-foreground"
-											>
-												No data
+								) : (
+									data?.topProviders.map((p) => (
+										<TableRow key={p.key}>
+											<TableCell className="font-medium">{p.key}</TableCell>
+											<TableCell className="text-right">
+												{currencyFormatter.format(p.cost)}
+											</TableCell>
+											<TableCell className="text-right">
+												{p.requestCount.toLocaleString()}
 											</TableCell>
 										</TableRow>
-									) : (
-										data?.topProviders.map((p) => (
-											<TableRow key={p.key}>
-												<TableCell className="font-medium">{p.key}</TableCell>
-												<TableCell className="text-right">
-													{currencyFormatter.format(p.cost)}
-												</TableCell>
-												<TableCell className="text-right">
-													{p.requestCount.toLocaleString()}
-												</TableCell>
-											</TableRow>
-										))
-									)}
-								</TableBody>
-							</Table>
-						</CardContent>
-					</Card>
-
-					<Card>
-						<CardHeader>
-							<CardTitle className="text-base">Top apps</CardTitle>
-						</CardHeader>
-						<CardContent>
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>App</TableHead>
-										<TableHead className="text-right">Cost</TableHead>
-										<TableHead className="text-right">Requests</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{(data?.topApps.length ?? 0) === 0 ? (
-										<TableRow>
-											<TableCell
-												colSpan={3}
-												className="py-6 text-center text-muted-foreground"
-											>
-												No data
-											</TableCell>
-										</TableRow>
-									) : (
-										data?.topApps.map((a) => (
-											<TableRow key={a.key}>
-												<TableCell className="font-medium">{a.key}</TableCell>
-												<TableCell className="text-right">
-													{currencyFormatter.format(a.cost)}
-												</TableCell>
-												<TableCell className="text-right">
-													{a.requestCount.toLocaleString()}
-												</TableCell>
-											</TableRow>
-										))
-									)}
-								</TableBody>
-							</Table>
-						</CardContent>
-					</Card>
-				</div>
+									))
+								)}
+							</TableBody>
+						</Table>
+					</CardContent>
+				</Card>
 			</div>
 		</div>
 	);

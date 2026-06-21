@@ -11,7 +11,6 @@ import {
 	eq,
 	gte,
 	inArray,
-	log,
 	lte,
 	ne,
 	sql,
@@ -300,7 +299,6 @@ const memberDetailSchema = z.object({
 	}),
 	topModels: z.array(breakdownEntrySchema),
 	topProviders: z.array(breakdownEntrySchema),
-	topApps: z.array(breakdownEntrySchema),
 	costByModel: z.array(breakdownEntrySchema),
 });
 
@@ -377,7 +375,6 @@ analytics.openapi(getMemberDetail, async (c) => {
 			summary: emptySummary,
 			topModels: [],
 			topProviders: [],
-			topApps: [],
 			costByModel: [],
 		});
 	}
@@ -399,7 +396,6 @@ analytics.openapi(getMemberDetail, async (c) => {
 			summary: emptySummary,
 			topModels: [],
 			topProviders: [],
-			topApps: [],
 			costByModel: [],
 		});
 	}
@@ -511,41 +507,11 @@ analytics.openapi(getMemberDetail, async (c) => {
 
 	const topModels = costByModel.slice(0, 5);
 
-	const sourceRows = await db
-		.select({
-			source: log.source,
-			requestCount: sql<number>`COUNT(*)`.as("request_count"),
-			cost: sql<number>`COALESCE(SUM(${log.cost}), 0)`.as("cost"),
-			totalTokens:
-				sql<number>`COALESCE(SUM(CAST(${log.totalTokens} AS NUMERIC)), 0)`.as(
-					"total_tokens",
-				),
-		})
-		.from(log)
-		.where(
-			and(
-				inArray(log.apiKeyId, keyIds),
-				gte(log.createdAt, startDate),
-				lte(log.createdAt, endDate),
-			),
-		)
-		.groupBy(log.source)
-		.orderBy(desc(sql`COUNT(*)`))
-		.limit(5);
-
-	const topApps = sourceRows.map((r) => ({
-		key: r.source ?? "unknown",
-		cost: Number(r.cost ?? 0),
-		requestCount: Number(r.requestCount ?? 0),
-		totalTokens: Number(r.totalTokens ?? 0),
-	}));
-
 	return c.json({
 		member,
 		summary,
 		topModels,
 		topProviders,
-		topApps,
 		costByModel,
 	});
 });
