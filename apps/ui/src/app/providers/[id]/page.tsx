@@ -4,6 +4,7 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
+import { JsonLd } from "@/components/seo/json-ld";
 
 import {
 	models as modelDefinitions,
@@ -172,8 +173,61 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			return bDate - aDate; // Descending (newest first)
 		});
 
+	const providerUrl = `https://llmgateway.io/providers/${provider.id}`;
+
+	const organizationSchema = {
+		"@context": "https://schema.org",
+		"@type": "Organization",
+		name: provider.name,
+		url: provider.website ?? providerUrl,
+		...(provider.description ? { description: provider.description } : {}),
+		subjectOf: {
+			"@type": "WebPage",
+			url: providerUrl,
+		},
+	};
+
+	const itemListSchema = {
+		"@context": "https://schema.org",
+		"@type": "ItemList",
+		name: `${provider.name} models on LLM Gateway`,
+		numberOfItems: providerModels.length,
+		itemListElement: providerModels.map((model, index) => ({
+			"@type": "ListItem",
+			position: index + 1,
+			url: `https://llmgateway.io/models/${encodeURIComponent(model.id)}`,
+			name: model.name ?? model.id,
+		})),
+	};
+
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Providers",
+				item: "https://llmgateway.io/providers",
+			},
+			{
+				"@type": "ListItem",
+				position: 3,
+				name: provider.name,
+				item: providerUrl,
+			},
+		],
+	};
+
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
+			<JsonLd data={[organizationSchema, itemListSchema, breadcrumbSchema]} />
 			<main>
 				<Navbar />
 				<Hero providerId={provider.id} />

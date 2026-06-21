@@ -91,11 +91,22 @@ const reasoningItemSchema = z.object({
 	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
 });
 
+// Reference to an item produced by a previous (stored) response. Stateful
+// clients send these instead of re-sending the full item (e.g. a function_call
+// the gateway emitted earlier). The id points at the `id` of a stored output
+// item (e.g. `fc_...`, `msg_...`, `rs_...`) and is resolved back to the full
+// item before conversion to chat messages.
+const itemReferenceItemSchema = z.object({
+	type: z.literal("item_reference"),
+	id: z.string(),
+});
+
 const inputItemSchema = z.union([
 	messageItemSchema,
 	reasoningItemSchema,
 	functionCallItemSchema,
 	functionCallOutputItemSchema,
+	itemReferenceItemSchema,
 ]);
 
 export const responsesRequestSchema = z.object({

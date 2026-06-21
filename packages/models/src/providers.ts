@@ -675,6 +675,47 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "atlascloud",
+		name: "AtlasCloud",
+		description:
+			"AtlasCloud provides unified APIs for video, image, audio, and language generation models.",
+		env: {
+			required: {
+				apiKey: "LLM_ATLASCLOUD_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ATLASCLOUD_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#0F766E",
+		website: "https://www.atlascloud.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://atlascloud.ai/privacy",
+		privacyPolicyUrl: "https://www.atlascloud.ai/privacy",
+		headquarters: null,
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: "varies by service; Enterprise ZDR available",
+			soc2: true,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Zero Data Retention and DPA",
+				link: "https://www.atlascloud.ai/zero-data-retention",
+			},
+			{
+				desc: "Data deletion policy",
+				link: "https://www.atlascloud.ai/data-deletion-policy",
+			},
+		],
+	},
+	{
 		id: "aws-bedrock",
 		name: "AWS Bedrock",
 		description: "Amazon Bedrock - fully managed service for foundation models",
@@ -709,51 +750,61 @@ export const providers: ProviderDefinition[] = [
 				{ id: "us", label: "US" },
 				{ id: "eu", label: "EU" },
 				{ id: "apac", label: "Asia Pacific" },
-				// Specific AWS regions for data-residency requirements. Only models
-				// that support direct invocation in the chosen region will work —
-				// Claude 4+ requires an inference profile and will reject these.
+				{ id: "au", label: "Australia" },
+				{ id: "jp", label: "Japan" },
+				// Specific AWS regions for data-residency requirements.
 				{ id: "us-east-1", label: "US East (N. Virginia)" },
 				{ id: "us-east-2", label: "US East (Ohio)" },
 				{ id: "us-west-2", label: "US West (Oregon)" },
 				{ id: "eu-central-1", label: "EU (Frankfurt)" },
+				{ id: "eu-north-1", label: "EU (Stockholm)" },
 				{ id: "eu-west-1", label: "EU (Ireland)" },
+				{ id: "eu-west-2", label: "EU (London)" },
+				{ id: "eu-west-3", label: "EU (Paris)" },
 				{ id: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
+				{ id: "ap-northeast-2", label: "Asia Pacific (Seoul)" },
 				{ id: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
-				{ id: "ap-southeast-2", label: "Asia Pacific (Sydney)" },
 			],
 			endpointMap: {
 				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
 				us: "https://bedrock-runtime.us-east-1.amazonaws.com",
 				eu: "https://bedrock-runtime.eu-central-1.amazonaws.com",
 				apac: "https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+				au: "https://bedrock-runtime.ap-southeast-2.amazonaws.com",
+				jp: "https://bedrock-runtime.ap-northeast-1.amazonaws.com",
 				"us-east-1": "https://bedrock-runtime.us-east-1.amazonaws.com",
 				"us-east-2": "https://bedrock-runtime.us-east-2.amazonaws.com",
 				"us-west-2": "https://bedrock-runtime.us-west-2.amazonaws.com",
 				"eu-central-1": "https://bedrock-runtime.eu-central-1.amazonaws.com",
+				"eu-north-1": "https://bedrock-runtime.eu-north-1.amazonaws.com",
 				"eu-west-1": "https://bedrock-runtime.eu-west-1.amazonaws.com",
+				"eu-west-2": "https://bedrock-runtime.eu-west-2.amazonaws.com",
+				"eu-west-3": "https://bedrock-runtime.eu-west-3.amazonaws.com",
 				"ap-northeast-1":
 					"https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+				"ap-northeast-2":
+					"https://bedrock-runtime.ap-northeast-2.amazonaws.com",
 				"ap-southeast-1":
 					"https://bedrock-runtime.ap-southeast-1.amazonaws.com",
-				"ap-southeast-2":
-					"https://bedrock-runtime.ap-southeast-2.amazonaws.com",
 			},
 			modelPrefixMap: {
 				global: "global.",
 				us: "us.",
 				eu: "eu.",
 				apac: "apac.",
-				// Specific AWS regions invoke the bare model ID for true single-region
-				// residency. Empty string (not undefined) so it short-circuits the
-				// `aws_bedrock_region_prefix` env-var default of "global.".
+				au: "au.",
+				jp: "jp.",
 				"us-east-1": "",
 				"us-east-2": "",
 				"us-west-2": "",
 				"eu-central-1": "",
+				"eu-north-1": "",
 				"eu-west-1": "",
+				"eu-west-2": "",
+				"eu-west-3": "",
 				"ap-northeast-1": "",
+				"ap-northeast-2": "",
 				"ap-southeast-1": "",
-				"ap-southeast-2": "",
 			},
 		},
 		termsUrl: "https://aws.amazon.com/service-terms",

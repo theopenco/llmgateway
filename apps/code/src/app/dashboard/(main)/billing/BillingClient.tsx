@@ -40,6 +40,10 @@ const DevPassPaymentMethod = dynamic(
 	() => import("@/app/dashboard/components/DevPassPaymentMethod"),
 );
 
+const DevPassBillingDetails = dynamic(
+	() => import("@/app/dashboard/components/DevPassBillingDetails"),
+);
+
 interface BillingClientProps {
 	initialDevPlanStatus?: DevPlanStatus | null;
 	initialPaymentMethod?: PaymentMethod | null;
@@ -245,6 +249,9 @@ export default function BillingClient({
 				subscribingTier={subscribingTier}
 				onChangeTier={handleChangeTier}
 			/>
+
+			{/* Billing details (invoice details) */}
+			<DevPassBillingDetails />
 		</div>
 	);
 }

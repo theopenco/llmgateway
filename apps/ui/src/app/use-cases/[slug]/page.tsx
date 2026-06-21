@@ -204,7 +204,7 @@ export default async function UseCasePage({ params }: UseCasePageProps) {
 								One API for every model
 							</h2>
 							<p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-								Route across 200+ models with fallback, caching and per-request
+								Route across 280+ models with fallback, caching and per-request
 								cost analytics. Start free in minutes.
 							</p>
 							<div className="mt-6 flex justify-center">

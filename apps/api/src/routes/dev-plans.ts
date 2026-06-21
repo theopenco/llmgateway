@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
+import { findDefaultOrganization } from "@/utils/default-org.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -67,7 +68,7 @@ async function findPersonalOrg(userId: string) {
 		with: { organization: true },
 	});
 	return (
-		userOrgs.find((uo) => uo.organization?.isPersonal === true)?.organization ??
+		userOrgs.find((uo) => uo.organization?.kind === "devpass")?.organization ??
 		null
 	);
 }
@@ -102,7 +103,7 @@ const getPersonalOrg = createRoute({
 					schema: z.object({
 						id: z.string(),
 						name: z.string(),
-						isPersonal: z.boolean(),
+						kind: z.enum(["default", "chat", "devpass"]),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
@@ -132,7 +133,7 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 	return c.json({
 		id: org.id,
 		name: org.name,
-		isPersonal: org.isPersonal,
+		kind: org.kind,
 		devPlan: org.devPlan,
 		devPlanCreditsUsed: org.devPlanCreditsUsed,
 		devPlanCreditsLimit: org.devPlanCreditsLimit,
@@ -356,7 +357,7 @@ devPlans.openapi(finalize, async (c) => {
 		with: { organization: true },
 	});
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -464,7 +465,7 @@ devPlans.openapi(cancel, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -555,7 +556,7 @@ devPlans.openapi(resume, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -667,7 +668,7 @@ devPlans.openapi(changeTier, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -918,7 +919,7 @@ devPlans.openapi(getStatus, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -1061,7 +1062,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -1169,6 +1170,187 @@ devPlans.openapi(updateSettings, async (c) => {
 	});
 });
 
+// Billing details used on DevPass invoices. By default these mirror the owner's
+// default LLM Gateway org; they can be overridden with DevPass-specific values.
+const billingFieldsSchema = z.object({
+	billingEmail: z.string(),
+	billingCompany: z.string().nullable(),
+	billingAddress: z.string().nullable(),
+	billingTaxId: z.string().nullable(),
+	billingNotes: z.string().nullable(),
+});
+
+function pickBillingFields(org: {
+	billingEmail: string;
+	billingCompany: string | null;
+	billingAddress: string | null;
+	billingTaxId: string | null;
+	billingNotes: string | null;
+}) {
+	return {
+		billingEmail: org.billingEmail,
+		billingCompany: org.billingCompany,
+		billingAddress: org.billingAddress,
+		billingTaxId: org.billingTaxId,
+		billingNotes: org.billingNotes,
+	};
+}
+
+const getBillingDetails = createRoute({
+	method: "get",
+	path: "/billing-details",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						devPlanBillingOverride: z.boolean(),
+						own: billingFieldsSchema,
+						default: billingFieldsSchema,
+					}),
+				},
+			},
+			description: "DevPass billing details retrieved successfully",
+		},
+	},
+});
+
+devPlans.openapi(getBillingDetails, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	const defaultOrg = await findDefaultOrganization(user.id);
+
+	return c.json({
+		devPlanBillingOverride: personalOrg.devPlanBillingOverride,
+		own: pickBillingFields(personalOrg),
+		default: pickBillingFields(defaultOrg ?? personalOrg),
+	});
+});
+
+const updateBillingDetails = createRoute({
+	method: "patch",
+	path: "/billing-details",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						devPlanBillingOverride: z.boolean().optional(),
+						billingEmail: z.string().email().optional(),
+						billingCompany: z.string().optional(),
+						billingAddress: z.string().optional(),
+						billingTaxId: z.string().optional(),
+						billingNotes: z.string().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						devPlanBillingOverride: z.boolean(),
+						own: billingFieldsSchema,
+						default: billingFieldsSchema,
+					}),
+				},
+			},
+			description: "DevPass billing details updated successfully",
+		},
+	},
+});
+
+devPlans.openapi(updateBillingDetails, async (c) => {
+	const user = c.get("user");
+	const {
+		devPlanBillingOverride,
+		billingEmail,
+		billingCompany,
+		billingAddress,
+		billingTaxId,
+		billingNotes,
+	} = c.req.valid("json");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	const updateData: {
+		devPlanBillingOverride?: boolean;
+		billingEmail?: string;
+		billingCompany?: string;
+		billingAddress?: string;
+		billingTaxId?: string;
+		billingNotes?: string;
+	} = {};
+
+	if (devPlanBillingOverride !== undefined) {
+		updateData.devPlanBillingOverride = devPlanBillingOverride;
+	}
+	if (billingEmail !== undefined) {
+		updateData.billingEmail = billingEmail;
+	}
+	if (billingCompany !== undefined) {
+		updateData.billingCompany = billingCompany;
+	}
+	if (billingAddress !== undefined) {
+		updateData.billingAddress = billingAddress;
+	}
+	if (billingTaxId !== undefined) {
+		updateData.billingTaxId = billingTaxId;
+	}
+	if (billingNotes !== undefined) {
+		updateData.billingNotes = billingNotes;
+	}
+
+	let updatedOrg = personalOrg;
+	if (Object.keys(updateData).length > 0) {
+		const [updated] = await db
+			.update(tables.organization)
+			.set(updateData)
+			.where(eq(tables.organization.id, personalOrg.id))
+			.returning();
+		updatedOrg = updated;
+
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.update_billing_details",
+			resourceType: "dev_plan",
+			metadata: { fields: Object.keys(updateData) },
+		});
+	}
+
+	const defaultOrg = await findDefaultOrganization(user.id);
+
+	return c.json({
+		devPlanBillingOverride: updatedOrg.devPlanBillingOverride,
+		own: pickBillingFields(updatedOrg),
+		default: pickBillingFields(defaultOrg ?? updatedOrg),
+	});
+});
+
 // Rotate the dev-plan API key — invalidates the current key and issues a new one
 const rotateApiKey = createRoute({
 	method: "post",
@@ -1207,7 +1389,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {

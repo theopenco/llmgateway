@@ -63,7 +63,7 @@ export function MultiProviderDemo() {
 				<CardHeader>
 					<CardTitle>Connected Providers</CardTitle>
 					<CardDescription>
-						Access 100+ models from 19+ providers through a single API
+						Access 280+ models from 35+ providers through a single API
 					</CardDescription>
 				</CardHeader>
 				<CardContent>

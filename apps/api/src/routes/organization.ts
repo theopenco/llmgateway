@@ -57,9 +57,9 @@ const organizationSchema = z.object({
 	referralEarnings: z.string(),
 	referralBonusEnabled: z.boolean(),
 	referralBonusPercent: z.string(),
-	// Dev Plans fields
-	isPersonal: z.boolean(),
-	isChat: z.boolean(),
+	// Organization kind: "default" (regular dashboard org), "devpass" (per-user
+	// Dev Plans org), or "chat" (per-user chat.llmgateway.io org).
+	kind: z.enum(["default", "chat", "devpass"]),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
 	devPlanCycle: z.enum(["monthly", "annual"]),
 	devPlanCreditsUsed: z.string(),
@@ -69,6 +69,7 @@ const organizationSchema = z.object({
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
 	devPlanAllowAllModels: z.boolean(),
+	devPlanBillingOverride: z.boolean(),
 	// Chat Plans fields
 	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
 	chatPlanCycle: z.enum(["monthly"]),
@@ -221,8 +222,8 @@ organization.openapi(getOrganizations, async (c) => {
 		// Personal and chat orgs are hidden from the regular dashboard. The
 		// devpass/playground surfaces opt in via ?includePersonal=true /
 		// ?includeChat=true since their plans + credits live on those orgs.
-		.filter((org) => includePersonal === "true" || !org.isPersonal)
-		.filter((org) => includeChat === "true" || !org.isChat);
+		.filter((org) => includePersonal === "true" || org.kind !== "devpass")
+		.filter((org) => includeChat === "true" || org.kind !== "chat");
 
 	if (organizations.length === 0) {
 		const defaultOrganization = await getOrCreateDefaultOrganization({
@@ -232,7 +233,7 @@ organization.openapi(getOrganizations, async (c) => {
 
 		if (
 			defaultOrganization.status !== "deleted" &&
-			!defaultOrganization.isPersonal
+			defaultOrganization.kind !== "devpass"
 		) {
 			organizations = [defaultOrganization];
 		}
@@ -765,7 +766,7 @@ organization.openapi(deleteOrganization, async (c) => {
 	}
 
 	// Block deletion of personal orgs - they are managed via dev plans
-	if (userOrganization.organization?.isPersonal) {
+	if (userOrganization.organization?.kind === "devpass") {
 		throw new HTTPException(403, {
 			message:
 				"Personal organizations cannot be deleted. Please cancel your dev plan at devpass.llmgateway.io instead.",
@@ -773,7 +774,7 @@ organization.openapi(deleteOrganization, async (c) => {
 	}
 
 	// Block deletion of the dedicated Chat org - it is managed via chat plans
-	if (userOrganization.organization?.isChat) {
+	if (userOrganization.organization?.kind === "chat") {
 		throw new HTTPException(403, {
 			message:
 				"The Chat organization cannot be deleted. Please cancel your chat plan from the chat.llmgateway.io pricing page instead.",

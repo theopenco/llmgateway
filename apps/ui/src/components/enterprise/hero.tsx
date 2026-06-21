@@ -97,6 +97,9 @@ export function HeroEnterprise({
 							<Link href="/signup">Explore The Product</Link>
 						</Button>
 					</div>
+					<p className="mt-5 text-sm text-muted-foreground">
+						Every enterprise plan starts with a 30-day trial.
+					</p>
 
 					<div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">
 						<StatCard

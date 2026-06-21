@@ -98,6 +98,7 @@ function getStripe(): Stripe {
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
+const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
 const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
@@ -717,6 +718,120 @@ export async function cleanupExpiredLogData(): Promise<void> {
 		);
 	} finally {
 		await releaseLock(DATA_RETENTION_LOCK_KEY);
+	}
+}
+
+// Delete minute-level model/mapping history rows older than the retention
+// window. These tables gain one row per active model (and per mapping) every
+// minute and otherwise grow unbounded. The hourly rollups
+// (model_history_hourly, model_provider_mapping_history_hourly) are kept
+// forever and now serve every window beyond 24h (7d/30d/90d public stats), so
+// the only readers of the minute tables are short windows (<=24h). 30 days
+// leaves a comfortable buffer over the largest minute-level reader.
+const MODEL_HISTORY_RETENTION_DAYS = 30;
+const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
+// Cap the work per run (per table) so a single cleanup reliably finishes well
+// within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
+// The loop runs hourly, so any remaining rows are drained over subsequent runs.
+// At steady state (~640 rows/min across both tables, i.e. a handful of batches
+// per hour) this cap is never approached; it only bounds the initial backlog
+// drain. Each table gets its own budget so neither starves the other.
+const MODEL_HISTORY_MAX_BATCHES_PER_RUN = 50;
+
+async function cleanupModelHistoryTable(
+	table: typeof tables.modelHistory | typeof tables.modelProviderMappingHistory,
+	cutoffDate: Date,
+	maxBatches: number,
+): Promise<{ deleted: number; batches: number }> {
+	let totalDeleted = 0;
+	let batches = 0;
+	let hasMoreRecords = true;
+
+	while (hasMoreRecords && batches < maxBatches && !isStopRequested()) {
+		const batchDeleted = await db.transaction(async (tx) => {
+			// Prefer the minuteTimestamp index over a sequential scan; SET LOCAL
+			// resets automatically when the transaction commits.
+			await tx.execute(sql`SET LOCAL random_page_cost = 1.1`);
+
+			const recordsToDelete = await tx
+				.select({ id: table.id })
+				.from(table)
+				.where(lt(table.minuteTimestamp, cutoffDate))
+				.limit(MODEL_HISTORY_CLEANUP_BATCH_SIZE)
+				.for("update", { skipLocked: true });
+
+			if (recordsToDelete.length === 0) {
+				return 0;
+			}
+
+			const idsToDelete = recordsToDelete.map((r) => r.id);
+
+			// Use `= ANY($1)` with a single array param instead of inArray()'s
+			// variable-length `IN (...)`, so pg_stat_statements fingerprints
+			// every batch identically.
+			await tx
+				.delete(table)
+				.where(sql`${table.id} = ANY(${sql.param(idsToDelete)}::text[])`);
+
+			return recordsToDelete.length;
+		});
+
+		totalDeleted += batchDeleted;
+		batches++;
+
+		if (batchDeleted < MODEL_HISTORY_CLEANUP_BATCH_SIZE) {
+			hasMoreRecords = false;
+		}
+	}
+
+	return { deleted: totalDeleted, batches };
+}
+
+export async function cleanupExpiredModelHistory(): Promise<void> {
+	if (process.env.ENABLE_DATA_RETENTION_CLEANUP !== "true") {
+		return;
+	}
+
+	const lockAcquired = await acquireLock(MODEL_HISTORY_RETENTION_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		logger.info("Starting model history retention cleanup...");
+
+		const cutoffDate = new Date(
+			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
+		);
+
+		const mapping = await cleanupModelHistoryTable(
+			tables.modelProviderMappingHistory,
+			cutoffDate,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
+		);
+		const model = await cleanupModelHistoryTable(
+			tables.modelHistory,
+			cutoffDate,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
+		);
+
+		const mappingDeleted = mapping.deleted;
+		const modelDeleted = model.deleted;
+
+		if (mappingDeleted > 0 || modelDeleted > 0) {
+			logger.info(
+				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
+			);
+		}
+
+		logger.info("Model history retention cleanup completed successfully");
+	} catch (error) {
+		logger.error(
+			"Error during model history retention cleanup",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	} finally {
+		await releaseLock(MODEL_HISTORY_RETENTION_LOCK_KEY);
 	}
 }
 
@@ -1692,6 +1807,13 @@ export async function processLogQueue(): Promise<number> {
 let isWorkerRunning = false;
 let activeLoops = 0;
 let stopFailed = false;
+// Gate minute-history retention on the hourly backfill having completed this
+// process. The hourly rollups are reconstructed from minute rows on startup
+// (backfillHourlyHistoryIfNeeded walks oldest->newest); pruning minute rows
+// older than 30d before that finishes would permanently truncate the
+// kept-forever hourly history. Defaults false so a failed/never-run backfill
+// leaves cleanup disabled rather than risking data loss.
+let hourlyBackfillComplete = false;
 
 // Independent worker loops
 async function runLogQueueLoop(loopIndex = 0) {
@@ -2064,6 +2186,39 @@ async function runDataRetentionLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Data retention loop stopped");
+	}
+}
+
+async function runModelHistoryRetentionLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 3600 : 60) * 1000; // hourly in prod, 1 minute in dev
+	logger.info(
+		`Starting model history retention loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (hourlyBackfillComplete) {
+					await cleanupExpiredModelHistory();
+				} else {
+					logger.info(
+						"Skipping model history cleanup until hourly backfill completes",
+					);
+				}
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in model history retention loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Model history retention loop stopped");
 	}
 }
 
@@ -2518,6 +2673,8 @@ export async function startWorker() {
 		})
 		.then(() => {
 			logger.info("Hourly history backfill check completed");
+			// Hourly rollups are now populated, so minute-history pruning is safe.
+			hourlyBackfillComplete = true;
 		})
 		.catch((error) => {
 			logger.error(
@@ -2576,6 +2733,7 @@ export async function startWorker() {
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
+	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
 	void runApiKeyExpirationLoop();
 	void runWebhookDeliveryLoop();

@@ -11,6 +11,10 @@ import type { ServerTypes } from "@/vars.js";
 
 export const projects = new OpenAPIHono<ServerTypes>();
 
+// Default billing mode for a newly created project. Members below admin/owner
+// may only create projects in this mode (see createProjectForOrg).
+const DEFAULT_PROJECT_MODE = "hybrid" as const;
+
 // Define schema directly with Zod instead of using createSelectSchema
 const projectSchema = z.object({
 	id: z.string(),
@@ -242,11 +246,9 @@ projects.openapi(updateProject, async (c) => {
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
 	);
-	if (
-		isUpdatingEndUserSettings &&
-		projectUserOrg?.role !== "owner" &&
-		projectUserOrg?.role !== "admin"
-	) {
+	const isAdminOrOwner =
+		projectUserOrg?.role === "owner" || projectUserOrg?.role === "admin";
+	if (isUpdatingEndUserSettings && !isAdminOrOwner) {
 		throw new HTTPException(403, {
 			message:
 				"Only organization owners and admins can update Payments SDK settings",
@@ -260,6 +262,18 @@ projects.openapi(updateProject, async (c) => {
 		throw new HTTPException(403, {
 			message:
 				"The Payments SDK is currently in preview and opt-in only. Contact us to enable it for your project.",
+		});
+	}
+
+	// Changing the billing mode (e.g. enabling BYOK "api-keys" mode) is a
+	// privileged operation: it controls whether tenant-supplied provider keys
+	// and base URLs are used for inference. Restrict it to owners/admins, but
+	// only when the value actually changes so clients that PATCH the full
+	// settings object with an unchanged mode are not rejected.
+	if (mode !== undefined && mode !== project.mode && !isAdminOrOwner) {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can change the project mode",
 		});
 	}
 
@@ -293,7 +307,7 @@ projects.openapi(updateProject, async (c) => {
 		// from what the gateway will actually honor.
 		const projectOrg = projectUserOrg?.organization;
 		if (
-			projectOrg?.isPersonal &&
+			projectOrg?.kind === "devpass" &&
 			projectOrg.devPlan !== "none" &&
 			defaultRoutingStrategy !== "auto" &&
 			defaultRoutingStrategy !== "price"
@@ -486,7 +500,7 @@ export async function createProjectForOrg(
 		cachingEnabled = false,
 		cacheDurationSeconds = 60,
 		providerCacheControlEnabled = true,
-		mode = "hybrid",
+		mode = DEFAULT_PROJECT_MODE,
 	} = input;
 
 	if (!options.skipAccessCheck) {
@@ -504,6 +518,21 @@ export async function createProjectForOrg(
 		) {
 			throw new HTTPException(403, {
 				message: "You do not have access to this organization",
+			});
+		}
+
+		// Setting a non-default billing mode (e.g. BYOK "api-keys") is privileged,
+		// mirroring the PATCH guard: a member must not be able to create a project
+		// in a privileged mode to sidestep the update-time role check.
+		const isAdminOrOwner =
+			userOrganization.role === "owner" || userOrganization.role === "admin";
+		if (
+			input.mode !== undefined &&
+			input.mode !== DEFAULT_PROJECT_MODE &&
+			!isAdminOrOwner
+		) {
+			throw new HTTPException(403, {
+				message: "Only organization owners and admins can set the project mode",
 			});
 		}
 	}

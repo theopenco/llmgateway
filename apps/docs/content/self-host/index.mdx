@@ -1,0 +1,30 @@
+---
+title: Self Host LLM Gateway
+description: Deploy LLM Gateway on your own infrastructure with Docker, Docker Compose, or Kubernetes on AWS, GCP, and Azure.
+icon: Server
+---
+
+import { SelfHostCards } from "@/components/self-host-cards";
+
+LLM Gateway is a self-hostable platform that provides a unified API gateway for multiple LLM providers. Run it on your own infrastructure to keep full control over your data and avoid platform fees.
+
+Pick the deployment path that matches where you're running it.
+
+<SelfHostCards />
+
+## Which option should I choose?
+
+- **Trying it out or running a single low-traffic instance?** Start with [Docker](/self-host/docker) or [Docker Compose](/self-host/docker-compose) on one machine.
+- **Running in production?** Deploy to [Kubernetes](/self-host/kubernetes) with our Helm chart, and use a managed Postgres and Redis from your cloud.
+- **On a specific cloud?** Follow the [AWS](/self-host/aws), [Google Cloud](/self-host/gcp), or [Azure](/self-host/azure) guide for the exact managed services to provision.
+
+## What you'll need
+
+Every deployment is built from the same pieces:
+
+- **Stateless services** — the gateway, API, UI, and a background worker. Scale these freely; they hold no data between requests.
+- **PostgreSQL** — the source of truth for users, projects, keys, and usage records.
+- **Redis** — response caching and the queue that feeds the worker.
+- **Provider API keys** — the OpenAI, Anthropic, Google, and other credentials the gateway uses, injected as secrets.
+
+In production, run PostgreSQL and Redis as managed services from your cloud provider so backups, failover, and patching are handled for you.

@@ -172,8 +172,8 @@ team.openapi(addMember, async (c) => {
 
 	// Block team management for personal orgs (dev plan only)
 	if (
-		userOrganization.organization?.isPersonal ||
-		userOrganization.organization?.isChat
+		userOrganization.organization?.kind === "devpass" ||
+		userOrganization.organization?.kind === "chat"
 	) {
 		throw new HTTPException(403, {
 			message:
@@ -343,8 +343,8 @@ team.openapi(updateMember, async (c) => {
 
 	// Block team management for personal orgs (dev plan only)
 	if (
-		userOrganization.organization?.isPersonal ||
-		userOrganization.organization?.isChat
+		userOrganization.organization?.kind === "devpass" ||
+		userOrganization.organization?.kind === "chat"
 	) {
 		throw new HTTPException(403, {
 			message:
@@ -505,8 +505,8 @@ team.openapi(removeMember, async (c) => {
 
 	// Block team management for personal orgs (dev plan only)
 	if (
-		userOrganization.organization?.isPersonal ||
-		userOrganization.organization?.isChat
+		userOrganization.organization?.kind === "devpass" ||
+		userOrganization.organization?.kind === "chat"
 	) {
 		throw new HTTPException(403, {
 			message:

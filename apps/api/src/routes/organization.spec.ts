@@ -98,7 +98,7 @@ describe("organization route", () => {
 		});
 
 		expect(beforeOrganizations).toHaveLength(1);
-		expect(beforeOrganizations[0]?.organization?.isPersonal).toBe(true);
+		expect(beforeOrganizations[0]?.organization?.kind).toBe("devpass");
 
 		const response = await app.request("/orgs", {
 			headers: {
@@ -109,12 +109,15 @@ describe("organization route", () => {
 		expect(response.status).toBe(200);
 
 		const body = (await response.json()) as {
-			organizations: Array<{ name: string; isPersonal: boolean }>;
+			organizations: Array<{
+				name: string;
+				kind: "default" | "chat" | "devpass";
+			}>;
 		};
 
 		expect(body.organizations).toHaveLength(1);
 		expect(body.organizations[0]?.name).toBe("Default Organization");
-		expect(body.organizations[0]?.isPersonal).toBe(false);
+		expect(body.organizations[0]?.kind).toBe("default");
 
 		const afterOrganizations = await db.query.userOrganization.findMany({
 			with: {
@@ -124,7 +127,7 @@ describe("organization route", () => {
 
 		expect(afterOrganizations).toHaveLength(2);
 		expect(
-			afterOrganizations.some((uo) => uo.organization?.isPersonal === true),
+			afterOrganizations.some((uo) => uo.organization?.kind === "devpass"),
 		).toBe(true);
 		expect(
 			afterOrganizations.some(

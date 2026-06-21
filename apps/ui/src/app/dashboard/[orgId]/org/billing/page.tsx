@@ -2,6 +2,7 @@ import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
+import { OrganizationBillingEmailSettings } from "@/components/settings/organization-billing-email-settings";
 import {
 	Card,
 	CardContent,
@@ -72,6 +73,18 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 						</CardHeader>
 						<CardContent>
 							<PaymentMethodsManagement />
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<CardTitle>Billing Email</CardTitle>
+							<CardDescription>
+								Manage your organization's billing email address.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-6">
+							<OrganizationBillingEmailSettings />
 						</CardContent>
 					</Card>
 

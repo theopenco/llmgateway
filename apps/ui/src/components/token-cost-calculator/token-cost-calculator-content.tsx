@@ -1,26 +1,26 @@
-import { ChevronDown, Coins, Route, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, FileText, Route, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 
 import { CALCULATOR_FAQ } from "./faq-data";
 
 const STEPS = [
 	{
-		icon: SlidersHorizontal,
-		title: "Add the models you use",
+		icon: FileText,
+		title: "Paste your prompt or document",
 		description:
-			"Pick from 200+ LLMs across OpenAI, Anthropic, Google, Mistral, Meta, and more. Stack as many models as you want to compare side by side.",
+			"Drop in real text, code, or a JSON payload. A BPE tokenizer runs in your browser to count the exact tokens — the same way the model bills you — with nothing uploaded.",
 	},
 	{
-		icon: Coins,
-		title: "Enter your token volumes",
+		icon: SlidersHorizontal,
+		title: "Set your output size and volume",
 		description:
-			"Set the input and output tokens you expect to process, or start from a Light, Medium, Heavy, or Intensive preset and adjust from there.",
+			"Choose how long a response you expect and how many requests you send. Or switch to Estimate mode to enter input and output token volumes directly across multiple models.",
 	},
 	{
 		icon: Route,
-		title: "Compare and start saving",
+		title: "Compare every model and save",
 		description:
-			"Instantly see official provider pricing next to LLM Gateway's cheapest routed provider, plus the exact amount you would save each cycle.",
+			"See your prompt ranked across GPT-5, Claude, Gemini, and 280+ models at each provider's cheapest live rate — then route through LLM Gateway to pay it automatically with zero markup.",
 	},
 ];
 
@@ -41,8 +41,9 @@ export function TokenCostCalculatorContent() {
 							How the LLM cost calculator works
 						</h2>
 						<p className="mt-4 text-lg text-muted-foreground text-balance leading-relaxed">
-							Estimate your monthly spend across any model in three steps, then
-							see how much routing through LLM Gateway saves you.
+							Count the exact tokens in your prompt and price it across every
+							major model in three steps, then see how much routing through LLM
+							Gateway saves you.
 						</p>
 					</div>
 
@@ -88,9 +89,13 @@ export function TokenCostCalculatorContent() {
 								Every large language model bills by the token, the small chunks
 								of text a model reads and writes. Roughly speaking, one token is
 								about four characters of English, so 1,000 tokens is around 750
-								words. Providers quote prices per million tokens, and they
-								charge separately for the tokens you send (input) and the tokens
-								the model generates (output).
+								words — but the only accurate way to know is to tokenize the
+								exact text. This calculator does that in your browser with a
+								real BPE tokenizer, so the token counts match how the model
+								actually bills you instead of a rough character estimate.
+								Providers quote prices per million tokens, and they charge
+								separately for the tokens you send (input) and the tokens the
+								model generates (output).
 							</p>
 							<p>
 								Output tokens are usually two to four times more expensive than
