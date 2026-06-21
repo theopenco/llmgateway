@@ -4,9 +4,12 @@ import { format, subDays } from "date-fns";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
+import {
+	AnalyticsDateRange,
+	getAnalyticsRange,
+} from "@/components/analytics/analytics-date-range";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
-import { DateRangePicker } from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
@@ -20,10 +23,14 @@ interface AnalyticsClientProps {
 export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const { buildUrl } = useDashboardNavigation();
+	const { buildUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
 	useEffect(() => {
+		if (!isEnterprise) {
+			return;
+		}
 		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("days");
@@ -32,11 +39,13 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 			params.set("to", format(today, "yyyy-MM-dd"));
 			router.replace(`${buildUrl("analytics")}?${params.toString()}`);
 		}
-	}, [searchParams, router, buildUrl]);
+	}, [searchParams, router, buildUrl, isEnterprise]);
 
-	const fromStr =
-		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
-	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
+	const { fromStr, toStr } = getAnalyticsRange(
+		isEnterprise,
+		searchParams.get("from"),
+		searchParams.get("to"),
+	);
 
 	const { data, isLoading } = api.useQuery(
 		"get",
@@ -70,7 +79,11 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 							Cost and usage broken down by model for this project
 						</p>
 					</div>
-					<DateRangePicker buildUrl={buildUrl} path="analytics" />
+					<AnalyticsDateRange
+						isEnterprise={isEnterprise}
+						buildUrl={buildUrl}
+						path="analytics"
+					/>
 				</div>
 
 				<CostByModelOverTimeCard activity={activity} loading={isLoading} />

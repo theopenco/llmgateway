@@ -6,10 +6,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo } from "react";
 
+import {
+	AnalyticsDateRange,
+	getAnalyticsRange,
+} from "@/components/analytics/analytics-date-range";
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
-import { DateRangePicker } from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
@@ -34,10 +37,14 @@ export function ApiKeyStatsClient({
 }: ApiKeyStatsClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const { buildUrl } = useDashboardNavigation();
+	const { buildUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
 	useEffect(() => {
+		if (!isEnterprise) {
+			return;
+		}
 		if (!searchParams.get("from") || !searchParams.get("to")) {
 			const params = new URLSearchParams(searchParams.toString());
 			params.delete("days");
@@ -48,11 +55,13 @@ export function ApiKeyStatsClient({
 				`${buildUrl(`api-keys/${keyId}`)}?${params.toString()}` as Route,
 			);
 		}
-	}, [searchParams, router, buildUrl, keyId]);
+	}, [searchParams, router, buildUrl, keyId, isEnterprise]);
 
-	const fromStr =
-		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
-	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
+	const { fromStr, toStr } = getAnalyticsRange(
+		isEnterprise,
+		searchParams.get("from"),
+		searchParams.get("to"),
+	);
 
 	const { data: apiKeysData } = api.useQuery(
 		"get",
@@ -132,7 +141,11 @@ export function ApiKeyStatsClient({
 							{apiKey?.maskedToken ?? keyId}
 						</p>
 					</div>
-					<DateRangePicker buildUrl={buildUrl} path={`api-keys/${keyId}`} />
+					<AnalyticsDateRange
+						isEnterprise={isEnterprise}
+						buildUrl={buildUrl}
+						path={`api-keys/${keyId}`}
+					/>
 				</div>
 
 				<div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
