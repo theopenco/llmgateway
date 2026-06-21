@@ -85,27 +85,36 @@ A 2–4 sentence prompt that:
 
 - Describes a clean, modern, **abstract** tech illustration conveying the post's concept (concept over literalism — e.g. interlocking rotating keys and a shield for key rotation; a hub routing glowing streams to many nodes for orchestration).
 - Bakes in the **LLM Gateway brand feel** (from `apps/ui/src/lib/og.tsx`): near-black background, a soft cyan glow (`rgb(56,189,248)`) in one corner and a soft violet glow (`rgb(139,92,246)`) in the opposite corner, subtle depth and glow, generous negative space, premium and minimal, balanced as a backdrop behind a headline.
-- **Ends with**: "no text, no words, no letters, no logos, no UI chrome. Wide 3:2 landscape composition, 1536×1024."
+- **Reserves the top-left corner**: include "the top-left corner is intentionally empty clean negative space, with no logo, no icon, no wordmark and no brand text there." The real logo is composited in afterward (see "Always composite the official logo" below), never drawn by the model.
+- **Ends with**: "no logos, no UI chrome. Wide 3:2 landscape composition, 1536×1024." (If you want a branded card, you may keep a short headline/subtitle in the prompt — gpt-image-2 renders short text well — but **never** the logo.)
 
 ### Generate it (LLM Gateway Images API, gpt-image-2)
 
-Requires `LLM_GATEWAY_API_KEY` in the environment. Save straight to the post's image path:
+Requires `LLM_GATEWAY_API_KEY` in the environment. Generate to a temp file first — the logo is composited in the next step:
 
 ```bash
 curl -s https://api.llmgateway.io/v1/images/generations \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-image-2",
-    "prompt": "<the prompt above, on one line>",
-    "size": "1536x1024"
-  }' \
-| jq -r '.data[0].b64_json' | base64 -d > apps/ui/public/blog/<slug>.png
+  -d '{"model":"gpt-image-2","size":"1536x1024","prompt":"<the prompt above, on one line>"}' \
+| jq -r '.data[0].b64_json' | base64 -d > /tmp/<slug>-bg.png
 ```
 
-Then verify the file is a real PNG (`file apps/ui/public/blog/<slug>.png` → `PNG image data, 1536 x 1024`) and view it to sanity-check it's on-brand and text-free; regenerate with a tweaked prompt if not.
+View `/tmp/<slug>-bg.png` to confirm it's on-brand and the top-left is clear; regenerate with a tweaked prompt if not.
 
-**If no key is available**, fall back to the changelog-skill behavior: output the prompt in a fenced block and tell the user to generate it (LLM Gateway playground, the Images API, or any gpt-image-2 client) and drop the PNG at `apps/ui/public/blog/<slug>.png`. The post builds fine without the file; the image just 404s until it exists.
+### Always composite the official logo (never let gpt-image-2 draw it)
+
+gpt-image-2 **cannot** reproduce the LLM Gateway logo — it hallucinates a wrong mark. So always overlay the real asset. Render the white wordmark lockup (`apps/ui/public/brand/logo-with-name-white.svg`) and composite it into the reserved top-left corner. Needs `rsvg-convert` and ImageMagick (`magick`):
+
+```bash
+rsvg-convert -h 84 apps/ui/public/brand/logo-with-name-white.svg -o /tmp/llmgw-logo.png
+magick /tmp/<slug>-bg.png /tmp/llmgw-logo.png -geometry +72+72 -composite apps/ui/public/blog/<slug>.png
+file apps/ui/public/blog/<slug>.png   # → PNG image data, 1536 x 1024
+```
+
+View the final file to confirm the real logo sits cleanly in the top-left. (Use `apps/ui/public/brand/logo-white.svg` for just the icon mark if a wordmark doesn't fit the composition.)
+
+**If no key is available**, fall back to handing off: output the prompt in a fenced block (keeping the "top-left empty" instruction) plus the two composite commands, and tell the user to generate the background and run the composite, dropping the result at `apps/ui/public/blog/<slug>.png`. The post builds fine without the file; the image just 404s until it exists.
 
 ## Step 4 — Validate
 
