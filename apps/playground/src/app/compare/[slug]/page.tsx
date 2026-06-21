@@ -124,8 +124,8 @@ export default async function ComparePage({ params }: PageProps) {
 				</div>
 				<div className="mb-6">
 					<FaceOff
-						monogram={comparison.competitorMonogram}
-						tileClass={comparison.competitorTileClass}
+						slug={comparison.slug}
+						competitor={comparison.competitor}
 						size={52}
 						radius={14}
 					/>
@@ -179,8 +179,7 @@ export default async function ComparePage({ params }: PageProps) {
 				</h2>
 				<ComparisonTable
 					competitor={comparison.competitor}
-					monogram={comparison.competitorMonogram}
-					tileClass={comparison.competitorTileClass}
+					slug={comparison.slug}
 					rows={comparison.table}
 				/>
 			</section>
@@ -206,8 +205,8 @@ export default async function ComparePage({ params }: PageProps) {
 							<div className="rounded-xl border bg-card p-5">
 								<div className="mb-2 flex items-center gap-2 text-sm font-semibold">
 									<ThemTile
-										monogram={comparison.competitorMonogram}
-										tileClass={comparison.competitorTileClass}
+										slug={comparison.slug}
+										competitor={comparison.competitor}
 										size={22}
 										radius={6}
 									/>
@@ -231,8 +230,8 @@ export default async function ComparePage({ params }: PageProps) {
 				<div className="rounded-2xl border bg-card p-6">
 					<div className="mb-4 flex items-center gap-2.5">
 						<ThemTile
-							monogram={comparison.competitorMonogram}
-							tileClass={comparison.competitorTileClass}
+							slug={comparison.slug}
+							competitor={comparison.competitor}
 							size={28}
 							radius={8}
 						/>
@@ -402,8 +401,8 @@ export default async function ComparePage({ params }: PageProps) {
 							className="group flex items-center gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-foreground/30"
 						>
 							<ThemTile
-								monogram={other.competitorMonogram}
-								tileClass={other.competitorTileClass}
+								slug={other.slug}
+								competitor={other.competitor}
 								size={32}
 								radius={9}
 							/>

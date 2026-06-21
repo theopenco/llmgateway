@@ -47,10 +47,6 @@ export interface Comparison {
 	/** Brand + vendor, e.g. "ChatGPT (OpenAI)". */
 	competitorFull: string;
 	competitorTagline: string;
-	/** Two-letter monogram for the logo tile. */
-	competitorMonogram: string;
-	/** Tailwind background classes for the competitor's logo tile. */
-	competitorTileClass: string;
 	category: CompetitorCategory;
 
 	/** SEO. */
@@ -109,8 +105,6 @@ export const comparisons: Comparison[] = [
 		competitor: "ChatGPT",
 		competitorFull: "ChatGPT (OpenAI)",
 		competitorTagline: "The mainstream default — OpenAI models only",
-		competitorMonogram: "GP",
-		competitorTileClass: "bg-[#10a37f] text-white",
 		category: "single-vendor",
 		metaTitle: "LLM Gateway Chat vs ChatGPT — every model, one subscription",
 		metaDescription:
@@ -233,8 +227,6 @@ export const comparisons: Comparison[] = [
 		competitor: "Claude",
 		competitorFull: "Claude (Anthropic)",
 		competitorTagline: "Best-in-class writing and code — Anthropic models only",
-		competitorMonogram: "CL",
-		competitorTileClass: "bg-[#d97757] text-white",
 		category: "single-vendor",
 		metaTitle:
 			"LLM Gateway Chat vs Claude — keep Claude, add every other model",
@@ -360,9 +352,6 @@ export const comparisons: Comparison[] = [
 		competitorFull: "Google Gemini",
 		competitorTagline:
 			"Huge context and Google integration — Google models only",
-		competitorMonogram: "GM",
-		competitorTileClass:
-			"bg-gradient-to-br from-[#4285f4] to-[#9b72cb] text-white",
 		category: "single-vendor",
 		metaTitle: "LLM Gateway Chat vs Google Gemini — beyond one model family",
 		metaDescription:
@@ -485,8 +474,6 @@ export const comparisons: Comparison[] = [
 		competitor: "Poe",
 		competitorFull: "Poe (by Quora)",
 		competitorTagline: "Multi-model aggregator with a confusing points system",
-		competitorMonogram: "PO",
-		competitorTileClass: "bg-[#5d2bff] text-white",
 		category: "aggregator",
 		metaTitle: "LLM Gateway Chat vs Poe — multi-model chat without points math",
 		metaDescription:
@@ -608,8 +595,6 @@ export const comparisons: Comparison[] = [
 		competitor: "T3 Chat",
 		competitorFull: "T3 Chat (t3.gg)",
 		competitorTagline: "Fast, cheap multi-model chat — light on extras",
-		competitorMonogram: "T3",
-		competitorTileClass: "bg-[#e0117f] text-white",
 		category: "aggregator",
 		metaTitle:
 			"LLM Gateway Chat vs T3 Chat — multi-model chat with a media studio",
@@ -732,8 +717,6 @@ export const comparisons: Comparison[] = [
 		competitor: "Perplexity",
 		competitorFull: "Perplexity",
 		competitorTagline: "Best-in-class answer engine — not a general chat app",
-		competitorMonogram: "PX",
-		competitorTileClass: "bg-[#20808d] text-white",
 		category: "answer-engine",
 		metaTitle: "LLM Gateway Chat vs Perplexity — a chat app, not a search box",
 		metaDescription:
@@ -854,8 +837,6 @@ export const comparisons: Comparison[] = [
 		competitor: "OpenRouter",
 		competitorFull: "OpenRouter",
 		competitorTagline: "Developer API marketplace with a bare chatroom",
-		competitorMonogram: "OR",
-		competitorTileClass: "bg-[#6566f1] text-white",
 		category: "developer",
 		metaTitle:
 			"LLM Gateway Chat vs OpenRouter — a real chat app, not a dev tool",

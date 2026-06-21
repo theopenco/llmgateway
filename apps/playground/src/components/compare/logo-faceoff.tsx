@@ -1,23 +1,14 @@
+import { getBrand } from "@/components/compare/brand-icons";
 import { Logo } from "@/components/ui/logo";
 import { cn } from "@/lib/utils";
 
-interface ThemTileProps {
-	monogram: string;
-	tileClass: string;
+interface TileProps {
 	size?: number;
 	radius?: number;
 	className?: string;
 }
 
-export function UsTile({
-	size = 44,
-	radius = 12,
-	className,
-}: {
-	size?: number;
-	radius?: number;
-	className?: string;
-}) {
+export function UsTile({ size = 44, radius = 12, className }: TileProps) {
 	return (
 		<div
 			className={cn(
@@ -32,43 +23,90 @@ export function UsTile({
 	);
 }
 
+interface ThemTileProps extends TileProps {
+	slug: string;
+	competitor: string;
+}
+
 export function ThemTile({
-	monogram,
-	tileClass,
+	slug,
+	competitor,
 	size = 44,
 	radius = 12,
 	className,
 }: ThemTileProps) {
+	const brand = getBrand(slug);
+
+	if (brand?.mode === "tile") {
+		const { Icon } = brand;
+		return (
+			<div
+				className={cn(
+					"flex shrink-0 items-center justify-center overflow-hidden border border-border/60",
+					className,
+				)}
+				style={{ width: size, height: size, borderRadius: radius }}
+				aria-label={competitor}
+			>
+				<Icon style={{ width: size, height: size }} />
+			</div>
+		);
+	}
+
+	if (brand?.mode === "mark") {
+		const { Icon, colorClass } = brand;
+		return (
+			<div
+				className={cn(
+					"flex shrink-0 items-center justify-center border border-border/60 bg-background",
+					className,
+				)}
+				style={{ width: size, height: size, borderRadius: radius }}
+				aria-label={competitor}
+			>
+				<Icon
+					className={colorClass}
+					style={{
+						width: Math.round(size * 0.6),
+						height: Math.round(size * 0.6),
+					}}
+				/>
+			</div>
+		);
+	}
+
+	// Fallback: initials chip if a brand logo isn't registered.
+	const initials = competitor
+		.replace(/[^A-Za-z0-9]/g, "")
+		.slice(0, 2)
+		.toUpperCase();
 	return (
 		<div
 			className={cn(
-				"flex shrink-0 items-center justify-center font-bold tracking-tight",
-				tileClass,
+				"flex shrink-0 items-center justify-center border border-border/60 bg-muted font-bold tracking-tight text-muted-foreground",
 				className,
 			)}
 			style={{
 				width: size,
 				height: size,
 				borderRadius: radius,
-				fontSize: size * 0.34,
+				fontSize: size * 0.32,
 			}}
-			aria-hidden
+			aria-label={competitor}
 		>
-			{monogram}
+			{initials}
 		</div>
 	);
 }
 
-interface FaceOffProps {
-	monogram: string;
-	tileClass: string;
-	size?: number;
-	radius?: number;
+interface FaceOffProps extends TileProps {
+	slug: string;
+	competitor: string;
 }
 
 export function FaceOff({
-	monogram,
-	tileClass,
+	slug,
+	competitor,
 	size = 44,
 	radius = 12,
 }: FaceOffProps) {
@@ -79,8 +117,8 @@ export function FaceOff({
 				vs
 			</span>
 			<ThemTile
-				monogram={monogram}
-				tileClass={tileClass}
+				slug={slug}
+				competitor={competitor}
 				size={size}
 				radius={radius}
 			/>

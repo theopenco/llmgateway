@@ -91,8 +91,8 @@ export default function CompareIndexPage() {
 							{comparisons.map((entry) => (
 								<ThemTile
 									key={entry.slug}
-									monogram={entry.competitorMonogram}
-									tileClass={entry.competitorTileClass}
+									slug={entry.slug}
+									competitor={entry.competitor}
 									size={44}
 									radius={12}
 								/>
@@ -131,8 +131,8 @@ export default function CompareIndexPage() {
 									>
 										<div className="mb-5">
 											<FaceOff
-												monogram={entry.competitorMonogram}
-												tileClass={entry.competitorTileClass}
+												slug={entry.slug}
+												competitor={entry.competitor}
 												size={40}
 												radius={11}
 											/>

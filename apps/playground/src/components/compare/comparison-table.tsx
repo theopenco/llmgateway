@@ -1,21 +1,19 @@
 import { Check } from "lucide-react";
 
-import { UsTile, ThemTile } from "@/components/compare/logo-faceoff";
+import { ThemTile, UsTile } from "@/components/compare/logo-faceoff";
 import { cn } from "@/lib/utils";
 
 import type { ComparisonRow } from "@/lib/comparisons";
 
 interface ComparisonTableProps {
 	competitor: string;
-	monogram: string;
-	tileClass: string;
+	slug: string;
 	rows: ComparisonRow[];
 }
 
 export function ComparisonTable({
 	competitor,
-	monogram,
-	tileClass,
+	slug,
 	rows,
 }: ComparisonTableProps) {
 	return (
@@ -28,12 +26,7 @@ export function ComparisonTable({
 					<span className="leading-tight">LLM Gateway Chat</span>
 				</div>
 				<div className="flex items-center gap-2 border-l px-4 py-4 sm:px-5">
-					<ThemTile
-						monogram={monogram}
-						tileClass={tileClass}
-						size={24}
-						radius={7}
-					/>
+					<ThemTile slug={slug} competitor={competitor} size={24} radius={7} />
 					<span className="leading-tight">{competitor}</span>
 				</div>
 			</div>
