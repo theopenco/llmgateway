@@ -10,6 +10,12 @@
  * the conversion strategy.
  */
 
+import {
+	CHAT_PLAN_CREDITS_MULTIPLIERS,
+	CHAT_PLAN_PRICES,
+	type ChatPlanTier,
+} from "@llmgateway/shared";
+
 export type CompetitorCategory =
 	| "single-vendor"
 	| "aggregator"
@@ -85,18 +91,26 @@ export interface Comparison {
  * LLM Gateway Chat — our own profile. Kept here so the same facts feed every
  * page and the index. These mirror packages/shared/src/chat-plans.ts.
  */
+/**
+ * Plan facts derived from the shared chat-plan source of truth so a pricing
+ * change in packages/shared/src/chat-plans.ts propagates here automatically.
+ * `value` is the credit allowance at provider rates (price × tapered multiplier).
+ */
+function planFacts(tier: ChatPlanTier) {
+	const price = CHAT_PLAN_PRICES[tier];
+	const multiplier = CHAT_PLAN_CREDITS_MULTIPLIERS[tier];
+	return { price, multiplier, value: price * multiplier };
+}
+
 export const US = {
 	name: "LLM Gateway Chat",
-	short: "LLM Gateway Chat",
 	url: "https://chat.llmgateway.io",
-	monogram: "LG",
-	tileClass: "bg-foreground text-background",
-	plans: {
-		starter: { price: 9, value: 18, multiplier: 2 },
-		plus: { price: 19, value: 47.5, multiplier: 2.5 },
-		pro: { price: 49, value: 147, multiplier: 3 },
-	},
 	modelCount: "280+",
+	plans: {
+		starter: planFacts("starter"),
+		plus: planFacts("plus"),
+		pro: planFacts("pro"),
+	},
 } as const;
 
 export const comparisons: Comparison[] = [
@@ -108,7 +122,7 @@ export const comparisons: Comparison[] = [
 		category: "single-vendor",
 		metaTitle: "LLM Gateway Chat vs ChatGPT — every model, one subscription",
 		metaDescription:
-			"ChatGPT only runs OpenAI models. LLM Gateway Chat gives you GPT, Claude, Gemini, and Grok from one $19/mo subscription — switch models mid-conversation, pay provider rates at 2.5× credit value.",
+			"ChatGPT only runs OpenAI models. LLM Gateway Chat gives you GPT, Claude, Gemini and Grok on one $19/mo subscription — switch models mid-chat.",
 		eyebrow: "Single vendor vs every frontier model",
 		verdict:
 			"ChatGPT is the most polished single-vendor assistant, and at $20/mo Plus you get GPT plus native image and voice. But you only ever get OpenAI models. LLM Gateway Chat runs GPT, Claude, Gemini, and Grok side by side for $19/mo — so you stop paying separate subscriptions to reach the model that's actually best for the task.",
@@ -231,7 +245,7 @@ export const comparisons: Comparison[] = [
 		metaTitle:
 			"LLM Gateway Chat vs Claude — keep Claude, add every other model",
 		metaDescription:
-			"Claude Pro is $20/mo for Anthropic models only, with usage limits and no image generation. LLM Gateway Chat keeps Claude Opus and Sonnet and adds GPT, Gemini, and Grok for $19/mo on one credit balance.",
+			"Claude Pro is $20/mo for Anthropic models only. LLM Gateway Chat keeps Claude and adds GPT, Gemini and Grok on one $19/mo balance — no opaque limits.",
 		eyebrow: "One great model vs all of them",
 		verdict:
 			"Claude is many people's favorite model for writing and code, and Claude Pro at $20/mo is a clean, ad-free experience. The catch is it only runs Anthropic models, it has no native image generation, and its usage limits are famously opaque. LLM Gateway Chat keeps Claude Opus and Sonnet and adds GPT, Gemini, and Grok on one $19/mo balance.",
@@ -355,7 +369,7 @@ export const comparisons: Comparison[] = [
 		category: "single-vendor",
 		metaTitle: "LLM Gateway Chat vs Google Gemini — beyond one model family",
 		metaDescription:
-			"Google AI Pro is $19.99/mo for Gemini only, tied to your Google account. LLM Gateway Chat adds GPT, Claude, and Grok next to Gemini for $19/mo on one credit balance with transparent usage.",
+			"Google AI Pro is $19.99/mo for Gemini only. LLM Gateway Chat puts Gemini next to GPT, Claude and Grok on one $19/mo subscription with clear credits.",
 		eyebrow: "Google's models vs all of them",
 		verdict:
 			"Gemini is a strong, deeply Google-integrated assistant with a massive context window and native video generation, and Google AI Pro is $19.99/mo. But it only runs Google's models and leans on your Google account to feel valuable. LLM Gateway Chat puts Gemini next to GPT, Claude, and Grok for $19/mo on one balance.",
@@ -477,7 +491,7 @@ export const comparisons: Comparison[] = [
 		category: "aggregator",
 		metaTitle: "LLM Gateway Chat vs Poe — multi-model chat without points math",
 		metaDescription:
-			"Poe gives you many models but meters them with confusing compute points that don't roll over. LLM Gateway Chat is $19/mo of transparent provider-rate credits across 280+ models with pay-as-you-go fallback.",
+			"Poe meters every model with confusing compute points. LLM Gateway Chat gives you 280+ models on transparent provider-rate credits for $19/mo.",
 		eyebrow: "Compute points vs transparent credits",
 		verdict:
 			"Poe pioneered multi-model chat and has huge breadth, including user-built bots and group chats. Its weak point, by far the most common complaint, is the compute-points system: every model costs a different, hard-to-predict number of points, nothing rolls over, and frontier models drain your balance fast. LLM Gateway Chat is also one balance across every model, but priced as transparent credits at provider rates.",
@@ -599,7 +613,7 @@ export const comparisons: Comparison[] = [
 		metaTitle:
 			"LLM Gateway Chat vs T3 Chat — multi-model chat with a media studio",
 		metaDescription:
-			"T3 Chat is a fast, $8/mo multi-model chat app with no mobile app, voice, or media generation. LLM Gateway Chat adds image, video, audio, and group chat with transparent provider-rate credits.",
+			"T3 Chat is fast $8/mo multi-model chat with no media generation. LLM Gateway Chat adds image, video, audio and group chat across 280+ models.",
 		eyebrow: "Fast and minimal vs full studio",
 		verdict:
 			"T3 Chat is genuinely excellent at one thing: fast, clean multi-model chat for $8/mo, with bring-your-own-key support. It's also deliberately minimal — no native mobile app, no voice, no persistent memory, and no real media generation. LLM Gateway Chat costs more but adds image, video, and audio generation, group chat, and a transparent credit balance.",
@@ -720,7 +734,7 @@ export const comparisons: Comparison[] = [
 		category: "answer-engine",
 		metaTitle: "LLM Gateway Chat vs Perplexity — a chat app, not a search box",
 		metaDescription:
-			"Perplexity is the best cited-search answer engine, but weak at open-ended chat, creative work, and coding. LLM Gateway Chat is a full multi-model chat and media studio for $19/mo across 280+ models.",
+			"Perplexity is the best answer engine but weak at open-ended chat and coding. LLM Gateway Chat is a full multi-model chat and media studio for $19/mo.",
 		eyebrow: "Cited search vs full multi-model chat",
 		verdict:
 			"Perplexity is the best tool for cited web research — fast, sourced answers to factual questions. But by design it's an answer engine, not a chat partner: it's weaker at open-ended conversation, creative writing, and sustained coding, and it loses the thread in long sessions. LLM Gateway Chat is a general multi-model chat and media studio. They solve different problems.",
@@ -841,7 +855,7 @@ export const comparisons: Comparison[] = [
 		metaTitle:
 			"LLM Gateway Chat vs OpenRouter — a real chat app, not a dev tool",
 		metaDescription:
-			"OpenRouter is a developer API marketplace with a basic, local-only chatroom and a depleting credit balance. LLM Gateway Chat is a polished consumer subscription with media generation and monthly credits at 2.5× value.",
+			"OpenRouter is a developer API with a bare chatroom. LLM Gateway Chat is a polished $19/mo subscription with media generation and monthly credits.",
 		eyebrow: "Metered dev tool vs consumer subscription",
 		verdict:
 			"OpenRouter is the developer's model marketplace — 400+ models behind one API, zero markup on inference, pay-as-you-go credits. Its chatroom exists, but it's a bare playground with local-only history and no consumer subscription. LLM Gateway Chat is the opposite end: a polished chat app with a real monthly subscription, media generation, and credits at 2.5× value.",

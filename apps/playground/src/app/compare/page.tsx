@@ -10,7 +10,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Compare LLM Gateway Chat — vs ChatGPT, Claude, Gemini & more",
 	description:
-		"How LLM Gateway Chat compares to ChatGPT, Claude, Gemini, Poe, T3 Chat, Perplexity, and OpenRouter. Every frontier model on one $19/mo subscription — pricing, models, and limits side by side.",
+		"Compare LLM Gateway Chat to ChatGPT, Claude, Gemini, Poe, Perplexity and OpenRouter — every frontier model on one $19/mo subscription.",
 	alternates: { canonical: "/compare" },
 	openGraph: {
 		title: "Compare LLM Gateway Chat — vs ChatGPT, Claude, Gemini & more",
@@ -18,6 +18,12 @@ export const metadata: Metadata = {
 			"One subscription, every frontier model. See how LLM Gateway Chat stacks up against the AI chat apps you're evaluating.",
 		type: "website",
 		url: "https://chat.llmgateway.io/compare",
+	},
+	twitter: {
+		card: "summary_large_image",
+		title: "Compare LLM Gateway Chat — vs ChatGPT, Claude, Gemini & more",
+		description:
+			"One subscription, every frontier model. See how LLM Gateway Chat stacks up against the AI chat apps you're evaluating.",
 	},
 };
 
@@ -44,8 +50,25 @@ export default function CompareIndexPage() {
 		}))
 		.filter((group) => group.entries.length > 0);
 
+	const itemListSchema = {
+		"@context": "https://schema.org",
+		"@type": "ItemList",
+		name: "LLM Gateway Chat comparisons",
+		itemListElement: comparisons.map((c, index) => ({
+			"@type": "ListItem",
+			position: index + 1,
+			name: `LLM Gateway Chat vs ${c.competitor}`,
+			url: `https://chat.llmgateway.io/compare/${c.slug}`,
+		})),
+	};
+
 	return (
 		<main>
+			<script
+				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+				dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }}
+			/>
 			{/* Hero */}
 			<section className="relative overflow-hidden border-b">
 				<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_50%_-10%,_var(--tw-gradient-stops))] from-muted/70 via-transparent to-transparent" />
