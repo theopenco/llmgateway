@@ -620,15 +620,17 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
 		});
 
-		test("should floor regular credits at 0 instead of going negative", async () => {
-			// Org has fewer credits than the request costs and no dev plan.
+		test("should let default org credits go negative on overage", async () => {
+			// Regular (kind: "default") orgs are allowed to go negative — the
+			// balance is reconciled on the next top-up, so flooring would lose
+			// genuinely incurred usage.
 			await db
 				.update(organization)
-				.set({ credits: "0.01" })
+				.set({ credits: "0.01", kind: "default" })
 				.where(eq(organization.id, testOrg.id));
 
 			await db.insert(log).values({
-				requestId: "test-request-floor",
+				requestId: "test-request-default-negative",
 				organizationId: testOrg.id,
 				projectId: testProject.id,
 				apiKeyId: testApiKey.id,
@@ -650,8 +652,43 @@ describe("Log Processing", () => {
 				where: { id: { eq: testOrg.id } },
 			});
 
-			// Never negative — the overage is written off.
-			expect(Number(updatedOrg!.credits)).toBe(0);
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(-0.04, 10);
+		});
+
+		test("should never touch real credits for non-default (devpass) orgs", async () => {
+			// devpass/chat orgs run on virtual plan credits; the `credits` field
+			// is unused. Usage that drains after the plan was cancelled (no active
+			// pool) must be written off, never subtracted from `credits`.
+			await db
+				.update(organization)
+				.set({ credits: "0.01", kind: "devpass", devPlan: "none" })
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-devpass-writeoff",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Unchanged — written off rather than charged to real credits.
+			expect(Number(updatedOrg!.credits)).toBe(0.01);
 		});
 
 		test("should charge dev plan overflow to virtual credits, not real credits", async () => {
@@ -663,6 +700,7 @@ describe("Log Processing", () => {
 				.update(organization)
 				.set({
 					credits: "0.00",
+					kind: "devpass",
 					devPlan: "pro",
 					devPlanCreditsLimit: "0.02",
 					devPlanCreditsUsed: "0.00",

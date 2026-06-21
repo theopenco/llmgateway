@@ -1289,13 +1289,10 @@ export async function batchProcessLogs(): Promise<number> {
 
 				if (remainingCost.greaterThan(0)) {
 					if (devPool) {
-						// The dev plan is active but its cycle allowance was exhausted
-						// by an in-flight burst that raced past the limit. Charge the
-						// overflow to the dev plan's virtual credits (pushing
-						// devPlanCreditsUsed past the limit) rather than the org's real
-						// credits. Dev-plan users typically hold no real credits, so
-						// spilling here would drive the balance negative for usage the
-						// plan was meant to cover.
+						// Active dev plan whose cycle allowance was exhausted by an
+						// in-flight burst that raced past the limit. Charge the overflow
+						// to the dev plan's virtual credits (pushing devPlanCreditsUsed
+						// past the limit) rather than the org's `credits`.
 						await deductFromPlanPool(
 							orgId,
 							devPool,
@@ -1306,24 +1303,44 @@ export async function batchProcessLogs(): Promise<number> {
 						logger.debug(
 							`Charged ${remainingCost.toString()} overflow to dev plan virtual credits for organization ${orgId}`,
 						);
+					} else if (chatPool) {
+						// Same as above for an active chat plan: keep the overflow on the
+						// chat plan's virtual credits rather than the org's `credits`.
+						await deductFromPlanPool(
+							orgId,
+							chatPool,
+							remainingCost,
+							new Decimal(0),
+						);
+
+						logger.debug(
+							`Charged ${remainingCost.toString()} overflow to chat plan virtual credits for organization ${orgId}`,
+						);
+					} else if (org && org.kind !== "default") {
+						// Non-default orgs (devpass/chat) run entirely on virtual plan
+						// credits — their `credits` field is unused. Never subtract from
+						// it. With no active plan pool to absorb the cost (e.g. usage that
+						// drained after the plan was cancelled and its virtual-credit pool
+						// was torn down), the residual is written off.
+						logger.debug(
+							`Wrote off ${remainingCost.toString()} for non-default organization ${orgId} (no real-credit deduction)`,
+						);
 					} else {
-						// No active dev plan. Never let real credits go negative: an org
-						// that has run out (or never had any) gets the remaining usage
-						// written off instead of driven below zero. This also covers
-						// usage that drains after a dev plan was cancelled and its
-						// virtual-credit pool was already torn down.
+						// Default org: deduct from real credits. This may go negative; the
+						// balance is reconciled when the org next tops up, so flooring here
+						// would lose usage that was genuinely incurred.
 						const costStr = remainingCost.toString();
 						await tx
 							.update(organization)
 							.set({
-								credits: sql`GREATEST(0, ${organization.credits} - ${costStr})`,
+								credits: sql`${organization.credits} - ${costStr}`,
 							})
 							.where(eq(organization.id, orgId));
 
 						deductedOrgIds.push(orgId);
 
 						logger.debug(
-							`Deducted ${costStr} regular credits (floored at 0) from organization ${orgId}`,
+							`Deducted ${costStr} regular credits from organization ${orgId}`,
 						);
 					}
 				}
