@@ -198,9 +198,34 @@ export function RecentLogs({
 	const [sessionId, setSessionId] = useState<string>(
 		searchParams.get("sessionId") ?? "",
 	);
+	const [apiKeyId, setApiKeyId] = useState<string | undefined>(
+		searchParams.get("apiKeyId") ?? undefined,
+	);
 
 	const api = useApi();
 	const deferredModelSearch = useDeferredValue(modelSearch);
+
+	const { data: apiKeysData } = api.useQuery(
+		"get",
+		"/keys/api",
+		{ params: { query: { projectId: projectId ?? "" } } },
+		{
+			enabled: !!projectId,
+			staleTime: 5 * 60 * 1000,
+			refetchOnWindowFocus: false,
+		},
+	);
+
+	const apiKeyOptions = useMemo(
+		() =>
+			(apiKeysData?.apiKeys ?? [])
+				.filter((key) => key.status !== "deleted")
+				.map((key) => ({
+					id: key.id,
+					label: key.description || key.maskedToken,
+				})),
+		[apiKeysData],
+	);
 
 	const scrollPositionRef = useRef<number>(0);
 	const isFilteringRef = useRef<boolean>(false);
@@ -294,6 +319,9 @@ export function RecentLogs({
 	if (sessionId.trim()) {
 		queryParams.sessionId = sessionId.trim();
 	}
+	if (apiKeyId && apiKeyId !== "all") {
+		queryParams.apiKeyId = apiKeyId;
+	}
 	if (projectId) {
 		queryParams.projectId = projectId;
 	}
@@ -306,7 +334,8 @@ export function RecentLogs({
 		model === (searchParams.get("model") ?? undefined) &&
 		customHeaderKey === (searchParams.get("customHeaderKey") ?? "") &&
 		customHeaderValue === (searchParams.get("customHeaderValue") ?? "") &&
-		sessionId === (searchParams.get("sessionId") ?? "");
+		sessionId === (searchParams.get("sessionId") ?? "") &&
+		apiKeyId === (searchParams.get("apiKeyId") ?? undefined);
 
 	const {
 		data,
@@ -470,6 +499,23 @@ export function RecentLogs({
 					<SelectContent>
 						<SelectItem value="all">All providers</SelectItem>
 						{providerOptions.map((option) => (
+							<SelectItem key={option.id} value={option.id}>
+								{option.label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+
+				<Select
+					onValueChange={handleFilterChange("apiKeyId", setApiKeyId)}
+					value={apiKeyId ?? "all"}
+				>
+					<SelectTrigger className="w-[200px]">
+						<SelectValue placeholder="Filter by API key" />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="all">All API keys</SelectItem>
+						{apiKeyOptions.map((option) => (
 							<SelectItem key={option.id} value={option.id}>
 								{option.label}
 							</SelectItem>

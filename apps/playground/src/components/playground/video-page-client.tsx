@@ -602,7 +602,7 @@ export default function VideoPageClient({
 
 	// In the Chat plan context the plan status endpoint is the source of truth
 	// for remaining credits; the org row passed from the server can be stale.
-	const isChatPlanContext = Boolean(selectedOrganization?.isChat);
+	const isChatPlanContext = Boolean(selectedOrganization?.kind === "chat");
 	const { data: chatPlanStatus } = api.useQuery(
 		"get",
 		"/chat-plans/status",

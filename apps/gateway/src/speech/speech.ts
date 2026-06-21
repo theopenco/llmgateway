@@ -592,7 +592,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	if (organization.isPersonal && organization.devPlan !== "none") {
+	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
 			message:
 				"Speech generation is not available for coding plans. Coding plans only include text-based inference.",

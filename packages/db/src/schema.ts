@@ -224,12 +224,17 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
-		// Dev Plans fields (for personal accounts)
-		isPersonal: boolean().notNull().default(false),
-		// Marks the dedicated per-user "Chat" org that backs chat.llmgateway.io.
-		// Like isPersonal, these orgs are hidden from the dashboard org switcher
-		// and cannot be deleted or managed as team orgs.
-		isChat: boolean().notNull().default(false),
+		// Organization kind:
+		// - "default": regular dashboard/team org.
+		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
+		// - "chat": dedicated per-user "Chat" org backing chat.llmgateway.io.
+		// "devpass" and "chat" orgs are hidden from the dashboard org switcher and
+		// cannot be deleted or managed as team orgs.
+		kind: text({
+			enum: ["default", "chat", "devpass"],
+		})
+			.notNull()
+			.default("default"),
 		devPlan: text({
 			enum: ["none", "lite", "pro", "max"],
 		})
@@ -1344,6 +1349,9 @@ export const log = pgTable(
 		index("log_project_id_session_id_idx")
 			.on(table.projectId, table.sessionId, table.createdAt)
 			.where(sql`session_id IS NOT NULL`),
+		// Index for activity-log filtering by api key. api_key_id is globally
+		// unique so it determines the project; no project_id prefix needed.
+		index("log_api_key_id_created_at_idx").on(table.apiKeyId, table.createdAt),
 		index("log_end_customer_wallet_id_created_at_idx")
 			.on(table.endCustomerWalletId, table.createdAt)
 			.where(sql`end_customer_wallet_id IS NOT NULL`),
@@ -1943,7 +1951,10 @@ export const modelProviderMapping = pgTable(
 	},
 	(table) => [
 		unique().on(table.modelId, table.providerId, table.region),
-		index("model_provider_mapping_status_idx").on(table.status),
+		index("model_provider_mapping_status_model_id_idx").on(
+			table.status,
+			table.modelId,
+		),
 	],
 );
 

@@ -67,7 +67,7 @@ async function findPersonalOrg(userId: string) {
 		with: { organization: true },
 	});
 	return (
-		userOrgs.find((uo) => uo.organization?.isPersonal === true)?.organization ??
+		userOrgs.find((uo) => uo.organization?.kind === "devpass")?.organization ??
 		null
 	);
 }
@@ -102,7 +102,7 @@ const getPersonalOrg = createRoute({
 					schema: z.object({
 						id: z.string(),
 						name: z.string(),
-						isPersonal: z.boolean(),
+						kind: z.enum(["default", "chat", "devpass"]),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
@@ -132,7 +132,7 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 	return c.json({
 		id: org.id,
 		name: org.name,
-		isPersonal: org.isPersonal,
+		kind: org.kind,
 		devPlan: org.devPlan,
 		devPlanCreditsUsed: org.devPlanCreditsUsed,
 		devPlanCreditsLimit: org.devPlanCreditsLimit,
@@ -356,7 +356,7 @@ devPlans.openapi(finalize, async (c) => {
 		with: { organization: true },
 	});
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -464,7 +464,7 @@ devPlans.openapi(cancel, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -555,7 +555,7 @@ devPlans.openapi(resume, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -667,7 +667,7 @@ devPlans.openapi(changeTier, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -918,7 +918,7 @@ devPlans.openapi(getStatus, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -1061,7 +1061,7 @@ devPlans.openapi(updateSettings, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -1207,7 +1207,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 
 	if (!personalOrg) {

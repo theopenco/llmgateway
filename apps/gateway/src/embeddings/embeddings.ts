@@ -589,7 +589,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	// so this rejects paid embedding requests from test-mode end-user sessions.
 	assertTestWalletModelAllowed(wallet, modelDef);
 
-	if (organization.isPersonal && organization.devPlan !== "none") {
+	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
 			message:
 				"Embeddings are not available for coding plans. Coding plans only include text-based inference.",

@@ -61,6 +61,18 @@ const anthropicMessageSchema = z.object({
 					content: z.union([z.string(), z.array(z.unknown())]).optional(),
 					is_error: z.boolean().optional(),
 				}),
+				// Extended-thinking blocks echoed back in conversation history. They
+				// carry no value for the internal OpenAI-format request, so they're
+				// accepted here and stripped during transformation.
+				z.object({
+					type: z.literal("thinking"),
+					thinking: z.string(),
+					signature: z.string().optional(),
+				}),
+				z.object({
+					type: z.literal("redacted_thinking"),
+					data: z.string(),
+				}),
 			]),
 		),
 	]),
@@ -527,26 +539,31 @@ anthropic.openapi(messages, async (c) => {
 				// For multi-modal content, or text content with cache_control markers,
 				// transform blocks while preserving cache_control so the inner
 				// completions path can forward it to Anthropic.
-				const content = message.content.map((block) => {
-					if (block.type === "text" && block.text) {
-						return {
-							type: "text",
-							text: block.text,
-							...(block.cache_control && {
-								cache_control: block.cache_control,
-							}),
-						};
-					}
-					if (block.type === "image" && block.source) {
-						return {
-							type: "image_url",
-							image_url: {
-								url: `data:${block.source.media_type};base64,${block.source.data}`,
-							},
-						};
-					}
-					return block;
-				});
+				const content = message.content
+					.filter(
+						(block) =>
+							block.type !== "thinking" && block.type !== "redacted_thinking",
+					)
+					.map((block) => {
+						if (block.type === "text" && block.text) {
+							return {
+								type: "text",
+								text: block.text,
+								...(block.cache_control && {
+									cache_control: block.cache_control,
+								}),
+							};
+						}
+						if (block.type === "image" && block.source) {
+							return {
+								type: "image_url",
+								image_url: {
+									url: `data:${block.source.media_type};base64,${block.source.data}`,
+								},
+							};
+						}
+						return block;
+					});
 
 				openaiMessages.push({
 					role: message.role,

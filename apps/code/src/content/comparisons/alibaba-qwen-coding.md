@@ -4,14 +4,14 @@ slug: alibaba-qwen-coding
 date: 2026-06-02
 title: DevPass vs Alibaba Qwen Coding Plan
 metaTitle: "DevPass vs Alibaba Qwen Coding Plan Compared (2026)"
-description: "DevPass vs Alibaba Cloud's Qwen coding plan compared. Alibaba's plan centers on Qwen3-Coder with high request limits; DevPass is a flat plan for 200+ models — Claude, GPT-5.5, Gemini and Qwen — under one key."
+description: "DevPass vs Alibaba Cloud's Qwen coding plan compared. Alibaba's plan centers on Qwen3-Coder with high request limits; DevPass is a flat plan for 280+ models — Claude, GPT-5.5, Gemini and Qwen — under one key."
 competitor: Alibaba Qwen Coding Plan
 competitorLogo: qwen
 competitorTagline: High-volume access to Qwen3-Coder and partner models
-tagline: "Alibaba's coding plan is built around Qwen3-Coder with huge request limits. DevPass is built around choice — Qwen plus 200+ other models, including the Western flagships."
+tagline: "Alibaba's coding plan is built around Qwen3-Coder with huge request limits. DevPass is built around choice — Qwen plus 280+ other models, including the Western flagships."
 devpassPrice: "$29–$179/mo"
 competitorPrice: Lite / Pro tiers
-verdict: "Alibaba Cloud's Qwen coding plan offers very high request volumes centered on Qwen3-Coder, with a few partner models added in — strong value if Qwen is your main model. DevPass is broader: Qwen is one of 200+ models on every plan, alongside Claude, GPT-5.5 and Gemini, under one key with per-request cost analytics. Pick Alibaba for Qwen-first volume; pick DevPass for full model coverage."
+verdict: "Alibaba Cloud's Qwen coding plan offers very high request volumes centered on Qwen3-Coder, with a few partner models added in — strong value if Qwen is your main model. DevPass is broader: Qwen is one of 280+ models on every plan, alongside Claude, GPT-5.5 and Gemini, under one key with per-request cost analytics. Pick Alibaba for Qwen-first volume; pick DevPass for full model coverage."
 features:
   - label: Pricing model
     devpass: Flat rate + usage allowance
@@ -64,7 +64,7 @@ For a Qwen-first developer who wants maximum volume, it's a serious option.
 
 ## What is DevPass?
 
-DevPass by LLM Gateway is a flat-rate plan covering **200+ models behind one key** — Qwen3-Coder and Qwen3-Max included, plus Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro and the other open-weight coders. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost and latency dashboard, and the freedom to switch between any model mid-session.
+DevPass by LLM Gateway is a flat-rate plan covering **280+ models behind one key** — Qwen3-Coder and Qwen3-Max included, plus Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro and the other open-weight coders. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost and latency dashboard, and the freedom to switch between any model mid-session.
 
 ## Qwen-first volume vs full coverage
 

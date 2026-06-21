@@ -142,20 +142,18 @@ const getModelsRoute = createRoute({
 internalModels.openapi(getModelsRoute, async (c) => {
 	const now = new Date();
 
-	const [models, globalDiscounts] = await Promise.all([
+	const [models, activeMappings, globalDiscounts] = await Promise.all([
 		db.query.model.findMany({
 			where: {
 				status: { eq: "active" },
 			},
-			with: {
-				modelProviderMappings: {
-					where: {
-						status: { eq: "active" },
-					},
-				},
-			},
 			orderBy: {
 				createdAt: "desc",
+			},
+		}),
+		db.query.modelProviderMapping.findMany({
+			where: {
+				status: { eq: "active" },
 			},
 		}),
 		db
@@ -175,6 +173,16 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				),
 			),
 	]);
+
+	const mappingsByModelId = new Map<string, typeof activeMappings>();
+	for (const mapping of activeMappings) {
+		const existing = mappingsByModelId.get(mapping.modelId);
+		if (existing) {
+			existing.push(mapping);
+		} else {
+			mappingsByModelId.set(mapping.modelId, [mapping]);
+		}
+	}
 
 	// Find the best global discount for a given provider+model. Discounts are
 	// always keyed by the root model ID.
@@ -218,7 +226,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	// Transform and apply effective discount
 	const transformedModels = models.map((model) => ({
 		...model,
-		mappings: model.modelProviderMappings.map((mapping) => {
+		mappings: (mappingsByModelId.get(model.id) ?? []).map((mapping) => {
 			const sharedMapping: ProviderModelMapping | null =
 				modelDefinitions
 					.find((modelDefinition) => modelDefinition.id === model.id)

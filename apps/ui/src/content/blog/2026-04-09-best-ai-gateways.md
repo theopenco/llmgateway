@@ -22,7 +22,7 @@ We evaluated seven AI gateways on what actually matters: provider coverage, pric
 
 **Best overall. Open source. Self-hostable.**
 
-[LLM Gateway](https://llmgateway.io) is an open-source API gateway that routes requests to 300+ models across 20+ providers through a single OpenAI-compatible endpoint. Change your base URL, keep your existing code.
+[LLM Gateway](https://llmgateway.io) is an open-source API gateway that routes requests to 280+ models across 35+ providers through a single OpenAI-compatible endpoint. Change your base URL, keep your existing code.
 
 **What sets it apart:**
 
@@ -47,7 +47,7 @@ const client = new OpenAI({
   baseURL: "https://api.llmgateway.io/v1",
 });
 
-// Works with any of 300+ models
+// Works with any of 280+ models
 const response = await client.chat.completions.create({
   model: "claude-sonnet-4-5",
   messages: [{ role: "user", content: "Hello!" }],
@@ -234,7 +234,7 @@ AWS Bedrock provides access to foundation models through AWS infrastructure. It'
 
 **You want full control and no lock-in:** LLM Gateway is the only option that's open source, self-hostable, and charges zero markup on your own keys. You get enterprise features without enterprise pricing.
 
-**You want the widest model selection:** LLM Gateway and OpenRouter both offer extensive catalogs. LLM Gateway covers 300+ models with the added benefit of self-hosting and BYOK.
+**You want the widest model selection:** LLM Gateway and OpenRouter both offer extensive catalogs. LLM Gateway covers 280+ models with the added benefit of self-hosting and BYOK.
 
 **You want observability above all:** Helicone is purpose-built for logging and analytics, though LLM Gateway and Portkey offer comparable dashboards with full gateway capabilities included.
 
@@ -254,4 +254,4 @@ If you want to try the top pick, you can be running in under two minutes:
 
 That's it. Your existing code works. Every request gets logged, cached, and tracked automatically.
 
-**[Create a free account](https://llmgateway.io/signup)** | **[Browse 300+ models](https://llmgateway.io/models)** | **[Read the docs](https://docs.llmgateway.io)**
+**[Create a free account](https://llmgateway.io/signup)** | **[Browse 280+ models](https://llmgateway.io/models)** | **[Read the docs](https://docs.llmgateway.io)**

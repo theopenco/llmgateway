@@ -2073,7 +2073,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	const isDevPlan = Boolean(
-		organization?.isPersonal && organization.devPlan !== "none",
+		organization?.kind === "devpass" && organization.devPlan !== "none",
 	);
 
 	// A routing strategy only has meaning for multi-provider model-id routing.
@@ -2328,7 +2328,7 @@ chat.openapi(completions, async (c) => {
 	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
 	// model qualifies as coding overall but the named mapping itself is uncached.
 	const isDevPlanRestricted = Boolean(
-		organization?.isPersonal &&
+		organization?.kind === "devpass" &&
 			organization.devPlan !== "none" &&
 			!organization.devPlanAllowAllModels,
 	);
@@ -2338,7 +2338,7 @@ chat.openapi(completions, async (c) => {
 	// the `source` value is still normalized and recorded in logs above, so we
 	// get correct x-source attribution without blocking any requests.
 	const isDevPlanSourceRestricted = Boolean(
-		organization?.isPersonal &&
+		organization?.kind === "devpass" &&
 			organization.devPlan !== "none" &&
 			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
 	);
@@ -2374,11 +2374,11 @@ chat.openapi(completions, async (c) => {
 
 	// Chat plan Starter tier is restricted to non-premium models. Plus and Pro
 	// tiers have access to everything. This applies to all requests on a
-	// personal org with chatPlan === "starter" — there's no per-request
+	// chat org with chatPlan === "starter" — there's no per-request
 	// "promote to regular credits" path, so an unrestricted Starter would
-	// silently burn dev-plan/regular credits instead of nudging the upgrade.
+	// silently burn chat-plan/regular credits instead of nudging the upgrade.
 	const isStarterChatPlan = Boolean(
-		organization?.isPersonal && organization.chatPlan === "starter",
+		organization?.kind === "chat" && organization.chatPlan === "starter",
 	);
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {

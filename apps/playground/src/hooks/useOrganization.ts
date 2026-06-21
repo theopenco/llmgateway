@@ -20,7 +20,7 @@ export function useOrganization() {
 	// chat plan live on the dedicated Chat org, so prefer it over dashboard orgs.
 	const organizations = orgsData?.organizations ?? [];
 	const organization: Organization | null =
-		organizations.find((o) => o.isChat) ?? organizations[0] ?? null;
+		organizations.find((o) => o.kind === "chat") ?? organizations[0] ?? null;
 
 	return {
 		organization,

@@ -14,6 +14,7 @@ import {
 	gte,
 	lt,
 	and,
+	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -138,6 +139,60 @@ function mergeMappingMinuteStats(
 		source.totalTimeToFirstReasoningToken;
 	target.totalCost += source.totalCost;
 	return target;
+}
+
+// Metric columns shared by model_history and model_provider_mapping_history that
+// are overwritten on conflict. Used to build a single bulk upsert SET clause so
+// the per-minute history write is one statement instead of one round-trip (and
+// one implicit transaction/fsync) per model and per mapping.
+const HISTORY_METRIC_COLUMNS = [
+	"logsCount",
+	"errorsCount",
+	"clientErrorsCount",
+	"gatewayErrorsCount",
+	"upstreamErrorsCount",
+	"completedCount",
+	"lengthLimitCount",
+	"contentFilterCount",
+	"toolCallsCount",
+	"canceledCount",
+	"unknownFinishCount",
+	"cachedCount",
+	"totalInputTokens",
+	"totalOutputTokens",
+	"totalTokens",
+	"totalReasoningTokens",
+	"totalCachedTokens",
+	"totalDuration",
+	"totalTimeToFirstToken",
+	"totalTimeToFirstReasoningToken",
+	"totalCost",
+] as const;
+
+// Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
+// parameters; history rows have ~25 columns, so 1000 rows stays well under it.
+const HISTORY_UPSERT_CHUNK_SIZE = 1000;
+
+// The schema uses Drizzle's global `casing: "snake_case"`, so a column's `.name`
+// is the camelCase logical name and the snake_case DB name is only resolved at
+// SQL-build time. The raw `excluded.<column>` reference below needs the actual
+// DB column name, so convert it the same way Drizzle does.
+function toSnakeCase(name: string): string {
+	return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+// Build the ON CONFLICT DO UPDATE SET clause for a history table, taking each
+// metric value from the row being inserted (`excluded`) so a single multi-row
+// statement updates every conflicting row correctly.
+function buildHistoryUpsertSet(
+	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], { name: string }>,
+): Record<string, SQL> {
+	const set: Record<string, SQL> = {};
+	for (const key of HISTORY_METRIC_COLUMNS) {
+		set[key] = sql`excluded.${sql.identifier(toSnakeCase(columns[key].name))}`;
+	}
+	set.updatedAt = sql`now()`;
+	return set;
 }
 
 /**
@@ -317,6 +372,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 
 	// Process all models
 	const processedModels = new Set<string>();
+	const modelHistoryValues: (typeof modelHistory.$inferInsert)[] = [];
 
 	for (const modelEntry of allModels) {
 		if (processedModels.has(modelEntry.modelId)) {
@@ -350,60 +406,48 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			stat?.totalTimeToFirstReasoningToken ?? 0;
 		const totalCost = stat?.totalCost ?? 0;
 
-		// Insert or update a history record for this minute
+		// Collect the history record for this minute; written in one bulk upsert
+		// below instead of a per-model round-trip.
+		modelHistoryValues.push({
+			modelId: modelEntry.modelId,
+			minuteTimestamp: roundedTargetMinute,
+			logsCount,
+			errorsCount,
+			clientErrorsCount,
+			gatewayErrorsCount,
+			upstreamErrorsCount,
+			completedCount,
+			lengthLimitCount,
+			contentFilterCount,
+			toolCallsCount,
+			canceledCount,
+			unknownFinishCount,
+			cachedCount,
+			totalInputTokens,
+			totalOutputTokens,
+			totalTokens,
+			totalReasoningTokens,
+			totalCachedTokens,
+			totalDuration,
+			totalTimeToFirstToken,
+			totalTimeToFirstReasoningToken,
+			totalCost,
+		});
+	}
+
+	const modelHistoryUpsertSet = buildHistoryUpsertSet(modelHistory);
+	for (
+		let i = 0;
+		i < modelHistoryValues.length;
+		i += HISTORY_UPSERT_CHUNK_SIZE
+	) {
+		const chunk = modelHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
 		await database
 			.insert(modelHistory)
-			.values({
-				modelId: modelEntry.modelId,
-				minuteTimestamp: roundedTargetMinute,
-				logsCount,
-				errorsCount,
-				clientErrorsCount,
-				gatewayErrorsCount,
-				upstreamErrorsCount,
-				completedCount,
-				lengthLimitCount,
-				contentFilterCount,
-				toolCallsCount,
-				canceledCount,
-				unknownFinishCount,
-				cachedCount,
-				totalInputTokens,
-				totalOutputTokens,
-				totalTokens,
-				totalReasoningTokens,
-				totalCachedTokens,
-				totalDuration,
-				totalTimeToFirstToken,
-				totalTimeToFirstReasoningToken,
-				totalCost,
-			})
+			.values(chunk)
 			.onConflictDoUpdate({
 				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
-				set: {
-					logsCount,
-					errorsCount,
-					clientErrorsCount,
-					gatewayErrorsCount,
-					upstreamErrorsCount,
-					completedCount,
-					lengthLimitCount,
-					contentFilterCount,
-					toolCallsCount,
-					canceledCount,
-					unknownFinishCount,
-					cachedCount,
-					totalInputTokens,
-					totalOutputTokens,
-					totalTokens,
-					totalReasoningTokens,
-					totalCachedTokens,
-					totalDuration,
-					totalTimeToFirstToken,
-					totalTimeToFirstReasoningToken,
-					totalCost,
-					updatedAt: new Date(),
-				},
+				set: modelHistoryUpsertSet,
 			});
 	}
 
@@ -594,6 +638,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 
 	// Process all model-provider mappings
 	const processedMappings = new Set<string>();
+	const mappingHistoryValues: (typeof modelProviderMappingHistory.$inferInsert)[] =
+		[];
 
 	let activeMappingsCount = 0;
 
@@ -635,65 +681,55 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			activeMappingsCount++;
 		}
 
-		// Insert or update a history record for this minute
+		// Collect the history record for this minute; written in one bulk upsert
+		// below instead of a per-mapping round-trip.
+		mappingHistoryValues.push({
+			modelId: mapping.modelId, // LLMGateway model name
+			providerId: mapping.providerId,
+			modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
+			minuteTimestamp: roundedTargetMinute,
+			logsCount,
+			errorsCount,
+			clientErrorsCount,
+			gatewayErrorsCount,
+			upstreamErrorsCount,
+			completedCount,
+			lengthLimitCount,
+			contentFilterCount,
+			toolCallsCount,
+			canceledCount,
+			unknownFinishCount,
+			cachedCount,
+			totalInputTokens,
+			totalOutputTokens,
+			totalTokens,
+			totalReasoningTokens,
+			totalCachedTokens,
+			totalDuration,
+			totalTimeToFirstToken,
+			totalTimeToFirstReasoningToken,
+			totalCost,
+		});
+	}
+
+	const mappingHistoryUpsertSet = buildHistoryUpsertSet(
+		modelProviderMappingHistory,
+	);
+	for (
+		let i = 0;
+		i < mappingHistoryValues.length;
+		i += HISTORY_UPSERT_CHUNK_SIZE
+	) {
+		const chunk = mappingHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
 		await database
 			.insert(modelProviderMappingHistory)
-			.values({
-				modelId: mapping.modelId, // LLMGateway model name
-				providerId: mapping.providerId,
-				modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
-				minuteTimestamp: roundedTargetMinute,
-				logsCount,
-				errorsCount,
-				clientErrorsCount,
-				gatewayErrorsCount,
-				upstreamErrorsCount,
-				completedCount,
-				lengthLimitCount,
-				contentFilterCount,
-				toolCallsCount,
-				canceledCount,
-				unknownFinishCount,
-				cachedCount,
-				totalInputTokens,
-				totalOutputTokens,
-				totalTokens,
-				totalReasoningTokens,
-				totalCachedTokens,
-				totalDuration,
-				totalTimeToFirstToken,
-				totalTimeToFirstReasoningToken,
-				totalCost,
-			})
+			.values(chunk)
 			.onConflictDoUpdate({
 				target: [
 					modelProviderMappingHistory.modelProviderMappingId,
 					modelProviderMappingHistory.minuteTimestamp,
 				],
-				set: {
-					logsCount,
-					errorsCount,
-					clientErrorsCount,
-					gatewayErrorsCount,
-					upstreamErrorsCount,
-					completedCount,
-					lengthLimitCount,
-					contentFilterCount,
-					toolCallsCount,
-					canceledCount,
-					unknownFinishCount,
-					cachedCount,
-					totalInputTokens,
-					totalOutputTokens,
-					totalTokens,
-					totalReasoningTokens,
-					totalCachedTokens,
-					totalDuration,
-					totalTimeToFirstToken,
-					totalTimeToFirstReasoningToken,
-					totalCost,
-					updatedAt: new Date(),
-				},
+				set: mappingHistoryUpsertSet,
 			});
 	}
 

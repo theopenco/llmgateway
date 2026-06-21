@@ -503,6 +503,13 @@ export async function aggregateHistoricalStats() {
 						staleStart
 							? sql`${projectHourlyStats.hourTimestamp} >= ${staleStart}::timestamp`
 							: undefined,
+						// A bucket can only be stale if it was last aggregated before its
+						// hour ended: a log in [hour, hour+1h) can only be newer than
+						// updatedAt when updatedAt < hour+1h. This is implied by the EXISTS
+						// below, but stating it as a single-table predicate lets Postgres
+						// prune settled buckets during the scan instead of running the
+						// correlated log lookup for every recent bucket.
+						sql`${projectHourlyStats.updatedAt} < ${projectHourlyStats.hourTimestamp} + interval '1 hour'`,
 						sql`EXISTS (
 							SELECT 1 FROM ${log}
 							WHERE ${log.projectId} = ${projectHourlyStats.projectId}

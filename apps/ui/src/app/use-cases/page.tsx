@@ -12,12 +12,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Use Cases — What You Can Build with LLM Gateway",
 	description:
-		"Coding agents, AI customer support, RAG and document Q&A, and AI cost optimization — see how teams build on LLM Gateway's one API for 200+ models, with fallback, caching and analytics.",
+		"Coding agents, AI customer support, RAG and document Q&A, and AI cost optimization — see how teams build on LLM Gateway's one API for 280+ models, with fallback, caching and analytics.",
 	alternates: { canonical: "/use-cases" },
 	openGraph: {
 		title: "Use Cases — What You Can Build with LLM Gateway",
 		description:
-			"Coding agents, AI customer support, RAG, and cost optimization on one API for 200+ models with fallback, caching and analytics.",
+			"Coding agents, AI customer support, RAG, and cost optimization on one API for 280+ models with fallback, caching and analytics.",
 		type: "website",
 		url: "https://llmgateway.io/use-cases",
 		images: ["/opengraph.png"],
@@ -46,7 +46,7 @@ export default function UseCasesIndexPage() {
 								What you can build with LLM Gateway
 							</h1>
 							<p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-								One OpenAI-compatible API for 200+ models — with automatic
+								One OpenAI-compatible API for 280+ models — with automatic
 								fallback, prompt caching, and per-request cost analytics.
 								Here&apos;s what teams build on it.
 							</p>
