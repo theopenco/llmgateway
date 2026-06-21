@@ -2101,6 +2101,92 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			],
 		});
 	});
+	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-8",
+			null,
+			"anthropic.claude-opus-4-8",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17, unit: "celsius" }),
+				},
+				{ role: "user", content: "Thanks, what should I wear?" },
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined, // tools omitted on the follow-up turn
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		// Bedrock requires toolConfig whenever toolUse/toolResult blocks are
+		// present in the history, so it must be synthesized from the tool
+		// names seen in the assistant toolUse blocks.
+		expect(requestBody.toolConfig).toEqual({
+			tools: [
+				{
+					toolSpec: {
+						name: "get_weather",
+						inputSchema: {
+							json: {
+								type: "object",
+								properties: {},
+							},
+						},
+					},
+				},
+			],
+		});
+	});
+
+	test("does not synthesize toolConfig when history has no tool blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-8",
+			null,
+			"anthropic.claude-opus-4-8",
+			[{ role: "user", content: "Hello there" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
