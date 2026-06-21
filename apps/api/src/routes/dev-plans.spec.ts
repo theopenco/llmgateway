@@ -52,7 +52,7 @@ describe("dev plan tier changes", () => {
 			name: "Personal Org",
 			billingEmail: "admin@example.com",
 			stripeCustomerId: "cus_dev_plan",
-			isPersonal: true,
+			kind: "devpass",
 			devPlan: "lite",
 			devPlanCreditsUsed: "12.5",
 			devPlanCreditsLimit: "87",
