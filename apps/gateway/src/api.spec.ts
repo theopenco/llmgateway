@@ -306,6 +306,42 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/messages mirrors Anthropic's rejection of budget thinking on adaptive-only models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "claude-opus-4-8",
+				max_tokens: 1024,
+				thinking: { type: "enabled", budget_tokens: 8000 },
+				messages: [{ role: "user", content: "What is 2+2?" }],
+			}),
+		});
+
+		// Opus 4.6+ are adaptive-only and reject `thinking.type: "enabled"`. The
+		// gateway passes Anthropic's 400 through verbatim instead of silently
+		// translating the (unsupported) budget into adaptive thinking.
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain("thinking.type.adaptive");
+	});
+
 	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
 		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
 		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.
