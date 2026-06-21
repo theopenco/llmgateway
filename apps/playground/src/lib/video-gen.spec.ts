@@ -315,3 +315,97 @@ describe("Seedance 2.0 reference capabilities", () => {
 		expect(options.durations).toHaveLength(0);
 	});
 });
+
+describe("AtlasCloud KLING v3.0 frame capabilities", () => {
+	function makeAtlasCloudKlingMapping(
+		overrides: Partial<ApiModelProviderMapping> = {},
+	): ApiModelProviderMapping {
+		return makeMapping({
+			modelId: "kling-v3-0",
+			providerId: "atlascloud",
+			externalId: "kwaivgi/kling-v3.0",
+			supportedVideoSizes: [
+				"1280x720",
+				"720x1280",
+				"1920x1080",
+				"1080x1920",
+				"3840x2160",
+				"2160x3840",
+			],
+			supportedVideoDurationsSeconds: [5, 10],
+			supportedVideoDurationsSecondsImageToVideo: null,
+			...overrides,
+		});
+	}
+
+	test("supportsVideoFrameInput is true for AtlasCloud Kling", () => {
+		expect(supportsVideoFrameInput("kling-v3-0")).toBe(true);
+		expect(supportsVideoFrameInput("kling-v3-0-turbo")).toBe(true);
+		expect(supportsVideoFrameInput("atlascloud/kling-v3-0")).toBe(true);
+		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-turbo")).toBe(true);
+		expect(supportsVideoFrameInput("openai/kling-v3-0")).toBe(false);
+	});
+
+	test("frame mode keeps AtlasCloud Kling 5s and 10s options", () => {
+		const model = makeModel([makeAtlasCloudKlingMapping()], "kling-v3-0");
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["kling-v3-0"],
+			"frames",
+		);
+
+		expect(options.sizes).toContain("1280x720");
+		expect(options.sizes).toContain("3840x2160");
+		expect(options.durations).toEqual([5, 10]);
+	});
+
+	test("frame mode does not offer 4K for AtlasCloud Kling Turbo", () => {
+		const model = makeModel(
+			[
+				makeAtlasCloudKlingMapping({
+					modelId: "kling-v3-0-turbo",
+					externalId: "kwaivgi/kling-v3.0-turbo",
+					supportedVideoSizes: [
+						"1280x720",
+						"720x1280",
+						"1920x1080",
+						"1080x1920",
+					],
+				}),
+			],
+			"kling-v3-0-turbo",
+		);
+		const options = getSupportedVideoRequestOptions(
+			[model],
+			["kling-v3-0-turbo"],
+			"frames",
+		);
+
+		expect(options.sizes).toContain("1920x1080");
+		expect(options.sizes).not.toContain("3840x2160");
+		expect(options.sizes).not.toContain("2160x3840");
+		expect(options.durations).toEqual([5, 10]);
+	});
+});
+
+describe("Grok Imagine Video 1.5 capabilities", () => {
+	test("supportsVideoFrameInput is true for grok-imagine-video-1-5", () => {
+		expect(supportsVideoFrameInput("grok-imagine-video-1-5")).toBe(true);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1-5")).toBe(true);
+	});
+
+	test("supportsVideoFrameInput is true for grok-imagine-video-1-5-preview", () => {
+		expect(supportsVideoFrameInput("grok-imagine-video-1-5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1-5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("grok-imagine-video-1.5-preview")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("xai/grok-imagine-video-1.5-preview")).toBe(
+			true,
+		);
+	});
+});

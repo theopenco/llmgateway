@@ -23,6 +23,7 @@ import {
 	cdb as db,
 	apiKey as apiKeyTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
+	customModel as customModelTable,
 	discount as discountTable,
 	endCustomer as endCustomerTable,
 	endUserSession as endUserSessionTable,
@@ -49,6 +50,7 @@ import type { InferSelectModel } from "@llmgateway/db";
 import type {
 	apiKey,
 	apiKeyIamRule,
+	customModel,
 	endUserSession,
 	organization,
 	project,
@@ -62,6 +64,7 @@ import type {
 type ApiKey = InferSelectModel<typeof apiKey>;
 type EndUserSession = InferSelectModel<typeof endUserSession>;
 type ApiKeyIamRule = InferSelectModel<typeof apiKeyIamRule>;
+export type CustomModel = InferSelectModel<typeof customModel>;
 type Organization = InferSelectModel<typeof organization>;
 type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
@@ -77,6 +80,7 @@ const endUserSessionTableName = getTableName(endUserSessionTable);
 const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
+const customModelTableName = getTableName(customModelTable);
 const rateLimitTableName = getTableName(rateLimitTable);
 const userTableName = getTableName(userTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
@@ -418,6 +422,35 @@ export async function findCustomProviderKey(
 				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
 	);
 	return selectProviderKeyWithFailover(results, selectionScope, excludedKeyIds);
+}
+
+/**
+ * Find a single active custom model catalog entry for a provider key (cacheable).
+ *
+ * Custom models are matched by exact `modelName` (the id used after the provider
+ * prefix). Returns undefined when no catalog entry exists for that model.
+ */
+export async function findCustomModel(
+	providerKeyId: string,
+	modelName: string,
+): Promise<CustomModel | undefined> {
+	const results = await swrWrap(
+		`customModel:${providerKeyId}:${modelName}`,
+		[customModelTableName],
+		async () =>
+			await db
+				.select()
+				.from(customModelTable)
+				.where(
+					and(
+						eq(customModelTable.status, "active"),
+						eq(customModelTable.providerKeyId, providerKeyId),
+						eq(customModelTable.modelName, modelName),
+					),
+				)
+				.limit(1),
+	);
+	return results[0];
 }
 
 /**

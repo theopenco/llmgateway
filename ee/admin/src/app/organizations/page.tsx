@@ -254,6 +254,7 @@ export default async function OrganizationsPage({
 									search={search}
 								/>
 							</TableHead>
+							<TableHead>Kind</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Plan"
@@ -324,7 +325,7 @@ export default async function OrganizationsPage({
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={11}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -344,6 +345,13 @@ export default async function OrganizationsPage({
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{org.billingEmail}
+									</TableCell>
+									<TableCell>
+										<Badge
+											variant={org.kind === "default" ? "outline" : "secondary"}
+										>
+											{org.kind}
+										</Badge>
 									</TableCell>
 									<TableCell>
 										<Badge variant={getPlanBadgeVariant(org.plan)}>

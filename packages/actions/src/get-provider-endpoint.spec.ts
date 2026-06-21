@@ -244,7 +244,7 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"azure-ai-foundry",
 				undefined,
-				"grok-4.3",
+				"grok-4-3",
 			);
 
 			expect(endpoint).toBe(
@@ -660,7 +660,7 @@ describe("getProviderEndpoint", () => {
 				const endpoint = getProviderEndpoint(
 					"aws-bedrock",
 					undefined,
-					"grok-4.3",
+					"grok-4-3",
 					undefined,
 					false,
 					undefined,
@@ -670,7 +670,7 @@ describe("getProviderEndpoint", () => {
 					undefined,
 					region,
 					true,
-					"grok-4.3",
+					"grok-4-3",
 				);
 
 				expect(endpoint).toBe(expectedEndpoint);
@@ -681,7 +681,7 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"aws-bedrock",
 				"https://bedrock-proxy.internal/openai/v1",
-				"grok-4.3",
+				"grok-4-3",
 				undefined,
 				false,
 				undefined,
@@ -691,7 +691,7 @@ describe("getProviderEndpoint", () => {
 				undefined,
 				"us-west-2",
 				true,
-				"grok-4.3",
+				"grok-4-3",
 			);
 
 			expect(endpoint).toBe(

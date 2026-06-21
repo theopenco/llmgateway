@@ -33,7 +33,11 @@ import {
 	createCompletionEvents,
 	createFailedEvent,
 } from "./tools/convert-streaming-to-responses.js";
-import { storeResponse, getStoredResponse } from "./tools/response-state.js";
+import {
+	storeResponse,
+	getStoredResponse,
+	resolveItemReferences,
+} from "./tools/response-state.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -216,6 +220,11 @@ responses.post("/", async (c) => {
 			req.instructions = stored.instructions;
 		}
 	}
+
+	// Resolve any item_reference items (e.g. a function_call the gateway emitted
+	// in a prior response that a stateful client references instead of resending)
+	// back to their concrete stored items before conversion.
+	inputItems = await resolveItemReferences(inputItems, projectId);
 
 	// Convert Responses API input to chat completions messages
 	const messages = convertResponsesInputToMessages(
@@ -429,16 +438,20 @@ responses.post("/", async (c) => {
 							completionEvents[completionEvents.length - 1]!.data,
 						);
 						const completedResponse = completedData.response;
-						await storeResponse(logId, {
-							id: logId,
-							input: inputItems,
-							output: completedResponse?.output ?? [],
-							instructions: req.instructions,
-							model: req.model,
-							status: completedResponse?.status ?? "completed",
-							usage: completedResponse?.usage,
-							created_at: completedResponse?.created_at,
-						});
+						await storeResponse(
+							logId,
+							{
+								id: logId,
+								input: inputItems,
+								output: completedResponse?.output ?? [],
+								instructions: req.instructions,
+								model: req.model,
+								status: completedResponse?.status ?? "completed",
+								usage: completedResponse?.usage,
+								created_at: completedResponse?.created_at,
+							},
+							projectId,
+						);
 					}
 					return true;
 				}
@@ -513,18 +526,25 @@ responses.post("/", async (c) => {
 
 	// Store for previous_response_id (unless store: false)
 	if (shouldStore) {
-		await storeResponse(logId, {
-			id: logId,
-			input: inputItems,
-			output: responsesResponse.output,
-			instructions: req.instructions,
-			model: req.model,
-			status: responsesResponse.status as "completed" | "incomplete" | "failed",
-			usage: (responsesResponse.usage ?? undefined) as
-				| Record<string, unknown>
-				| undefined,
-			created_at: responsesResponse.created_at,
-		});
+		await storeResponse(
+			logId,
+			{
+				id: logId,
+				input: inputItems,
+				output: responsesResponse.output,
+				instructions: req.instructions,
+				model: req.model,
+				status: responsesResponse.status as
+					| "completed"
+					| "incomplete"
+					| "failed",
+				usage: (responsesResponse.usage ?? undefined) as
+					| Record<string, unknown>
+					| undefined,
+				created_at: responsesResponse.created_at,
+			},
+			projectId,
+		);
 	}
 
 	return c.json(responsesResponse);
@@ -641,6 +661,8 @@ responses.post("/compact", async (c) => {
 		}
 	}
 
+	inputItems = await resolveItemReferences(inputItems, project.id);
+
 	if (inputItems.length === 0) {
 		return c.json(
 			{
@@ -752,16 +774,20 @@ responses.post("/compact", async (c) => {
 		createdAt,
 	);
 
-	await storeResponse(compactionId, {
-		id: compactionId,
-		input: inputItems,
-		output: compactionResponse.output,
-		instructions: req.instructions,
-		model: req.model,
-		status: "completed",
-		usage: compactionResponse.usage as unknown as Record<string, unknown>,
-		created_at: createdAt,
-	});
+	await storeResponse(
+		compactionId,
+		{
+			id: compactionId,
+			input: inputItems,
+			output: compactionResponse.output,
+			instructions: req.instructions,
+			model: req.model,
+			status: "completed",
+			usage: compactionResponse.usage as unknown as Record<string, unknown>,
+			created_at: createdAt,
+		},
+		project.id,
+	);
 
 	return c.json(compactionResponse);
 });

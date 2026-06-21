@@ -9,6 +9,13 @@ import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import { notDevpassFilter } from "@/utils/devpass-filter.js";
+import {
+	HOURLY_BUCKET_THRESHOLD_MINUTES,
+	floorToHourStart,
+	isHourlyRange,
+	pickMappingHistoryTable,
+	pickModelHistoryTable,
+} from "@/utils/history-window.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -36,6 +43,8 @@ import {
 	globalSourceStats,
 	modelProviderMappingHistory,
 	modelHistory,
+	modelProviderMappingHistoryHourly,
+	modelHistoryHourly,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
@@ -123,6 +132,7 @@ const organizationSchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	billingEmail: z.string(),
+	kind: z.enum(["default", "chat", "devpass"]),
 	plan: z.string(),
 	devPlan: z.string(),
 	credits: z.string(),
@@ -670,7 +680,7 @@ admin.openapi(getMetrics, async (c) => {
 					WHERE t.organization_id = ${tables.organization.id}
 					AND (
 						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
-						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.isPersonal} = true)
+						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.kind} = 'devpass')
 					)
 				)`,
 			),
@@ -1715,6 +1725,7 @@ admin.openapi(getOrganizations, async (c) => {
 			id: tables.organization.id,
 			name: tables.organization.name,
 			billingEmail: tables.organization.billingEmail,
+			kind: tables.organization.kind,
 			plan: tables.organization.plan,
 			devPlan: tables.organization.devPlan,
 			credits: tables.organization.credits,
@@ -1751,6 +1762,7 @@ admin.openapi(getOrganizations, async (c) => {
 			id: org.id,
 			name: org.name,
 			billingEmail: org.billingEmail,
+			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
 			credits: String(org.credits),
@@ -1940,6 +1952,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			id: org.id,
 			name: org.name,
 			billingEmail: org.billingEmail,
+			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
 			credits: String(org.credits),
@@ -2019,6 +2032,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			id: org.id,
 			name: org.name,
 			billingEmail: org.billingEmail,
+			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
 			credits: String(org.credits),
@@ -3945,43 +3959,39 @@ admin.openapi(getProviderStats, async (c) => {
 			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
 		}
 
+		// Ranges longer than 24h aggregate the hourly rollup so a full-window
+		// scan across every provider doesn't read minute rows.
+		const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
+			isHourlyRange(startDate, endDateExclusive),
+		);
 		const providerStatsSub = db
 			.select({
-				providerId: modelProviderMappingHistory.providerId,
-				logsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
-						"logsCount",
-					),
-				errorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-						"errorsCount",
-					),
-				cachedCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
-						"cachedCount",
-					),
+				providerId: mph.providerId,
+				logsCount: sql<number>`COALESCE(SUM(${mph.logsCount}), 0)`.as(
+					"logsCount",
+				),
+				errorsCount: sql<number>`COALESCE(SUM(${mph.errorsCount}), 0)`.as(
+					"errorsCount",
+				),
+				cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
+					"cachedCount",
+				),
 				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${modelProviderMappingHistory.totalTokens} AS NUMERIC)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${mph.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
-						"totalCost",
-					),
+				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
+					"totalCost",
+				),
 				avgTimeToFirstToken: sql<
 					number | null
-				>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+				>`CASE WHEN SUM(${mph.logsCount}) - SUM(${mph.cachedCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / (SUM(${mph.logsCount}) - SUM(${mph.cachedCount})) ELSE NULL END`.as(
 					"avgTimeToFirstToken",
 				),
 			})
-			.from(modelProviderMappingHistory)
-			.where(
-				and(
-					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
-					lt(modelProviderMappingHistory.minuteTimestamp, endDateExclusive),
-				),
-			)
-			.groupBy(modelProviderMappingHistory.providerId)
+			.from(mph)
+			.where(and(gte(mphTs, startDate), lt(mphTs, endDateExclusive)))
+			.groupBy(mph.providerId)
 			.as("provider_stats_sub");
 
 		const orderFn = sortOrder === "asc" ? asc : desc;
@@ -4257,48 +4267,46 @@ admin.openapi(getModelStats, async (c) => {
 			endDateExclusive.setDate(endDateExclusive.getDate() + 1);
 		}
 
+		// Ranges longer than 24h aggregate the hourly rollup so a full-window
+		// scan across every model doesn't read minute rows.
+		const { table: mh, bucket: mhTs } = pickModelHistoryTable(
+			isHourlyRange(startDate, endDateExclusive),
+		);
 		const modelAggSub = db
 			.select({
-				modelId: modelHistory.modelId,
-				logsCount: sql<number>`COALESCE(SUM(${modelHistory.logsCount}), 0)`.as(
+				modelId: mh.modelId,
+				logsCount: sql<number>`COALESCE(SUM(${mh.logsCount}), 0)`.as(
 					"logsCount",
 				),
-				errorsCount:
-					sql<number>`COALESCE(SUM(${modelHistory.errorsCount}), 0)`.as(
-						"errorsCount",
-					),
+				errorsCount: sql<number>`COALESCE(SUM(${mh.errorsCount}), 0)`.as(
+					"errorsCount",
+				),
 				clientErrorsCount:
-					sql<number>`COALESCE(SUM(${modelHistory.clientErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mh.clientErrorsCount}), 0)`.as(
 						"clientErrorsCount",
 					),
 				gatewayErrorsCount:
-					sql<number>`COALESCE(SUM(${modelHistory.gatewayErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mh.gatewayErrorsCount}), 0)`.as(
 						"gatewayErrorsCount",
 					),
 				upstreamErrorsCount:
-					sql<number>`COALESCE(SUM(${modelHistory.upstreamErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mh.upstreamErrorsCount}), 0)`.as(
 						"upstreamErrorsCount",
 					),
-				cachedCount:
-					sql<number>`COALESCE(SUM(${modelHistory.cachedCount}), 0)`.as(
-						"cachedCount",
-					),
+				cachedCount: sql<number>`COALESCE(SUM(${mh.cachedCount}), 0)`.as(
+					"cachedCount",
+				),
 				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${modelHistory.totalTokens} AS NUMERIC)), 0)`.as(
+					sql<number>`COALESCE(SUM(CAST(${mh.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
-				totalCost: sql<number>`COALESCE(SUM(${modelHistory.totalCost}), 0)`.as(
+				totalCost: sql<number>`COALESCE(SUM(${mh.totalCost}), 0)`.as(
 					"totalCost",
 				),
 			})
-			.from(modelHistory)
-			.where(
-				and(
-					gte(modelHistory.minuteTimestamp, startDate),
-					lt(modelHistory.minuteTimestamp, endDateExclusive),
-				),
-			)
-			.groupBy(modelHistory.modelId)
+			.from(mh)
+			.where(and(gte(mhTs, startDate), lt(mhTs, endDateExclusive)))
+			.groupBy(mh.modelId)
 			.as("model_agg_sub");
 
 		const providerCountSub = db
@@ -4605,26 +4613,39 @@ const historyWindowSchema = z.enum([
 	"12h",
 	"24h",
 	"2d",
+	"3d",
 	"7d",
+	"30d",
+	"90d",
 ]);
 
+const HISTORY_WINDOW_MINUTES: Record<string, number> = {
+	"1m": 1,
+	"2m": 2,
+	"5m": 5,
+	"15m": 15,
+	"1h": 60,
+	"2h": 120,
+	"4h": 240,
+	"12h": 720,
+	"24h": 1440,
+	"2d": 2880,
+	"3d": 4320,
+	"7d": 10080,
+	"30d": 43200,
+	"90d": 129600,
+};
+
 function getHistoryStartDate(window: string): Date {
-	const windowMinutes: Record<string, number> = {
-		"1m": 1,
-		"2m": 2,
-		"5m": 5,
-		"15m": 15,
-		"1h": 60,
-		"2h": 120,
-		"4h": 240,
-		"12h": 720,
-		"24h": 1440,
-		"2d": 2880,
-		"7d": 10080,
-	};
-	const minutes = windowMinutes[window] ?? 240;
+	const minutes = HISTORY_WINDOW_MINUTES[window] ?? 240;
 	const ms = minutes * 60 * 1000;
 	return new Date(Date.now() - ms);
+}
+
+function isHourlyWindow(window: string): boolean {
+	return (
+		(HISTORY_WINDOW_MINUTES[window] ?? 240) > HOURLY_BUCKET_THRESHOLD_MINUTES
+	);
 }
 
 // Model detail – lists providers that serve a given model (with stats)
@@ -4854,7 +4875,11 @@ admin.openapi(getModelDetail, async (c) => {
 		});
 	}
 
-	// Global view
+	// Global view. For windows longer than 24h, aggregate the hourly rollup so
+	// long ranges don't scan minute rows (sums are identical either way).
+	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
+		isHourlyWindow(window),
+	);
 	const [mappings, statsRows] = await Promise.all([
 		db
 			.select({
@@ -4866,68 +4891,57 @@ admin.openapi(getModelDetail, async (c) => {
 			.where(eq(tables.modelProviderMapping.modelId, modelId)),
 		db
 			.select({
-				providerId: modelProviderMappingHistory.providerId,
-				logsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
-						"logs_count",
-					),
-				errorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-						"errors_count",
-					),
+				providerId: mph.providerId,
+				logsCount: sql<number>`COALESCE(SUM(${mph.logsCount}), 0)`.as(
+					"logs_count",
+				),
+				errorsCount: sql<number>`COALESCE(SUM(${mph.errorsCount}), 0)`.as(
+					"errors_count",
+				),
 				clientErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`.as(
 						"client_errors_count",
 					),
 				gatewayErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.gatewayErrorsCount}), 0)`.as(
 						"gateway_errors_count",
 					),
 				upstreamErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.upstreamErrorsCount}), 0)`.as(
 						"upstream_errors_count",
 					),
-				completedCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.completedCount}), 0)`.as(
-						"completed_count",
-					),
+				completedCount: sql<number>`COALESCE(SUM(${mph.completedCount}), 0)`.as(
+					"completed_count",
+				),
 				lengthLimitCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.lengthLimitCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.lengthLimitCount}), 0)`.as(
 						"length_limit_count",
 					),
 				contentFilterCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.contentFilterCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.contentFilterCount}), 0)`.as(
 						"content_filter_count",
 					),
-				toolCallsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.toolCallsCount}), 0)`.as(
-						"tool_calls_count",
-					),
-				canceledCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.canceledCount}), 0)`.as(
-						"canceled_count",
-					),
+				toolCallsCount: sql<number>`COALESCE(SUM(${mph.toolCallsCount}), 0)`.as(
+					"tool_calls_count",
+				),
+				canceledCount: sql<number>`COALESCE(SUM(${mph.canceledCount}), 0)`.as(
+					"canceled_count",
+				),
 				unknownFinishCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.unknownFinishCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.unknownFinishCount}), 0)`.as(
 						"unknown_finish_count",
 					),
-				cachedCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
-						"cached_count",
-					),
+				cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
+					"cached_count",
+				),
 				totalTtft:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
 			})
-			.from(modelProviderMappingHistory)
-			.where(
-				and(
-					eq(modelProviderMappingHistory.modelId, modelId),
-					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
-				),
-			)
-			.groupBy(modelProviderMappingHistory.providerId),
+			.from(mph)
+			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
+			.groupBy(mph.providerId),
 	]);
 
 	const providerIds = mappings.map((m) => m.providerId);
@@ -5681,8 +5695,67 @@ admin.openapi(getProviderHistory, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const startDate = getHistoryStartDate(window);
-	const hourStartDate = new Date(startDate);
-	hourStartDate.setMinutes(0, 0, 0);
+	const hourStartDate = floorToHourStart(startDate);
+
+	// For windows longer than 24h, return hourly buckets straight from the
+	// hourly rollup (which carries cost + latency), instead of minute rows.
+	if (isHourlyWindow(window)) {
+		const rows = await db
+			.select({
+				minuteTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
+				logsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.logsCount})`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.errorsCount})`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.clientErrorsCount})`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.gatewayErrorsCount})`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.upstreamErrorsCount})`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.cachedCount})`.as(
+						"cached_count",
+					),
+				totalDuration:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalDuration})`.as(
+						"total_duration",
+					),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				totalTokens:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
+						"total_tokens",
+					),
+				totalCost:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
+						"total_cost",
+					),
+			})
+			.from(modelProviderMappingHistoryHourly)
+			.where(
+				and(
+					eq(modelProviderMappingHistoryHourly.providerId, providerId),
+					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(modelProviderMappingHistoryHourly.hourTimestamp)
+			.orderBy(asc(modelProviderMappingHistoryHourly.hourTimestamp));
+
+		return c.json({ data: mapHistoryRows(rows) });
+	}
 
 	const [rows, costRows] = await Promise.all([
 		db
@@ -5837,6 +5910,60 @@ admin.openapi(getModelHistory, async (c) => {
 		});
 	}
 
+	// For windows longer than 24h, bucket by hour from the hourly rollup.
+	if (isHourlyWindow(window)) {
+		const hourStartDate = floorToHourStart(startDate);
+		const rows = await db
+			.select({
+				minuteTimestamp: modelHistoryHourly.hourTimestamp,
+				logsCount: sql<number>`SUM(${modelHistoryHourly.logsCount})`.as(
+					"logs_count",
+				),
+				errorsCount: sql<number>`SUM(${modelHistoryHourly.errorsCount})`.as(
+					"errors_count",
+				),
+				clientErrorsCount:
+					sql<number>`SUM(${modelHistoryHourly.clientErrorsCount})`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`SUM(${modelHistoryHourly.gatewayErrorsCount})`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`SUM(${modelHistoryHourly.upstreamErrorsCount})`.as(
+						"upstream_errors_count",
+					),
+				cachedCount: sql<number>`SUM(${modelHistoryHourly.cachedCount})`.as(
+					"cached_count",
+				),
+				totalDuration: sql<number>`SUM(${modelHistoryHourly.totalDuration})`.as(
+					"total_duration",
+				),
+				totalTimeToFirstToken:
+					sql<number>`SUM(${modelHistoryHourly.totalTimeToFirstToken})`.as(
+						"total_ttft",
+					),
+				totalTokens: sql<number>`SUM(${modelHistoryHourly.totalTokens})`.as(
+					"total_tokens",
+				),
+				totalCost: sql<number>`SUM(${modelHistoryHourly.totalCost})`.as(
+					"total_cost",
+				),
+			})
+			.from(modelHistoryHourly)
+			.where(
+				and(
+					eq(modelHistoryHourly.modelId, modelId),
+					gte(modelHistoryHourly.hourTimestamp, hourStartDate),
+				),
+			)
+			.groupBy(modelHistoryHourly.hourTimestamp)
+			.orderBy(asc(modelHistoryHourly.hourTimestamp));
+
+		return c.json({ data: mapHistoryRows(rows) });
+	}
+
 	const rows = await db
 		.select({
 			minuteTimestamp: modelHistory.minuteTimestamp,
@@ -5895,6 +6022,7 @@ const getMappingHistory = createRoute({
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
 			projectId: z.string().optional(),
+			region: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -5912,9 +6040,30 @@ admin.openapi(getMappingHistory, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
 	const projectId = query.projectId;
+	const region = query.region;
 	const startDate = getHistoryStartDate(window);
 	const hourStartDate = new Date(startDate);
 	hourStartDate.setMinutes(0, 0, 0);
+
+	// When a region is given, restrict the minute-level mapping history to the
+	// exact regional mapping(s). The hourly project rollups have no region
+	// dimension, so region scoping only applies to the minute-granularity source.
+	const regionMappingFilter =
+		region !== undefined
+			? inArray(
+					modelProviderMappingHistory.modelProviderMappingId,
+					db
+						.select({ id: tables.modelProviderMapping.id })
+						.from(tables.modelProviderMapping)
+						.where(
+							and(
+								eq(tables.modelProviderMapping.providerId, providerId),
+								eq(tables.modelProviderMapping.modelId, modelId),
+								eq(tables.modelProviderMapping.region, region),
+							),
+						),
+				)
+			: undefined;
 
 	if (projectId) {
 		const rows = await db
@@ -5964,220 +6113,141 @@ admin.openapi(getMappingHistory, async (c) => {
 		});
 	}
 
-	const [minuteRows, hourlyRows] = await Promise.all([
-		db
+	// For windows longer than 24h, bucket by hour straight from the hourly
+	// rollup (counts, latency, tokens and cost all come from one source).
+	if (isHourlyWindow(window)) {
+		const hourlyRegionMappingFilter =
+			region !== undefined
+				? inArray(
+						modelProviderMappingHistoryHourly.modelProviderMappingId,
+						db
+							.select({ id: tables.modelProviderMapping.id })
+							.from(tables.modelProviderMapping)
+							.where(
+								and(
+									eq(tables.modelProviderMapping.providerId, providerId),
+									eq(tables.modelProviderMapping.modelId, modelId),
+									eq(tables.modelProviderMapping.region, region),
+								),
+							),
+					)
+				: undefined;
+
+		const rows = await db
 			.select({
-				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				minuteTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
 				logsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.logsCount})`.as(
 						"logs_count",
 					),
 				errorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.errorsCount})`.as(
 						"errors_count",
 					),
 				clientErrorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.clientErrorsCount})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.clientErrorsCount})`.as(
 						"client_errors_count",
 					),
 				gatewayErrorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.gatewayErrorsCount})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.gatewayErrorsCount})`.as(
 						"gateway_errors_count",
 					),
 				upstreamErrorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.upstreamErrorsCount})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.upstreamErrorsCount})`.as(
 						"upstream_errors_count",
 					),
 				cachedCount:
-					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.cachedCount})`.as(
 						"cached_count",
 					),
 				totalDuration:
-					sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalDuration})`.as(
 						"total_duration",
 					),
 				totalTimeToFirstToken:
-					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstToken})`.as(
 						"total_ttft",
 					),
 				totalTokens:
-					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
 					),
 				totalCost:
-					sql<number>`SUM(${modelProviderMappingHistory.totalCost})`.as(
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
 						"total_cost",
 					),
 			})
-			.from(modelProviderMappingHistory)
+			.from(modelProviderMappingHistoryHourly)
 			.where(
 				and(
-					eq(modelProviderMappingHistory.providerId, providerId),
-					eq(modelProviderMappingHistory.modelId, modelId),
-					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+					eq(modelProviderMappingHistoryHourly.providerId, providerId),
+					eq(modelProviderMappingHistoryHourly.modelId, modelId),
+					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					hourlyRegionMappingFilter,
 				),
 			)
-			.groupBy(modelProviderMappingHistory.minuteTimestamp)
-			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp)),
-		db
-			.select({
-				hourTimestamp: projectHourlyModelStats.hourTimestamp,
-				logsCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
-					"logs_count",
-				),
-				errorsCount: sql<number>`SUM(${projectHourlyModelStats.errorCount})`.as(
+			.groupBy(modelProviderMappingHistoryHourly.hourTimestamp)
+			.orderBy(asc(modelProviderMappingHistoryHourly.hourTimestamp));
+
+		return c.json({ data: mapHistoryRows(rows) });
+	}
+
+	// 24h and below: minute granularity.
+	const minuteRows = await db
+		.select({
+			minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+			logsCount: sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+				"logs_count",
+			),
+			errorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
 					"errors_count",
 				),
-				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`.as(
+			clientErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.clientErrorsCount})`.as(
+					"client_errors_count",
+				),
+			gatewayErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.gatewayErrorsCount})`.as(
+					"gateway_errors_count",
+				),
+			upstreamErrorsCount:
+				sql<number>`SUM(${modelProviderMappingHistory.upstreamErrorsCount})`.as(
+					"upstream_errors_count",
+				),
+			cachedCount:
+				sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
 					"cached_count",
 				),
-				totalTokens:
-					sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
-						"total_tokens",
-					),
-				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
-			})
-			.from(projectHourlyModelStats)
-			.where(
-				and(
-					eq(projectHourlyModelStats.usedProvider, providerId),
-					eq(projectHourlyModelStats.usedModel, modelId),
-					gte(projectHourlyModelStats.hourTimestamp, hourStartDate),
+			totalDuration:
+				sql<number>`SUM(${modelProviderMappingHistory.totalDuration})`.as(
+					"total_duration",
 				),
-			)
-			.groupBy(projectHourlyModelStats.hourTimestamp)
-			.orderBy(asc(projectHourlyModelStats.hourTimestamp)),
-	]);
-
-	const hasMinuteData = minuteRows.some((r) => Number(r.logsCount) > 0);
-
-	// For short windows with minute data, return minute-level granularity
-	const dayWindows = new Set(["1d", "2d", "7d"]);
-	if (hasMinuteData && !dayWindows.has(window)) {
-		return c.json({ data: mapHistoryRows(minuteRows) });
-	}
-
-	// For day windows or when minute data is missing, use hourly data as
-	// the timeline base and overlay latency from minute data where available.
-	// This ensures consistent chart granularity across all providers.
-	// When per-provider minute data is empty, fall back to model-level latency
-	// from model_history as an approximation.
-	const latencyByHour = new Map<
-		string,
-		{
-			totalDuration: number;
-			totalTtft: number;
-			logsCount: number;
-			nonCached: number;
-		}
-	>();
-
-	if (hasMinuteData) {
-		for (const r of minuteRows) {
-			const hk = getHourFloor(r.minuteTimestamp);
-			const existing = latencyByHour.get(hk);
-			const logs = Number(r.logsCount);
-			const cached = Number(r.cachedCount);
-			if (existing) {
-				existing.totalDuration += Number(r.totalDuration);
-				existing.totalTtft += Number(r.totalTimeToFirstToken);
-				existing.logsCount += logs;
-				existing.nonCached += logs - cached;
-			} else {
-				latencyByHour.set(hk, {
-					totalDuration: Number(r.totalDuration),
-					totalTtft: Number(r.totalTimeToFirstToken),
-					logsCount: logs,
-					nonCached: logs - cached,
-				});
-			}
-		}
-	} else if (hourlyRows.length > 0) {
-		// No per-provider minute data — use model_history for aggregate latency
-		const modelLatencyRows = await db
-			.select({
-				minuteTimestamp: modelHistory.minuteTimestamp,
-				logsCount: modelHistory.logsCount,
-				cachedCount: modelHistory.cachedCount,
-				totalDuration: modelHistory.totalDuration,
-				totalTimeToFirstToken: modelHistory.totalTimeToFirstToken,
-			})
-			.from(modelHistory)
-			.where(
-				and(
-					eq(modelHistory.modelId, modelId),
-					gte(modelHistory.minuteTimestamp, startDate),
+			totalTimeToFirstToken:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
+					"total_ttft",
 				),
-			);
-		for (const r of modelLatencyRows) {
-			const hk = getHourFloor(r.minuteTimestamp);
-			const existing = latencyByHour.get(hk);
-			const logs = Number(r.logsCount);
-			const cached = Number(r.cachedCount);
-			if (existing) {
-				existing.totalDuration += Number(r.totalDuration);
-				existing.totalTtft += Number(r.totalTimeToFirstToken);
-				existing.logsCount += logs;
-				existing.nonCached += logs - cached;
-			} else {
-				latencyByHour.set(hk, {
-					totalDuration: Number(r.totalDuration),
-					totalTtft: Number(r.totalTimeToFirstToken),
-					logsCount: logs,
-					nonCached: logs - cached,
-				});
-			}
-		}
-	}
+			totalTokens:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
+					"total_tokens",
+				),
+			totalCost: sql<number>`SUM(${modelProviderMappingHistory.totalCost})`.as(
+				"total_cost",
+			),
+		})
+		.from(modelProviderMappingHistory)
+		.where(
+			and(
+				eq(modelProviderMappingHistory.providerId, providerId),
+				eq(modelProviderMappingHistory.modelId, modelId),
+				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				regionMappingFilter,
+			),
+		)
+		.groupBy(modelProviderMappingHistory.minuteTimestamp)
+		.orderBy(asc(modelProviderMappingHistory.minuteTimestamp));
 
-	const errorBreakdownByHour = new Map<
-		string,
-		{ client: number; gateway: number; upstream: number }
-	>();
-	for (const r of minuteRows) {
-		const hk = getHourFloor(r.minuteTimestamp);
-		const existing = errorBreakdownByHour.get(hk);
-		const client = Number(r.clientErrorsCount);
-		const gateway = Number(r.gatewayErrorsCount);
-		const upstream = Number(r.upstreamErrorsCount);
-		if (existing) {
-			existing.client += client;
-			existing.gateway += gateway;
-			existing.upstream += upstream;
-		} else {
-			errorBreakdownByHour.set(hk, { client, gateway, upstream });
-		}
-	}
-
-	const data = hourlyRows.map((r) => {
-		const logsCount = Number(r.logsCount);
-		const errorsCount = Number(r.errorsCount);
-		const cachedCount = Number(r.cachedCount);
-		const hk = new Date(r.hourTimestamp).toISOString();
-		const latency = latencyByHour.get(hk);
-		const errorBreakdown = errorBreakdownByHour.get(hk);
-		return {
-			timestamp: hk,
-			logsCount,
-			errorsCount,
-			clientErrorsCount: errorBreakdown?.client ?? 0,
-			gatewayErrorsCount: errorBreakdown?.gateway ?? 0,
-			upstreamErrorsCount: errorBreakdown?.upstream ?? 0,
-			cachedCount,
-			avgTtft:
-				latency && latency.nonCached > 0
-					? Math.round(latency.totalTtft / latency.nonCached)
-					: null,
-			avgDuration:
-				latency && latency.logsCount > 0
-					? Math.round(latency.totalDuration / latency.logsCount)
-					: null,
-			totalTokens: Number(r.totalTokens),
-			totalCost: Number(r.cost),
-		};
-	});
-
-	return c.json({ data });
+	return c.json({ data: mapHistoryRows(minuteRows) });
 });
 
 // Provider detail – aggregated stats + per-model breakdown for the window
@@ -6252,6 +6322,11 @@ admin.openapi(getProviderDetail, async (c) => {
 		throw new HTTPException(404, { message: "Provider not found" });
 	}
 
+	// For windows longer than 24h, aggregate the hourly rollup so long ranges
+	// don't scan minute rows (sums are identical either way).
+	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
+		isHourlyWindow(window),
+	);
 	const [mappings, statsRows] = await Promise.all([
 		db
 			.select({
@@ -6267,48 +6342,39 @@ admin.openapi(getProviderDetail, async (c) => {
 			.where(eq(tables.modelProviderMapping.providerId, providerId)),
 		db
 			.select({
-				modelId: modelProviderMappingHistory.modelId,
-				logsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
-						"logs_count",
-					),
-				errorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-						"errors_count",
-					),
+				modelId: mph.modelId,
+				logsCount: sql<number>`COALESCE(SUM(${mph.logsCount}), 0)`.as(
+					"logs_count",
+				),
+				errorsCount: sql<number>`COALESCE(SUM(${mph.errorsCount}), 0)`.as(
+					"errors_count",
+				),
 				clientErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`.as(
 						"client_errors_count",
 					),
 				gatewayErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.gatewayErrorsCount}), 0)`.as(
 						"gateway_errors_count",
 					),
 				upstreamErrorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.upstreamErrorsCount}), 0)`.as(
 						"upstream_errors_count",
 					),
-				cachedCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
-						"cached_count",
-					),
+				cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
+					"cached_count",
+				),
 				totalTtft:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)`.as(
+					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
-				totalCost:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
-						"total_cost",
-					),
-			})
-			.from(modelProviderMappingHistory)
-			.where(
-				and(
-					eq(modelProviderMappingHistory.providerId, providerId),
-					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
+					"total_cost",
 				),
-			)
-			.groupBy(modelProviderMappingHistory.modelId),
+			})
+			.from(mph)
+			.where(and(eq(mph.providerId, providerId), gte(mphTs, startDate)))
+			.groupBy(mph.modelId),
 	]);
 
 	const statsByModel = new Map(statsRows.map((r) => [r.modelId, r]));
@@ -6440,6 +6506,7 @@ const getMappingDetail = createRoute({
 		}),
 		query: z.object({
 			window: historyWindowSchema.default("4h").optional(),
+			region: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -6456,6 +6523,7 @@ admin.openapi(getMappingDetail, async (c) => {
 	const { providerId, modelId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const window = query.window ?? "4h";
+	const region = query.region;
 	const startDate = getHistoryStartDate(window);
 
 	const mappingRow = await db
@@ -6496,6 +6564,9 @@ admin.openapi(getMappingDetail, async (c) => {
 			and(
 				eq(tables.modelProviderMapping.providerId, providerId),
 				eq(tables.modelProviderMapping.modelId, modelId),
+				region !== undefined
+					? eq(tables.modelProviderMapping.region, region)
+					: undefined,
 			),
 		)
 		.limit(1);
@@ -6506,69 +6577,63 @@ admin.openapi(getMappingDetail, async (c) => {
 
 	const m = mappingRow[0];
 
+	// For windows longer than 24h, aggregate the hourly rollup so long ranges
+	// don't scan minute rows (sums are identical either way).
+	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
+		isHourlyWindow(window),
+	);
 	const [aggRow] = await db
 		.select({
-			logsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
-					"logs_count",
-				),
-			errorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-					"errors_count",
-				),
+			logsCount: sql<number>`COALESCE(SUM(${mph.logsCount}), 0)`.as(
+				"logs_count",
+			),
+			errorsCount: sql<number>`COALESCE(SUM(${mph.errorsCount}), 0)`.as(
+				"errors_count",
+			),
 			clientErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`.as(
 					"client_errors_count",
 				),
 			gatewayErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${mph.gatewayErrorsCount}), 0)`.as(
 					"gateway_errors_count",
 				),
 			upstreamErrorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${mph.upstreamErrorsCount}), 0)`.as(
 					"upstream_errors_count",
 				),
-			completedCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.completedCount}), 0)`.as(
-					"completed_count",
-				),
+			completedCount: sql<number>`COALESCE(SUM(${mph.completedCount}), 0)`.as(
+				"completed_count",
+			),
 			lengthLimitCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.lengthLimitCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${mph.lengthLimitCount}), 0)`.as(
 					"length_limit_count",
 				),
 			contentFilterCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.contentFilterCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${mph.contentFilterCount}), 0)`.as(
 					"content_filter_count",
 				),
-			toolCallsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.toolCallsCount}), 0)`.as(
-					"tool_calls_count",
-				),
-			canceledCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.canceledCount}), 0)`.as(
-					"canceled_count",
-				),
+			toolCallsCount: sql<number>`COALESCE(SUM(${mph.toolCallsCount}), 0)`.as(
+				"tool_calls_count",
+			),
+			canceledCount: sql<number>`COALESCE(SUM(${mph.canceledCount}), 0)`.as(
+				"canceled_count",
+			),
 			unknownFinishCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.unknownFinishCount}), 0)`.as(
+				sql<number>`COALESCE(SUM(${mph.unknownFinishCount}), 0)`.as(
 					"unknown_finish_count",
 				),
-			cachedCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
-					"cached_count",
-				),
+			cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
+				"cached_count",
+			),
 			avgTtft: sql<
 				number | null
-			>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+			>`CASE WHEN SUM(${mph.logsCount}) - SUM(${mph.cachedCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / (SUM(${mph.logsCount}) - SUM(${mph.cachedCount})) ELSE NULL END`.as(
 				"avg_ttft",
 			),
 		})
-		.from(modelProviderMappingHistory)
-		.where(
-			and(
-				eq(modelProviderMappingHistory.modelProviderMappingId, m.id),
-				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
-			),
-		);
+		.from(mph)
+		.where(and(eq(mph.modelProviderMappingId, m.id), gte(mphTs, startDate)));
 
 	const hasWindowData = Number(aggRow?.logsCount ?? 0) > 0;
 
@@ -7478,52 +7543,54 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		return { startDate, endDateExclusive };
 	})();
 
-	const statsJoin = dateRange
+	// Ranges longer than 24h aggregate the hourly rollup so a full-window scan
+	// across every mapping doesn't read minute rows (mirrors the models list).
+	const mappingHistory = dateRange
+		? pickMappingHistoryTable(
+				isHourlyRange(dateRange.startDate, dateRange.endDateExclusive),
+			)
+		: null;
+
+	const statsJoin = mappingHistory
 		? db
 				.select({
-					mappingId: modelProviderMappingHistory.modelProviderMappingId,
+					mappingId: mappingHistory.table.modelProviderMappingId,
 					logsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.logsCount}), 0)`.as(
 							"logsCount",
 						),
 					errorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.errorsCount}), 0)`.as(
 							"errorsCount",
 						),
 					clientErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.clientErrorsCount}), 0)`.as(
 							"clientErrorsCount",
 						),
 					gatewayErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.gatewayErrorsCount}), 0)`.as(
 							"gatewayErrorsCount",
 						),
 					upstreamErrorsCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.upstreamErrorsCount}), 0)`.as(
 							"upstreamErrorsCount",
 						),
 					cachedCount:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.cachedCount}), 0)`.as(
 							"cachedCount",
 						),
-					cost: sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
+					cost: sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 						"cost",
 					),
 				})
-				.from(modelProviderMappingHistory)
+				.from(mappingHistory.table)
 				.where(
 					and(
-						gte(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.startDate,
-						),
-						lt(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.endDateExclusive,
-						),
+						gte(mappingHistory.bucket, dateRange!.startDate),
+						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
 					),
 				)
-				.groupBy(modelProviderMappingHistory.modelProviderMappingId)
+				.groupBy(mappingHistory.table.modelProviderMappingId)
 				.as("mapping_stats_sub")
 		: db
 				.select({
@@ -7541,41 +7608,35 @@ admin.openapi(getModelProviderMappings, async (c) => {
 				.from(tables.modelProviderMapping)
 				.as("mapping_stats_sub");
 
-	const totalsPromise = dateRange
+	const totalsPromise = mappingHistory
 		? db
 				.select({
 					totalRequests:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.logsCount}), 0)`.as(
 							"totalRequests",
 						),
 					totalTokens:
-						sql<number>`COALESCE(SUM(CAST(${modelProviderMappingHistory.totalTokens} AS NUMERIC)), 0)`.as(
+						sql<number>`COALESCE(SUM(CAST(${mappingHistory.table.totalTokens} AS NUMERIC)), 0)`.as(
 							"totalTokens",
 						),
 					totalCost:
-						sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalCost}), 0)`.as(
+						sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 							"totalCost",
 						),
 				})
-				.from(modelProviderMappingHistory)
+				.from(mappingHistory.table)
 				.innerJoin(
 					tables.modelProviderMapping,
 					eq(
-						modelProviderMappingHistory.modelProviderMappingId,
+						mappingHistory.table.modelProviderMappingId,
 						tables.modelProviderMapping.id,
 					),
 				)
 				.where(
 					and(
 						whereClause,
-						gte(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.startDate,
-						),
-						lt(
-							modelProviderMappingHistory.minuteTimestamp,
-							dateRange.endDateExclusive,
-						),
+						gte(mappingHistory.bucket, dateRange!.startDate),
+						lt(mappingHistory.bucket, dateRange!.endDateExclusive),
 					),
 				)
 		: Promise.resolve([
@@ -7686,6 +7747,286 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		totalRequests: Number(totalsResult?.totalRequests ?? 0),
 		totalTokens: Number(totalsResult?.totalTokens ?? 0),
 		totalCost: Number(totalsResult?.totalCost ?? 0),
+	});
+});
+
+// ── Unstable Model Mappings ─────────────────────────────────────────────────
+
+// The candidate set of logs is bounded both ways: only the latest logs from the
+// selected time window, capped at the caller-supplied log limit (most recent
+// rows). Both default to the tightest setting (4h / 100 logs) for the cheapest,
+// most-critical view; callers can widen either via query params. Retried logs are
+// excluded by default because the gateway already recovered from those failures
+// via a fallback provider, so they should not count against a mapping's
+// stability — but callers can opt to include them via `includeRetried`.
+const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
+const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 10000;
+
+// Supported time windows for the rankings, mapping each selectable value to its
+// SQL interval bound and an hours count surfaced to the UI for the description.
+const UNSTABLE_MAPPINGS_WINDOWS = {
+	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
+	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
+	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
+	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
+} as const;
+
+const unstableMappingsWindowSchema = z.enum(["4h", "24h", "3d", "7d"]);
+
+type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
+
+function resolveUnstableMappingsWindow(
+	window: UnstableMappingsWindow | undefined,
+) {
+	return UNSTABLE_MAPPINGS_WINDOWS[window ?? "4h"];
+}
+
+// `retried` is nullable; legacy rows predate the column and are NULL. Treat
+// those as non-retried so they are not silently dropped from the rankings.
+const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
+
+// Gateway logs store `used_model` as the display value `provider/model[:region]`
+// (for example `openai/gpt-5-nano` or `alibaba/glm-4.6:cn-beijing`), but the
+// mapping detail page and the `model_provider_mapping` table key off the bare
+// `model_id` plus `region`. Split the provider prefix and region suffix so the
+// table can link to the exact regional mapping rather than a root/other region.
+function parseUsedModel(
+	usedModel: string,
+	usedProvider: string,
+): { modelId: string; region: string | null } {
+	let rest = usedModel;
+	const prefix = `${usedProvider}/`;
+	if (rest.startsWith(prefix)) {
+		rest = rest.slice(prefix.length);
+	} else if (rest.includes("/")) {
+		rest = rest.slice(rest.indexOf("/") + 1);
+	}
+	const regionIdx = rest.lastIndexOf(":");
+	return regionIdx === -1
+		? { modelId: rest, region: null }
+		: { modelId: rest.slice(0, regionIdx), region: rest.slice(regionIdx + 1) };
+}
+
+const unstableMappingEntrySchema = z.object({
+	modelId: z.string(),
+	// Region suffix parsed from `used_model`, if any. Needed to disambiguate
+	// regional mappings, which are unique on (model_id, provider_id, region).
+	region: z.string().nullable(),
+	// The raw `used_model` log value (`provider/model[:region]`); the error-detail
+	// drilldown queries logs by this exact value.
+	usedModel: z.string(),
+	providerId: z.string(),
+	providerName: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	errorRate: z.number(),
+});
+
+const unstableMappingsListSchema = z.object({
+	mappings: z.array(unstableMappingEntrySchema),
+	sampledLogs: z.number(),
+	windowHours: z.number(),
+	logLimit: z.number(),
+	includeRetried: z.boolean(),
+});
+
+const getUnstableMappings = createRoute({
+	method: "get",
+	path: "/unstable-mappings",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(200).optional(),
+			logLimit: z.coerce
+				.number()
+				.min(1)
+				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
+				.optional(),
+			includeRetried: z.enum(["true", "false"]).optional(),
+			window: unstableMappingsWindowSchema.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableMappingsListSchema.openapi({}),
+				},
+			},
+			description:
+				"Model-provider mappings ranked by error rate over the latest non-retried logs.",
+		},
+	},
+});
+
+admin.openapi(getUnstableMappings, async (c) => {
+	const query = c.req.valid("query");
+	const limit = query.limit ?? 50;
+	const includeRetried = query.includeRetried === "true";
+	const logLimit = query.logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
+	const retriedClause = includeRetried
+		? sql``
+		: unstableMappingsNotRetriedClause;
+	const { interval: windowInterval, hours: windowHours } =
+		resolveUnstableMappingsWindow(query.window);
+
+	const rows = await db.execute<{
+		used_model: string;
+		used_provider: string;
+		logs_count: string;
+		errors_count: string;
+		error_rate: string;
+		sampled_logs: string;
+	}>(sql`
+		WITH recent_logs AS (
+			SELECT ${tables.log.usedModel} AS used_model,
+				${tables.log.usedProvider} AS used_provider,
+				${tables.log.hasError} AS has_error
+			FROM ${tables.log}
+			WHERE ${tables.log.createdAt} >= ${windowInterval}
+				${retriedClause}
+			ORDER BY ${tables.log.createdAt} DESC
+			LIMIT ${logLimit}
+		)
+		SELECT used_model,
+			used_provider,
+			COUNT(*) AS logs_count,
+			COUNT(*) FILTER (WHERE has_error) AS errors_count,
+			COUNT(*) FILTER (WHERE has_error)::float / COUNT(*) AS error_rate,
+			(SELECT COUNT(*) FROM recent_logs) AS sampled_logs
+		FROM recent_logs
+		GROUP BY used_model, used_provider
+		HAVING COUNT(*) FILTER (WHERE has_error) > 0
+		ORDER BY error_rate DESC, errors_count DESC
+		LIMIT ${limit}
+	`);
+
+	const resultRows = rows.rows;
+	const providerIds = [...new Set(resultRows.map((r) => r.used_provider))];
+	const providerRows =
+		providerIds.length > 0
+			? await db.query.provider.findMany({
+					where: { id: { in: providerIds } },
+				})
+			: [];
+	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
+
+	const sampledLogs =
+		resultRows.length > 0 ? Number(resultRows[0].sampled_logs) : 0;
+
+	return c.json({
+		mappings: resultRows.map((r) => {
+			const { modelId, region } = parseUsedModel(r.used_model, r.used_provider);
+			return {
+				modelId,
+				region,
+				usedModel: r.used_model,
+				providerId: r.used_provider,
+				providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
+				logsCount: Number(r.logs_count),
+				errorsCount: Number(r.errors_count),
+				errorRate: Number(r.error_rate),
+			};
+		}),
+		sampledLogs,
+		windowHours,
+		logLimit,
+		includeRetried,
+	});
+});
+
+const unstableMappingErrorDetailSchema = z.object({
+	statusCode: z.number().nullable(),
+	statusText: z.string().nullable(),
+	responseText: z.string().nullable(),
+	cause: z.string().nullable(),
+	count: z.number(),
+});
+
+const unstableMappingErrorsSchema = z.object({
+	errors: z.array(unstableMappingErrorDetailSchema),
+	sampledErrors: z.number(),
+});
+
+const getUnstableMappingErrors = createRoute({
+	method: "get",
+	path: "/unstable-mappings/errors",
+	request: {
+		query: z.object({
+			model: z.string(),
+			provider: z.string(),
+			includeRetried: z.enum(["true", "false"]).optional(),
+			window: unstableMappingsWindowSchema.optional(),
+			logLimit: z.coerce
+				.number()
+				.min(1)
+				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
+				.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableMappingErrorsSchema.openapi({}),
+				},
+			},
+			description:
+				"Top 10 error details for a mapping over the latest error logs.",
+		},
+	},
+});
+
+admin.openapi(getUnstableMappingErrors, async (c) => {
+	const { model, provider, includeRetried, window, logLimit } =
+		c.req.valid("query");
+	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
+	const retriedClause =
+		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
+	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
+
+	const rows = await db.execute<{
+		status_code: string | null;
+		status_text: string | null;
+		response_text: string | null;
+		cause: string | null;
+		count: string;
+		sampled_errors: string;
+	}>(sql`
+		WITH recent_errors AS (
+			SELECT ${tables.log.errorDetails} AS error_details
+			FROM ${tables.log}
+			WHERE ${tables.log.hasError} = true
+				AND ${tables.log.usedModel} = ${model}
+				AND ${tables.log.usedProvider} = ${provider}
+				AND ${tables.log.createdAt} >= ${windowInterval}
+				${retriedClause}
+			ORDER BY ${tables.log.createdAt} DESC
+			LIMIT ${sampleLimit}
+		)
+		SELECT error_details->>'statusCode' AS status_code,
+			error_details->>'statusText' AS status_text,
+			LEFT(error_details->>'responseText', 2000) AS response_text,
+			error_details->>'cause' AS cause,
+			COUNT(*) AS count,
+			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
+		FROM recent_errors
+		GROUP BY status_code, status_text, response_text, cause
+		ORDER BY count DESC
+		LIMIT 10
+	`);
+
+	const sampledErrors =
+		rows.rows.length > 0 ? Number(rows.rows[0].sampled_errors) : 0;
+
+	return c.json({
+		errors: rows.rows.map((r) => ({
+			statusCode: r.status_code !== null ? Number(r.status_code) : null,
+			statusText: r.status_text,
+			responseText: r.response_text,
+			cause: r.cause,
+			count: Number(r.count),
+		})),
+		sampledErrors,
 	});
 });
 
@@ -9176,7 +9517,7 @@ const DEV_PLAN_TX_TYPES = [
 
 // Pre-rename rows for what is now a dev plan. The same `subscription_*` types
 // are STILL written today for non-personal org Pro subs, so always pair them
-// with `organization.isPersonal = true` to avoid counting org Pro revenue.
+// with `organization.kind = 'devpass'` to avoid counting org Pro revenue.
 const LEGACY_DEV_PLAN_TX_TYPES = [
 	"subscription_start",
 	"subscription_cancel",
@@ -9331,7 +9672,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.project.organizationId, tables.organization.id),
-				eq(tables.organization.isPersonal, true),
+				eq(tables.organization.kind, "devpass"),
 			),
 		)
 		.groupBy(tables.project.organizationId)
@@ -9357,7 +9698,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.transaction.organizationId, tables.organization.id),
-				eq(tables.organization.isPersonal, true),
+				eq(tables.organization.kind, "devpass"),
 			),
 		)
 		.where(
@@ -9412,7 +9753,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.transaction.organizationId, tables.organization.id),
-				eq(tables.organization.isPersonal, true),
+				eq(tables.organization.kind, "devpass"),
 			),
 		)
 		.where(
@@ -9452,10 +9793,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const conditions = [];
 
 	// DevPass scope: subscribers (devPlan != 'none') OR (showChurned && has past dev_plan_start).
-	// Only personal orgs can hold a DevPass plan — restrict to isPersonal=true
+	// Only personal orgs can hold a DevPass plan — restrict to kind='devpass'
 	// so the churned list doesn't surface non-personal "Default Organization"
 	// rows that happen to share legacy `subscription_*` history with org Pro.
-	conditions.push(eq(tables.organization.isPersonal, true));
+	conditions.push(eq(tables.organization.kind, "devpass"));
 	if (showChurned) {
 		conditions.push(
 			or(
@@ -9652,6 +9993,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.from(tables.organization)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				ne(tables.organization.devPlan, "none"),
 				or(
 					isNull(tables.organization.devPlanExpiresAt),
@@ -9697,6 +10039,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				eq(tables.transaction.type, "dev_plan_start"),
 				eq(tables.organization.devPlan, "none"),
 			),
@@ -9706,8 +10049,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const [startsRow] = await db
 		.select({ count: sql<number>`COUNT(*)` })
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				eq(tables.transaction.type, "dev_plan_start"),
 				gte(tables.transaction.createdAt, monthStart),
 			),
@@ -9717,8 +10065,13 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const [endsRow] = await db
 		.select({ count: sql<number>`COUNT(*)` })
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				inArray(tables.transaction.type, ["dev_plan_cancel", "dev_plan_end"]),
 				gte(tables.transaction.createdAt, monthStart),
 			),
@@ -9727,7 +10080,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 
 	// Refunds this month for DevPass transactions. Mirrors the timeseries
 	// refund query (joins credit_refund rows to their original tx and filters
-	// to dev plan types, plus legacy subscription_* rows on personal orgs) but
+	// to dev plan types, plus legacy subscription_* rows on DevPass orgs) but
 	// aggregates to a single month total so the KPI strip reflects refund
 	// activity that the snapshot-based MRR cards can't show.
 	const refundOriginalTx = aliasedTable(
@@ -9753,13 +10106,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, monthStart),
-				or(
-					inArray(refundOriginalTx.type, [...DEV_PLAN_TX_TYPES]),
-					and(
-						inArray(refundOriginalTx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.isPersonal, true),
-					),
-				),
+				eq(tables.organization.kind, "devpass"),
+				inArray(refundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		);
 	const refundsThisMonth = Number(refundsRow?.count ?? 0);
@@ -9774,6 +10125,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.from(tables.organization)
 		.where(
 			and(
+				eq(tables.organization.kind, "devpass"),
 				ne(tables.organization.devPlan, "none"),
 				or(
 					isNull(tables.organization.devPlanExpiresAt),
@@ -9797,7 +10149,16 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			realCostSub,
 			eq(tables.organization.id, realCostSub.organizationId),
 		)
-		.where(ne(tables.organization.devPlan, "none"));
+		.where(
+			and(
+				eq(tables.organization.kind, "devpass"),
+				ne(tables.organization.devPlan, "none"),
+				or(
+					isNull(tables.organization.devPlanExpiresAt),
+					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+				)!,
+			),
+		);
 	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
 	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
 	const totalMargin = totalMrrCycle - totalRealCostCycle;
@@ -9914,8 +10275,9 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 
 	// Resolve range. When no from/to is provided, default to all-time
 	// (anchored to the earliest dev plan start, falling back to today).
-	// Includes legacy `subscription_start` rows for personal orgs so subscribers
-	// from before the dev_plan_* rename also extend the chart range.
+	// Scoped to DevPass orgs (kind = 'devpass') so legacy `subscription_start`
+	// rows written before the dev_plan_* rename also extend the chart range,
+	// while org Pro `subscription_*` rows are excluded.
 	let startDate: Date;
 	let endDate: Date;
 	if (query.from && query.to) {
@@ -9934,12 +10296,12 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				eq(tables.transaction.organizationId, tables.organization.id),
 			)
 			.where(
-				or(
-					eq(tables.transaction.type, "dev_plan_start"),
-					and(
-						eq(tables.transaction.type, "subscription_start"),
-						eq(tables.organization.isPersonal, true),
-					),
+				and(
+					eq(tables.organization.kind, "devpass"),
+					inArray(tables.transaction.type, [
+						"dev_plan_start",
+						"subscription_start",
+					]),
 				),
 			);
 		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
@@ -9954,8 +10316,8 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	}
 
 	// Revenue per day from completed DevPass transactions. Joins organization
-	// so legacy `subscription_*` rows can be counted only when the org is
-	// personal (where they are pre-rename dev plan rows, not org Pro).
+	// and scopes to kind = 'devpass' so legacy `subscription_*` rows are counted
+	// only on DevPass orgs (where they are pre-rename dev plan rows, not org Pro).
 	// Sums `amount` (actual dollars paid) — `creditAmount` is the credits
 	// granted (price × DEV_PLAN_CREDITS_MULTIPLIER) and would over-report
 	// revenue, and is null on legacy `subscription_*` rows so they would
@@ -9987,13 +10349,11 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
-				or(
-					inArray(tables.transaction.type, [...DEV_PLAN_TX_TYPES]),
-					and(
-						inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.isPersonal, true),
-					),
-				),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 				sql`NOT EXISTS (
 					SELECT 1 FROM ${tables.transaction} dup
 					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
@@ -10044,23 +10404,20 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
-				or(
-					inArray(originalTx.type, [...DEV_PLAN_TX_TYPES]),
-					and(
-						inArray(originalTx.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
-						eq(tables.organization.isPersonal, true),
-					),
-				),
+				eq(tables.organization.kind, "devpass"),
+				inArray(originalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// Provider cost per day for projects belonging to orgs that are or were
-	// ever on a DevPass plan (i.e. currently devPlan != 'none' OR have a
-	// historical dev_plan_start, OR a legacy subscription_start while personal).
-	// This approximates "DevPass usage" without reconstructing daily plan
-	// membership.
+	// Provider cost per day for projects belonging to DevPass orgs
+	// (kind = 'devpass'), which is stable across the subscription lifecycle so
+	// churned orgs (devPlan = 'none') are still included without reconstructing
+	// daily plan membership.
 	const costPerDay = await db
 		.select({
 			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
@@ -10082,17 +10439,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			and(
 				gte(projectHourlyStats.hourTimestamp, startDate),
 				lte(projectHourlyStats.hourTimestamp, endDate),
-				or(
-					ne(tables.organization.devPlan, "none"),
-					sql`EXISTS (
-						SELECT 1 FROM ${tables.transaction} t
-						WHERE t.organization_id = ${tables.organization.id}
-						AND (
-							t.type = 'dev_plan_start'
-							OR (t.type = 'subscription_start' AND ${tables.organization.isPersonal} = true)
-						)
-					)`,
-				)!,
+				eq(tables.organization.kind, "devpass"),
 			),
 		)
 		.groupBy(sql`DATE(${projectHourlyStats.hourTimestamp})`)
@@ -10182,19 +10529,9 @@ admin.openapi(getDevpassUsage, async (c) => {
 		endDate.setUTCHours(23, 59, 59, 999);
 	}
 
-	// Filter: only orgs that are or were ever on a DevPass plan.
-	// Mirrors the cost-per-day query in /devpass/timeseries.
-	const devpassOrgFilter = or(
-		ne(tables.organization.devPlan, "none"),
-		sql`EXISTS (
-			SELECT 1 FROM ${tables.transaction} t
-			WHERE t.organization_id = ${tables.organization.id}
-			AND (
-				t.type = 'dev_plan_start'
-				OR (t.type = 'subscription_start' AND ${tables.organization.isPersonal} = true)
-			)
-		)`,
-	)!;
+	// Filter: only DevPass orgs (kind = 'devpass'). Stable across the
+	// subscription lifecycle, so churned orgs (devPlan = 'none') stay included.
+	const devpassOrgFilter = eq(tables.organization.kind, "devpass");
 
 	// Models + providers: use the per-project hourly model aggregator so the
 	// dashboard reads from rollups instead of the raw `log` table. Joins
@@ -10329,7 +10666,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	const now = new Date();
 
 	const org = await db.query.organization.findFirst({
-		where: { id: { eq: orgId } },
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
 	});
 
 	if (!org) {
@@ -10415,9 +10752,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	// refunds netted), cost is every project's provider cost. Legacy
 	// `subscription_*` rows are only DevPass revenue on personal orgs (they are
 	// org Pro subs otherwise), so only count them when the org is personal.
-	const allTimeRevenueTypes = org.isPersonal
-		? [...DEV_PLAN_TX_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES]
-		: [...DEV_PLAN_TX_TYPES];
+	const allTimeRevenueTypes =
+		org.kind === "devpass"
+			? [...DEV_PLAN_TX_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES]
+			: [...DEV_PLAN_TX_TYPES];
 	const [allTimeCostRow] = await db
 		.select({
 			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
@@ -11033,7 +11371,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.project.organizationId, tables.organization.id),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 			),
 		)
 		.groupBy(tables.project.organizationId)
@@ -11057,7 +11395,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.transaction.organizationId, tables.organization.id),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 			),
 		)
 		.where(
@@ -11107,7 +11445,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			tables.organization,
 			and(
 				eq(tables.transaction.organizationId, tables.organization.id),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 			),
 		)
 		.where(
@@ -11145,8 +11483,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 
 	// Chat Plan scope: subscribers (chatPlan != 'none') OR (showChurned && has
 	// past chat_plan_start). Chat plans live on the dedicated Chat org, so
-	// restrict to isChat=true.
-	conditions.push(eq(tables.organization.isChat, true));
+	// restrict to kind='chat'.
+	conditions.push(eq(tables.organization.kind, "chat"));
 	if (showChurned) {
 		conditions.push(
 			or(
@@ -11334,7 +11672,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.from(tables.organization)
 		.where(
 			and(
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				ne(tables.organization.chatPlan, "none"),
 				or(
 					isNull(tables.organization.chatPlanExpiresAt),
@@ -11387,7 +11725,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.type, "chat_plan_start"),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				eq(tables.organization.chatPlan, "none"),
 			),
 		);
@@ -11438,7 +11776,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
 				gte(tables.transaction.createdAt, monthStart),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				inArray(refundOriginalTx.type, [...CHAT_PLAN_TX_TYPES]),
 			),
 		);
@@ -11453,7 +11791,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		.from(tables.organization)
 		.where(
 			and(
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				ne(tables.organization.chatPlan, "none"),
 				or(
 					isNull(tables.organization.chatPlanExpiresAt),
@@ -11478,7 +11816,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				ne(tables.organization.chatPlan, "none"),
 				or(
 					isNull(tables.organization.chatPlanExpiresAt),
@@ -11610,7 +11948,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 			.where(
 				and(
 					eq(tables.transaction.type, "chat_plan_start"),
-					eq(tables.organization.isChat, true),
+					eq(tables.organization.kind, "chat"),
 				),
 			);
 		startDate = oldest?.minDate ? new Date(oldest.minDate) : now;
@@ -11644,7 +11982,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
@@ -11692,7 +12030,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 				inArray(originalTx.type, [...CHAT_PLAN_TX_TYPES]),
@@ -11723,7 +12061,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.organization.isChat, true),
+				eq(tables.organization.kind, "chat"),
 				gte(projectHourlyStats.hourTimestamp, startDate),
 				lte(projectHourlyStats.hourTimestamp, endDate),
 				or(
@@ -11826,7 +12164,7 @@ admin.openapi(getChatPlansUsage, async (c) => {
 	// Filter: only chat orgs that are or were ever on a Chat Plan. Mirrors the
 	// cost-per-day query in /chat-plans/timeseries.
 	const chatPlanOrgFilter = and(
-		eq(tables.organization.isChat, true),
+		eq(tables.organization.kind, "chat"),
 		or(
 			ne(tables.organization.chatPlan, "none"),
 			sql`EXISTS (
@@ -11964,7 +12302,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 	const now = new Date();
 
 	const org = await db.query.organization.findFirst({
-		where: { id: { eq: orgId }, isChat: { eq: true } },
+		where: { id: { eq: orgId }, kind: { eq: "chat" } },
 	});
 
 	if (!org) {

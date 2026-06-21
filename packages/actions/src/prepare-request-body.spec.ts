@@ -1637,7 +1637,7 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should keep Grok 4.3 as Bedrock Mantle OpenAI chat completions", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"grok-4.3",
+			"grok-4-3",
 			"us-west-2",
 			"xai.grok-4.3",
 			[{ role: "user", content: "Hello!" }],
@@ -2567,7 +2567,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
 			const requestBody = (await prepareRequestBody(
 				"azure-ai-foundry",
-				"grok-4.3",
+				"grok-4-3",
 				null,
 				"grok-4.3",
 				[{ role: "user", content: "Hello!" }],

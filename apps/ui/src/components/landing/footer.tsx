@@ -338,6 +338,81 @@ export default function Footer() {
 
 						<div>
 							<h3 className="font-display text-sm font-semibold mb-4 text-foreground">
+								Compliance
+							</h3>
+							<ul className="space-y-2">
+								<li>
+									<a
+										href="https://security.llmgateway.io/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Trust Center
+									</a>
+								</li>
+								<li>
+									<a
+										href="https://security.llmgateway.io/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Security Portal
+									</a>
+								</li>
+								<li>
+									<Link
+										href="/legal/terms"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Terms
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/legal/privacy"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Privacy Policy
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/legal/privacy"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										GDPR
+									</Link>
+								</li>
+								<li>
+									<a
+										href="https://security.llmgateway.io/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										SOC 2 Type II
+									</a>
+								</li>
+								<li>
+									<a
+										href="https://status.llmgateway.io/"
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Status
+									</a>
+								</li>
+							</ul>
+						</div>
+
+						<div>
+							<h3 className="font-display text-sm font-semibold mb-4 text-foreground">
 								Compare
 							</h3>
 							<ul className="space-y-2">
@@ -504,22 +579,6 @@ export default function Footer() {
 					<p className="text-muted-foreground text-sm">
 						&copy; {new Date().getFullYear()} LLM Gateway. All rights reserved.
 					</p>
-					<div className="flex items-center gap-6">
-						<Link
-							href="/legal/privacy"
-							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
-							prefetch={true}
-						>
-							Privacy Policy
-						</Link>
-						<Link
-							href="/legal/terms"
-							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
-							prefetch={true}
-						>
-							Terms of Use
-						</Link>
-					</div>
 				</div>
 			</div>
 		</footer>

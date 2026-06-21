@@ -4,14 +4,14 @@ slug: opencode-zen
 date: 2026-06-02
 title: DevPass vs OpenCode Zen
 metaTitle: "DevPass vs OpenCode Zen: Flat Rate vs Pay-As-You-Go"
-description: "DevPass vs OpenCode Zen compared. OpenCode Zen is pay-as-you-go with zero markup on a curated model set; DevPass is a flat monthly plan for 200+ models with a fixed bill and per-request cost analytics."
+description: "DevPass vs OpenCode Zen compared. OpenCode Zen is pay-as-you-go with zero markup on a curated model set; DevPass is a flat monthly plan for 280+ models with a fixed bill and per-request cost analytics."
 competitor: OpenCode Zen
 competitorLogo: opencode-zen
 competitorTagline: Pay-as-you-go access to a curated set of coding models
 tagline: "OpenCode Zen charges per request with no markup. DevPass charges a flat monthly rate. The question isn't which is cheaper per token — it's whether you want a predictable bill or a metered one."
 devpassPrice: "$29–$179/mo"
 competitorPrice: Pay-as-you-go
-verdict: "OpenCode Zen is excellent if you want raw, at-cost access to a hand-picked set of coding models and don't mind a variable bill. DevPass trades per-token billing for a flat monthly price, a far wider catalog (200+ models including Claude, GPT-5.5 and Gemini), and a usage allowance you can't accidentally blow past. Pick Zen for at-cost metering; pick DevPass for a predictable bill and full model coverage."
+verdict: "OpenCode Zen is excellent if you want raw, at-cost access to a hand-picked set of coding models and don't mind a variable bill. DevPass trades per-token billing for a flat monthly price, a far wider catalog (280+ models including Claude, GPT-5.5 and Gemini), and a usage allowance you can't accidentally blow past. Pick Zen for at-cost metering; pick DevPass for a predictable bill and full model coverage."
 features:
   - label: Pricing model
     devpass: Flat monthly rate
@@ -54,7 +54,7 @@ faqs:
   - question: Which is cheaper, DevPass or OpenCode Zen?
     answer: "It depends on volume. At very low usage, Zen's pay-as-you-go pricing can be cheaper because you only pay for what you use. At steady or heavy usage, DevPass is usually more cost-effective and — just as importantly — predictable, because every dollar buys roughly $3 of model usage and the bill never moves."
   - question: Does OpenCode Zen include Claude and GPT?
-    answer: "OpenCode Zen offers a curated, benchmarked set of coding models rather than every model on the market. DevPass includes 200+ models on every plan, including Claude Opus 4.7, GPT-5.5 and Gemini 3.1 Pro, so you're never blocked from the frontier model a task needs."
+    answer: "OpenCode Zen offers a curated, benchmarked set of coding models rather than every model on the market. DevPass includes 280+ models on every plan, including Claude Opus 4.7, GPT-5.5 and Gemini 3.1 Pro, so you're never blocked from the frontier model a task needs."
   - question: Can DevPass give me an unpredictable bill like pay-as-you-go can?
     answer: "No. DevPass is flat-rate. You pick a plan, you get a fixed monthly usage allowance, and when you reach it requests pause until the next cycle or you upgrade — so you can't be surprised by a large invoice the way metered billing can surprise you."
 ---
@@ -67,7 +67,7 @@ The pitch is purity: at-cost tokens, no subscription, no lock-in, only the model
 
 ## What is DevPass?
 
-DevPass by LLM Gateway is a **flat-rate** coding plan. You pay a fixed monthly price and get a usage allowance across **200+ models** — every major provider, from Claude Opus 4.7 and GPT-5.5 to Gemini 3.1 Pro and the open-weight coders. Every request's exact cost shows up in a real-time dashboard, but the number on your invoice doesn't move.
+DevPass by LLM Gateway is a **flat-rate** coding plan. You pay a fixed monthly price and get a usage allowance across **280+ models** — every major provider, from Claude Opus 4.7 and GPT-5.5 to Gemini 3.1 Pro and the open-weight coders. Every request's exact cost shows up in a real-time dashboard, but the number on your invoice doesn't move.
 
 ## Flat rate vs pay-as-you-go
 
@@ -80,7 +80,7 @@ For hobby use or spiky workloads, metered billing can win. For daily work, team 
 
 ## Model coverage and savings
 
-Zen's curated catalog is a feature — fewer, vetted models — but it's also a ceiling. DevPass deliberately goes the other way: **200+ models on every plan**, so the frontier model a task needs is always one switch away, no new key required. Pair DevPass with **SoulForge**, the graph-powered agent that treats your code as structure rather than strings, and you cut roughly half your tokens — effectively doubling what your flat rate buys.
+Zen's curated catalog is a feature — fewer, vetted models — but it's also a ceiling. DevPass deliberately goes the other way: **280+ models on every plan**, so the frontier model a task needs is always one switch away, no new key required. Pair DevPass with **SoulForge**, the graph-powered agent that treats your code as structure rather than strings, and you cut roughly half your tokens — effectively doubling what your flat rate buys.
 
 ## Who should choose which
 

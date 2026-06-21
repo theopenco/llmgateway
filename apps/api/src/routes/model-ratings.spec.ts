@@ -14,7 +14,7 @@ async function seedOrgAndProject() {
 		id: ORG_ID,
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
-		isPersonal: true,
+		kind: "devpass",
 	});
 	await db.insert(tables.userOrganization).values({
 		userId: "test-user-id",

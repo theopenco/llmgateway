@@ -4,10 +4,12 @@ import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
 import admin from "./admin.js";
+import { analytics } from "./analytics.js";
 import { auditLogs } from "./audit-logs.js";
 import { chatPlans } from "./chat-plans.js";
 import { chat } from "./chat.js";
 import { chats } from "./chats.js";
+import { customModels } from "./custom-models.js";
 import { devPlanCancellationFeedback } from "./dev-plan-cancellation-feedback.js";
 import { devPlans } from "./dev-plans.js";
 import { guardrails } from "./guardrails.js";
@@ -53,6 +55,8 @@ routes.route("/activity", activity);
 
 routes.route("/admin", admin);
 
+routes.route("/analytics", analytics);
+
 routes.route("/keys", keysApi);
 routes.route("/keys", keysProvider);
 routes.route("/master-keys", masterKeys);
@@ -73,4 +77,5 @@ routes.route("/audit-logs", auditLogs);
 routes.route("/model-ratings", modelRatings);
 routes.route("/guardrails", guardrails);
 routes.route("/routing-config", routingConfig);
+routes.route("/custom-models", customModels);
 routes.route("/video", video);

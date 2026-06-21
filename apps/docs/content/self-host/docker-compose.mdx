@@ -1,0 +1,114 @@
+---
+title: Docker Compose
+description: Run LLM Gateway with Docker Compose — each service in its own container for more control.
+icon: Layers
+---
+
+Docker Compose runs each service in its own container, giving you more control over scaling and configuration than the [single Docker image](/self-host/docker). It's a good fit for a single production host. For multi-node, high-availability deployments, use [Kubernetes](/self-host/kubernetes).
+
+## Prerequisites
+
+- Latest Docker with Compose
+- API keys for the LLM providers you want to use (OpenAI, Anthropic, etc.)
+
+## Option A: Unified image with Compose
+
+Run the all-in-one image under Compose for easy lifecycle management:
+
+```bash
+# Download the compose file
+curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/infra/docker-compose.unified.yml
+curl -O https://raw.githubusercontent.com/theopenco/llmgateway/main/.env.unified.example
+
+# Configure environment
+cp .env.unified.example .env
+# Edit .env with your configuration
+
+# Start the service
+docker compose -f docker-compose.unified.yml up -d
+```
+
+## Option B: Separate services
+
+Run each service in its own container for the most flexibility:
+
+```bash
+# Clone the repository
+git clone https://github.com/theopenco/llmgateway.git
+cd llmgateway
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your configuration
+
+# Start the services
+docker compose -f infra/docker-compose.split.yml up -d
+```
+
+Pin to a specific version by replacing the `latest` image tags with the [latest release](https://github.com/theopenco/llmgateway/releases). To build the images from source, use the `*.local.yml` compose files in the `infra` directory.
+
+## Accessing your instance
+
+- **Web Interface**: http://localhost:3002
+- **Documentation**: http://localhost:3005
+- **API Endpoint**: http://localhost:4002
+- **Gateway Endpoint**: http://localhost:4001
+
+## Required configuration
+
+At minimum, set these environment variables:
+
+```bash
+# Database (change the password!)
+POSTGRES_PASSWORD=your_secure_password_here
+
+# Authentication
+AUTH_SECRET=your-secret-key-here
+GATEWAY_API_KEY_HASH_SECRET=your-api-key-hash-secret-here
+
+# LLM Provider API Keys (add the ones you need)
+LLM_OPENAI_API_KEY=sk-...
+LLM_ANTHROPIC_API_KEY=sk-ant-...
+```
+
+## Management commands
+
+```bash
+# View logs
+docker compose -f infra/docker-compose.split.yml logs -f
+
+# Restart services
+docker compose -f infra/docker-compose.split.yml restart
+
+# Stop services
+docker compose -f infra/docker-compose.split.yml down
+```
+
+## Multiple API keys and load balancing
+
+LLM Gateway supports multiple API keys per provider for load balancing and increased availability. Provide comma-separated values:
+
+```bash
+# Multiple OpenAI keys for load balancing
+LLM_OPENAI_API_KEY=sk-key1,sk-key2,sk-key3
+
+# Multiple Anthropic keys
+LLM_ANTHROPIC_API_KEY=sk-ant-key1,sk-ant-key2
+```
+
+### Health-aware routing
+
+The gateway tracks the health of each API key and routes requests to healthy keys. If a key returns consecutive errors, it's temporarily skipped. Keys that return authentication errors (401/403) are blacklisted until restart.
+
+### Related configuration values
+
+For providers that require additional configuration (like Google Vertex), specify multiple values that correspond to each API key. The gateway uses the matching index:
+
+```bash
+# Multiple Google Vertex configurations
+LLM_GOOGLE_VERTEX_API_KEY=key1,key2,key3
+LLM_GOOGLE_CLOUD_PROJECT=project-a,project-b,project-c
+LLM_GOOGLE_VERTEX_REGION=us-central1,europe-west1,asia-east1
+```
+
+When the gateway selects `key2`, it automatically uses `project-b` and `europe-west1`. If you have fewer configuration values than keys, the last value is reused for the remaining keys.

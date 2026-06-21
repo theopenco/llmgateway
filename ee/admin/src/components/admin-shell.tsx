@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	Activity,
 	AlertTriangle,
 	BarChart3,
 	Building2,
@@ -94,6 +95,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isProviders = pathname === "/providers";
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
+	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
 	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
 	const isPaymentFailures = pathname.startsWith("/payment-failures");
@@ -214,6 +216,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									>
 										<GitMerge className="h-4 w-4" />
 										<span>Model Mappings</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/unstable-mappings" className="block">
+									<SidebarMenuButton isActive={isUnstableMappings} size="lg">
+										<Activity className="h-4 w-4" />
+										<span>Unstable Mappings</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

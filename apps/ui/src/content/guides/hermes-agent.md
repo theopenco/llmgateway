@@ -2,11 +2,11 @@
 id: hermes-agent
 slug: hermes-agent
 title: Hermes Agent Integration
-description: Use any model with Hermes Agent through LLM Gateway. One config change, full cost tracking, 210+ models.
+description: Use any model with Hermes Agent through LLM Gateway. One config change, full cost tracking, 280+ models.
 date: 2026-05-11
 ---
 
-[Hermes Agent](https://github.com/nousresearch/hermes-agent) is an open-source AI coding agent for your terminal built by Nous Research. It supports tool use, browser automation, multi-provider routing, skills, and MCP servers. By pointing it at LLM Gateway you get access to 210+ models from 60+ providers, all tracked in one dashboard.
+[Hermes Agent](https://github.com/nousresearch/hermes-agent) is an open-source AI coding agent for your terminal built by Nous Research. It supports tool use, browser automation, multi-provider routing, skills, and MCP servers. By pointing it at LLM Gateway you get access to 280+ models from 35+ providers, all tracked in one dashboard.
 
 One config change. No code changes. Full cost tracking.
 
@@ -60,7 +60,7 @@ Then paste your LLM Gateway API key (starts with `llmgtwy_`):
 
 ### Step 3: Choose a Model
 
-The wizard presents a list of 200+ available models. Type a model name or select from the list. Popular choices include `claude-sonnet-4-6`, `gpt-5.5`, or `gemini-3.1-pro`:
+The wizard presents a list of 280+ available models. Type a model name or select from the list. Popular choices include `claude-sonnet-4-6`, `gpt-5.5`, or `gemini-3.1-pro`:
 
 ![Model Selection List](/images/guides/hermes-agent/2-model-list.png)
 
@@ -126,7 +126,7 @@ hermes chat --model claude-opus-4-6
 
 ## Why Use LLM Gateway with Hermes Agent
 
-- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
+- **280+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
 - **One API key** — Stop managing separate keys for each provider
 - **Cost tracking** — See exactly what each session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically

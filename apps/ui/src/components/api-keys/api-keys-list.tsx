@@ -95,7 +95,7 @@ export function ApiKeysList({
 		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}/iam` as Route;
 
 	const getStatisticsUrl = (keyId: string) =>
-		`/dashboard/${orgId}/${projectId}/usage?apiKeyId=${keyId}` as Route;
+		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}` as Route;
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(

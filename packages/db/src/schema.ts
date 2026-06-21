@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+	bigint,
 	boolean,
 	check,
 	decimal,
@@ -223,12 +224,17 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
-		// Dev Plans fields (for personal accounts)
-		isPersonal: boolean().notNull().default(false),
-		// Marks the dedicated per-user "Chat" org that backs chat.llmgateway.io.
-		// Like isPersonal, these orgs are hidden from the dashboard org switcher
-		// and cannot be deleted or managed as team orgs.
-		isChat: boolean().notNull().default(false),
+		// Organization kind:
+		// - "default": regular dashboard/team org.
+		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
+		// - "chat": dedicated per-user "Chat" org backing chat.llmgateway.io.
+		// "devpass" and "chat" orgs are hidden from the dashboard org switcher and
+		// cannot be deleted or managed as team orgs.
+		kind: text({
+			enum: ["default", "chat", "devpass"],
+		})
+			.notNull()
+			.default("default"),
 		devPlan: text({
 			enum: ["none", "lite", "pro", "max"],
 		})
@@ -251,6 +257,10 @@ export const organization = pgTable(
 			.notNull()
 			.default("monthly"),
 		devPlanAllowAllModels: boolean().notNull().default(false),
+		// When false (default), DevPass invoices use the owner's default-org
+		// billing details. When true, the DevPass org's own billing* fields below
+		// are used as a custom override for DevPass invoices.
+		devPlanBillingOverride: boolean().notNull().default(false),
 		// Fingerprint of the card used to subscribe to a dev plan. Used to
 		// prevent a single card from claiming the DevPass usage allowance from
 		// multiple personal organizations.
@@ -1079,9 +1089,12 @@ export const providerKey = pgTable(
 			.$onUpdate(() => new Date()),
 		token: text().notNull(),
 		provider: text().notNull(),
-		name: text(), // Optional name for custom providers (lowercase a-z only)
+		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
 		baseUrl: text(), // Optional base URL for custom providers
 		options: jsonb().$type<ProviderKeyOptions>(),
+		// When true (custom providers only), requests through this key are
+		// restricted to models defined in its custom model catalog.
+		customModelsOnly: boolean().notNull().default(false),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -1092,6 +1105,68 @@ export const providerKey = pgTable(
 	(table) => [
 		unique().on(table.organizationId, table.name),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+	],
+);
+
+// Per-provider-key catalog of custom models. Enterprise orgs define these to
+// attribute cost and enforce context/output limits for custom-provider
+// requests. All pricing/limit/capability fields are optional; prices are stored
+// as text to preserve the catalog's exponent-string format (e.g. "3.0e-6").
+export const customModel = pgTable(
+	"custom_model",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerKeyId: text()
+			.notNull()
+			.references(() => providerKey.id, { onDelete: "cascade" }),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// The model id used after the provider prefix (e.g. "gpt-5.5").
+		modelName: text().notNull(),
+		displayName: text(),
+		contextSize: integer(),
+		maxOutput: integer(),
+		inputPrice: text(),
+		outputPrice: text(),
+		cachedInputPrice: text(),
+		cacheReadInputPrice: text(),
+		cacheWriteInputPrice: text(),
+		cacheWriteInputPrice1h: text(),
+		requestPrice: text(),
+		webSearchPrice: text(),
+		// Custom models are text-output only. Multi-modal *input* (image/audio)
+		// is still supported and priced via the input fields above; output
+		// generation pricing (image/video/audio out) is intentionally omitted
+		// because it is too provider-specific to bill generically.
+		imageInputPrice: text(),
+		audioInputPrice: text(),
+		streaming: text({ enum: ["true", "false", "only"] }),
+		vision: boolean(),
+		tools: boolean(),
+		reasoning: boolean(),
+		jsonOutput: boolean(),
+		audio: boolean(),
+		supportedParameters: jsonb().$type<string[]>(),
+		status: text({
+			enum: ["active", "inactive", "deleted"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		// Uniqueness applies only to live rows so a soft-deleted model name can be
+		// recreated (the route soft-deletes by setting status = "deleted").
+		uniqueIndex("custom_model_provider_key_id_model_name_unique")
+			.on(table.providerKeyId, table.modelName)
+			.where(sql`status <> 'deleted'`),
+		index("custom_model_provider_key_id_idx").on(table.providerKeyId),
+		index("custom_model_organization_id_idx").on(table.organizationId),
 	],
 );
 
@@ -1278,6 +1353,9 @@ export const log = pgTable(
 		index("log_project_id_session_id_idx")
 			.on(table.projectId, table.sessionId, table.createdAt)
 			.where(sql`session_id IS NOT NULL`),
+		// Index for activity-log filtering by api key. api_key_id is globally
+		// unique so it determines the project; no project_id prefix needed.
+		index("log_api_key_id_created_at_idx").on(table.apiKeyId, table.createdAt),
 		index("log_end_customer_wallet_id_created_at_idx")
 			.on(table.endCustomerWalletId, table.createdAt)
 			.where(sql`end_customer_wallet_id IS NOT NULL`),
@@ -1881,7 +1959,10 @@ export const modelProviderMapping = pgTable(
 	},
 	(table) => [
 		unique().on(table.modelId, table.providerId, table.region),
-		index("model_provider_mapping_status_idx").on(table.status),
+		index("model_provider_mapping_status_model_id_idx").on(
+			table.status,
+			table.modelId,
+		),
 	],
 );
 
@@ -1949,6 +2030,20 @@ export const modelProviderMappingHistory = pgTable(
 			table.modelId,
 			table.minuteTimestamp,
 		),
+		// Covering index for the public provider stats aggregation
+		// (filter by minuteTimestamp range, group by providerId, sum metrics).
+		// Including the summed columns as trailing keys enables an index-only
+		// scan so Postgres never has to touch the heap for this query.
+		index("model_provider_mapping_history_provider_stats_idx").on(
+			table.minuteTimestamp,
+			table.providerId,
+			table.logsCount,
+			table.errorsCount,
+			table.cachedCount,
+			table.totalTimeToFirstToken,
+			table.totalOutputTokens,
+			table.totalDuration,
+		),
 	],
 );
 
@@ -1999,6 +2094,133 @@ export const modelHistory = pgTable(
 	],
 );
 
+// Hourly rollup of model_provider_mapping_history. Each row summarizes one
+// hour by summing the 60 minute rows for a mapping, for cheap long-range
+// queries that don't need minute granularity.
+export const modelProviderMappingHistoryHourly = pgTable(
+	"model_provider_mapping_history_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
+		providerId: text().notNull(), // Provider ID (e.g., "openai")
+		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		// Unique timestamp key for one-hour intervals (rounded down to the hour)
+		hourTimestamp: timestamp().notNull(),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		cachedCount: integer().notNull().default(0),
+		// Token totals sum 60 minute rows, so a high-volume hour can exceed the
+		// 32-bit integer range; use bigint to avoid overflow on the rollup.
+		totalInputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalOutputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalReasoningTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalCachedTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalDuration: integer().notNull().default(0),
+		totalTimeToFirstToken: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		totalCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint ensures one record per mapping-hour combination
+		unique().on(table.modelProviderMappingId, table.hourTimestamp),
+		// Index for ORDER BY hourTimestamp DESC queries
+		index("mpm_history_hourly_ts_idx").on(table.hourTimestamp),
+		// Composite index for aggregation queries by providerId
+		index("mpm_history_hourly_ts_provider_idx").on(
+			table.hourTimestamp,
+			table.providerId,
+		),
+		// Composite index for aggregation queries by modelId
+		index("mpm_history_hourly_ts_model_idx").on(
+			table.hourTimestamp,
+			table.modelId,
+		),
+		// Index for admin model detail queries (filter by model + time range)
+		index("mpm_history_hourly_model_ts_idx").on(
+			table.modelId,
+			table.hourTimestamp,
+		),
+		// Covering index for the public provider stats aggregation
+		// (filter by hourTimestamp range, group by providerId, sum metrics).
+		index("mpm_history_hourly_provider_stats_idx").on(
+			table.hourTimestamp,
+			table.providerId,
+			table.logsCount,
+			table.errorsCount,
+			table.cachedCount,
+			table.totalTimeToFirstToken,
+			table.totalOutputTokens,
+			table.totalDuration,
+		),
+	],
+);
+
+// Hourly rollup of model_history. Each row summarizes one hour by summing the
+// 60 minute rows for a model.
+export const modelHistoryHourly = pgTable(
+	"model_history_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		modelId: text().notNull(),
+		// Unique timestamp key for one-hour intervals (rounded down to the hour)
+		hourTimestamp: timestamp().notNull(),
+		logsCount: integer().notNull().default(0),
+		errorsCount: integer().notNull().default(0),
+		clientErrorsCount: integer().notNull().default(0),
+		gatewayErrorsCount: integer().notNull().default(0),
+		upstreamErrorsCount: integer().notNull().default(0),
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		cachedCount: integer().notNull().default(0),
+		// Token totals sum 60 minute rows, so a high-volume hour can exceed the
+		// 32-bit integer range; use bigint to avoid overflow on the rollup.
+		totalInputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalOutputTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalReasoningTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalCachedTokens: bigint({ mode: "number" }).notNull().default(0),
+		totalDuration: integer().notNull().default(0),
+		totalTimeToFirstToken: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		totalCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint ensures one record per model-hour combination
+		unique().on(table.modelId, table.hourTimestamp),
+		// Index for ORDER BY hourTimestamp DESC queries
+		index("model_history_hourly_ts_idx").on(table.hourTimestamp),
+		// Index for admin model history queries (filter by model + time range)
+		index("model_history_hourly_model_ts_idx").on(
+			table.modelId,
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization
@@ -2032,6 +2254,10 @@ export const auditLogActions = [
 	"provider_key.create",
 	"provider_key.update",
 	"provider_key.delete",
+	// Custom Model
+	"custom_model.create",
+	"custom_model.update",
+	"custom_model.delete",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -2053,6 +2279,7 @@ export const auditLogActions = [
 	"dev_plan.resume",
 	"dev_plan.change_tier",
 	"dev_plan.update_settings",
+	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
 	// Chat Plan
@@ -2070,6 +2297,7 @@ export const auditLogResourceTypes = [
 	"master_key",
 	"iam_rule",
 	"provider_key",
+	"custom_model",
 	"subscription",
 	"payment_method",
 	"payment",

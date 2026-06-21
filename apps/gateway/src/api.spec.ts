@@ -148,6 +148,428 @@ describe("api", () => {
 		expect(logs[0].finishReason).toBe("stop");
 	});
 
+	test("/v1/messages accepts thinking blocks in conversation history", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "What is 2+2?" },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "thinking",
+								thinking: "The user is asking for basic arithmetic.",
+								signature: "sig-abc",
+							},
+							{ type: "text", text: "4" },
+						],
+					},
+					{ role: "user", content: "Thanks!" },
+				],
+			}),
+		});
+
+		// Before the fix this returned 400 with a Zod invalid_union error
+		// because `thinking` blocks weren't whitelisted in the content schema.
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/messages pairs a legacy id-less function_call with its function result", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-fn-pairing",
+							object: "chat.completion",
+							created: 1774549411,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "It's sunny." },
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 5,
+								completion_tokens: 3,
+								total_tokens: 8,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "What's the weather in Paris?" },
+						{
+							role: "assistant",
+							content: "",
+							function_call: {
+								name: "get_weather",
+								arguments: '{"city":"Paris"}',
+							},
+						},
+						{ role: "function", name: "get_weather", content: "sunny" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			const assistantMsg = upstreamBody.messages.find(
+				(m: any) => m.role === "assistant" && m.tool_calls,
+			);
+			const toolMsg = upstreamBody.messages.find((m: any) => m.role === "tool");
+			const synthesizedId = assistantMsg.tool_calls[0].id;
+
+			// The function result must reference the synthesized call id, not the
+			// function name — otherwise providers reject the tool_call_id mismatch.
+			expect(synthesizedId).toMatch(/^call_/);
+			expect(toolMsg.tool_call_id).toBe(synthesizedId);
+			expect(toolMsg.tool_call_id).not.toBe("get_weather");
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages forwards tool_result-turn text as structured content (cache_control opt-in)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-cache-control",
+							object: "chat.completion",
+							created: 1774549411,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "Done." },
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 5,
+								completion_tokens: 3,
+								total_tokens: 8,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "Look up the weather." },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_1",
+									name: "get_weather",
+									input: { city: "Paris" },
+								},
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: "sunny",
+								},
+								{
+									type: "text",
+									text: "Given the above, what should I wear?",
+									cache_control: { type: "ephemeral" },
+								},
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// The trailing text turn must be forwarded as the per-block array form
+			// (carrying its cache_control marker into the inner pipeline) rather
+			// than flattened to a plain string, which silently dropped the cache
+			// opt-in before the fix. Whether cache_control reaches the wire is then
+			// a per-provider decision in prepare-request-body — the non-caching
+			// llmgateway provider strips it downstream, which is expected.
+			const userMsgs = upstreamBody.messages.filter(
+				(m: any) => m.role === "user",
+			);
+			const textTurn = userMsgs.find((m: any) => Array.isArray(m.content));
+			expect(textTurn).toBeTruthy();
+			const textBlock = textTurn.content.find((b: any) => b.type === "text");
+			expect(textBlock).toBeTruthy();
+			expect(textBlock.text).toBe("Given the above, what should I wear?");
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages surfaces reasoning as a thinking block (non-streaming)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [{ role: "user", content: "TRIGGER_REASONING" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		const thinkingBlock = json.content.find(
+			(block: any) => block.type === "thinking",
+		);
+		expect(thinkingBlock).toBeTruthy();
+		expect(thinkingBlock.thinking).toBe(
+			"Let me think about this step by step.",
+		);
+
+		// Thinking must precede the assistant's text output, matching Anthropic.
+		const textIndex = json.content.findIndex(
+			(block: any) => block.type === "text",
+		);
+		const thinkingIndex = json.content.findIndex(
+			(block: any) => block.type === "thinking",
+		);
+		expect(thinkingIndex).toBeLessThan(textIndex);
+	});
+
+	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				stream: true,
+				messages: [{ role: "user", content: "TRIGGER_REASONING" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.text();
+
+		const events = body
+			.split("\n")
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => line.slice(6).trim())
+			.filter((data) => data && data !== "[DONE]")
+			.map((data) => JSON.parse(data));
+
+		const thinkingStart = events.find(
+			(e) =>
+				e.type === "content_block_start" &&
+				e.content_block?.type === "thinking",
+		);
+		expect(thinkingStart).toBeTruthy();
+
+		const thinkingDelta = events.find(
+			(e) =>
+				e.type === "content_block_delta" && e.delta?.type === "thinking_delta",
+		);
+		expect(thinkingDelta).toBeTruthy();
+		expect(thinkingDelta.delta.thinking).toBe(
+			"Let me think about this step by step.",
+		);
+	});
+
+	test("/v1/messages mirrors Anthropic's rejection of budget thinking on adaptive-only models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "claude-opus-4-8",
+				max_tokens: 1024,
+				thinking: { type: "enabled", budget_tokens: 8000 },
+				messages: [{ role: "user", content: "What is 2+2?" }],
+			}),
+		});
+
+		// Opus 4.6+ are adaptive-only and reject `thinking.type: "enabled"`. The
+		// gateway passes Anthropic's 400 through verbatim instead of silently
+		// translating the (unsupported) budget into adaptive thinking.
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain("thinking.type.adaptive");
+	});
+
 	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
 		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
 		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.

@@ -100,7 +100,7 @@ const comparisonData = [
 			{
 				title: "Model coverage",
 				description: "Models and providers available through one API",
-				llmgateway: "300+ models, 25+ providers",
+				llmgateway: "280+ models, 35+ providers",
 				portkey: "1,600+ (vendor claim)",
 			},
 			{

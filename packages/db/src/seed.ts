@@ -216,7 +216,7 @@ const EXTRA_ORGS: Array<{
 	credits: number;
 	devPlan: "none" | "lite" | "pro" | "max";
 	status: "active" | "inactive";
-	isPersonal: boolean;
+	kind: "default" | "chat" | "devpass";
 	createdAt: Date;
 }> = [
 	{
@@ -227,7 +227,7 @@ const EXTRA_ORGS: Array<{
 		credits: 450,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(180),
 	},
 	{
@@ -238,7 +238,7 @@ const EXTRA_ORGS: Array<{
 		credits: 12,
 		devPlan: "lite",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(90),
 	},
 	{
@@ -249,7 +249,7 @@ const EXTRA_ORGS: Array<{
 		credits: 5200,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(365),
 	},
 	{
@@ -260,7 +260,7 @@ const EXTRA_ORGS: Array<{
 		credits: 180,
 		devPlan: "pro",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(150),
 	},
 	{
@@ -271,7 +271,7 @@ const EXTRA_ORGS: Array<{
 		credits: 3400,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(270),
 	},
 	{
@@ -282,7 +282,7 @@ const EXTRA_ORGS: Array<{
 		credits: 0,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(45),
 	},
 	{
@@ -293,7 +293,7 @@ const EXTRA_ORGS: Array<{
 		credits: 8900,
 		devPlan: "max",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(400),
 	},
 	{
@@ -304,7 +304,7 @@ const EXTRA_ORGS: Array<{
 		credits: 320,
 		devPlan: "pro",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(200),
 	},
 	{
@@ -315,7 +315,7 @@ const EXTRA_ORGS: Array<{
 		credits: 560,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(120),
 	},
 	{
@@ -326,7 +326,7 @@ const EXTRA_ORGS: Array<{
 		credits: 3,
 		devPlan: "lite",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(60),
 	},
 	{
@@ -337,7 +337,7 @@ const EXTRA_ORGS: Array<{
 		credits: 210,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(300),
 	},
 	{
@@ -348,7 +348,7 @@ const EXTRA_ORGS: Array<{
 		credits: 7,
 		devPlan: "none",
 		status: "inactive",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(500),
 	},
 	{
@@ -359,7 +359,7 @@ const EXTRA_ORGS: Array<{
 		credits: 12500,
 		devPlan: "max",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(450),
 	},
 	{
@@ -370,7 +370,7 @@ const EXTRA_ORGS: Array<{
 		credits: 140,
 		devPlan: "pro",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(80),
 	},
 	{
@@ -381,7 +381,7 @@ const EXTRA_ORGS: Array<{
 		credits: 1,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(30),
 	},
 	{
@@ -392,7 +392,7 @@ const EXTRA_ORGS: Array<{
 		credits: 25,
 		devPlan: "pro",
 		status: "active",
-		isPersonal: true,
+		kind: "devpass",
 		createdAt: daysAgo(100),
 	},
 	{
@@ -403,7 +403,7 @@ const EXTRA_ORGS: Array<{
 		credits: 8,
 		devPlan: "lite",
 		status: "active",
-		isPersonal: true,
+		kind: "devpass",
 		createdAt: daysAgo(70),
 	},
 	{
@@ -414,7 +414,7 @@ const EXTRA_ORGS: Array<{
 		credits: 50,
 		devPlan: "max",
 		status: "active",
-		isPersonal: true,
+		kind: "devpass",
 		createdAt: daysAgo(55),
 	},
 ];
@@ -1338,7 +1338,7 @@ async function seed() {
 		credits: 0,
 		retentionLevel: "retain",
 		plan: "free",
-		isPersonal: true,
+		kind: "devpass",
 		devPlan: "pro",
 		devPlanCycle: "monthly",
 		devPlanCreditsUsed: "0",
@@ -1843,7 +1843,7 @@ async function seed() {
 		credits: 0,
 		retentionLevel: "retain",
 		plan: "free",
-		isPersonal: true,
+		kind: "devpass",
 		devPlan: "pro",
 		devPlanCycle: "monthly",
 		devPlanCreditsUsed: usedCredits.toFixed(4),
@@ -1988,7 +1988,7 @@ async function seed() {
 						? "retain"
 						: "none",
 			status: org.status,
-			isPersonal: org.isPersonal,
+			kind: org.kind,
 			devPlan: org.devPlan,
 			devPlanCreditsUsed:
 				org.devPlan !== "none" ? String(randomFloat(0, 20)) : "0",
