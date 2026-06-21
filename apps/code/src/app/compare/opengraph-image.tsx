@@ -114,7 +114,7 @@ export default function CompareIndexOgImage() {
 						DevPass vs the alternatives
 					</div>
 					<div style={{ display: "flex", color: "#a1a1aa", fontSize: 30 }}>
-						One key to 200+ models — frontier and open-weight — at provider
+						One key to 280+ models — frontier and open-weight — at provider
 						rates.
 					</div>
 

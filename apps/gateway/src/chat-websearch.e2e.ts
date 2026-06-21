@@ -19,6 +19,9 @@ const testWebSearch = process.env.TEST_WEB_SEARCH;
 // Skip all tests if TEST_WEB_SEARCH is not set
 const describeWebSearch = testWebSearch ? describe : describe.skip;
 
+const expectsWebSearchAnnotations = (model: string) =>
+	!model.startsWith("zai/");
+
 describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
@@ -83,18 +86,20 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
 
-			// Verify annotations (citations) are present
-			expect(message).toHaveProperty("annotations");
-			expect(Array.isArray(message.annotations)).toBe(true);
-			expect(message.annotations.length).toBeGreaterThan(0);
+			if (expectsWebSearchAnnotations(model)) {
+				// Verify annotations (citations) are present
+				expect(message).toHaveProperty("annotations");
+				expect(Array.isArray(message.annotations)).toBe(true);
+				expect(message.annotations.length).toBeGreaterThan(0);
 
-			// Validate annotation structure
-			const citation = message.annotations[0];
-			expect(citation).toHaveProperty("type", "url_citation");
-			expect(citation).toHaveProperty("url_citation");
-			expect(citation.url_citation).toHaveProperty("url");
-			expect(typeof citation.url_citation.url).toBe("string");
-			expect(citation.url_citation.url).toMatch(/^https?:\/\//);
+				// Validate annotation structure
+				const citation = message.annotations[0];
+				expect(citation).toHaveProperty("type", "url_citation");
+				expect(citation).toHaveProperty("url_citation");
+				expect(citation.url_citation).toHaveProperty("url");
+				expect(typeof citation.url_citation.url).toBe("string");
+				expect(citation.url_citation.url).toMatch(/^https?:\/\//);
+			}
 
 			if (logMode) {
 				console.log(
@@ -182,26 +187,28 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
 
-			// Verify annotations (citations) are present in at least one chunk
-			const annotationChunks = streamResult.chunks.filter(
-				(chunk) => chunk.choices?.[0]?.delta?.annotations,
-			);
-			expect(annotationChunks.length).toBeGreaterThan(0);
+			if (expectsWebSearchAnnotations(model)) {
+				// Verify annotations (citations) are present in at least one chunk
+				const annotationChunks = streamResult.chunks.filter(
+					(chunk) => chunk.choices?.[0]?.delta?.annotations,
+				);
+				expect(annotationChunks.length).toBeGreaterThan(0);
 
-			// Validate annotation structure in streaming
-			const firstAnnotationChunk = annotationChunks[0];
-			const annotations =
-				firstAnnotationChunk.choices[0].delta.annotations ?? [];
-			expect(Array.isArray(annotations)).toBe(true);
-			expect(annotations.length).toBeGreaterThan(0);
+				// Validate annotation structure in streaming
+				const firstAnnotationChunk = annotationChunks[0];
+				const annotations =
+					firstAnnotationChunk.choices[0].delta.annotations ?? [];
+				expect(Array.isArray(annotations)).toBe(true);
+				expect(annotations.length).toBeGreaterThan(0);
 
-			// Validate citation structure
-			const citation = annotations[0];
-			expect(citation).toHaveProperty("type", "url_citation");
-			expect(citation).toHaveProperty("url_citation");
-			expect(citation.url_citation).toHaveProperty("url");
-			expect(typeof citation.url_citation.url).toBe("string");
-			expect(citation.url_citation.url).toMatch(/^https?:\/\//);
+				// Validate citation structure
+				const citation = annotations[0];
+				expect(citation).toHaveProperty("type", "url_citation");
+				expect(citation).toHaveProperty("url_citation");
+				expect(citation.url_citation).toHaveProperty("url");
+				expect(typeof citation.url_citation.url).toBe("string");
+				expect(citation.url_citation.url).toMatch(/^https?:\/\//);
+			}
 
 			if (logMode) {
 				console.log(

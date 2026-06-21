@@ -206,7 +206,7 @@ export default async function ComparePage({ params }: ComparePageProps) {
 							<Pole
 								brand="devpass"
 								name="DevPass"
-								caption="One key, 200+ models at provider rates"
+								caption="One key, 280+ models at provider rates"
 								price={entry.devpassPrice}
 								recommended
 							/>

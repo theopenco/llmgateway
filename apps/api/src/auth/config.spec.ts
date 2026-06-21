@@ -216,9 +216,9 @@ describe("API auth hooks functionality", () => {
 		});
 
 		expect(userOrganization).not.toBeNull();
-		// DevPass signups get a "Personal" org, not the shared "Default Organization"
-		expect(userOrganization?.organization?.name).toBe("Personal");
-		expect(userOrganization?.organization?.isPersonal).toBe(true);
+		// DevPass signups get a "DevPass" org, not the shared "Default Organization"
+		expect(userOrganization?.organization?.name).toBe("DevPass");
+		expect(userOrganization?.organization?.kind).toBe("devpass");
 
 		const project = await db.query.project.findFirst({
 			where: {
@@ -298,13 +298,12 @@ describe("API auth hooks functionality", () => {
 		expect(organizations).toHaveLength(2);
 		expect(
 			organizations.some(
-				(org) => org?.name === "Personal" && org.isPersonal === true,
+				(org) => org?.name === "DevPass" && org.kind === "devpass",
 			),
 		).toBe(true);
 		expect(
 			organizations.some(
-				(org) =>
-					org?.name === "Default Organization" && org.isPersonal === false,
+				(org) => org?.name === "Default Organization" && org.kind === "default",
 			),
 		).toBe(true);
 	});

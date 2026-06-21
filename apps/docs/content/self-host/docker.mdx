@@ -1,0 +1,87 @@
+---
+title: Docker
+description: Run LLM Gateway as a single Docker container — the fastest way to a working instance.
+icon: Container
+---
+
+The unified Docker image bundles every service — UI, API, Gateway, PostgreSQL, and Redis — into a single container. It's the fastest way to get a working instance and is ideal for trying LLM Gateway out or running a single low-traffic deployment.
+
+For production, run each service separately with [Docker Compose](/self-host/docker-compose) or deploy to [Kubernetes](/self-host/kubernetes) with managed Postgres and Redis.
+
+## Prerequisites
+
+- Latest Docker
+- API keys for the LLM providers you want to use (OpenAI, Anthropic, etc.)
+
+## Run the container
+
+```bash
+# Set a strong secret first
+export LLM_GATEWAY_SECRET="your-secret-key-here"
+export GATEWAY_API_KEY_HASH_SECRET="your-api-key-hash-secret-here"
+
+# Run the container
+docker run -d \
+  --name llmgateway \
+  --restart unless-stopped \
+  -p 3002:3002 \
+  -p 3003:3003 \
+  -p 3005:3005 \
+  -p 3006:3006 \
+  -p 4001:4001 \
+  -p 4002:4002 \
+  -v llmgateway_postgres:/var/lib/postgresql/data \
+  -v llmgateway_redis:/var/lib/redis \
+  -e AUTH_SECRET="$LLM_GATEWAY_SECRET" \
+  -e GATEWAY_API_KEY_HASH_SECRET="$GATEWAY_API_KEY_HASH_SECRET" \
+  ghcr.io/theopenco/llmgateway-unified:latest
+```
+
+Docker creates the named volumes automatically on first run. Do not bind-mount a host directory directly to `/var/lib/postgresql/data`, because PostgreSQL initialization inside the container needs to manage permissions on that path.
+
+Pin to a specific version instead of `latest` using the [latest release tag](https://github.com/theopenco/llmgateway/releases).
+
+## Accessing your instance
+
+- **Web Interface**: http://localhost:3002
+- **Documentation**: http://localhost:3005
+- **API Endpoint**: http://localhost:4002
+- **Gateway Endpoint**: http://localhost:4001
+
+## Management commands
+
+```bash
+# View logs
+docker logs llmgateway
+
+# Restart the container
+docker restart llmgateway
+
+# Stop the container
+docker stop llmgateway
+```
+
+## Required configuration
+
+At minimum, set these environment variables:
+
+```bash
+# Authentication
+AUTH_SECRET=your-secret-key-here
+GATEWAY_API_KEY_HASH_SECRET=your-api-key-hash-secret-here
+
+# LLM Provider API Keys (add the ones you need)
+LLM_OPENAI_API_KEY=sk-...
+LLM_ANTHROPIC_API_KEY=sk-ant-...
+```
+
+LLM Gateway supports multiple API keys per provider for load balancing — provide comma-separated values. See [Docker Compose](/self-host/docker-compose#multiple-api-keys-and-load-balancing) for details.
+
+## Next steps
+
+Once your instance is running:
+
+1. **Open the web interface** at http://localhost:3002
+2. **Create your first organization** and project
+3. **Generate API keys** for your applications
+4. **Test the gateway** by making API calls to http://localhost:4001

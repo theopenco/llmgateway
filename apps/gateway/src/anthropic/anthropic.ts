@@ -61,6 +61,18 @@ const anthropicMessageSchema = z.object({
 					content: z.union([z.string(), z.array(z.unknown())]).optional(),
 					is_error: z.boolean().optional(),
 				}),
+				// Extended-thinking blocks echoed back in conversation history. They
+				// carry no value for the internal OpenAI-format request, so they're
+				// accepted here and stripped during transformation.
+				z.object({
+					type: z.literal("thinking"),
+					thinking: z.string(),
+					signature: z.string().optional(),
+				}),
+				z.object({
+					type: z.literal("redacted_thinking"),
+					data: z.string(),
+				}),
 			]),
 		),
 	]),
@@ -88,11 +100,51 @@ const anthropicMessageSchema = z.object({
 		.optional(),
 });
 
-const anthropicToolSchema = z.object({
+// Standard Anthropic "custom" tools: a name plus a JSON schema describing the
+// parameters the model should produce.
+const anthropicCustomToolSchema = z.object({
+	type: z.literal("custom").optional(),
 	name: z.string(),
-	description: z.string(),
+	description: z.string().optional(),
 	input_schema: z.record(z.unknown()),
+	cache_control: z
+		.object({
+			type: z.enum(["ephemeral"]),
+			ttl: z.enum(["5m", "1h"]).optional(),
+		})
+		.nullish(),
 });
+
+// Anthropic server-side tools (e.g. web_search_20250305, code_execution_*).
+// These are executed by Anthropic, carry a versioned `type` instead of an
+// `input_schema`, and must not be validated as custom tools.
+const anthropicServerToolSchema = z.object({
+	type: z.string(),
+	name: z.string(),
+	max_uses: z.number().optional(),
+	allowed_domains: z.array(z.string()).optional(),
+	blocked_domains: z.array(z.string()).optional(),
+	user_location: z
+		.object({
+			type: z.literal("approximate").optional(),
+			city: z.string().optional(),
+			region: z.string().optional(),
+			country: z.string().optional(),
+			timezone: z.string().optional(),
+		})
+		.optional(),
+	cache_control: z
+		.object({
+			type: z.enum(["ephemeral"]),
+			ttl: z.enum(["5m", "1h"]).optional(),
+		})
+		.nullish(),
+});
+
+const anthropicToolSchema = z.union([
+	anthropicCustomToolSchema,
+	anthropicServerToolSchema,
+]);
 
 const anthropicRequestSchema = z.object({
 	model: z.string().openapi({
@@ -320,6 +372,13 @@ anthropic.openapi(messages, async (c) => {
 	}
 
 	// Transform messages using the approach from claude-code-proxy
+
+	// Ids of preceding assistant `function_call` turns (synthesized when the
+	// client omitted one), so the legacy `function` result that follows can
+	// reference the same call. Falling back to the function name instead would
+	// break the tool_call_id pairing contract of the inner completions endpoint.
+	const pendingLegacyToolCallIds: string[] = [];
+
 	for (const message of anthropicRequest.messages) {
 		// Handle tool role → convert to OpenAI tool format
 		if (message.role === "tool") {
@@ -339,7 +398,10 @@ anthropic.openapi(messages, async (c) => {
 			openaiMessages.push({
 				role: "tool",
 				content: message.content,
-				tool_call_id: message.tool_call_id ?? message.name,
+				tool_call_id:
+					message.tool_call_id ??
+					pendingLegacyToolCallIds.shift() ??
+					message.name,
 			});
 			continue;
 		}
@@ -356,11 +418,14 @@ anthropic.openapi(messages, async (c) => {
 
 		// Handle assistant messages with function_call (legacy OpenAI format)
 		if (message.role === "assistant" && message.function_call) {
+			const toolCallId =
+				message.function_call.id ??
+				`call_${Math.random().toString(36).substring(2, 10)}`;
+			pendingLegacyToolCallIds.push(toolCallId);
+
 			const toolCalls = [
 				{
-					id:
-						message.function_call.id ??
-						`call_${Math.random().toString(36).substring(2, 10)}`,
+					id: toolCallId,
 					type: "function" as const,
 					function: {
 						name: message.function_call.name,
@@ -446,13 +511,28 @@ anthropic.openapi(messages, async (c) => {
 				});
 			}
 
-			// Handle any remaining text content as a user message
-			const textContent = message.content
-				.filter((block) => block.type === "text")
-				.map((block) => block.text)
-				.join("");
+			// Handle any remaining text content as a user message, preserving
+			// cache_control markers the same way the generic text path below does.
+			const textBlocks = message.content.filter(
+				(block) => block.type === "text",
+			);
+			const hasAnyCacheControl = textBlocks.some(
+				(block) => block.cache_control,
+			);
+			const textContent = textBlocks.map((block) => block.text).join("");
 
-			if (textContent) {
+			if (hasAnyCacheControl) {
+				openaiMessages.push({
+					role: "user",
+					content: textBlocks.map((block) => ({
+						type: "text",
+						text: block.text,
+						...(block.cache_control && {
+							cache_control: block.cache_control,
+						}),
+					})),
+				});
+			} else if (textContent) {
 				openaiMessages.push({
 					role: "user",
 					content: textContent,
@@ -487,26 +567,31 @@ anthropic.openapi(messages, async (c) => {
 				// For multi-modal content, or text content with cache_control markers,
 				// transform blocks while preserving cache_control so the inner
 				// completions path can forward it to Anthropic.
-				const content = message.content.map((block) => {
-					if (block.type === "text" && block.text) {
-						return {
-							type: "text",
-							text: block.text,
-							...(block.cache_control && {
-								cache_control: block.cache_control,
-							}),
-						};
-					}
-					if (block.type === "image" && block.source) {
-						return {
-							type: "image_url",
-							image_url: {
-								url: `data:${block.source.media_type};base64,${block.source.data}`,
-							},
-						};
-					}
-					return block;
-				});
+				const content = message.content
+					.filter(
+						(block) =>
+							block.type !== "thinking" && block.type !== "redacted_thinking",
+					)
+					.map((block) => {
+						if (block.type === "text" && block.text) {
+							return {
+								type: "text",
+								text: block.text,
+								...(block.cache_control && {
+									cache_control: block.cache_control,
+								}),
+							};
+						}
+						if (block.type === "image" && block.source) {
+							return {
+								type: "image_url",
+								image_url: {
+									url: `data:${block.source.media_type};base64,${block.source.data}`,
+								},
+							};
+						}
+						return block;
+					});
 
 				openaiMessages.push({
 					role: message.role,
@@ -522,17 +607,49 @@ anthropic.openapi(messages, async (c) => {
 		}
 	}
 
-	// Transform tools if provided
+	// Transform tools if provided. Custom tools map to OpenAI function tools;
+	// Anthropic server-side tools (e.g. web_search_20250305) carry a versioned
+	// `type` and no `input_schema`, so they're translated to the internal
+	// `web_search` tool the chat completions endpoint understands. Server tools
+	// we can't represent are dropped (with a warning) rather than rejected.
 	let openaiTools;
 	if (anthropicRequest.tools) {
-		openaiTools = anthropicRequest.tools.map((tool) => ({
-			type: "function",
-			function: {
-				name: tool.name,
-				description: tool.description,
-				parameters: tool.input_schema,
-			},
-		}));
+		openaiTools = anthropicRequest.tools
+			.map((tool) => {
+				if ("input_schema" in tool) {
+					return {
+						type: "function",
+						function: {
+							name: tool.name,
+							description: tool.description,
+							parameters: tool.input_schema,
+						},
+					};
+				}
+
+				if (tool.type.startsWith("web_search")) {
+					return {
+						type: "web_search",
+						...(tool.max_uses !== undefined ? { max_uses: tool.max_uses } : {}),
+						...(tool.user_location
+							? { user_location: tool.user_location }
+							: {}),
+						...(tool.allowed_domains
+							? { allowed_domains: tool.allowed_domains }
+							: {}),
+						...(tool.blocked_domains
+							? { blocked_domains: tool.blocked_domains }
+							: {}),
+					};
+				}
+
+				logger.warn("Dropping unsupported Anthropic server tool", {
+					type: tool.type,
+					name: tool.name,
+				});
+				return null;
+			})
+			.filter((tool): tool is NonNullable<typeof tool> => tool !== null);
 	}
 
 	// Build OpenAI request
@@ -544,7 +661,7 @@ anthropic.openapi(messages, async (c) => {
 		stream: anthropicRequest.stream,
 	};
 
-	if (openaiTools) {
+	if (openaiTools && openaiTools.length > 0) {
 		openaiRequest.tools = openaiTools;
 	}
 
@@ -584,6 +701,15 @@ anthropic.openapi(messages, async (c) => {
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 			...(sessionId ? { "x-session-id": sessionId } : {}),
+			// Signal to the inner /v1/chat/completions handler that the caller used
+			// Anthropic's explicit-budget thinking API (`thinking.type: "enabled"`).
+			// On adaptive-only models the budget maps to an unsupported
+			// reasoning.max_tokens; the inner handler uses this to mirror Anthropic's
+			// own "use adaptive thinking" 400 (and log it as a client_error) instead
+			// of surfacing the confusing OpenAI-flavored capability error.
+			...(anthropicRequest.thinking?.type === "enabled"
+				? { "x-llmgateway-thinking-type": "enabled" }
+				: {}),
 		},
 		body: JSON.stringify(openaiRequest),
 	});
@@ -595,27 +721,30 @@ anthropic.openapi(messages, async (c) => {
 		});
 		const errorData = await response.text();
 
+		// The upstream here is our own /v1/chat/completions, which returns an
+		// OpenAI envelope `{ error: { message, type, ... } }`. Surface that inner
+		// message directly (both streaming and non-streaming) instead of dumping
+		// the raw JSON, so native Anthropic clients get a clean error string.
+		let parsedError: unknown = null;
+		try {
+			parsedError = JSON.parse(errorData);
+		} catch {
+			parsedError = null;
+		}
+		const innerMessage =
+			parsedError &&
+			typeof parsedError === "object" &&
+			"error" in parsedError &&
+			parsedError.error &&
+			typeof parsedError.error === "object" &&
+			"message" in parsedError.error &&
+			typeof parsedError.error.message === "string"
+				? parsedError.error.message
+				: errorData || response.statusText;
+
 		if (anthropicRequest.stream) {
-			let parsedError: unknown = null;
-			try {
-				parsedError = JSON.parse(errorData);
-			} catch {
-				parsedError = null;
-			}
 			// Derive the Anthropic error type from the HTTP status so streamed
-			// errors match the non-streaming path. The upstream here is our own
-			// /v1/chat/completions, which returns an OpenAI envelope whose `type`
-			// (e.g. invalid_request_error) would otherwise pass through verbatim.
-			const innerMessage =
-				parsedError &&
-				typeof parsedError === "object" &&
-				"error" in parsedError &&
-				parsedError.error &&
-				typeof parsedError.error === "object" &&
-				"message" in parsedError.error &&
-				typeof parsedError.error.message === "string"
-					? parsedError.error.message
-					: errorData || response.statusText;
+			// errors match the non-streaming path.
 			const errorEvent = buildAnthropicErrorEvent({
 				type: "error",
 				error: {
@@ -637,7 +766,7 @@ anthropic.openapi(messages, async (c) => {
 
 		return c.json(
 			buildAnthropicErrorBody({
-				message: `Request failed: ${errorData}`,
+				message: innerMessage,
 				status: response.status,
 			}),
 			response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
@@ -682,6 +811,7 @@ anthropic.openapi(messages, async (c) => {
 					cache_read_input_tokens: 0,
 				};
 				let currentTextBlockIndex: number | null = null;
+				let currentThinkingBlockIndex: number | null = null;
 				const toolCallBlockIndex = new Map<number, number>();
 				let currentEventType: string | null = null;
 				let stopReason: string | null = null;
@@ -882,6 +1012,48 @@ anthropic.openapi(messages, async (c) => {
 									continue;
 								}
 
+								// Handle reasoning delta. The upstream chat completions
+								// stream normalizes provider reasoning fields to
+								// `delta.reasoning`; surface it as an Anthropic
+								// `thinking` block (which precedes text/tool output).
+								const reasoningDelta =
+									delta.reasoning ?? delta.reasoning_content;
+								if (
+									typeof reasoningDelta === "string" &&
+									reasoningDelta.length > 0
+								) {
+									if (currentThinkingBlockIndex === null) {
+										currentThinkingBlockIndex = contentBlocks.length;
+										contentBlocks.push({ type: "thinking", text: "" });
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_start",
+												index: currentThinkingBlockIndex,
+												content_block: { type: "thinking", thinking: "" },
+											}),
+											event: "content_block_start",
+										});
+									}
+
+									const thinkingBlock =
+										contentBlocks[currentThinkingBlockIndex];
+									if (thinkingBlock && thinkingBlock.text !== undefined) {
+										thinkingBlock.text += reasoningDelta;
+									}
+
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "content_block_delta",
+											index: currentThinkingBlockIndex,
+											delta: {
+												type: "thinking_delta",
+												thinking: reasoningDelta,
+											},
+										}),
+										event: "content_block_delta",
+									});
+								}
+
 								// Handle content delta
 								if (delta.content) {
 									// Find or create a text block
@@ -1049,6 +1221,18 @@ anthropic.openapi(messages, async (c) => {
 
 	// Transform OpenAI response to Anthropic format
 	const content: any[] = [];
+
+	// Surface reasoning as an Anthropic `thinking` block. Anthropic places
+	// thinking before the assistant's text/tool output, so emit it first.
+	const responseReasoning =
+		openaiResponse.choices?.[0]?.message?.reasoning ??
+		openaiResponse.choices?.[0]?.message?.reasoning_content;
+	if (typeof responseReasoning === "string" && responseReasoning.length > 0) {
+		content.push({
+			type: "thinking",
+			thinking: responseReasoning,
+		});
+	}
 
 	if (openaiResponse.choices?.[0]?.message?.content) {
 		content.push({

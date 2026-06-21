@@ -1,6 +1,7 @@
 import {
 	ArrowRight,
 	ArrowUpRight,
+	BadgeCheck,
 	Bell,
 	CheckCircle2,
 	FileSearch,
@@ -32,6 +33,7 @@ interface PageProps {
 
 const iconMap = {
 	"shield-check": ShieldCheck,
+	"badge-check": BadgeCheck,
 	"git-branch": GitBranch,
 	audit: FileSearch,
 	bell: Bell,

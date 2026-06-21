@@ -938,8 +938,7 @@ chats.openapi(shareChat, async (c) => {
 				and(
 					eq(tables.organization.id, organizationId),
 					eq(tables.organization.status, "active"),
-					eq(tables.organization.isPersonal, false),
-					eq(tables.organization.isChat, false),
+					eq(tables.organization.kind, "default"),
 				),
 			)
 			.limit(1);
@@ -1190,8 +1189,7 @@ chats.openapi(listOrgShares, async (c) => {
 				isNull(tables.chatShare.deletedAt),
 				eq(tables.chat.status, "active"),
 				eq(tables.organization.status, "active"),
-				eq(tables.organization.isPersonal, false),
-				eq(tables.organization.isChat, false),
+				eq(tables.organization.kind, "default"),
 			),
 		)
 		.orderBy(desc(tables.chatShare.updatedAt));
@@ -1258,8 +1256,7 @@ chats.openapi(getOrgShare, async (c) => {
 				isNotNull(tables.chatShare.organizationId),
 				eq(tables.chat.status, "active"),
 				eq(tables.organization.status, "active"),
-				eq(tables.organization.isPersonal, false),
-				eq(tables.organization.isChat, false),
+				eq(tables.organization.kind, "default"),
 			),
 		)
 		.limit(1);

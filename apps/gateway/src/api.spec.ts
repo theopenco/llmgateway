@@ -10,7 +10,11 @@ import {
 	resetKeyHealth,
 } from "./lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
+import {
+	readAll,
+	waitForLogByRequestId,
+	waitForLogs,
+} from "./test-utils/test-helpers.js";
 
 describe("api", () => {
 	const harness = createGatewayApiTestHarness();
@@ -142,6 +146,567 @@ describe("api", () => {
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBe(1);
 		expect(logs[0].finishReason).toBe("stop");
+	});
+
+	test("/v1/messages accepts thinking blocks in conversation history", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "What is 2+2?" },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "thinking",
+								thinking: "The user is asking for basic arithmetic.",
+								signature: "sig-abc",
+							},
+							{ type: "text", text: "4" },
+						],
+					},
+					{ role: "user", content: "Thanks!" },
+				],
+			}),
+		});
+
+		// Before the fix this returned 400 with a Zod invalid_union error
+		// because `thinking` blocks weren't whitelisted in the content schema.
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/messages pairs a legacy id-less function_call with its function result", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-fn-pairing",
+							object: "chat.completion",
+							created: 1774549411,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "It's sunny." },
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 5,
+								completion_tokens: 3,
+								total_tokens: 8,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "What's the weather in Paris?" },
+						{
+							role: "assistant",
+							content: "",
+							function_call: {
+								name: "get_weather",
+								arguments: '{"city":"Paris"}',
+							},
+						},
+						{ role: "function", name: "get_weather", content: "sunny" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			const assistantMsg = upstreamBody.messages.find(
+				(m: any) => m.role === "assistant" && m.tool_calls,
+			);
+			const toolMsg = upstreamBody.messages.find((m: any) => m.role === "tool");
+			const synthesizedId = assistantMsg.tool_calls[0].id;
+
+			// The function result must reference the synthesized call id, not the
+			// function name — otherwise providers reject the tool_call_id mismatch.
+			expect(synthesizedId).toMatch(/^call_/);
+			expect(toolMsg.tool_call_id).toBe(synthesizedId);
+			expect(toolMsg.tool_call_id).not.toBe("get_weather");
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages forwards tool_result-turn text as structured content (cache_control opt-in)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: any = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-cache-control",
+							object: "chat.completion",
+							created: 1774549411,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "Done." },
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 5,
+								completion_tokens: 3,
+								total_tokens: 8,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "Look up the weather." },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_1",
+									name: "get_weather",
+									input: { city: "Paris" },
+								},
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_1",
+									content: "sunny",
+								},
+								{
+									type: "text",
+									text: "Given the above, what should I wear?",
+									cache_control: { type: "ephemeral" },
+								},
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			// The trailing text turn must be forwarded as the per-block array form
+			// (carrying its cache_control marker into the inner pipeline) rather
+			// than flattened to a plain string, which silently dropped the cache
+			// opt-in before the fix. Whether cache_control reaches the wire is then
+			// a per-provider decision in prepare-request-body — the non-caching
+			// llmgateway provider strips it downstream, which is expected.
+			const userMsgs = upstreamBody.messages.filter(
+				(m: any) => m.role === "user",
+			);
+			const textTurn = userMsgs.find((m: any) => Array.isArray(m.content));
+			expect(textTurn).toBeTruthy();
+			const textBlock = textTurn.content.find((b: any) => b.type === "text");
+			expect(textBlock).toBeTruthy();
+			expect(textBlock.text).toBe("Given the above, what should I wear?");
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages surfaces reasoning as a thinking block (non-streaming)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [{ role: "user", content: "TRIGGER_REASONING" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		const thinkingBlock = json.content.find(
+			(block: any) => block.type === "thinking",
+		);
+		expect(thinkingBlock).toBeTruthy();
+		expect(thinkingBlock.thinking).toBe(
+			"Let me think about this step by step.",
+		);
+
+		// Thinking must precede the assistant's text output, matching Anthropic.
+		const textIndex = json.content.findIndex(
+			(block: any) => block.type === "text",
+		);
+		const thinkingIndex = json.content.findIndex(
+			(block: any) => block.type === "thinking",
+		);
+		expect(thinkingIndex).toBeLessThan(textIndex);
+	});
+
+	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				stream: true,
+				messages: [{ role: "user", content: "TRIGGER_REASONING" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.text();
+
+		const events = body
+			.split("\n")
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => line.slice(6).trim())
+			.filter((data) => data && data !== "[DONE]")
+			.map((data) => JSON.parse(data));
+
+		const thinkingStart = events.find(
+			(e) =>
+				e.type === "content_block_start" &&
+				e.content_block?.type === "thinking",
+		);
+		expect(thinkingStart).toBeTruthy();
+
+		const thinkingDelta = events.find(
+			(e) =>
+				e.type === "content_block_delta" && e.delta?.type === "thinking_delta",
+		);
+		expect(thinkingDelta).toBeTruthy();
+		expect(thinkingDelta.delta.thinking).toBe(
+			"Let me think about this step by step.",
+		);
+	});
+
+	test("/v1/messages mirrors Anthropic's rejection of budget thinking on adaptive-only models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "claude-opus-4-8",
+				max_tokens: 1024,
+				thinking: { type: "enabled", budget_tokens: 8000 },
+				messages: [{ role: "user", content: "What is 2+2?" }],
+			}),
+		});
+
+		// Opus 4.6+ are adaptive-only and reject `thinking.type: "enabled"`. The
+		// gateway passes Anthropic's 400 through verbatim instead of silently
+		// translating the (unsupported) budget into adaptive thinking.
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain("thinking.type.adaptive");
+	});
+
+	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
+		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
+		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, blockPromptLogging: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-block",
+			token: "real-token-compliance-block",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-block",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-block",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello compliance!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+
+		const violations = await db.query.guardrailViolation.findMany({
+			where: { organizationId: { eq: "org-id" } },
+		});
+		expect(violations.some((v) => v.category === "provider_compliance")).toBe(
+			true,
+		);
+	});
+
+	test("/v1/chat/completions allows providers meeting the compliance policy", async () => {
+		// OpenAI's dataPolicy has soc2: true, so a requireSoc2 policy lets it through.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-allow",
+			token: "real-token-compliance-allow",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-allow",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-allow",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello compliant!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/embeddings is blocked by the compliance policy too", async () => {
+		// Compliance enforcement also covers non-chat endpoints. text-embedding-3-small
+		// resolves to OpenAI, whose dataPolicy has promptLogging: true.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, blockPromptLogging: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-embeddings",
+			token: "real-token-compliance-embeddings",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-embeddings",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-embeddings",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				input: "Hello compliance!",
+				model: "text-embedding-3-small",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
 	});
 
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
@@ -1628,6 +2193,58 @@ describe("api", () => {
 		const json = await res.json();
 		expect(JSON.stringify(json)).not.toContain("Invalid enum value");
 		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
+	});
+
+	test("/v1/images/edits logs oversized image input client errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edit-oversized",
+			token: "real-token-image-edit-oversized",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const requestId = "image-edit-oversized-request";
+		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-image-edit-oversized",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "gemini-3-pro-image-preview",
+				prompt: "Add a neon city reflection to this image",
+				images: [
+					{
+						image_url: oversizedImageDataUrl,
+					},
+					{
+						image_url: oversizedImageDataUrl,
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.message).toContain("Image size");
+		expect(json.error.message).toContain("exceeds your current limit");
+
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("client_error");
+		expect(log.unifiedFinishReason).toBe("client_error");
+		expect(log.hasError).toBe(true);
+		expect(log.errorDetails?.statusCode).toBe(400);
+		expect(log.errorDetails?.responseText).toContain("Image size");
+		expect(log.usedProvider).toBe("llmgateway");
+
+		const logs = await db.query.log.findMany({
+			where: { requestId: { eq: requestId } },
+		});
+		expect(logs).toHaveLength(1);
 	});
 
 	test("/v1/images/generations forwards X-No-Fallback to chat completions", async () => {
@@ -5063,6 +5680,156 @@ describe("api", () => {
 			expect(logs[0].finishReason).toBe("refusal");
 			expect(logs[0].unifiedFinishReason).toBe("content_filter");
 			expect(Number(logs[0].cost)).toBe(0);
+		});
+	});
+
+	describe("native /v1/messages server-side tools", () => {
+		// Anthropic server-side tools (e.g. web_search_20250305) carry a versioned
+		// `type` and no `description`/`input_schema`. They must pass validation and
+		// be forwarded to the provider, not rejected as malformed custom tools.
+		test("forwards Anthropic web_search server tool to the provider", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			let capturedBody: any;
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(`${mockServerUrl}/v1/messages`)) {
+						capturedBody = JSON.parse(init?.body as string);
+						return new Response(
+							JSON.stringify({
+								id: "msg_ws",
+								type: "message",
+								role: "assistant",
+								model: "claude-sonnet-4-6",
+								content: [
+									{
+										type: "text",
+										text: "The latest version is web_search_20250305.",
+									},
+								],
+								stop_reason: "end_turn",
+								stop_sequence: null,
+								usage: { input_tokens: 50, output_tokens: 10 },
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+
+			try {
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-sonnet-4-6",
+						max_tokens: 1024,
+						messages: [
+							{
+								role: "user",
+								content:
+									"Search the web for the latest Anthropic web search tool version.",
+							},
+						],
+						tools: [
+							{
+								type: "web_search_20250305",
+								name: "web_search",
+								max_uses: 3,
+								allowed_domains: ["anthropic.com", "docs.anthropic.com"],
+								user_location: {
+									type: "approximate",
+									city: "San Francisco",
+									country: "US",
+								},
+							},
+						],
+					}),
+				});
+
+				// The request must NOT be rejected with a ZodError about missing
+				// `description`/`input_schema` on the server tool.
+				expect(res.status).toBe(200);
+
+				// The server tool must reach the Anthropic provider as a native
+				// web_search tool, preserving its configuration (max_uses, domain
+				// filters, user_location).
+				const forwardedTools = capturedBody?.tools ?? [];
+				const forwardedWebSearch = forwardedTools.find(
+					(t: { type?: string }) => t.type === "web_search_20250305",
+				);
+				expect(forwardedWebSearch).toBeDefined();
+				expect(forwardedWebSearch.max_uses).toBe(3);
+				expect(forwardedWebSearch.allowed_domains).toEqual([
+					"anthropic.com",
+					"docs.anthropic.com",
+				]);
+				expect(forwardedWebSearch.user_location).toEqual({
+					type: "approximate",
+					city: "San Francisco",
+					country: "US",
+				});
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		});
+
+		test("still rejects a custom tool missing input_schema", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-4-6",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "hi" }],
+					tools: [{ name: "get_weather", description: "Get the weather" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(JSON.stringify(json)).toContain("input_schema");
 		});
 	});
 });

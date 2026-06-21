@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
 
-import { providers } from "@llmgateway/models";
+import { models as modelsList, providers } from "@llmgateway/models";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 describe("Models API", () => {
 	test("GET /v1/models should return a list of models", async () => {
@@ -53,12 +55,11 @@ describe("Models API", () => {
 
 		const json = await res.json();
 
-		// The deactivated_at field on a model represents the earliest deactivation date
-		// among all its providers. A model is only excluded if ALL providers are deactivated.
-		// Therefore, models with past deactivated_at dates may still appear if they have
-		// at least one active provider. This test verifies the response is successful and
-		// contains models, but cannot make assumptions about deactivated_at dates since
-		// partially deactivated models (some providers deactivated) are correctly included.
+		// The model-level deactivated_at field is only set once EVERY provider
+		// mapping has a deactivation date, and then reports the latest of them
+		// (when the model becomes fully unavailable). A model is only excluded once
+		// all providers are deactivated, so partially deactivated models still
+		// appear and a present deactivated_at may be in the past.
 
 		// Verify we got some models back
 		expect(json.data.length).toBeGreaterThan(0);
@@ -70,6 +71,38 @@ describe("Models API", () => {
 				expect(deactivatedAt instanceof Date).toBe(true);
 				expect(isNaN(deactivatedAt.getTime())).toBe(false);
 			}
+		}
+	});
+
+	test("GET /v1/models reports model-level deprecated_at/deactivated_at as the latest date across all mappings, set only when every mapping has one", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(json.data.length).toBeGreaterThan(0);
+
+		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+
+		const expectedDate = (dates: (Date | undefined)[]) => {
+			if (dates.length === 0 || dates.some((d) => d === undefined)) {
+				return undefined;
+			}
+			return (dates as Date[])
+				.reduce((latest, d) => (d.getTime() > latest.getTime() ? d : latest))
+				.toISOString();
+		};
+
+		for (const model of json.data) {
+			const definition = definitionById.get(model.id);
+			expect(definition).toBeDefined();
+			const mappings = definition!.providers as ProviderModelMapping[];
+
+			expect(model.deactivated_at).toBe(
+				expectedDate(mappings.map((p) => p.deactivatedAt)),
+			);
+			expect(model.deprecated_at).toBe(
+				expectedDate(mappings.map((p) => p.deprecatedAt)),
+			);
 		}
 	});
 
@@ -93,10 +126,11 @@ describe("Models API", () => {
 
 		const json = await res.json();
 
-		// The deprecated_at field represents the earliest deprecation date among all providers.
-		// A model is only excluded when ALL its providers are deprecated (have past dates).
-		// Models with some deprecated providers (past dates) but other active providers
-		// are correctly included, so we can't assume deprecated_at is always in the future.
+		// The model-level deprecated_at field is only set once EVERY provider
+		// mapping has a deprecation date, and then reports the latest of them.
+		// A model is only excluded when ALL its providers are deprecated (have past
+		// dates), so models with some deprecated providers but other active
+		// providers are correctly included, and deprecated_at may be undefined.
 
 		// Verify we got some models back and the response is valid
 		expect(json.data.length).toBeGreaterThan(0);

@@ -2,6 +2,66 @@ import type { ModelDefinition } from "@/models.js";
 
 export const zaiModels = [
 	{
+		id: "glm-5.2",
+		name: "GLM-5.2",
+		description:
+			"Zhipu GLM-5.2 flagship model for long-horizon coding and agentic engineering tasks with a 1M context window.",
+		family: "glm",
+		releasedAt: new Date("2026-06-13"),
+		providers: [
+			{
+				providerId: "zai",
+				externalId: "glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+			},
+			{
+				providerId: "embercloud",
+				externalId: "glm-5.2",
+				inputPrice: "1.26e-6",
+				outputPrice: "3.96e-6",
+				cachedInputPrice: "0.234e-6",
+				requestPrice: "0",
+				contextSize: 203000,
+				maxOutput: 131000,
+				streaming: true,
+				vision: false,
+				tools: true,
+				reasoning: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"messages",
+					"model",
+					"stream",
+					"stream_options",
+					"temperature",
+					"top_p",
+					"max_tokens",
+					"max_completion_tokens",
+					"seed",
+					"stop",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"parallel_tool_calls",
+					"reasoning",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
 		id: "glm-5.1",
 		name: "GLM-5.1",
 		description:
@@ -85,7 +145,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
-				reasoningOutput: "omit",
 				jsonOutput: false,
 				supportedParameters: [
 					"messages",
@@ -103,6 +162,7 @@ export const zaiModels = [
 					"tool_choice",
 					"parallel_tool_calls",
 					"reasoning",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -205,8 +265,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
-				// Embercloud does not expose reasoning content in responses
-				reasoningOutput: "omit",
 				jsonOutput: false,
 				supportedParameters: [
 					"messages",
@@ -224,6 +282,7 @@ export const zaiModels = [
 					"tool_choice",
 					"parallel_tool_calls",
 					"reasoning",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -614,8 +673,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
-				// Embercloud does not expose reasoning content in responses
-				reasoningOutput: "omit",
 				jsonOutput: true,
 				supportedParameters: [
 					"messages",
@@ -635,6 +692,7 @@ export const zaiModels = [
 					"tool_choice",
 					"parallel_tool_calls",
 					"reasoning",
+					"reasoning_effort",
 				],
 			},
 		],

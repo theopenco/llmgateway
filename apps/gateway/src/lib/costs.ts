@@ -246,6 +246,15 @@ export async function calculateCosts(
 		 * unsupported tiers to standard.
 		 */
 		servedServiceTier?: string | null;
+		/**
+		 * Pricing override for custom-provider requests backed by an enterprise
+		 * custom model catalog entry. Custom models are not in the static catalog,
+		 * so when present this synthetic provider mapping (providerId "custom")
+		 * supplies pricing directly instead of the `models.find` lookup. Undefined
+		 * for all non-custom requests and for custom requests without a catalog
+		 * entry (which remain unbilled).
+		 */
+		customPricing?: ProviderModelMapping;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -255,11 +264,21 @@ export async function calculateCosts(
 	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
 	const servedServiceTier = options?.servedServiceTier ?? null;
+	const customPricing = options?.customPricing;
 
 	// Look up the model definition by the canonical root id only.
 	// externalId-based lookups are intentionally not supported here — the
 	// upstream provider id must never leak into pricing/discount lookups.
-	const modelInfo = models.find((m) => m.id === model) as ModelDefinition;
+	// For custom-provider requests with a catalog override, use a synthetic
+	// model whose single provider mapping (providerId "custom") matches the
+	// `provider` argument, so the existing provider-pricing path applies.
+	const modelInfo = customPricing
+		? ({
+				id: model,
+				family: "custom",
+				providers: [customPricing],
+			} as ModelDefinition)
+		: (models.find((m) => m.id === model) as ModelDefinition);
 
 	if (!modelInfo) {
 		return {

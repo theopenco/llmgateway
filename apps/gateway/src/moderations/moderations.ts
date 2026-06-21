@@ -19,6 +19,7 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
@@ -406,6 +407,15 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		models.find((m) => m.id === moderationModelId),
 	);
 
+	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
+	// before sending if the org's policy doesn't permit it.
+	await assertProviderCompliant(organization, "openai", {
+		organizationId: project.organizationId,
+		modelId: moderationModelId,
+		apiKeyId: apiKey.id,
+		model: upstreamModel,
+	});
+
 	const retentionLevel = organization.retentionLevel ?? "none";
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -501,6 +511,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		const fetchSignal = createCombinedSignal(controller);
 		upstreamResponse = await fetch(upstreamUrl, {
 			method: "POST",
+			// SSRF: never follow redirects on an authenticated provider request. A
+			// tenant-supplied baseUrl could 3xx to an internal host at request time,
+			// and a redirect would also leak the upstream token.
+			redirect: "error",
 			headers: {
 				"Content-Type": "application/json",
 				...getProviderHeaders("openai", usedToken, { requestId }),

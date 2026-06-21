@@ -64,7 +64,7 @@ export function CanvasSidebar({
 	onNewCanvas,
 }: CanvasSidebarProps) {
 	const switcherOrganizations = organizations.filter(
-		(org) => !org.isPersonal && !org.isChat,
+		(org) => org.kind === "default",
 	);
 	const switcherSelectedOrganization =
 		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??

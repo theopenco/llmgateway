@@ -80,9 +80,7 @@ export async function renderPlaygroundShell({
 			: []
 	) as Organization[];
 
-	const organizations = allOrganizations.filter(
-		(o) => !o.isPersonal && !o.isChat,
-	);
+	const organizations = allOrganizations.filter((o) => o.kind === "default");
 
 	// The Chat plan context is only the right default for subscribers (or users
 	// who topped up the Chat org). Unsubscribed users with a funded dashboard

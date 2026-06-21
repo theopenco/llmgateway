@@ -12,7 +12,7 @@ export type VideoSize =
 	| "3840x2160"
 	| "2160x3840";
 
-export type VideoDuration = 4 | 6 | 8 | 10 | 12 | 15;
+export type VideoDuration = 4 | 5 | 6 | 8 | 10 | 12 | 15;
 
 export interface VideoInputImage {
 	dataUrl: string;
@@ -72,7 +72,7 @@ export interface VideoGalleryItem {
 
 export type VideoInputMode = "none" | "frames" | "reference";
 
-const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10, 12, 15];
+const VIDEO_DURATIONS: VideoDuration[] = [4, 5, 6, 8, 10, 12, 15];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
 	"848x480": "480p Landscape",
@@ -102,12 +102,20 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
+	if (isSeedance2ReferenceModel(rootModelId)) {
+		return providerId === undefined || providerId === "bytedance";
+	}
+
 	if (rootModelId === "minimax-hailuo-2-3") {
 		return providerId === undefined || providerId === "minimax";
 	}
 
-	if (rootModelId === "grok-imagine-video-1-5-preview") {
+	if (isGrokImagineVideoModel(rootModelId)) {
 		return providerId === undefined || providerId === "xai";
+	}
+
+	if (isAtlasCloudKlingVideoModel(rootModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
 	}
 
 	if (
@@ -126,6 +134,18 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 
 function isSeedance2ReferenceModel(rootModelId: string): boolean {
 	return rootModelId === "seedance-2-0" || rootModelId === "seedance-2-0-fast";
+}
+
+function isGrokImagineVideoModel(rootModelId: string): boolean {
+	return (
+		rootModelId === "grok-imagine-video-1-5" ||
+		rootModelId === "grok-imagine-video-1-5-preview" ||
+		rootModelId === "grok-imagine-video-1.5-preview"
+	);
+}
+
+function isAtlasCloudKlingVideoModel(rootModelId: string): boolean {
+	return rootModelId === "kling-v3-0" || rootModelId === "kling-v3-0-turbo";
 }
 
 export function supportsVideoReferenceInput(modelId: string): boolean {
@@ -223,14 +243,24 @@ function mappingSupportsVideoRequest(
 		return false;
 	}
 
-	if (
-		inputMode === "frames" &&
-		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche" &&
-		mapping.providerId !== "minimax" &&
-		mapping.providerId !== "xai"
-	) {
-		return false;
+	if (inputMode === "frames") {
+		// Match by canonical root model id — never by the upstream externalId.
+		if (mapping.providerId === "bytedance") {
+			return (
+				mapping.modelId === "seedance-2-0" ||
+				mapping.modelId === "seedance-2-0-fast"
+			);
+		}
+
+		if (
+			mapping.providerId !== "google-vertex" &&
+			mapping.providerId !== "avalanche" &&
+			mapping.providerId !== "minimax" &&
+			mapping.providerId !== "xai" &&
+			mapping.providerId !== "atlascloud"
+		) {
+			return false;
+		}
 	}
 
 	if (inputMode === "reference") {

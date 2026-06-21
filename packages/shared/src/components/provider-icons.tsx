@@ -1282,7 +1282,30 @@ export const ElevenLabsIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const AtlasCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 32 32"
+		fill="none"
+	>
+		<rect width="32" height="32" rx="7" fill="#7C3AED" />
+		<path
+			fill="#FFFFFF"
+			d="M15.98 6.5 7.65 25.5h4.35l1.36-3.45h7.88l1.37 3.45h4.49L18.67 6.5h-2.69Zm-1.36 12.18 2.69-6.75 2.67 6.75h-5.36Z"
+		/>
+		<path
+			fill="#FFFFFF"
+			d="M10.18 23.16c2.85-1.15 5.43-1.33 7.79-.54l-.92-2.32c-2.05-.45-4.12-.22-6.22.68l-.65 2.18Z"
+			opacity=".82"
+		/>
+	</svg>
+);
+
 export const ProviderIcons = {
+	atlascloud: AtlasCloudIcon,
 	anthropic: AnthropicIcon,
 	elevenlabs: ElevenLabsIcon,
 	bytedance: BytedanceIcon,
@@ -1324,6 +1347,7 @@ export type ProviderIconKey = keyof typeof ProviderIcons;
 export const providerLogoUrls: Partial<
 	Record<ProviderId | ProviderIconKey, React.FC<React.SVGProps<SVGSVGElement>>>
 > = {
+	atlascloud: ProviderIcons.atlascloud,
 	openai: ProviderIcons.openai,
 	anthropic: ProviderIcons.anthropic,
 	elevenlabs: ProviderIcons.elevenlabs,

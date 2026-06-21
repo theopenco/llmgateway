@@ -1,6 +1,7 @@
 import {
 	type ModelDefinition,
 	models,
+	expandAllProviderRegions,
 	type ProviderModelMapping,
 	type ProviderId,
 	type BaseMessage,
@@ -17,12 +18,35 @@ import {
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
+import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+
+function getProviderMapping(
+	modelDef: ModelDefinition | undefined,
+	usedProvider: ProviderId,
+	usedRegion: string | null,
+): ProviderModelMapping | undefined {
+	if (!modelDef) {
+		return undefined;
+	}
+	const providerMappings = expandAllProviderRegions(modelDef.providers);
+	return (
+		providerMappings.find(
+			(p) =>
+				p.providerId === usedProvider &&
+				(usedRegion ? p.region === usedRegion : !p.region),
+		) ??
+		providerMappings.find(
+			(p) => p.providerId === usedProvider && p.region === undefined,
+		) ??
+		providerMappings.find((p) => p.providerId === usedProvider)
+	);
+}
 
 interface OpenAIImageRequest {
 	model: string;
@@ -80,7 +104,10 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	const response = await fetch(url);
+	// SSRF: the URL comes from the request body, so validate it does not resolve
+	// to an internal host and refuse redirects before fetching.
+	await assertSafeUserContentUrl(url);
+	const response = await fetch(url, { redirect: "error" });
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
@@ -742,6 +769,12 @@ export async function prepareRequestBody(
 	service_tier?: "auto" | "default" | "flex" | "priority",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
+	const modelDef = models.find((m) => m.id === usedInternalModel);
+	const providerMappingForOptions = getProviderMapping(
+		modelDef,
+		usedProvider,
+		usedRegion,
+	);
 	const supportedServiceTier =
 		(service_tier === "flex" || service_tier === "priority") &&
 		supportsServiceTier(
@@ -765,7 +798,8 @@ export async function prepareRequestBody(
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
-		usedProvider === "quartz";
+		usedProvider === "quartz" ||
+		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
@@ -1098,7 +1132,6 @@ export async function prepareRequestBody(
 	}
 
 	// Check if the model supports system role. Look up by canonical model id.
-	const modelDef = models.find((m) => m.id === usedInternalModel);
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
@@ -1829,6 +1862,19 @@ export async function prepareRequestBody(
 				if (webSearchTool.max_uses) {
 					webSearch.max_uses = webSearchTool.max_uses;
 				}
+				// Anthropic accepts either allowed_domains or blocked_domains, not both.
+				if (webSearchTool.allowed_domains?.length) {
+					webSearch.allowed_domains = webSearchTool.allowed_domains;
+				} else if (webSearchTool.blocked_domains?.length) {
+					webSearch.blocked_domains = webSearchTool.blocked_domains;
+				}
+				if (webSearchTool.user_location) {
+					// Anthropic requires the discriminating `type: "approximate"`.
+					webSearch.user_location = {
+						...webSearchTool.user_location,
+						type: "approximate",
+					};
+				}
 				requestBody.tools.push(webSearch);
 			}
 
@@ -1937,6 +1983,40 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "aws-bedrock": {
+			if (providerMappingForOptions?.apiFormat === "openai-chat-completions") {
+				if (stream) {
+					requestBody.stream_options = {
+						include_usage: true,
+					};
+				}
+				if (response_format) {
+					requestBody.response_format = response_format;
+				}
+				if (temperature !== undefined) {
+					requestBody.temperature = temperature;
+				}
+				if (max_tokens !== undefined) {
+					requestBody.max_completion_tokens = max_tokens;
+				}
+				if (top_p !== undefined) {
+					requestBody.top_p = top_p;
+				}
+				if (reasoning_effort !== undefined) {
+					const reasoningEffort =
+						genericReasoningEffort === "minimal" ||
+						genericReasoningEffort === "xhigh"
+							? "low"
+							: genericReasoningEffort;
+					requestBody.reasoning = {
+						effort: reasoningEffort,
+					};
+				}
+				if (n !== undefined && n > 1) {
+					requestBody.n = n;
+				}
+				break;
+			}
+
 			// AWS Bedrock uses the Converse API format
 			delete requestBody.model; // Model is in the URL path
 			delete requestBody.stream; // Will be added to inferenceConfig
@@ -1952,11 +2032,8 @@ export async function prepareRequestBody(
 			}
 
 			// Get the minCacheableTokens from the model definition (default to 1024 if not specified)
-			const bedrockProviderMapping = modelDef?.providers.find(
-				(p) => p.providerId === usedProvider,
-			) as ProviderModelMapping | undefined;
 			const bedrockMinCacheableTokens =
-				bedrockProviderMapping?.minCacheableTokens ?? 1024;
+				providerMappingForOptions?.minCacheableTokens ?? 1024;
 			// Approximate 4 characters per token
 			const bedrockMinCacheableChars = bedrockMinCacheableTokens * 4;
 
@@ -1965,7 +2042,7 @@ export async function prepareRequestBody(
 			// Use cacheWriteInputPrice1h on the model definition as the source of
 			// truth and silently downgrade unsupported 1h hints to the default 5m.
 			const bedrockSupports1hTtl =
-				bedrockProviderMapping?.cacheWriteInputPrice1h !== undefined;
+				providerMappingForOptions?.cacheWriteInputPrice1h !== undefined;
 			const createBedrockCachePoint = (
 				ttl?: "5m" | "1h",
 			): BedrockCachePoint => {
@@ -2292,7 +2369,7 @@ export async function prepareRequestBody(
 
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
 			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				if (bedrockProviderMapping?.reasoningMode === "adaptive") {
+				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
 					requestBody.additionalModelRequestFields ??= {};
@@ -2363,7 +2440,7 @@ export async function prepareRequestBody(
 					// large responses and mid-emission tool calls). When the
 					// caller did supply one, leave it alone but ensure it leaves
 					// room for the thinking budget plus a minimum response.
-					const bedrockModelMaxOutput = bedrockProviderMapping?.maxOutput;
+					const bedrockModelMaxOutput = providerMappingForOptions?.maxOutput;
 					const reasoningFloor = thinkingBudget + 1000;
 					if (inferenceConfig.maxTokens === undefined) {
 						inferenceConfig.maxTokens =
@@ -2756,19 +2833,7 @@ export async function prepareRequestBody(
 			}
 			if (reasoning_effort !== undefined) {
 				// Check if the model supports reasoning_effort parameter
-				const modelDef = models.find((m) =>
-					m.providers.some(
-						(p) =>
-							p.providerId === usedProvider &&
-							((p as ProviderModelMapping).region ?? null) === usedRegion,
-					),
-				);
-				const providerMapping = modelDef?.providers.find(
-					(p) =>
-						p.providerId === usedProvider &&
-						((p as ProviderModelMapping).region ?? null) === usedRegion,
-				) as ProviderModelMapping | undefined;
-				const supported = providerMapping?.supportedParameters;
+				const supported = providerMappingForOptions?.supportedParameters;
 				if (
 					!supported ||
 					supported.length === 0 ||

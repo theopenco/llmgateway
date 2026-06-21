@@ -1,5 +1,6 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
+import { atlascloudModels } from "./models/atlascloud.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -334,6 +335,11 @@ export interface ProviderModelMapping {
 	 */
 	supportsResponsesApi?: boolean;
 	/**
+	 * Provider-specific request/endpoint format when a provider has multiple API
+	 * surfaces for different models. Defaults to the provider's native format.
+	 */
+	apiFormat?: "openai-chat-completions";
+	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;
 	 * mappings opt in to the subset actually supported by the upstream model.
@@ -598,6 +604,7 @@ export const models = [
 	...minimaxModels,
 	...moonshotModels,
 	...alibabaModels,
+	...atlascloudModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,

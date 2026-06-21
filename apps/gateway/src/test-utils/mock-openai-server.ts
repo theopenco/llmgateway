@@ -351,8 +351,10 @@ interface MockVideoJobState {
 		mimeType: string;
 		referenceType: string;
 	}>;
+	referenceVideoUrls?: string[];
 	imageUrls?: string[];
 	generationType?: string;
+	requestBody?: unknown;
 	size?: string;
 	duration?: number;
 	resolution?: string;
@@ -388,6 +390,13 @@ function getMockVideoSizeMetadata(size: unknown): {
 	height: number;
 } {
 	switch (size) {
+		case "848x480":
+			return {
+				size,
+				resolution: "480p",
+				width: 848,
+				height: 480,
+			};
 		case "720x1280":
 			return {
 				size,
@@ -833,6 +842,11 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"ZERO_TOKENS",
 	);
+	const shouldReturnReasoning = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_REASONING",
+	);
+	const reasoningContent = "Let me think about this step by step.";
 	const shouldTruncateStream = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_TRUNCATED_STREAM",
@@ -962,6 +976,28 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				return;
 			}
 
+			// Reasoning chunks (emitted before content, like real providers).
+			if (shouldReturnReasoning) {
+				for (let index = 0; index < requestedN; index++) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-123",
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: body.model ?? "gpt-4o-mini",
+							choices: [
+								{
+									index,
+									delta: { reasoning: reasoningContent },
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+				}
+			}
+
 			// Content chunks: one per choice index. For n > 1 each variant tags
 			// the content so the test can assert that no two choice streams
 			// were merged into one buffer.
@@ -1053,6 +1089,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				requestedN > 1
 					? `${assistantContent} (variant ${index + 1})`
 					: assistantContent,
+			...(shouldReturnReasoning && { reasoning: reasoningContent }),
 		},
 	}));
 
@@ -1623,6 +1660,45 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 	return c.json(job);
 });
 
+mockOpenAIServer.post("/v1/videos/generations", async (c) => {
+	const body = await c.req.json();
+	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as Parameters<typeof c.status>[0]);
+		return c.json(statusTrigger.errorResponse);
+	}
+	videoCounter++;
+	const id = `video_${videoCounter}`;
+	const videoSize = getMockVideoSizeMetadata(body.size);
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: body.model ?? "grok-imagine-video-1.5",
+		status: "queued",
+		progress: 0,
+		firstFrame: extractMockVideoImage(body.image),
+		size: videoSize.size,
+		duration:
+			typeof body.duration === "number"
+				? body.duration
+				: typeof body.duration === "string"
+					? Number(body.duration)
+					: 8,
+		resolution: videoSize.resolution,
+		width: videoSize.width,
+		height: videoSize.height,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json(job);
+});
+
 mockOpenAIServer.post("/api/v1/veo/generate", async (c) => {
 	const body = await c.req.json();
 	const prompt = typeof body.prompt === "string" ? body.prompt : "";
@@ -1753,6 +1829,178 @@ mockOpenAIServer.post("/api/v1/jobs/createTask", async (c) => {
 		msg: "success",
 		data: {
 			taskId: id,
+		},
+	});
+});
+
+mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
+	const body = await c.req.json();
+	const content = Array.isArray(body.content) ? body.content : [];
+	const promptItem = content.find(
+		(item: unknown): item is { text: string } =>
+			!!item &&
+			typeof item === "object" &&
+			(item as Record<string, unknown>).type === "text",
+	);
+	const prompt =
+		promptItem && typeof promptItem.text === "string" ? promptItem.text : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	const parseFrameByRole = (role: string) => {
+		const item = content.find(
+			(entry: unknown): entry is Record<string, unknown> =>
+				!!entry &&
+				typeof entry === "object" &&
+				(entry as Record<string, unknown>).role === role,
+		);
+		const url =
+			item &&
+			typeof item.image_url === "object" &&
+			item.image_url !== null &&
+			typeof (item.image_url as Record<string, unknown>).url === "string"
+				? ((item.image_url as Record<string, unknown>).url as string)
+				: undefined;
+		if (!url) {
+			return undefined;
+		}
+		const match = url.match(/^data:([^;]+);base64,(.*)$/);
+		if (!match) {
+			return undefined;
+		}
+		return {
+			mimeType: match[1],
+			bytesBase64Encoded: match[2],
+		};
+	};
+
+	videoCounter++;
+	const id = `bytedance_task_${videoCounter}`;
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "seedance-2-0",
+		status: "queued",
+		progress: 0,
+		firstFrame: parseFrameByRole("first_frame"),
+		lastFrame: parseFrameByRole("last_frame"),
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json({
+		id,
+		status: "queued",
+	});
+});
+
+mockOpenAIServer.post("/api/v1/model/uploadMedia", async (c) => {
+	const authHeader = c.req.header("Authorization");
+	if (!authHeader?.startsWith("Bearer ")) {
+		c.status(401);
+		return c.json({
+			error: {
+				message: "Unauthorized",
+			},
+		});
+	}
+
+	const formData = await c.req.formData();
+	const file = formData.get("file");
+	if (!(file instanceof File)) {
+		c.status(400);
+		return c.json({
+			error: {
+				message: "file is required",
+			},
+		});
+	}
+
+	videoCounter++;
+	const url = `${currentMockServerUrl}/uploads/atlascloud-media-${videoCounter}.png`;
+	if (videoCounter % 2 === 0) {
+		return c.json({
+			data: url,
+		});
+	}
+	return c.json({
+		data: {
+			temporary_url: url,
+		},
+	});
+});
+
+mockOpenAIServer.post("/api/v1/model/generateVideo", async (c) => {
+	const body = await c.req.json();
+	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	videoCounter++;
+	const id = `atlascloud_prediction_${videoCounter}`;
+	const videoSize =
+		body.aspect_ratio === "9:16"
+			? getMockVideoSizeMetadata("720x1280")
+			: getMockVideoSizeMetadata("1280x720");
+	const imageUrls = [
+		typeof body.image === "string" ? body.image : null,
+		typeof body.end_image === "string" ? body.end_image : null,
+		typeof body.image_url === "string" ? body.image_url : null,
+		typeof body.end_image_url === "string" ? body.end_image_url : null,
+		...(Array.isArray(body.reference_image_urls)
+			? body.reference_image_urls.filter(
+					(value: unknown): value is string => typeof value === "string",
+				)
+			: []),
+	].filter((value): value is string => value !== null);
+	const referenceVideoUrls = Array.isArray(body.reference_video_urls)
+		? body.reference_video_urls.filter(
+				(value: unknown): value is string => typeof value === "string",
+			)
+		: [];
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "atlascloud-video",
+		status: "queued",
+		progress: 0,
+		imageUrls,
+		referenceVideoUrls,
+		requestBody: body,
+		size: videoSize.size,
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		resolution: videoSize.resolution,
+		width: videoSize.width,
+		height: videoSize.height,
+		generateAudio:
+			typeof body.sound === "boolean"
+				? body.sound
+				: typeof body.audio === "boolean"
+					? body.audio
+					: undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json({
+		data: {
+			id,
+			status: "created",
 		},
 	});
 });
@@ -2332,6 +2580,36 @@ mockOpenAIServer.get("/api/v1/jobs/recordInfo", async (c) => {
 			completeTime: job.completed_at ? job.completed_at * 1000 : null,
 			createTime: job.created_at * 1000,
 			updateTime: (job.completed_at ?? job.created_at) * 1000,
+		},
+	});
+});
+
+mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
+	const id = c.req.param("id");
+	const job = videoJobs.get(id);
+	if (!job) {
+		c.status(404);
+		return c.json({
+			error: {
+				message: "prediction not found",
+			},
+		});
+	}
+
+	return c.json({
+		data: {
+			id,
+			status:
+				job.status === "queued"
+					? "created"
+					: job.status === "in_progress"
+						? "processing"
+						: job.status,
+			outputs:
+				job.status === "completed"
+					? [`${currentMockServerUrl}/mock-assets/${id}`]
+					: [],
+			error: job.status === "failed" ? job.error?.message : null,
 		},
 	});
 });

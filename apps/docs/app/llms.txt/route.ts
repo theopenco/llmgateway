@@ -53,11 +53,11 @@ export async function GET() {
 
 	const content = `# LLM Gateway
 
-> LLM Gateway is an open-source, OpenAI-compatible API gateway that routes, manages, and analyzes LLM requests across 20+ providers (OpenAI, Anthropic, Google, and more) through a single unified API. Switch providers without changing code, manage API keys centrally, track usage and cost, add caching and guardrails, and self-host or use the managed cloud.
+> LLM Gateway is an open-source, OpenAI-compatible API gateway that routes, manages, and analyzes LLM requests across 35+ providers (OpenAI, Anthropic, Google, and more) through a single unified API. Switch providers without changing code, manage API keys centrally, track usage and cost, add caching and guardrails, and self-host or use the managed cloud.
 
 ## Key facts
 
-- One OpenAI-compatible API for 20+ providers and 200+ models.
+- One OpenAI-compatible API for 35+ providers and 280+ models.
 - Migrate by changing only the base URL (\`https://api.llmgateway.io/v1\`) and your API key — no code rewrites.
 - Open source (AGPLv3 core) with a managed cloud option; self-hosting supported via Docker.
 - Built-in usage analytics, per-model/provider cost breakdowns, automatic routing, fallbacks, caching, and guardrails.
@@ -66,7 +66,7 @@ export async function GET() {
 ## Product pages
 
 - [Home](${SITE_URL}): Unified API for multiple LLM providers.
-- [Models](${SITE_URL}/models): Browse 200+ supported models with pricing and capabilities.
+- [Models](${SITE_URL}/models): Browse 280+ supported models with pricing and capabilities.
 - [Providers](${SITE_URL}/providers): All supported LLM providers.
 - [Pricing](${SITE_URL}/pricing): Plans and pricing.
 - [Enterprise](${SITE_URL}/enterprise): Self-hosting, SSO, and team features.

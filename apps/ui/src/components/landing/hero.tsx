@@ -198,11 +198,11 @@ export function Hero({
 									<AnimatedGroup variants={transitionVariants}>
 										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
 											LLM Gateway — One API for OpenAI, Anthropic, Google, and
-											40+ providers
+											35+ providers
 										</h1>
 										<p className="mt-4 md:mt-6 max-w-2xl mx-auto text-balance text-base md:text-lg text-muted-foreground">
 											Stop juggling API keys and provider dashboards. Route
-											requests across 400+ models, track costs in real-time, and
+											requests across 280+ models, track costs in real-time, and
 											switch providers without changing your code.
 										</p>
 									</AnimatedGroup>
@@ -385,6 +385,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											sizes="(max-width: 1280px) 100vw, 1120px"
 											priority
 										/>
 										<Image
@@ -393,6 +394,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											sizes="(max-width: 1280px) 100vw, 1120px"
 											priority
 										/>
 									</div>

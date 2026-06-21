@@ -192,7 +192,7 @@ function DevPlansCta() {
 					</div>
 					<p className="max-w-lg text-[15px] leading-relaxed text-muted-foreground">
 						Fixed-price monthly plans for Claude Code, Cursor, Cline, and every
-						coding tool. One API key, 200+ models, predictable billing.
+						coding tool. One API key, 280+ models, predictable billing.
 					</p>
 					<div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-1 text-sm text-muted-foreground">
 						<span className="flex items-center gap-1.5">

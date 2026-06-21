@@ -45,7 +45,7 @@ describe("providerSupportsCachedInput", () => {
 });
 
 describe("isCodingModel", () => {
-	it("returns true when at least one stable provider has cached pricing, tools, JSON output, and streaming", () => {
+	it("returns true when at least one stable provider has cached pricing, tools, and streaming", () => {
 		expect(isCodingModel(baseModel)).toBe(true);
 	});
 
@@ -76,13 +76,13 @@ describe("isCodingModel", () => {
 		expect(isCodingModel({ ...baseModel, providers: [provider] })).toBe(false);
 	});
 
-	it("returns false when no provider supports JSON output", () => {
+	it("returns true even when no provider supports JSON output", () => {
 		const provider: ProviderModelMapping = {
 			...baseProvider,
 			jsonOutput: false,
 			jsonOutputSchema: false,
 		};
-		expect(isCodingModel({ ...baseModel, providers: [provider] })).toBe(false);
+		expect(isCodingModel({ ...baseModel, providers: [provider] })).toBe(true);
 	});
 
 	it("returns false when streaming is explicitly disabled", () => {

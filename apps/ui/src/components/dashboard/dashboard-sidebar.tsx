@@ -26,8 +26,10 @@ import { useMemo, useState, useEffect } from "react";
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import {
 	AnimatedActivity,
+	AnimatedBadgeCheck,
 	AnimatedBarChart3,
 	AnimatedBotMessageSquare,
+	AnimatedChartArea,
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
 	AnimatedKey,
@@ -116,6 +118,11 @@ const PROJECT_NAVIGATION: readonly {
 		icon: AnimatedChartColumnBig,
 	},
 	{
+		href: "analytics",
+		label: "Analytics",
+		icon: AnimatedChartArea,
+	},
+	{
 		href: "usage",
 		label: "Usage & Metrics",
 		icon: AnimatedBarChart3,
@@ -167,6 +174,10 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/team",
 		label: "Team",
+	},
+	{
+		href: "org/members",
+		label: "Members",
 	},
 	{
 		href: "org/audit-logs",
@@ -404,10 +415,26 @@ function OrganizationSection({
 						toggleSidebar={toggleSidebar}
 					/>
 					<OrgNavItem
+						href={buildOrgUrl("org/custom-models")}
+						label="Custom Models"
+						icon={AnimatedBotMessageSquare}
+						isActive={isActive("org/custom-models")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
 						href={buildOrgUrl("org/guardrails")}
 						label="Guardrails"
 						icon={AnimatedShield}
 						isActive={isActive("org/guardrails")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/compliance")}
+						label="Compliance"
+						icon={AnimatedBadgeCheck}
+						isActive={isActive("org/compliance")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
 					/>
@@ -448,6 +475,7 @@ function OrganizationSection({
 								isActive("org/policies") ||
 								isActive("org/preferences") ||
 								isActive("org/team") ||
+								isActive("org/members") ||
 								isActive("org/audit-logs")
 							}
 							tooltip="Settings"

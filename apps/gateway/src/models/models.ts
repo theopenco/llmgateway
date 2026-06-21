@@ -314,18 +314,17 @@ modelsApi.openapi(listModels, async (c) => {
 						(p) => (p as ProviderModelMapping).jsonOutputSchema === true,
 					) || false,
 				free: model.free ?? false,
-				// Calculate earliest deprecatedAt from all provider mappings
-				deprecated_at: model.providers
-					.map((p) => (p as ProviderModelMapping).deprecatedAt)
-					.filter((d): d is Date => d !== undefined)
-					.sort((a, b) => a.getTime() - b.getTime())[0]
-					?.toISOString(),
-				// Calculate earliest deactivatedAt from all provider mappings
-				deactivated_at: model.providers
-					.map((p) => (p as ProviderModelMapping).deactivatedAt)
-					.filter((d): d is Date => d !== undefined)
-					.sort((a, b) => a.getTime() - b.getTime())[0]
-					?.toISOString(),
+				// A model is only deprecated/deactivated once EVERY provider mapping
+				// is — the same `.every()` semantics used for filtering above. Report
+				// the date the model fully deprecates/deactivates (when its last
+				// remaining mapping does), and only when every mapping carries a date;
+				// if any mapping has none, the model never fully deprecates/deactivates.
+				deprecated_at: getModelLevelDate(
+					model.providers.map((p) => (p as ProviderModelMapping).deprecatedAt),
+				),
+				deactivated_at: getModelLevelDate(
+					model.providers.map((p) => (p as ProviderModelMapping).deactivatedAt),
+				),
 				stability: model.stability,
 			};
 		});
@@ -336,6 +335,21 @@ modelsApi.openapi(listModels, async (c) => {
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
 });
+
+// Collapse the per-provider-mapping deprecation/deactivation dates into a single
+// model-level date. A model is only considered deprecated/deactivated once every
+// mapping is, so return the latest date (when the last mapping flips) and only
+// when every mapping has one. If any mapping has no date, the model never fully
+// flips, so return undefined.
+function getModelLevelDate(dates: (Date | undefined)[]): string | undefined {
+	if (dates.length === 0 || dates.some((d) => d === undefined)) {
+		return undefined;
+	}
+
+	return (dates as Date[])
+		.reduce((latest, d) => (d.getTime() > latest.getTime() ? d : latest))
+		.toISOString();
+}
 
 function getPerRequestLimits(
 	model: ModelDefinition,

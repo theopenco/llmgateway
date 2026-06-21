@@ -36,7 +36,6 @@ import { fetchModelDiscounts } from "@/lib/fetch-models";
 import {
 	buildRatingSchema,
 	digitalOfferFields,
-	hasFullRatingData,
 	type ModelRatingsData,
 } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
@@ -158,7 +157,7 @@ export default async function ModelPage({ params }: PageProps) {
 	const primaryProviderId = modelDef.providers[0]?.providerId || "default";
 	const productSchema = {
 		"@context": "https://schema.org",
-		"@type": hasFullRatingData(ratingsData) ? "Product" : "Service",
+		"@type": "Product",
 		name: modelDef.name ?? modelDef.id,
 		description:
 			modelDef.description ??
