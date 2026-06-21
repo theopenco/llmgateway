@@ -1603,30 +1603,23 @@ export default function ChatPageClient({
 		providerId: selectedProviderId,
 		modelId: selectedModelId,
 		region: selectedRegion,
-	} = useMemo(() => parseModelSelectorValue(selectedModel), [selectedModel]);
+	} = parseModelSelectorValue(selectedModel);
 
-	const availableRegions = useMemo(() => {
-		if (!selectedProviderId) {
-			return [];
-		}
-		const def = models.find((m) => m.id === selectedModelId);
-		if (!def) {
-			return [];
-		}
-		return def.mappings
-			.filter((m) => m.providerId === selectedProviderId && m.region)
-			.map((m) => m.region as string);
-	}, [models, selectedProviderId, selectedModelId]);
+	const availableRegions = selectedProviderId
+		? (models
+				.find((m) => m.id === selectedModelId)
+				?.mappings.filter(
+					(m) => m.providerId === selectedProviderId && m.region,
+				)
+				.map((m) => m.region as string) ?? [])
+		: [];
 
-	const handleRegionChange = useCallback(
-		(region: string) => {
-			const newValue = region
-				? `${selectedProviderId}/${selectedModelId}:${region}`
-				: `${selectedProviderId}/${selectedModelId}`;
-			handleSelectModel(newValue);
-		},
-		[selectedProviderId, selectedModelId, handleSelectModel],
-	);
+	const handleRegionChange = (region: string) => {
+		const newValue = region
+			? `${selectedProviderId}/${selectedModelId}:${region}`
+			: `${selectedProviderId}/${selectedModelId}`;
+		handleSelectModel(newValue);
+	};
 
 	const handleExtraPanelModelChange = useCallback(
 		(index: number, model: string) => {
@@ -2470,30 +2463,21 @@ function ExtraChatPanel({
 		providerId: panelProviderId,
 		modelId: panelModelId,
 		region: panelSelectedRegion,
-	} = useMemo(() => parseModelSelectorValue(selectedModel), [selectedModel]);
+	} = parseModelSelectorValue(selectedModel);
 
-	const panelAvailableRegions = useMemo(() => {
-		if (!panelProviderId) {
-			return [];
-		}
-		const def = models.find((m) => m.id === panelModelId);
-		if (!def) {
-			return [];
-		}
-		return def.mappings
-			.filter((m) => m.providerId === panelProviderId && m.region)
-			.map((m) => m.region as string);
-	}, [models, panelProviderId, panelModelId]);
+	const panelAvailableRegions = panelProviderId
+		? (models
+				.find((m) => m.id === panelModelId)
+				?.mappings.filter((m) => m.providerId === panelProviderId && m.region)
+				.map((m) => m.region as string) ?? [])
+		: [];
 
-	const handlePanelRegionChange = useCallback(
-		(region: string) => {
-			const newValue = region
-				? `${panelProviderId}/${panelModelId}:${region}`
-				: `${panelProviderId}/${panelModelId}`;
-			handleModelChange(newValue);
-		},
-		[panelProviderId, panelModelId, handleModelChange],
-	);
+	const handlePanelRegionChange = (region: string) => {
+		const newValue = region
+			? `${panelProviderId}/${panelModelId}:${region}`
+			: `${panelProviderId}/${panelModelId}`;
+		handleModelChange(newValue);
+	};
 
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
