@@ -1,0 +1,75 @@
+---
+title: AWS
+description: Deploy LLM Gateway on AWS with EKS, RDS for Postgres, ElastiCache, and Secrets Manager.
+icon: Cloud
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+<Callout type="info">
+	**Deploy in one command.** Our [Enterprise
+	plan](https://llmgateway.io/enterprise) includes Terraform modules that
+	provision the cluster, database, cache, networking, and secrets and deploy LLM
+	Gateway on AWS — no manual setup required. [Learn
+	more](https://llmgateway.io/enterprise).
+</Callout>
+
+This guide covers a production deployment of LLM Gateway on AWS using EKS for the application services and managed AWS services for the backing stores.
+
+## Architecture
+
+| Component  | AWS service                  |
+| ---------- | ---------------------------- |
+| Compute    | Amazon EKS (Kubernetes)      |
+| PostgreSQL | Amazon RDS for PostgreSQL    |
+| Redis      | Amazon ElastiCache for Redis |
+| Secrets    | AWS Secrets Manager          |
+| Ingress    | AWS Load Balancer Controller |
+
+## What to configure
+
+### 1. PostgreSQL — Amazon RDS
+
+Create an RDS for PostgreSQL instance in a private subnet. Enable automated backups and Multi-AZ for high availability. Note the connection string for `DATABASE_URL`.
+
+### 2. Redis — Amazon ElastiCache
+
+Create an ElastiCache for Redis cluster in the same VPC. Use it for `REDIS_URL`. A single-node cluster is fine to start; enable replication for production.
+
+### 3. Compute — Amazon EKS
+
+Create an EKS cluster with a managed node group sized for your traffic. Install the [AWS Load Balancer Controller](https://kubernetes-sigs.github.io/aws-load-balancer-controller/) to expose the gateway through an Application Load Balancer.
+
+### 4. Networking
+
+Run RDS and ElastiCache in private subnets and allow inbound traffic only from the EKS node security group. Expose only the gateway (and optionally the UI) to the internet through the load balancer.
+
+### 5. Secrets — AWS Secrets Manager
+
+Store `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Secrets Manager. Sync them into the cluster with the [External Secrets Operator](https://external-secrets.io/) or the AWS Secrets and Configuration Provider (ASCP).
+
+## Deploy the Helm chart
+
+With the backing services in place, deploy LLM Gateway with the [Helm chart](/self-host/kubernetes), pointing it at your RDS and ElastiCache endpoints:
+
+```bash
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
+```
+
+```yaml
+config:
+  DATABASE_URL: "postgres://user:password@your-rds-endpoint:5432/llmgateway"
+  REDIS_URL: "redis://your-elasticache-endpoint:6379"
+  AUTH_SECRET: "from-secrets-manager"
+  GATEWAY_API_KEY_HASH_SECRET: "from-secrets-manager"
+```
+
+See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.
+
+<Callout type="info">
+	**Prefer not to wire this up by hand?** The [Enterprise
+	plan](https://llmgateway.io/enterprise) ships Terraform modules that stand up
+	the entire AWS stack — EKS, RDS, ElastiCache, networking, and secrets — and
+	deploy LLM Gateway in one command. [Talk to
+	us](https://llmgateway.io/enterprise#contact).
+</Callout>

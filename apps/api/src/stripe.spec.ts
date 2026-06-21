@@ -239,6 +239,70 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].creditAmount).toBe("237");
 	});
 
+	test("emails an invoice on renewal, falling back to the org's own billing email when no default org exists", async () => {
+		await seedUsedDevPlanOrg();
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_email_001",
+			}),
+		);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		const call = sendEmailMock.mock.calls[0][0];
+		expect(call.to).toBe("billing@acme.test");
+		expect(call.subject).toContain("Invoice");
+		expect(call.attachments?.[0]?.filename).toMatch(/\.pdf$/);
+	});
+
+	test("addresses the renewal invoice to the default org's billing email when not overridden", async () => {
+		const [owner] = await db
+			.insert(tables.user)
+			.values({ email: "owner@acme.test" })
+			.returning();
+
+		const [defaultOrg] = await db
+			.insert(tables.organization)
+			.values({
+				name: "Acme Default",
+				kind: "default",
+				billingEmail: "default-billing@acme.test",
+				billingCompany: "Acme Inc",
+			})
+			.returning();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme DevPass",
+			kind: "devpass",
+			billingEmail: "devpass@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+			devPlanBillingOverride: false,
+		});
+
+		await db.insert(tables.userOrganization).values([
+			{ userId: owner.id, organizationId: defaultOrg.id, role: "owner" },
+			{ userId: owner.id, organizationId: ORG_ID, role: "owner" },
+		]);
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_email_002",
+			}),
+		);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock.mock.calls[0][0].to).toBe("default-billing@acme.test");
+	});
+
 	test("does NOT reset credits on a proration invoice from a tier change", async () => {
 		await seedUsedDevPlanOrg();
 

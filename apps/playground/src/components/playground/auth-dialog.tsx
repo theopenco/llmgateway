@@ -97,73 +97,83 @@ export function AuthDialog({
 		: "/signup";
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/95 p-4 backdrop-blur-sm sm:items-center">
-			<div className="my-4 w-full max-w-lg rounded-2xl border bg-card p-5 shadow-2xl sm:my-8 sm:p-8">
-				<div className="flex items-center gap-2">
-					<Logo className="size-6" />
-					<span className="text-base font-semibold">LLM Gateway</span>
-					<Badge>Chat</Badge>
-				</div>
+		<div
+			className="fixed inset-0 z-50 flex items-end justify-center bg-background/95 backdrop-blur-sm sm:items-center sm:p-4"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="auth-dialog-title"
+		>
+			<div className="flex max-h-[100dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border bg-card shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
+				{/* Scrollable body */}
+				<div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-8">
+					<div className="flex items-center gap-2">
+						<Logo className="size-6" />
+						<span className="text-base font-semibold">LLM Gateway</span>
+						<Badge>Chat</Badge>
+					</div>
 
-				<h1 className="mt-5 text-xl font-semibold leading-tight tracking-tight sm:mt-6 sm:text-2xl">
-					{title}
-				</h1>
-				<p className="mt-3 text-sm text-muted-foreground">{description}</p>
+					<h1
+						id="auth-dialog-title"
+						className="mt-5 text-xl font-semibold leading-tight tracking-tight sm:text-2xl"
+					>
+						{title}
+					</h1>
+					<p className="mt-2.5 text-sm text-muted-foreground">{description}</p>
 
-				<div className="mt-5 flex items-center gap-3 sm:mt-6">
-					{PROVIDER_LOGOS.map((provider) => {
-						const Icon = getProviderIcon(provider);
-						return (
-							<Icon
-								key={provider}
-								className="size-6 shrink-0 text-muted-foreground/70 dark:text-white/80"
-								aria-hidden
-							/>
-						);
-					})}
-				</div>
+					<div className="mt-5 flex items-center gap-3">
+						{PROVIDER_LOGOS.map((provider) => {
+							const Icon = getProviderIcon(provider);
+							return (
+								<Icon
+									key={provider}
+									className="size-5 shrink-0 text-muted-foreground/70 dark:text-white/80"
+									aria-hidden
+								/>
+							);
+						})}
+					</div>
 
-				<div className="mt-5 grid gap-2.5 sm:mt-6 sm:grid-cols-2">
-					{FEATURES.map((feature) => {
-						const Icon = feature.icon;
-						return (
-							<div
-								key={feature.title}
-								className="flex items-start gap-3 rounded-xl border bg-background/40 p-3"
-							>
-								<span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-									<Icon className="size-4" aria-hidden />
-								</span>
-								<div className="min-w-0">
-									<div className="text-sm font-medium leading-tight">
+					<div className="mt-5 grid grid-cols-2 gap-2.5">
+						{FEATURES.map((feature) => {
+							const Icon = feature.icon;
+							return (
+								<div
+									key={feature.title}
+									className="flex flex-col gap-1.5 rounded-xl border bg-background/40 p-3"
+								>
+									<span className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+										<Icon className="size-4" aria-hidden />
+									</span>
+									<div className="text-[13px] font-medium leading-tight">
 										{feature.title}
 									</div>
-									<p className="mt-0.5 text-xs text-muted-foreground">
+									<p className="text-[11px] leading-snug text-muted-foreground">
 										{feature.description}
 									</p>
 								</div>
-							</div>
-						);
-					})}
+							);
+						})}
+					</div>
+
+					<ul className="mt-5 space-y-2">
+						{HIGHLIGHTS.map((highlight) => (
+							<li
+								key={highlight}
+								className="flex items-start gap-2.5 text-xs text-foreground/80 sm:text-sm"
+							>
+								<CheckIcon className="mt-0.5 size-4 shrink-0 text-primary" />
+								<span>{highlight}</span>
+							</li>
+						))}
+					</ul>
 				</div>
 
-				<ul className="mt-5 space-y-2.5">
-					{HIGHLIGHTS.map((highlight) => (
-						<li
-							key={highlight}
-							className="flex items-start gap-2.5 text-sm text-foreground/80"
-						>
-							<CheckIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-							<span>{highlight}</span>
-						</li>
-					))}
-				</ul>
-
-				<div className="mt-6 flex flex-col gap-3 sm:mt-8">
+				{/* Pinned action footer — keeps the primary CTA in view on mobile */}
+				<div className="shrink-0 border-t bg-card/80 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/60 sm:px-8 sm:py-6">
 					<Button size="lg" className="w-full" asChild>
 						<Link href={signupUrl}>Start free</Link>
 					</Button>
-					<p className="text-center text-sm text-muted-foreground">
+					<p className="mt-3 text-center text-sm text-muted-foreground">
 						Already have an account?{" "}
 						<Link
 							href={loginUrl}
@@ -174,6 +184,21 @@ export function AuthDialog({
 							Sign in
 						</Link>
 					</p>
+					<div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+						<Link
+							href="/pricing"
+							className="transition-colors hover:text-foreground"
+						>
+							Pricing
+						</Link>
+						<span className="text-muted-foreground/40">·</span>
+						<Link
+							href="/compare"
+							className="transition-colors hover:text-foreground"
+						>
+							Compare vs ChatGPT, Claude &amp; more
+						</Link>
+					</div>
 				</div>
 			</div>
 		</div>

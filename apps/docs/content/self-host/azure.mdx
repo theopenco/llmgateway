@@ -1,0 +1,75 @@
+---
+title: Azure
+description: Deploy LLM Gateway on Azure with AKS, Azure Database for PostgreSQL, Azure Cache for Redis, and Key Vault.
+icon: Cloud
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+<Callout type="info">
+	**Deploy in one command.** Our [Enterprise
+	plan](https://llmgateway.io/enterprise) includes Terraform modules that
+	provision the cluster, database, cache, networking, and secrets and deploy LLM
+	Gateway on Azure — no manual setup required. [Learn
+	more](https://llmgateway.io/enterprise).
+</Callout>
+
+This guide covers a production deployment of LLM Gateway on Azure using AKS for the application services and managed Azure services for the backing stores.
+
+## Architecture
+
+| Component  | Azure service                     |
+| ---------- | --------------------------------- |
+| Compute    | Azure Kubernetes Service (AKS)    |
+| PostgreSQL | Azure Database for PostgreSQL     |
+| Redis      | Azure Cache for Redis             |
+| Secrets    | Azure Key Vault                   |
+| Ingress    | Application Gateway / AKS Ingress |
+
+## What to configure
+
+### 1. PostgreSQL — Azure Database for PostgreSQL
+
+Create an Azure Database for PostgreSQL Flexible Server with private access. Enable automated backups and zone-redundant high availability. Note the connection details for `DATABASE_URL`.
+
+### 2. Redis — Azure Cache for Redis
+
+Create an Azure Cache for Redis instance in the same virtual network and use its endpoint for `REDIS_URL`. Choose a Standard or Premium tier for replication in production.
+
+### 3. Compute — AKS
+
+Create an AKS cluster with a node pool sized for your traffic. Use the [Application Gateway Ingress Controller](https://learn.microsoft.com/en-us/azure/application-gateway/ingress-controller-overview) or an NGINX ingress to expose the gateway.
+
+### 4. Networking
+
+Deploy the database and cache with private endpoints inside your virtual network and restrict access to the AKS subnet. Expose only the gateway (and optionally the UI) to the internet.
+
+### 5. Secrets — Azure Key Vault
+
+Store `AUTH_SECRET`, `GATEWAY_API_KEY_HASH_SECRET`, and your provider API keys in Key Vault. Sync them into the cluster with the [Azure Key Vault Provider for Secrets Store CSI Driver](https://learn.microsoft.com/en-us/azure/aks/csi-secrets-store-driver).
+
+## Deploy the Helm chart
+
+With the backing services in place, deploy LLM Gateway with the [Helm chart](/self-host/kubernetes), pointing it at your Azure Database and Azure Cache endpoints:
+
+```bash
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
+```
+
+```yaml
+config:
+  DATABASE_URL: "postgres://user:password@your-postgres-host:5432/llmgateway"
+  REDIS_URL: "redis://your-redis-host:6380"
+  AUTH_SECRET: "from-key-vault"
+  GATEWAY_API_KEY_HASH_SECRET: "from-key-vault"
+```
+
+See the [Kubernetes guide](/self-host/kubernetes) for the full set of configurable values and how to scale the gateway.
+
+<Callout type="info">
+	**Prefer not to wire this up by hand?** The [Enterprise
+	plan](https://llmgateway.io/enterprise) ships Terraform modules that stand up
+	the entire Azure stack — AKS, Azure Database for PostgreSQL, Azure Cache for
+	Redis, networking, and secrets — and deploy LLM Gateway in one command. [Talk
+	to us](https://llmgateway.io/enterprise#contact).
+</Callout>

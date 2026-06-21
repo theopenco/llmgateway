@@ -3,6 +3,7 @@ import { EnterpriseCapabilities } from "@/components/enterprise/capabilities";
 import { ContactFormEnterprise } from "@/components/enterprise/contact";
 import { FeaturesEnterprise } from "@/components/enterprise/features";
 import { HeroEnterprise } from "@/components/enterprise/hero";
+import { InfrastructureAsCodeEnterprise } from "@/components/enterprise/iac";
 import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
 import { PricingEnterprise } from "@/components/enterprise/pricing";
 import { ProductShowcase } from "@/components/enterprise/product-showcase";
@@ -66,6 +67,7 @@ export default async function EnterprisePage() {
 			<AdminDashboardEnterprise />
 			<Testimonials />
 			<PricingEnterprise />
+			<InfrastructureAsCodeEnterprise />
 			<OpenSourceEnterprise />
 			<ContactFormEnterprise />
 			<Footer />

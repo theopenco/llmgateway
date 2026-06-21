@@ -770,6 +770,43 @@ describe("fallback and error status code handling", () => {
 			);
 		});
 
+		test("/v1/messages budget thinking on adaptive model logs a client_error", async () => {
+			await setupKeys("anthropic");
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "claude-opus-4-8",
+					max_tokens: 1024,
+					thinking: { type: "enabled", budget_tokens: 8000 },
+					messages: [{ role: "user", content: "What is 2+2?" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const body = (await res.json()) as {
+				type: string;
+				error: { type: string; message: string };
+			};
+			expect(body.type).toBe("error");
+			expect(body.error.message).toContain("thinking.type.adaptive");
+
+			// The rejection must be visible in the activity feed as a client_error,
+			// not silently dropped by the global error handler.
+			const logs = await waitForLogs(1);
+			const log = logs[0];
+			expect(log.finishReason).toBe("client_error");
+			expect(log.hasError).toBe(true);
+			expect(log.errorDetails?.statusCode).toBe(400);
+			expect(log.errorDetails?.responseText).toContain(
+				"thinking.type.adaptive",
+			);
+		});
+
 		test("streaming aws-bedrock success closes cleanly", async () => {
 			await setupKeys("aws-bedrock");
 

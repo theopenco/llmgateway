@@ -141,6 +141,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://api.openai.com";
 		case "xai":
 			return "https://api.x.ai";
+		case "atlascloud":
+			return "https://api.atlascloud.ai";
 		case "bytedance":
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
@@ -453,6 +455,9 @@ function extractContentUrl(body: Record<string, unknown>): string | null {
 
 		if (Array.isArray(candidate)) {
 			for (const item of candidate) {
+				if (typeof item === "string" && item.startsWith("http")) {
+					return item;
+				}
 				if (
 					item &&
 					typeof item === "object" &&
@@ -1930,6 +1935,88 @@ function isAlibabaVideoProvider(providerId: string): boolean {
 	return providerId === "alibaba";
 }
 
+function isAtlasCloudVideoProvider(providerId: string): boolean {
+	return providerId === "atlascloud";
+}
+
+async function fetchAtlasCloudStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/api/v1/model/prediction/${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.error === "object" &&
+			body.error &&
+			"message" in body.error &&
+			typeof body.error.message === "string"
+				? body.error.message
+				: `AtlasCloud status request failed with status ${response.status}`,
+		);
+	}
+
+	const data =
+		body.data && typeof body.data === "object"
+			? (body.data as Record<string, unknown>)
+			: body;
+	const status = normalizeVideoStatus(data.status);
+	const outputs = Array.isArray(data.outputs) ? data.outputs : [];
+	const outputUrl =
+		outputs
+			.map((output) =>
+				typeof output === "string"
+					? output
+					: output &&
+						  typeof output === "object" &&
+						  "url" in output &&
+						  typeof output.url === "string"
+						? output.url
+						: null,
+			)
+			.find((url) => url !== null) ?? null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status,
+		progress:
+			status === "completed"
+				? 100
+				: status === "failed"
+					? 100
+					: status === "in_progress"
+						? 50
+						: 0,
+		url: outputUrl,
+		output_url: outputUrl,
+		outputs,
+		mime_type: outputUrl ? "video/mp4" : undefined,
+		error:
+			status === "failed"
+				? {
+						message:
+							typeof data.error === "string"
+								? data.error
+								: data.error &&
+									  typeof data.error === "object" &&
+									  "message" in data.error &&
+									  typeof data.error.message === "string"
+									? data.error.message
+									: "AtlasCloud video generation failed",
+						details: body,
+					}
+				: null,
+		atlascloud_raw_response: body,
+	});
+}
+
 async function fetchAlibabaStatus(
 	job: VideoJobRecord,
 	providerContext: ResolvedVideoProviderContext,
@@ -2152,6 +2239,10 @@ async function fetchUpstreamStatus(
 		return await fetchAlibabaStatus(job, providerContext);
 	}
 
+	if (isAtlasCloudVideoProvider(job.usedProvider)) {
+		return await fetchAtlasCloudStatus(job, providerContext);
+	}
+
 	return await fetchGenericVideoStatus(job, providerContext);
 }
 
@@ -2187,7 +2278,8 @@ async function fetchUpstreamContentMetadata(
 		job.usedProvider === "xai" ||
 		isGoogleVertexVideoProvider(job.usedProvider) ||
 		isMinimaxVideoProvider(job.usedProvider) ||
-		isAlibabaVideoProvider(job.usedProvider)
+		isAlibabaVideoProvider(job.usedProvider) ||
+		isAtlasCloudVideoProvider(job.usedProvider)
 	) {
 		return null;
 	}

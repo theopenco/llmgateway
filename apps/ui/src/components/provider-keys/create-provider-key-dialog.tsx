@@ -57,6 +57,9 @@ export function CreateProviderKeyDialog({
 	>("ai-foundry");
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
+	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
+	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
+		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
@@ -174,6 +177,33 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
+		if (selectedProvider === "azure-ai-foundry") {
+			if (!azureAiFoundryResource) {
+				toast({
+					title: "Error",
+					description: "Azure AI Foundry resource name is required",
+					variant: "destructive",
+				});
+				return;
+			}
+			if (!/^[a-zA-Z0-9-]{1,64}$/.test(azureAiFoundryResource)) {
+				toast({
+					title: "Error",
+					description:
+						"Resource name must be 1-64 characters and contain only letters, numbers, and hyphens",
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				...payload.options,
+				azure_ai_foundry_resource: azureAiFoundryResource,
+				...(azureAiFoundryApiVersion
+					? { azure_ai_foundry_api_version: azureAiFoundryApiVersion }
+					: {}),
+			};
+		}
+
 		if (selectedProvider === "google-vertex" && googleVertexProjectId) {
 			payload.options = {
 				...payload.options,
@@ -237,6 +267,8 @@ export function CreateProviderKeyDialog({
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
+			setAzureAiFoundryResource("");
+			setAzureAiFoundryApiVersion("2024-05-01-preview");
 			setSelectedRegion("");
 			setGoogleVertexProjectId("");
 		}, 300);
@@ -396,6 +428,41 @@ export function CreateProviderKeyDialog({
 								<p className="text-sm text-muted-foreground">
 									Model deployment name to use for validating the API key
 									(default: gpt-4o-mini)
+								</p>
+							</div>
+						</>
+					)}
+
+					{selectedProvider === "azure-ai-foundry" && (
+						<>
+							<div className="space-y-2">
+								<Label htmlFor="azure-ai-foundry-resource">Resource Name</Label>
+								<Input
+									id="azure-ai-foundry-resource"
+									type="text"
+									placeholder="my-resource"
+									value={azureAiFoundryResource}
+									onChange={(e) => setAzureAiFoundryResource(e.target.value)}
+									required
+								/>
+								<p className="text-sm text-muted-foreground">
+									Your Azure AI Foundry resource name from the base URL:
+									https://&lt;resource-name&gt;.services.ai.azure.com
+								</p>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="azure-ai-foundry-api-version">
+									API Version
+								</Label>
+								<Input
+									id="azure-ai-foundry-api-version"
+									type="text"
+									placeholder="2024-05-01-preview"
+									value={azureAiFoundryApiVersion}
+									onChange={(e) => setAzureAiFoundryApiVersion(e.target.value)}
+								/>
+								<p className="text-sm text-muted-foreground">
+									Azure AI Foundry API version (default: 2024-05-01-preview)
 								</p>
 							</div>
 						</>
