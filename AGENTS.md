@@ -177,7 +177,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse
 - Do not add explicit caching or memoization around `process.env` reads or parsed env-var values unless there is a measured hot-path need
-- Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK.
+- Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK. NEVER add helper functions (e.g. `makeModel(...)`/`makeProvider(...)`) that build model or provider definition objects, even when it means repeating fields across entries — write each model and provider mapping out in full as a plain object literal in the `models` array. Small shared `const` values are fine, but the definition objects themselves must not be constructed by a function.
 - No unnecessary code comments
 - Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
 

@@ -12,7 +12,7 @@ export type VideoSize =
 	| "3840x2160"
 	| "2160x3840";
 
-export type VideoDuration = 4 | 6 | 8 | 10 | 12 | 15;
+export type VideoDuration = 4 | 5 | 6 | 8 | 10 | 12 | 15;
 
 export interface VideoInputImage {
 	dataUrl: string;
@@ -72,7 +72,7 @@ export interface VideoGalleryItem {
 
 export type VideoInputMode = "none" | "frames" | "reference";
 
-const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10, 12, 15];
+const VIDEO_DURATIONS: VideoDuration[] = [4, 5, 6, 8, 10, 12, 15];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
 	"848x480": "480p Landscape",
@@ -114,6 +114,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "xai";
 	}
 
+	if (isAtlasCloudKlingVideoModel(rootModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
+	}
+
 	if (
 		rootModelId !== "veo-3.1-generate-preview" &&
 		rootModelId !== "veo-3.1-fast-generate-preview"
@@ -138,6 +142,10 @@ function isGrokImagineVideoModel(rootModelId: string): boolean {
 		rootModelId === "grok-imagine-video-1-5-preview" ||
 		rootModelId === "grok-imagine-video-1.5-preview"
 	);
+}
+
+function isAtlasCloudKlingVideoModel(rootModelId: string): boolean {
+	return rootModelId === "kling-v3-0" || rootModelId === "kling-v3-0-turbo";
 }
 
 export function supportsVideoReferenceInput(modelId: string): boolean {
@@ -248,7 +256,8 @@ function mappingSupportsVideoRequest(
 			mapping.providerId !== "google-vertex" &&
 			mapping.providerId !== "avalanche" &&
 			mapping.providerId !== "minimax" &&
-			mapping.providerId !== "xai"
+			mapping.providerId !== "xai" &&
+			mapping.providerId !== "atlascloud"
 		) {
 			return false;
 		}
