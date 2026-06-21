@@ -197,6 +197,115 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	test("/v1/messages surfaces reasoning as a thinking block (non-streaming)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [{ role: "user", content: "TRIGGER_REASONING" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		const thinkingBlock = json.content.find(
+			(block: any) => block.type === "thinking",
+		);
+		expect(thinkingBlock).toBeTruthy();
+		expect(thinkingBlock.thinking).toBe(
+			"Let me think about this step by step.",
+		);
+
+		// Thinking must precede the assistant's text output, matching Anthropic.
+		const textIndex = json.content.findIndex(
+			(block: any) => block.type === "text",
+		);
+		const thinkingIndex = json.content.findIndex(
+			(block: any) => block.type === "thinking",
+		);
+		expect(thinkingIndex).toBeLessThan(textIndex);
+	});
+
+	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				stream: true,
+				messages: [{ role: "user", content: "TRIGGER_REASONING" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.text();
+
+		const events = body
+			.split("\n")
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => line.slice(6).trim())
+			.filter((data) => data && data !== "[DONE]")
+			.map((data) => JSON.parse(data));
+
+		const thinkingStart = events.find(
+			(e) =>
+				e.type === "content_block_start" &&
+				e.content_block?.type === "thinking",
+		);
+		expect(thinkingStart).toBeTruthy();
+
+		const thinkingDelta = events.find(
+			(e) =>
+				e.type === "content_block_delta" && e.delta?.type === "thinking_delta",
+		);
+		expect(thinkingDelta).toBeTruthy();
+		expect(thinkingDelta.delta.thinking).toBe(
+			"Let me think about this step by step.",
+		);
+	});
+
 	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
 		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
 		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.

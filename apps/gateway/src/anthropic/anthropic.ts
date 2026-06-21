@@ -771,6 +771,7 @@ anthropic.openapi(messages, async (c) => {
 					cache_read_input_tokens: 0,
 				};
 				let currentTextBlockIndex: number | null = null;
+				let currentThinkingBlockIndex: number | null = null;
 				const toolCallBlockIndex = new Map<number, number>();
 				let currentEventType: string | null = null;
 				let stopReason: string | null = null;
@@ -971,6 +972,48 @@ anthropic.openapi(messages, async (c) => {
 									continue;
 								}
 
+								// Handle reasoning delta. The upstream chat completions
+								// stream normalizes provider reasoning fields to
+								// `delta.reasoning`; surface it as an Anthropic
+								// `thinking` block (which precedes text/tool output).
+								const reasoningDelta =
+									delta.reasoning ?? delta.reasoning_content;
+								if (
+									typeof reasoningDelta === "string" &&
+									reasoningDelta.length > 0
+								) {
+									if (currentThinkingBlockIndex === null) {
+										currentThinkingBlockIndex = contentBlocks.length;
+										contentBlocks.push({ type: "thinking", text: "" });
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_start",
+												index: currentThinkingBlockIndex,
+												content_block: { type: "thinking", thinking: "" },
+											}),
+											event: "content_block_start",
+										});
+									}
+
+									const thinkingBlock =
+										contentBlocks[currentThinkingBlockIndex];
+									if (thinkingBlock && thinkingBlock.text !== undefined) {
+										thinkingBlock.text += reasoningDelta;
+									}
+
+									await stream.writeSSE({
+										data: JSON.stringify({
+											type: "content_block_delta",
+											index: currentThinkingBlockIndex,
+											delta: {
+												type: "thinking_delta",
+												thinking: reasoningDelta,
+											},
+										}),
+										event: "content_block_delta",
+									});
+								}
+
 								// Handle content delta
 								if (delta.content) {
 									// Find or create a text block
@@ -1138,6 +1181,18 @@ anthropic.openapi(messages, async (c) => {
 
 	// Transform OpenAI response to Anthropic format
 	const content: any[] = [];
+
+	// Surface reasoning as an Anthropic `thinking` block. Anthropic places
+	// thinking before the assistant's text/tool output, so emit it first.
+	const responseReasoning =
+		openaiResponse.choices?.[0]?.message?.reasoning ??
+		openaiResponse.choices?.[0]?.message?.reasoning_content;
+	if (typeof responseReasoning === "string" && responseReasoning.length > 0) {
+		content.push({
+			type: "thinking",
+			thinking: responseReasoning,
+		});
+	}
 
 	if (openaiResponse.choices?.[0]?.message?.content) {
 		content.push({

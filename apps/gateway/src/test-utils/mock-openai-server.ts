@@ -840,6 +840,11 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"ZERO_TOKENS",
 	);
+	const shouldReturnReasoning = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_REASONING",
+	);
+	const reasoningContent = "Let me think about this step by step.";
 	const shouldTruncateStream = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_TRUNCATED_STREAM",
@@ -969,6 +974,28 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				return;
 			}
 
+			// Reasoning chunks (emitted before content, like real providers).
+			if (shouldReturnReasoning) {
+				for (let index = 0; index < requestedN; index++) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-123",
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: body.model ?? "gpt-4o-mini",
+							choices: [
+								{
+									index,
+									delta: { reasoning: reasoningContent },
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+				}
+			}
+
 			// Content chunks: one per choice index. For n > 1 each variant tags
 			// the content so the test can assert that no two choice streams
 			// were merged into one buffer.
@@ -1060,6 +1087,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				requestedN > 1
 					? `${assistantContent} (variant ${index + 1})`
 					: assistantContent,
+			...(shouldReturnReasoning && { reasoning: reasoningContent }),
 		},
 	}));
 
