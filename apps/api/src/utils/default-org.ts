@@ -22,13 +22,20 @@ function isActiveDashboardOrganization(userOrganization: {
 	);
 }
 
-// Find the user's default dashboard organization without creating one. Used by
-// flows that only need to read the default org's settings (e.g. resolving
+// Find the user's own default dashboard organization without creating one. Used
+// by flows that only need to read the default org's settings (e.g. resolving
 // DevPass invoice billing details) and must not create rows in a webhook.
+//
+// Restricted to orgs the user OWNS: a user can be an admin/developer member of
+// another team's default org, and mirroring that org's billing details (email,
+// company, address) onto a personal DevPass invoice would leak/charge to an org
+// the user cannot even manage. DevPass-only users may own no default org at all,
+// in which case callers fall back to the DevPass org's own details.
 export async function findDefaultOrganization(userId: string) {
 	const userOrganizations = await db.query.userOrganization.findMany({
 		where: {
 			userId,
+			role: "owner",
 		},
 		with: {
 			organization: true,

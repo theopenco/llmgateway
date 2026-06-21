@@ -301,6 +301,52 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(sendEmailMock.mock.calls[0][0].to).toBe("default-billing@acme.test");
 	});
 
+	test("does not mirror a non-owned default org; falls back to the DevPass org's own email", async () => {
+		const [member] = await db
+			.insert(tables.user)
+			.values({ email: "member@acme.test" })
+			.returning();
+
+		// A default org the user only belongs to as a developer (not owner).
+		const [otherOrg] = await db
+			.insert(tables.organization)
+			.values({
+				name: "Someone Else Co",
+				kind: "default",
+				billingEmail: "someone-else@acme.test",
+			})
+			.returning();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Member DevPass",
+			kind: "devpass",
+			billingEmail: "member-devpass@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+			devPlanBillingOverride: false,
+		});
+
+		await db.insert(tables.userOrganization).values([
+			{ userId: member.id, organizationId: otherOrg.id, role: "developer" },
+			{ userId: member.id, organizationId: ORG_ID, role: "owner" },
+		]);
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_email_003",
+			}),
+		);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock.mock.calls[0][0].to).toBe("member-devpass@acme.test");
+	});
+
 	test("does NOT reset credits on a proration invoice from a tier change", async () => {
 		await seedUsedDevPlanOrg();
 
