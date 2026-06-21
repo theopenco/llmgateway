@@ -1288,19 +1288,11 @@ export const AtlasCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	<svg
 		{...props}
 		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 32 32"
-		fill="none"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		fillRule="evenodd"
 	>
-		<rect width="32" height="32" rx="7" fill="#7C3AED" />
-		<path
-			fill="#FFFFFF"
-			d="M15.98 6.5 7.65 25.5h4.35l1.36-3.45h7.88l1.37 3.45h4.49L18.67 6.5h-2.69Zm-1.36 12.18 2.69-6.75 2.67 6.75h-5.36Z"
-		/>
-		<path
-			fill="#FFFFFF"
-			d="M10.18 23.16c2.85-1.15 5.43-1.33 7.79-.54l-.92-2.32c-2.05-.45-4.12-.22-6.22.68l-.65 2.18Z"
-			opacity=".82"
-		/>
+		<path d="M20.2 18.01 12 .47 3.8 18.01l-2.58 5.52c1.62-1.05 3.39-1.86 5.26-2.41 1.76-.51 3.61-.79 5.52-.79.98 0 1.95.08 2.9.22l-1.86-4.3c-.53-.1-2.87-.1-4.59.3l3.56-8.28 5.52 12.85c.01 0 .02.01.03.01 1.86.55 3.62 1.36 5.23 2.4l-2.58-5.52Z" />
 	</svg>
 );
 
