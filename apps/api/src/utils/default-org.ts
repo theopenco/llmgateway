@@ -31,6 +31,12 @@ function isActiveDashboardOrganization(userOrganization: {
 // company, address) onto a personal DevPass invoice would leak/charge to an org
 // the user cannot even manage. DevPass-only users may own no default org at all,
 // in which case callers fall back to the DevPass org's own details.
+//
+// A user can also own multiple default orgs, so pick deterministically by the
+// oldest membership (when the user joined) rather than the org's own creation
+// time: the user's own default org is the first one they became a member of (it
+// is created together with their account at signup). Ordering by the org's
+// createdAt would instead surface an older org the user was only later added to.
 export async function findDefaultOrganization(userId: string) {
 	const userOrganizations = await db.query.userOrganization.findMany({
 		where: {
@@ -39,6 +45,9 @@ export async function findDefaultOrganization(userId: string) {
 		},
 		with: {
 			organization: true,
+		},
+		orderBy: {
+			createdAt: "asc",
 		},
 	});
 

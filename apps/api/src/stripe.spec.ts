@@ -301,6 +301,78 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(sendEmailMock.mock.calls[0][0].to).toBe("default-billing@acme.test");
 	});
 
+	test("mirrors the first-joined owned default org, not an older org joined later", async () => {
+		const [owner] = await db
+			.insert(tables.user)
+			.values({ email: "multi-owner@acme.test" })
+			.returning();
+
+		// The user's own default org, created with their account. Its org row is
+		// NEWER than the foreign org below, but it is the first org they joined.
+		const [ownDefault] = await db
+			.insert(tables.organization)
+			.values({
+				name: "Own Default",
+				kind: "default",
+				billingEmail: "own-default@acme.test",
+				createdAt: new Date("2022-01-01T00:00:00Z"),
+			})
+			.returning();
+
+		// A different org, created earlier, that the user is later made an owner of.
+		const [foreignOlderOrg] = await db
+			.insert(tables.organization)
+			.values({
+				name: "Foreign Older Org",
+				kind: "default",
+				billingEmail: "foreign-older@acme.test",
+				createdAt: new Date("2019-01-01T00:00:00Z"),
+			})
+			.returning();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Multi DevPass",
+			kind: "devpass",
+			billingEmail: "multi-devpass@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+			devPlanBillingOverride: false,
+		});
+
+		// Membership timestamps reflect join order: own default first, foreign
+		// older org later. Resolution must follow join order, not org age.
+		await db.insert(tables.userOrganization).values([
+			{
+				userId: owner.id,
+				organizationId: ownDefault.id,
+				role: "owner",
+				createdAt: new Date("2022-01-01T00:00:00Z"),
+			},
+			{
+				userId: owner.id,
+				organizationId: foreignOlderOrg.id,
+				role: "owner",
+				createdAt: new Date("2023-06-01T00:00:00Z"),
+			},
+			{ userId: owner.id, organizationId: ORG_ID, role: "owner" },
+		]);
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_email_004",
+			}),
+		);
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock.mock.calls[0][0].to).toBe("own-default@acme.test");
+	});
+
 	test("does not mirror a non-owned default org; falls back to the DevPass org's own email", async () => {
 		const [member] = await db
 			.insert(tables.user)
