@@ -9269,7 +9269,7 @@ chat.openapi(completions, async (c) => {
 							phase: "upstream_read",
 						});
 
-						logger.error("Error reading upstream stream", toError(error), {
+						const upstreamReadErrorMeta = {
 							requestId,
 							usedProvider,
 							requestedProvider,
@@ -9294,12 +9294,30 @@ chat.openapi(completions, async (c) => {
 							firstTokenReceived,
 							firstReasoningTokenReceived,
 							unifiedFinishReason: getUnifiedFinishReason(
-								normalizedStreamingError.client.type === "gateway_error"
-									? "gateway_error"
-									: "upstream_error",
+								normalizedStreamingError.terminated
+									? "upstream_error"
+									: "gateway_error",
 								usedProvider,
 							),
-						});
+						};
+
+						// An upstream-side socket close (e.g. "terminated: other side
+						// closed") is an expected provider disconnect, not a gateway/server
+						// fault, so log it at warn severity to avoid raising server-error
+						// alerts. Genuine gateway-side streaming read faults stay at error.
+						if (normalizedStreamingError.terminated) {
+							logger.warn(
+								"Error reading upstream stream",
+								toError(error),
+								upstreamReadErrorMeta,
+							);
+						} else {
+							logger.error(
+								"Error reading upstream stream",
+								toError(error),
+								upstreamReadErrorMeta,
+							);
+						}
 
 						// Forward the error to the client with the buffered content that caused the error
 						try {
@@ -9326,6 +9344,12 @@ chat.openapi(completions, async (c) => {
 						}
 
 						streamingError = normalizedStreamingError.log;
+						// Classify the inference log so it isn't recorded as UNKNOWN: an
+						// upstream socket close is an upstream error, a genuine read fault
+						// is a gateway error.
+						finishReason = normalizedStreamingError.terminated
+							? "upstream_error"
+							: "gateway_error";
 					}
 				} finally {
 					// Clean up the reader to prevent file descriptor leaks
