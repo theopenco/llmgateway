@@ -80,6 +80,18 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
+	// Azure returns a 400 when the resolved deployment does not exist for the
+	// account behind the selected key (e.g. "Could not find an existing
+	// deployment to match the model in the request."). This is a per-key/account
+	// configuration gap rather than a client problem, so classify as
+	// gateway_error so the request can be retried with another key or provider.
+	if (
+		errorText &&
+		/could not find an existing deployment to match the model/i.test(errorText)
+	) {
+		return "gateway_error";
+	}
+
 	// zai content filter
 	if (
 		errorText?.includes(
