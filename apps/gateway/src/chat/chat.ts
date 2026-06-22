@@ -1760,6 +1760,26 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Text-to-speech and video models are served by dedicated endpoints
+	// (/v1/audio/speech and /v1/videos). Routing them through chat completions
+	// would fall through to a confusing "requires a baseUrl" error during
+	// endpoint resolution, so reject them early with a pointer to the right
+	// endpoint. Image-only models (e.g. reve, grok-image) are intentionally
+	// allowed here — they are served by the chat-completions image flow.
+	const modelOutput = modelInfo.output;
+	if (modelOutput && !modelOutput.includes("text")) {
+		if (modelOutput.includes("audio")) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} is a text-to-speech model and is not available on the chat completions endpoint. Use the /v1/audio/speech endpoint instead.`,
+			});
+		}
+		if (modelOutput.includes("video")) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} is a video generation model and is not available on the chat completions endpoint. Use the /v1/videos endpoint instead.`,
+			});
+		}
+	}
+
 	// Validate that models requiring image input have at least one image in the request
 	if (
 		modelInfo.imageInputRequired &&
