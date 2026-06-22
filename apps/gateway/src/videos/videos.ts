@@ -2714,7 +2714,15 @@ async function fetchUpstreamJson(
 
 	if (text.length > 0) {
 		try {
-			body = JSON.parse(text) as Record<string, unknown>;
+			const parsed: unknown = JSON.parse(text);
+			body =
+				typeof parsed === "object" && parsed !== null
+					? (parsed as Record<string, unknown>)
+					: {
+							error: {
+								message: text,
+							},
+						};
 		} catch {
 			body = {
 				error: {
