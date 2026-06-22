@@ -91,7 +91,9 @@ export function CreateProviderKeyDialog({
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 
-		const trimmedToken = token.trim();
+		// Strip whitespace and zero-width characters that get pasted in when a key
+		// is copied from wrapped text (newlines, non-breaking / zero-width spaces).
+		const trimmedToken = token.replace(/[\s\u200B-\u200D\u2060\uFEFF]/g, "");
 
 		if (!selectedProvider || !trimmedToken) {
 			toast({
