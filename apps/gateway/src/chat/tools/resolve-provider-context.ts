@@ -11,6 +11,7 @@ import {
 	getProviderEndpoint,
 	getProviderHeaders,
 	prepareRequestBody,
+	selectProviderMapping,
 } from "@llmgateway/actions";
 import {
 	type BaseMessage,
@@ -373,10 +374,16 @@ export async function resolveProviderContext(
 	}
 
 	// --- Look up the specific provider mapping for the selected provider ---
-	// modelInfo.providers is already expanded (regions flattened into separate entries)
+	// `modelInfo.providers` is region-expanded only when a provider was explicitly
+	// requested; for unpinned routing it holds just the region-agnostic root
+	// mapping (`region: undefined`) while `usedRegion` is a concrete value
+	// (e.g. AWS Bedrock's `global`). Resolve via the shared fallback helper so a
+	// retry/alternate-key request keeps reasoning support instead of dropping it.
 	const usedRegion = providerMapping.region;
-	const providerMappingForSelected = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.region === usedRegion,
+	const providerMappingForSelected = selectProviderMapping(
+		modelInfo.providers,
+		usedProvider,
+		usedRegion,
 	);
 
 	// --- Region validation ---
