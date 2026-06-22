@@ -52,6 +52,32 @@ describe("selectProviderMapping", () => {
 		expect(mapping?.maxOutput).toBe(128000);
 	});
 
+	it("prefers the region-agnostic root over a concrete-region entry when the exact region misses (order-independent)", () => {
+		// A concrete-region entry is listed before the root, and usedRegion matches
+		// neither. The fallback must still resolve to the region-agnostic root
+		// mapping rather than the first array element.
+		const providers: ProviderModelMapping[] = [
+			{
+				providerId: "aws-bedrock",
+				externalId: "anthropic.claude-opus-4-6-v1",
+				streaming: true,
+				region: "us",
+				reasoning: true,
+			},
+			{
+				providerId: "aws-bedrock",
+				externalId: "anthropic.claude-opus-4-6-v1",
+				streaming: true,
+				region: undefined,
+				reasoning: true,
+			},
+		];
+
+		const mapping = selectProviderMapping(providers, "aws-bedrock", "global");
+
+		expect(mapping?.region).toBeUndefined();
+	});
+
 	it("returns undefined when no mapping matches the provider", () => {
 		const providers: ProviderModelMapping[] = [
 			{

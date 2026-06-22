@@ -16,6 +16,12 @@ import type { ProviderModelMapping } from "@llmgateway/models";
  * expansion (only pricing/context/output/streaming may be overridden per region;
  * see `ProviderRegion`), so the region-agnostic mapping carries identical flags
  * to every regional variant and the fallback is lossless.
+ *
+ * Resolution order: exact `(providerId, region)` → the region-agnostic root
+ * mapping (`region: undefined`) → any mapping for the provider. The explicit
+ * root step keeps the fallback deterministic rather than dependent on the order
+ * of `providers`; the final any-provider step is a safety net for the unlikely
+ * case where the root entry was filtered out but a concrete-region entry remains.
  */
 export function selectProviderMapping(
 	providers: ProviderModelMapping[],
@@ -25,6 +31,10 @@ export function selectProviderMapping(
 	return (
 		providers.find(
 			(p) => p.providerId === usedProvider && p.region === usedRegion,
-		) ?? providers.find((p) => p.providerId === usedProvider)
+		) ??
+		providers.find(
+			(p) => p.providerId === usedProvider && p.region === undefined,
+		) ??
+		providers.find((p) => p.providerId === usedProvider)
 	);
 }
