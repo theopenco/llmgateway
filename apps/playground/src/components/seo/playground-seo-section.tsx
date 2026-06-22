@@ -31,6 +31,7 @@ const variants: Record<SeoVariant, VariantContent> = {
 			{ href: "/audio", label: "AI audio generation" },
 			{ href: "/group", label: "Compare models side by side" },
 			{ href: "/canvas", label: "Canvas — UI from JSON" },
+			{ href: "/compare", label: "LLM Gateway Chat vs ChatGPT, Claude & more" },
 		],
 	},
 	image: {

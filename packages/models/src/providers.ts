@@ -675,6 +675,47 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "atlascloud",
+		name: "AtlasCloud",
+		description:
+			"AtlasCloud provides unified APIs for video, image, audio, and language generation models.",
+		env: {
+			required: {
+				apiKey: "LLM_ATLASCLOUD_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ATLASCLOUD_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#0F766E",
+		website: "https://www.atlascloud.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://atlascloud.ai/privacy",
+		privacyPolicyUrl: "https://www.atlascloud.ai/privacy",
+		headquarters: null,
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: "varies by service; Enterprise ZDR available",
+			soc2: true,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Zero Data Retention and DPA",
+				link: "https://www.atlascloud.ai/zero-data-retention",
+			},
+			{
+				desc: "Data deletion policy",
+				link: "https://www.atlascloud.ai/data-deletion-policy",
+			},
+		],
+	},
+	{
 		id: "aws-bedrock",
 		name: "AWS Bedrock",
 		description: "Amazon Bedrock - fully managed service for foundation models",

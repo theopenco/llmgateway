@@ -4,6 +4,7 @@ import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
 import admin from "./admin.js";
+import { analytics } from "./analytics.js";
 import { auditLogs } from "./audit-logs.js";
 import { chatPlans } from "./chat-plans.js";
 import { chat } from "./chat.js";
@@ -53,6 +54,8 @@ routes.route("/logs", logs);
 routes.route("/activity", activity);
 
 routes.route("/admin", admin);
+
+routes.route("/analytics", analytics);
 
 routes.route("/keys", keysApi);
 routes.route("/keys", keysProvider);

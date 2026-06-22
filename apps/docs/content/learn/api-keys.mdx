@@ -117,8 +117,29 @@ For each API key you can:
 - **Disable or enable**: Pause usage without deleting the key (reactivating an
   expired key prompts for a new expiration)
 - **Configure IAM rules**: Restrict which models, providers, or pricing tiers the key can use
-- **Open usage details**: Inspect requests and usage tied to that key
+- **View Statistics**: Open a dedicated analytics page for that key (see below)
 - **Delete**: Permanently remove the key
+
+## Per-Key Statistics
+
+The **View Statistics** action opens a dedicated page scoped to a single API
+key, so you can see exactly what that key is doing without filtering the whole
+project.
+
+<ThemedImage alt="Per-key statistics" basePath="/learn/api-key-statistics" />
+
+The page respects the shared date-range picker and shows:
+
+- **Summary cards** — the key's cost, tokens, requests, and error rate for the
+  selected range.
+- **Cost by Model** — a horizontal bar chart ranking the key's models by cost,
+  requests, or tokens.
+- **Cost by Model Over Time** — a stacked area chart of the same metrics, with a
+  Mappings / Canonical toggle.
+
+These are the same breakdowns as the project [Analytics](/learn/analytics) page,
+narrowed to the one key — useful for confirming a key is healthy and spending on
+the models you expect.
 
 ## IAM Rules
 

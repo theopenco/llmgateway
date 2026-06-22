@@ -9,6 +9,8 @@ import {
 	providers,
 } from "./providers.js";
 
+import type { ModelDefinition, ProviderModelMapping } from "./models.js";
+
 interface ProviderWithRegions {
 	regions?: readonly { id: string }[];
 }
@@ -249,4 +251,96 @@ describe("AWS Bedrock Anthropic regions", () => {
 			expect(getRegionIds(bedrockMapping)).toEqual(expectedRegions);
 		});
 	}
+});
+
+describe("AtlasCloud video models", () => {
+	it("defines provider metadata and environment variables", () => {
+		const provider = providers.find((item) => item.id === "atlascloud");
+
+		expect(provider?.env.required.apiKey).toBe("LLM_ATLASCLOUD_API_KEY");
+		expect(provider?.env.optional?.baseUrl).toBe("LLM_ATLASCLOUD_BASE_URL");
+		expect(provider?.termsUrl).toBe("https://atlascloud.ai/privacy");
+		expect(provider?.privacyPolicyUrl).toBe(
+			"https://www.atlascloud.ai/privacy",
+		);
+		expect(provider?.dataPolicy?.soc2).toBe(true);
+		expect(provider?.dataPolicy?.gdpr).toBe(true);
+		expect(provider?.additionalLinks).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					link: "https://www.atlascloud.ai/zero-data-retention",
+				}),
+				expect.objectContaining({
+					link: "https://www.atlascloud.ai/data-deletion-policy",
+				}),
+			]),
+		);
+	});
+
+	it("uses exact external ids, durations, sizes, and per-second prices", () => {
+		const expected = [
+			[
+				"kling-v3-0",
+				"kwaivgi/kling-v3.0",
+				{
+					default_audio: "0.126",
+					default_video: "0.084",
+					"720p_audio": "0.126",
+					"720p_video": "0.084",
+					"1080p_audio": "0.168",
+					"1080p_video": "0.112",
+					"4k_audio": "0.42",
+					"4k_video": "0.42",
+				},
+				[5, 10],
+				[
+					"1280x720",
+					"720x1280",
+					"1920x1080",
+					"1080x1920",
+					"3840x2160",
+					"2160x3840",
+				],
+				true,
+			],
+			[
+				"kling-v3-0-turbo",
+				"kwaivgi/kling-v3.0-turbo",
+				{
+					default_audio: "0.168",
+					"720p_audio": "0.168",
+					"1080p_audio": "0.21",
+				},
+				[5, 10],
+				["1280x720", "720x1280", "1920x1080", "1080x1920"],
+				false,
+			],
+		] as const;
+
+		for (const [
+			modelId,
+			externalId,
+			perSecondPrice,
+			durations,
+			sizes,
+			supportsVideoWithoutAudio,
+		] of expected) {
+			const model = models.find((candidate) => candidate.id === modelId) as
+				| ModelDefinition
+				| undefined;
+			const mapping = model?.providers.find(
+				(provider) => provider.providerId === "atlascloud",
+			) as ProviderModelMapping | undefined;
+
+			expect(mapping?.externalId).toBe(externalId);
+			expect(mapping?.perSecondPrice).toEqual(perSecondPrice);
+			expect(mapping?.supportedVideoDurationsSeconds).toEqual(durations);
+			expect(model?.imageInputRequired).toBeUndefined();
+			expect(mapping?.supportedVideoSizes).toEqual(sizes);
+			expect(mapping?.supportedVideoSizes).not.toContain("1024x1024");
+			expect(mapping?.supportsVideoWithoutAudio).toBe(
+				supportsVideoWithoutAudio ?? true,
+			);
+		}
+	});
 });

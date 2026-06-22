@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { metricsKey } from "@llmgateway/db";
 import {
 	models,
+	type ModelDefinition,
 	type ProviderModelMapping,
 	type BaseMessage,
 	type OpenAIRequestBody,
@@ -39,21 +40,25 @@ describe("Models", () => {
 	});
 
 	it("should include o1-mini model", () => {
-		const o1MiniModel = models.find((model) => model.id === "o1-mini");
+		const o1MiniModel = models.find((model) => model.id === "o1-mini") as
+			| ModelDefinition
+			| undefined;
 		expect(o1MiniModel).toBeDefined();
 		expect(o1MiniModel?.supportsSystemRole).toBe(false);
 		expect(o1MiniModel?.family).toBe("openai");
 	});
 
 	it("should mark Claude Sonnet 4.6 provider mappings as vision-capable", () => {
-		const sonnet46 = models.find((model) => model.id === "claude-sonnet-4-6");
+		const sonnet46 = models.find(
+			(model) => model.id === "claude-sonnet-4-6",
+		) as ModelDefinition | undefined;
 
 		expect(sonnet46).toBeDefined();
-		expect(sonnet46?.providers.map((provider) => provider.vision)).toEqual([
-			true,
-			true,
-			true,
-		]);
+		expect(
+			sonnet46?.providers.map(
+				(provider: ProviderModelMapping) => provider.vision,
+			),
+		).toEqual([true, true, true]);
 	});
 
 	it("should have free: true when provider mapping has zero pricing", () => {

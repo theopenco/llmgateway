@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import {
 	InvalidFileContentError,
+	RequestError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 } from "@llmgateway/actions";
@@ -162,6 +163,14 @@ app.onError((error, c) => {
 			providerTarget: error.providerTarget,
 		});
 		return renderGatewayError(c, 400, error.message);
+	}
+
+	if (error instanceof RequestError) {
+		logger.warn("Invalid request", {
+			message: error.message,
+			statusCode: error.statusCode,
+		});
+		return renderGatewayError(c, error.statusCode, error.message);
 	}
 
 	if (error instanceof HTTPException) {

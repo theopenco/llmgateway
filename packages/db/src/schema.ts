@@ -257,6 +257,10 @@ export const organization = pgTable(
 			.notNull()
 			.default("monthly"),
 		devPlanAllowAllModels: boolean().notNull().default(false),
+		// When false (default), DevPass invoices use the owner's default-org
+		// billing details. When true, the DevPass org's own billing* fields below
+		// are used as a custom override for DevPass invoices.
+		devPlanBillingOverride: boolean().notNull().default(false),
 		// Fingerprint of the card used to subscribe to a dev plan. Used to
 		// prevent a single card from claiming the DevPass usage allowance from
 		// multiple personal organizations.
@@ -2271,6 +2275,7 @@ export const auditLogActions = [
 	"dev_plan.resume",
 	"dev_plan.change_tier",
 	"dev_plan.update_settings",
+	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
 	// Chat Plan

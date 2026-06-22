@@ -887,6 +887,17 @@ function isGoogleVertexVideoProvider(providerId: string): boolean {
 	return providerId === "google-vertex";
 }
 
+function isAtlasCloudVideoProvider(providerId: string): boolean {
+	return providerId === "atlascloud";
+}
+
+function isAtlasCloudCollapsedKlingModel(externalId: string): boolean {
+	return (
+		externalId === "kwaivgi/kling-v3.0" ||
+		externalId === "kwaivgi/kling-v3.0-turbo"
+	);
+}
+
 function getVideoProviderConstraintReasons(
 	provider: ProviderModelMapping,
 	videoSize: VideoSizeConfig,
@@ -962,6 +973,17 @@ function getVideoProviderConstraintReasons(
 					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
 				);
 			}
+		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
+			if (!isAtlasCloudCollapsedKlingModel(provider.externalId)) {
+				reasons.push(
+					"frame inputs are only supported on AtlasCloud KLING video models",
+				);
+			}
+			if (videoDurationSeconds !== 5 && videoDurationSeconds !== 10) {
+				reasons.push(
+					"duration is unsupported because AtlasCloud KLING v3.0 only supports 5s and 10s outputs",
+				);
+			}
 		} else if (
 			!isGoogleVertexVideoProvider(provider.providerId) &&
 			provider.providerId !== "avalanche" &&
@@ -991,6 +1013,14 @@ function getVideoProviderConstraintReasons(
 					"Sora reference-image video generation supports exactly 1 input image",
 				);
 			}
+
+			return reasons;
+		}
+
+		if (isAtlasCloudVideoProvider(provider.providerId)) {
+			reasons.push(
+				"reference inputs are unsupported on AtlasCloud KLING v3.0 models",
+			);
 
 			return reasons;
 		}
@@ -1154,13 +1184,38 @@ function getAvalancheSoraTaskModelName(
 	return `${baseModelName}-${inputMode === "reference" ? "image" : "text"}-to-video`;
 }
 
+function getAtlasCloudTaskName(inputMode: VideoInputMode): string {
+	if (inputMode === "frames") {
+		return "image-to-video";
+	}
+
+	return "text-to-video";
+}
+
+function getAtlasCloudVideoModelName(
+	baseModelName: string,
+	videoSize: VideoSizeConfig,
+	inputMode: VideoInputMode,
+): string {
+	const taskName = getAtlasCloudTaskName(inputMode);
+	const isTurbo = baseModelName === "kwaivgi/kling-v3.0-turbo";
+
+	if (videoSize.resolution === "4k") {
+		return `kwaivgi/kling-v3.0-4k/${taskName}`;
+	}
+
+	return `kwaivgi/kling-v3.0-${isTurbo ? "turbo" : "std"}/${taskName}`;
+}
+
 function getVideoUpstreamModelName(
 	providerId: Provider,
 	baseModelName: string,
-	_videoSize: VideoSizeConfig,
-	_inputMode: VideoInputMode,
+	videoSize: VideoSizeConfig,
+	inputMode: VideoInputMode,
 ): string {
 	switch (providerId) {
+		case "atlascloud":
+			return getAtlasCloudVideoModelName(baseModelName, videoSize, inputMode);
 		case "avalanche":
 			return getAvalancheVideoModelName(baseModelName);
 		case "bytedance":
@@ -1215,6 +1270,8 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://api.openai.com";
 		case "xai":
 			return "https://api.x.ai";
+		case "atlascloud":
+			return "https://api.atlascloud.ai";
 		case "bytedance":
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
@@ -3185,6 +3242,219 @@ function getBytedanceVideoAspectRatio(videoSize: VideoSizeConfig): string {
 	return "16:9";
 }
 
+function getAtlasCloudVideoAspectRatio(videoSize: VideoSizeConfig): string {
+	return videoSize.orientation === "portrait" ? "9:16" : "16:9";
+}
+
+function atlasCloudVideoModelAcceptsSound(modelName: string): boolean {
+	return !modelName.startsWith("kwaivgi/kling-v3.0-turbo/");
+}
+
+async function uploadAtlasCloudMedia(
+	providerContext: ProviderContext,
+	image: ProcessedVideoImageInput,
+): Promise<string> {
+	const uploadUrl = joinUrl(
+		providerContext.baseUrl,
+		"/api/v1/model/uploadMedia",
+	);
+	const fileExtension = getVideoImageFileExtension(image.mimeType);
+	const formData = new FormData();
+	formData.append(
+		"file",
+		new Blob([Buffer.from(image.bytesBase64Encoded, "base64")], {
+			type: image.mimeType,
+		}),
+		`input.${fileExtension}`,
+	);
+	const response = await fetchUpstreamJson(uploadUrl, {
+		method: "POST",
+		headers: getProviderHeaders("atlascloud", providerContext.token, {
+			requestId: providerContext.requestId,
+		}),
+		body: formData,
+	});
+	const uploadedUrl = extractAtlasCloudUploadedMediaUrl(response);
+
+	if (!uploadedUrl) {
+		throw new HTTPException(502, {
+			message: "AtlasCloud media upload did not return a usable URL",
+		});
+	}
+
+	return uploadedUrl;
+}
+
+function extractAtlasCloudUploadedMediaUrl(
+	response: Record<string, unknown>,
+): string | null {
+	const preferredKeys = new Set([
+		"url",
+		"fileUrl",
+		"file_url",
+		"downloadUrl",
+		"download_url",
+		"mediaUrl",
+		"media_url",
+		"temporaryUrl",
+		"temporary_url",
+		"tempUrl",
+		"temp_url",
+	]);
+
+	const isHttpUrl = (value: unknown): value is string =>
+		typeof value === "string" && /^https?:\/\//i.test(value);
+
+	const visitPreferred = (value: unknown): string | null => {
+		if (isHttpUrl(value)) {
+			return value;
+		}
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				const found = visitPreferred(item);
+				if (found) {
+					return found;
+				}
+			}
+			return null;
+		}
+		if (!value || typeof value !== "object") {
+			return null;
+		}
+
+		const record = value as Record<string, unknown>;
+		for (const key of preferredKeys) {
+			const found = visitPreferred(record[key]);
+			if (found) {
+				return found;
+			}
+		}
+		for (const nested of Object.values(record)) {
+			const found = visitPreferred(nested);
+			if (found) {
+				return found;
+			}
+		}
+		return null;
+	};
+
+	return visitPreferred(response);
+}
+
+async function getAtlasCloudImageUrl(
+	providerContext: ProviderContext,
+	videoImage: VideoImageInput,
+): Promise<string> {
+	const imageUrl = getVideoImageUrl(videoImage);
+	if (/^https:\/\//i.test(imageUrl)) {
+		return imageUrl;
+	}
+
+	const processedImage = await processVideoImageInput(videoImage);
+	if (!processedImage) {
+		throw new HTTPException(400, {
+			message: "image must include a non-empty image URL",
+		});
+	}
+
+	return await uploadAtlasCloudMedia(providerContext, processedImage);
+}
+
+async function createAtlasCloudVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	firstFrameInput: VideoImageInput | undefined,
+	lastFrameInput: VideoImageInput | undefined,
+	referenceImageInputs: VideoImageInput[],
+	referenceVideoUrls: string[],
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = getVideoUpstreamModelName(
+		"atlascloud",
+		providerMapping.externalId,
+		videoSize,
+		referenceImageInputs.length > 0 || referenceVideoUrls.length > 0
+			? "reference"
+			: firstFrameInput || lastFrameInput
+				? "frames"
+				: "none",
+	);
+	const imageUrl = firstFrameInput
+		? await getAtlasCloudImageUrl(providerContext, firstFrameInput)
+		: null;
+	const endImageUrl = lastFrameInput
+		? await getAtlasCloudImageUrl(providerContext, lastFrameInput)
+		: null;
+	const referenceImageUrls =
+		referenceImageInputs.length > 0
+			? await Promise.all(
+					referenceImageInputs.map((imageInput) =>
+						getAtlasCloudImageUrl(providerContext, imageInput),
+					),
+				)
+			: [];
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		prompt,
+		duration: durationSeconds,
+		aspect_ratio: getAtlasCloudVideoAspectRatio(videoSize),
+		...(atlasCloudVideoModelAcceptsSound(upstreamModelName)
+			? { sound: includeAudio }
+			: {}),
+		...(imageUrl ? { image: imageUrl } : {}),
+		...(endImageUrl ? { end_image: endImageUrl } : {}),
+		...(referenceImageUrls.length > 0
+			? { reference_image_urls: referenceImageUrls }
+			: {}),
+		...(referenceVideoUrls.length > 0
+			? { reference_video_urls: referenceVideoUrls }
+			: {}),
+	};
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/api/v1/model/generateVideo",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("atlascloud", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+			aspect_ratio: upstreamRequest.aspect_ratio,
+			sound: includeAudio,
+			audio: includeAudio,
+		},
+		videoSize,
+	);
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "AtlasCloud video response did not include a prediction id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createBytedanceVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3550,6 +3820,19 @@ async function createUpstreamVideoJob(
 	upstreamResponse: Record<string, unknown>;
 }> {
 	switch (providerContext.providerId) {
+		case "atlascloud":
+			return await createAtlasCloudVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				firstFrameInput,
+				lastFrameInput,
+				referenceImageInputs,
+				referenceVideoUrls,
+			);
 		case "xai":
 			return await createXaiVideoJob(
 				providerContext,

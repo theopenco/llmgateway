@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { prepareRequestBody } from "./prepare-request-body.js";
+import { prepareRequestBody, RequestError } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
@@ -506,6 +506,42 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 
 		expect(requestBody.prompt_cache_key).toBe("tenant-a");
 		expect(requestBody.prompt_cache_retention).toBe("in_memory");
+	});
+
+	test("should throw a typed RequestError for tool messages without tool_call_id", async () => {
+		await expect(
+			prepareRequestBody(
+				"openai",
+				"gpt-5.5",
+				null,
+				"gpt-5.5",
+				[
+					{ role: "user", content: "Hello!" },
+					{ role: "tool", content: "result" } as any,
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true,
+			),
+		).rejects.toBeInstanceOf(RequestError);
 	});
 
 	test("should not forward OpenAI prompt cache controls to Azure", async () => {
