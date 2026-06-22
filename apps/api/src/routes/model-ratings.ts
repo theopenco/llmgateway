@@ -49,8 +49,8 @@ async function getModelRequestCount(
 			and(
 				inArray(tables.projectHourlyModelStats.projectId, projectIds),
 				sql`CASE WHEN ${tables.projectHourlyModelStats.usedModel} LIKE '%/%'
-					THEN SPLIT_PART(${tables.projectHourlyModelStats.usedModel}, '/', 2)
-					ELSE ${tables.projectHourlyModelStats.usedModel}
+					THEN SPLIT_PART(SPLIT_PART(${tables.projectHourlyModelStats.usedModel}, '/', 2), ':', 1)
+					ELSE SPLIT_PART(${tables.projectHourlyModelStats.usedModel}, ':', 1)
 				END = ${modelId}`,
 			),
 		);
