@@ -91,7 +91,9 @@ export function CreateProviderKeyDialog({
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 
-		if (!selectedProvider || !token) {
+		const trimmedToken = token.trim();
+
+		if (!selectedProvider || !trimmedToken) {
 			toast({
 				title: "Error",
 				description: !selectedProvider
@@ -143,7 +145,7 @@ export function CreateProviderKeyDialog({
 			organizationId: string;
 		} = {
 			provider: selectedProvider,
-			token,
+			token: trimmedToken,
 			organizationId: selectedOrganization.id,
 		};
 		if (baseUrl) {
@@ -240,8 +242,16 @@ export function CreateProviderKeyDialog({
 							err.error && typeof err.error === "object"
 								? (err.error as Record<string, unknown>)
 								: err;
+						const issues = Array.isArray(nested.issues)
+							? (nested.issues as { message?: unknown }[])
+							: undefined;
 						if (typeof nested.message === "string") {
 							description = nested.message;
+						} else if (
+							issues?.length &&
+							typeof issues[0]?.message === "string"
+						) {
+							description = issues[0].message;
 						}
 					} else if (error instanceof Error) {
 						description = error.message;
