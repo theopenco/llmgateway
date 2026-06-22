@@ -2615,6 +2615,7 @@ const getProjectLogs = createRoute({
 			model: z.string().optional(),
 			source: z.string().optional(),
 			unifiedFinishReason: z.string().optional(),
+			hasError: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -2636,7 +2637,8 @@ admin.openapi(getProjectLogs, async (c) => {
 	const { orgId, projectId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
-	const { cursor, provider, model, source, unifiedFinishReason } = query;
+	const { cursor, provider, model, source, unifiedFinishReason, hasError } =
+		query;
 
 	// Verify project belongs to the organization
 	const project = await db.query.project.findFirst({
@@ -2681,6 +2683,10 @@ admin.openapi(getProjectLogs, async (c) => {
 		whereConditions.push(
 			eq(tables.log.unifiedFinishReason, unifiedFinishReason),
 		);
+	}
+
+	if (hasError === "true") {
+		whereConditions.push(eq(tables.log.hasError, true));
 	}
 
 	if (cursor) {
