@@ -2816,35 +2816,36 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(output.call_id).toBe("call_abc");
 		});
 
-		test("recovers call_ids in order for parallel tool results missing ids", async () => {
-			const requestBody = (await prepareRequestBody(
-				...responsesArgs([
-					{ role: "user", content: "weather and time in Berlin?" },
-					{
-						role: "assistant",
-						content: "",
-						tool_calls: [
-							{
-								id: "call_1",
-								type: "function",
-								function: { name: "get_weather", arguments: "{}" },
-							},
-							{
-								id: "call_2",
-								type: "function",
-								function: { name: "get_time", arguments: "{}" },
-							},
-						],
-					},
-					{ role: "tool", content: JSON.stringify({ temperature: 17 }) },
-					{ role: "tool", content: JSON.stringify({ time: "20:52" }) },
-				]),
-			)) as any;
-
-			const outputs = requestBody.input.filter(
-				(i: any) => i.type === "function_call_output",
-			);
-			expect(outputs.map((o: any) => o.call_id)).toEqual(["call_1", "call_2"]);
+		test("throws for ambiguous parallel tool results missing ids and names", async () => {
+			// Two pending calls and two results carrying neither tool_call_id nor a
+			// name to disambiguate. Guessing oldest-first would silently
+			// misattribute outputs if the results arrived out of order, so the
+			// transform rejects rather than corrupt the conversation.
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather and time in Berlin?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+								{
+									id: "call_2",
+									type: "function",
+									function: { name: "get_time", arguments: "{}" },
+								},
+							],
+						},
+						{ role: "tool", content: JSON.stringify({ temperature: 17 }) },
+						{ role: "tool", content: JSON.stringify({ time: "20:52" }) },
+					]),
+				),
+			).rejects.toBeInstanceOf(OrphanedToolMessageError);
 		});
 
 		test("matches legacy function-role results by name", async () => {

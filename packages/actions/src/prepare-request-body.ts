@@ -662,8 +662,10 @@ export class OrphanedToolMessageError extends Error {
  * Completions spec requires `tool_call_id` on `tool` messages, but real callers
  * sometimes omit it (legacy `function` role results carry only `name`, and some
  * clients drop the id when replaying history). To stay compatible we recover
- * the id from the preceding unmatched function calls: by explicit id, then by
- * matching function name, then by oldest-first ordering.
+ * the id from the preceding unmatched function calls, but only when the pairing
+ * is unambiguous: by explicit id, by a unique matching function name, or when
+ * exactly one call is still unmatched. Ambiguous cases throw rather than risk
+ * attaching a result to the wrong call.
  */
 function transformMessagesForResponsesApi(messages: any[]): any[] {
 	const items: any[] = [];
@@ -686,16 +688,20 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 			pendingCalls.splice(idx, 1);
 			return msg.tool_call_id;
 		}
+		// No explicit id: recover only when the pairing is unambiguous. Guessing
+		// (oldest-first) silently misattributes a tool output to the wrong call
+		// when parallel results arrive out of order, so prefer a clean 400.
 		// Legacy `function` role (and tool messages that carry a function name):
-		// pair with the earliest pending call sharing that name.
+		// pair only when exactly one pending call shares that name.
 		if (msg.name) {
-			const idx = pendingCalls.findIndex((c) => c.name === msg.name);
-			if (idx !== -1) {
+			const named = pendingCalls.filter((c) => c.name === msg.name);
+			if (named.length === 1) {
+				const idx = pendingCalls.findIndex((c) => c.name === msg.name);
 				return pendingCalls.splice(idx, 1)[0].callId;
 			}
 		}
-		// Fall back to the oldest unmatched call (ordered tool turns).
-		if (pendingCalls.length > 0) {
+		// Otherwise recover only when exactly one call is still unmatched.
+		if (pendingCalls.length === 1) {
 			return pendingCalls.shift()?.callId;
 		}
 		return undefined;
