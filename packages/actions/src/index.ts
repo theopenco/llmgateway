@@ -9,3 +9,4 @@ export * from "./get-provider-endpoint.js";
 export * from "./get-cheapest-from-available-providers.js";
 export * from "./validate-provider-key.js";
 export * from "./get-cheapest-model-for-provider.js";
+export * from "./select-provider-mapping.js";

@@ -98,6 +98,7 @@ import {
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	selectProviderMapping,
 	RequestError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
@@ -5008,9 +5009,16 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if the selected provider supports reasoning (from specific mapping, not any)
-	const selectedProviderMapping = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.region === usedRegion,
+	// Check if the selected provider supports reasoning (from specific mapping, not
+	// any). Resolves the exact (providerId, region) mapping when available and falls
+	// back to the region-agnostic mapping otherwise — unpinned routing leaves
+	// `modelInfo.providers` un-expanded (root mapping only, `region: undefined`)
+	// while `usedRegion` resolves to a concrete value (e.g. AWS Bedrock's `global`),
+	// so an exact-region lookup would silently drop reasoning support.
+	const selectedProviderMapping = selectProviderMapping(
+		modelInfo.providers,
+		usedProvider,
+		usedRegion,
 	);
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
 	let splitTaggedReasoning =
