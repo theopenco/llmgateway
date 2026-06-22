@@ -17,7 +17,7 @@ const modelSchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	aliases: z.array(z.string()).optional(),
-	created: z.number(),
+	created: z.number().optional(),
 	description: z.string().optional(),
 	family: z.string(),
 	architecture: z.object({
@@ -223,7 +223,9 @@ modelsApi.openapi(listModels, async (c) => {
 				id: model.id,
 				name: model.name ?? model.id,
 				aliases: model.aliases,
-				created: Math.floor(Date.now() / 1000), // Current timestamp in seconds
+				created: model.releasedAt
+					? Math.floor(model.releasedAt.getTime() / 1000)
+					: undefined,
 				description: `${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
 				family: model.family,
 				architecture: {
