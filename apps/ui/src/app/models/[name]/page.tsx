@@ -583,10 +583,10 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name ?? model.id} — AI Model Pricing & Capabilities`;
+	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
 	const description =
 		model.description ??
-		`Details, pricing, and capabilities for ${model.name ?? model.id} on LLM Gateway.`;
+		`Compare ${model.name ?? model.id} pricing across providers, with its context window, capabilities, and one OpenAI-compatible API.`;
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;

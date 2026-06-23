@@ -6,6 +6,9 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 export const metadata = {
+	alternates: {
+		canonical: "https://llmgateway.io/models",
+	},
 	title: "AI Models Directory — Compare 280+ LLM Models",
 	description:
 		"Browse and compare 280+ AI models from leading providers like OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size. Find the perfect LLM for your application.",

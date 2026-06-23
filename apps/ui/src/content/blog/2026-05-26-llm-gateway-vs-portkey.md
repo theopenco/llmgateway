@@ -16,25 +16,27 @@ If you're shopping for an AI gateway, Portkey shows up fast — and for good rea
 
 We built LLM Gateway, so we're biased. We'll still tell you where Portkey is the better call.
 
+One thing worth knowing up front: Portkey was acquired by Palo Alto Networks in May 2026 and now sits inside its Prisma AIRS security platform. If staying with an independent, single-purpose vendor matters to your team, factor that in.
+
 ## The Quick Version
 
-| Feature                  | LLM Gateway                                           | Portkey                                                  |
-| ------------------------ | ----------------------------------------------------- | -------------------------------------------------------- |
-| Core model               | Unified gateway + dashboard, all-in-one               | AI gateway + LLMOps platform (observability/prompts)     |
-| Models                   | 280+ models, 35+ providers                            | 1,600+ models, 250+ providers (vendor claim)             |
-| API compatibility        | OpenAI-compatible                                     | OpenAI-compatible                                        |
-| Deployment               | Managed cloud or self-hosted (1 Docker image)         | Managed cloud; open-source gateway; enterprise self-host |
-| Open source              | Full platform (AGPLv3)                                | Gateway/router only (MIT); platform is proprietary       |
-| Bring Your Own Keys      | Yes (0% gateway markup)                               | Yes (virtual keys)                                       |
-| Smart routing            | Weighted scoring (uptime, throughput, price, latency) | Conditional routing + load balancing (config-based)      |
-| Auto retry & failover    | Yes (up to 2 retries, transparent)                    | Yes (retries, fallbacks)                                 |
-| Response caching         | Built-in (Redis, 10s to 1 year TTL)                   | Simple + semantic caching                                |
-| Guardrails               | Yes (prompt injection, PII, jailbreak, secrets)       | Yes (40+ guardrails, partner integrations)               |
-| Prompt management        | Via Playground; no versioned registry                 | Yes — templates, versioning, deployments (standout)      |
-| Analytics dashboard      | Per-request cost, latency, cache hit rate             | Deep observability, 40+ metrics, traces, OpenTelemetry   |
-| Image & video generation | Yes (gpt-image, Gemini, Veo, Seedream, Qwen)          | Limited                                                  |
-| AI SDK provider          | Yes (`@llmgateway/ai-sdk-provider`)                   | Via OpenAI-compatible client                             |
-| Pricing model            | Free (self-host) or 5% platform fee / BYOK (0% fee)   | Free tier; usage/seat-based paid tiers; enterprise       |
+| Feature                  | LLM Gateway                                           | Portkey                                                                           |
+| ------------------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Core model               | Unified gateway + dashboard, all-in-one               | AI gateway + LLMOps platform (observability/prompts)                              |
+| Models                   | 280+ models, 35+ providers                            | 1,600+ models (vendor claim)                                                      |
+| API compatibility        | OpenAI-compatible                                     | OpenAI-compatible                                                                 |
+| Deployment               | Managed cloud or self-hosted (1 Docker image)         | Managed cloud; open-source gateway; enterprise self-host                          |
+| Open source              | Full platform (AGPLv3)                                | Gateway + governance/observability (MIT, since 2.0); cloud for storage/compliance |
+| Bring Your Own Keys      | Yes (0% gateway markup)                               | Yes (virtual keys)                                                                |
+| Smart routing            | Weighted scoring (uptime, throughput, price, latency) | Conditional routing + load balancing (config-based)                               |
+| Auto retry & failover    | Yes (up to 2 retries, transparent)                    | Yes (retries, fallbacks)                                                          |
+| Response caching         | Built-in (Redis, 10s to 1 year TTL)                   | Simple + semantic caching                                                         |
+| Guardrails               | Yes (prompt injection, PII, jailbreak, secrets)       | Yes (40+ guardrails, partner integrations)                                        |
+| Prompt management        | Via Playground; no versioned registry                 | Yes — templates, versioning, deployments (standout)                               |
+| Analytics dashboard      | Per-request cost, latency, cache hit rate             | Deep observability, 40+ metrics, traces, OpenTelemetry                            |
+| Image & video generation | Yes (gpt-image, Gemini, Veo, Seedream, Qwen)          | Limited                                                                           |
+| AI SDK provider          | Yes (`@llmgateway/ai-sdk-provider`)                   | Via OpenAI-compatible client                                                      |
+| Pricing model            | Free (self-host) or 5% platform fee / BYOK (0% fee)   | Free → $49/mo Production (usage-based) → Enterprise                               |
 
 ## Where LLM Gateway Wins
 
@@ -55,7 +57,7 @@ const client = new OpenAI({
 
 ### Self-Host the Whole Thing, Not Just the Router
 
-Portkey's **gateway** is open source (MIT) and you can run it yourself. But the parts most teams actually want — observability, prompt management, analytics, governance — live in the proprietary hosted platform. Self-hosting Portkey's full stack is an enterprise arrangement.
+Portkey open-sourced far more of its gateway in 2026 (MIT, "Gateway 2.0") — routing, governance, observability, and cost controls now run self-hosted. What stays in the managed cloud is the persistent observability storage, semantic caching, and compliance layer. So a fully self-hosted stack — with history and attestations — is still an enterprise arrangement.
 
 LLM Gateway is open source under AGPLv3 in its entirety — gateway, dashboard, worker, and all. One Docker command gets you the complete platform on your own infrastructure:
 
@@ -145,4 +147,4 @@ Portkey is an excellent AI gateway with a strong LLMOps layer on top — especia
 
 If you're evaluating a **Portkey alternative** because you'd rather have a single, fully open platform than a gateway-plus-suite, LLM Gateway is built for exactly that.
 
-**[Try LLM Gateway free](/signup)** | **[Compare all features](/compare/portkey)** | **[See how we compare to LiteLLM](/blog/llm-gateway-vs-litellm)** | **[The 7 best AI gateways in 2026](/blog/best-ai-gateways)**
+**[Try LLM Gateway free](/signup)** | **[Compare all features](/compare/portkey)** | **[See how we compare to LiteLLM](/blog/llm-gateway-vs-litellm)** | **[The 8 best AI gateways in 2026](/blog/best-ai-gateways)**
