@@ -232,6 +232,29 @@ export function extractTokenUsage(
 				}
 			}
 			break;
+		case "sakana":
+			// Fugu streams over Chat Completions and bills the orchestration tokens
+			// consumed by its underlying agent pool on top of the user-visible
+			// input/output tokens. They arrive in the *_tokens_details and are real
+			// billable usage, so fold them into the prompt/completion (and cached)
+			// counts the cost engine sees.
+			if (data.usage) {
+				const promptDetails = data.usage.prompt_tokens_details ?? {};
+				const completionDetails = data.usage.completion_tokens_details ?? {};
+				promptTokens =
+					(data.usage.prompt_tokens ?? 0) +
+					(promptDetails.orchestration_input_tokens ?? 0);
+				completionTokens =
+					(data.usage.completion_tokens ?? 0) +
+					(completionDetails.orchestration_output_tokens ?? 0);
+				reasoningTokens = completionDetails.reasoning_tokens ?? null;
+				cachedTokens =
+					(promptDetails.cached_tokens ?? 0) +
+					(promptDetails.orchestration_input_cached_tokens ?? 0);
+				totalTokens =
+					data.usage.total_tokens ?? promptTokens + completionTokens;
+			}
+			break;
 		default: // OpenAI format
 			if (data.response?.usage) {
 				// OpenAI Responses API format (response.completed events)
