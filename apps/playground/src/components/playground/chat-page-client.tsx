@@ -1599,6 +1599,28 @@ export default function ChatPageClient({
 		[pathname, router, comparisonEnabled, extraPanelModels, models],
 	);
 
+	const {
+		providerId: selectedProviderId,
+		modelId: selectedModelId,
+		region: selectedRegion,
+	} = parseModelSelectorValue(selectedModel);
+
+	const availableRegions = selectedProviderId
+		? (models
+				.find((m) => m.id === selectedModelId)
+				?.mappings.filter(
+					(m) => m.providerId === selectedProviderId && m.region,
+				)
+				.map((m) => m.region as string) ?? [])
+		: [];
+
+	const handleRegionChange = (region: string) => {
+		const newValue = region
+			? `${selectedProviderId}/${selectedModelId}:${region}`
+			: `${selectedProviderId}/${selectedModelId}`;
+		handleSelectModel(newValue);
+	};
+
 	const handleExtraPanelModelChange = useCallback(
 		(index: number, model: string) => {
 			setExtraPanelModels((prev) => {
@@ -1914,6 +1936,9 @@ export default function ChatPageClient({
 											setImageQuality={setImageQuality}
 											imageCount={imageCount}
 											setImageCount={setImageCount}
+											availableRegions={availableRegions}
+											selectedRegion={selectedRegion}
+											onRegionChange={handleRegionChange}
 											onUserMessage={handleUserMessage}
 											isLoading={isLoading || isChatLoading}
 											error={error}
@@ -1971,6 +1996,9 @@ export default function ChatPageClient({
 										supportsWebSearch={supportsWebSearch}
 										webSearchEnabled={webSearchEnabled}
 										setWebSearchEnabled={setWebSearchEnabled}
+										availableRegions={availableRegions}
+										selectedRegion={selectedRegion}
+										onRegionChange={handleRegionChange}
 										onUserMessage={handleUserMessage}
 										onEditUserMessage={handleEditUserMessage}
 										isLoading={isLoading || isChatLoading}
@@ -2178,9 +2206,9 @@ function ExtraChatPanel({
 	const [selectedModel, setSelectedModel] = useState(initialModel);
 	const handleModelChange = useCallback(
 		(model: string) => {
-			const modelId = model.includes("/")
-				? (model.split("/")[1] ?? model)
-				: model;
+			const modelId = (
+				model.includes("/") ? (model.split("/")[1] ?? model) : model
+			).split(":")[0];
 			const def = models.find((m) => m.id === modelId);
 			if (def?.output?.includes("video")) {
 				onVideoModelSelected?.(modelId);
@@ -2430,6 +2458,26 @@ function ExtraChatPanel({
 		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
+
+	const {
+		providerId: panelProviderId,
+		modelId: panelModelId,
+		region: panelSelectedRegion,
+	} = parseModelSelectorValue(selectedModel);
+
+	const panelAvailableRegions = panelProviderId
+		? (models
+				.find((m) => m.id === panelModelId)
+				?.mappings.filter((m) => m.providerId === panelProviderId && m.region)
+				.map((m) => m.region as string) ?? [])
+		: [];
+
+	const handlePanelRegionChange = (region: string) => {
+		const newValue = region
+			? `${panelProviderId}/${panelModelId}:${region}`
+			: `${panelProviderId}/${panelModelId}`;
+		handleModelChange(newValue);
+	};
 
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
@@ -2737,7 +2785,7 @@ function ExtraChatPanel({
 				<span className="text-xs font-medium text-muted-foreground">
 					Model {panelIndex}
 				</span>
-				<div className="w-full max-w-xs">
+				<div className="w-full min-w-0 max-w-xs">
 					<ModelSelector
 						models={models}
 						providers={providers}
@@ -2777,6 +2825,9 @@ function ExtraChatPanel({
 					supportsWebSearch={supportsWebSearch}
 					webSearchEnabled={webSearchEnabled}
 					setWebSearchEnabled={setWebSearchEnabled}
+					availableRegions={panelAvailableRegions}
+					selectedRegion={panelSelectedRegion}
+					onRegionChange={handlePanelRegionChange}
 					onUserMessage={handlePanelUserMessage}
 					forkChat={
 						comparisonChatId && status === "ready"

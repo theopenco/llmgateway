@@ -71,6 +71,12 @@ interface ModelSelectorProps {
 	mode?: "chat" | "video" | "image" | "audio";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
+	/**
+	 * When true, regional provider mappings are listed as separate selectable
+	 * entries (each labeled with its region) instead of being collapsed into a
+	 * single base entry with a region dropdown. Used by group chat.
+	 */
+	showRegionalVariants?: boolean;
 }
 
 interface FilterState {
@@ -800,6 +806,7 @@ export function ModelSelector({
 	mode = "chat",
 	isOptionDisabled,
 	getOptionDisabledReason,
+	showRegionalVariants = false,
 }: ModelSelectorProps) {
 	const { isFavorite, toggleFavorite } = useFavoriteModels();
 	const isMobile = useIsMobile();
@@ -948,6 +955,16 @@ export function ModelSelector({
 				continue;
 			}
 
+			// Hide fully deactivated models: if every provider mapping is
+			// deactivated there's nothing left to route to, so skip the model
+			// (including its root "auto-select" entry) entirely.
+			const hasActiveMapping = m.mappings.some(
+				(mp) => !(mp.deactivatedAt && new Date(mp.deactivatedAt) <= now),
+			);
+			if (!hasActiveMapping) {
+				continue;
+			}
+
 			// Add root model entry (auto-routing)
 			const aliasText = m.aliases?.join(" ") ?? "";
 			const rootSearchText = normalize(
@@ -960,6 +977,9 @@ export function ModelSelector({
 			});
 
 			for (const mp of m.mappings) {
+				if (mp.region && !showRegionalVariants) {
+					continue;
+				}
 				const isDeactivated =
 					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
 				if (!isDeactivated) {
@@ -984,7 +1004,7 @@ export function ModelSelector({
 			}
 		}
 		return out;
-	}, [models, providers]);
+	}, [models, providers, showRegionalVariants]);
 
 	// Defer search input value to keep typing responsive with large lists
 	const deferredSearch = React.useDeferredValue(searchQuery);
@@ -2268,6 +2288,36 @@ export function ModelSelector({
 														</div>
 													) : null;
 												})()}
+												{(() => {
+													if (!previewEntry.mapping) {
+														return null;
+													}
+													const regions = previewEntry.model.mappings
+														.filter(
+															(m) =>
+																m.providerId ===
+																	previewEntry.mapping!.providerId && m.region,
+														)
+														.map((m) => m.region as string);
+													return regions.length > 0 ? (
+														<div className="space-y-1">
+															<h5 className="font-medium text-xs">
+																Available Regions
+															</h5>
+															<div className="flex flex-wrap gap-1">
+																{regions.map((r) => (
+																	<Badge
+																		key={r}
+																		variant="secondary"
+																		className="text-[10px] px-1.5 py-0.5"
+																	>
+																		{r}
+																	</Badge>
+																))}
+															</div>
+														</div>
+													) : null;
+												})()}
 											</>
 										)}
 									</>
@@ -2785,6 +2835,36 @@ export function ModelSelector({
 																</Badge>
 															);
 														})}
+													</div>
+												</div>
+											) : null;
+										})()}
+										{(() => {
+											if (!selectedDetails.mapping) {
+												return null;
+											}
+											const regions = selectedDetails.model.mappings
+												.filter(
+													(m) =>
+														m.providerId ===
+															selectedDetails.mapping!.providerId && m.region,
+												)
+												.map((m) => m.region as string);
+											return regions.length > 0 ? (
+												<div className="space-y-2">
+													<h5 className="font-medium text-sm">
+														Available Regions
+													</h5>
+													<div className="flex flex-wrap gap-1.5">
+														{regions.map((r) => (
+															<Badge
+																key={r}
+																variant="secondary"
+																className="text-xs px-2 py-1"
+															>
+																{r}
+															</Badge>
+														))}
 													</div>
 												</div>
 											) : null;
