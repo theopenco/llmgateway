@@ -1296,6 +1296,21 @@ export const AtlasCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+// Sakana AI Icon (official fish mark)
+export const SakanaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 1289 1289"
+		fill="none"
+	>
+		<path
+			d="M297.626 992.152C305.129 1005.15 321.9 1009.64 334.895 1002.14C430.589 946.89 495.005 859.293 523.333 761.027C584.195 787.321 638.7 829.888 678.894 888.593L481.599 1002.5C468.603 1010 464.109 1026.78 471.612 1039.77C479.115 1052.77 495.887 1057.26 508.882 1049.76L730.987 921.525C879.844 835.582 987.009 696.525 1031.45 530.675L1058.91 428.182C1060.91 420.729 1059.86 413.457 1056.45 407.55C1053.04 401.643 1047.27 397.1 1039.81 395.103L937.321 367.64C771.47 323.201 597.461 346.48 448.603 432.423L226.499 560.655C213.503 568.158 209.009 584.929 216.512 597.925C224.015 610.92 240.787 615.414 253.782 607.911L451.077 494.003C481.138 556.983 491.431 626.65 483.772 692.505C384.507 667.905 276.438 679.892 180.744 735.141C167.749 742.644 163.255 759.415 170.758 772.411C178.261 785.406 195.032 789.9 208.028 782.397C291.907 733.969 386.616 723.395 473.518 745.682C449.368 832.084 392.856 908.817 308.976 957.245C294.616 962.385 290.123 979.157 297.626 992.152ZM999.061 439.109L978.589 515.512C940.141 659.001 851.513 781.055 725.468 860.128C677.771 788.427 609.856 736.276 534.768 707.169C547.104 627.587 535.897 542.695 497.651 465.538C628.654 397.78 779.169 380.189 922.658 418.637L999.061 439.109Z"
+			fill="#E10600"
+		/>
+	</svg>
+);
+
 export const ProviderIcons = {
 	atlascloud: AtlasCloudIcon,
 	anthropic: AnthropicIcon,
@@ -1331,6 +1346,7 @@ export const ProviderIcons = {
 	embercloud: EmberCloudIcon,
 	deepinfra: DeepInfraIcon,
 	reve: ReveIcon,
+	sakana: SakanaIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1373,6 +1389,7 @@ export const providerLogoUrls: Partial<
 	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
+	sakana: ProviderIcons.sakana,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
