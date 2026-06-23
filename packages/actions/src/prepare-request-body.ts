@@ -2896,7 +2896,18 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = genericReasoningEffort;
+					if (usedProvider === "sakana") {
+						// Sakana Fugu only accepts "high", "xhigh", and "max" and
+						// rejects the lower OpenAI tiers (minimal/low/medium). Pass the
+						// higher tiers through unchanged and collapse everything below
+						// onto Fugu's minimum ("high").
+						requestBody.reasoning_effort =
+							reasoning_effort === "xhigh" || reasoning_effort === "max"
+								? reasoning_effort
+								: "high";
+					} else {
+						requestBody.reasoning_effort = genericReasoningEffort;
+					}
 				}
 			}
 			if (usedProvider === "minimax" && supportsReasoning) {

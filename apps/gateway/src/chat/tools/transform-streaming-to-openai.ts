@@ -1348,6 +1348,7 @@ export function transformStreamingToOpenai(
 		case "minimax":
 		case "embercloud":
 		case "xiaomi":
+		case "sakana":
 		case "azure-ai-foundry":
 		case "vertex-openai":
 		case "llmgateway": {

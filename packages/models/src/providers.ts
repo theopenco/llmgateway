@@ -1237,6 +1237,27 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "sakana",
+		name: "Sakana AI",
+		description:
+			"Sakana AI's Fugu multi-agent orchestration models, served through a single OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_SAKANA_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#FF5A5F",
+		website: "https://sakana.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://sakana.ai/terms",
+		privacyPolicyUrl: "https://sakana.ai/privacy",
+		headquarters: "JP",
+		dataPolicy: null,
+	},
+	{
 		id: "xiaomi",
 		name: "Xiaomi",
 		description:

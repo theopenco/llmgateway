@@ -284,6 +284,9 @@ export function getProviderEndpoint(
 			case "minimax":
 				url = "https://api.minimax.io";
 				break;
+			case "sakana":
+				url = "https://api.sakana.ai";
+				break;
 			case "reve":
 				url = "https://api.reve.com";
 				break;
@@ -627,6 +630,7 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
+		case "sakana":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
