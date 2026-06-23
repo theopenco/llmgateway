@@ -1,7 +1,7 @@
 "use client";
 
 import { Cpu, Layers, Server } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
@@ -112,20 +112,28 @@ export function CostByModelChart({
 	const [activeView, setActiveView] = useState<ActiveView>("cost");
 	const [modelView, setModelView] = useState<GlobalStatsModelView>("mapping");
 	const useDateRange = Boolean(from && to && fetchDataRange);
+	const requestIdRef = useRef(0);
 
 	const loadData = useCallback(async () => {
+		const requestId = ++requestIdRef.current;
 		setLoading(true);
 		try {
 			const result =
 				useDateRange && fetchDataRange
 					? await fetchDataRange(from!, to!, modelView)
 					: await fetchData(window, modelView);
-			setData(result);
+			if (requestId === requestIdRef.current) {
+				setData(result);
+			}
 		} catch (error) {
 			console.error("Failed to load cost by model:", error);
-			setData(null);
+			if (requestId === requestIdRef.current) {
+				setData(null);
+			}
 		} finally {
-			setLoading(false);
+			if (requestId === requestIdRef.current) {
+				setLoading(false);
+			}
 		}
 	}, [fetchData, fetchDataRange, window, modelView, from, to, useDateRange]);
 

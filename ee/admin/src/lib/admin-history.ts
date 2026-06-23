@@ -158,7 +158,24 @@ export async function getGlobalCostByModelRange(
 	const { data } = await $api.GET("/admin/global-stats", {
 		params: { query: { from, to, modelView, groupBy: "model" } },
 	});
-	return mapGlobalStatsToCostByModel(data, "30d");
+	const fromDate = new Date(from);
+	const toDate = new Date(to);
+	const daysDiff = Math.ceil(
+		(toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24),
+	);
+	let window: TokenWindow;
+	if (daysDiff <= 1) {
+		window = "1d";
+	} else if (daysDiff <= 7) {
+		window = "7d";
+	} else if (daysDiff <= 30) {
+		window = "30d";
+	} else if (daysDiff <= 90) {
+		window = "90d";
+	} else {
+		window = "365d";
+	}
+	return mapGlobalStatsToCostByModel(data, window);
 }
 
 export async function getOrgCostByModel(orgId: string, window: TokenWindow) {
