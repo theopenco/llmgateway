@@ -1720,7 +1720,11 @@ export const ChatUI = ({
 										onRegionChange?.(val === "__default__" ? "" : val)
 									}
 								>
-									<SelectTrigger size="sm" className="min-w-0 sm:min-w-[120px]">
+									<SelectTrigger
+										size="sm"
+										className="min-w-0 sm:min-w-[120px]"
+										aria-label="Region"
+									>
 										<MapPin size={16} className="shrink-0" />
 										<span className="hidden sm:contents">
 											<SelectValue placeholder="Default" />
@@ -1748,7 +1752,11 @@ export const ChatUI = ({
 										)
 									}
 								>
-									<SelectTrigger size="sm" className="min-w-0 sm:min-w-[120px]">
+									<SelectTrigger
+										size="sm"
+										className="min-w-0 sm:min-w-[120px]"
+										aria-label="Reasoning effort"
+									>
 										<Brain size={16} className="shrink-0" />
 										<span className="hidden sm:contents">
 											<SelectValue placeholder="Reasoning" />
