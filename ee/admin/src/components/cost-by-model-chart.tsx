@@ -1,5 +1,6 @@
 "use client";
 
+import { Cpu, Layers, Server } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
@@ -19,7 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
-import type { TokenWindow } from "@/lib/types";
+import type { GlobalStatsModelView, TokenWindow } from "@/lib/types";
 
 export interface CostByModelEntry {
 	model: string;
@@ -49,7 +50,7 @@ const viewConfigs: Record<ActiveView, ChartConfig> = {
 	},
 };
 
-const windowOptions: { value: TokenWindow; label: string }[] = [
+const defaultWindowOptions: { value: TokenWindow; label: string }[] = [
 	{ value: "1h", label: "1h" },
 	{ value: "4h", label: "4h" },
 	{ value: "12h", label: "12h" },
@@ -58,6 +59,16 @@ const windowOptions: { value: TokenWindow; label: string }[] = [
 	{ value: "30d", label: "30d" },
 	{ value: "90d", label: "90d" },
 	{ value: "365d", label: "365d" },
+];
+
+const modelViewOptions: {
+	value: GlobalStatsModelView;
+	label: string;
+	icon: typeof Cpu;
+}[] = [
+	{ value: "mapping", label: "Mappings", icon: Layers },
+	{ value: "canonical", label: "Canonical", icon: Cpu },
+	{ value: "provider", label: "Providers", icon: Server },
 ];
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -72,17 +83,25 @@ export function CostByModelChart({
 	fetchData,
 	fetchDataRange,
 	externalWindow,
+	windowOptions = defaultWindowOptions,
+	showModelView = false,
 	from,
 	to,
 }: {
 	title: string;
 	description?: string;
-	fetchData: (window: TokenWindow) => Promise<CostByModelData | null>;
+	fetchData: (
+		window: TokenWindow,
+		modelView: GlobalStatsModelView,
+	) => Promise<CostByModelData | null>;
 	fetchDataRange?: (
 		from: string,
 		to: string,
+		modelView: GlobalStatsModelView,
 	) => Promise<CostByModelData | null>;
 	externalWindow?: TokenWindow;
+	windowOptions?: { value: TokenWindow; label: string }[];
+	showModelView?: boolean;
 	from?: string;
 	to?: string;
 }) {
@@ -91,6 +110,7 @@ export function CostByModelChart({
 	const [internalWindow, setInternalWindow] = useState<TokenWindow>("7d");
 	const window = externalWindow ?? internalWindow;
 	const [activeView, setActiveView] = useState<ActiveView>("cost");
+	const [modelView, setModelView] = useState<GlobalStatsModelView>("mapping");
 	const useDateRange = Boolean(from && to && fetchDataRange);
 
 	const loadData = useCallback(async () => {
@@ -98,8 +118,8 @@ export function CostByModelChart({
 		try {
 			const result =
 				useDateRange && fetchDataRange
-					? await fetchDataRange(from!, to!)
-					: await fetchData(window);
+					? await fetchDataRange(from!, to!, modelView)
+					: await fetchData(window, modelView);
 			setData(result);
 		} catch (error) {
 			console.error("Failed to load cost by model:", error);
@@ -107,7 +127,7 @@ export function CostByModelChart({
 		} finally {
 			setLoading(false);
 		}
-	}, [fetchData, fetchDataRange, window, from, to, useDateRange]);
+	}, [fetchData, fetchDataRange, window, modelView, from, to, useDateRange]);
 
 	useEffect(() => {
 		void loadData();
@@ -162,21 +182,42 @@ export function CostByModelChart({
 						</div>
 					)}
 				</div>
-				<div className="flex items-center gap-1 border-b pb-2">
-					{viewTabs.map((tab) => (
-						<button
-							key={tab.key}
-							className={cn(
-								"rounded-md px-3 py-1 text-xs font-medium transition-colors",
-								activeView === tab.key
-									? "bg-primary text-primary-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-							onClick={() => setActiveView(tab.key)}
-						>
-							{tab.label}
-						</button>
-					))}
+				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+					<div className="flex items-center gap-1">
+						{viewTabs.map((tab) => (
+							<button
+								key={tab.key}
+								className={cn(
+									"rounded-md px-3 py-1 text-xs font-medium transition-colors",
+									activeView === tab.key
+										? "bg-primary text-primary-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								onClick={() => setActiveView(tab.key)}
+							>
+								{tab.label}
+							</button>
+						))}
+					</div>
+					{showModelView && (
+						<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
+							{modelViewOptions.map((opt) => {
+								const Icon = opt.icon;
+								return (
+									<Button
+										key={opt.value}
+										variant={modelView === opt.value ? "default" : "ghost"}
+										size="sm"
+										className="h-7 gap-1.5 px-3 text-xs"
+										onClick={() => setModelView(opt.value)}
+									>
+										<Icon className="h-3.5 w-3.5" />
+										{opt.label}
+									</Button>
+								);
+							})}
+						</div>
+					)}
 				</div>
 			</CardHeader>
 			<CardContent className="px-2 pb-4 sm:px-6">

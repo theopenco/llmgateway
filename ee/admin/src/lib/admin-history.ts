@@ -2,7 +2,7 @@
 
 import { createServerApiClient } from "./server-api";
 
-import type { ModelView, TokenWindow } from "./types";
+import type { GlobalStatsModelView, ModelView, TokenWindow } from "./types";
 import type { HistoryWindow } from "@/components/history-chart";
 
 export async function getProviderHistory(
@@ -102,20 +102,63 @@ export async function getMappingDetail(
 	return data ?? null;
 }
 
-export async function getGlobalCostByModel(window: TokenWindow) {
-	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/metrics/cost-by-model", {
-		params: { query: { window } },
-	});
-	return data ?? null;
+function mapGlobalStatsToCostByModel(
+	data:
+		| {
+				totals: { cost: number; requestCount: number };
+				breakdown: {
+					label: string;
+					cost: number;
+					requestCount: number;
+					totalTokens: number;
+				}[];
+		  }
+		| undefined,
+	window: TokenWindow,
+) {
+	if (!data) {
+		return null;
+	}
+	const models = data.breakdown
+		.map((entry) => ({
+			model: entry.label,
+			cost: entry.cost,
+			requestCount: entry.requestCount,
+			totalTokens: entry.totalTokens,
+		}))
+		.sort((a, b) => b.cost - a.cost)
+		.slice(0, 20);
+	return {
+		window,
+		models,
+		totalCost: data.totals.cost,
+		totalRequests: data.totals.requestCount,
+	};
 }
 
-export async function getGlobalCostByModelRange(from?: string, to?: string) {
+export async function getGlobalCostByModel(
+	window: TokenWindow,
+	modelView: GlobalStatsModelView = "mapping",
+) {
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/metrics/cost-by-model", {
-		params: { query: { from, to } },
+	const range: "7d" | "30d" | "90d" | "365d" =
+		window === "30d" || window === "90d" || window === "365d" ? window : "7d";
+	const { data } = await $api.GET("/admin/global-stats", {
+		params: { query: { range, modelView, groupBy: "model" } },
 	});
-	return data ?? null;
+	return mapGlobalStatsToCostByModel(data, window);
+}
+
+export async function getGlobalCostByModelRange(
+	from: string,
+	to: string,
+	modelView: GlobalStatsModelView = "mapping",
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/global-stats", {
+		params: { query: { from, to, modelView, groupBy: "model" } },
+	});
+	return mapGlobalStatsToCostByModel(data, "30d");
 }
 
 export async function getOrgCostByModel(orgId: string, window: TokenWindow) {

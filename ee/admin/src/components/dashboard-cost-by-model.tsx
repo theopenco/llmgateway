@@ -8,7 +8,14 @@ import {
 	getGlobalCostByModelRange,
 } from "@/lib/admin-history";
 
-import type { TokenWindow } from "@/lib/types";
+import type { GlobalStatsModelView, TokenWindow } from "@/lib/types";
+
+const windowOptions: { value: TokenWindow; label: string }[] = [
+	{ value: "7d", label: "7d" },
+	{ value: "30d", label: "30d" },
+	{ value: "90d", label: "90d" },
+	{ value: "365d", label: "365d" },
+];
 
 export function DashboardCostByModel({
 	from,
@@ -17,13 +24,20 @@ export function DashboardCostByModel({
 	from?: string;
 	to?: string;
 }) {
-	const fetchData = useCallback(async (window: TokenWindow) => {
-		return await getGlobalCostByModel(window);
-	}, []);
+	const fetchData = useCallback(
+		async (window: TokenWindow, modelView: GlobalStatsModelView) => {
+			return await getGlobalCostByModel(window, modelView);
+		},
+		[],
+	);
 
 	const fetchDataRange = useCallback(
-		async (rangeFrom: string, rangeTo: string) => {
-			return await getGlobalCostByModelRange(rangeFrom, rangeTo);
+		async (
+			rangeFrom: string,
+			rangeTo: string,
+			modelView: GlobalStatsModelView,
+		) => {
+			return await getGlobalCostByModelRange(rangeFrom, rangeTo, modelView);
 		},
 		[],
 	);
@@ -31,9 +45,11 @@ export function DashboardCostByModel({
 	return (
 		<CostByModelChart
 			title="Cost by Model"
-			description="Top 20 models by cost across all organizations"
+			description="Top 20 by cost across all organizations"
 			fetchData={fetchData}
 			fetchDataRange={fetchDataRange}
+			windowOptions={windowOptions}
+			showModelView
 			from={from}
 			to={to}
 		/>
