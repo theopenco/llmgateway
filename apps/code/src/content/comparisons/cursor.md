@@ -47,9 +47,6 @@ features:
   - label: No model lock-in / no token markup
     devpass: true
     competitor: "Curated set, bundled rates"
-  - label: "SoulForge token reduction (~50% fewer tokens)"
-    devpass: true
-    competitor: false
 faqs:
   - question: What is Cursor and how much does it cost?
     answer: "Cursor is an AI-native code editor — a VS Code fork with unlimited tab completion, the Composer agent, Bugbot code review and Cloud Agents built in. Individual plans are Pro at $20/mo (about $20 of model usage included), Pro Plus at $60/mo (~$70 included) and Ultra at $200/mo (~$400 included). Teams start at $40/user/mo. Beyond the included usage you continue at each model's API rate, pay-as-you-go."
@@ -58,7 +55,7 @@ faqs:
   - question: Can I use DevPass inside Cursor?
     answer: "Yes. DevPass exposes an OpenAI-compatible endpoint, so you can point Cursor's custom API key setting at it and run DevPass's 280+ models from inside the Cursor editor — while still getting per-request cost in real dollars and your flat-rate allowance. You keep Cursor's UX and swap in DevPass's catalog and pricing."
   - question: How does DevPass pricing compare to Cursor's?
-    answer: "Cursor bundles usage into the plan: Pro is roughly break-even ($20 of usage for $20), and Ultra gives about 2× ($400 for $200). DevPass gives roughly 3× across every plan — you pay $79 on Pro and get about $237 of model usage at the providers' own published rates, metered transparently. With SoulForge cutting token use by around half, that allowance stretches further still."
+    answer: "Cursor bundles usage into the plan: Pro is roughly break-even ($20 of usage for $20), and Ultra gives about 2× ($400 for $200). DevPass gives roughly 3× across every plan — you pay $79 on Pro and get about $237 of model usage at the providers' own published rates, metered transparently."
   - question: Does DevPass have tab completion or an agent like Cursor?
     answer: "DevPass doesn't ship its own editor, tab completion or Bugbot — that's Cursor's domain. Instead it lets you run any of 280+ models as the agent inside the tools you already use, including Claude Code, OpenCode and Cursor itself. If a bundled editor experience is what you want, Cursor wins; if model breadth, transparent pricing and no lock-in matter more, DevPass does."
 ---
@@ -96,7 +93,7 @@ DevPass gives roughly **3× on every plan**, metered at the providers' published
 - **Pro — $79/mo** → ~$237 of model usage
 - **Max — $179/mo** → ~$537 of model usage
 
-Every request shows its exact dollar cost in your dashboard, and **SoulForge** — graph-powered context that cuts roughly half the tokens — stretches that allowance even further.
+Every request shows its exact dollar cost in your dashboard, in real dollars, the moment it completes.
 
 ## Model catalog: 200+ vs a curated set
 

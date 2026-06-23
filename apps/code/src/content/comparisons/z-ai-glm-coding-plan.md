@@ -45,9 +45,6 @@ features:
   - label: "Works with Claude Code, Cursor, Cline, OpenCode"
     devpass: true
     competitor: true
-  - label: "SoulForge token-reduction agent (~50% fewer tokens)"
-    devpass: true
-    competitor: false
 faqs:
   - question: What is the z.ai GLM Coding Plan?
     answer: "It's a low-cost coding subscription from Zhipu AI (z.ai) that gives you access to the GLM family of models — GLM-5.1, GLM-5-Turbo, GLM-4.7 and others — for agentic coding tools. Plans are billed quarterly and range from roughly $10/month (Lite) to about $80/month (Max), with prompt-pool usage limits and MCP features like web search."
@@ -73,7 +70,7 @@ DevPass by LLM Gateway is a flat-rate plan that's single-vendor's opposite. It b
 
 GLM models are strong and cheap, and for plenty of tasks they're all you need. But a single-vendor plan has a hard edge: when a job calls for Claude's reasoning, GPT-5.5's breadth or Gemini's long context, a GLM-only plan can't help — you're back to a second subscription and a second key.
 
-DevPass removes that edge. **GLM is included**, so you don't lose the cheap open-weight option; you simply gain everything else next to it. And because DevPass pairs with **SoulForge** — the graph-powered agent that cuts roughly half your tokens — your allowance stretches further across all of those models, not just one vendor's.
+DevPass removes that edge. **GLM is included**, so you don't lose the cheap open-weight option; you simply gain everything else next to it — Claude, GPT-5.5, Gemini and the rest, one key away the moment a task outgrows GLM.
 
 ## Billing flexibility
 
@@ -83,4 +80,4 @@ z.ai's plan is **quarterly**. DevPass is **monthly**, with an optional annual pl
 
 **Choose the z.ai GLM Coding Plan if** GLM models cover your work, you want the lowest entry price, and a quarterly commitment is fine.
 
-**Choose DevPass if** you want GLM _and_ the frontier models under one key, monthly billing, a per-request cost breakdown, and SoulForge to cut your token spend.
+**Choose DevPass if** you want GLM _and_ the frontier models under one key, monthly billing, and a per-request cost breakdown.

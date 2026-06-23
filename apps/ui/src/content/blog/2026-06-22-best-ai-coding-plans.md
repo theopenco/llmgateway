@@ -30,7 +30,6 @@ The short version: most plans give you one company's models inside one company's
 - **Flat, predictable pricing** — $29, $79, or $179 a month. You know the number on day one; a runaway agent can't run up a surprise invoice
 - **~3× value at provider rates** — every $1 you pay turns into roughly $3 of model usage metered at each provider's published per-token rate, shown in your dashboard in real time
 - **Works with the tools you already have** — Claude Code, OpenCode, Cursor, Cline, Zed, and anything OpenAI- or Anthropic-compatible
-- **SoulForge boost** — pair DevPass with SoulForge, the graph-powered agent that treats your code as structure instead of strings, and you cut roughly half your tokens — stretching the same flat rate to ~6× effective value
 
 **Pricing:**
 
