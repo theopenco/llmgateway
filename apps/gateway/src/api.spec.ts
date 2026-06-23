@@ -72,6 +72,35 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions rejects text-to-speech models with a pointer to /v1/audio/speech", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// ElevenLabs models are speech-only (output: ["audio"]) and have no chat
+		// base URL, so routing them here used to fall through to a confusing
+		// "requires a baseUrl" 500. The guard should reject them with a clear 400.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "elevenlabs/eleven-multilingual-v2",
+				messages: [{ role: "user", content: "Hello there" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("/v1/audio/speech");
+	});
+
 	test("/v1/images/generations is blocked for dev-plan orgs via the chat-completions guard", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

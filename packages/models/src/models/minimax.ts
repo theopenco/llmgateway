@@ -33,6 +33,7 @@ export const minimaxModels = [
 		description:
 			"MiniMax M2.7 with stronger reasoning and coding performance for complex tasks.",
 		family: "minimax",
+		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -89,6 +90,7 @@ export const minimaxModels = [
 		description:
 			"Highspeed MiniMax M2.7 variant with the same model quality and lower latency.",
 		family: "minimax",
+		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -223,6 +225,7 @@ export const minimaxModels = [
 		description:
 			"Highspeed MiniMax M2.5 variant with the same model quality and lower latency.",
 		family: "minimax",
+		releasedAt: new Date("2026-02-15"),
 		providers: [
 			{
 				providerId: "minimax",

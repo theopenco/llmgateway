@@ -36,72 +36,81 @@ function getValidationModel(
 		: undefined;
 
 	const currentDate = new Date();
-	const providerModels = models
-		.flatMap((model) => {
-			const providerMapping = model.providers.find(
-				(p) => p.providerId === provider,
-			) as ProviderModelMapping | undefined;
-			if (!providerMapping) {
-				return [];
-			}
-
-			// If a region is selected, only consider models available in that region
-			if (selectedRegion && providerMapping.regions) {
-				if (!providerMapping.regions.some((r) => r.id === selectedRegion)) {
+	const collectModels = (restrictToRegion: boolean) =>
+		models
+			.flatMap((model) => {
+				const providerMapping = model.providers.find(
+					(p) => p.providerId === provider,
+				) as ProviderModelMapping | undefined;
+				if (!providerMapping) {
 					return [];
 				}
-			}
 
-			const providerStability =
-				"stability" in providerMapping
-					? (providerMapping.stability as string | undefined)
-					: undefined;
-			const modelStability =
-				"stability" in model
-					? (model.stability as string | undefined)
-					: undefined;
-			const effectiveStability = providerStability ?? modelStability;
-			const isStable =
-				effectiveStability !== "unstable" &&
-				effectiveStability !== "experimental";
+				// If a region is selected, only consider models available in that region
+				if (restrictToRegion && selectedRegion && providerMapping.regions) {
+					if (!providerMapping.regions.some((r) => r.id === selectedRegion)) {
+						return [];
+					}
+				}
 
-			const isDeprecated =
-				providerMapping.deprecatedAt &&
-				currentDate >= providerMapping.deprecatedAt;
-			const isDeactivated =
-				providerMapping.deactivatedAt &&
-				currentDate >= providerMapping.deactivatedAt;
+				const providerStability =
+					"stability" in providerMapping
+						? (providerMapping.stability as string | undefined)
+						: undefined;
+				const modelStability =
+					"stability" in model
+						? (model.stability as string | undefined)
+						: undefined;
+				const effectiveStability = providerStability ?? modelStability;
+				const isStable =
+					effectiveStability !== "unstable" &&
+					effectiveStability !== "experimental";
 
-			if (
-				!isStable ||
-				isDeprecated ||
-				isDeactivated ||
-				providerMapping.imageGenerations ||
-				providerMapping.videoGenerations ||
-				providerMapping.embeddings ||
-				providerMapping.speechGenerations
-			) {
-				return [];
-			}
+				const isDeprecated =
+					providerMapping.deprecatedAt &&
+					currentDate >= providerMapping.deprecatedAt;
+				const isDeactivated =
+					providerMapping.deactivatedAt &&
+					currentDate >= providerMapping.deactivatedAt;
 
-			const hasPricing =
-				providerMapping.inputPrice !== undefined &&
-				providerMapping.outputPrice !== undefined;
-			const inputPrice = Number(providerMapping.inputPrice ?? "0");
-			const outputPrice = Number(providerMapping.outputPrice ?? "0");
-			const averagePrice = hasPricing
-				? (inputPrice + outputPrice) / 2
-				: Number.MAX_VALUE;
+				if (
+					!isStable ||
+					isDeprecated ||
+					isDeactivated ||
+					providerMapping.imageGenerations ||
+					providerMapping.videoGenerations ||
+					providerMapping.embeddings ||
+					providerMapping.speechGenerations
+				) {
+					return [];
+				}
 
-			return [
-				{
-					modelId: model.id,
-					externalId: providerMapping.externalId,
-					price: averagePrice,
-				},
-			];
-		})
-		.sort((a, b) => a.price - b.price);
+				const hasPricing =
+					providerMapping.inputPrice !== undefined &&
+					providerMapping.outputPrice !== undefined;
+				const inputPrice = Number(providerMapping.inputPrice ?? "0");
+				const outputPrice = Number(providerMapping.outputPrice ?? "0");
+				const averagePrice = hasPricing
+					? (inputPrice + outputPrice) / 2
+					: Number.MAX_VALUE;
+
+				return [
+					{
+						modelId: model.id,
+						externalId: providerMapping.externalId,
+						price: averagePrice,
+					},
+				];
+			})
+			.sort((a, b) => a.price - b.price);
+
+	// Prefer a model available in the selected region. If none is declared for
+	// that region (e.g. a data-residency AWS region that no model lists), fall
+	// back to any model for the provider so validation can still proceed.
+	const regionModels = selectedRegion ? collectModels(true) : [];
+	const providerModels = regionModels.length
+		? regionModels
+		: collectModels(false);
 
 	const best = providerModels[0];
 	return best ? { modelId: best.modelId, externalId: best.externalId } : null;

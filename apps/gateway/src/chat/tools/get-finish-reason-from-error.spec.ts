@@ -186,6 +186,24 @@ describe("getFinishReasonFromError", () => {
 		);
 	});
 
+	it("returns gateway_error for Azure missing deployment errors", () => {
+		const azureDeploymentError = JSON.stringify({
+			type: "error",
+			error: {
+				type: "invalid_request_error",
+				code: null,
+				headers: { "x-ms-fe-error": "true" },
+				message:
+					"Could not find an existing deployment to match the model in the request. Please verify the model matches an existing deployment in the account.",
+				param: null,
+			},
+			sequence_number: 2,
+		});
+		expect(getFinishReasonFromError(400, azureDeploymentError)).toBe(
+			"gateway_error",
+		);
+	});
+
 	it("returns gateway_error for upstream 'Unknown model' messages", () => {
 		expect(
 			getFinishReasonFromError(

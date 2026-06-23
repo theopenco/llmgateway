@@ -2368,6 +2368,46 @@ export async function prepareRequestBody(
 				}
 			}
 
+			// Bedrock's Converse API rejects any request whose message history
+			// contains toolUse/toolResult blocks unless `toolConfig` is also
+			// defined ("The toolConfig field must be defined when using toolUse
+			// and toolResult content blocks."). OpenAI and Anthropic both accept
+			// tool blocks in history without re-declaring tools on the follow-up
+			// turn, so a request that omits `tools` but continues a tool-use
+			// conversation succeeds on those providers and only 400s on Bedrock.
+			// When that happens, synthesize a minimal toolConfig from the tool
+			// names already present in the assistant toolUse blocks so the
+			// history validates.
+			if (!requestBody.toolConfig) {
+				const historyToolNames = new Set<string>();
+				for (const bedrockMessage of bedrockMessages) {
+					if (!Array.isArray(bedrockMessage.content)) {
+						continue;
+					}
+					for (const block of bedrockMessage.content) {
+						if (block?.toolUse?.name) {
+							historyToolNames.add(block.toolUse.name);
+						}
+					}
+				}
+
+				if (historyToolNames.size > 0) {
+					requestBody.toolConfig = {
+						tools: Array.from(historyToolNames).map((name) => ({
+							toolSpec: {
+								name,
+								inputSchema: {
+									json: {
+										type: "object",
+										properties: {},
+									},
+								},
+							},
+						})),
+					};
+				}
+			}
+
 			// Add inferenceConfig for optional parameters
 			const inferenceConfig: any = {};
 			if (temperature !== undefined) {

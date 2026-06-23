@@ -41,6 +41,7 @@ const UnifiedFinishReason = {
 	LENGTH_LIMIT: "length_limit",
 	CONTENT_FILTER: "content_filter",
 	TOOL_CALLS: "tool_calls",
+	CLIENT_ERROR: "client_error",
 	GATEWAY_ERROR: "gateway_error",
 	UPSTREAM_ERROR: "upstream_error",
 	CANCELED: "canceled",
@@ -95,6 +96,7 @@ export function ProjectLogsSection({
 	const model = searchParams.get("model") ?? "all";
 	const source = searchParams.get("source") ?? "all";
 	const unifiedFinishReason = searchParams.get("unifiedFinishReason") ?? "all";
+	const hasError = searchParams.get("hasError") ?? "all";
 
 	const updateFilters = useCallback(
 		(updates: Record<string, string>) => {
@@ -133,8 +135,11 @@ export function ProjectLogsSection({
 		if (unifiedFinishReason !== "all") {
 			filters.unifiedFinishReason = unifiedFinishReason;
 		}
+		if (hasError === "true") {
+			filters.hasError = "true";
+		}
 		return Object.keys(filters).length > 0 ? filters : undefined;
-	}, [provider, model, source, unifiedFinishReason]);
+	}, [provider, model, source, unifiedFinishReason, hasError]);
 
 	const loadLogs = useCallback(
 		async (cursor?: string, options?: { background?: boolean }) => {
@@ -350,6 +355,19 @@ export function ProjectLogsSection({
 									.replace(/\b\w/g, (l) => l.toUpperCase())}
 							</SelectItem>
 						))}
+					</SelectContent>
+				</Select>
+
+				<Select
+					value={hasError}
+					onValueChange={(value) => updateFilters({ hasError: value })}
+				>
+					<SelectTrigger className="w-[160px]">
+						<SelectValue placeholder="Filter by error" />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="all">Default</SelectItem>
+						<SelectItem value="true">Has Error</SelectItem>
 					</SelectContent>
 				</Select>
 

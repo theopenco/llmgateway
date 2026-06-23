@@ -98,6 +98,7 @@ import {
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	selectProviderMapping,
 	RequestError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
@@ -1755,6 +1756,26 @@ chat.openapi(completions, async (c) => {
 		if (regionProviders.length === 0) {
 			throw new HTTPException(400, {
 				message: `Region '${requestedRegion}' is not available for model ${requestedModel}`,
+			});
+		}
+	}
+
+	// Text-to-speech and video models are served by dedicated endpoints
+	// (/v1/audio/speech and /v1/videos). Routing them through chat completions
+	// would fall through to a confusing "requires a baseUrl" error during
+	// endpoint resolution, so reject them early with a pointer to the right
+	// endpoint. Image-only models (e.g. reve, grok-image) are intentionally
+	// allowed here — they are served by the chat-completions image flow.
+	const modelOutput = modelInfo.output;
+	if (modelOutput && !modelOutput.includes("text")) {
+		if (modelOutput.includes("audio")) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} is a text-to-speech model and is not available on the chat completions endpoint. Use the /v1/audio/speech endpoint instead.`,
+			});
+		}
+		if (modelOutput.includes("video")) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} is a video generation model and is not available on the chat completions endpoint. Use the /v1/videos endpoint instead.`,
 			});
 		}
 	}
@@ -5008,9 +5029,16 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if the selected provider supports reasoning (from specific mapping, not any)
-	const selectedProviderMapping = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.region === usedRegion,
+	// Check if the selected provider supports reasoning (from specific mapping, not
+	// any). Resolves the exact (providerId, region) mapping when available and falls
+	// back to the region-agnostic mapping otherwise — unpinned routing leaves
+	// `modelInfo.providers` un-expanded (root mapping only, `region: undefined`)
+	// while `usedRegion` resolves to a concrete value (e.g. AWS Bedrock's `global`),
+	// so an exact-region lookup would silently drop reasoning support.
+	const selectedProviderMapping = selectProviderMapping(
+		modelInfo.providers,
+		usedProvider,
+		usedRegion,
 	);
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
 	let splitTaggedReasoning =
@@ -9269,7 +9297,7 @@ chat.openapi(completions, async (c) => {
 							phase: "upstream_read",
 						});
 
-						logger.error("Error reading upstream stream", toError(error), {
+						const upstreamReadErrorMeta = {
 							requestId,
 							usedProvider,
 							requestedProvider,
@@ -9294,12 +9322,30 @@ chat.openapi(completions, async (c) => {
 							firstTokenReceived,
 							firstReasoningTokenReceived,
 							unifiedFinishReason: getUnifiedFinishReason(
-								normalizedStreamingError.client.type === "gateway_error"
-									? "gateway_error"
-									: "upstream_error",
+								normalizedStreamingError.terminated
+									? "upstream_error"
+									: "gateway_error",
 								usedProvider,
 							),
-						});
+						};
+
+						// An upstream-side socket close (e.g. "terminated: other side
+						// closed") is an expected provider disconnect, not a gateway/server
+						// fault, so log it at warn severity to avoid raising server-error
+						// alerts. Genuine gateway-side streaming read faults stay at error.
+						if (normalizedStreamingError.terminated) {
+							logger.warn(
+								"Error reading upstream stream",
+								toError(error),
+								upstreamReadErrorMeta,
+							);
+						} else {
+							logger.error(
+								"Error reading upstream stream",
+								toError(error),
+								upstreamReadErrorMeta,
+							);
+						}
 
 						// Forward the error to the client with the buffered content that caused the error
 						try {
@@ -9326,6 +9372,12 @@ chat.openapi(completions, async (c) => {
 						}
 
 						streamingError = normalizedStreamingError.log;
+						// Classify the inference log so it isn't recorded as UNKNOWN: an
+						// upstream socket close is an upstream error, a genuine read fault
+						// is a gateway error.
+						finishReason = normalizedStreamingError.terminated
+							? "upstream_error"
+							: "gateway_error";
 					}
 				} finally {
 					// Clean up the reader to prevent file descriptor leaks
