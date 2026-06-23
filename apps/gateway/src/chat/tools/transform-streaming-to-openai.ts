@@ -735,6 +735,7 @@ export function transformStreamingToOpenai(
 		}
 
 		case "azure":
+		case "sakana":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -1348,7 +1349,6 @@ export function transformStreamingToOpenai(
 		case "minimax":
 		case "embercloud":
 		case "xiaomi":
-		case "sakana":
 		case "azure-ai-foundry":
 		case "vertex-openai":
 		case "llmgateway": {

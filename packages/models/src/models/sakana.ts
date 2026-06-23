@@ -15,10 +15,31 @@ export const sakanaModels = [
 				inputPrice: "5e-6",
 				outputPrice: "30e-6",
 				cachedInputPrice: "0.5e-6",
+				// Fugu Ultra switches to higher rates once the context exceeds 272K.
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "5e-6",
+						outputPrice: "30e-6",
+						cachedInputPrice: "0.5e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "10e-6",
+						outputPrice: "45e-6",
+						cachedInputPrice: "1e-6",
+					},
+				],
 				requestPrice: "0",
-				contextSize: 272000,
+				contextSize: 1000000,
 				streaming: true,
 				reasoning: true,
+				// Fugu reasoning summaries are only exposed via the OpenAI Responses
+				// API, so route through it. Summaries are adaptive (omitted for
+				// simpler prompts), hence reasoningOutput is "omit".
+				supportsResponsesApi: true,
 				reasoningOutput: "omit" as const,
 				vision: true,
 				tools: true,

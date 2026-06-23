@@ -90,6 +90,7 @@ jobs:
           LLM_ALIBABA_API_KEY__CN_BEIJING: ${{ secrets.LLM_ALIBABA_API_KEY__CN_BEIJING }}
           LLM_XIAOMI_API_KEY: ${{ secrets.LLM_XIAOMI_API_KEY }}
           LLM_DEEPINFRA_API_KEY: ${{ secrets.LLM_DEEPINFRA_API_KEY }}
+          LLM_SAKANA_API_KEY: ${{ secrets.LLM_SAKANA_API_KEY }}
 
       - name: Upload shard results
         if: always()
