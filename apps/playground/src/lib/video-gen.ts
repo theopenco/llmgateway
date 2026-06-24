@@ -133,7 +133,11 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 }
 
 function isSeedance2ReferenceModel(rootModelId: string): boolean {
-	return rootModelId === "seedance-2-0" || rootModelId === "seedance-2-0-fast";
+	return (
+		rootModelId === "seedance-2-0" ||
+		rootModelId === "seedance-2-0-fast" ||
+		rootModelId === "seedance-2-0-mini"
+	);
 }
 
 function isGrokImagineVideoModel(rootModelId: string): boolean {
@@ -248,7 +252,8 @@ function mappingSupportsVideoRequest(
 		if (mapping.providerId === "bytedance") {
 			return (
 				mapping.modelId === "seedance-2-0" ||
-				mapping.modelId === "seedance-2-0-fast"
+				mapping.modelId === "seedance-2-0-fast" ||
+				mapping.modelId === "seedance-2-0-mini"
 			);
 		}
 
@@ -268,7 +273,8 @@ function mappingSupportsVideoRequest(
 		if (mapping.providerId === "bytedance") {
 			return (
 				mapping.modelId === "seedance-2-0" ||
-				mapping.modelId === "seedance-2-0-fast"
+				mapping.modelId === "seedance-2-0-fast" ||
+				mapping.modelId === "seedance-2-0-mini"
 			);
 		}
 

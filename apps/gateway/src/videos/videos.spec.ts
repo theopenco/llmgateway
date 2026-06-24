@@ -1612,6 +1612,63 @@ describe("videos", () => {
 		});
 	});
 
+	test("/v1/videos bills bytedance Seedance 2.0 Mini by resolution", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		for (const [requestId, size] of [
+			["seedance-mini-480p", "848x480"],
+			["seedance-mini-720p", "1280x720"],
+		] as const) {
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "bytedance/seedance-2-0-mini",
+					prompt: `A compact product demo at ${size}`,
+					size,
+					seconds: 5,
+				}),
+			});
+
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(videoJob?.usedProvider).toBe("bytedance");
+			setMockVideoStatus(videoJob!.upstreamId, "completed");
+		}
+
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "bytedance/seedance-2-0-mini" } },
+		});
+		const videoOutputCosts = logs.map((log) => log.videoOutputCost ?? 0).sort();
+
+		expect(logs).toHaveLength(2);
+		expect(videoOutputCosts[0]).toBeCloseTo(0.3605, 6);
+		expect(videoOutputCosts[1]).toBeCloseTo(0.7735, 6);
+	});
+
 	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

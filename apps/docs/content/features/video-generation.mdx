@@ -225,10 +225,12 @@ Seedance (ByteDance):
 | `seedance-2-0`      | `bytedance` | 1080p      | `$0.3402 / second`  | `$0.3402 / second`  |
 | `seedance-2-0-fast` | `bytedance` | 720p       | `$0.121 / second`   | `$0.121 / second`   |
 | `seedance-2-0-fast` | `bytedance` | 1080p      | `$0.2722 / second`  | `$0.2722 / second`  |
-| `seedance-2-0-mini` | `bytedance` | 480p       | `$0.0756 / second`  | `$0.0756 / second`  |
-| `seedance-2-0-mini` | `bytedance` | 720p       | `$0.0756 / second`  | `$0.0756 / second`  |
+| `seedance-2-0-mini` | `bytedance` | 480p       | `$0.0721 / second`  | `$0.0721 / second`  |
+| `seedance-2-0-mini` | `bytedance` | 720p       | `$0.1547 / second`  | `$0.1547 / second`  |
 | `seedance-1-5-pro`  | `bytedance` | 720p       | `$0.05184 / second` | `$0.02592 / second` |
 | `seedance-1-5-pro`  | `bytedance` | 1080p      | `$0.1166 / second`  | `$0.05832 / second` |
+
+For `seedance-2-0-mini` reference-to-video requests, output is billed at the selected output resolution. If a reference video is provided, ByteDance also charges the video input at 0.6x the selected output-resolution rate: roughly `$0.0433 / second` for 480p input and `$0.0928 / second` for 720p input.
 
 KLING (AtlasCloud):
 

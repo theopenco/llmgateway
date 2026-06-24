@@ -218,8 +218,10 @@ describe("Seedance 2.0 reference capabilities", () => {
 	test("supportsVideoFrameInput is true for Seedance 2.0 bytedance", () => {
 		expect(supportsVideoFrameInput("seedance-2-0")).toBe(true);
 		expect(supportsVideoFrameInput("seedance-2-0-fast")).toBe(true);
+		expect(supportsVideoFrameInput("seedance-2-0-mini")).toBe(true);
 		expect(supportsVideoFrameInput("bytedance/seedance-2-0")).toBe(true);
 		expect(supportsVideoFrameInput("bytedance/seedance-2-0-fast")).toBe(true);
+		expect(supportsVideoFrameInput("bytedance/seedance-2-0-mini")).toBe(true);
 		expect(supportsVideoFrameInput("bytedance/seedance-1-5-pro")).toBe(false);
 		expect(supportsVideoFrameInput("google-vertex/seedance-2-0")).toBe(false);
 	});
@@ -227,7 +229,11 @@ describe("Seedance 2.0 reference capabilities", () => {
 	test("supportsVideoReferenceInput is true for Seedance 2.0", () => {
 		expect(supportsVideoReferenceInput("seedance-2-0")).toBe(true);
 		expect(supportsVideoReferenceInput("seedance-2-0-fast")).toBe(true);
+		expect(supportsVideoReferenceInput("seedance-2-0-mini")).toBe(true);
 		expect(supportsVideoReferenceInput("bytedance/seedance-2-0")).toBe(true);
+		expect(supportsVideoReferenceInput("bytedance/seedance-2-0-mini")).toBe(
+			true,
+		);
 		expect(supportsVideoReferenceInput("bytedance/seedance-1-5-pro")).toBe(
 			false,
 		);
@@ -237,6 +243,9 @@ describe("Seedance 2.0 reference capabilities", () => {
 		expect(supportsVideoReferenceVideoInput("seedance-2-0")).toBe(true);
 		expect(
 			supportsVideoReferenceVideoInput("bytedance/seedance-2-0-fast"),
+		).toBe(true);
+		expect(
+			supportsVideoReferenceVideoInput("bytedance/seedance-2-0-mini"),
 		).toBe(true);
 		expect(supportsVideoReferenceVideoInput("google-vertex/seedance-2-0")).toBe(
 			false,
@@ -250,6 +259,9 @@ describe("Seedance 2.0 reference capabilities", () => {
 		expect(supportsVideoReferenceAudioInput("seedance-2-0")).toBe(true);
 		expect(
 			supportsVideoReferenceAudioInput("bytedance/seedance-2-0-fast"),
+		).toBe(true);
+		expect(
+			supportsVideoReferenceAudioInput("bytedance/seedance-2-0-mini"),
 		).toBe(true);
 		expect(supportsVideoReferenceAudioInput("google-vertex/seedance-2-0")).toBe(
 			false,

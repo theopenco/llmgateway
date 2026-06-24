@@ -1902,6 +1902,31 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 	});
 });
 
+mockOpenAIServer.get("/contents/generations/tasks/:id", (c) => {
+	const id = c.req.param("id");
+	const job = videoJobs.get(id);
+	if (!job) {
+		c.status(404);
+		return c.json({
+			error: {
+				message: "Task not found",
+			},
+		});
+	}
+
+	return c.json({
+		id,
+		status: job.status === "completed" ? "succeeded" : job.status,
+		content:
+			job.status === "completed"
+				? {
+						video_url: `${currentMockServerUrl}/mock-assets/${id}`,
+					}
+				: undefined,
+		error: job.error,
+	});
+});
+
 mockOpenAIServer.post("/api/v1/model/uploadMedia", async (c) => {
 	const authHeader = c.req.header("Authorization");
 	if (!authHeader?.startsWith("Bearer ")) {
