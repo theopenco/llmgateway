@@ -60,6 +60,7 @@ import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
+	isLengthLimitFinishReason,
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
@@ -9538,12 +9539,20 @@ chat.openapi(completions, async (c) => {
 						finishReason,
 						usedProvider,
 					);
+					// A length-limit finish reason (e.g. a tiny `max_tokens`) can
+					// legitimately produce no content, so treat an empty response in
+					// that case as expected rather than an upstream error.
+					const isLengthLimitStreamingResponse = isLengthLimitFinishReason(
+						finishReason,
+						usedProvider,
+					);
 					const hasEmptyResponse =
 						!streamingError &&
 						!hasUpstreamErrorFinishReason &&
 						finishReason &&
 						finishReason !== "incomplete" &&
 						!isContentFilterStreamingResponse &&
+						!isLengthLimitStreamingResponse &&
 						(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 						(!fullContent || fullContent.trim() === "") &&
@@ -12119,10 +12128,18 @@ chat.openapi(completions, async (c) => {
 		finishReason,
 		usedProvider,
 	);
+	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
+	// produce no content at all, so an empty response in that case is expected
+	// behavior rather than an upstream error.
+	const isLengthLimitResponse = isLengthLimitFinishReason(
+		finishReason,
+		usedProvider,
+	);
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "incomplete" &&
 		!isContentFilterResponse &&
+		!isLengthLimitResponse &&
 		!hasMeaningfulAssistantOutput({
 			completionTokens: calculatedCompletionTokens,
 			reasoningTokens: calculatedReasoningTokens,

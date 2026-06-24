@@ -194,6 +194,23 @@ export function isContentFilterFinishReason(
 }
 
 /**
+ * Whether the finish reason indicates the model stopped because it reached the
+ * token limit (e.g. a small `max_tokens`). With a tiny limit (such as
+ * `max_tokens: 1`) providers like Google can legitimately return no content at
+ * all, so an empty response with this finish reason is expected behavior, not an
+ * upstream error.
+ */
+export function isLengthLimitFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	return (
+		getUnifiedFinishReason(finishReason, provider) ===
+		UnifiedFinishReason.LENGTH_LIMIT
+	);
+}
+
+/**
  * Map unified finish reason to an error type for metrics (if applicable)
  */
 function getErrorTypeFromUnifiedFinishReason(

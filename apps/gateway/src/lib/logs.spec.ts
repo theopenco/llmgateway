@@ -7,6 +7,7 @@ import {
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
 	isExpectedUnknownFinishReason,
+	isLengthLimitFinishReason,
 } from "./logs.js";
 
 describe("getUnifiedFinishReason", () => {
@@ -289,6 +290,29 @@ describe("isContentFilterFinishReason", () => {
 
 	it("returns true for OpenAI content filters", () => {
 		expect(isContentFilterFinishReason("content_filter", "openai")).toBe(true);
+	});
+});
+
+describe("isLengthLimitFinishReason", () => {
+	it("returns true for Google MAX_TOKENS (e.g. tiny max_tokens)", () => {
+		expect(isLengthLimitFinishReason("MAX_TOKENS", "google-ai-studio")).toBe(
+			true,
+		);
+		expect(isLengthLimitFinishReason("MAX_TOKENS", "google-vertex")).toBe(true);
+	});
+
+	it("returns true for OpenAI length finish reason", () => {
+		expect(isLengthLimitFinishReason("length", "openai")).toBe(true);
+	});
+
+	it("returns true for Anthropic max_tokens finish reason", () => {
+		expect(isLengthLimitFinishReason("max_tokens", "anthropic")).toBe(true);
+	});
+
+	it("returns false for normal stop finish reasons", () => {
+		expect(isLengthLimitFinishReason("STOP", "google-ai-studio")).toBe(false);
+		expect(isLengthLimitFinishReason("stop", "openai")).toBe(false);
+		expect(isLengthLimitFinishReason(null, "openai")).toBe(false);
 	});
 });
 
