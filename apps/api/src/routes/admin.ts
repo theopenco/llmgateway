@@ -7789,7 +7789,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 // via a fallback provider, so they should not count against a mapping's
 // stability — but callers can opt to include them via `includeRetried`.
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
-const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 10000;
+const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
 // Supported time windows for the rankings, mapping each selectable value to its
 // SQL interval bound and an hours count surfaced to the UI for the description.

@@ -26,13 +26,16 @@ export function parseUnstableWindow(value: string | undefined): UnstableWindow {
 }
 
 export const UNSTABLE_LOG_LIMIT_DEFAULT = 100;
-export const UNSTABLE_LOG_LIMIT_MAX = 10000;
+export const UNSTABLE_LOG_LIMIT_MAX = 1000000;
 
 export const UNSTABLE_LOG_LIMIT_OPTIONS: { value: string; label: string }[] = [
 	{ value: "100", label: "100" },
 	{ value: "500", label: "500" },
 	{ value: "1000", label: "1,000" },
 	{ value: "5000", label: "5,000" },
+	{ value: "10000", label: "10k" },
+	{ value: "100000", label: "100k" },
+	{ value: "1000000", label: "1m" },
 ];
 
 // Accepts any value in [1, MAX] so hand-crafted dashboard links work, snapping
