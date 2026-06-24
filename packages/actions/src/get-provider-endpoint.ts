@@ -356,6 +356,9 @@ export function getProviderEndpoint(
 			case "embercloud":
 				url = "https://api.embercloud.ai";
 				break;
+			case "runware":
+				url = "https://api.runware.ai";
+				break;
 			case "deepinfra":
 				url = "https://api.deepinfra.com/v1/openai";
 				break;
@@ -486,10 +489,10 @@ export function getProviderEndpoint(
 
 			const awsRegionPrefix = region
 				? (
-						providers.find((p) => p.id === "aws-bedrock") as
-							| ProviderDefinition
-							| undefined
-					)?.regionConfig?.modelPrefixMap?.[region]
+					providers.find((p) => p.id === "aws-bedrock") as
+					| ProviderDefinition
+					| undefined
+				)?.regionConfig?.modelPrefixMap?.[region]
 				: undefined;
 			// envValueOrDefault honors skipEnvVars (BYOK), so the server's
 			// LLM_AWS_BEDROCK_REGION can't silently affect provider-key routing.
@@ -650,6 +653,7 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
+		case "runware":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

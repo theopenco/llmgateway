@@ -1374,6 +1374,30 @@ export const providers: ProviderDefinition[] = [
 			gdpr: true,
 		},
 	},
+	{
+		id: "runware",
+		name: "Runware",
+		description:
+			"Runware serves a wide range of LLMs on its Sonic Inference Engine via an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_RUNWARE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_RUNWARE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#7C3AED",
+		website: "https://runware.ai",
+		statusPageUrl: "https://status.runware.ai",
+		announcement: null,
+		termsUrl: "https://runware.ai/terms",
+		privacyPolicyUrl: "https://runware.ai/privacy",
+		headquarters: "ES",
+		dataPolicy: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

@@ -39,19 +39,19 @@ function normalizeAnthropicUsage(usage: any): any {
 		...(outputTokens !== undefined && { completion_tokens: outputTokens }),
 		...(promptTokens !== null &&
 			outputTokens !== undefined && {
-				total_tokens: promptTokens + outputTokens,
-			}),
+			total_tokens: promptTokens + outputTokens,
+		}),
 		...(cacheRead !== null &&
 			cacheCreation !== null &&
 			(cacheRead > 0 || cacheCreation > 0) && {
-				prompt_tokens_details: {
-					cached_tokens: cacheRead,
-					...(cacheCreation > 0 && {
-						cache_write_tokens: cacheCreation,
-						cache_creation_tokens: cacheCreation,
-					}),
-				},
-			}),
+			prompt_tokens_details: {
+				cached_tokens: cacheRead,
+				...(cacheCreation > 0 && {
+					cache_write_tokens: cacheCreation,
+					cache_creation_tokens: cacheCreation,
+				}),
+			},
+		}),
 	};
 	return normalizedUsage;
 }
@@ -405,7 +405,7 @@ export function transformStreamingToOpenai(
 
 				const promptTokenCount =
 					typeof usageMetadata.promptTokenCount === "number" &&
-					usageMetadata.promptTokenCount > 0
+						usageMetadata.promptTokenCount > 0
 						? usageMetadata.promptTokenCount
 						: calculatePromptTokensFromMessages(messagesForFallback);
 
@@ -570,10 +570,10 @@ export function transformStreamingToOpenai(
 							// it represents the thought process that led to the tool call
 							provider_extra: sig
 								? {
-										google: {
-											thought_signature: sig,
-										},
-									}
+									google: {
+										thought_signature: sig,
+									},
+								}
 								: undefined,
 						});
 
@@ -662,38 +662,38 @@ export function transformStreamingToOpenai(
 
 				const finishChoices = candidates.length
 					? candidates.map((candidate, candidateIdx) => {
-							const candidateParts: any[] = candidate?.content?.parts ?? [];
-							const candidateHasFunctionCalls = candidateParts.some(
-								(part) => part.functionCall,
-							);
-							const finishReason = candidate.finishReason as string | undefined;
+						const candidateParts: any[] = candidate?.content?.parts ?? [];
+						const candidateHasFunctionCalls = candidateParts.some(
+							(part) => part.functionCall,
+						);
+						const finishReason = candidate.finishReason as string | undefined;
 
-							return {
-								index:
-									typeof candidate.index === "number"
-										? candidate.index
-										: candidateIdx,
-								delta: { role: "assistant" },
-								finish_reason: mapFinishReasonToOpenai(
-									finishReason,
-									usedProvider,
-									candidateHasFunctionCalls,
-									promptBlockReason,
-								),
-							};
-						})
+						return {
+							index:
+								typeof candidate.index === "number"
+									? candidate.index
+									: candidateIdx,
+							delta: { role: "assistant" },
+							finish_reason: mapFinishReasonToOpenai(
+								finishReason,
+								usedProvider,
+								candidateHasFunctionCalls,
+								promptBlockReason,
+							),
+						};
+					})
 					: [
-							{
-								index: 0,
-								delta: { role: "assistant" },
-								finish_reason: mapFinishReasonToOpenai(
-									firstCandidate?.finishReason,
-									usedProvider,
-									false,
-									promptBlockReason,
-								),
-							},
-						];
+						{
+							index: 0,
+							delta: { role: "assistant" },
+							finish_reason: mapFinishReasonToOpenai(
+								firstCandidate?.finishReason,
+								usedProvider,
+								false,
+								promptBlockReason,
+							),
+						},
+					];
 
 				transformedData = {
 					id: data.responseId ?? `chatcmpl-${Date.now()}`,
@@ -1300,18 +1300,18 @@ export function transformStreamingToOpenai(
 								}),
 								...(cacheWriteTokens > 0 &&
 									hasCacheCreationDetails && {
-										cache_creation: {
-											ephemeral_5m_input_tokens:
-												cacheDetails.cacheCreation5mTokens ??
-												Math.max(
-													0,
-													cacheWriteTokens -
-														(cacheDetails.cacheCreation1hTokens ?? 0),
-												),
-											ephemeral_1h_input_tokens:
-												cacheDetails.cacheCreation1hTokens ?? 0,
-										},
-									}),
+									cache_creation: {
+										ephemeral_5m_input_tokens:
+											cacheDetails.cacheCreation5mTokens ??
+											Math.max(
+												0,
+												cacheWriteTokens -
+												(cacheDetails.cacheCreation1hTokens ?? 0),
+											),
+										ephemeral_1h_input_tokens:
+											cacheDetails.cacheCreation1hTokens ?? 0,
+									},
+								}),
 							},
 						}),
 					},
@@ -1348,6 +1348,7 @@ export function transformStreamingToOpenai(
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "runware":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":

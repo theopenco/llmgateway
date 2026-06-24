@@ -102,6 +102,7 @@ export function getProviderHeaders(
 		case "zai":
 		case "canopywave":
 		case "embercloud":
+		case "runware":
 		case "deepinfra":
 		case "custom":
 		default:
