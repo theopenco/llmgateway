@@ -145,7 +145,7 @@ export async function getGlobalCostByModel(
 	const query =
 		from && to
 			? { from, to, modelView, groupBy: "model" as const }
-			: { range: "365d" as const, modelView, groupBy: "model" as const };
+			: { range: "all" as const, modelView, groupBy: "model" as const };
 	const { data } = await $api.GET("/admin/global-stats", { params: { query } });
 	return mapGlobalStatsToCostByModel(data, "30d");
 }
