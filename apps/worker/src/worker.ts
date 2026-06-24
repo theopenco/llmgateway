@@ -1237,7 +1237,7 @@ export async function batchProcessLogs(): Promise<number> {
 					premiumCost: Decimal,
 					preferred: PlanPool | null,
 					fallback: PlanPool | null,
-				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
+				): Promise<Decimal> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
 					for (const pool of [preferred, fallback]) {
@@ -1256,85 +1256,50 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return { remaining, remainingPremium };
+					return remaining;
 				};
 
-				const zeroDrain = {
-					remaining: new Decimal(0),
-					remainingPremium: new Decimal(0),
-				};
-
-				const chatDrain = buckets.chat.greaterThan(0)
+				const remainingFromChat = buckets.chat.greaterThan(0)
 					? await drainBucket(
 							buckets.chat,
 							buckets.chatPremium,
 							chatPool,
 							devPool,
 						)
-					: zeroDrain;
+					: new Decimal(0);
 
-				const otherDrain = buckets.other.greaterThan(0)
+				const remainingFromOther = buckets.other.greaterThan(0)
 					? await drainBucket(
 							buckets.other,
 							buckets.otherPremium,
 							devPool,
 							chatPool,
 						)
-					: zeroDrain;
+					: new Decimal(0);
 
-				const remainingCost = chatDrain.remaining.plus(otherDrain.remaining);
-				const remainingPremium = chatDrain.remainingPremium.plus(
-					otherDrain.remainingPremium,
-				);
+				const remainingCost = remainingFromChat.plus(remainingFromOther);
 
 				if (remainingCost.greaterThan(0)) {
-					if (devPool) {
-						// Active dev plan whose cycle allowance was exhausted by an
-						// in-flight burst that raced past the limit. Charge the overflow
-						// to the dev plan's virtual credits (pushing devPlanCreditsUsed
-						// past the limit) rather than the org's `credits`.
-						await deductFromPlanPool(
-							orgId,
-							devPool,
-							remainingCost,
-							Decimal.min(remainingPremium, remainingCost),
-						);
-
-						logger.debug(
-							`Charged ${remainingCost.toString()} overflow to dev plan virtual credits for organization ${orgId}`,
-						);
-					} else if (chatPool) {
-						// Same as above for an active chat plan: keep the overflow on the
-						// chat plan's virtual credits rather than the org's `credits`.
-						await deductFromPlanPool(
-							orgId,
-							chatPool,
-							remainingCost,
-							new Decimal(0),
-						);
-
-						logger.debug(
-							`Charged ${remainingCost.toString()} overflow to chat plan virtual credits for organization ${orgId}`,
-						);
-					} else if (
+					if (
 						org &&
 						org.kind !== "default" &&
 						new Decimal(org.credits ?? "0").lessThanOrEqualTo(0)
 					) {
-						// Cancelled-plan residual for a non-default org (devpass/chat)
-						// with no real credit balance: the in-flight usage was authorized
-						// by a plan whose virtual-credit pool has since been torn down, and
-						// there is nothing real to charge. Write it off rather than driving
-						// the credits field negative. Chat pay-as-you-go orgs that hold a
-						// positive balance fall through and are debited below.
+						// Non-default org (devpass/chat) with no real credit balance. Its
+						// plan pools have already absorbed everything they could above; any
+						// residual is in-flight usage that a now-exhausted or cancelled plan
+						// authorized, with nothing real to charge. Write it off rather than
+						// driving the credits field negative.
 						logger.debug(
 							`Wrote off ${remainingCost.toString()} for non-default organization ${orgId} with no credit balance`,
 						);
 					} else {
-						// Default orgs and chat pay-as-you-go orgs: deduct the real credits
-						// balance that authorized the request at the gateway. May go
-						// negative; the balance is reconciled when the org next tops up, so
-						// flooring here would lose usage that was genuinely incurred.
+						// Everything the plan pools did not cover is billed to real credits:
+						// default orgs, chat pay-as-you-go balances, and any plan overage the
+						// gateway admitted on the strength of a real balance. We do NOT push
+						// this back onto a plan's virtual counter — that would silently spend
+						// the real credits that authorized the request and reset at renewal.
+						// May go negative; reconciled on the next top-up.
 						const costStr = remainingCost.toString();
 						await tx
 							.update(organization)

@@ -728,11 +728,11 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBeCloseTo(0.05, 10);
 		});
 
-		test("should charge dev plan overflow to virtual credits, not real credits", async () => {
-			// Active dev plan whose cycle allowance is nearly exhausted, with no
-			// real credits. An in-flight request that exceeds the remaining dev
-			// plan allowance must spill onto the dev plan (over its limit), not
-			// drive real credits negative.
+		test("should drain dev plan up to its limit and write off the overage when there is no balance", async () => {
+			// Active dev plan whose cycle allowance is exhausted by an in-flight
+			// request, with no real credits. The plan absorbs up to its limit;
+			// the overage is written off — never charged to real credits, and not
+			// over-counted past the plan limit.
 			await db
 				.update(organization)
 				.set({
@@ -745,7 +745,7 @@ describe("Log Processing", () => {
 				.where(eq(organization.id, testOrg.id));
 
 			await db.insert(log).values({
-				requestId: "test-request-dev-overflow",
+				requestId: "test-request-dev-overage-nobalance",
 				organizationId: testOrg.id,
 				projectId: testProject.id,
 				apiKeyId: testApiKey.id,
@@ -767,10 +767,95 @@ describe("Log Processing", () => {
 				where: { id: { eq: testOrg.id } },
 			});
 
-			// Real credits untouched; the full cost lands on the dev plan even
-			// though it pushes usage past the limit.
 			expect(Number(updatedOrg!.credits)).toBe(0);
-			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(0.05, 10);
+			// Drained up to the limit only; the $0.03 overage is written off.
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(0.02, 10);
+		});
+
+		test("should debit real credits for dev plan overage when the org has a balance", async () => {
+			// Dev plan exhausted, but the org holds a real balance (e.g. referral
+			// earnings) that the gateway counted toward admission. The overage must
+			// come out of real credits, NOT push devPlanCreditsUsed past the limit
+			// (which would spend the balance silently and reset at renewal).
+			await db
+				.update(organization)
+				.set({
+					credits: "1.00",
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "0.02",
+					devPlanCreditsUsed: "0.00",
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-dev-overage-balance",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Plan drained to its limit; the $0.03 overage debited from credits.
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(0.02, 10);
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(0.97, 10);
+		});
+
+		test("should debit PAYG credits for chat plan overage", async () => {
+			// Active chat plan exhausted, with a positive pay-as-you-go balance.
+			// The overage the PAYG balance made billable must debit real credits,
+			// not push chatPlanCreditsUsed past the limit.
+			await db
+				.update(organization)
+				.set({
+					credits: "1.00",
+					kind: "chat",
+					chatPlan: "starter",
+					chatPlanCreditsLimit: "0.02",
+					chatPlanCreditsUsed: "0.00",
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-chat-overage-balance",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.chatPlanCreditsUsed)).toBeCloseTo(0.02, 10);
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(0.97, 10);
 		});
 	});
 });
