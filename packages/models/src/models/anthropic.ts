@@ -1241,6 +1241,10 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				// `temperature` and `top_p` are deprecated for Opus 4.8 on Bedrock
+				// and rejected with a 400, so they are omitted here to strip them
+				// from forwarded requests.
+				supportedParameters: ["max_tokens", "effort"],
 				regions: [
 					{ id: "global" },
 					{ id: "us" },
