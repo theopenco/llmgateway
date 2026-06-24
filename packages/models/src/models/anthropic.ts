@@ -1243,8 +1243,11 @@ export const anthropicModels = [
 				tools: true,
 				// `temperature` and `top_p` are deprecated for Opus 4.8 on Bedrock
 				// and rejected with a 400, so they are omitted here to strip them
-				// from forwarded requests.
-				supportedParameters: ["max_tokens", "effort"],
+				// from forwarded requests. `effort` is intentionally excluded: the
+				// Bedrock Converse builder only honors it alongside
+				// reasoning_effort/reasoning_max_tokens, so advertising it would
+				// silently ignore effort-only requests instead of returning a 400.
+				supportedParameters: ["max_tokens"],
 				regions: [
 					{ id: "global" },
 					{ id: "us" },
