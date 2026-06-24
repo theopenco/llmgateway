@@ -8,6 +8,10 @@ import {
 	getServiceTier,
 	providers,
 } from "./providers.js";
+import {
+	TOKEN_PRICE_FIELDS,
+	expandAllProviderRegions,
+} from "./region-helpers.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "./models.js";
 
@@ -251,6 +255,87 @@ describe("AWS Bedrock Anthropic regions", () => {
 			expect(getRegionIds(bedrockMapping)).toEqual(expectedRegions);
 		});
 	}
+
+	it("applies 10% price uplift to non-global AWS Bedrock regions", () => {
+		for (const modelId of expectedRegionsByModelId.keys()) {
+			const model = anthropicModels.find(
+				(candidate) => candidate.id === modelId,
+			);
+			const bedrockMapping = model?.providers.find(
+				(provider) => provider.providerId === "aws-bedrock",
+			);
+			const expandedMappings = expandAllProviderRegions(
+				bedrockMapping ? [bedrockMapping] : [],
+			);
+			const baseMapping = expandedMappings.find((provider) => !provider.region);
+
+			expect(baseMapping).toBeDefined();
+
+			for (const regionMapping of expandedMappings.filter(
+				(provider) => provider.region,
+			)) {
+				const multiplier = regionMapping.region === "global" ? 1 : 1.1;
+
+				for (const field of TOKEN_PRICE_FIELDS) {
+					const basePrice = baseMapping?.[field];
+
+					if (basePrice === undefined) {
+						continue;
+					}
+
+					expect(Number(regionMapping[field])).toBeCloseTo(
+						Number(basePrice) * multiplier,
+					);
+				}
+			}
+		}
+
+		const opus48 = anthropicModels.find(
+			(candidate) => candidate.id === "claude-opus-4-8",
+		);
+		const opus48Bedrock = opus48?.providers.find(
+			(provider) => provider.providerId === "aws-bedrock",
+		);
+		const expandedOpus48 = expandAllProviderRegions(
+			opus48Bedrock ? [opus48Bedrock] : [],
+		);
+
+		expect(
+			expandedOpus48.find((provider) => provider.region === "global"),
+		).toMatchObject({
+			inputPrice: "5.0e-6",
+			outputPrice: "25.0e-6",
+			cachedInputPrice: "0.5e-6",
+			cacheWriteInputPrice: "6.25e-6",
+			cacheWriteInputPrice1h: "10.0e-6",
+		});
+		expect(
+			expandedOpus48.find((provider) => provider.region === "us"),
+		).toMatchObject({
+			inputPrice: "5.5e-6",
+			outputPrice: "27.5e-6",
+			cachedInputPrice: "0.55e-6",
+			cacheWriteInputPrice: "6.875e-6",
+			cacheWriteInputPrice1h: "11e-6",
+		});
+
+		const opus46 = anthropicModels.find(
+			(candidate) => candidate.id === "claude-opus-4-6",
+		);
+		const opus46Bedrock = opus46?.providers.find(
+			(provider) => provider.providerId === "aws-bedrock",
+		);
+		const expandedOpus46 = expandAllProviderRegions(
+			opus46Bedrock ? [opus46Bedrock] : [],
+		);
+
+		expect(
+			expandedOpus46.find((provider) => provider.region === "eu-west-2"),
+		).toMatchObject({
+			inputPrice: "5.5e-6",
+			outputPrice: "27.5e-6",
+		});
+	});
 });
 
 describe("AtlasCloud video models", () => {

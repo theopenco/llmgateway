@@ -314,6 +314,104 @@ describe("calculateCosts", () => {
 		expect(result.cacheWriteTokens).toBe(1000);
 	});
 
+	it("applies AWS Bedrock 10% regional pricing but not global pricing", async () => {
+		const global = await calculateCosts(
+			"claude-opus-4-8",
+			"aws-bedrock",
+			"global",
+			1_000_000,
+			1_000_000,
+			null,
+		);
+
+		expect(global.inputCost).toBeCloseTo(5);
+		expect(global.outputCost).toBeCloseTo(25);
+
+		const geo = await calculateCosts(
+			"claude-opus-4-8",
+			"aws-bedrock",
+			"us",
+			1_000_000,
+			1_000_000,
+			null,
+		);
+
+		expect(geo.inputCost).toBeCloseTo(5.5);
+		expect(geo.outputCost).toBeCloseTo(27.5);
+
+		const crossRegion = await calculateCosts(
+			"claude-opus-4-6",
+			"aws-bedrock",
+			"eu-west-2",
+			1_000_000,
+			1_000_000,
+			null,
+		);
+
+		expect(crossRegion.inputCost).toBeCloseTo(5.5);
+		expect(crossRegion.outputCost).toBeCloseTo(27.5);
+
+		const geoCacheWrite5m = await calculateCosts(
+			"claude-opus-4-8",
+			"aws-bedrock",
+			"us",
+			1_000_000,
+			0,
+			0,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{
+				cacheWriteTokens: 1_000_000,
+			},
+		);
+
+		expect(geoCacheWrite5m.cacheWriteInputCost).toBeCloseTo(6.875);
+
+		const geoCacheWrite1h = await calculateCosts(
+			"claude-opus-4-8",
+			"aws-bedrock",
+			"us",
+			1_000_000,
+			0,
+			0,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{
+				cacheWriteTokens: 1_000_000,
+				cacheWrite1hTokens: 1_000_000,
+			},
+		);
+
+		expect(geoCacheWrite1h.cacheWriteInputCost).toBeCloseTo(11);
+
+		const geoCacheRead = await calculateCosts(
+			"claude-opus-4-8",
+			"aws-bedrock",
+			"us",
+			1_000_000,
+			0,
+			1_000_000,
+		);
+
+		expect(geoCacheRead.cachedInputCost).toBeCloseTo(0.55);
+	});
+
 	it("should calculate costs with cached tokens for Anthropic (subsequent request - cache read)", async () => {
 		// For Anthropic subsequent request: 4 non-cached + 1659 cache read = 1663 total tokens, 1659 cache reads
 		const result = await calculateCosts(
