@@ -2498,7 +2498,10 @@ export async function prepareRequestBody(
 			}
 
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+			if (
+				supportsReasoning &&
+				(effort || reasoning_effort || reasoning_max_tokens)
+			) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
@@ -2581,8 +2584,18 @@ export async function prepareRequestBody(
 						inferenceConfig.maxTokens = reasoningFloor;
 					}
 				}
-				// Anthropic requires temperature to be exactly 1 when thinking is enabled
-				inferenceConfig.temperature = 1;
+				// Anthropic requires temperature to be exactly 1 when thinking is
+				// enabled — but only for models that still accept temperature. Opus
+				// 4.8 deprecated temperature/top_p and returns a 400 for any value,
+				// so honor the mapping's supportedParameters and omit it there.
+				const bedrockSupportedParams =
+					providerMappingForOptions?.supportedParameters;
+				if (
+					!bedrockSupportedParams ||
+					bedrockSupportedParams.includes("temperature")
+				) {
+					inferenceConfig.temperature = 1;
+				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
 				}
