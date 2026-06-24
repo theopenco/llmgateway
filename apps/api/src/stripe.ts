@@ -3315,16 +3315,41 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// `dev_plan_upgrade` transaction (change-tier deliberately does not record
 		// one for upgrades, to avoid double-counting). We do NOT reset
 		// `devPlanCreditsUsed` or grant a fresh allotment.
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "dev_plan_upgrade",
-			amount: (invoice.amount_paid / 100).toString(),
-			currency: invoice.currency.toUpperCase(),
-			status: "completed",
-			stripePaymentIntentId: (invoice as any).payment_intent,
-			stripeInvoiceId: invoice.id,
-			description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
-		});
+		const [upgradeTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_upgrade",
+				amount: (invoice.amount_paid / 100).toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+			})
+			.returning();
+
+		try {
+			const billingDetails = await resolveDevPassBillingDetails(organization);
+			await generateAndEmailInvoice({
+				invoiceNumber: upgradeTransaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				...billingDetails,
+				lineItems: [
+					{
+						description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade (prorated)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (DevPass upgrade proration invoice); suppressing failure",
+				e as Error,
+			);
+		}
 
 		logger.info(
 			`Recorded dev plan upgrade proration invoice for organization ${organizationId}; credits left unchanged`,
