@@ -852,18 +852,21 @@ export const googleModels = [
 				externalId: "google:gemini@3.1-pro",
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
+				cachedInputPrice: "0.2e-6",
 				pricingTiers: [
 					{
 						name: "Up to 200K",
 						upToTokens: 200000,
 						inputPrice: "2e-6",
 						outputPrice: "12e-6",
+						cachedInputPrice: "0.2e-6",
 					},
 					{
 						name: "Over 200K",
 						upToTokens: Infinity,
 						inputPrice: "4e-6",
 						outputPrice: "18e-6",
+						cachedInputPrice: "0.4e-6",
 					},
 				],
 				requestPrice: "0",
