@@ -656,18 +656,65 @@ function transformContentForResponsesApi(content: any, role: string): any {
  * The Responses API uses a flat list of "items" rather than messages:
  * - Regular messages become items with role/content
  * - Assistant tool_calls become separate { type: "function_call" } items
- * - Tool result messages become { type: "function_call_output" } items
+ * - Tool result messages (role "tool" and the legacy role "function") become
+ *   { type: "function_call_output" } items
  * Content types are also transformed (text -> input_text/output_text, image_url -> input_image)
+ *
+ * Tool results are paired with their function call via `call_id`. The Chat
+ * Completions spec requires `tool_call_id` on `tool` messages, but real callers
+ * sometimes omit it (legacy `function` role results carry only `name`, and some
+ * clients drop the id when replaying history). We recover the id from the
+ * preceding unmatched function calls, but only when the pairing is unambiguous:
+ * by explicit id, by a unique matching function name, or when exactly one call
+ * is still unmatched. Ambiguous cases throw rather than risk attaching a result
+ * to the wrong call.
  */
 function transformMessagesForResponsesApi(messages: any[]): any[] {
 	const items: any[] = [];
 
+	// FIFO of function calls emitted from assistant tool_calls that have not yet
+	// been consumed by a function_call_output. Used to recover the call_id of a
+	// tool/function result message that omits tool_call_id.
+	const pendingCalls: { callId: string; name?: string }[] = [];
+
+	const resolveCallId = (msg: any): string | undefined => {
+		// Explicit tool_call_id wins, but only if it references a real pending
+		// call. An id that matches nothing is orphaned (OpenAI would reject the
+		// function_call_output), so surface a clean 400 rather than trust it.
+		if (msg.tool_call_id) {
+			const idx = pendingCalls.findIndex((c) => c.callId === msg.tool_call_id);
+			if (idx === -1) {
+				return undefined;
+			}
+			pendingCalls.splice(idx, 1);
+			return msg.tool_call_id;
+		}
+		// No explicit id: recover only when the pairing is unambiguous. Guessing
+		// (oldest-first) silently misattributes a tool output to the wrong call
+		// when parallel results arrive out of order, so prefer a clean 400.
+		// Legacy `function` role (and tool messages that carry a function name):
+		// pair only when exactly one pending call shares that name.
+		if (msg.name) {
+			const named = pendingCalls.filter((c) => c.name === msg.name);
+			if (named.length === 1) {
+				const idx = pendingCalls.findIndex((c) => c.name === msg.name);
+				return pendingCalls.splice(idx, 1)[0].callId;
+			}
+		}
+		// Otherwise recover only when exactly one call is still unmatched.
+		if (pendingCalls.length === 1) {
+			return pendingCalls.shift()?.callId;
+		}
+		return undefined;
+	};
+
 	for (const msg of messages) {
-		// Tool result messages become function_call_output items
-		if (msg.role === "tool") {
-			if (!msg.tool_call_id) {
+		// Tool/function result messages become function_call_output items
+		if (msg.role === "tool" || msg.role === "function") {
+			const callId = resolveCallId(msg);
+			if (!callId) {
 				throw new RequestError(
-					"tool message is missing tool_call_id, required for Responses API function_call_output",
+					"tool message could not be matched to a preceding tool call; the Responses API requires every function_call_output to reference a function_call (supply tool_call_id)",
 				);
 			}
 			const output =
@@ -678,7 +725,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 						: "";
 			items.push({
 				type: "function_call_output",
-				call_id: msg.tool_call_id,
+				call_id: callId,
 				output,
 			});
 			continue;
@@ -705,6 +752,10 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 					call_id: toolCall.id,
 					name: toolCall.function.name,
 					arguments: toolCall.function.arguments,
+				});
+				pendingCalls.push({
+					callId: toolCall.id,
+					name: toolCall.function?.name,
 				});
 			}
 			continue;

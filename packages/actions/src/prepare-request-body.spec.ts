@@ -2837,6 +2837,210 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				image_url: dataUrl,
 			});
 		});
+
+		const responsesArgs = (messages: any[]) =>
+			[
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				messages,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			] as const;
+
+		test("pairs tool result with preceding tool_call via explicit tool_call_id", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const output = requestBody.input.find(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(output).toEqual({
+				type: "function_call_output",
+				call_id: "call_abc",
+				output: JSON.stringify({ temperature: 17 }),
+			});
+		});
+
+		test("recovers call_id when a lone tool result omits tool_call_id", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const output = requestBody.input.find(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(output.call_id).toBe("call_abc");
+		});
+
+		test("matches legacy function-role results by unique name", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather and time in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_weather",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+							{
+								id: "call_time",
+								type: "function",
+								function: { name: "get_time", arguments: "{}" },
+							},
+						],
+					},
+					// Legacy `function` role: no tool_call_id, only name. Matched by
+					// unique name, so out-of-order results still resolve correctly.
+					{
+						role: "function",
+						name: "get_time",
+						content: JSON.stringify({ time: "20:52" }),
+					},
+					{
+						role: "function",
+						name: "get_weather",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const outputs = requestBody.input.filter(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(outputs).toEqual([
+				{
+					type: "function_call_output",
+					call_id: "call_time",
+					output: JSON.stringify({ time: "20:52" }),
+				},
+				{
+					type: "function_call_output",
+					call_id: "call_weather",
+					output: JSON.stringify({ temperature: 17 }),
+				},
+			]);
+		});
+
+		test("throws when explicit tool_call_id matches no preceding call", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather in Berlin?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_abc",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+						{
+							role: "tool",
+							tool_call_id: "call_does_not_exist",
+							content: JSON.stringify({ temperature: 17 }),
+						},
+					]),
+				),
+			).rejects.toBeInstanceOf(RequestError);
+		});
+
+		test("throws for ambiguous parallel results missing tool_call_id", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather and time?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+								{
+									id: "call_2",
+									type: "function",
+									function: { name: "get_time", arguments: "{}" },
+								},
+							],
+						},
+						// Two unmatched calls, no id, no name → ambiguous, must throw
+						// rather than guess which call this output belongs to.
+						{ role: "tool", content: JSON.stringify({ temperature: 17 }) },
+					]),
+				),
+			).rejects.toBeInstanceOf(RequestError);
+		});
 	});
 
 	describe("google-ai-studio", () => {
