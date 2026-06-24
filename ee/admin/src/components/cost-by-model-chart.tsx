@@ -50,17 +50,6 @@ const viewConfigs: Record<ActiveView, ChartConfig> = {
 	},
 };
 
-const defaultWindowOptions: { value: TokenWindow; label: string }[] = [
-	{ value: "1h", label: "1h" },
-	{ value: "4h", label: "4h" },
-	{ value: "12h", label: "12h" },
-	{ value: "1d", label: "24h" },
-	{ value: "7d", label: "7d" },
-	{ value: "30d", label: "30d" },
-	{ value: "90d", label: "90d" },
-	{ value: "365d", label: "365d" },
-];
-
 const modelViewOptions: {
 	value: GlobalStatsModelView;
 	label: string;
@@ -83,45 +72,53 @@ export function CostByModelChart({
 	fetchData,
 	fetchDataRange,
 	externalWindow,
-	windowOptions = defaultWindowOptions,
 	showModelView = false,
+	modelView: controlledModelView,
+	onModelViewChange,
+	forceRange = false,
 	from,
 	to,
 }: {
 	title: string;
 	description?: string;
-	fetchData: (
+	fetchData?: (
 		window: TokenWindow,
 		modelView: GlobalStatsModelView,
 	) => Promise<CostByModelData | null>;
 	fetchDataRange?: (
-		from: string,
-		to: string,
+		from: string | undefined,
+		to: string | undefined,
 		modelView: GlobalStatsModelView,
 	) => Promise<CostByModelData | null>;
 	externalWindow?: TokenWindow;
-	windowOptions?: { value: TokenWindow; label: string }[];
 	showModelView?: boolean;
+	modelView?: GlobalStatsModelView;
+	onModelViewChange?: (value: GlobalStatsModelView) => void;
+	forceRange?: boolean;
 	from?: string;
 	to?: string;
 }) {
 	const [data, setData] = useState<CostByModelData | null>(null);
 	const [loading, setLoading] = useState(true);
-	const [internalWindow, setInternalWindow] = useState<TokenWindow>("7d");
-	const window = externalWindow ?? internalWindow;
+	const window = externalWindow ?? "7d";
 	const [activeView, setActiveView] = useState<ActiveView>("cost");
-	const [modelView, setModelView] = useState<GlobalStatsModelView>("mapping");
-	const useDateRange = Boolean(from && to && fetchDataRange);
+	const [internalModelView, setInternalModelView] =
+		useState<GlobalStatsModelView>("mapping");
+	const modelView = controlledModelView ?? internalModelView;
+	const setModelView = onModelViewChange ?? setInternalModelView;
+	const useRange = forceRange || Boolean(from && to);
 	const requestIdRef = useRef(0);
 
 	const loadData = useCallback(async () => {
 		const requestId = ++requestIdRef.current;
 		setLoading(true);
 		try {
-			const result =
-				useDateRange && fetchDataRange
-					? await fetchDataRange(from!, to!, modelView)
-					: await fetchData(window, modelView);
+			let result: CostByModelData | null = null;
+			if (useRange && fetchDataRange) {
+				result = await fetchDataRange(from, to, modelView);
+			} else if (fetchData) {
+				result = await fetchData(window, modelView);
+			}
 			if (requestId === requestIdRef.current) {
 				setData(result);
 			}
@@ -135,7 +132,7 @@ export function CostByModelChart({
 				setLoading(false);
 			}
 		}
-	}, [fetchData, fetchDataRange, window, modelView, from, to, useDateRange]);
+	}, [fetchData, fetchDataRange, window, modelView, from, to, useRange]);
 
 	useEffect(() => {
 		void loadData();
@@ -174,21 +171,6 @@ export function CostByModelChart({
 							</div>
 						)}
 					</div>
-					{!externalWindow && !useDateRange && (
-						<div className="flex items-center gap-1">
-							{windowOptions.map((opt) => (
-								<Button
-									key={opt.value}
-									variant={window === opt.value ? "default" : "outline"}
-									size="sm"
-									className="h-7 px-2 text-xs"
-									onClick={() => setInternalWindow(opt.value)}
-								>
-									{opt.label}
-								</Button>
-							))}
-						</div>
-					)}
 				</div>
 				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
 					<div className="flex items-center gap-1">

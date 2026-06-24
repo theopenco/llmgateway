@@ -137,45 +137,17 @@ function mapGlobalStatsToCostByModel(
 }
 
 export async function getGlobalCostByModel(
-	window: TokenWindow,
+	from: string | undefined,
+	to: string | undefined,
 	modelView: GlobalStatsModelView = "mapping",
 ) {
 	const $api = await createServerApiClient();
-	const range: "7d" | "30d" | "90d" | "365d" =
-		window === "30d" || window === "90d" || window === "365d" ? window : "7d";
-	const { data } = await $api.GET("/admin/global-stats", {
-		params: { query: { range, modelView, groupBy: "model" } },
-	});
-	return mapGlobalStatsToCostByModel(data, window);
-}
-
-export async function getGlobalCostByModelRange(
-	from: string,
-	to: string,
-	modelView: GlobalStatsModelView = "mapping",
-) {
-	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/global-stats", {
-		params: { query: { from, to, modelView, groupBy: "model" } },
-	});
-	const fromDate = new Date(from);
-	const toDate = new Date(to);
-	const daysDiff = Math.ceil(
-		(toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24),
-	);
-	let window: TokenWindow;
-	if (daysDiff <= 1) {
-		window = "1d";
-	} else if (daysDiff <= 7) {
-		window = "7d";
-	} else if (daysDiff <= 30) {
-		window = "30d";
-	} else if (daysDiff <= 90) {
-		window = "90d";
-	} else {
-		window = "365d";
-	}
-	return mapGlobalStatsToCostByModel(data, window);
+	const query =
+		from && to
+			? { from, to, modelView, groupBy: "model" as const }
+			: { range: "365d" as const, modelView, groupBy: "model" as const };
+	const { data } = await $api.GET("/admin/global-stats", { params: { query } });
+	return mapGlobalStatsToCostByModel(data, "30d");
 }
 
 export async function getOrgCostByModel(orgId: string, window: TokenWindow) {
