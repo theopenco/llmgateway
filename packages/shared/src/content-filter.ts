@@ -10,6 +10,8 @@
  * - Alibaba / DashScope: `data_inspection_failed`, `Green net check failed`
  *   (Wan video green-net moderation)
  * - OpenAI safety system (e.g. Sora / gpt-image): `rejected by the safety system`
+ * - Z.AI / Zhipu (GLM, code 1301): `System detected potentially unsafe or
+ *   sensitive content in input or generation`
  */
 const CONTENT_FILTER_ERROR_SIGNALS = [
 	"ResponsibleAIPolicyViolation",
@@ -19,6 +21,7 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"Green net check failed",
 	"Microsoft's content management policy",
 	"Your request was rejected by the safety system",
+	"System detected potentially unsafe or sensitive content in input or generation",
 ];
 
 /**

@@ -84,13 +84,13 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(400, alibabaError)).toBe("content_filter");
 	});
 
-	it("returns client_error for zai content filter", () => {
+	it("returns content_filter for zai content filter", () => {
 		expect(
 			getFinishReasonFromError(
 				400,
 				"System detected potentially unsafe or sensitive content in input or generation",
 			),
-		).toBe("client_error");
+		).toBe("content_filter");
 	});
 
 	it("returns client_error for OpenAI JSON format validation error", () => {
