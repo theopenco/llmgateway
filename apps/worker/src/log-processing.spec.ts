@@ -728,6 +728,43 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBeCloseTo(0.05, 10);
 		});
 
+		test("should keep debiting chat PAYG once the balance crosses zero", async () => {
+			// A chat PAYG burst is admitted while the balance is positive, but
+			// billing spans batches. Once an earlier batch has driven credits to
+			// <= 0, later queued logs must still debit (go negative), not get
+			// written off as if it were a cancelled-plan residual.
+			await db
+				.update(organization)
+				.set({ credits: "0.00", kind: "chat", chatPlan: "none" })
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-chat-payg-negative",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Debited negative, not written off.
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(-0.05, 10);
+		});
+
 		test("should drain dev plan up to its limit and write off the overage when there is no balance", async () => {
 			// Active dev plan whose cycle allowance is exhausted by an in-flight
 			// request, with no real credits. The plan absorbs up to its limit;
