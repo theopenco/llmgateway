@@ -83,6 +83,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		},
 		{
+			url: `${baseUrl}/open-source`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/integrations`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",
@@ -251,6 +257,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/compare/vercel-ai-gateway`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
 			url: `${baseUrl}/use-cases`,
 			lastModified: buildDate,
 			changeFrequency: "weekly",
@@ -277,18 +289,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.5,
 		});
 
-		// Model + provider pages
-		const uniqueProviders = Array.from(
-			new Set(model.providers.map((p) => p.providerId)),
-		);
-		for (const providerId of uniqueProviders) {
-			modelPages.push({
-				url: `${baseUrl}/models/${encodeURIComponent(model.id)}/${encodeURIComponent(providerId)}`,
-				lastModified: buildDate,
-				changeFrequency: "weekly",
-				priority: 0.7,
-			});
-		}
+		// Model + provider sub-pages (/models/{id}/{provider}) are intentionally
+		// excluded from the sitemap: they canonicalize to the base model page
+		// (/models/{id}), so listing them here only inflates Search Console's
+		// "Alternate page with proper canonical tag" report without adding any
+		// indexable URLs. Google still discovers them via internal links.
 	}
 
 	// Provider pages

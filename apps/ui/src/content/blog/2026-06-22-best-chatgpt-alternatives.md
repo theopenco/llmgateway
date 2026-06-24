@@ -63,7 +63,7 @@ Anthropic's Claude is a clean, ad-free assistant that's a favorite for long-form
 - No native image generation
 - Usage limits are famously opaque — heavy users hit caps without warning
 
-**Pricing:** Claude Pro $20/mo.
+**Pricing:** Claude Pro $20/mo; Max tiers at $100 and $200/mo for heavy users.
 
 **Best for:** Writers and developers who are happy on Claude alone. ([Claude vs LLM Gateway Chat](https://chat.llmgateway.io/compare/claude).)
 
@@ -135,7 +135,7 @@ Microsoft Copilot brings OpenAI models into Windows, Edge, and Microsoft 365, wi
 - Most valuable inside the Microsoft ecosystem
 - Less flexible than a dedicated multi-model app
 
-**Pricing:** Free; Copilot Pro $20/mo.
+**Pricing:** Free; Copilot now comes via Microsoft 365 Premium (~$20/mo) — standalone Copilot Pro is being retired for new users, with existing subscriptions supported until August 2026.
 
 **Best for:** Microsoft 365 users who want AI inside the tools they already use.
 
@@ -183,7 +183,7 @@ xAI's Grok is wired into X (Twitter) for live data and has a deliberately irreve
 - Most valuable if you're active on X
 - Smaller feature set than the multi-model apps
 
-**Pricing:** Bundled with X Premium+ (around $40/mo) or a standalone plan.
+**Pricing:** SuperGrok from $30/mo standalone (Heavy $300/mo), or bundled with X Premium+ (around $40/mo).
 
 **Best for:** X power users who want live platform context.
 
@@ -271,7 +271,7 @@ HuggingChat from Hugging Face is a free interface to open-source models, ideal f
 | Perplexity           | Limited                | No                    | No               | $20/mo      |
 | Microsoft Copilot    | No (OpenAI)            | No                    | Yes              | Free / $20  |
 | Poe                  | Yes                    | Per-bot               | Some bots        | $19.99/mo   |
-| Grok                 | No (xAI)               | No                    | Yes              | ~$40/mo     |
+| Grok                 | No (xAI)               | No                    | Yes              | From $30/mo |
 | Le Chat              | No (Mistral)           | No                    | Yes              | $14.99/mo   |
 | T3 Chat              | Yes                    | Yes                   | Limited          | ~$8/mo      |
 | HuggingChat          | Open models            | Yes                   | No               | Free        |

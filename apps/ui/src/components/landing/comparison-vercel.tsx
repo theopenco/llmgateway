@@ -8,89 +8,130 @@ import { Button } from "@/lib/components/button";
 
 const comparisonData = [
 	{
-		category: "Pricing & Fees",
+		category: "Deployment & Open Source",
 		features: [
 			{
-				title: "Credits pricing",
-				description: "Pay-as-you-go with credits",
-				llmgateway: "Flat 5% fee on credit purchases",
-				openrouter: "5.5% platform fee",
+				title: "Managed cloud",
+				description: "Fully managed, production-ready hosted service",
+				llmgateway: true,
+				vercel: true,
 			},
 			{
-				title: "Bring Your Own Keys",
-				description: "Use your own provider API keys",
-				llmgateway: "Free — pay providers directly",
-				openrouter: "1M free reqs/mo, then 5% fee",
+				title: "Self-host the platform",
+				description: "Run the entire stack on your own infrastructure",
+				llmgateway: "AGPLv3",
+				vercel: false,
 			},
 			{
-				title: "Self-hosting option",
-				description: "Deploy on your infrastructure for free (See license)",
-				llmgateway: "Free for non-commercial use",
-				openrouter: false,
+				title: "Open-source license",
+				description: "What ships under an open-source license",
+				llmgateway: "Full platform (AGPLv3)",
+				vercel: false,
+			},
+			{
+				title: "No ecosystem lock-in",
+				description: "Use it without committing to one host or framework",
+				llmgateway: true,
+				vercel: "Tied to Vercel account",
 			},
 		],
 	},
 	{
-		category: "Analytics & Monitoring",
+		category: "Routing & Reliability",
 		features: [
 			{
-				title: "Real-time cost analytics",
-				description: "Detailed cost tracking for every request",
+				title: "Automatic provider scoring",
+				description: "Routes on live uptime, throughput, price, and latency",
 				llmgateway: true,
-				openrouter: true,
+				vercel: "Cost/latency/throughput",
 			},
 			{
-				title: "Latency analytics",
-				description: "Real-time performance monitoring",
+				title: "Failover & retries",
+				description: "Transparent retry on a healthy provider",
 				llmgateway: true,
-				openrouter: "Basic",
-			},
-			{
-				title: "Request-level insights",
-				description: "Granular analytics for each API call",
-				llmgateway: true,
-				openrouter: true,
-			},
-			{
-				title: "Usage dashboard",
-				description: "Comprehensive usage metrics",
-				llmgateway: true,
-				openrouter: true,
-			},
-		],
-	},
-	{
-		category: "Reliability & Support",
-		features: [
-			{
-				title: "Uptime SLA",
-				description: "Guaranteed uptime for managed instances",
-				llmgateway: "99.9%",
-				openrouter: "Enterprise only",
-			},
-			{
-				title: "Failover support",
-				description: "Automatic failover to backup providers",
-				llmgateway: true,
-				openrouter: true,
+				vercel: true,
 			},
 			{
 				title: "Load balancing",
-				description: "Distribute requests across providers",
+				description: "Spread traffic across providers for a model",
 				llmgateway: true,
-				openrouter: true,
+				vercel: true,
 			},
 			{
-				title: "Priority support",
-				description: "Dedicated support for paid plans",
-				llmgateway: "Enterprise",
-				openrouter: "Enterprise only",
+				title: "Response caching",
+				description: "Built-in caching for repeated requests",
+				llmgateway: "Redis, 10s–1yr TTL",
+				vercel: "Automatic",
+			},
+		],
+	},
+	{
+		category: "Cost & Pricing",
+		features: [
+			{
+				title: "Bring your own keys",
+				description: "Use your own provider keys",
+				llmgateway: "0% markup",
+				vercel: "0% (paid tier)",
+			},
+			{
+				title: "Token markup",
+				description: "Extra charged on top of provider token rates",
+				llmgateway: "None",
+				vercel: "None",
+			},
+			{
+				title: "Transparent platform fee",
+				description: "Predictable, easy-to-reason-about pricing",
+				llmgateway: "5% or 0% (BYOK)",
+				vercel: "Pay-as-you-go credits",
+			},
+			{
+				title: "Free to start",
+				description: "Get going without a paid plan",
+				llmgateway: "Free self-host",
+				vercel: "Free tier (limited)",
+			},
+		],
+	},
+	{
+		category: "Capabilities",
+		features: [
+			{
+				title: "Model coverage",
+				description: "Models and providers available through one API",
+				llmgateway: "280+ models, 35+ providers",
+				vercel: "Hundreds, 45+ providers",
+			},
+			{
+				title: "Image & video generation",
+				description: "Generative media through the same API",
+				llmgateway: true,
+				vercel: true,
+			},
+			{
+				title: "Guardrails",
+				description: "Prompt injection, PII, jailbreak, and secret detection",
+				llmgateway: true,
+				vercel: "Paid add-on",
+			},
+			{
+				title: "AI SDK integration",
+				description: "First-class Vercel AI SDK provider",
+				llmgateway: "@llmgateway/ai-sdk-provider",
+				vercel: "Default provider",
+			},
+			{
+				title: "API compatibility",
+				description: "Drop-in compatibility with existing clients",
+				llmgateway: "OpenAI-compatible",
+				vercel: "OpenAI + Anthropic",
 			},
 		],
 	},
 ];
 
-export function Comparison() {
+export function ComparisonVercel() {
 	const renderFeatureValue = (value: boolean | string) => {
 		if (typeof value === "boolean") {
 			return value ? (
@@ -110,10 +151,10 @@ export function Comparison() {
 						Compare platforms
 					</Badge>
 					<h2 className="text-3xl font-bold tracking-tight mb-2 text-foreground">
-						Find the perfect fit
+						The open Vercel AI Gateway alternative
 					</h2>
 					<p className="text-muted-foreground">
-						Compare LLM Gateway and OpenRouter features side by side
+						Compare LLM Gateway and Vercel AI Gateway features side by side
 					</p>
 				</div>
 
@@ -125,26 +166,29 @@ export function Comparison() {
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Bring Your Own Keys</strong> at no extra cost
+								<strong>Fully open source</strong> — self-host the entire
+								platform, not just call a managed API
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Real-time analytics</strong> for cost & latency
-								optimization
+								<strong>No ecosystem lock-in</strong> — not tied to a Vercel
+								team account or deploy target
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>Can be self hosted</strong> for complete control
+								<strong>Image &amp; video generation</strong> and guardrails
+								built in
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
-								<strong>99.9% uptime SLA</strong> with enterprise support
+								<strong>Zero markup</strong> on tokens — like Vercel — plus a
+								flat 5% or 0% with your own keys
 							</span>
 						</div>
 					</div>
@@ -159,7 +203,7 @@ export function Comparison() {
 									LLM Gateway
 								</h3>
 								<p className="text-sm text-muted-foreground mb-2">
-									OPEN & FLEXIBLE
+									OPEN-SOURCE & PORTABLE
 								</p>
 								<p className="text-2xl font-bold text-primary">From $0</p>
 								<p className="text-xs text-muted-foreground mt-1">
@@ -170,14 +214,16 @@ export function Comparison() {
 						<div className="text-center">
 							<div className="border border-border rounded-lg p-4 bg-background h-full">
 								<h3 className="font-bold text-lg mb-1 text-foreground">
-									OpenRouter
+									Vercel AI Gateway
 								</h3>
 								<p className="text-sm text-muted-foreground mb-2">
-									CLOSED & 5.5% fee
+									MANAGED, AI SDK-NATIVE
 								</p>
-								<p className="text-2xl font-bold text-foreground">From $0</p>
+								<p className="text-2xl font-bold text-foreground">
+									Usage-based
+								</p>
 								<p className="text-xs text-muted-foreground mt-1">
-									Credit-based pricing
+									Free tier, then credits
 								</p>
 							</div>
 						</div>
@@ -206,7 +252,7 @@ export function Comparison() {
 										{renderFeatureValue(feature.llmgateway)}
 									</div>
 									<div className="flex justify-center items-center">
-										{renderFeatureValue(feature.openrouter)}
+										{renderFeatureValue(feature.vercel)}
 									</div>
 								</div>
 							))}
@@ -220,7 +266,7 @@ export function Comparison() {
 							<AuthLink href="/signup">Start Free with LLM Gateway</AuthLink>
 						</Button>
 						<Button size="lg" variant="outline">
-							<Link href={"/pricing" as any}>View Pricing Details</Link>
+							<Link href="/pricing">View Pricing Details</Link>
 						</Button>
 					</div>
 					<p className="text-sm text-muted-foreground mt-3">

@@ -1087,7 +1087,7 @@ admin.openapi(getTimeseries, async (c) => {
 	});
 });
 
-const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d"]);
+const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
 const globalStatsGroupBySchema = z.enum(["model", "source"]);
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
 const globalStatsDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -1176,6 +1176,14 @@ admin.openapi(getGlobalStats, async (c) => {
 	const dayMs = 24 * 60 * 60 * 1000;
 	const MAX_GLOBAL_STATS_DAYS = 731;
 
+	const sourceTable =
+		groupBy === "model" ? globalModelStats : globalSourceStats;
+
+	// `all` means "all time": derive the span from the first/last recorded day
+	// so the card matches the dashboard's all-time totals instead of silently
+	// truncating to a fixed window.
+	const allTime = !query.from && !query.to && query.range === "all";
+
 	let startDate: Date;
 	let endDate: Date;
 	if (query.from && query.to) {
@@ -1188,9 +1196,26 @@ admin.openapi(getGlobalStats, async (c) => {
 			startDate = endDate;
 			endDate = tmp;
 		}
+	} else if (allTime) {
+		const bounds = await db
+			.select({
+				minDay: sql<
+					string | null
+				>`to_char(MIN(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("minDay"),
+				maxDay: sql<
+					string | null
+				>`to_char(MAX(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("maxDay"),
+			})
+			.from(sourceTable);
+		const minDay = bounds[0]?.minDay ?? null;
+		const maxDay = bounds[0]?.maxDay ?? null;
+		endDate = maxDay ? new Date(maxDay + "T00:00:00Z") : new Date();
+		endDate.setUTCHours(0, 0, 0, 0);
+		startDate = minDay ? new Date(minDay + "T00:00:00Z") : new Date(endDate);
+		startDate.setUTCHours(0, 0, 0, 0);
 	} else {
-		const range = query.range ?? "30d";
-		const rangeDays: Record<typeof range, number> = {
+		const range = query.range && query.range !== "all" ? query.range : "30d";
+		const rangeDays: Record<"7d" | "30d" | "90d" | "365d", number> = {
 			"7d": 7,
 			"30d": 30,
 			"90d": 90,
@@ -1205,13 +1230,11 @@ admin.openapi(getGlobalStats, async (c) => {
 	if (days < 1) {
 		days = 1;
 	}
-	if (days > MAX_GLOBAL_STATS_DAYS) {
+	// All-time spans the full recorded history; only bounded windows are capped.
+	if (!allTime && days > MAX_GLOBAL_STATS_DAYS) {
 		days = MAX_GLOBAL_STATS_DAYS;
 		startDate = new Date(endDate.getTime() - (days - 1) * dayMs); // eslint-disable-line no-mixed-operators
 	}
-
-	const sourceTable =
-		groupBy === "model" ? globalModelStats : globalSourceStats;
 
 	const metricSums = {
 		requestCount:

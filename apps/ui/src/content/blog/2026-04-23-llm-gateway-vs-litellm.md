@@ -27,10 +27,10 @@ We built LLM Gateway, so we're biased — but we'll tell you where LiteLLM is th
 | Bring Your Own Keys   | Yes (zero gateway markup)                             | Yes                                 |
 | Smart routing         | Weighted scoring (uptime, throughput, price, latency) | Manual fallback lists               |
 | Auto retry & failover | Yes (up to 2 retries, transparent)                    | Yes (configured per model)          |
-| Response caching      | Built-in (Redis, 10s to 1 year TTL)                   | Manual setup                        |
+| Response caching      | Built-in (Redis, 10s to 1 year TTL)                   | Built-in, needs config              |
 | Guardrails            | Yes (prompt injection, PII, jailbreak, secrets)       | Via external integrations           |
-| Analytics dashboard   | Per-request detail, cost, latency, cache hit rate     | Basic via callbacks/plugins         |
-| Audit logs            | Yes (90-day retention)                                | Config file + manual logging        |
+| Analytics dashboard   | Per-request detail, cost, latency, cache hit rate     | Built-in dashboard + spend logs     |
+| Audit logs            | Yes (90-day retention)                                | Spend logs; audit logs (Enterprise) |
 | Team management       | Roles, permissions, projects                          | Virtual keys + budgets              |
 | Image & video gen     | Yes (gpt-image, Gemini, Veo 3.1, Seedream, Qwen)      | Image yes, video limited            |
 | AI SDK provider       | Yes (`@llmgateway/ai-sdk-provider`)                   | Community SDK                       |
@@ -68,7 +68,7 @@ docker run -d \
 
 ### A Dashboard That Comes With the Proxy
 
-LiteLLM tracks spend and usage, but the observability story is "bring your own." Hook up LangSmith, Langfuse, Datadog, or write your own callback. It works — after you build and maintain the integration.
+LiteLLM ships a native usage dashboard and per-request spend logs, and it can fan out to LangSmith, Langfuse, or Datadog. It covers the basics. But assembling a single, turnkey view across cost, cache, and provider health is still on you.
 
 LLM Gateway ships with:
 
@@ -95,7 +95,7 @@ Epsilon-greedy exploration (1% of requests) probes underused providers so the sc
 
 ### Caching That's One Toggle Away
 
-Caching in LiteLLM is configurable but manual — pick a backend, configure keys, set TTLs, manage the Redis yourself.
+Caching in LiteLLM is built in, but you wire it up yourself — pick a backend, configure keys, set TTLs, and run the Redis.
 
 In LLM Gateway, caching is a project-level switch. TTL from 10 seconds to 1 year. Works with streaming and non-streaming. Cached responses cost nothing. For workloads with repeat prompts (FAQ bots, classification, CI tests, batch jobs), teams routinely see 30–90% hit rates.
 
