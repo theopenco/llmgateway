@@ -5549,6 +5549,16 @@ const giftCreditsRoute = createRoute({
 			},
 			description: "Credits gifted successfully.",
 		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Credits cannot be gifted to this organization kind.",
+		},
 		404: {
 			content: {
 				"application/json": {
@@ -5576,6 +5586,16 @@ admin.openapi(giftCreditsRoute, async (c) => {
 	if (!org || org.status === "deleted") {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+
+	// Real `credits` is only used by pay-as-you-go (default) orgs. chat/devpass
+	// orgs run purely on virtual plan credits, so gifting them real credits would
+	// create a balance nothing bills against — reject it here.
+	if (org.kind !== "default") {
+		throw new HTTPException(400, {
+			message:
+				"Credits can only be gifted to pay-as-you-go organizations. Chat and DevPass organizations run on virtual plan credits.",
 		});
 	}
 

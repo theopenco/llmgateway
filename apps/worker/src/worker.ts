@@ -1282,29 +1282,26 @@ export async function batchProcessLogs(): Promise<number> {
 				if (remainingCost.greaterThan(0)) {
 					if (
 						org &&
-						org.kind === "devpass" &&
+						org.kind !== "default" &&
 						new Decimal(org.credits ?? "0").lessThanOrEqualTo(0)
 					) {
-						// devpass is the only kind whose real `credits` field is never
-						// used (it runs purely on dev-plan virtual credits). With no
-						// balance, the residual here is in-flight usage that a now-
-						// exhausted or cancelled plan authorized, with nothing real to
-						// charge — write it off rather than driving `credits` negative.
-						// (A devpass org that does hold a real balance, e.g. referral
-						// earnings, falls through and is debited below.)
+						// Non-default orgs (chat/devpass) run purely on virtual plan
+						// credits — pay-as-you-go lives on `default` orgs, so `credits`
+						// here is not a real balance. With nothing real to charge, the
+						// residual is in-flight usage a now-exhausted or cancelled plan
+						// authorized: write it off rather than driving `credits` negative.
+						// (The `credits <= 0` guard only matters for stray/legacy balances:
+						// if such an org somehow holds real credits, fall through and debit
+						// them so the balance can't be spent for free.)
 						logger.debug(
-							`Wrote off ${remainingCost.toString()} for devpass organization ${orgId} with no credit balance`,
+							`Wrote off ${remainingCost.toString()} for ${org.kind} organization ${orgId} with no credit balance`,
 						);
 					} else {
-						// Everything the plan pools did not cover is billed to real credits:
-						// default orgs and chat pay-as-you-go balances (where `credits` is a
-						// real balance), plus any plan overage the gateway admitted on the
-						// strength of a real balance. Chat PAYG keeps debiting even once the
-						// balance crosses zero — a burst admitted while positive must not get
-						// free usage just because billing spans batches. We do NOT push this
-						// back onto a plan's virtual counter — that would silently spend the
-						// real credits that authorized the request and reset at renewal.
-						// May go negative; reconciled on the next top-up.
+						// default orgs (pay-as-you-go) and any stray non-default balance:
+						// deduct the real `credits` that authorized the request. We do NOT
+						// push this back onto a plan's virtual counter — that would silently
+						// spend the real credits that authorized the request and reset at
+						// renewal. May go negative; reconciled on the next top-up.
 						const costStr = remainingCost.toString();
 						await tx
 							.update(organization)

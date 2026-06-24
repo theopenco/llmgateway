@@ -692,18 +692,17 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(0);
 		});
 
-		test("should debit real credits for chat pay-as-you-go orgs", async () => {
-			// A chat org with a positive pay-as-you-go balance and no chat plan
-			// is authorized by `credits` at the gateway, so the worker must debit
-			// `credits` — not write the usage off (which would let it spend the
-			// same balance indefinitely).
+		test("should still debit a stray real balance on a non-default org", async () => {
+			// chat/devpass orgs aren't supposed to hold real credits, but if a
+			// legacy balance exists the worker must debit it (via the credits <= 0
+			// guard) so it can't be spent for free, rather than writing usage off.
 			await db
 				.update(organization)
 				.set({ credits: "0.10", kind: "chat", chatPlan: "none" })
 				.where(eq(organization.id, testOrg.id));
 
 			await db.insert(log).values({
-				requestId: "test-request-chat-payg",
+				requestId: "test-request-chat-stray-balance",
 				organizationId: testOrg.id,
 				projectId: testProject.id,
 				apiKeyId: testApiKey.id,
@@ -728,18 +727,18 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBeCloseTo(0.05, 10);
 		});
 
-		test("should keep debiting chat PAYG once the balance crosses zero", async () => {
-			// A chat PAYG burst is admitted while the balance is positive, but
-			// billing spans batches. Once an earlier batch has driven credits to
-			// <= 0, later queued logs must still debit (go negative), not get
-			// written off as if it were a cancelled-plan residual.
+		test("should write off chat usage when there is no real balance", async () => {
+			// chat orgs run on virtual chat-plan credits; `credits` is not a real
+			// balance for them (pay-as-you-go lives on default orgs). With no plan
+			// pool and no balance, usage is written off — never driving `credits`
+			// negative, same as devpass.
 			await db
 				.update(organization)
 				.set({ credits: "0.00", kind: "chat", chatPlan: "none" })
 				.where(eq(organization.id, testOrg.id));
 
 			await db.insert(log).values({
-				requestId: "test-request-chat-payg-negative",
+				requestId: "test-request-chat-no-balance",
 				organizationId: testOrg.id,
 				projectId: testProject.id,
 				apiKeyId: testApiKey.id,
@@ -761,8 +760,49 @@ describe("Log Processing", () => {
 				where: { id: { eq: testOrg.id } },
 			});
 
-			// Debited negative, not written off.
-			expect(Number(updatedOrg!.credits)).toBeCloseTo(-0.05, 10);
+			expect(Number(updatedOrg!.credits)).toBe(0);
+		});
+
+		test("should drain chat plan up to its limit and write off the overage when there is no balance", async () => {
+			// Active chat plan exhausted by an in-flight request, no real balance.
+			// The plan absorbs up to its limit; the overage is written off, not
+			// over-counted past the limit and not charged to `credits`.
+			await db
+				.update(organization)
+				.set({
+					credits: "0.00",
+					kind: "chat",
+					chatPlan: "starter",
+					chatPlanCreditsLimit: "0.02",
+					chatPlanCreditsUsed: "0.00",
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-chat-overage-nobalance",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.05,
+				cached: false,
+				usedMode: "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBe(0);
+			expect(Number(updatedOrg!.chatPlanCreditsUsed)).toBeCloseTo(0.02, 10);
 		});
 
 		test("should drain dev plan up to its limit and write off the overage when there is no balance", async () => {
@@ -809,54 +849,11 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(0.02, 10);
 		});
 
-		test("should debit real credits for dev plan overage when the org has a balance", async () => {
-			// Dev plan exhausted, but the org holds a real balance (e.g. referral
-			// earnings) that the gateway counted toward admission. The overage must
-			// come out of real credits, NOT push devPlanCreditsUsed past the limit
-			// (which would spend the balance silently and reset at renewal).
-			await db
-				.update(organization)
-				.set({
-					credits: "1.00",
-					kind: "devpass",
-					devPlan: "pro",
-					devPlanCreditsLimit: "0.02",
-					devPlanCreditsUsed: "0.00",
-				})
-				.where(eq(organization.id, testOrg.id));
-
-			await db.insert(log).values({
-				requestId: "test-request-dev-overage-balance",
-				organizationId: testOrg.id,
-				projectId: testProject.id,
-				apiKeyId: testApiKey.id,
-				cost: 0.05,
-				cached: false,
-				usedMode: "credits",
-				duration: 1000,
-				requestedModel: "openai/gpt-4o-mini",
-				requestedProvider: "openai",
-				usedModel: "gpt-4o-mini",
-				usedProvider: "openai",
-				responseSize: 100,
-				mode: "credits",
-			});
-
-			await batchProcessLogs();
-
-			const updatedOrg = await db.query.organization.findFirst({
-				where: { id: { eq: testOrg.id } },
-			});
-
-			// Plan drained to its limit; the $0.03 overage debited from credits.
-			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(0.02, 10);
-			expect(Number(updatedOrg!.credits)).toBeCloseTo(0.97, 10);
-		});
-
-		test("should debit PAYG credits for chat plan overage", async () => {
-			// Active chat plan exhausted, with a positive pay-as-you-go balance.
-			// The overage the PAYG balance made billable must debit real credits,
-			// not push chatPlanCreditsUsed past the limit.
+		test("should debit a stray balance for plan overage instead of over-counting virtual credits", async () => {
+			// Plan exhausted on a non-default org that holds a stray real balance.
+			// The overage must come out of real credits, NOT push the plan's
+			// virtual counter past its limit (which would spend the balance
+			// silently and reset at renewal).
 			await db
 				.update(organization)
 				.set({
