@@ -232,6 +232,7 @@ export const mistralModels = [
 			"Mistral's OCR model that extracts text, tables, and structure from documents and images as markdown via the /v1/ocr endpoint.",
 		family: "mistral",
 		releasedAt: new Date("2025-03-06"),
+		output: ["ocr"],
 		providers: [
 			{
 				providerId: "mistral",

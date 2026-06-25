@@ -201,14 +201,19 @@ modelsApi.openapi(listModels, async (c) => {
 				inputModalities.push("image");
 			}
 
-			// Determine output modalities from model definition or default to text only
+			// Determine output modalities from model definition or default to text
+			// only. OCR is an internal routing capability rather than a public
+			// output modality — OCR models genuinely return text — so it surfaces
+			// as "text" here (per-page pricing already distinguishes them).
 			const outputModalities: (
 				| "text"
 				| "image"
 				| "video"
 				| "embedding"
 				| "audio"
-			)[] = model.output ?? ["text"];
+			)[] = (model.output ?? ["text"]).map((modality) =>
+				modality === "ocr" ? "text" : modality,
+			);
 
 			// Source the model-level pricing from the cheapest provider mapping
 			// that is actually serving the model (not deactivated/deprecated), so

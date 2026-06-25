@@ -571,7 +571,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding" | "audio")[];
+	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
