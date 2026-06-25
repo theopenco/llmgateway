@@ -415,6 +415,23 @@ export default async function ModelPage({ params }: PageProps) {
 									video generation
 								</div>
 							)}
+							{modelProviders.some((p) => p.ocrPagePrice !== undefined) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const pagePrices = modelProviders
+											.filter((p) => p.ocrPagePrice !== undefined)
+											.map((p) => Number(p.ocrPagePrice))
+											.filter((n) => Number.isFinite(n));
+										if (pagePrices.length === 0) {
+											return "Unknown";
+										}
+										const minPrice = Math.min(...pagePrices);
+										return `$${(minPrice * 1000).toFixed(2)}`;
+									})()}{" "}
+									per 1,000 OCR pages
+								</div>
+							)}
 						</div>
 
 						{/* Capabilities (using same icons as /models) */}
