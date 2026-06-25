@@ -1164,6 +1164,46 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v1/ocr", async (c) => {
+	const body = await c.req.json();
+	const document = body.document ?? {};
+	const documentUrl =
+		typeof document.document_url === "string"
+			? document.document_url
+			: typeof document.image_url === "string"
+				? document.image_url
+				: typeof document?.image_url?.url === "string"
+					? document.image_url.url
+					: "";
+
+	const statusTrigger = extractStatusCodeTrigger(documentUrl);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (documentUrl.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Allow tests to control the billed page count via the URL marker
+	// "PAGES_<n>"; default to a single page.
+	const pagesMatch = documentUrl.match(/PAGES_(\d+)/);
+	const pageCount = pagesMatch ? Number(pagesMatch[1]) : 1;
+
+	return c.json({
+		pages: Array.from({ length: pageCount }, (_, index) => ({
+			index,
+			markdown: `# Mock OCR page ${index}`,
+			images: [],
+			dimensions: { dpi: 200, height: 1024, width: 1024 },
+		})),
+		model: body.model ?? "mistral-ocr-latest",
+		document_annotation: null,
+		usage_info: { pages_processed: pageCount, doc_size_bytes: 12345 },
+	});
+});
+
 mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 	const body = await c.req.json();
 	const input = typeof body.input === "string" ? body.input : "";
