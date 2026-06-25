@@ -128,4 +128,57 @@ describe("ocr", () => {
 
 		expect(res.status).toBe(500);
 	});
+
+	test("/v1/ocr rejects a non-OCR model with 400", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-ocr-nonocr",
+			token: "real-token-ocr-nonocr",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/ocr", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-ocr-nonocr",
+			},
+			body: JSON.stringify({
+				// A regular chat model is not an OCR model and must be rejected.
+				model: "mistral-large-latest",
+				document: IMAGE_DOCUMENT,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("model_not_found");
+	});
+
+	test("/v1/chat/completions rejects an OCR model with 400", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-ocr-chat",
+			token: "real-token-ocr-chat",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-ocr-chat",
+			},
+			body: JSON.stringify({
+				model: "mistral-ocr-latest",
+				messages: [{ role: "user", content: "hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("OCR model");
+	});
 });
