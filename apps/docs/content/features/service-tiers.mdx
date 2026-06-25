@@ -49,10 +49,12 @@ the exact tiers exposed by each provider card.
   Priority uses the model-specific multiplier shown on the model page.
 
 - **Google Vertex AI** (`google-vertex`) — sent as the
-  `X-Vertex-AI-LLM-Shared-Request-Type` request header. Flex and Priority are
-  served only on the **global** endpoint, which is the gateway default. Google
-  Flex PayGo applies a 0.5x multiplier; Google Priority PayGo applies a 1.8x
-  multiplier.
+  `X-Vertex-AI-LLM-Shared-Request-Type` request header, together with
+  `X-Vertex-AI-LLM-Request-Type: shared` so the request bypasses any Provisioned
+  Throughput on the project and actually reaches the shared Flex/Priority tier.
+  Flex and Priority are served only on the **global** endpoint, which is the
+  gateway default. Google Flex PayGo applies a 0.5x multiplier; Google Priority
+  PayGo applies a 1.8x multiplier.
 - **Google AI Studio / Gemini API** (`google-ai-studio`) — sent as a
   `service_tier` field in the request body for configured models that opt in.
 

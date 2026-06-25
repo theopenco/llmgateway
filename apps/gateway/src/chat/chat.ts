@@ -1453,6 +1453,13 @@ chat.openapi(completions, async (c) => {
 	const requestedServiceTier = isRequestedServiceTier(service_tier)
 		? service_tier
 		: null;
+	// The processing tier the provider actually served (Flex / Priority),
+	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
+	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
+	// this served tier (not the requested one) since Google downgrades
+	// unsupported tiers to standard. Null = standard / no tier. Declared here
+	// (ahead of the insertLogEntry wrapper) so every log path can record it.
+	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Sticky-routing session key, in priority order: the explicit x-session-id
 	// header, then x-session-affinity (sent by coding agents such as opencode),
@@ -1696,6 +1703,12 @@ chat.openapi(completions, async (c) => {
 	const insertLogEntry = (logData: LogInsertData) =>
 		insertLog(
 			{
+				// Service tiers default from the request-level requested tier and the
+				// served tier resolved so far, so every log path (guardrail/validation
+				// rejections, cache hits, streaming/upstream errors, fetch errors)
+				// records them. Explicit values in logData still win.
+				requestedServiceTier,
+				usedServiceTier: servedServiceTier,
 				...logData,
 				...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
 				responsesApiData,
@@ -1895,6 +1908,11 @@ chat.openapi(completions, async (c) => {
 			organizationId: project.organizationId,
 			projectId: apiKey.projectId,
 			discount: discount ?? null,
+			// Surface the requested vs served tier so callers can detect downgrades.
+			// Read at call time, so the streaming final usage chunk reflects the tier
+			// resolved from the upstream response.
+			requestedServiceTier,
+			usedServiceTier: servedServiceTier,
 		});
 
 	let configIndex = 0; // Index for round-robin environment variables
@@ -2549,12 +2567,6 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
-	// The processing tier the provider actually served (Flex / Priority),
-	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
-	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
-	// this served tier (not the requested one) since Google downgrades
-	// unsupported tiers to standard. Null = standard / no tier.
-	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
@@ -6601,6 +6613,10 @@ chat.openapi(completions, async (c) => {
 					}
 
 					try {
+						// Clear any tier served by a previous attempt so a fallback
+						// that fails before fetch returns (timeout/connection error)
+						// logs no served tier instead of the prior provider's.
+						servedServiceTier = null;
 						const forwardedServiceTier = getForwardedServiceTier(
 							usedInternalModel,
 							usedProvider,
@@ -10358,8 +10374,6 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
-						requestedServiceTier,
-						usedServiceTier: servedServiceTier,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -10543,6 +10557,10 @@ chat.openapi(completions, async (c) => {
 		fetchError = null;
 		isTimeoutFetchError = false;
 		res = undefined;
+		// Clear any tier served by a previous attempt so a fallback that fails
+		// before fetch returns (timeout/connection error) logs no served tier
+		// instead of inheriting the prior provider's.
+		servedServiceTier = null;
 
 		try {
 			const forwardedServiceTier = getForwardedServiceTier(
@@ -12332,8 +12350,6 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
-		requestedServiceTier,
-		usedServiceTier: servedServiceTier,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,

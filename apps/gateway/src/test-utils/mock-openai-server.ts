@@ -579,19 +579,23 @@ function delay(ms: number): Promise<void> {
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
 
-	// Check if this request should trigger an error response
-	const shouldError = body.input?.some?.(
-		(msg: any) =>
-			msg.role === "user" && msg.content?.includes?.("TRIGGER_ERROR"),
-	);
+	// Get the user's message to include in the response. Used for both the error
+	// triggers below and the echoed assistant content. Responses-API input
+	// content is an array of parts, so extract the text rather than calling
+	// `.includes` on the raw content (which would miss array-form messages).
+	const userMessage = getResponsesApiUserMessage(body.input);
 
-	if (shouldError) {
+	// Check if this request should trigger an error response
+	const statusTrigger = extractStatusCodeTrigger(userMessage);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (userMessage.includes("TRIGGER_ERROR")) {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
-
-	// Get the user's message to include in the response
-	const userMessage = getResponsesApiUserMessage(body.input);
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -608,6 +612,9 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				object: "response",
 				created_at: Math.floor(Date.now() / 1000),
 				model: body.model ?? "gpt-5-nano",
+				...(typeof body.service_tier === "string"
+					? { service_tier: body.service_tier }
+					: {}),
 			};
 
 			await stream.writeSSE({

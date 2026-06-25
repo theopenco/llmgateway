@@ -867,11 +867,137 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.service_tier).toBe("priority");
+		// Requested vs served tier are surfaced in the response metadata.
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBe("priority");
 
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBe(1);
 		expect(logs[0].requestedServiceTier).toBe("priority");
 		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions omits service tier metadata without a tier request", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-no-service-tier-meta",
+			token: "real-token-no-service-tier-meta",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-no-service-tier-meta",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-no-service-tier-meta",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		expect(json.metadata?.used_service_tier).toBeUndefined();
+	});
+
+	test("/v1/chat/completions streams service tier in the final usage chunk", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-service-tier-stream",
+			token: "real-token-service-tier-stream",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-service-tier-stream",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-service-tier-stream",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "priority",
+				stream: true,
+				stream_options: { include_usage: true },
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const streamResult = await readAll(res.body);
+		const tierChunk = streamResult.chunks.find(
+			(chunk) => chunk?.metadata?.requested_service_tier !== undefined,
+		);
+		expect(tierChunk).toBeDefined();
+		expect(tierChunk.metadata.requested_service_tier).toBe("priority");
+		expect(tierChunk.metadata.used_service_tier).toBe("priority");
+	});
+
+	test("/v1/chat/completions records requested service tier on upstream errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-service-tier-upstream-error",
+			token: "real-token-service-tier-upstream-error",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// OpenAI supports the priority tier and is not subject to the upstream
+		// base-URL restriction, so a mock base URL is allowed here — letting the
+		// request reach the (error-returning) upstream instead of being rejected
+		// before it ever serves a tier.
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-service-tier-upstream-error",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-service-tier-upstream-error",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "TRIGGER_ERROR" }],
+			}),
+		});
+
+		expect(res.status).not.toBe(200);
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].hasError).toBe(true);
+		// The upstream errored before serving a tier, but the requested tier is
+		// still threaded onto the error log via the insertLogEntry wrapper.
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBeNull();
 	});
 
 	test("/v1/chat/completions forwards generated request id upstream", async () => {
