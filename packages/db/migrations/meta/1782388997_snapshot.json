@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "4697184b-aa03-46c8-a152-15404d875d4c",
+  "id": "8874a928-3775-4588-9efe-7c656f579c9b",
   "prevId": "f7abb653-34f3-4099-a888-8516e9d1e743",
   "ddl": [
     {
@@ -23936,7 +23936,5 @@
       "table": "model_rating"
     }
   ],
-  "renames": [
-    "public.log.service_tier->public.log.requested_service_tier"
-  ]
+  "renames": []
 }
