@@ -14,6 +14,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	DEV_PLAN_PRICES,
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
 	type ChatPlanCycle,
@@ -3315,6 +3316,26 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// `dev_plan_upgrade` transaction (change-tier deliberately does not record
 		// one for upgrades, to avoid double-counting). We do NOT reset
 		// `devPlanCreditsUsed` or grant a fresh allotment.
+		//
+		// Resolve the tier from the invoice's subscription metadata rather than
+		// `organization.devPlan`: change-tier asks Stripe to invoice immediately
+		// and only writes the new tier to the DB afterward, so this proration
+		// webhook can race ahead of that write and observe the pre-upgrade tier.
+		// change-tier sets the subscription's `metadata.devPlan` to the new tier
+		// before the proration invoice is created, so the invoice payload itself
+		// carries the authoritative tier — no extra Stripe round-trip needed.
+		// Fall back to the cached tier if the metadata is missing/unrecognized.
+		const invoiceSubscriptionMetadata =
+			invoice.parent?.subscription_details?.metadata ?? undefined;
+		const metadataTier = invoiceSubscriptionMetadata?.devPlan as
+			| DevPlanTier
+			| undefined;
+		const upgradedTier: DevPlanTier | undefined =
+			metadataTier && metadataTier in DEV_PLAN_PRICES
+				? metadataTier
+				: (organization.devPlan ?? undefined);
+		const upgradedTierLabel = upgradedTier?.toUpperCase();
+
 		const [upgradeTransaction] = await db
 			.insert(tables.transaction)
 			.values({
@@ -3325,7 +3346,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				status: "completed",
 				stripePaymentIntentId: (invoice as any).payment_intent,
 				stripeInvoiceId: invoice.id,
-				description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+				description: `Dev Plan ${upgradedTierLabel} upgrade`,
 			})
 			.returning();
 
@@ -3338,7 +3359,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				...billingDetails,
 				lineItems: [
 					{
-						description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade (prorated)`,
+						description: `Dev Plan ${upgradedTierLabel} upgrade (prorated)`,
 						amount: invoice.amount_paid / 100,
 					},
 				],
