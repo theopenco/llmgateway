@@ -5,7 +5,9 @@ import {
 	peekRoundRobinValue,
 } from "@/lib/round-robin-env.js";
 
+import { providerKeyBaseUrlSupportsServiceTier } from "@llmgateway/actions";
 import {
+	getProviderEnvValue,
 	getProviderEnvVar,
 	getProviderEnvConfig,
 	type Provider,
@@ -15,6 +17,81 @@ export interface ProviderEnvResult {
 	token: string;
 	configIndex: number;
 	envVarName: string;
+}
+
+function getEnvCredentialCount(provider: Provider): number {
+	const envVar = getProviderEnvVar(provider);
+	const value = envVar ? process.env[envVar] : undefined;
+	if (!value) {
+		return 0;
+	}
+	return value
+		.split(",")
+		.map((v) => v.trim())
+		.filter((v) => v.length > 0).length;
+}
+
+/**
+ * Whether a single env credential index can carry a Flex/Priority service-tier
+ * request. Requires:
+ * - an eligible base URL (managed default / canonical upstream, not a proxy);
+ * - for google-vertex, a global region — Flex/Priority PayGo is served only on
+ *   the global endpoint, and a non-global index would have its tier header
+ *   dropped by getForwardedServiceTier and be silently served as standard.
+ *
+ * Base URL and region are comma-indexed in lockstep with the API-key env var,
+ * so this is evaluated per index.
+ */
+function isServiceTierEligibleEnvIndex(
+	provider: Provider,
+	index: number,
+): boolean {
+	const baseUrl = getProviderEnvValue(provider, "baseUrl", index);
+	if (!providerKeyBaseUrlSupportsServiceTier(provider, baseUrl)) {
+		return false;
+	}
+	if (provider === "google-vertex") {
+		const region = getProviderEnvValue(provider, "region", index, "global");
+		if (region !== "global") {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * Env credential indices that are NOT eligible to carry a Flex/Priority
+ * service-tier request. Used to exclude those indices from round-robin
+ * selection so a service-tier request lands on a credential that hits the real
+ * upstream on a tier-capable endpoint.
+ */
+export function getServiceTierIneligibleEnvIndices(
+	provider: Provider,
+): Set<number> {
+	const ineligible = new Set<number>();
+	const count = getEnvCredentialCount(provider);
+	for (let index = 0; index < count; index++) {
+		if (!isServiceTierEligibleEnvIndex(provider, index)) {
+			ineligible.add(index);
+		}
+	}
+	return ineligible;
+}
+
+/**
+ * Whether at least one env credential for the provider targets an upstream
+ * endpoint eligible for service-tier requests.
+ */
+export function hasServiceTierEligibleEnvCredential(
+	provider: Provider,
+): boolean {
+	const count = getEnvCredentialCount(provider);
+	for (let index = 0; index < count; index++) {
+		if (isServiceTierEligibleEnvIndex(provider, index)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 interface GetProviderEnvOptions {

@@ -63,6 +63,17 @@ the exact tiers exposed by each provider card.
 	configured image mappings are Flex-only.
 </Callout>
 
+<Callout type="warn">
+	Flex and Priority are only honored when the request reaches Google directly,
+	so a `google-vertex` / `google-ai-studio` provider key with a **custom base
+	URL** (a proxy) is excluded from service-tier routing — a proxy may silently
+	drop the tier and serve standard. With multiple providers/keys, the gateway
+	routes around the ineligible key automatically; if a request pins a provider
+	whose only key uses a custom base URL, it returns a 400 instead of silently
+	downgrading. Keys with no custom base URL (the managed default) are always
+	eligible.
+</Callout>
+
 ## Pricing uses multipliers
 
 Service tiers do not define separate model prices in LLM Gateway. They multiply

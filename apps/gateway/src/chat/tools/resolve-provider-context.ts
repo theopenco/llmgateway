@@ -10,7 +10,9 @@ import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 import {
 	getProviderEndpoint,
 	getProviderHeaders,
+	isPremiumServiceTier,
 	prepareRequestBody,
+	providerKeyBaseUrlSupportsServiceTier,
 	selectProviderMapping,
 } from "@llmgateway/actions";
 import {
@@ -35,7 +37,10 @@ import {
 	isPremiumModel,
 } from "@llmgateway/shared";
 
-import { getProviderEnv } from "./get-provider-env.js";
+import {
+	getProviderEnv,
+	getServiceTierIneligibleEnvIndices,
+} from "./get-provider-env.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -305,6 +310,32 @@ export async function resolveProviderContext(
 	let configIndex = 0;
 	let envVarName: string | undefined;
 
+	// Flex/Priority is only honored when the request reaches the provider's real
+	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
+	// silently drop the tier, so a compliant key (or the managed env credential)
+	// is used instead.
+	const serviceTierKeyFilter = isPremiumServiceTier(options.service_tier)
+		? (key: InferSelectModel<typeof tables.providerKey>) =>
+				providerKeyBaseUrlSupportsServiceTier(
+					key.provider as Provider,
+					key.baseUrl,
+				)
+		: undefined;
+	// Exclude env credential indices whose base URL can't honor the tier, merged
+	// with any already-failed indices, so env fallback also lands on the upstream.
+	const serviceTierEnvExcludedIndices = (
+		provider: Provider,
+	): ReadonlySet<number> | undefined => {
+		if (!serviceTierKeyFilter) {
+			return options.excludedEnvKeyIndices;
+		}
+		const ineligible = getServiceTierIneligibleEnvIndices(provider);
+		if (ineligible.size === 0) {
+			return options.excludedEnvKeyIndices;
+		}
+		return new Set([...(options.excludedEnvKeyIndices ?? []), ...ineligible]);
+	};
+
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
 			providerKey = await findCustomProviderKey(
@@ -319,6 +350,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -332,7 +364,7 @@ export async function resolveProviderContext(
 	} else if (project.mode === "credits") {
 		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
-			excludedIndices: options.excludedEnvKeyIndices,
+			excludedIndices: serviceTierEnvExcludedIndices(usedProvider as Provider),
 			selectionScope: usedInternalModel,
 		});
 		usedToken = envResult.token;
@@ -352,6 +384,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -360,7 +393,9 @@ export async function resolveProviderContext(
 		} else {
 			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {
-				excludedIndices: options.excludedEnvKeyIndices,
+				excludedIndices: serviceTierEnvExcludedIndices(
+					usedProvider as Provider,
+				),
 				selectionScope: usedInternalModel,
 			});
 			usedToken = envResult.token;

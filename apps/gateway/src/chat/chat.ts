@@ -94,6 +94,8 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getProviderEndpoint,
 	getProviderHeaders,
+	isPremiumServiceTier,
+	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
@@ -187,7 +189,11 @@ import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
-import { getProviderEnv } from "./tools/get-provider-env.js";
+import {
+	getProviderEnv,
+	getServiceTierIneligibleEnvIndices,
+	hasServiceTierEligibleEnvCredential,
+} from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
@@ -930,7 +936,7 @@ function getForwardedServiceTier(
 function isRequestedServiceTier(
 	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
 ): serviceTier is "flex" | "priority" {
-	return serviceTier === "flex" || serviceTier === "priority";
+	return isPremiumServiceTier(serviceTier);
 }
 
 function providerMatchesRequestedProvider(
@@ -2645,11 +2651,71 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Flex/Priority is only honored when the request reaches the provider's real
+	// upstream endpoint — a provider key with a custom base URL (proxy) may
+	// silently drop the tier and be billed/reported as standard. Exclude
+	// providers that have no upstream-eligible credential from service-tier
+	// routing (mirroring the compliance policy): auto/model-id routing drops
+	// them, and only fails when none remain; a pinned provider with no eligible
+	// key returns a clear 400 instead of silently downgrading.
+	let serviceTierOrgKeys:
+		| InferSelectModel<typeof tables.providerKey>[]
+		| undefined;
+	const isProviderServiceTierEligible = (providerId: string): boolean => {
+		const dbKeys = (serviceTierOrgKeys ?? []).filter(
+			(key) => key.provider === providerId,
+		);
+		const hasCompliantDbKey = dbKeys.some((key) =>
+			providerKeyBaseUrlSupportsServiceTier(
+				providerId as Provider,
+				key.baseUrl,
+			),
+		);
+		// An env credential is eligible only when at least one of its (possibly
+		// comma-indexed) base URLs targets the managed upstream — a custom base URL
+		// on every env index is just as ineligible as a custom DB key. In hybrid
+		// mode env is used only when no DB key is picked, which the
+		// serviceTierKeyFilter guarantees for a custom base URL.
+		const envEligible =
+			(project.mode === "credits" || project.mode === "hybrid") &&
+			hasServiceTierEligibleEnvCredential(providerId as Provider);
+		if (project.mode === "api-keys") {
+			return hasCompliantDbKey;
+		}
+		return hasCompliantDbKey || envEligible;
+	};
+	const enforceServiceTierKeyEligibility = async () => {
+		if (!isRequestedServiceTier(service_tier)) {
+			return;
+		}
+		if (serviceTierOrgKeys === undefined) {
+			serviceTierOrgKeys = await findActiveProviderKeys(project.organizationId);
+		}
+		iamFilteredModelProviders = iamFilteredModelProviders.filter((provider) =>
+			isProviderServiceTierEligible(provider.providerId),
+		);
+		expandedIamFilteredModelProviders =
+			expandedIamFilteredModelProviders.filter((provider) =>
+				isProviderServiceTierEligible(provider.providerId),
+			);
+		const pinnedIneligible =
+			usedProvider !== undefined &&
+			usedProvider !== "llmgateway" &&
+			usedProvider !== "custom" &&
+			!isProviderServiceTierEligible(usedProvider);
+		if (iamFilteredModelProviders.length === 0 || pinnedIneligible) {
+			throw new HTTPException(400, {
+				message: `Service tier '${service_tier}' requires a provider key that targets the original upstream endpoint. Remove the custom base URL from the ${pinnedIneligible ? `${usedProvider} ` : ""}provider key or omit service_tier.`,
+			});
+		}
+	};
+
 	// For auto routing, modelInfo is still the synthetic "llmgateway" model here;
 	// compliance is enforced after the real model/provider is resolved (and the
 	// auto candidate set is compliance-filtered during selection below).
 	if (usedInternalModel !== "auto") {
 		await enforceCompliancePolicy();
+		await enforceServiceTierKeyEligibility();
 	}
 
 	// Pricing override for custom-provider requests that match an enterprise
@@ -3260,6 +3326,7 @@ chat.openapi(completions, async (c) => {
 				expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
 		}
 		await enforceCompliancePolicy();
+		await enforceServiceTierKeyEligibility();
 	} else if (
 		(usedProvider === "llmgateway" && usedInternalModel === "custom") ||
 		usedInternalModel === "custom"
@@ -4464,6 +4531,17 @@ chat.openapi(completions, async (c) => {
 	// credential via envVarName instead of blaming an unused DB key. Endpoint
 	// and option resolution still use providerKey for BYOK base URLs/options.
 	let trackedKeyHealthId: string | undefined;
+	// Flex/Priority is only honored when the request reaches the provider's real
+	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
+	// silently drop the tier, so a compliant key (or the managed env credential
+	// in hybrid mode) is used instead.
+	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
+		? (key: InferSelectModel<typeof tables.providerKey>) =>
+				providerKeyBaseUrlSupportsServiceTier(
+					key.provider as Provider,
+					key.baseUrl,
+				)
+		: undefined;
 	if (
 		project.mode === "credits" &&
 		(usedProvider === "custom" || usedProvider === "llmgateway")
@@ -4487,6 +4565,8 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				usedProvider,
 				usedInternalModel,
+				undefined,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -4590,6 +4670,9 @@ chat.openapi(completions, async (c) => {
 
 		const envResult = getProviderEnv(usedProvider, {
 			selectionScope: usedInternalModel,
+			excludedIndices: isRequestedServiceTier(service_tier)
+				? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
+				: undefined,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -4624,6 +4707,8 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				usedProvider,
 				usedInternalModel,
+				undefined,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -4716,6 +4801,9 @@ chat.openapi(completions, async (c) => {
 
 			const envResult = getProviderEnv(usedProvider, {
 				selectionScope: usedInternalModel,
+				excludedIndices: isRequestedServiceTier(service_tier)
+					? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
+					: undefined,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
