@@ -511,47 +511,6 @@ export function ModelProviderCard({
 								</div>
 							</div>
 						)}
-					{provider.ocrPagePrice !== undefined &&
-						Number(provider.ocrPagePrice) > 0 && (
-							<div className="grid grid-cols-3 gap-3 mt-3">
-								<div className="col-span-3">
-									<div className="text-muted-foreground text-xs mb-1">
-										OCR Pages
-									</div>
-									<div className="font-mono">
-										<div className="space-y-1">
-											<div className="flex items-center gap-2">
-												{Number(provider.discount ?? "0") > 0 ? (
-													<>
-														<span className="line-through text-muted-foreground text-xs">
-															$
-															{(Number(provider.ocrPagePrice) * 1000).toFixed(
-																2,
-															)}
-														</span>
-														<span className="text-green-600 font-semibold">
-															$
-															{(
-																Number(provider.ocrPagePrice) *
-																1000 *
-																(1 - Number(provider.discount))
-															).toFixed(2)}
-														</span>
-													</>
-												) : (
-													<>
-														${(Number(provider.ocrPagePrice) * 1000).toFixed(2)}
-													</>
-												)}
-											</div>
-											<span className="text-muted-foreground text-xs">
-												/1K pages
-											</span>
-										</div>
-									</div>
-								</div>
-							</div>
-						)}
 					{(() => {
 						const tiers = provider.pricingTiers;
 						if (!tiers || tiers.length <= 1) {

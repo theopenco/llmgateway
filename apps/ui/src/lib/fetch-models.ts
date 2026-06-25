@@ -42,6 +42,7 @@ export interface ApiModelProviderMapping {
 	inputCharacterPrice: string | null;
 	outputAudioPrice: string | null;
 	requestPrice: string | null;
+	ocrPagePrice?: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
 	streaming: boolean;
