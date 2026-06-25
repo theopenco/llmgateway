@@ -15,6 +15,7 @@ export const providerLogoUrls: Partial<
 	"vertex-anthropic": ProviderIcons["vertex-anthropic"],
 	"vertex-openai": ProviderIcons["vertex-openai"],
 	quartz: ProviderIcons.quartz,
+	granite: ProviderIcons.granite,
 	"inference.net": ProviderIcons["inference.net"],
 	"together-ai": ProviderIcons["together-ai"],
 	mistral: ProviderIcons.mistral,

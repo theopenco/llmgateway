@@ -183,6 +183,16 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "granite":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("granite", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "google-vertex":
 				url =
 					envValueOrDefault(
