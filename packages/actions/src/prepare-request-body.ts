@@ -340,6 +340,7 @@ function resolveRef(ref: string, rootDefs: Record<string, any>): any {
 function stripUnsupportedSchemaProperties(
 	schema: any,
 	rootDefs?: Record<string, any>,
+	seenRefs: Set<string> = new Set(),
 ): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
@@ -347,7 +348,7 @@ function stripUnsupportedSchemaProperties(
 
 	if (Array.isArray(schema)) {
 		return schema.map((item) =>
-			stripUnsupportedSchemaProperties(item, rootDefs),
+			stripUnsupportedSchemaProperties(item, rootDefs, seenRefs),
 		);
 	}
 
@@ -356,10 +357,24 @@ function stripUnsupportedSchemaProperties(
 
 	// Handle $ref - expand the reference inline
 	if (schema.$ref) {
+		// Guard against self-referential schemas (recursive types). Since Google
+		// doesn't support $ref, an inline-expanded cycle would recurse forever and
+		// overflow the stack, so we collapse the recursive node to a generic object.
+		if (seenRefs.has(schema.$ref)) {
+			const fallback: any = { type: "object" };
+			if (schema.description) {
+				fallback.description = schema.description;
+			}
+			return fallback;
+		}
 		const resolved = resolveRef(schema.$ref, defs);
 		if (resolved) {
 			// Expand the reference, preserving only description and default from the original node
-			const expanded = stripUnsupportedSchemaProperties({ ...resolved }, defs);
+			const expanded = stripUnsupportedSchemaProperties(
+				{ ...resolved },
+				defs,
+				new Set(seenRefs).add(schema.$ref),
+			);
 			if (schema.description && !expanded.description) {
 				expanded.description = schema.description;
 			}
@@ -439,6 +454,7 @@ function stripUnsupportedSchemaProperties(
 				cleanedProps[propName] = stripUnsupportedSchemaProperties(
 					propSchema,
 					defs,
+					seenRefs,
 				);
 			}
 			cleaned[key] = cleanedProps;
@@ -447,7 +463,7 @@ function stripUnsupportedSchemaProperties(
 
 		// Recursively clean nested objects
 		if (value && typeof value === "object") {
-			cleaned[key] = stripUnsupportedSchemaProperties(value, defs);
+			cleaned[key] = stripUnsupportedSchemaProperties(value, defs, seenRefs);
 		} else {
 			cleaned[key] = value;
 		}
@@ -491,21 +507,38 @@ function mapGoogleImageSize(imageSize: string): string {
 function sanitizeBedrockSchema(
 	schema: any,
 	rootDefs?: Record<string, any>,
+	seenRefs: Set<string> = new Set(),
 ): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
 	}
 
 	if (Array.isArray(schema)) {
-		return schema.map((item) => sanitizeBedrockSchema(item, rootDefs));
+		return schema.map((item) =>
+			sanitizeBedrockSchema(item, rootDefs, seenRefs),
+		);
 	}
 
 	const defs = rootDefs ?? schema.$defs ?? schema.definitions ?? {};
 
 	if (typeof schema.$ref === "string") {
+		// Guard against self-referential schemas (recursive types). Bedrock doesn't
+		// support $ref, so an inline-expanded cycle would recurse forever and
+		// overflow the stack; collapse the recursive node to a generic object.
+		if (seenRefs.has(schema.$ref)) {
+			const fallback: any = { type: "object", properties: {} };
+			if (schema.description) {
+				fallback.description = schema.description;
+			}
+			return fallback;
+		}
 		const resolved = resolveRef(schema.$ref, defs);
 		if (resolved) {
-			const expanded = sanitizeBedrockSchema({ ...resolved }, defs);
+			const expanded = sanitizeBedrockSchema(
+				{ ...resolved },
+				defs,
+				new Set(seenRefs).add(schema.$ref),
+			);
 			if (schema.description && !expanded.description) {
 				expanded.description = schema.description;
 			}
@@ -548,14 +581,14 @@ function sanitizeBedrockSchema(
 			cleaned.properties = Object.fromEntries(
 				Object.entries(value).map(([propertyName, propertyValue]) => [
 					propertyName,
-					sanitizeBedrockSchema(propertyValue, defs),
+					sanitizeBedrockSchema(propertyValue, defs, seenRefs),
 				]),
 			);
 			continue;
 		}
 
 		if (value && typeof value === "object") {
-			cleaned[key] = sanitizeBedrockSchema(value, defs);
+			cleaned[key] = sanitizeBedrockSchema(value, defs, seenRefs);
 		} else {
 			cleaned[key] = value;
 		}

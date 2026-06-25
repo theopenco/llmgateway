@@ -1107,6 +1107,128 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
+	test("should not overflow the stack on self-referential $ref schemas", async () => {
+		const recursiveTools = [
+			{
+				type: "function" as const,
+				function: {
+					name: "build_tree",
+					description: "Build a recursive tree",
+					parameters: {
+						type: "object",
+						properties: {
+							root: { $ref: "#/$defs/TreeNode" },
+						},
+						$defs: {
+							TreeNode: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									children: {
+										type: "array",
+										items: { $ref: "#/$defs/TreeNode" },
+									},
+								},
+								required: ["value"],
+							},
+						},
+						required: ["root"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			recursiveTools,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+		expect(params.$defs).toBeUndefined();
+		// The recursive node is expanded one level then collapsed to a generic
+		// object where it would otherwise recurse forever.
+		expect(params.properties.root.properties.value).toEqual({
+			type: "string",
+		});
+		expect(params.properties.root.properties.children.items).toEqual({
+			type: "object",
+		});
+	});
+
+	test("should not overflow the stack on self-referential $ref schemas for bedrock", async () => {
+		const recursiveTools = [
+			{
+				type: "function" as const,
+				function: {
+					name: "build_tree",
+					description: "Build a recursive tree",
+					parameters: {
+						type: "object",
+						properties: {
+							root: { $ref: "#/$defs/TreeNode" },
+						},
+						$defs: {
+							TreeNode: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									children: {
+										type: "array",
+										items: { $ref: "#/$defs/TreeNode" },
+									},
+								},
+								required: ["value"],
+							},
+						},
+						required: ["root"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			recursiveTools,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const toolSpec = requestBody.toolConfig.tools[0].toolSpec;
+		const schema = toolSpec.inputSchema.json;
+		expect(schema.properties.root.properties.children.items).toEqual({
+			type: "object",
+			properties: {},
+		});
+	});
+
 	test("should strip additionalProperties from tool parameters", async () => {
 		const toolsWithAdditionalProps = [
 			{
