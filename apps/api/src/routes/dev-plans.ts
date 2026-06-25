@@ -237,7 +237,6 @@ async function collectDevPlanUpgradeCharge(params: {
 			customer: customerId,
 			subscription: params.subscription.id,
 			collection_method: "charge_automatically",
-			pending_invoice_items_behavior: "include",
 			auto_advance: false,
 			metadata,
 			expand: ["payment_intent"],
