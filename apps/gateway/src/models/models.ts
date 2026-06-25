@@ -43,6 +43,10 @@ const modelSchema = z.object({
 					completion: z.string(),
 					image: z.string().optional(),
 					per_second: z.record(z.string()).optional(),
+					request: z.string().optional(),
+					input_cache_read: z.string().optional(),
+					input_cache_write: z.string().optional(),
+					input_cache_write_1h: z.string().optional(),
 					ocr_page: z.string().optional(),
 				})
 				.optional(),
@@ -206,21 +210,12 @@ modelsApi.openapi(listModels, async (c) => {
 				| "audio"
 			)[] = model.output ?? ["text"];
 
-			const firstProviderWithPricing = model.providers.find(
-				(p: ProviderModelMapping) =>
-					p.inputPrice !== undefined ||
-					p.outputPrice !== undefined ||
-					p.imageInputPrice !== undefined ||
-					p.perSecondPrice !== undefined ||
-					p.ocrPagePrice !== undefined,
-			);
-
-			const inputPrice =
-				firstProviderWithPricing?.inputPrice?.toString() ?? "0";
-			const outputPrice =
-				firstProviderWithPricing?.outputPrice?.toString() ?? "0";
-			const imagePrice =
-				firstProviderWithPricing?.imageInputPrice?.toString() ?? "0";
+			// Pick the provider mapping whose pricing represents the model at the
+			// top level. Prefer a mapping that is neither deactivated nor
+			// deprecated as of now, so the model-level pricing reflects a
+			// provider that is actually serving the model; only fall back to a
+			// deactivated/deprecated mapping when no active mapping has pricing.
+			const pricingProvider = pickPricingProvider(model.providers, currentDate);
 
 			return {
 				id: model.id,
@@ -251,29 +246,9 @@ modelsApi.openapi(listModels, async (c) => {
 						supportedVideoSizes: provider.supportedVideoSizes,
 						supportsVideoAudio: provider.supportsVideoAudio,
 						supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
-						pricing:
-							provider.inputPrice !== undefined ||
-							provider.outputPrice !== undefined ||
-							provider.imageInputPrice !== undefined ||
-							provider.perSecondPrice !== undefined ||
-							provider.ocrPagePrice !== undefined
-								? {
-										prompt: provider.inputPrice?.toString() ?? "0",
-										completion: provider.outputPrice?.toString() ?? "0",
-										image: provider.imageInputPrice?.toString() ?? "0",
-										per_second: provider.perSecondPrice
-											? Object.fromEntries(
-													Object.entries(provider.perSecondPrice).map(
-														([resolution, price]) => [
-															resolution,
-															price.toString(),
-														],
-													),
-												)
-											: undefined,
-										ocr_page: provider.ocrPagePrice?.toString(),
-									}
-								: undefined,
+						pricing: hasPricing(provider)
+							? buildPricingFields(provider)
+							: undefined,
 						streaming: provider.streaming,
 						vision: provider.vision ?? false,
 						cancellation: providerDef?.cancellation ?? false,
@@ -284,26 +259,9 @@ modelsApi.openapi(listModels, async (c) => {
 					};
 				}),
 				pricing: {
-					prompt: inputPrice,
-					completion: outputPrice,
-					image: imagePrice,
-					per_second: firstProviderWithPricing?.perSecondPrice
-						? Object.fromEntries(
-								Object.entries(firstProviderWithPricing.perSecondPrice).map(
-									([resolution, price]) => [resolution, price.toString()],
-								),
-							)
-						: undefined,
-					request: firstProviderWithPricing?.requestPrice?.toString() ?? "0",
-					input_cache_read:
-						firstProviderWithPricing?.cachedInputPrice?.toString() ?? "0",
-					input_cache_write:
-						firstProviderWithPricing?.cacheWriteInputPrice?.toString() ?? "0",
-					input_cache_write_1h:
-						firstProviderWithPricing?.cacheWriteInputPrice1h?.toString() ?? "0",
+					...buildPricingFields(pricingProvider),
 					web_search: "0", // Not defined in model definitions yet
 					internal_reasoning: "0", // Not defined in model definitions yet
-					ocr_page: firstProviderWithPricing?.ocrPagePrice?.toString(),
 				},
 				// Use context length from model definition (take the largest from all providers)
 				context_length:
@@ -357,6 +315,60 @@ function getModelLevelDate(dates: (Date | undefined)[]): string | undefined {
 	return (dates as Date[])
 		.reduce((latest, d) => (d.getTime() > latest.getTime() ? d : latest))
 		.toISOString();
+}
+
+// Whether a provider mapping carries any pricing information at all.
+function hasPricing(p: ProviderModelMapping): boolean {
+	return (
+		p.inputPrice !== undefined ||
+		p.outputPrice !== undefined ||
+		p.imageInputPrice !== undefined ||
+		p.perSecondPrice !== undefined ||
+		p.ocrPagePrice !== undefined
+	);
+}
+
+// Build the public pricing object for a provider mapping. Used both for the
+// per-provider pricing and (with a representative mapping) the model-level
+// pricing, so the two expose the same level of detail. A missing mapping or
+// missing field defaults to "0".
+function buildPricingFields(p: ProviderModelMapping | undefined) {
+	return {
+		prompt: p?.inputPrice?.toString() ?? "0",
+		completion: p?.outputPrice?.toString() ?? "0",
+		image: p?.imageInputPrice?.toString() ?? "0",
+		per_second: p?.perSecondPrice
+			? Object.fromEntries(
+					Object.entries(p.perSecondPrice).map(([resolution, price]) => [
+						resolution,
+						price.toString(),
+					]),
+				)
+			: undefined,
+		request: p?.requestPrice?.toString() ?? "0",
+		input_cache_read: p?.cachedInputPrice?.toString() ?? "0",
+		input_cache_write: p?.cacheWriteInputPrice?.toString() ?? "0",
+		input_cache_write_1h: p?.cacheWriteInputPrice1h?.toString() ?? "0",
+		ocr_page: p?.ocrPagePrice?.toString(),
+	};
+}
+
+// Pick the provider mapping that represents the model-level pricing. Prefer a
+// mapping that is neither deactivated nor deprecated as of `currentDate` so the
+// reported pricing matches a provider actually serving the model; fall back to
+// any mapping with pricing when every active mapping lacks it.
+function pickPricingProvider(
+	providerMappings: ProviderModelMapping[],
+	currentDate: Date,
+): ProviderModelMapping | undefined {
+	const isActive = (p: ProviderModelMapping) =>
+		!(p.deactivatedAt && currentDate > p.deactivatedAt) &&
+		!(p.deprecatedAt && currentDate > p.deprecatedAt);
+
+	return (
+		providerMappings.find((p) => isActive(p) && hasPricing(p)) ??
+		providerMappings.find((p) => hasPricing(p))
+	);
 }
 
 function getPerRequestLimits(
