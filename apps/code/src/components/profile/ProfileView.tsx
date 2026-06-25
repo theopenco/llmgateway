@@ -1,6 +1,7 @@
 "use client";
 
 import { Calendar, Coins, Flame, Github, Hash, Zap } from "lucide-react";
+import Link from "next/link";
 
 import {
 	AGENTS,
@@ -9,6 +10,8 @@ import {
 } from "@/app/dashboard/components/coding-agents-shared";
 import { ProfileHeatmap } from "@/components/profile/ProfileHeatmap";
 import { ProfileTokensChart } from "@/components/profile/ProfileTokensChart";
+import { ProfileViewerCta } from "@/components/profile/ProfileViewerCta";
+import { ProfileWrapped } from "@/components/profile/ProfileWrapped";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -118,6 +121,13 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 					)}
 				</div>
 			</div>
+
+			{/* Wrapped card + share toolkit */}
+			{profile.username && (
+				<div className="mt-8">
+					<ProfileWrapped profile={profile} />
+				</div>
+			)}
 
 			<div className="mt-8 grid gap-8 lg:grid-cols-[240px_1fr]">
 				{/* Sidebar */}
@@ -293,6 +303,20 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 						<ProfileTokensChart activity={profile.activity} />
 					</section>
 				</div>
+			</div>
+
+			{/* Convert logged-out visitors */}
+			<ProfileViewerCta profile={profile} />
+
+			{/* Powered by */}
+			<div className="mt-10 border-t pt-6 text-center text-xs text-muted-foreground">
+				<Link href="/" className="transition-colors hover:text-foreground">
+					Powered by{" "}
+					<span className="font-semibold text-emerald-600 dark:text-emerald-400">
+						DevPass
+					</span>{" "}
+					— one key, every model
+				</Link>
 			</div>
 		</div>
 	);
