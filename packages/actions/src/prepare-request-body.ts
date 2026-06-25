@@ -761,18 +761,15 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 			continue;
 		}
 
-		// Regular messages: transform content types
-		const transformed: any = {
+		// Regular messages: transform content types. The Responses API input
+		// message items only accept `role`/`content` and reject `name` (Chat
+		// Completions allows `name` on system/user/assistant messages), so it is
+		// intentionally dropped here to avoid a 400 "Unknown parameter:
+		// 'input[N].name'".
+		items.push({
 			role: msg.role,
 			content: transformContentForResponsesApi(msg.content, msg.role),
-		};
-
-		// Copy name if present (for developer/system messages)
-		if (msg.name) {
-			transformed.name = msg.name;
-		}
-
-		items.push(transformed);
+		});
 	}
 
 	return items;

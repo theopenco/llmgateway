@@ -3041,6 +3041,23 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				),
 			).rejects.toBeInstanceOf(RequestError);
 		});
+
+		test("drops message `name` (Responses API rejects input[N].name)", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "system", content: "be terse", name: "system_helper" },
+					{ role: "user", content: "hello", name: "alice" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.every((i: any) => i.name === undefined)).toBe(
+				true,
+			);
+			expect(requestBody.input).toEqual([
+				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
+				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
+			]);
+		});
 	});
 
 	describe("google-ai-studio", () => {
