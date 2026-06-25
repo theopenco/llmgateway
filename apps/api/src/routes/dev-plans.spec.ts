@@ -35,6 +35,7 @@ vi.mock("@/routes/payments.js", async (importOriginal) => {
 
 const ORG_ID = "test-dev-plan-org";
 const SUBSCRIPTION_ID = "sub_dev_plan_upgrade";
+const originalProPriceId = process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID;
 
 describe("dev plan tier changes", () => {
 	let token: string;
@@ -43,6 +44,7 @@ describe("dev plan tier changes", () => {
 
 	beforeEach(async () => {
 		vi.clearAllMocks();
+		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
 		token = await createTestUser();
 		nowSeconds = Math.floor(Date.now() / 1000);
 		dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(nowSeconds * 1000);
@@ -67,6 +69,11 @@ describe("dev plan tier changes", () => {
 	});
 
 	afterEach(async () => {
+		if (originalProPriceId === undefined) {
+			delete process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID;
+		} else {
+			process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = originalProPriceId;
+		}
 		dateNowSpy.mockRestore();
 		await db.delete(tables.transaction);
 		await deleteAll();
