@@ -229,7 +229,7 @@ describe("Models API", () => {
 		]);
 	});
 
-	test("GET /v1/models should derive model-level pricing from an active provider mapping, not a deactivated one", async () => {
+	test("GET /v1/models should derive model-level pricing from the cheapest active provider mapping", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);
 
@@ -245,6 +245,34 @@ describe("Models API", () => {
 			p.imageInputPrice !== undefined ||
 			p.perSecondPrice !== undefined ||
 			p.ocrPagePrice !== undefined;
+		const score = (p: ProviderModelMapping) => {
+			const input =
+				p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
+			const output =
+				p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
+			if (input !== undefined || output !== undefined) {
+				return (input ?? 0) + (output ?? 0);
+			}
+			if (p.ocrPagePrice !== undefined) {
+				return Number(p.ocrPagePrice);
+			}
+			if (p.perSecondPrice) {
+				const values = Object.values(p.perSecondPrice).map(Number);
+				return values.length > 0 ? Math.min(...values) : Infinity;
+			}
+			if (p.requestPrice !== undefined) {
+				return Number(p.requestPrice);
+			}
+			if (p.imageInputPrice !== undefined) {
+				return Number(p.imageInputPrice);
+			}
+			return Infinity;
+		};
+		const cheapest = (candidates: ProviderModelMapping[]) =>
+			candidates.reduce<ProviderModelMapping | undefined>(
+				(best, p) => (best === undefined || score(p) < score(best) ? p : best),
+				undefined,
+			);
 
 		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
 
@@ -253,9 +281,11 @@ describe("Models API", () => {
 			expect(definition).toBeDefined();
 			const mappings = definition!.providers as ProviderModelMapping[];
 
+			const active = mappings.filter((p) => isActive(p) && hasPricing(p));
 			const expected =
-				mappings.find((p) => isActive(p) && hasPricing(p)) ??
-				mappings.find((p) => hasPricing(p));
+				active.length > 0
+					? cheapest(active)
+					: cheapest(mappings.filter((p) => hasPricing(p)));
 
 			expect(model.pricing.prompt).toBe(
 				expected?.inputPrice?.toString() ?? "0",
@@ -265,13 +295,16 @@ describe("Models API", () => {
 			);
 		}
 
-		// deepseek-v3.2's first mapping (deepseek) is deactivated, so the
-		// model-level cache-read price must not be DeepSeek's 0.028e-6.
+		// deepseek-v3.2: deepinfra is the cheapest active mapping
+		// (0.26e-6 + 0.38e-6), so the root pricing must come from it and not the
+		// deactivated DeepSeek mapping (whose cache read is 0.028e-6).
 		const deepseek = json.data.find(
 			(model: any) => model.id === "deepseek-v3.2",
 		);
 		expect(deepseek).toBeDefined();
-		expect(deepseek.pricing.input_cache_read).not.toBe("0.028e-6");
+		expect(deepseek.pricing.prompt).toBe("0.26e-6");
+		expect(deepseek.pricing.completion).toBe("0.38e-6");
+		expect(deepseek.pricing.input_cache_read).toBe("0.13e-6");
 	});
 
 	test("GET /v1/models exposes cache pricing detail per provider mapping", async () => {

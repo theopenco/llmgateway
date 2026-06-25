@@ -210,11 +210,9 @@ modelsApi.openapi(listModels, async (c) => {
 				| "audio"
 			)[] = model.output ?? ["text"];
 
-			// Pick the provider mapping whose pricing represents the model at the
-			// top level. Prefer a mapping that is neither deactivated nor
-			// deprecated as of now, so the model-level pricing reflects a
-			// provider that is actually serving the model; only fall back to a
-			// deactivated/deprecated mapping when no active mapping has pricing.
+			// Source the model-level pricing from the cheapest provider mapping
+			// that is actually serving the model (not deactivated/deprecated), so
+			// the root pricing reflects the best price a caller can get.
 			const pricingProvider = pickPricingProvider(model.providers, currentDate);
 
 			return {
@@ -353,10 +351,38 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 	};
 }
 
-// Pick the provider mapping that represents the model-level pricing. Prefer a
-// mapping that is neither deactivated nor deprecated as of `currentDate` so the
-// reported pricing matches a provider actually serving the model; fall back to
-// any mapping with pricing when every active mapping lacks it.
+// A single comparable cost for a provider mapping, used to pick the cheapest
+// one. Token-priced models compare on input + output price; models priced by
+// other units (OCR per page, video per second, per request, image) fall back to
+// those. Lower is cheaper; a mapping with no comparable price sorts last.
+function pricingScore(p: ProviderModelMapping): number {
+	const input = p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
+	const output =
+		p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
+	if (input !== undefined || output !== undefined) {
+		return (input ?? 0) + (output ?? 0);
+	}
+	if (p.ocrPagePrice !== undefined) {
+		return Number(p.ocrPagePrice);
+	}
+	if (p.perSecondPrice) {
+		const values = Object.values(p.perSecondPrice).map(Number);
+		return values.length > 0 ? Math.min(...values) : Infinity;
+	}
+	if (p.requestPrice !== undefined) {
+		return Number(p.requestPrice);
+	}
+	if (p.imageInputPrice !== undefined) {
+		return Number(p.imageInputPrice);
+	}
+	return Infinity;
+}
+
+// Pick the provider mapping that represents the model-level pricing: the
+// cheapest mapping that is neither deactivated nor deprecated as of
+// `currentDate`, so the reported pricing reflects the best price a caller can
+// actually get. Only fall back to deactivated/deprecated mappings when no
+// active mapping has pricing. Ties keep the earlier mapping in definition order.
 function pickPricingProvider(
 	providerMappings: ProviderModelMapping[],
 	currentDate: Date,
@@ -365,10 +391,19 @@ function pickPricingProvider(
 		!(p.deactivatedAt && currentDate > p.deactivatedAt) &&
 		!(p.deprecatedAt && currentDate > p.deprecatedAt);
 
-	return (
-		providerMappings.find((p) => isActive(p) && hasPricing(p)) ??
-		providerMappings.find((p) => hasPricing(p))
-	);
+	const cheapest = (candidates: ProviderModelMapping[]) =>
+		candidates.reduce<ProviderModelMapping | undefined>(
+			(best, p) =>
+				best === undefined || pricingScore(p) < pricingScore(best) ? p : best,
+			undefined,
+		);
+
+	const active = providerMappings.filter((p) => isActive(p) && hasPricing(p));
+	if (active.length > 0) {
+		return cheapest(active);
+	}
+
+	return cheapest(providerMappings.filter((p) => hasPricing(p)));
 }
 
 function getPerRequestLimits(
