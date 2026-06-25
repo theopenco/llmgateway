@@ -775,7 +775,8 @@ describe("api", () => {
 		expect(logs.length).toBe(1);
 		expect(logs[0].finishReason).toBe("client_error");
 		expect(logs[0].hasError).toBe(true);
-		expect(logs[0].serviceTier).toBeNull();
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBeNull();
 		expect(logs[0].errorDetails?.statusCode).toBe(400);
 		expect(logs[0].errorDetails?.cause).toBe("unsupported_service_tier");
 		expect(logs[0].errorDetails?.responseText).toContain(
@@ -869,7 +870,8 @@ describe("api", () => {
 
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBe(1);
-		expect(logs[0].serviceTier).toBe("priority");
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
 	test("/v1/chat/completions forwards generated request id upstream", async () => {

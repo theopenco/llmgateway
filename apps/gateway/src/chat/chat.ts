@@ -1441,6 +1441,13 @@ chat.openapi(completions, async (c) => {
 		user,
 	} = validationResult.data;
 
+	// The processing tier the client explicitly requested (flex / priority).
+	// Null when no premium tier was requested. Stored on every log alongside the
+	// tier the provider actually served (usedServiceTier).
+	const requestedServiceTier = isRequestedServiceTier(service_tier)
+		? service_tier
+		: null;
+
 	// Sticky-routing session key, in priority order: the explicit x-session-id
 	// header, then x-session-affinity (sent by coding agents such as opencode),
 	// then the OpenAI-native body fields (prompt_cache_key, then user). When
@@ -2031,7 +2038,8 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: false,
 						discount: null,
 						pricingTier: null,
-						serviceTier: null,
+						requestedServiceTier,
+						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
 					{ syncInsert: syncLogInsert },
@@ -2507,7 +2515,8 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: false,
 						discount: null,
 						pricingTier: null,
-						serviceTier: null,
+						requestedServiceTier,
+						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
 					{ syncInsert: syncLogInsert },
@@ -10261,7 +10270,8 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
-						serviceTier: servedServiceTier,
+						requestedServiceTier,
+						usedServiceTier: servedServiceTier,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -12234,7 +12244,8 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
-		serviceTier: servedServiceTier,
+		requestedServiceTier,
+		usedServiceTier: servedServiceTier,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,
