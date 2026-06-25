@@ -21,13 +21,14 @@ export function isExpectedUnknownFinishReason(
 	if (!finishReason) {
 		return false;
 	}
-	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
+	// Google's "OTHER" and "MALFORMED_RESPONSE" finish reasons are expected and
+	// map to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
-		finishReason === "OTHER"
+		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
 	) {
 		return true;
 	}
@@ -124,7 +125,7 @@ export function getUnifiedFinishReason(
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
-			if (finishReason === "OTHER") {
+			if (finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE") {
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;

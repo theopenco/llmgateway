@@ -123,6 +123,9 @@ describe("getUnifiedFinishReason", () => {
 		expect(
 			getUnifiedFinishReason("MALFORMED_FUNCTION_CALL", "google-ai-studio"),
 		).toBe(UnifiedFinishReason.TOOL_CALLS);
+		expect(
+			getUnifiedFinishReason("MALFORMED_RESPONSE", "google-ai-studio"),
+		).toBe(UnifiedFinishReason.UNKNOWN);
 	});
 
 	it("maps Glacier finish reasons like Google AI Studio", () => {
@@ -249,9 +252,24 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(isExpectedUnknownFinishReason("OTHER", "google-vertex")).toBe(true);
 	});
 
+	it("returns true for Google MALFORMED_RESPONSE finish reason", () => {
+		expect(
+			isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "google-ai-studio"),
+		).toBe(true);
+		expect(isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "glacier")).toBe(
+			true,
+		);
+		expect(
+			isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "google-vertex"),
+		).toBe(true);
+	});
+
 	it("returns false for OTHER from other providers", () => {
 		expect(isExpectedUnknownFinishReason("OTHER", "openai")).toBe(false);
 		expect(isExpectedUnknownFinishReason("OTHER", "anthropic")).toBe(false);
+		expect(isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "openai")).toBe(
+			false,
+		);
 	});
 
 	it("returns false for other finish reasons from Google", () => {
