@@ -23,7 +23,7 @@ const modelSchema = z.object({
 	architecture: z.object({
 		input_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
 		output_modalities: z.array(
-			z.enum(["text", "image", "video", "embedding", "audio"]),
+			z.enum(["text", "image", "video", "embedding", "audio", "ocr"]),
 		),
 		tokenizer: z.string().optional(),
 	}),
@@ -201,19 +201,17 @@ modelsApi.openapi(listModels, async (c) => {
 				inputModalities.push("image");
 			}
 
-			// Determine output modalities from model definition or default to text
-			// only. OCR is an internal routing capability rather than a public
-			// output modality — OCR models genuinely return text — so it surfaces
-			// as "text" here (per-page pricing already distinguishes them).
+			// Determine output modalities from the model definition or default to
+			// text only. These mirror the model catalog 1:1 (including "ocr") so
+			// third-party clients can reference the same modality taxonomy.
 			const outputModalities: (
 				| "text"
 				| "image"
 				| "video"
 				| "embedding"
 				| "audio"
-			)[] = (model.output ?? ["text"]).map((modality) =>
-				modality === "ocr" ? "text" : modality,
-			);
+				| "ocr"
+			)[] = model.output ?? ["text"];
 
 			// Source the model-level pricing from the cheapest provider mapping
 			// that is actually serving the model (not deactivated/deprecated), so

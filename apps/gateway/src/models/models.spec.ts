@@ -343,6 +343,9 @@ describe("Models API", () => {
 		);
 
 		expect(ocrModel).toBeDefined();
+		// OCR surfaces as its own output modality so third-party clients can
+		// reference the same taxonomy as the model catalog.
+		expect(ocrModel.architecture.output_modalities).toEqual(["ocr"]);
 		// $4 per 1,000 pages.
 		expect(ocrModel.pricing.ocr_page).toBe("0.004");
 		const mistralProvider = ocrModel.providers.find(
