@@ -11012,6 +11012,12 @@ chat.openapi(completions, async (c) => {
 				if (!(bodyError instanceof Error)) {
 					throw bodyError;
 				}
+				// A client disconnect can abort the in-flight body read; rethrow
+				// so the cancellation path (app.onError -> 499) is preserved
+				// instead of misreporting it as an upstream failure.
+				if (bodyError.name === "AbortError") {
+					throw bodyError;
+				}
 				// A read timeout or a mid-body socket failure (e.g. undici
 				// "terminated: other side closed" / ECONNRESET) both surface
 				// here while reading the upstream error body. Treat them as
@@ -11796,6 +11802,12 @@ chat.openapi(completions, async (c) => {
 	} catch (bodyError) {
 		// Re-throw non-Error values (mirrors the fetch catch above).
 		if (!(bodyError instanceof Error)) {
+			throw bodyError;
+		}
+		// A client disconnect can abort the in-flight body read; rethrow so the
+		// cancellation path (app.onError -> 499) is preserved instead of
+		// misreporting it as an upstream failure.
+		if (bodyError.name === "AbortError") {
 			throw bodyError;
 		}
 		// Both a read timeout and a mid-body socket failure (e.g. undici
