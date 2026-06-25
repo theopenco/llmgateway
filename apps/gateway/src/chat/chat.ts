@@ -11008,22 +11008,34 @@ chat.openapi(completions, async (c) => {
 					? extractAwsBedrockHttpError(res, rawErrorResponseText)
 					: rawErrorResponseText;
 			} catch (bodyError) {
-				if (isTimeoutError(bodyError)) {
-					const errorMessage =
-						bodyError instanceof Error
-							? bodyError.message
-							: "Timeout reading error response body";
+				// Re-throw non-Error values (mirrors the fetch catch above).
+				if (!(bodyError instanceof Error)) {
+					throw bodyError;
+				}
+				// A read timeout or a mid-body socket failure (e.g. undici
+				// "terminated: other side closed" / ECONNRESET) both surface
+				// here while reading the upstream error body. Treat them as
+				// upstream errors instead of bubbling up as an unhandled 500.
+				{
+					const isTimeoutBody = isTimeoutError(bodyError);
+					const errorMessage = bodyError.message;
 					const bodyErrorCause = extractErrorCause(bodyError);
-					logger.warn("Timeout reading error response body", {
-						usedProvider,
-						usedInternalModel,
-						status: res.status,
-						cause: bodyErrorCause,
-						unifiedFinishReason: getUnifiedFinishReason(
-							"upstream_error",
+					logger.warn(
+						isTimeoutBody
+							? "Timeout reading error response body"
+							: "Error reading error response body",
+						{
+							error: errorMessage,
 							usedProvider,
-						),
-					});
+							usedInternalModel,
+							status: res.status,
+							cause: bodyErrorCause,
+							unifiedFinishReason: getUnifiedFinishReason(
+								"upstream_error",
+								usedProvider,
+							),
+						},
+					);
 
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
@@ -11081,7 +11093,7 @@ chat.openapi(completions, async (c) => {
 						canceled: false,
 						errorDetails: {
 							statusCode: res.status,
-							statusText: "TimeoutError",
+							statusText: isTimeoutBody ? "TimeoutError" : bodyError.name,
 							responseText: errorMessage,
 							cause: bodyErrorCause,
 						},
@@ -11102,16 +11114,17 @@ chat.openapi(completions, async (c) => {
 					return c.json(
 						{
 							error: {
-								message: `Upstream provider timeout: ${errorMessage}`,
-								type: "upstream_timeout",
+								message: isTimeoutBody
+									? `Upstream provider timeout: ${errorMessage}`
+									: `Failed to read response from provider: ${errorMessage}`,
+								type: isTimeoutBody ? "upstream_timeout" : "upstream_error",
 								param: null,
-								code: "timeout",
+								code: isTimeoutBody ? "timeout" : "fetch_failed",
 							},
 						},
-						504,
+						isTimeoutBody ? 504 : 502,
 					);
 				}
-				throw bodyError;
 			}
 
 			// If the upstream Google provider rejected the request because the
@@ -11781,22 +11794,35 @@ chat.openapi(completions, async (c) => {
 			json = await res.json();
 		}
 	} catch (bodyError) {
-		if (isTimeoutError(bodyError)) {
-			const errorMessage =
-				bodyError instanceof Error
-					? bodyError.message
-					: "Timeout reading response body";
+		// Re-throw non-Error values (mirrors the fetch catch above).
+		if (!(bodyError instanceof Error)) {
+			throw bodyError;
+		}
+		// Both a read timeout and a mid-body socket failure (e.g. undici
+		// "terminated: other side closed" / ECONNRESET) surface here: the
+		// upstream already returned response headers but then failed while we
+		// read the body. Treat them all as upstream errors instead of letting
+		// them bubble to the global handler as an unhandled 500.
+		{
+			const isTimeoutBody = isTimeoutError(bodyError);
+			const errorMessage = bodyError.message;
 			const bodyReadCause = extractErrorCause(bodyError);
-			logger.warn("Timeout reading response body", {
-				usedProvider,
-				usedInternalModel,
-				initialRequestedModel,
-				cause: bodyReadCause,
-				unifiedFinishReason: getUnifiedFinishReason(
-					"upstream_error",
+			logger.warn(
+				isTimeoutBody
+					? "Timeout reading response body"
+					: "Error reading response body",
+				{
+					error: errorMessage,
 					usedProvider,
-				),
-			});
+					usedInternalModel,
+					initialRequestedModel,
+					cause: bodyReadCause,
+					unifiedFinishReason: getUnifiedFinishReason(
+						"upstream_error",
+						usedProvider,
+					),
+				},
+			);
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 			const baseLogEntry = createLogEntry(
@@ -11854,7 +11880,7 @@ chat.openapi(completions, async (c) => {
 				canceled: false,
 				errorDetails: {
 					statusCode: res.status,
-					statusText: "TimeoutError",
+					statusText: isTimeoutBody ? "TimeoutError" : bodyError.name,
 					responseText: errorMessage,
 					cause: bodyReadCause,
 				},
@@ -11875,16 +11901,21 @@ chat.openapi(completions, async (c) => {
 			return c.json(
 				{
 					error: {
-						message: `Upstream provider timeout: ${errorMessage}`,
-						type: "upstream_timeout",
+						message: isTimeoutBody
+							? `Upstream provider timeout: ${errorMessage}`
+							: `Failed to read response from provider: ${errorMessage}`,
+						type: isTimeoutBody ? "upstream_timeout" : "upstream_error",
 						param: null,
-						code: "timeout",
+						code: isTimeoutBody ? "timeout" : "fetch_failed",
+						requestedProvider,
+						usedProvider,
+						requestedModel: initialRequestedModel,
+						usedInternalModel,
 					},
 				},
-				504,
+				isTimeoutBody ? 504 : 502,
 			);
 		}
-		throw bodyError;
 	}
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });

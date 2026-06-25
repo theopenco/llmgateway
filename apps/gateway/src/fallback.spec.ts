@@ -423,6 +423,38 @@ describe("fallback and error status code handling", () => {
 			expect(log.requestedModel).toBe("llmgateway/custom");
 		});
 
+		test("upstream socket close while reading the response body is classified as upstream_error (502), not an unhandled 500", async () => {
+			await setupCustomKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "TRIGGER_BODY_ABORT" }],
+				}),
+			});
+
+			expect(res.status).toBe(502);
+			const json = await res.json();
+			expect(json).toHaveProperty("error");
+			expect(json.error.type).toBe("upstream_error");
+			expect(json.error.code).toBe("fetch_failed");
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+
+			const log = logs[0];
+			expect(log.finishReason).toBe("upstream_error");
+			expect(log.hasError).toBe(true);
+			expect(log.errorDetails).toBeTruthy();
+			expect(log.usedProvider).toBe("llmgateway");
+			expect(log.requestedModel).toBe("llmgateway/custom");
+		});
+
 		test("429 rate limit is classified as upstream_error with correct error details in DB log", async () => {
 			await setupCustomKeys();
 
