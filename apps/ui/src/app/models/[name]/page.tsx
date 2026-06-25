@@ -415,6 +415,23 @@ export default async function ModelPage({ params }: PageProps) {
 									video generation
 								</div>
 							)}
+							{modelProviders.some((p) => p.ocrPagePrice !== undefined) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const pagePrices = modelProviders
+											.filter((p) => p.ocrPagePrice !== undefined)
+											.map((p) => Number(p.ocrPagePrice))
+											.filter((n) => Number.isFinite(n));
+										if (pagePrices.length === 0) {
+											return "Unknown";
+										}
+										const minPrice = Math.min(...pagePrices);
+										return `$${(minPrice * 1000).toFixed(2)}`;
+									})()}{" "}
+									per 1,000 OCR pages
+								</div>
+							)}
 						</div>
 
 						{/* Capabilities (using same icons as /models) */}
@@ -583,10 +600,10 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name ?? model.id} — AI Model Pricing & Capabilities`;
+	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
 	const description =
 		model.description ??
-		`Details, pricing, and capabilities for ${model.name ?? model.id} on LLM Gateway.`;
+		`Compare ${model.name ?? model.id} pricing across providers, with its context window, capabilities, and one OpenAI-compatible API.`;
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;

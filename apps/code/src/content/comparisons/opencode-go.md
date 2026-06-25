@@ -42,9 +42,6 @@ features:
   - label: Switch models without switching keys
     devpass: true
     competitor: true
-  - label: "SoulForge token-reduction agent (~50% fewer tokens)"
-    devpass: true
-    competitor: false
   - label: Annual billing option
     devpass: true
     competitor: false
@@ -82,10 +79,10 @@ If your work never touches Claude, GPT or Gemini, the extra spend on DevPass buy
 
 ## The real difference: model coverage
 
-This is the line that matters. **OpenCode Go does not include Claude, GPT-5.5 or Gemini 3.1 Pro.** Open-weight models have come a long way, but they don't yet replace the frontier models for every job. DevPass gives you both worlds and lets you switch between them mid-session without changing keys — and pairs with **SoulForge**, the graph-powered agent that cuts token usage by roughly half, effectively doubling what your plan buys.
+This is the line that matters. **OpenCode Go does not include Claude, GPT-5.5 or Gemini 3.1 Pro.** Open-weight models have come a long way, but they don't yet replace the frontier models for every job. DevPass gives you both worlds and lets you switch between them mid-session without changing keys.
 
 ## Who should choose which
 
 **Choose OpenCode Go if** you live in OpenCode, only use open-weight models, and want the cheapest flat rate available.
 
-**Choose DevPass if** you want every model — open and frontier — under one key, in any tool, with a per-request cost breakdown and the option to halve your token spend with SoulForge.
+**Choose DevPass if** you want every model — open and frontier — under one key, in any tool, with a per-request cost breakdown.

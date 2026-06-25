@@ -26,6 +26,23 @@ import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
 
+/**
+ * Generic typed error for invalid client requests detected before we hit the
+ * upstream provider (e.g. malformed message shapes). The gateway maps this to
+ * the carried `statusCode` (default 400) and writes a client_error log row so
+ * the rejected request still shows up in the user's activity history instead
+ * of surfacing as a generic 500 with no log. Reuse this for any similar
+ * pre-upstream request validation failure.
+ */
+export class RequestError extends Error {
+	public readonly statusCode: number;
+	public constructor(message: string, statusCode = 400) {
+		super(message);
+		this.name = "RequestError";
+		this.statusCode = statusCode;
+	}
+}
+
 function getProviderMapping(
 	modelDef: ModelDefinition | undefined,
 	usedProvider: ProviderId,
@@ -639,18 +656,65 @@ function transformContentForResponsesApi(content: any, role: string): any {
  * The Responses API uses a flat list of "items" rather than messages:
  * - Regular messages become items with role/content
  * - Assistant tool_calls become separate { type: "function_call" } items
- * - Tool result messages become { type: "function_call_output" } items
+ * - Tool result messages (role "tool" and the legacy role "function") become
+ *   { type: "function_call_output" } items
  * Content types are also transformed (text -> input_text/output_text, image_url -> input_image)
+ *
+ * Tool results are paired with their function call via `call_id`. The Chat
+ * Completions spec requires `tool_call_id` on `tool` messages, but real callers
+ * sometimes omit it (legacy `function` role results carry only `name`, and some
+ * clients drop the id when replaying history). We recover the id from the
+ * preceding unmatched function calls, but only when the pairing is unambiguous:
+ * by explicit id, by a unique matching function name, or when exactly one call
+ * is still unmatched. Ambiguous cases throw rather than risk attaching a result
+ * to the wrong call.
  */
 function transformMessagesForResponsesApi(messages: any[]): any[] {
 	const items: any[] = [];
 
+	// FIFO of function calls emitted from assistant tool_calls that have not yet
+	// been consumed by a function_call_output. Used to recover the call_id of a
+	// tool/function result message that omits tool_call_id.
+	const pendingCalls: { callId: string; name?: string }[] = [];
+
+	const resolveCallId = (msg: any): string | undefined => {
+		// Explicit tool_call_id wins, but only if it references a real pending
+		// call. An id that matches nothing is orphaned (OpenAI would reject the
+		// function_call_output), so surface a clean 400 rather than trust it.
+		if (msg.tool_call_id) {
+			const idx = pendingCalls.findIndex((c) => c.callId === msg.tool_call_id);
+			if (idx === -1) {
+				return undefined;
+			}
+			pendingCalls.splice(idx, 1);
+			return msg.tool_call_id;
+		}
+		// No explicit id: recover only when the pairing is unambiguous. Guessing
+		// (oldest-first) silently misattributes a tool output to the wrong call
+		// when parallel results arrive out of order, so prefer a clean 400.
+		// Legacy `function` role (and tool messages that carry a function name):
+		// pair only when exactly one pending call shares that name.
+		if (msg.name) {
+			const named = pendingCalls.filter((c) => c.name === msg.name);
+			if (named.length === 1) {
+				const idx = pendingCalls.findIndex((c) => c.name === msg.name);
+				return pendingCalls.splice(idx, 1)[0].callId;
+			}
+		}
+		// Otherwise recover only when exactly one call is still unmatched.
+		if (pendingCalls.length === 1) {
+			return pendingCalls.shift()?.callId;
+		}
+		return undefined;
+	};
+
 	for (const msg of messages) {
-		// Tool result messages become function_call_output items
-		if (msg.role === "tool") {
-			if (!msg.tool_call_id) {
-				throw new Error(
-					"tool message is missing tool_call_id, required for Responses API function_call_output",
+		// Tool/function result messages become function_call_output items
+		if (msg.role === "tool" || msg.role === "function") {
+			const callId = resolveCallId(msg);
+			if (!callId) {
+				throw new RequestError(
+					"tool message could not be matched to a preceding tool call; the Responses API requires every function_call_output to reference a function_call (supply tool_call_id)",
 				);
 			}
 			const output =
@@ -661,7 +725,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 						: "";
 			items.push({
 				type: "function_call_output",
-				call_id: msg.tool_call_id,
+				call_id: callId,
 				output,
 			});
 			continue;
@@ -689,22 +753,23 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 					name: toolCall.function.name,
 					arguments: toolCall.function.arguments,
 				});
+				pendingCalls.push({
+					callId: toolCall.id,
+					name: toolCall.function?.name,
+				});
 			}
 			continue;
 		}
 
-		// Regular messages: transform content types
-		const transformed: any = {
+		// Regular messages: transform content types. The Responses API input
+		// message items only accept `role`/`content` and reject `name` (Chat
+		// Completions allows `name` on system/user/assistant messages), so it is
+		// intentionally dropped here to avoid a 400 "Unknown parameter:
+		// 'input[N].name'".
+		items.push({
 			role: msg.role,
 			content: transformContentForResponsesApi(msg.content, msg.role),
-		};
-
-		// Copy name if present (for developer/system messages)
-		if (msg.name) {
-			transformed.name = msg.name;
-		}
-
-		items.push(transformed);
+		});
 	}
 
 	return items;
@@ -1362,6 +1427,7 @@ export async function prepareRequestBody(
 
 	switch (usedProvider) {
 		case "azure":
+		case "sakana":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1391,11 +1457,22 @@ export async function prepareRequestBody(
 				const transformedMessages =
 					transformMessagesForResponsesApi(processedMessages);
 
+				// Fugu always reasons and only accepts "high"/"xhigh" effort — it has
+				// no off switch and rejects none/minimal/low/medium — so every tier at
+				// or below "high" (including a dropped "none") collapses onto its
+				// minimum ("high"), and "max" maps to its top tier ("xhigh").
+				const responsesReasoningEffort =
+					usedProvider === "sakana"
+						? reasoning_effort === "xhigh" || reasoning_effort === "max"
+							? "xhigh"
+							: "high"
+						: (genericReasoningEffort ?? defaultEffort);
+
 				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedExternalId,
 					input: transformedMessages,
 					reasoning: {
-						effort: genericReasoningEffort ?? defaultEffort,
+						effort: responsesReasoningEffort,
 						summary: "detailed",
 					},
 				};
@@ -1571,7 +1648,17 @@ export async function prepareRequestBody(
 					requestBody.presence_penalty = presence_penalty;
 				}
 				if (reasoning_effort !== undefined) {
-					requestBody.reasoning_effort = genericReasoningEffort;
+					if (usedProvider === "sakana") {
+						// Streaming Fugu uses Chat Completions, which (like its Responses
+						// API) only accepts "high"/"xhigh"/"max". Collapse the lower
+						// OpenAI tiers onto "high".
+						requestBody.reasoning_effort =
+							reasoning_effort === "xhigh" || reasoning_effort === "max"
+								? reasoning_effort
+								: "high";
+					} else {
+						requestBody.reasoning_effort = genericReasoningEffort;
+					}
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;
@@ -2351,6 +2438,46 @@ export async function prepareRequestBody(
 				}
 			}
 
+			// Bedrock's Converse API rejects any request whose message history
+			// contains toolUse/toolResult blocks unless `toolConfig` is also
+			// defined ("The toolConfig field must be defined when using toolUse
+			// and toolResult content blocks."). OpenAI and Anthropic both accept
+			// tool blocks in history without re-declaring tools on the follow-up
+			// turn, so a request that omits `tools` but continues a tool-use
+			// conversation succeeds on those providers and only 400s on Bedrock.
+			// When that happens, synthesize a minimal toolConfig from the tool
+			// names already present in the assistant toolUse blocks so the
+			// history validates.
+			if (!requestBody.toolConfig) {
+				const historyToolNames = new Set<string>();
+				for (const bedrockMessage of bedrockMessages) {
+					if (!Array.isArray(bedrockMessage.content)) {
+						continue;
+					}
+					for (const block of bedrockMessage.content) {
+						if (block?.toolUse?.name) {
+							historyToolNames.add(block.toolUse.name);
+						}
+					}
+				}
+
+				if (historyToolNames.size > 0) {
+					requestBody.toolConfig = {
+						tools: Array.from(historyToolNames).map((name) => ({
+							toolSpec: {
+								name,
+								inputSchema: {
+									json: {
+										type: "object",
+										properties: {},
+									},
+								},
+							},
+						})),
+					};
+				}
+			}
+
 			// Add inferenceConfig for optional parameters
 			const inferenceConfig: any = {};
 			if (temperature !== undefined) {
@@ -2368,7 +2495,10 @@ export async function prepareRequestBody(
 			}
 
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+			if (
+				supportsReasoning &&
+				(effort || reasoning_effort || reasoning_max_tokens)
+			) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
@@ -2451,8 +2581,18 @@ export async function prepareRequestBody(
 						inferenceConfig.maxTokens = reasoningFloor;
 					}
 				}
-				// Anthropic requires temperature to be exactly 1 when thinking is enabled
-				inferenceConfig.temperature = 1;
+				// Anthropic requires temperature to be exactly 1 when thinking is
+				// enabled — but only for models that still accept temperature. Opus
+				// 4.8 deprecated temperature/top_p and returns a 400 for any value,
+				// so honor the mapping's supportedParameters and omit it there.
+				const bedrockSupportedParams =
+					providerMappingForOptions?.supportedParameters;
+				if (
+					!bedrockSupportedParams ||
+					bedrockSupportedParams.includes("temperature")
+				) {
+					inferenceConfig.temperature = 1;
+				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
 				}

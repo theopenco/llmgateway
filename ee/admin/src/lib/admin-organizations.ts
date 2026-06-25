@@ -36,6 +36,7 @@ export async function loadProjectLogsAction(
 		model?: string;
 		source?: string;
 		unifiedFinishReason?: string;
+		hasError?: string;
 	},
 ) {
 	const $api = await createServerApiClient();

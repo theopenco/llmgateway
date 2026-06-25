@@ -11,7 +11,6 @@ import {
 	LandingPageTracker,
 } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
-import { SoulForgeBoost } from "@/components/SoulForgeBoost";
 import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
@@ -48,9 +47,9 @@ const featuredTools = [
 		name: "SoulForge",
 		icon: SoulForgeIcon,
 		description:
-			"Graph-powered coding agent. Maps your repo on launch and edits TypeScript by symbol name, not by find-and-replace. Roughly half the tokens of an equivalent Claude Code or OpenCode session. Pair with DevPass to double your monthly usage.",
+			"Graph-powered coding agent. Maps your repo on launch and edits TypeScript by symbol name, not by find-and-replace. Run `soulforge`, type `/keys`, paste your DevPass key.",
 		setup: "/keys → paste your key",
-		highlight: "Graph-powered · −50%",
+		highlight: "Graph-powered",
 	},
 ];
 
@@ -87,10 +86,8 @@ export default function LandingPage() {
 							<p className="mx-auto mb-4 max-w-xl text-lg leading-relaxed text-muted-foreground">
 								DevPass turns every dollar you spend into{" "}
 								<span className="font-semibold text-foreground">$3</span> of
-								model usage at provider rates. Pair it with{" "}
-								<span className="font-semibold text-foreground">SoulForge</span>{" "}
-								— the graph-powered agent — and that stretches to roughly{" "}
-								<span className="font-semibold text-foreground">$6</span>.
+								model usage at provider rates — metered transparently, with no
+								token math.
 							</p>
 							<p className="mx-auto mb-10 max-w-xl text-sm text-muted-foreground">
 								Works the same in Claude Code, OpenCode, SoulForge, Cline, and
@@ -169,9 +166,6 @@ export default function LandingPage() {
 						</div>
 					</div>
 				</section>
-
-				{/* SoulForge boost band */}
-				<SoulForgeBoost />
 
 				{/* Pricing */}
 				<section id="pricing" className="scroll-mt-16 py-20 px-4">

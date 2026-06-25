@@ -1,0 +1,153 @@
+---
+title: OCR
+description: Extract text and structure from documents and images as markdown with the OCR API
+icon: ScanText
+---
+
+# OCR
+
+LLMGateway exposes a dedicated `/v1/ocr` endpoint for optical character
+recognition. It extracts text, tables, and layout from PDFs and images and
+returns them as clean markdown, one entry per page.
+
+Use it when you want to:
+
+- Turn scanned PDFs or photos into machine-readable markdown
+- Pull structured text out of receipts, invoices, forms, or screenshots
+- Feed document contents into a downstream model or RAG pipeline
+
+For the full request and response schema, see the
+[API reference](/v1/ocr).
+
+## Endpoint
+
+`POST https://api.llmgateway.io/v1/ocr`
+
+Authenticate with your LLMGateway API key:
+
+```bash
+-H "Authorization: Bearer $LLM_GATEWAY_API_KEY"
+```
+
+The current model is `mistral-ocr-latest`, billed at **$4 per 1,000 pages**
+processed.
+
+## Document Input
+
+The `document` field accepts either a document URL (PDF) or an image:
+
+- `{ "type": "document_url", "document_url": "https://…/file.pdf" }`
+- `{ "type": "image_url", "image_url": "https://…/image.png" }`
+
+Both `document_url` and `image_url` accept a public URL or a base64 data URL
+(`data:application/pdf;base64,…` / `data:image/png;base64,…`). The `image_url`
+field may also be passed as an object: `{ "url": "…" }`.
+
+### Scoping pages
+
+By default the entire document is processed and every page is billed. Use the
+optional `pages` field to restrict (and cap the cost of) a request:
+
+- A list of zero-based indices: `"pages": [0, 1, 2]`
+- A range string: `"pages": "0-4"`
+
+## curl
+
+### Document URL
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/ocr" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mistral-ocr-latest",
+    "document": {
+      "type": "document_url",
+      "document_url": "https://arxiv.org/pdf/2201.04234"
+    }
+  }'
+```
+
+### Only specific pages
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/ocr" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mistral-ocr-latest",
+    "document": {
+      "type": "document_url",
+      "document_url": "https://arxiv.org/pdf/2201.04234"
+    },
+    "pages": "0-4"
+  }'
+```
+
+### Image input
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/ocr" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mistral-ocr-latest",
+    "document": {
+      "type": "image_url",
+      "image_url": "https://example.com/receipt.png"
+    }
+  }'
+```
+
+### Inline (base64) document
+
+```bash
+BASE64_PDF=$(base64 -i invoice.pdf)
+
+curl -X POST "https://api.llmgateway.io/v1/ocr" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"mistral-ocr-latest\",
+    \"document\": {
+      \"type\": \"document_url\",
+      \"document_url\": \"data:application/pdf;base64,${BASE64_PDF}\"
+    }
+  }"
+```
+
+## Response Shape
+
+```json
+{
+	"pages": [
+		{
+			"index": 0,
+			"markdown": "# Document title\n\nExtracted body text…",
+			"images": [],
+			"dimensions": { "dpi": 200, "height": 2200, "width": 1700 }
+		}
+	],
+	"model": "mistral-ocr-latest",
+	"document_annotation": null,
+	"usage_info": {
+		"pages_processed": 1,
+		"doc_size_bytes": 125344
+	}
+}
+```
+
+Each entry in `pages` carries the markdown for one page. `usage_info.pages_processed`
+reflects exactly how many pages were billed for the request.
+
+## Billing
+
+OCR is billed per page processed, not per token. A request that processes 12
+pages bills `12 × $0.004 = $0.048`. Scoping a request with `pages` reduces both
+the work and the cost.
+
+## OCR Models Use This Endpoint, Not Chat
+
+OCR models are not chat models and cannot be called through
+`/v1/chat/completions` — doing so returns a `400` pointing you here. Send OCR
+requests to `/v1/ocr`.

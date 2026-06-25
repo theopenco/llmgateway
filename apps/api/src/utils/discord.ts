@@ -1,9 +1,6 @@
 import { logger } from "@llmgateway/logger";
 
 const discordWebhookUrl = process.env.DISCORD_NOTIFICATION_URL;
-const discordSupportWebhookUrl =
-	process.env.DISCORD_SUPPORT_NOTIFICATION_URL ??
-	process.env.DISCORD_NOTIFICATION_URL;
 
 interface DiscordEmbed {
 	title: string;
@@ -245,7 +242,8 @@ export async function notifyChatSupportEscalation(args: {
 				},
 			],
 		},
-		discordSupportWebhookUrl,
+		process.env.DISCORD_SUPPORT_NOTIFICATION_URL ??
+			process.env.DISCORD_NOTIFICATION_URL,
 	);
 }
 

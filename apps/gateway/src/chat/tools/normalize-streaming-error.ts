@@ -14,6 +14,13 @@ export interface NormalizeStreamingErrorOptions {
 }
 
 export interface NormalizedStreamingError {
+	/**
+	 * True when the failure is an expected upstream-side disconnect (the provider
+	 * closed the socket mid-stream, e.g. "terminated: other side closed"), rather
+	 * than a gateway-side streaming read fault. Callers use this to avoid logging
+	 * the error at server-error severity and to classify it as an upstream error.
+	 */
+	terminated: boolean;
 	client: {
 		message: string;
 		type: "gateway_error";
@@ -163,6 +170,7 @@ export function normalizeStreamingError(
 	const responseText = cause ? `${rawMessage} | cause: ${cause}` : rawMessage;
 
 	return {
+		terminated,
 		client: {
 			message,
 			type: "gateway_error",

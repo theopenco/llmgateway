@@ -838,6 +838,23 @@ export function parseProviderResponse(
 				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
 				totalTokens = json.usage?.total_tokens ?? null;
 
+				// Sakana Fugu bills the orchestration tokens consumed by its underlying
+				// agent pool on top of the user-visible input/output tokens. They are
+				// reported in the *_tokens_details and are real billable usage, so fold
+				// them into the prompt/completion (and cached) counts used for costing.
+				if (usedProvider === "sakana" && json.usage) {
+					const inDetails = json.usage.input_tokens_details ?? {};
+					const outDetails = json.usage.output_tokens_details ?? {};
+					promptTokens =
+						(promptTokens ?? 0) + (inDetails.orchestration_input_tokens ?? 0);
+					completionTokens =
+						(completionTokens ?? 0) +
+						(outDetails.orchestration_output_tokens ?? 0);
+					cachedTokens =
+						(cachedTokens ?? 0) +
+						(inDetails.orchestration_input_cached_tokens ?? 0);
+				}
+
 				// Count web_search_call items for pricing (each call is billed, not each citation)
 				const webSearchCalls = json.output.filter(
 					(item: any) => item.type === "web_search_call",

@@ -202,7 +202,8 @@ const logSchema = z.object({
 		.nullable()
 		.optional(),
 	discount: z.number().nullable().optional(),
-	serviceTier: z.string().nullable().optional(),
+	requestedServiceTier: z.string().nullable().optional(),
+	usedServiceTier: z.string().nullable().optional(),
 	retried: z.boolean().nullable().optional(),
 	retriedByLogId: z.string().nullable().optional(),
 	gatewayContentFilterResponse: gatewayContentFilterResponseSchema
@@ -523,13 +524,14 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(lte(tables.log.createdAt, new Date(endDate)));
 	}
 
-	// Add model filter - match the model name part after the slash,
+	// Add model filter - match the model id part after the slash and before any
+	// `:region` suffix (usedModel is stored as `provider/modelId[:region]`),
 	// or the full value if there's no slash (seed data / legacy format)
 	if (model) {
 		whereConditions.push(
 			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
-				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
-				ELSE ${tables.log.usedModel}
+				THEN SPLIT_PART(SPLIT_PART(${tables.log.usedModel}, '/', 2), ':', 1)
+				ELSE SPLIT_PART(${tables.log.usedModel}, ':', 1)
 			END = ${model}`,
 		);
 	}

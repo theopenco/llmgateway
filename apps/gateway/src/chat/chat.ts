@@ -60,6 +60,7 @@ import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
+	isLengthLimitFinishReason,
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
@@ -98,6 +99,8 @@ import {
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	selectProviderMapping,
+	RequestError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
@@ -1438,6 +1441,13 @@ chat.openapi(completions, async (c) => {
 		user,
 	} = validationResult.data;
 
+	// The processing tier the client explicitly requested (flex / priority).
+	// Null when no premium tier was requested. Stored on every log alongside the
+	// tier the provider actually served (usedServiceTier).
+	const requestedServiceTier = isRequestedServiceTier(service_tier)
+		? service_tier
+		: null;
+
 	// Sticky-routing session key, in priority order: the explicit x-session-id
 	// header, then x-session-affinity (sent by coding agents such as opencode),
 	// then the OpenAI-native body fields (prompt_cache_key, then user). When
@@ -1758,6 +1768,26 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Text-to-speech and video models are served by dedicated endpoints
+	// (/v1/audio/speech and /v1/videos). Routing them through chat completions
+	// would fall through to a confusing "requires a baseUrl" error during
+	// endpoint resolution, so reject them early with a pointer to the right
+	// endpoint. Image-only models (e.g. reve, grok-image) are intentionally
+	// allowed here — they are served by the chat-completions image flow.
+	const modelOutput = modelInfo.output;
+	if (modelOutput && !modelOutput.includes("text")) {
+		if (modelOutput.includes("audio")) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} is a text-to-speech model and is not available on the chat completions endpoint. Use the /v1/audio/speech endpoint instead.`,
+			});
+		}
+		if (modelOutput.includes("video")) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} is a video generation model and is not available on the chat completions endpoint. Use the /v1/videos endpoint instead.`,
+			});
+		}
+	}
+
 	// Validate that models requiring image input have at least one image in the request
 	if (
 		modelInfo.imageInputRequired &&
@@ -2008,7 +2038,8 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: false,
 						discount: null,
 						pricingTier: null,
-						serviceTier: null,
+						requestedServiceTier,
+						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
 					{ syncInsert: syncLogInsert },
@@ -2484,7 +2515,8 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: false,
 						discount: null,
 						pricingTier: null,
-						serviceTier: null,
+						requestedServiceTier,
+						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
 					{ syncInsert: syncLogInsert },
@@ -5007,9 +5039,16 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if the selected provider supports reasoning (from specific mapping, not any)
-	const selectedProviderMapping = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.region === usedRegion,
+	// Check if the selected provider supports reasoning (from specific mapping, not
+	// any). Resolves the exact (providerId, region) mapping when available and falls
+	// back to the region-agnostic mapping otherwise — unpinned routing leaves
+	// `modelInfo.providers` un-expanded (root mapping only, `region: undefined`)
+	// while `usedRegion` resolves to a concrete value (e.g. AWS Bedrock's `global`),
+	// so an exact-region lookup would silently drop reasoning support.
+	const selectedProviderMapping = selectProviderMapping(
+		modelInfo.providers,
+		usedProvider,
+		usedRegion,
 	);
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
 	let splitTaggedReasoning =
@@ -5874,8 +5913,10 @@ chat.openapi(completions, async (c) => {
 		if (
 			e instanceof InvalidFileContentError ||
 			e instanceof UnsupportedAudioFormatError ||
-			e instanceof UnsupportedDocumentFormatError
+			e instanceof UnsupportedDocumentFormatError ||
+			e instanceof RequestError
 		) {
+			const statusCode = e instanceof RequestError ? e.statusCode : 400;
 			try {
 				await insertLogEntry({
 					...createLogEntry(
@@ -5917,7 +5958,7 @@ chat.openapi(completions, async (c) => {
 					streamed: !!stream,
 					canceled: false,
 					errorDetails: {
-						statusCode: 400,
+						statusCode,
 						statusText: "Bad Request",
 						responseText: e.message,
 						cause: e.constructor.name,
@@ -9266,7 +9307,7 @@ chat.openapi(completions, async (c) => {
 							phase: "upstream_read",
 						});
 
-						logger.error("Error reading upstream stream", toError(error), {
+						const upstreamReadErrorMeta = {
 							requestId,
 							usedProvider,
 							requestedProvider,
@@ -9291,12 +9332,30 @@ chat.openapi(completions, async (c) => {
 							firstTokenReceived,
 							firstReasoningTokenReceived,
 							unifiedFinishReason: getUnifiedFinishReason(
-								normalizedStreamingError.client.type === "gateway_error"
-									? "gateway_error"
-									: "upstream_error",
+								normalizedStreamingError.terminated
+									? "upstream_error"
+									: "gateway_error",
 								usedProvider,
 							),
-						});
+						};
+
+						// An upstream-side socket close (e.g. "terminated: other side
+						// closed") is an expected provider disconnect, not a gateway/server
+						// fault, so log it at warn severity to avoid raising server-error
+						// alerts. Genuine gateway-side streaming read faults stay at error.
+						if (normalizedStreamingError.terminated) {
+							logger.warn(
+								"Error reading upstream stream",
+								toError(error),
+								upstreamReadErrorMeta,
+							);
+						} else {
+							logger.error(
+								"Error reading upstream stream",
+								toError(error),
+								upstreamReadErrorMeta,
+							);
+						}
 
 						// Forward the error to the client with the buffered content that caused the error
 						try {
@@ -9323,6 +9382,12 @@ chat.openapi(completions, async (c) => {
 						}
 
 						streamingError = normalizedStreamingError.log;
+						// Classify the inference log so it isn't recorded as UNKNOWN: an
+						// upstream socket close is an upstream error, a genuine read fault
+						// is a gateway error.
+						finishReason = normalizedStreamingError.terminated
+							? "upstream_error"
+							: "gateway_error";
 					}
 				} finally {
 					// Clean up the reader to prevent file descriptor leaks
@@ -9483,12 +9548,20 @@ chat.openapi(completions, async (c) => {
 						finishReason,
 						usedProvider,
 					);
+					// A length-limit finish reason (e.g. a tiny `max_tokens`) can
+					// legitimately produce no content, so treat an empty response in
+					// that case as expected rather than an upstream error.
+					const isLengthLimitStreamingResponse = isLengthLimitFinishReason(
+						finishReason,
+						usedProvider,
+					);
 					const hasEmptyResponse =
 						!streamingError &&
 						!hasUpstreamErrorFinishReason &&
 						finishReason &&
 						finishReason !== "incomplete" &&
 						!isContentFilterStreamingResponse &&
+						!isLengthLimitStreamingResponse &&
 						(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 						(!fullContent || fullContent.trim() === "") &&
@@ -10197,7 +10270,8 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
-						serviceTier: servedServiceTier,
+						requestedServiceTier,
+						usedServiceTier: servedServiceTier,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -12064,10 +12138,18 @@ chat.openapi(completions, async (c) => {
 		finishReason,
 		usedProvider,
 	);
+	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
+	// produce no content at all, so an empty response in that case is expected
+	// behavior rather than an upstream error.
+	const isLengthLimitResponse = isLengthLimitFinishReason(
+		finishReason,
+		usedProvider,
+	);
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "incomplete" &&
 		!isContentFilterResponse &&
+		!isLengthLimitResponse &&
 		!hasMeaningfulAssistantOutput({
 			completionTokens: calculatedCompletionTokens,
 			reasoningTokens: calculatedReasoningTokens,
@@ -12162,7 +12244,8 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
-		serviceTier: servedServiceTier,
+		requestedServiceTier,
+		usedServiceTier: servedServiceTier,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,

@@ -37,7 +37,7 @@ const comparisonData = [
 				title: "Real-time cost analytics",
 				description: "Detailed cost tracking for every request",
 				llmgateway: true,
-				openrouter: "Basic",
+				openrouter: true,
 			},
 			{
 				title: "Latency analytics",
@@ -49,7 +49,7 @@ const comparisonData = [
 				title: "Request-level insights",
 				description: "Granular analytics for each API call",
 				llmgateway: true,
-				openrouter: false,
+				openrouter: true,
 			},
 			{
 				title: "Usage dashboard",
@@ -84,7 +84,7 @@ const comparisonData = [
 				title: "Priority support",
 				description: "Dedicated support for paid plans",
 				llmgateway: "Enterprise",
-				openrouter: false,
+				openrouter: "Enterprise only",
 			},
 		],
 	},

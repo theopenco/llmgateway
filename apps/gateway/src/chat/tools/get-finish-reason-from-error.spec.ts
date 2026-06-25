@@ -84,13 +84,13 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(400, alibabaError)).toBe("content_filter");
 	});
 
-	it("returns client_error for zai content filter", () => {
+	it("returns content_filter for zai content filter", () => {
 		expect(
 			getFinishReasonFromError(
 				400,
 				"System detected potentially unsafe or sensitive content in input or generation",
 			),
-		).toBe("client_error");
+		).toBe("content_filter");
 	});
 
 	it("returns client_error for OpenAI JSON format validation error", () => {
@@ -182,6 +182,24 @@ describe("getFinishReasonFromError", () => {
 	it("returns gateway_error for bare 'Not Found' body", () => {
 		expect(getFinishReasonFromError(400, "Not Found")).toBe("gateway_error");
 		expect(getFinishReasonFromError(400, "  Not Found  ")).toBe(
+			"gateway_error",
+		);
+	});
+
+	it("returns gateway_error for Azure missing deployment errors", () => {
+		const azureDeploymentError = JSON.stringify({
+			type: "error",
+			error: {
+				type: "invalid_request_error",
+				code: null,
+				headers: { "x-ms-fe-error": "true" },
+				message:
+					"Could not find an existing deployment to match the model in the request. Please verify the model matches an existing deployment in the account.",
+				param: null,
+			},
+			sequence_number: 2,
+		});
+		expect(getFinishReasonFromError(400, azureDeploymentError)).toBe(
 			"gateway_error",
 		);
 	});

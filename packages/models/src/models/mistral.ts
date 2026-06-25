@@ -225,4 +225,30 @@ export const mistralModels = [
 			},
 		],
 	},
+	{
+		id: "mistral-ocr-latest",
+		name: "Mistral OCR",
+		description:
+			"Mistral's OCR model that extracts text, tables, and structure from documents and images as markdown via the /v1/ocr endpoint.",
+		family: "mistral",
+		releasedAt: new Date("2025-03-06"),
+		providers: [
+			{
+				providerId: "mistral",
+				externalId: "mistral-ocr-latest",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				// $4 per 1,000 pages processed.
+				ocrPagePrice: "0.004",
+				contextSize: 0,
+				maxOutput: undefined,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				ocr: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

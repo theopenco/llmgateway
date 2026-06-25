@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { prepareRequestBody } from "./prepare-request-body.js";
+import { prepareRequestBody, RequestError } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
@@ -506,6 +506,42 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 
 		expect(requestBody.prompt_cache_key).toBe("tenant-a");
 		expect(requestBody.prompt_cache_retention).toBe("in_memory");
+	});
+
+	test("should throw a typed RequestError for tool messages without tool_call_id", async () => {
+		await expect(
+			prepareRequestBody(
+				"openai",
+				"gpt-5.5",
+				null,
+				"gpt-5.5",
+				[
+					{ role: "user", content: "Hello!" },
+					{ role: "tool", content: "result" } as any,
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true,
+			),
+		).rejects.toBeInstanceOf(RequestError);
 	});
 
 	test("should not forward OpenAI prompt cache controls to Azure", async () => {
@@ -2065,6 +2101,92 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			],
 		});
 	});
+	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-8",
+			null,
+			"anthropic.claude-opus-4-8",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17, unit: "celsius" }),
+				},
+				{ role: "user", content: "Thanks, what should I wear?" },
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined, // tools omitted on the follow-up turn
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		// Bedrock requires toolConfig whenever toolUse/toolResult blocks are
+		// present in the history, so it must be synthesized from the tool
+		// names seen in the assistant toolUse blocks.
+		expect(requestBody.toolConfig).toEqual({
+			tools: [
+				{
+					toolSpec: {
+						name: "get_weather",
+						inputSchema: {
+							json: {
+								type: "object",
+								properties: {},
+							},
+						},
+					},
+				},
+			],
+		});
+	});
+
+	test("does not synthesize toolConfig when history has no tool blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-8",
+			null,
+			"anthropic.claude-opus-4-8",
+			[{ role: "user", content: "Hello there" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
@@ -2714,6 +2836,227 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				type: "input_image",
 				image_url: dataUrl,
 			});
+		});
+
+		const responsesArgs = (messages: any[]) =>
+			[
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				messages,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			] as const;
+
+		test("pairs tool result with preceding tool_call via explicit tool_call_id", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const output = requestBody.input.find(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(output).toEqual({
+				type: "function_call_output",
+				call_id: "call_abc",
+				output: JSON.stringify({ temperature: 17 }),
+			});
+		});
+
+		test("recovers call_id when a lone tool result omits tool_call_id", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const output = requestBody.input.find(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(output.call_id).toBe("call_abc");
+		});
+
+		test("matches legacy function-role results by unique name", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather and time in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_weather",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+							{
+								id: "call_time",
+								type: "function",
+								function: { name: "get_time", arguments: "{}" },
+							},
+						],
+					},
+					// Legacy `function` role: no tool_call_id, only name. Matched by
+					// unique name, so out-of-order results still resolve correctly.
+					{
+						role: "function",
+						name: "get_time",
+						content: JSON.stringify({ time: "20:52" }),
+					},
+					{
+						role: "function",
+						name: "get_weather",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const outputs = requestBody.input.filter(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(outputs).toEqual([
+				{
+					type: "function_call_output",
+					call_id: "call_time",
+					output: JSON.stringify({ time: "20:52" }),
+				},
+				{
+					type: "function_call_output",
+					call_id: "call_weather",
+					output: JSON.stringify({ temperature: 17 }),
+				},
+			]);
+		});
+
+		test("throws when explicit tool_call_id matches no preceding call", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather in Berlin?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_abc",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+						{
+							role: "tool",
+							tool_call_id: "call_does_not_exist",
+							content: JSON.stringify({ temperature: 17 }),
+						},
+					]),
+				),
+			).rejects.toBeInstanceOf(RequestError);
+		});
+
+		test("throws for ambiguous parallel results missing tool_call_id", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather and time?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+								{
+									id: "call_2",
+									type: "function",
+									function: { name: "get_time", arguments: "{}" },
+								},
+							],
+						},
+						// Two unmatched calls, no id, no name → ambiguous, must throw
+						// rather than guess which call this output belongs to.
+						{ role: "tool", content: JSON.stringify({ temperature: 17 }) },
+					]),
+				),
+			).rejects.toBeInstanceOf(RequestError);
+		});
+
+		test("drops message `name` (Responses API rejects input[N].name)", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "system", content: "be terse", name: "system_helper" },
+					{ role: "user", content: "hello", name: "alice" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.every((i: any) => i.name === undefined)).toBe(
+				true,
+			);
+			expect(requestBody.input).toEqual([
+				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
+				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
+			]);
 		});
 	});
 

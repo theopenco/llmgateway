@@ -39,6 +39,7 @@ export const providerLogoUrls: Partial<
 	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
+	sakana: ProviderIcons.sakana,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

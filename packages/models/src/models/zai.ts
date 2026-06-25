@@ -998,6 +998,26 @@ export const zaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// zai rejects temperature outside [0,1] with a 400 ("The temperature
+				// parameter is illegal"). Exclude it so out-of-range values are stripped
+				// instead of failing the request.
+				supportedParameters: [
+					"messages",
+					"model",
+					"stream",
+					"stream_options",
+					"top_p",
+					"max_tokens",
+					"max_completion_tokens",
+					"seed",
+					"stop",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"parallel_tool_calls",
+					"reasoning",
+					"reasoning_effort",
+				],
 			},
 		],
 	},

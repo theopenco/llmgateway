@@ -24,7 +24,7 @@ jobs:
         shard: [1, 2, 3, 4, 5]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           persist-credentials: false
 
@@ -33,7 +33,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.8
+      - uses: pnpm/action-setup@v6.0.9
         with:
           version: ${{ env.pnpm_version }}
 
@@ -90,6 +90,7 @@ jobs:
           LLM_ALIBABA_API_KEY__CN_BEIJING: ${{ secrets.LLM_ALIBABA_API_KEY__CN_BEIJING }}
           LLM_XIAOMI_API_KEY: ${{ secrets.LLM_XIAOMI_API_KEY }}
           LLM_DEEPINFRA_API_KEY: ${{ secrets.LLM_DEEPINFRA_API_KEY }}
+          LLM_SAKANA_API_KEY: ${{ secrets.LLM_SAKANA_API_KEY }}
 
       - name: Upload shard results
         if: always()
@@ -106,7 +107,7 @@ jobs:
     if: always() && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.3
+        uses: actions/checkout@v7.0.0
         with:
           persist-credentials: false
 
@@ -115,7 +116,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.8
+      - uses: pnpm/action-setup@v6.0.9
         with:
           version: ${{ env.pnpm_version }}
 

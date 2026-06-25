@@ -35,6 +35,14 @@ describe("isContentFilterErrorText", () => {
 		).toBe(true);
 	});
 
+	test("detects Z.AI / Zhipu GLM content moderation (code 1301)", () => {
+		expect(
+			isContentFilterErrorText(
+				"System detected potentially unsafe or sensitive content in input or generation. Please avoid using prompts that may generate sensitive content.",
+			),
+		).toBe(true);
+	});
+
 	test("returns false for generic upstream errors and empty input", () => {
 		expect(isContentFilterErrorText("Internal server error")).toBe(false);
 		expect(isContentFilterErrorText("the task id was not found")).toBe(false);

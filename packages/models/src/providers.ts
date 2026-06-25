@@ -920,7 +920,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "moonshot",
@@ -1235,6 +1235,27 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+	},
+	{
+		id: "sakana",
+		name: "Sakana AI",
+		description:
+			"Sakana AI's Fugu multi-agent orchestration models, served through a single OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_SAKANA_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#FF5A5F",
+		website: "https://sakana.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://console.sakana.ai/terms-of-service",
+		privacyPolicyUrl: "https://console.sakana.ai/privacy-policy",
+		headquarters: "JP",
+		dataPolicy: null,
 	},
 	{
 		id: "xiaomi",

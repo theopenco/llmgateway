@@ -154,7 +154,8 @@ export interface LogCardData {
 	audioInputCost?: number | string | null;
 	discount?: number | null;
 	pricingTier?: string | null;
-	serviceTier?: string | null;
+	requestedServiceTier?: string | null;
+	usedServiceTier?: string | null;
 	dataStorageCost?: number | string | null;
 	createdAt: string | Date;
 	requestId?: string | null;
@@ -1046,15 +1047,27 @@ export function LogCard({
 												<div>{log.pricingTier}</div>
 											</>
 										)}
-										{log.serviceTier && (
+										{log.requestedServiceTier && (
 											<>
-												<div>Service Tier</div>
+												<div>Requested Service Tier</div>
 												<div>
-													<span className="capitalize">{log.serviceTier}</span>
+													<span className="capitalize">
+														{log.requestedServiceTier}
+													</span>
+												</div>
+											</>
+										)}
+										{log.usedServiceTier && (
+											<>
+												<div>Used Service Tier</div>
+												<div>
+													<span className="capitalize">
+														{log.usedServiceTier}
+													</span>
 													{(() => {
 														const tier = getServiceTier(
 															log.usedProvider ?? "",
-															log.serviceTier,
+															log.usedServiceTier,
 														);
 														return tier ? (
 															<span className="ml-1 text-muted-foreground">

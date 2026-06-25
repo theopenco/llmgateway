@@ -1365,6 +1365,7 @@ export const alibabaModels = [
 		description:
 			"Alibaba's Qwen3 Coder Next model optimized for coding tasks with 262K context.",
 		family: "alibaba",
+		releasedAt: new Date("2026-02-04"),
 		providers: [
 			{
 				providerId: "embercloud",
