@@ -223,6 +223,46 @@ describe("activity endpoint", () => {
 		expect(modelData).toHaveProperty("cost");
 	});
 
+	test("GET /activity should zero-fill missing days for from/to range", async () => {
+		const today = new Date();
+		const fiveDaysAgo = new Date(today);
+		fiveDaysAgo.setUTCDate(fiveDaysAgo.getUTCDate() - 5);
+		const fromStr = fiveDaysAgo.toISOString().slice(0, 10);
+		const toStr = today.toISOString().slice(0, 10);
+
+		const params = new URLSearchParams({
+			from: fromStr,
+			to: toStr,
+			timezone: "UTC",
+		});
+		const res = await app.request("/activity?" + params, {
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		expect(Array.isArray(data.activity)).toBe(true);
+		// Six contiguous days (fromStr..toStr inclusive), even though only three
+		// of them have logged activity — the rest must be zero-filled.
+		expect(data.activity.length).toBe(6);
+		expect(data.activity.map((d: { date: string }) => d.date)).toEqual([
+			...Array.from({ length: 6 }, (_, i) => {
+				const d = new Date(fiveDaysAgo);
+				d.setUTCDate(d.getUTCDate() + i);
+				return d.toISOString().slice(0, 10);
+			}),
+		]);
+
+		// The oldest day in the window has no activity and must be a zero row.
+		const emptyDay = data.activity[0];
+		expect(emptyDay.requestCount).toBe(0);
+		expect(emptyDay.cost).toBe(0);
+		expect(emptyDay.totalTokens).toBe(0);
+		expect(emptyDay.modelBreakdown).toEqual([]);
+	});
+
 	test("GET /activity should filter by projectId", async () => {
 		const params = new URLSearchParams({
 			days: "7",
