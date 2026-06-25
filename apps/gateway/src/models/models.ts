@@ -43,6 +43,7 @@ const modelSchema = z.object({
 					completion: z.string(),
 					image: z.string().optional(),
 					per_second: z.record(z.string()).optional(),
+					ocr_page: z.string().optional(),
 				})
 				.optional(),
 			streaming: z.union([z.boolean(), z.literal("only")]),
@@ -67,6 +68,7 @@ const modelSchema = z.object({
 		input_cache_write_1h: z.string().optional(),
 		web_search: z.string().optional(),
 		internal_reasoning: z.string().optional(),
+		ocr_page: z.string().optional(),
 	}),
 	context_length: z.number().optional(),
 	per_request_limits: z.record(z.string()).optional(),
@@ -209,7 +211,8 @@ modelsApi.openapi(listModels, async (c) => {
 					p.inputPrice !== undefined ||
 					p.outputPrice !== undefined ||
 					p.imageInputPrice !== undefined ||
-					p.perSecondPrice !== undefined,
+					p.perSecondPrice !== undefined ||
+					p.ocrPagePrice !== undefined,
 			);
 
 			const inputPrice =
@@ -252,7 +255,8 @@ modelsApi.openapi(listModels, async (c) => {
 							provider.inputPrice !== undefined ||
 							provider.outputPrice !== undefined ||
 							provider.imageInputPrice !== undefined ||
-							provider.perSecondPrice !== undefined
+							provider.perSecondPrice !== undefined ||
+							provider.ocrPagePrice !== undefined
 								? {
 										prompt: provider.inputPrice?.toString() ?? "0",
 										completion: provider.outputPrice?.toString() ?? "0",
@@ -267,6 +271,7 @@ modelsApi.openapi(listModels, async (c) => {
 													),
 												)
 											: undefined,
+										ocr_page: provider.ocrPagePrice?.toString(),
 									}
 								: undefined,
 						streaming: provider.streaming,
@@ -298,6 +303,7 @@ modelsApi.openapi(listModels, async (c) => {
 						firstProviderWithPricing?.cacheWriteInputPrice1h?.toString() ?? "0",
 					web_search: "0", // Not defined in model definitions yet
 					internal_reasoning: "0", // Not defined in model definitions yet
+					ocr_page: firstProviderWithPricing?.ocrPagePrice?.toString(),
 				},
 				// Use context length from model definition (take the largest from all providers)
 				context_length:

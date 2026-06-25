@@ -229,6 +229,24 @@ describe("Models API", () => {
 		]);
 	});
 
+	test("GET /v1/models should expose per-page OCR pricing for mistral-ocr-latest", async () => {
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		const ocrModel = json.data.find(
+			(model: any) => model.id === "mistral-ocr-latest",
+		);
+
+		expect(ocrModel).toBeDefined();
+		// $4 per 1,000 pages.
+		expect(ocrModel.pricing.ocr_page).toBe("0.004");
+		const mistralProvider = ocrModel.providers.find(
+			(p: any) => p.providerId === "mistral",
+		);
+		expect(mistralProvider.pricing.ocr_page).toBe("0.004");
+	});
+
 	test("GET /v1/models should include proper output modalities for gemini-3.1-flash-image-preview", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
