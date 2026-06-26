@@ -1086,6 +1086,33 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		});
 	}
+
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then closes the socket before the body completes. The gateway's
+	// res.json() then throws undici's "terminated: other side closed"
+	// TypeError, exercising the non-streaming body-read failure path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_ABORT")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const abortedBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					return;
+				}
+				controller.error(new Error("simulated upstream socket close"));
+			},
+		});
+		return new Response(abortedBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
 	const baseChoice = sampleChatCompletionResponse.choices[0];
 	const choices = Array.from({ length: requestedN }, (_, index) => ({
 		...baseChoice,

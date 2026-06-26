@@ -1311,6 +1311,65 @@ export const SakanaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+// Gemini Icon (Google model family)
+export const GeminiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="none"
+	>
+		<defs>
+			<linearGradient
+				id="geminiFamilyGradient"
+				x1="0"
+				y1="0"
+				x2="24"
+				y2="24"
+				gradientUnits="userSpaceOnUse"
+			>
+				<stop offset="0%" stopColor="#4285F4" />
+				<stop offset="50%" stopColor="#9168F6" />
+				<stop offset="100%" stopColor="#D96570" />
+			</linearGradient>
+		</defs>
+		<path
+			d="M12 0c0 6.627-5.373 12-12 12 6.627 0 12 5.373 12 12 0-6.627 5.373-12 12-12-6.627 0-12-5.373-12-12Z"
+			fill="url(#geminiFamilyGradient)"
+		/>
+	</svg>
+);
+
+// Meta Icon (Llama model family)
+export const MetaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="none"
+	>
+		<path
+			d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303Zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.527-3.817l-.821-1.371-.929-1.566c.183-.286.355-.555.508-.798.756-1.181 1.355-1.668 1.957-1.668.633 0 1.166.27 1.598.83.262.342.4.713.526 1.244l.054.235Zm-10.158.162c.726 0 1.27.292 1.857.788.379.32.787.749 1.245 1.282l-.65 1.015c-.395.617-.74 1.13-1.05 1.59-1.193 1.762-1.918 2.658-2.71 3.272-.582.451-1.014.62-1.493.62-.668 0-1.276-.288-1.617-.913-.32-.585-.495-1.412-.495-2.41 0-1.913.55-3.926 1.461-5.337.665-1.025 1.35-1.4 1.952-1.4Z"
+			fill="#0866FF"
+		/>
+	</svg>
+);
+
+// Nvidia Icon (Nvidia model family)
+export const NvidiaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="none"
+	>
+		<path
+			d="M8.948 8.798v-1.43a6.7 6.7 0 0 1 .424-.018c3.922-.124 6.493 3.374 6.493 3.374s-2.774 3.851-5.75 3.851c-.398 0-.787-.062-1.158-.185v-4.346c1.528.185 1.837.857 2.747 2.385l2.04-1.714s-1.49-1.954-4-1.954a6.95 6.95 0 0 0-.796.04m0-4.735v2.138l.424-.027c5.45-.185 9.01 4.47 9.01 4.47s-4.08 4.964-8.33 4.964c-.37 0-.733-.034-1.095-.1v1.32c.3.037.61.062.92.062 3.957 0 6.82-2.022 9.59-4.408.46.37 2.345 1.265 2.733 1.66-2.633 2.204-8.766 3.978-12.256 3.978-.337 0-.66-.02-.98-.05v1.854H24V4.063zm0 10.326v1.128c-3.658-.652-4.673-4.455-4.673-4.455s1.756-1.945 4.673-2.26v1.237l-.006-.001c-1.532-.184-2.729 1.247-2.729 1.247s.671 2.41 2.735 3.104M2.456 9.793s2.167-3.198 6.502-3.53V4.917C4.153 5.296 0 9.382 0 9.382s2.352 6.799 8.948 7.42v-1.223c-4.84-.604-6.492-5.786-6.492-5.786z"
+			fill="#76B900"
+		/>
+	</svg>
+);
+
 export const ProviderIcons = {
 	atlascloud: AtlasCloudIcon,
 	anthropic: AnthropicIcon,
@@ -1410,4 +1469,42 @@ export const getProviderIcon = (
 		.toLowerCase()
 		.replace(/[^a-z0-9]/g, "-") as ProviderIconKey;
 	return ProviderIcons[normalizedProvider] || Logo;
+};
+
+// Maps a model's `family` (e.g. "glm", "google", "meta") to its brand icon so
+// that cards display the model maker's logo rather than whichever provider
+// happens to serve it cheapest. Families without a dedicated logo fall back to
+// the LLM Gateway logo via getModelFamilyIcon.
+export const ModelFamilyIcons: Record<
+	string,
+	React.FC<React.SVGProps<SVGSVGElement>>
+> = {
+	alibaba: AlibabaIcon,
+	anthropic: AnthropicIcon,
+	atlascloud: AtlasCloudIcon,
+	bytedance: BytedanceIcon,
+	deepseek: DeepseekIcon,
+	elevenlabs: ElevenLabsIcon,
+	google: GeminiIcon,
+	llmgateway: Logo,
+	meta: MetaIcon,
+	minimax: MinimaxIcon,
+	mistral: MistralIcon,
+	moonshot: MoonshotIcon,
+	nvidia: NvidiaIcon,
+	openai: OpenAIIcon,
+	perplexity: PerplexityIcon,
+	reve: ReveIcon,
+	sakana: SakanaIcon,
+	xai: XAIIcon,
+	xiaomi: XiaomiIcon,
+	zai: ZaiIcon,
+};
+
+// Helper function to get an icon by a model's family, falling back to the LLM
+// Gateway logo for families without a dedicated brand icon.
+export const getModelFamilyIcon = (
+	family: string,
+): React.FC<React.SVGProps<SVGSVGElement>> => {
+	return ModelFamilyIcons[family] ?? Logo;
 };
