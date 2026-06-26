@@ -1177,6 +1177,7 @@ devPlans.openapi(changeTier, async (c) => {
 						organizationId: personalOrg.id,
 						type: "dev_plan_upgrade",
 						amount: paidUpgrade.amount.toString(),
+						creditAmount: creditPreview.proratedCreditDelta.toString(),
 						currency: "USD",
 						status: "completed",
 						stripePaymentIntentId: paidUpgrade.paymentIntentId,
@@ -1737,6 +1738,77 @@ devPlans.openapi(updateBillingDetails, async (c) => {
 		own: pickBillingFields(updatedOrg),
 		default: pickBillingFields(defaultOrg ?? updatedOrg),
 	});
+});
+
+// List past DevPass invoices (plan start, renewals and upgrades) with the
+// amount charged and the virtual credits granted for each billing event.
+const getInvoices = createRoute({
+	method: "get",
+	path: "/invoices",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						invoices: z.array(
+							z.object({
+								id: z.string(),
+								type: z.enum([
+									"dev_plan_start",
+									"dev_plan_renewal",
+									"dev_plan_upgrade",
+								]),
+								date: z.string(),
+								amount: z.string().nullable(),
+								creditAmount: z.string().nullable(),
+								currency: z.string(),
+								status: z.enum(["pending", "completed", "failed"]),
+								description: z.string().nullable(),
+							}),
+						),
+					}),
+				},
+			},
+			description: "DevPass invoices retrieved successfully",
+		},
+	},
+});
+
+devPlans.openapi(getInvoices, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		return c.json({ invoices: [] });
+	}
+
+	const transactions = await db.query.transaction.findMany({
+		where: {
+			organizationId: { eq: personalOrg.id },
+			type: { in: ["dev_plan_start", "dev_plan_renewal", "dev_plan_upgrade"] },
+		},
+		orderBy: {
+			createdAt: "desc",
+		},
+	});
+
+	const invoices = transactions.map((t) => ({
+		id: t.id,
+		type: t.type as "dev_plan_start" | "dev_plan_renewal" | "dev_plan_upgrade",
+		date: t.createdAt.toISOString(),
+		amount: t.amount,
+		creditAmount: t.creditAmount,
+		currency: t.currency,
+		status: t.status,
+		description: t.description,
+	}));
+
+	return c.json({ invoices });
 });
 
 // Rotate the dev-plan API key — invalidates the current key and issues a new one
