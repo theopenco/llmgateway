@@ -17,18 +17,20 @@ export function getDevPlanCreditsLimit(tier: DevPlanTier): number {
 }
 
 /**
- * Weekly fair-use allowance for premium-category models per tier.
- * Premium models (frontier flagships) are subject to this weekly cap in
- * addition to the monthly credit allowance.
+ * Weekly fair-use allowance for premium-category models per tier, expressed as
+ * a fraction of the tier's total monthly credit allowance. Premium models
+ * (frontier flagships) are subject to this weekly cap in addition to the
+ * monthly credit allowance. Deriving from the monthly limit keeps the ratio
+ * exact regardless of DEV_PLAN_CREDITS_MULTIPLIER.
  */
-export const DEV_PLAN_PREMIUM_WEEKLY_LIMITS: Record<DevPlanTier, number> = {
-	lite: 10,
-	pro: 50,
-	max: 140,
+export const DEV_PLAN_PREMIUM_WEEKLY_PERCENT: Record<DevPlanTier, number> = {
+	lite: 0.1,
+	pro: 0.15,
+	max: 0.2,
 };
 
 export function getDevPlanPremiumWeeklyLimit(tier: DevPlanTier): number {
-	return DEV_PLAN_PREMIUM_WEEKLY_LIMITS[tier];
+	return getDevPlanCreditsLimit(tier) * DEV_PLAN_PREMIUM_WEEKLY_PERCENT[tier];
 }
 
 export const DEV_PLAN_PREMIUM_WEEK_LENGTH_MS = 7 * 24 * 60 * 60 * 1000;
