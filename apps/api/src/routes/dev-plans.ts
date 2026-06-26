@@ -1618,7 +1618,7 @@ devPlans.openapi(getBillingDetails, async (c) => {
 		});
 	}
 
-	const defaultOrg = await findDefaultOrganization(user.id);
+	const defaultOrg = await findDefaultOrganization(user.id, user.email);
 
 	return c.json({
 		devPlanBillingOverride: personalOrg.devPlanBillingOverride,
@@ -1730,7 +1730,7 @@ devPlans.openapi(updateBillingDetails, async (c) => {
 		});
 	}
 
-	const defaultOrg = await findDefaultOrganization(user.id);
+	const defaultOrg = await findDefaultOrganization(user.id, user.email);
 
 	return c.json({
 		devPlanBillingOverride: updatedOrg.devPlanBillingOverride,

@@ -48,7 +48,7 @@ export async function resolveDevPassBillingDetails(
 	});
 
 	const defaultOrg = owner?.user
-		? await findDefaultOrganization(owner.user.id)
+		? await findDefaultOrganization(owner.user.id, owner.user.email)
 		: null;
 
 	return pickBillingDetails(defaultOrg ?? personalOrg);
