@@ -259,11 +259,11 @@ export default function BillingClient({
 				onChangeTier={handleChangeTier}
 			/>
 
-			{/* Billing details (invoice details) */}
-			<DevPassBillingDetails />
-
 			{/* Past invoices */}
 			<DevPassInvoices />
+
+			{/* Billing details (invoice details) */}
+			<DevPassBillingDetails />
 		</div>
 	);
 }
