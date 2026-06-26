@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { prepareRequestBody } from "./prepare-request-body.js";
+import { prepareRequestBody, RequestError } from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
@@ -324,6 +324,121 @@ describe("prepareRequestBody - Anthropic", () => {
 			}
 		}
 	});
+
+	test("defers auto-injection when caller supplies a 1h ttl marker in messages", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as AnthropicRequestBody;
+
+		// Long system prompt must NOT get a heuristic (5m) marker — it would
+		// precede the caller's 1h marker and Anthropic rejects that ordering.
+		expect(Array.isArray(requestBody.system)).toBe(true);
+		for (const block of requestBody.system as unknown[]) {
+			expect(getCacheControl(block)).toBeUndefined();
+		}
+
+		// No auto-injected markers in messages either (long-block heuristic and
+		// turn-boundary placement are both suppressed); only the caller's own
+		// 1h marker survives, with its ttl intact.
+		const markers: unknown[] = [];
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					const cacheControl = getCacheControl(block);
+					if (cacheControl) {
+						markers.push(cacheControl);
+					}
+				}
+			}
+		}
+		expect(markers).toEqual([{ type: "ephemeral", ttl: "1h" }]);
+	});
+
+	test("keeps auto-injection when caller markers do not use a 1h ttl", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as AnthropicRequestBody;
+
+		// ttl-less caller markers are all 5m, same as the heuristics — no
+		// ordering conflict is possible, so the existing behavior is preserved:
+		// long system prompt and turn boundary still get auto markers.
+		expect(getCacheControl((requestBody.system as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+
+		const boundaryMsg = requestBody.messages[1];
+		expect(boundaryMsg.role).toBe("assistant");
+		expect(getCacheControl((boundaryMsg.content as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+
+		const explicitMsg = requestBody.messages[2];
+		expect(getCacheControl((explicitMsg.content as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+	});
 });
 
 describe("prepareRequestBody - OpenAI image generation", () => {
@@ -391,6 +506,42 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 
 		expect(requestBody.prompt_cache_key).toBe("tenant-a");
 		expect(requestBody.prompt_cache_retention).toBe("in_memory");
+	});
+
+	test("should throw a typed RequestError for tool messages without tool_call_id", async () => {
+		await expect(
+			prepareRequestBody(
+				"openai",
+				"gpt-5.5",
+				null,
+				"gpt-5.5",
+				[
+					{ role: "user", content: "Hello!" },
+					{ role: "tool", content: "result" } as any,
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true,
+			),
+		).rejects.toBeInstanceOf(RequestError);
 	});
 
 	test("should not forward OpenAI prompt cache controls to Azure", async () => {
@@ -953,6 +1104,128 @@ describe("prepareRequestBody - Google AI Studio", () => {
 				value: { type: "string" },
 			},
 			required: ["label", "value"],
+		});
+	});
+
+	test("should not overflow the stack on self-referential $ref schemas", async () => {
+		const recursiveTools = [
+			{
+				type: "function" as const,
+				function: {
+					name: "build_tree",
+					description: "Build a recursive tree",
+					parameters: {
+						type: "object",
+						properties: {
+							root: { $ref: "#/$defs/TreeNode" },
+						},
+						$defs: {
+							TreeNode: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									children: {
+										type: "array",
+										items: { $ref: "#/$defs/TreeNode" },
+									},
+								},
+								required: ["value"],
+							},
+						},
+						required: ["root"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			recursiveTools,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+		expect(params.$defs).toBeUndefined();
+		// The recursive node is expanded one level then collapsed to a generic
+		// object where it would otherwise recurse forever.
+		expect(params.properties.root.properties.value).toEqual({
+			type: "string",
+		});
+		expect(params.properties.root.properties.children.items).toEqual({
+			type: "object",
+		});
+	});
+
+	test("should not overflow the stack on self-referential $ref schemas for bedrock", async () => {
+		const recursiveTools = [
+			{
+				type: "function" as const,
+				function: {
+					name: "build_tree",
+					description: "Build a recursive tree",
+					parameters: {
+						type: "object",
+						properties: {
+							root: { $ref: "#/$defs/TreeNode" },
+						},
+						$defs: {
+							TreeNode: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									children: {
+										type: "array",
+										items: { $ref: "#/$defs/TreeNode" },
+									},
+								},
+								required: ["value"],
+							},
+						},
+						required: ["root"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			recursiveTools,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const toolSpec = requestBody.toolConfig.tools[0].toolSpec;
+		const schema = toolSpec.inputSchema.json;
+		expect(schema.properties.root.properties.children.items).toEqual({
+			type: "object",
+			properties: {},
 		});
 	});
 
@@ -1519,6 +1792,42 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should keep Grok 4.3 as Bedrock Mantle OpenAI chat completions", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"grok-4-3",
+			"us-west-2",
+			"xai.grok-4.3",
+			[{ role: "user", content: "Hello!" }],
+			true,
+			0.2,
+			128,
+			0.9,
+			undefined,
+			undefined,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			"high",
+			true,
+			false,
+		)) as any;
+
+		expect(requestBody).toMatchObject({
+			model: "xai.grok-4.3",
+			messages: [{ role: "user", content: "Hello!" }],
+			stream: true,
+			stream_options: { include_usage: true },
+			temperature: 0.2,
+			max_completion_tokens: 128,
+			top_p: 0.9,
+			response_format: { type: "json_object" },
+			reasoning: { effort: "high" },
+		});
+		expect(requestBody.inferenceConfig).toBeUndefined();
+		expect(requestBody.system).toBeUndefined();
+	});
+
 	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
@@ -1568,6 +1877,109 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody.messages[0].content).toEqual([
 			{ text: "What should I do next?" },
 			{ cachePoint: { type: "default", ttl: "5m" } },
+		]);
+	});
+
+	test("suppresses heuristic cachePoints when caller supplies a 1h ttl marker in messages", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		// No heuristic cachePoint on the long system prompt and no turn-boundary
+		// cachePoint — a default-ttl (5m) point would precede the caller's 1h
+		// point, which Bedrock rejects.
+		expect(requestBody.system).toEqual([{ text: longContent }]);
+		expect(requestBody.messages[1]).toEqual({
+			role: "assistant",
+			content: [{ text: "Hi!" }],
+		});
+		expect(requestBody.messages[2].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default", ttl: "1h" } },
+		]);
+	});
+
+	test("keeps heuristic cachePoints when a caller 1h ttl is downgraded to 5m", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-3-7-sonnet",
+			null,
+			"anthropic.claude-3-7-sonnet-20250219-v1:0",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		// claude-3-7-sonnet has no 1h TTL on Bedrock, so the caller's marker is
+		// downgraded to a default (5m) cachePoint. With every point at 5m there
+		// is no ordering conflict, so the heuristics stay active.
+		expect(requestBody.system).toEqual([
+			{ text: longContent },
+			{ cachePoint: { type: "default" } },
+		]);
+		expect(requestBody.messages[1]).toEqual({
+			role: "assistant",
+			content: [{ text: "Hi!" }, { cachePoint: { type: "default" } }],
+		});
+		expect(requestBody.messages[2].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default" } },
 		]);
 	});
 
@@ -1810,6 +2222,92 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				},
 			],
 		});
+	});
+	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-8",
+			null,
+			"anthropic.claude-opus-4-8",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17, unit: "celsius" }),
+				},
+				{ role: "user", content: "Thanks, what should I wear?" },
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined, // tools omitted on the follow-up turn
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		// Bedrock requires toolConfig whenever toolUse/toolResult blocks are
+		// present in the history, so it must be synthesized from the tool
+		// names seen in the assistant toolUse blocks.
+		expect(requestBody.toolConfig).toEqual({
+			tools: [
+				{
+					toolSpec: {
+						name: "get_weather",
+						inputSchema: {
+							json: {
+								type: "object",
+								properties: {},
+							},
+						},
+					},
+				},
+			],
+		});
+	});
+
+	test("does not synthesize toolConfig when history has no tool blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-8",
+			null,
+			"anthropic.claude-opus-4-8",
+			[{ role: "user", content: "Hello there" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.toolConfig).toBeUndefined();
 	});
 });
 
@@ -2309,6 +2807,42 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		});
 	});
 
+	describe("azure-ai-foundry", () => {
+		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
+			const requestBody = (await prepareRequestBody(
+				"azure-ai-foundry",
+				"grok-4-3",
+				null,
+				"grok-4.3",
+				[{ role: "user", content: "Hello!" }],
+				true,
+				0.2,
+				8192,
+				0.9,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"medium",
+				true,
+			)) as unknown as Record<string, unknown>;
+
+			expect(requestBody.model).toBe("grok-4.3");
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: "Hello!" },
+			]);
+			expect(requestBody.stream).toBe(true);
+			expect(requestBody.stream_options).toEqual({ include_usage: true });
+			expect(requestBody.temperature).toBe(0.2);
+			expect(requestBody.max_tokens).toBe(8192);
+			expect(requestBody.max_completion_tokens).toBeUndefined();
+			expect(requestBody.top_p).toBe(0.9);
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.inferenceConfig).toBeUndefined();
+		});
+	});
+
 	describe("openai (Responses API)", () => {
 		test("forwards caller-supplied max_tokens to max_output_tokens", async () => {
 			const requestBody = (await prepareRequestBody(
@@ -2424,6 +2958,227 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				type: "input_image",
 				image_url: dataUrl,
 			});
+		});
+
+		const responsesArgs = (messages: any[]) =>
+			[
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				messages,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			] as const;
+
+		test("pairs tool result with preceding tool_call via explicit tool_call_id", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const output = requestBody.input.find(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(output).toEqual({
+				type: "function_call_output",
+				call_id: "call_abc",
+				output: JSON.stringify({ temperature: 17 }),
+			});
+		});
+
+		test("recovers call_id when a lone tool result omits tool_call_id", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const output = requestBody.input.find(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(output.call_id).toBe("call_abc");
+		});
+
+		test("matches legacy function-role results by unique name", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather and time in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_weather",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+							{
+								id: "call_time",
+								type: "function",
+								function: { name: "get_time", arguments: "{}" },
+							},
+						],
+					},
+					// Legacy `function` role: no tool_call_id, only name. Matched by
+					// unique name, so out-of-order results still resolve correctly.
+					{
+						role: "function",
+						name: "get_time",
+						content: JSON.stringify({ time: "20:52" }),
+					},
+					{
+						role: "function",
+						name: "get_weather",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const outputs = requestBody.input.filter(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(outputs).toEqual([
+				{
+					type: "function_call_output",
+					call_id: "call_time",
+					output: JSON.stringify({ time: "20:52" }),
+				},
+				{
+					type: "function_call_output",
+					call_id: "call_weather",
+					output: JSON.stringify({ temperature: 17 }),
+				},
+			]);
+		});
+
+		test("throws when explicit tool_call_id matches no preceding call", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather in Berlin?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_abc",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+						{
+							role: "tool",
+							tool_call_id: "call_does_not_exist",
+							content: JSON.stringify({ temperature: 17 }),
+						},
+					]),
+				),
+			).rejects.toBeInstanceOf(RequestError);
+		});
+
+		test("throws for ambiguous parallel results missing tool_call_id", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather and time?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+								{
+									id: "call_2",
+									type: "function",
+									function: { name: "get_time", arguments: "{}" },
+								},
+							],
+						},
+						// Two unmatched calls, no id, no name → ambiguous, must throw
+						// rather than guess which call this output belongs to.
+						{ role: "tool", content: JSON.stringify({ temperature: 17 }) },
+					]),
+				),
+			).rejects.toBeInstanceOf(RequestError);
+		});
+
+		test("drops message `name` (Responses API rejects input[N].name)", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "system", content: "be terse", name: "system_helper" },
+					{ role: "user", content: "hello", name: "alice" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.every((i: any) => i.name === undefined)).toBe(
+				true,
+			);
+			expect(requestBody.input).toEqual([
+				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
+				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
+			]);
 		});
 	});
 

@@ -1,15 +1,16 @@
 import { AdminDashboardEnterprise } from "@/components/enterprise/admin-dashboard";
 import { EnterpriseCapabilities } from "@/components/enterprise/capabilities";
 import { ContactFormEnterprise } from "@/components/enterprise/contact";
-import { CostCalculator } from "@/components/enterprise/cost-calculator";
 import { FeaturesEnterprise } from "@/components/enterprise/features";
 import { HeroEnterprise } from "@/components/enterprise/hero";
+import { InfrastructureAsCodeEnterprise } from "@/components/enterprise/iac";
 import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
 import { PricingEnterprise } from "@/components/enterprise/pricing";
 import { ProductShowcase } from "@/components/enterprise/product-showcase";
+import { SecurityEnterprise } from "@/components/enterprise/security";
+import { SupportEnterprise } from "@/components/enterprise/support";
 import { TrustBarEnterprise } from "@/components/enterprise/trust-bar";
 import { UptimeVisualization } from "@/components/enterprise/uptime";
-// import { SecurityEnterprise } from "@/components/enterprise/security";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { Testimonials } from "@/components/landing/testimonials";
@@ -20,7 +21,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Enterprise LLM Gateway – SSO, Audit Logs, Guardrails & Routing",
 	description:
-		"Production-grade LLM infrastructure with SAML SSO, immutable audit logs, prompt-injection guardrails, per-project routing overrides, and white-label chat. Built for teams under SOC 2, HIPAA, or internal-AI scrutiny.",
+		"SOC 2 Type II compliant LLM infrastructure with SAML SSO, immutable audit logs, prompt-injection guardrails, per-project routing overrides, and white-label chat. Built for teams under SOC 2, HIPAA, or internal-AI scrutiny.",
 	openGraph: {
 		title: "Enterprise LLM Gateway",
 		description:
@@ -57,15 +58,16 @@ export default async function EnterprisePage() {
 				totalRequests={stats?.totalRequests}
 			/>
 			<TrustBarEnterprise />
+			<SecurityEnterprise />
+			<SupportEnterprise />
 			<EnterpriseCapabilities />
 			<UptimeVisualization />
 			<FeaturesEnterprise />
-			<CostCalculator />
 			<ProductShowcase />
 			<AdminDashboardEnterprise />
-			{/* <SecurityEnterprise /> */}
 			<Testimonials />
 			<PricingEnterprise />
+			<InfrastructureAsCodeEnterprise />
 			<OpenSourceEnterprise />
 			<ContactFormEnterprise />
 			<Footer />

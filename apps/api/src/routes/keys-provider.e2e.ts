@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
 import { deleteAll } from "@/testing.js";
@@ -190,6 +190,55 @@ describe(
 				expect(providerKey?.token).toBe(envVarValue);
 			},
 		);
+
+		describe("SSRF protection at registration", () => {
+			const originalFlag = process.env.ALLOW_INSECURE_PROVIDER_URLS;
+
+			afterEach(() => {
+				if (originalFlag === undefined) {
+					delete process.env.ALLOW_INSECURE_PROVIDER_URLS;
+				} else {
+					process.env.ALLOW_INSECURE_PROVIDER_URLS = originalFlag;
+				}
+			});
+
+			async function createCustomProvider(baseUrl: string) {
+				const { token, orgId } = await setupTestData();
+				return await app.request("/keys/provider", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Cookie: token,
+					},
+					body: JSON.stringify({
+						provider: "custom",
+						name: "evilprovider",
+						token: "dummy-token",
+						baseUrl,
+						organizationId: orgId,
+					}),
+				});
+			}
+
+			test.each([
+				"http://127.0.0.1:9999", // not https
+				"https://127.0.0.1:9999", // loopback literal
+				"https://169.254.169.254", // cloud metadata
+				"https://10.0.0.5", // RFC-1918
+				"https://[::1]:443", // IPv6 loopback
+				"http://api.example.com", // public but not https
+			])("rejects internal/non-https baseUrl %s", async (baseUrl) => {
+				process.env.ALLOW_INSECURE_PROVIDER_URLS = "false";
+				const res = await createCustomProvider(baseUrl);
+				expect(res.status).toBe(400);
+			});
+
+			test("allows an internal baseUrl when explicitly opted out", async () => {
+				process.env.ALLOW_INSECURE_PROVIDER_URLS = "true";
+				const res = await createCustomProvider("http://127.0.0.1:9999");
+				expect(res.status).toBe(200);
+			});
+		});
 
 		// test.skip("POST /keys/provider with custom baseUrl", async () => {
 		// 	if (!process.env.OPENAI_API_KEY) {

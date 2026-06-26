@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
 
-import { providers } from "@llmgateway/models";
+import { models as modelsList, providers } from "@llmgateway/models";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 describe("Models API", () => {
 	test("GET /v1/models should return a list of models", async () => {
@@ -53,12 +55,11 @@ describe("Models API", () => {
 
 		const json = await res.json();
 
-		// The deactivated_at field on a model represents the earliest deactivation date
-		// among all its providers. A model is only excluded if ALL providers are deactivated.
-		// Therefore, models with past deactivated_at dates may still appear if they have
-		// at least one active provider. This test verifies the response is successful and
-		// contains models, but cannot make assumptions about deactivated_at dates since
-		// partially deactivated models (some providers deactivated) are correctly included.
+		// The model-level deactivated_at field is only set once EVERY provider
+		// mapping has a deactivation date, and then reports the latest of them
+		// (when the model becomes fully unavailable). A model is only excluded once
+		// all providers are deactivated, so partially deactivated models still
+		// appear and a present deactivated_at may be in the past.
 
 		// Verify we got some models back
 		expect(json.data.length).toBeGreaterThan(0);
@@ -70,6 +71,38 @@ describe("Models API", () => {
 				expect(deactivatedAt instanceof Date).toBe(true);
 				expect(isNaN(deactivatedAt.getTime())).toBe(false);
 			}
+		}
+	});
+
+	test("GET /v1/models reports model-level deprecated_at/deactivated_at as the latest date across all mappings, set only when every mapping has one", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(json.data.length).toBeGreaterThan(0);
+
+		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+
+		const expectedDate = (dates: (Date | undefined)[]) => {
+			if (dates.length === 0 || dates.some((d) => d === undefined)) {
+				return undefined;
+			}
+			return (dates as Date[])
+				.reduce((latest, d) => (d.getTime() > latest.getTime() ? d : latest))
+				.toISOString();
+		};
+
+		for (const model of json.data) {
+			const definition = definitionById.get(model.id);
+			expect(definition).toBeDefined();
+			const mappings = definition!.providers as ProviderModelMapping[];
+
+			expect(model.deactivated_at).toBe(
+				expectedDate(mappings.map((p) => p.deactivatedAt)),
+			);
+			expect(model.deprecated_at).toBe(
+				expectedDate(mappings.map((p) => p.deprecatedAt)),
+			);
 		}
 	});
 
@@ -93,10 +126,11 @@ describe("Models API", () => {
 
 		const json = await res.json();
 
-		// The deprecated_at field represents the earliest deprecation date among all providers.
-		// A model is only excluded when ALL its providers are deprecated (have past dates).
-		// Models with some deprecated providers (past dates) but other active providers
-		// are correctly included, so we can't assume deprecated_at is always in the future.
+		// The model-level deprecated_at field is only set once EVERY provider
+		// mapping has a deprecation date, and then reports the latest of them.
+		// A model is only excluded when ALL its providers are deprecated (have past
+		// dates), so models with some deprecated providers but other active
+		// providers are correctly included, and deprecated_at may be undefined.
 
 		// Verify we got some models back and the response is valid
 		expect(json.data.length).toBeGreaterThan(0);
@@ -193,6 +227,131 @@ describe("Models API", () => {
 			"text",
 			"image",
 		]);
+	});
+
+	test("GET /v1/models should derive model-level pricing from the cheapest active provider mapping", async () => {
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		const now = new Date();
+
+		const isActive = (p: ProviderModelMapping) =>
+			!(p.deactivatedAt && now > p.deactivatedAt) &&
+			!(p.deprecatedAt && now > p.deprecatedAt);
+		const hasPricing = (p: ProviderModelMapping) =>
+			p.inputPrice !== undefined ||
+			p.outputPrice !== undefined ||
+			p.imageInputPrice !== undefined ||
+			p.perSecondPrice !== undefined ||
+			p.ocrPagePrice !== undefined;
+		const score = (p: ProviderModelMapping) => {
+			const input =
+				p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
+			const output =
+				p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
+			if (input !== undefined || output !== undefined) {
+				return (input ?? 0) + (output ?? 0);
+			}
+			if (p.ocrPagePrice !== undefined) {
+				return Number(p.ocrPagePrice);
+			}
+			if (p.perSecondPrice) {
+				const values = Object.values(p.perSecondPrice).map(Number);
+				return values.length > 0 ? Math.min(...values) : Infinity;
+			}
+			if (p.requestPrice !== undefined) {
+				return Number(p.requestPrice);
+			}
+			if (p.imageInputPrice !== undefined) {
+				return Number(p.imageInputPrice);
+			}
+			return Infinity;
+		};
+		const cheapest = (candidates: ProviderModelMapping[]) =>
+			candidates.reduce<ProviderModelMapping | undefined>(
+				(best, p) => (best === undefined || score(p) < score(best) ? p : best),
+				undefined,
+			);
+
+		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+
+		for (const model of json.data) {
+			const definition = definitionById.get(model.id);
+			expect(definition).toBeDefined();
+			const mappings = definition!.providers as ProviderModelMapping[];
+
+			const active = mappings.filter((p) => isActive(p) && hasPricing(p));
+			const expected =
+				active.length > 0
+					? cheapest(active)
+					: cheapest(mappings.filter((p) => hasPricing(p)));
+
+			expect(model.pricing.prompt).toBe(
+				expected?.inputPrice?.toString() ?? "0",
+			);
+			expect(model.pricing.input_cache_read).toBe(
+				expected?.cachedInputPrice?.toString() ?? "0",
+			);
+		}
+
+		// deepseek-v3.2: deepinfra is the cheapest active mapping
+		// (0.26e-6 + 0.38e-6), so the root pricing must come from it and not the
+		// deactivated DeepSeek mapping (whose cache read is 0.028e-6).
+		const deepseek = json.data.find(
+			(model: any) => model.id === "deepseek-v3.2",
+		);
+		expect(deepseek).toBeDefined();
+		expect(deepseek.pricing.prompt).toBe("0.26e-6");
+		expect(deepseek.pricing.completion).toBe("0.38e-6");
+		expect(deepseek.pricing.input_cache_read).toBe("0.13e-6");
+	});
+
+	test("GET /v1/models exposes cache pricing detail per provider mapping", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+
+		const deepseek = json.data.find(
+			(model: any) => model.id === "deepseek-v3.2",
+		);
+		expect(deepseek).toBeDefined();
+
+		const definition = definitionById.get("deepseek-v3.2")!;
+		for (const provider of deepseek.providers) {
+			const mapping = (definition.providers as ProviderModelMapping[]).find(
+				(p) => p.providerId === provider.providerId,
+			);
+			expect(mapping).toBeDefined();
+			if (mapping!.cachedInputPrice !== undefined) {
+				expect(provider.pricing?.input_cache_read).toBe(
+					mapping!.cachedInputPrice.toString(),
+				);
+			}
+		}
+	});
+
+	test("GET /v1/models should expose per-page OCR pricing for mistral-ocr-latest", async () => {
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		const ocrModel = json.data.find(
+			(model: any) => model.id === "mistral-ocr-latest",
+		);
+
+		expect(ocrModel).toBeDefined();
+		// OCR surfaces as its own output modality so third-party clients can
+		// reference the same taxonomy as the model catalog.
+		expect(ocrModel.architecture.output_modalities).toEqual(["ocr"]);
+		// $4 per 1,000 pages.
+		expect(ocrModel.pricing.ocr_page).toBe("0.004");
+		const mistralProvider = ocrModel.providers.find(
+			(p: any) => p.providerId === "mistral",
+		);
+		expect(mistralProvider.pricing.ocr_page).toBe("0.004");
 	});
 
 	test("GET /v1/models should include proper output modalities for gemini-3.1-flash-image-preview", async () => {

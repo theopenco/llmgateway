@@ -20,6 +20,13 @@ import {
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
+	complianceBlockMessage,
+	filterCompliantProviders,
+	getActiveCompliancePolicy,
+	isProviderIdCompliant,
+	logComplianceBlock,
+} from "@/lib/compliance.js";
+import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
@@ -45,6 +52,7 @@ import {
 	sql,
 	shortid,
 	tables,
+	UnifiedFinishReason,
 	type InferSelectModel,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
@@ -140,6 +148,20 @@ const SUPPORTED_VIDEO_SIZES = {
 		width: 720,
 		height: 1280,
 		resolution: "720p",
+		orientation: "portrait",
+	},
+	"1366x768": {
+		size: "1366x768",
+		width: 1366,
+		height: 768,
+		resolution: "768p",
+		orientation: "landscape",
+	},
+	"768x1366": {
+		size: "768x1366",
+		width: 768,
+		height: 1366,
+		resolution: "768p",
 		orientation: "portrait",
 	},
 	"1920x1080": {
@@ -640,6 +662,19 @@ interface ProcessedVideoImageInput {
 
 type VideoInputMode = "none" | "frames" | "reference";
 
+function getFormattedRequestedVideoModel(
+	normalizedModel: string,
+	requestedProvider: string | undefined,
+): string {
+	return requestedProvider
+		? `${requestedProvider}/${normalizedModel}`
+		: normalizedModel;
+}
+
+function getFormattedUsedVideoModel(provider: Provider, model: string): string {
+	return `${provider}/${model}`;
+}
+
 function getVideoImageFileExtension(mimeType: string): string {
 	switch (mimeType) {
 		case "image/jpeg":
@@ -716,10 +751,17 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 	const token = extractToken(c);
 	const apiKey = await findApiKeyByToken(token);
 
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		throw new HTTPException(401, {
 			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
@@ -866,7 +908,7 @@ function isSoraVideoModelName(externalId: string): boolean {
 	return externalId === "sora-2" || externalId === "sora-2-pro";
 }
 
-function isBytedanceReferenceModel(externalId: string): boolean {
+function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
 		externalId === "dreamina-seedance-2-0-fast-260128"
@@ -875,6 +917,17 @@ function isBytedanceReferenceModel(externalId: string): boolean {
 
 function isGoogleVertexVideoProvider(providerId: string): boolean {
 	return providerId === "google-vertex";
+}
+
+function isAtlasCloudVideoProvider(providerId: string): boolean {
+	return providerId === "atlascloud";
+}
+
+function isAtlasCloudCollapsedKlingModel(externalId: string): boolean {
+	return (
+		externalId === "kwaivgi/kling-v3.0" ||
+		externalId === "kwaivgi/kling-v3.0-turbo"
+	);
 }
 
 function getVideoProviderConstraintReasons(
@@ -945,16 +998,34 @@ function getVideoProviderConstraintReasons(
 		);
 	}
 
-	if (
-		!isSoraVideoModelName(provider.externalId) &&
-		inputMode === "frames" &&
-		!isGoogleVertexVideoProvider(provider.providerId) &&
-		provider.providerId !== "avalanche" &&
-		provider.providerId !== "xai"
-	) {
-		reasons.push(
-			"frame inputs are currently only supported through google-vertex, avalanche, or xai",
-		);
+	if (!isSoraVideoModelName(provider.externalId) && inputMode === "frames") {
+		if (provider.providerId === "bytedance") {
+			if (!isBytedanceSeedance2Model(provider.externalId)) {
+				reasons.push(
+					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+				);
+			}
+		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
+			if (!isAtlasCloudCollapsedKlingModel(provider.externalId)) {
+				reasons.push(
+					"frame inputs are only supported on AtlasCloud KLING video models",
+				);
+			}
+			if (videoDurationSeconds !== 5 && videoDurationSeconds !== 10) {
+				reasons.push(
+					"duration is unsupported because AtlasCloud KLING v3.0 only supports 5s and 10s outputs",
+				);
+			}
+		} else if (
+			!isGoogleVertexVideoProvider(provider.providerId) &&
+			provider.providerId !== "avalanche" &&
+			provider.providerId !== "minimax" &&
+			provider.providerId !== "xai"
+		) {
+			reasons.push(
+				"frame inputs are currently only supported through google-vertex, avalanche, minimax, xai, or bytedance",
+			);
+		}
 	}
 
 	if (inputMode === "reference") {
@@ -978,8 +1049,16 @@ function getVideoProviderConstraintReasons(
 			return reasons;
 		}
 
+		if (isAtlasCloudVideoProvider(provider.providerId)) {
+			reasons.push(
+				"reference inputs are unsupported on AtlasCloud KLING v3.0 models",
+			);
+
+			return reasons;
+		}
+
 		if (provider.providerId === "bytedance") {
-			if (!isBytedanceReferenceModel(provider.externalId)) {
+			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
 					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
 				);
@@ -1137,17 +1216,43 @@ function getAvalancheSoraTaskModelName(
 	return `${baseModelName}-${inputMode === "reference" ? "image" : "text"}-to-video`;
 }
 
+function getAtlasCloudTaskName(inputMode: VideoInputMode): string {
+	if (inputMode === "frames") {
+		return "image-to-video";
+	}
+
+	return "text-to-video";
+}
+
+function getAtlasCloudVideoModelName(
+	baseModelName: string,
+	videoSize: VideoSizeConfig,
+	inputMode: VideoInputMode,
+): string {
+	const taskName = getAtlasCloudTaskName(inputMode);
+	const isTurbo = baseModelName === "kwaivgi/kling-v3.0-turbo";
+
+	if (videoSize.resolution === "4k") {
+		return `kwaivgi/kling-v3.0-4k/${taskName}`;
+	}
+
+	return `kwaivgi/kling-v3.0-${isTurbo ? "turbo" : "std"}/${taskName}`;
+}
+
 function getVideoUpstreamModelName(
 	providerId: Provider,
 	baseModelName: string,
-	_videoSize: VideoSizeConfig,
-	_inputMode: VideoInputMode,
+	videoSize: VideoSizeConfig,
+	inputMode: VideoInputMode,
 ): string {
 	switch (providerId) {
+		case "atlascloud":
+			return getAtlasCloudVideoModelName(baseModelName, videoSize, inputMode);
 		case "avalanche":
 			return getAvalancheVideoModelName(baseModelName);
 		case "bytedance":
 		case "google-vertex":
+		case "minimax":
 		default:
 			return baseModelName;
 	}
@@ -1197,10 +1302,16 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 			return "https://api.openai.com";
 		case "xai":
 			return "https://api.x.ai";
+		case "atlascloud":
+			return "https://api.atlascloud.ai";
 		case "bytedance":
 			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "minimax":
+			return "https://api.minimax.io";
+		case "alibaba":
+			return "https://dashscope-intl.aliyuncs.com";
 		default:
 			return null;
 	}
@@ -1625,13 +1736,15 @@ async function resolveVideoExecution(
 				? "4k"
 				: videoSize.resolution === "1080p"
 					? "1080p"
-					: videoSize.resolution === "720p"
-						? "720p"
-						: videoSize.resolution === "480p"
-							? "480p"
-							: videoSize.resolution === "hd"
-								? "hd"
-								: "default",
+					: videoSize.resolution === "768p"
+						? "768p"
+						: videoSize.resolution === "720p"
+							? "720p"
+							: videoSize.resolution === "480p"
+								? "480p"
+								: videoSize.resolution === "hd"
+									? "hd"
+									: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
@@ -2407,7 +2520,9 @@ async function streamVideoFromUrl(
 	contentUrl: string,
 	contentType?: string | null,
 ): Promise<Response> {
-	const upstreamResponse = await fetch(contentUrl);
+	// SSRF: refuse redirects so a tenant-controlled content URL cannot 3xx the
+	// gateway onward to an internal host whose body would then be streamed back.
+	const upstreamResponse = await fetch(contentUrl, { redirect: "error" });
 	if (!upstreamResponse.ok || !upstreamResponse.body) {
 		throw new HTTPException(502, {
 			message: "Failed to fetch video content from upstream provider",
@@ -2432,7 +2547,11 @@ async function streamVideoFromUrl(
 }
 
 function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
-	return job.usedProvider === "openai" || job.usedProvider === "xai";
+	return (
+		job.usedProvider === "openai" ||
+		job.usedProvider === "minimax" ||
+		job.usedProvider === "xai"
+	);
 }
 
 async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
@@ -2501,11 +2620,65 @@ async function streamDirectUpstreamVideoContent(
 	job: VideoJobRecord,
 ): Promise<Response> {
 	const providerContext = await resolveVideoJobProviderContext(job);
-	const contentUrl = joinUrl(
-		providerContext.baseUrl,
-		`/v1/videos/${job.upstreamId}/content`,
-	);
+
+	let contentUrl: string;
+	if (providerContext.providerId === "minimax") {
+		const statusResponse =
+			job.upstreamStatusResponse &&
+			typeof job.upstreamStatusResponse === "object" &&
+			!Array.isArray(job.upstreamStatusResponse)
+				? (job.upstreamStatusResponse as Record<string, unknown>)
+				: {};
+		const fileId =
+			typeof statusResponse.file_id === "string"
+				? statusResponse.file_id
+				: typeof statusResponse.file_id === "number"
+					? String(statusResponse.file_id)
+					: null;
+		if (!fileId) {
+			throw new HTTPException(502, {
+				message: "MiniMax video response did not include a file_id for content",
+			});
+		}
+		const retrieveUrl = joinUrl(
+			providerContext.baseUrl,
+			`/v1/files/retrieve?file_id=${fileId}`,
+		);
+		const retrieveResponse = await fetch(retrieveUrl, {
+			// SSRF: never follow redirects on a tenant-baseUrl provider request.
+			redirect: "error",
+			headers: getProviderHeaders(
+				providerContext.providerId,
+				providerContext.token,
+				{ requestId: providerContext.requestId },
+			),
+		});
+		if (!retrieveResponse.ok) {
+			throw new HTTPException(502, {
+				message: "Failed to retrieve MiniMax video download URL",
+			});
+		}
+		const retrieveBody = (await retrieveResponse.json()) as {
+			file?: { download_url?: string };
+		};
+		contentUrl = retrieveBody.file?.download_url ?? "";
+		if (!contentUrl) {
+			throw new HTTPException(502, {
+				message:
+					"MiniMax file retrieve response did not include a download_url",
+			});
+		}
+	} else {
+		contentUrl = joinUrl(
+			providerContext.baseUrl,
+			`/v1/videos/${job.upstreamId}/content`,
+		);
+	}
+
 	const upstreamResponse = await fetch(contentUrl, {
+		// SSRF: never follow redirects on a tenant-controlled content/baseUrl
+		// request; the followed body would be streamed back to the caller.
+		redirect: "error",
 		headers: getProviderHeaders(
 			providerContext.providerId,
 			providerContext.token,
@@ -2581,13 +2754,22 @@ async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
 ): Promise<Record<string, unknown>> {
-	const response = await fetch(url, init);
+	// SSRF: never follow redirects on a tenant-baseUrl provider request.
+	const response = await fetch(url, { ...init, redirect: "error" });
 	const text = await response.text();
 	let body: Record<string, unknown> = {};
 
 	if (text.length > 0) {
 		try {
-			body = JSON.parse(text) as Record<string, unknown>;
+			const parsed: unknown = JSON.parse(text);
+			body =
+				typeof parsed === "object" && parsed !== null
+					? (parsed as Record<string, unknown>)
+					: {
+							error: {
+								message: text,
+							},
+						};
 		} catch {
 			body = {
 				error: {
@@ -3115,6 +3297,219 @@ function getBytedanceVideoAspectRatio(videoSize: VideoSizeConfig): string {
 	return "16:9";
 }
 
+function getAtlasCloudVideoAspectRatio(videoSize: VideoSizeConfig): string {
+	return videoSize.orientation === "portrait" ? "9:16" : "16:9";
+}
+
+function atlasCloudVideoModelAcceptsSound(modelName: string): boolean {
+	return !modelName.startsWith("kwaivgi/kling-v3.0-turbo/");
+}
+
+async function uploadAtlasCloudMedia(
+	providerContext: ProviderContext,
+	image: ProcessedVideoImageInput,
+): Promise<string> {
+	const uploadUrl = joinUrl(
+		providerContext.baseUrl,
+		"/api/v1/model/uploadMedia",
+	);
+	const fileExtension = getVideoImageFileExtension(image.mimeType);
+	const formData = new FormData();
+	formData.append(
+		"file",
+		new Blob([Buffer.from(image.bytesBase64Encoded, "base64")], {
+			type: image.mimeType,
+		}),
+		`input.${fileExtension}`,
+	);
+	const response = await fetchUpstreamJson(uploadUrl, {
+		method: "POST",
+		headers: getProviderHeaders("atlascloud", providerContext.token, {
+			requestId: providerContext.requestId,
+		}),
+		body: formData,
+	});
+	const uploadedUrl = extractAtlasCloudUploadedMediaUrl(response);
+
+	if (!uploadedUrl) {
+		throw new HTTPException(502, {
+			message: "AtlasCloud media upload did not return a usable URL",
+		});
+	}
+
+	return uploadedUrl;
+}
+
+function extractAtlasCloudUploadedMediaUrl(
+	response: Record<string, unknown>,
+): string | null {
+	const preferredKeys = new Set([
+		"url",
+		"fileUrl",
+		"file_url",
+		"downloadUrl",
+		"download_url",
+		"mediaUrl",
+		"media_url",
+		"temporaryUrl",
+		"temporary_url",
+		"tempUrl",
+		"temp_url",
+	]);
+
+	const isHttpUrl = (value: unknown): value is string =>
+		typeof value === "string" && /^https?:\/\//i.test(value);
+
+	const visitPreferred = (value: unknown): string | null => {
+		if (isHttpUrl(value)) {
+			return value;
+		}
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				const found = visitPreferred(item);
+				if (found) {
+					return found;
+				}
+			}
+			return null;
+		}
+		if (!value || typeof value !== "object") {
+			return null;
+		}
+
+		const record = value as Record<string, unknown>;
+		for (const key of preferredKeys) {
+			const found = visitPreferred(record[key]);
+			if (found) {
+				return found;
+			}
+		}
+		for (const nested of Object.values(record)) {
+			const found = visitPreferred(nested);
+			if (found) {
+				return found;
+			}
+		}
+		return null;
+	};
+
+	return visitPreferred(response);
+}
+
+async function getAtlasCloudImageUrl(
+	providerContext: ProviderContext,
+	videoImage: VideoImageInput,
+): Promise<string> {
+	const imageUrl = getVideoImageUrl(videoImage);
+	if (/^https:\/\//i.test(imageUrl)) {
+		return imageUrl;
+	}
+
+	const processedImage = await processVideoImageInput(videoImage);
+	if (!processedImage) {
+		throw new HTTPException(400, {
+			message: "image must include a non-empty image URL",
+		});
+	}
+
+	return await uploadAtlasCloudMedia(providerContext, processedImage);
+}
+
+async function createAtlasCloudVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	firstFrameInput: VideoImageInput | undefined,
+	lastFrameInput: VideoImageInput | undefined,
+	referenceImageInputs: VideoImageInput[],
+	referenceVideoUrls: string[],
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = getVideoUpstreamModelName(
+		"atlascloud",
+		providerMapping.externalId,
+		videoSize,
+		referenceImageInputs.length > 0 || referenceVideoUrls.length > 0
+			? "reference"
+			: firstFrameInput || lastFrameInput
+				? "frames"
+				: "none",
+	);
+	const imageUrl = firstFrameInput
+		? await getAtlasCloudImageUrl(providerContext, firstFrameInput)
+		: null;
+	const endImageUrl = lastFrameInput
+		? await getAtlasCloudImageUrl(providerContext, lastFrameInput)
+		: null;
+	const referenceImageUrls =
+		referenceImageInputs.length > 0
+			? await Promise.all(
+					referenceImageInputs.map((imageInput) =>
+						getAtlasCloudImageUrl(providerContext, imageInput),
+					),
+				)
+			: [];
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		prompt,
+		duration: durationSeconds,
+		aspect_ratio: getAtlasCloudVideoAspectRatio(videoSize),
+		...(atlasCloudVideoModelAcceptsSound(upstreamModelName)
+			? { sound: includeAudio }
+			: {}),
+		...(imageUrl ? { image: imageUrl } : {}),
+		...(endImageUrl ? { end_image: endImageUrl } : {}),
+		...(referenceImageUrls.length > 0
+			? { reference_image_urls: referenceImageUrls }
+			: {}),
+		...(referenceVideoUrls.length > 0
+			? { reference_video_urls: referenceVideoUrls }
+			: {}),
+	};
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/api/v1/model/generateVideo",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("atlascloud", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+			aspect_ratio: upstreamRequest.aspect_ratio,
+			sound: includeAudio,
+			audio: includeAudio,
+		},
+		videoSize,
+	);
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "AtlasCloud video response did not include a prediction id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createBytedanceVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3124,6 +3519,7 @@ async function createBytedanceVideoJob(
 	includeAudio: boolean,
 	firstFrameInput: VideoImageInput | undefined,
 	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
 	processedReferenceImages: ProcessedVideoImageInput[],
 	referenceVideoUrls: string[],
 	referenceAudioUrls: string[],
@@ -3147,6 +3543,16 @@ async function createBytedanceVideoJob(
 				url: `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`,
 			},
 			role: "first_frame",
+		});
+	}
+
+	if (processedLastFrame) {
+		content.push({
+			type: "image_url",
+			image_url: {
+				url: `data:${processedLastFrame.mimeType};base64,${processedLastFrame.bytesBase64Encoded}`,
+			},
+			role: "last_frame",
 		});
 	}
 
@@ -3232,6 +3638,84 @@ async function createBytedanceVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+function getMinimaxResolution(videoSize: VideoSizeConfig): string {
+	if (videoSize.resolution === "1080p") {
+		return "1080P";
+	}
+	if (videoSize.resolution === "4k") {
+		return "1080P";
+	}
+	return "768P";
+}
+
+async function createMinimaxVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const resolution = getMinimaxResolution(videoSize);
+	const effectiveDuration =
+		resolution === "1080P" && durationSeconds > 6 ? 6 : durationSeconds;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		prompt,
+		duration: effectiveDuration,
+		resolution,
+	};
+
+	if (processedFirstFrame) {
+		upstreamRequest.first_frame_image = `data:${processedFirstFrame.mimeType};base64,${processedFirstFrame.bytesBase64Encoded}`;
+	}
+
+	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/video_generation");
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			...getProviderHeaders("minimax", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const baseResp = rawResponse.base_resp as
+		| { status_code?: number; status_msg?: string }
+		| undefined;
+	if (baseResp && baseResp.status_code !== 0) {
+		throw new HTTPException(502, {
+			message: `MiniMax video API error: ${baseResp.status_msg ?? "unknown error"} (code ${baseResp.status_code})`,
+		});
+	}
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "MiniMax video response did not include a task id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createXaiVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3293,6 +3777,79 @@ async function createXaiVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+async function createAlibabaVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		input: {
+			prompt,
+		},
+		parameters: {
+			size: `${videoSize.width}*${videoSize.height}`,
+			duration: durationSeconds,
+		},
+	};
+
+	const upstreamUrl = joinUrl(
+		providerContext.baseUrl,
+		"/api/v1/services/aigc/video-generation/video-synthesis",
+	);
+	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-DashScope-Async": "enable",
+			...getProviderHeaders("alibaba", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+		},
+		body: JSON.stringify(upstreamRequest),
+	});
+
+	const output =
+		rawResponse.output && typeof rawResponse.output === "object"
+			? (rawResponse.output as Record<string, unknown>)
+			: null;
+	const taskId =
+		output && typeof output.task_id === "string" ? output.task_id : null;
+	if (!taskId) {
+		const message =
+			typeof rawResponse.message === "string"
+				? rawResponse.message
+				: "Alibaba video response did not include a task id";
+		const code =
+			typeof rawResponse.code === "string" ? rawResponse.code : undefined;
+		throw new HTTPException(502, {
+			message: code
+				? `Alibaba video API error: ${message} (code ${code})`
+				: message,
+		});
+	}
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			task_id: taskId,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	return { upstreamId: taskId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3318,6 +3875,19 @@ async function createUpstreamVideoJob(
 	upstreamResponse: Record<string, unknown>;
 }> {
 	switch (providerContext.providerId) {
+		case "atlascloud":
+			return await createAtlasCloudVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				firstFrameInput,
+				lastFrameInput,
+				referenceImageInputs,
+				referenceVideoUrls,
+			);
 		case "xai":
 			return await createXaiVideoJob(
 				providerContext,
@@ -3366,6 +3936,7 @@ async function createUpstreamVideoJob(
 				includeAudio,
 				firstFrameInput,
 				processedFirstFrame,
+				processedLastFrame,
 				processedReferenceImages,
 				referenceVideoUrls,
 				referenceAudioUrls,
@@ -3384,6 +3955,23 @@ async function createUpstreamVideoJob(
 				videoJobId,
 				organizationId,
 				projectId,
+			);
+		case "minimax":
+			return await createMinimaxVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				processedFirstFrame,
+			);
+		case "alibaba":
+			return await createAlibabaVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
 			);
 		default:
 			throw new HTTPException(500, {
@@ -3535,6 +4123,159 @@ async function processVideoImageInputs(
 	).filter((image): image is ProcessedVideoImageInput => image !== null);
 }
 
+function buildVideoClientErrorRoutingMetadata(
+	routingMetadata: RoutingMetadata | undefined,
+	providerContext: ProviderContext,
+	modelId: string,
+	statusCode: number,
+): RoutingMetadata | null {
+	const routingAttempt: RoutingAttempt = {
+		provider: providerContext.providerId,
+		model: modelId,
+		status_code: statusCode,
+		error_type: "client_error",
+		succeeded: false,
+	};
+
+	if (!routingMetadata) {
+		return {
+			availableProviders: [providerContext.providerId],
+			selectedProvider: providerContext.providerId,
+			selectionReason: "client_error",
+			providerScores: [
+				{
+					providerId: providerContext.providerId,
+					score: 0,
+					price: 0,
+					failed: true,
+					status_code: statusCode,
+					error_type: "client_error",
+				},
+			],
+			routing: [routingAttempt],
+		};
+	}
+
+	return {
+		...routingMetadata,
+		selectedProvider: providerContext.providerId,
+		routing: [routingAttempt],
+		providerScores: routingMetadata.providerScores.map((score) =>
+			score.providerId === providerContext.providerId
+				? {
+						...score,
+						failed: true,
+						status_code: statusCode,
+						error_type: "client_error",
+					}
+				: score,
+		),
+	};
+}
+
+async function insertVideoClientErrorLog(options: {
+	request: z.infer<typeof createVideoRequestSchema>;
+	requestId: string;
+	apiKey: GatewayApiKey;
+	project: InferSelectModel<typeof tables.project>;
+	organization: InferSelectModel<typeof tables.organization>;
+	normalizedModel: string;
+	requestedProvider: string | undefined;
+	providerContext: ProviderContext;
+	upstreamModelName: string;
+	routingMetadata: RoutingMetadata | undefined;
+	statusCode: number;
+	message: string;
+	startedAt: number;
+}): Promise<void> {
+	const responseText = options.message;
+	await db.insert(tables.log).values({
+		requestId: options.requestId,
+		organizationId: options.organization.id,
+		projectId: options.project.id,
+		apiKeyId: options.apiKey.id,
+		endUserSessionId: options.apiKey.endUserSession?.id ?? null,
+		endCustomerWalletId: options.apiKey.endCustomerWalletId ?? null,
+		duration: Math.max(0, Date.now() - options.startedAt),
+		timeToFirstToken: null,
+		timeToFirstReasoningToken: null,
+		requestedModel: getFormattedRequestedVideoModel(
+			options.normalizedModel,
+			options.requestedProvider,
+		),
+		requestedProvider: options.requestedProvider ?? null,
+		usedModel: getFormattedUsedVideoModel(
+			options.providerContext.providerId,
+			options.normalizedModel,
+		),
+		usedModelMapping: options.upstreamModelName,
+		usedProvider: options.providerContext.providerId,
+		responseSize: responseText.length,
+		content: null,
+		reasoningContent: null,
+		finishReason: "client_error",
+		unifiedFinishReason: UnifiedFinishReason.CLIENT_ERROR,
+		promptTokens: null,
+		completionTokens: null,
+		totalTokens: null,
+		reasoningTokens: null,
+		cachedTokens: null,
+		cacheWriteTokens: null,
+		messages:
+			options.organization.retentionLevel === "retain"
+				? [
+						{
+							role: "user",
+							content: options.request.prompt,
+						},
+					]
+				: null,
+		hasError: true,
+		errorDetails: {
+			statusCode: options.statusCode,
+			statusText: "Bad Request",
+			responseText,
+		},
+		cost: 0,
+		inputCost: 0,
+		outputCost: 0,
+		cachedInputCost: 0,
+		cacheWriteInputCost: 0,
+		requestCost: 0,
+		webSearchCost: 0,
+		contentFilterCost: null,
+		imageInputTokens: null,
+		imageOutputTokens: null,
+		imageInputCost: null,
+		imageOutputCost: null,
+		audioInputTokens: null,
+		audioInputCost: null,
+		videoOutputCost: 0,
+		estimatedCost: false,
+		discount: null,
+		pricingTier: null,
+		requestedServiceTier: null,
+		usedServiceTier: null,
+		canceled: false,
+		streamed: false,
+		cached: false,
+		mode: options.project.mode,
+		usedMode: options.providerContext.usedMode,
+		routingMetadata: buildVideoClientErrorRoutingMetadata(
+			options.routingMetadata,
+			options.providerContext,
+			options.normalizedModel,
+			options.statusCode,
+		),
+		processedAt: null,
+		rawRequest: null,
+		rawResponse: null,
+		upstreamRequest: null,
+		upstreamResponse: null,
+		dataStorageCost: "0",
+	});
+}
+
 async function uploadAvalancheBase64Image(
 	providerContext: ProviderContext,
 	image: ProcessedVideoImageInput,
@@ -3597,11 +4338,12 @@ async function getAvalancheImageUrl(
 }
 
 videos.openapi(createVideo, async (c) => {
+	const startedAt = Date.now();
 	const { rawBody, request } = await parseJsonBody(c);
 	const { apiKey, project, organization, wallet, requestId, routingCfg } =
 		await requireRequestContext(c);
 
-	if (organization.isPersonal && organization.devPlan !== "none") {
+	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
 			message:
 				"Video generation is not available for coding plans. Coding plans only include text-based inference.",
@@ -3668,6 +4410,32 @@ videos.openapi(createVideo, async (c) => {
 		});
 	}
 
+	// Enterprise provider compliance policy: restrict video routing to providers
+	// that meet the org's policy, and block before dispatch if none qualify.
+	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	let complianceModelInfo: ModelDefinition = modelInfo;
+	if (videoCompliancePolicy) {
+		// A pinned provider is dispatched directly, so block it explicitly even
+		// when the model has other compliant providers (mirrors the chat path).
+		const pinnedBlocked =
+			requestedProvider !== undefined &&
+			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy);
+		const compliantProviders = filterCompliantProviders(
+			modelInfo.providers as ProviderModelMapping[],
+			videoCompliancePolicy,
+		);
+		if (pinnedBlocked || compliantProviders.length === 0) {
+			await logComplianceBlock(project.organizationId, {
+				apiKeyId: apiKey.id,
+				model: normalizedModel,
+			});
+			throw new HTTPException(403, {
+				message: complianceBlockMessage(normalizedModel),
+			});
+		}
+		complianceModelInfo = { ...modelInfo, providers: compliantProviders };
+	}
+
 	const {
 		providerMapping,
 		providerContext,
@@ -3675,7 +4443,7 @@ videos.openapi(createVideo, async (c) => {
 		routingMetadata,
 		orderedMappings,
 	} = await resolveVideoExecution(
-		modelInfo,
+		complianceModelInfo,
 		requestedProvider,
 		videoSize,
 		videoDurationSeconds,
@@ -3697,10 +4465,34 @@ videos.openapi(createVideo, async (c) => {
 	let selectedProviderContext = providerContext;
 	let selectedUpstreamModelName = upstreamModelName;
 	let enrichedRoutingMetadata = routingMetadata;
-	const processedFirstFrame = await processVideoImageInput(firstFrameInput);
-	const processedLastFrameInput = await processVideoImageInput(lastFrameInput);
-	const processedReferenceImages =
-		await processVideoImageInputs(referenceImageInputs);
+	let processedFirstFrame: ProcessedVideoImageInput | null;
+	let processedLastFrameInput: ProcessedVideoImageInput | null;
+	let processedReferenceImages: ProcessedVideoImageInput[];
+	try {
+		processedFirstFrame = await processVideoImageInput(firstFrameInput);
+		processedLastFrameInput = await processVideoImageInput(lastFrameInput);
+		processedReferenceImages =
+			await processVideoImageInputs(referenceImageInputs);
+	} catch (error) {
+		if (error instanceof HTTPException && error.status >= 400) {
+			await insertVideoClientErrorLog({
+				request,
+				requestId,
+				apiKey,
+				project,
+				organization,
+				normalizedModel,
+				requestedProvider,
+				providerContext: selectedProviderContext,
+				upstreamModelName: selectedUpstreamModelName,
+				routingMetadata: enrichedRoutingMetadata,
+				statusCode: error.status,
+				message: error.message,
+				startedAt,
+			});
+		}
+		throw error;
+	}
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviders = new Set<string>();
 	let retryCount = 0;
@@ -3997,6 +4789,10 @@ videos.openapi(createVideo, async (c) => {
 			routingMetadata: enrichedRoutingMetadata ?? null,
 			upstreamCreateResponse: {
 				...upstreamResponse,
+				llmgateway_requested_size: videoSize.size,
+				llmgateway_requested_resolution: videoSize.resolution,
+				llmgateway_requested_duration_seconds: videoDurationSeconds,
+				llmgateway_input_image_count: inputImageCount,
 				...(debugMode
 					? {
 							llmgateway_raw_request: rawBody,

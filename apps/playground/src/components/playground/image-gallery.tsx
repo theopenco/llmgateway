@@ -196,7 +196,7 @@ function SingleModeItem({
 					<p className="text-sm text-destructive">{model.error}</p>
 				</div>
 			) : model.images.length === 0 && model.isLoading ? (
-				<LoadingSkeleton count={1} />
+				<LoadingSkeleton count={Math.max(1, model.imageCount ?? 1)} />
 			) : (
 				<div
 					className={`grid gap-3 ${
@@ -281,7 +281,7 @@ function ComparisonModeItem({
 								<p className="text-sm text-destructive">{model.error}</p>
 							</div>
 						) : model.images.length === 0 && model.isLoading ? (
-							<LoadingSkeleton count={1} />
+							<LoadingSkeleton count={Math.max(1, model.imageCount ?? 1)} />
 						) : (
 							<div
 								className={`grid gap-2 ${

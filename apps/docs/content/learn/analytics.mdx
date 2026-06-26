@@ -1,0 +1,40 @@
+---
+title: Analytics
+description: Break down cost, requests, and tokens by model for any project
+icon: ChartArea
+---
+
+import { ThemedImage } from "@/components/themed-image";
+
+The Analytics page shows where a project's spend actually goes. It breaks usage down by model — as a ranking and over time — so you can see which models drive cost, requests, and tokens across any date range.
+
+<ThemedImage alt="Project Analytics" basePath="/learn/analytics" />
+
+Open it from the **Analytics** item in the project sidebar. Like the rest of the dashboard, the page respects the shared date-range picker at the top, so every chart reflects the same window.
+
+## Cost by Model
+
+A horizontal bar chart that ranks the models used in the selected range. Switch the metric with the tabs above the chart:
+
+| Tab          | What it ranks                          |
+| ------------ | -------------------------------------- |
+| **Cost**     | Total spend per model, in USD          |
+| **Requests** | Number of requests routed to the model |
+| **Tokens**   | Total tokens (input + output)          |
+
+Use it to spot the one or two models responsible for most of your bill, or to confirm that traffic is spread the way you expect.
+
+## Cost by Model Over Time
+
+A stacked area chart that plots the same three metrics across the date range, with one band per model. It has the same **Cost / Requests / Tokens** tabs, plus a **Mappings / Canonical** toggle:
+
+- **Mappings** — each model variant is shown separately, exactly as it was requested (for example a custom provider mapping is kept distinct from the built-in model).
+- **Canonical** — variants of the same underlying model are collapsed into one canonical model (the provider prefix and tag are dropped), so `openai/gpt-5.5` and a custom mapping of it count as a single line.
+
+Switch to **Canonical** when you care about the underlying model's total footprint; stay on **Mappings** when you need to compare specific routes.
+
+## How the data is computed
+
+Both charts derive from the same activity data the rest of the dashboard already reads — there is no separate analytics pipeline to wait on. Aggregation happens per time bucket and is timezone-correct, so totals line up with the Activity and Usage pages for the same range.
+
+For a per-key view of the same breakdowns, see [API Keys](/learn/api-keys#per-key-statistics). For an org-wide, per-person view on the Enterprise plan, see [Member Analytics](/learn/member-analytics).

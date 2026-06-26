@@ -2,11 +2,11 @@
 id: continue
 slug: continue
 title: Continue CLI Integration
-description: Use any model with Continue CLI through LLM Gateway. One config file, 210+ models, full cost tracking.
+description: Use any model with Continue CLI through LLM Gateway. One config file, 280+ models, full cost tracking.
 date: 2026-05-11
 ---
 
-[Continue](https://docs.continue.dev) is an open-source AI code assistant available as a CLI tool. By configuring it to use LLM Gateway, you get access to 210+ models from 60+ providers with unified cost tracking.
+[Continue](https://docs.continue.dev) is an open-source AI code assistant available as a CLI tool. By configuring it to use LLM Gateway, you get access to 280+ models from 35+ providers with unified cost tracking.
 
 One config file. Any model. Full cost visibility.
 
@@ -96,7 +96,7 @@ All requests now route through LLM Gateway. You'll see usage, costs, and logs in
 
 ## Why Use LLM Gateway with Continue
 
-- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
+- **280+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
 - **One API key** — Stop managing separate keys for each provider
 - **Cost tracking** — See exactly what each session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically

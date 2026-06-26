@@ -14,7 +14,7 @@ export const xiaomiModels = [
 				externalId: "mimo-v2.5-pro",
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
-				cachedInputPrice: "0.087e-6",
+				cachedInputPrice: "0.0036e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,
@@ -64,7 +64,7 @@ export const xiaomiModels = [
 				externalId: "mimo-v2.5",
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
-				cachedInputPrice: "0.028e-6",
+				cachedInputPrice: "0.0028e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,
@@ -124,6 +124,11 @@ export const xiaomiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Xiaomi retires mimo-v2-flash and auto-forwards requests to
+				// mimo-v2.5 (billed as the new model) at Beijing 2026-06-18 00:00.
+				// Deactivate at the switch so requests error instead of silently
+				// routing to a different model.
+				deactivatedAt: new Date("2026-06-17T16:00:00Z"),
 			},
 		],
 	},

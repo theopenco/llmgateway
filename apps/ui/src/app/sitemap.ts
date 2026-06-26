@@ -15,6 +15,11 @@ function slugify(label: string) {
 		.replace(/(^-|-$)/g, "");
 }
 
+// Stable per-deploy timestamp. Using a single build-time date (instead of a
+// fresh `new Date()` per URL/request) keeps `lastModified` from reporting
+// "changed just now" on every crawl, which trains search engines to ignore it.
+const buildDate = new Date();
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
 
@@ -31,223 +36,235 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const staticPages: MetadataRoute.Sitemap = [
 		{
 			url: baseUrl,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 1,
 		},
 		{
 			url: `${baseUrl}/models`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "daily",
 			priority: 0.9,
 		},
 		{
 			url: `${baseUrl}/pricing`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.9,
 		},
 		{
 			url: `${baseUrl}/blog`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "daily",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/guides`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/changelog`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/providers`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/enterprise`,
-			lastModified: new Date(),
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/open-source`,
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/integrations`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/referrals`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.6,
 		},
 		{
 			url: `${baseUrl}/timeline`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.5,
 		},
 		{
 			url: `${baseUrl}/brand`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.4,
 		},
 		{
 			url: `${baseUrl}/migration`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/reliability`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/ship`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/token-cost-calculator`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.9,
 		},
 		{
 			url: `${baseUrl}/nano-banana-simulator/20`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.6,
 		},
 		{
 			url: `${baseUrl}/blog/category`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.5,
 		},
 		{
 			url: `${baseUrl}/models/compare`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/models/text`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/vision`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/reasoning`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/web-search`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/image-to-image`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/text-to-image`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/video`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/embeddings`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/tools`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/discounted`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/mcp`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/agents`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/templates`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/apps`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/compare/litellm`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/compare/open-router`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/compare/portkey`,
-			lastModified: new Date(),
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/vercel-ai-gateway`,
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/use-cases`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
@@ -259,7 +276,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		// Main model page
 		modelPages.push({
 			url: `${baseUrl}/models/${encodeURIComponent(model.id)}`,
-			lastModified: new Date(),
+			lastModified: "releasedAt" in model ? model.releasedAt : buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		});
@@ -267,23 +284,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		// Model uptime page
 		modelPages.push({
 			url: `${baseUrl}/models/${encodeURIComponent(model.id)}/uptime`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "daily",
 			priority: 0.5,
 		});
 
-		// Model + provider pages
-		const uniqueProviders = Array.from(
-			new Set(model.providers.map((p) => p.providerId)),
-		);
-		for (const providerId of uniqueProviders) {
-			modelPages.push({
-				url: `${baseUrl}/models/${encodeURIComponent(model.id)}/${encodeURIComponent(providerId)}`,
-				lastModified: new Date(),
-				changeFrequency: "weekly",
-				priority: 0.7,
-			});
-		}
+		// Model + provider sub-pages (/models/{id}/{provider}) are intentionally
+		// excluded from the sitemap: they canonicalize to the base model page
+		// (/models/{id}), so listing them here only inflates Search Console's
+		// "Alternate page with proper canonical tag" report without adding any
+		// indexable URLs. Google still discovers them via internal links.
 	}
 
 	// Provider pages
@@ -291,7 +301,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		.filter((provider) => provider.name !== "LLM Gateway")
 		.map((provider) => ({
 			url: `${baseUrl}/providers/${provider.id}`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		}));
@@ -299,7 +309,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	// Feature pages
 	const featurePages: MetadataRoute.Sitemap = features.map((feature) => ({
 		url: `${baseUrl}/features/${feature.slug}`,
-		lastModified: new Date(),
+		lastModified: buildDate,
 		changeFrequency: "monthly",
 		priority: 0.7,
 	}));
@@ -308,7 +318,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const enterpriseFeaturePages: MetadataRoute.Sitemap = enterpriseFeatures.map(
 		(feature) => ({
 			url: `${baseUrl}/enterprise/${feature.slug}`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly" as const,
 			priority: 0.8,
 		}),
@@ -338,7 +348,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		blogCategorySlugs,
 	).map((category) => ({
 		url: `${baseUrl}/blog/category/${encodeURIComponent(category)}`,
-		lastModified: new Date(),
+		lastModified: buildDate,
 		changeFrequency: "weekly" as const,
 		priority: 0.5,
 	}));

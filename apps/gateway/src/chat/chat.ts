@@ -18,17 +18,31 @@ import {
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
+	findCustomModel,
 	findEffectiveDiscount,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	type CustomModel,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
 	providerSupportsCachedInput,
 } from "@/lib/coding-models.js";
-import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
+import {
+	complianceBlockMessage,
+	filterCompliantProviders,
+	getActiveCompliancePolicy,
+	isProviderIdCompliant,
+	logComplianceBlock,
+} from "@/lib/compliance.js";
+import {
+	calculateCosts,
+	isRefusalFinishReason,
+	shouldBillCancelledRequests,
+	zeroInferenceCosts,
+} from "@/lib/costs.js";
 import {
 	assertOriginAllowed,
 	assertTestWalletModelAllowed,
@@ -46,6 +60,7 @@ import {
 	calculateDataStorageCost,
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
+	isLengthLimitFinishReason,
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
 import {
@@ -79,11 +94,15 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getProviderEndpoint,
 	getProviderHeaders,
+	isPremiumServiceTier,
+	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	selectProviderMapping,
+	RequestError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
@@ -133,7 +152,18 @@ import {
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
 } from "@llmgateway/models";
-import { isChatPlanModelAllowed } from "@llmgateway/shared";
+import {
+	detectCodingAgentFromReferer,
+	detectCodingAgentFromTitle,
+	getSupportedAgentsList,
+	isChatPlanModelAllowed,
+	isRecognizedCodingAgent,
+	normalizeSourceToAgentId,
+} from "@llmgateway/shared";
+import {
+	applyRoutingPreference,
+	type ResolvedRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -161,7 +191,11 @@ import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
-import { getProviderEnv } from "./tools/get-provider-env.js";
+import {
+	getProviderEnv,
+	getServiceTierIneligibleEnvIndices,
+	hasServiceTierEligibleEnvCredential,
+} from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
@@ -189,6 +223,7 @@ import {
 	formatUsedModelForDisplay,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
+import { resolveReasoningTokens } from "./tools/resolve-reasoning-tokens.js";
 import {
 	type RoutingAttempt,
 	getErrorType,
@@ -215,7 +250,6 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
-import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -277,6 +311,40 @@ function toDataStorageCostNumber(
 	);
 	const num = Number(str);
 	return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * Builds a synthetic provider mapping (providerId "custom") from an enterprise
+ * custom model catalog entry. Used both to override the mock model info for
+ * limit/capability enforcement and as the `customPricing` override threaded into
+ * calculateCosts so custom-provider requests are billed at the catalog rates.
+ */
+function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
+	const streaming: boolean | "only" =
+		cm.streaming === "only" ? "only" : cm.streaming !== "false";
+	return {
+		providerId: "custom",
+		externalId: cm.modelName,
+		inputPrice: cm.inputPrice ?? undefined,
+		outputPrice: cm.outputPrice ?? undefined,
+		cachedInputPrice: cm.cachedInputPrice ?? undefined,
+		cacheReadInputPrice: cm.cacheReadInputPrice ?? undefined,
+		cacheWriteInputPrice: cm.cacheWriteInputPrice ?? undefined,
+		cacheWriteInputPrice1h: cm.cacheWriteInputPrice1h ?? undefined,
+		requestPrice: cm.requestPrice ?? undefined,
+		webSearchPrice: cm.webSearchPrice ?? undefined,
+		imageInputPrice: cm.imageInputPrice ?? undefined,
+		inputAudioPrice: cm.audioInputPrice ?? undefined,
+		contextSize: cm.contextSize ?? undefined,
+		maxOutput: cm.maxOutput ?? undefined,
+		vision: cm.vision ?? undefined,
+		tools: cm.tools ?? undefined,
+		reasoning: cm.reasoning ?? undefined,
+		jsonOutput: cm.jsonOutput ?? undefined,
+		audio: cm.audio ?? undefined,
+		supportedParameters: cm.supportedParameters ?? undefined,
+		streaming,
+	};
 }
 
 function filterRegionsByAvailableKeys(
@@ -493,6 +561,7 @@ function filterEligibleModelProviders(
 		maxTokens?: number;
 		reasoningEffort?: string;
 		n?: number;
+		stream?: boolean;
 	},
 ): ProviderModelMapping[] {
 	return availableModelProviders.filter((provider) => {
@@ -516,13 +585,19 @@ function filterEligibleModelProviders(
 
 		// Exclude mappings that can't natively serve n > 1 so routing skips
 		// over them instead of selecting one and failing the post-selection
-		// supportsN guard. The post-guard stays as a safety net.
-		if (
-			options.n !== undefined &&
-			options.n > 1 &&
-			provider.supportsN !== true
-		) {
-			return false;
+		// supportsN guard. The post-guard stays as a safety net. Mappings
+		// whose upstream caps n (maxN) or rejects n > 1 on streaming
+		// (supportsNStreaming === false, e.g. Google) are excluded the same way.
+		if (options.n !== undefined && options.n > 1) {
+			if (provider.supportsN !== true) {
+				return false;
+			}
+			if (provider.maxN !== undefined && options.n > provider.maxN) {
+				return false;
+			}
+			if (options.stream && provider.supportsNStreaming === false) {
+				return false;
+			}
 		}
 
 		if (
@@ -863,7 +938,7 @@ function getForwardedServiceTier(
 function isRequestedServiceTier(
 	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
 ): serviceTier is "flex" | "priority" {
-	return serviceTier === "flex" || serviceTier === "priority";
+	return isPremiumServiceTier(serviceTier);
 }
 
 function providerMatchesRequestedProvider(
@@ -1360,6 +1435,7 @@ chat.openapi(completions, async (c) => {
 		prompt_cache_key,
 		prompt_cache_retention,
 		tool_choice,
+		routing,
 		free_models_only,
 		onboarding,
 		no_reasoning,
@@ -1372,6 +1448,20 @@ chat.openapi(completions, async (c) => {
 		n,
 		user,
 	} = validationResult.data;
+
+	// The processing tier the client explicitly requested (flex / priority).
+	// Null when no premium tier was requested. Stored on every log alongside the
+	// tier the provider actually served (usedServiceTier).
+	const requestedServiceTier = isRequestedServiceTier(service_tier)
+		? service_tier
+		: null;
+	// The processing tier the provider actually served (Flex / Priority),
+	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
+	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
+	// this served tier (not the requested one) since Google downgrades
+	// unsupported tiers to standard. Null = standard / no tier. Declared here
+	// (ahead of the insertLogEntry wrapper) so every log path can record it.
+	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Sticky-routing session key, in priority order: the explicit x-session-id
 	// header, then x-session-affinity (sent by coding agents such as opencode),
@@ -1513,6 +1603,8 @@ chat.openapi(completions, async (c) => {
 				user_location: foundTool.user_location,
 				search_context_size: foundTool.search_context_size,
 				max_uses: foundTool.max_uses,
+				allowed_domains: foundTool.allowed_domains,
+				blocked_domains: foundTool.blocked_domains,
 			};
 			// Remove the web_search tool from the tools array so it's not sent as a regular tool
 			tools.splice(webSearchToolIndex, 1);
@@ -1542,6 +1634,38 @@ chat.openapi(completions, async (c) => {
 
 	if (!source) {
 		source = detectCodingAgentFromUserAgent(userAgent);
+	}
+
+	if (source) {
+		source = normalizeSourceToAgentId(source);
+	}
+
+	// If source is still unrecognized, try X-Title header
+	if (!source || !isRecognizedCodingAgent(source)) {
+		const fromTitle = detectCodingAgentFromTitle(
+			c.req.header("X-Title") ?? c.req.header("X-OpenRouter-Title"),
+		);
+		if (fromTitle) {
+			source = fromTitle;
+		}
+	}
+
+	// If still unrecognized, try HTTP-Referer pattern matching
+	if (!source || !isRecognizedCodingAgent(source)) {
+		const fromReferer = detectCodingAgentFromReferer(
+			c.req.header("HTTP-Referer"),
+		);
+		if (fromReferer) {
+			source = fromReferer;
+		}
+	}
+
+	// Final fallback: UA detection for unrecognized x-source values
+	if (source && !isRecognizedCodingAgent(source)) {
+		const detectedFromUa = detectCodingAgentFromUserAgent(userAgent);
+		if (detectedFromUa) {
+			source = detectedFromUa;
+		}
 	}
 
 	// Check if debug mode is enabled via x-debug header
@@ -1581,6 +1705,12 @@ chat.openapi(completions, async (c) => {
 	const insertLogEntry = (logData: LogInsertData) =>
 		insertLog(
 			{
+				// Service tiers default from the request-level requested tier and the
+				// served tier resolved so far, so every log path (guardrail/validation
+				// rejections, cache hits, streaming/upstream errors, fetch errors)
+				// records them. Explicit values in logData still win.
+				requestedServiceTier,
+				usedServiceTier: servedServiceTier,
 				...logData,
 				...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
 				responsesApiData,
@@ -1659,6 +1789,26 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Text-to-speech and video models are served by dedicated endpoints
+	// (/v1/audio/speech and /v1/videos). Routing them through chat completions
+	// would fall through to a confusing "requires a baseUrl" error during
+	// endpoint resolution, so reject them early with a pointer to the right
+	// endpoint. Image-only models (e.g. reve, grok-image) are intentionally
+	// allowed here — they are served by the chat-completions image flow.
+	const modelOutput = modelInfo.output;
+	if (modelOutput && !modelOutput.includes("text")) {
+		if (modelOutput.includes("audio")) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} is a text-to-speech model and is not available on the chat completions endpoint. Use the /v1/audio/speech endpoint instead.`,
+			});
+		}
+		if (modelOutput.includes("video")) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} is a video generation model and is not available on the chat completions endpoint. Use the /v1/videos endpoint instead.`,
+			});
+		}
+	}
+
 	// Validate that models requiring image input have at least one image in the request
 	if (
 		modelInfo.imageInputRequired &&
@@ -1697,10 +1847,17 @@ chat.openapi(completions, async (c) => {
 
 	const apiKey = await findApiKeyByToken(token);
 
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		throw new HTTPException(401, {
 			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
@@ -1753,6 +1910,11 @@ chat.openapi(completions, async (c) => {
 			organizationId: project.organizationId,
 			projectId: apiKey.projectId,
 			discount: discount ?? null,
+			// Surface the requested vs served tier so callers can detect downgrades.
+			// Read at call time, so the streaming final usage chunk reflects the tier
+			// resolved from the upstream response.
+			requestedServiceTier,
+			usedServiceTier: servedServiceTier,
 		});
 
 	let configIndex = 0; // Index for round-robin environment variables
@@ -1902,7 +2064,8 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: false,
 						discount: null,
 						pricingTier: null,
-						serviceTier: null,
+						requestedServiceTier,
+						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
 					{ syncInsert: syncLogInsert },
@@ -1967,10 +2130,57 @@ chat.openapi(completions, async (c) => {
 		organization = withWalletCredits(organization, endUserWallet);
 	}
 
-	const routingCfg = await getResolvedRoutingConfig(
+	const isDevPlan = Boolean(
+		organization?.kind === "devpass" && organization.devPlan !== "none",
+	);
+
+	// A routing strategy only has meaning for multi-provider model-id routing.
+	// If the request also pins a specific provider (e.g. `openai/gpt-4o` or a
+	// custom provider), the strategy can't influence anything, so reject the
+	// contradiction explicitly instead of silently ignoring it. Only an explicit
+	// request `routing` errors — a project default still applies harmlessly.
+	if (
+		routing !== undefined &&
+		requestedProvider !== undefined &&
+		requestedProvider !== "llmgateway"
+	) {
+		throw new HTTPException(400, {
+			message:
+				"The `routing` strategy is only supported for model-id routing and cannot be combined with a specific provider. Remove the provider prefix from `model` to use a routing strategy, or drop the `routing` field.",
+		});
+	}
+
+	let routingCfg = await getResolvedRoutingConfig(
 		project.id,
 		organization.plan,
 	);
+	// Routing strategies only affect multi-provider selection. When the request
+	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
+	// reused for region selection and fallback scoring, so leave it untouched.
+	if (!useExpandedRoutingProviders) {
+		// Resolve the effective routing strategy: an explicit request `routing`
+		// wins, otherwise fall back to the project's configured default.
+		let effectiveRouting = routing ?? project.defaultRoutingStrategy;
+		// Coding (dev) plans optimize for prompt caching and only allow the
+		// default weighted routing or the price strategy; throughput/latency would
+		// route to the fastest provider regardless of cache support. Reject an
+		// explicit ineligible request, but silently clamp a stale project default
+		// so existing requests keep working.
+		if (
+			isDevPlan &&
+			effectiveRouting !== "auto" &&
+			effectiveRouting !== "price"
+		) {
+			if (routing !== undefined) {
+				throw new HTTPException(400, {
+					message: `The "${routing}" routing strategy is not available on coding plans. Use "auto" (default) or "price".`,
+				});
+			}
+			effectiveRouting = "auto";
+		}
+
+		routingCfg = applyRoutingPreference(routingCfg, effectiveRouting);
+	}
 
 	// Sticky-session routing: when the request carries a session id and the
 	// project has session stickiness enabled, provider selection is scored
@@ -2162,9 +2372,6 @@ chat.openapi(completions, async (c) => {
 	// declared output formats (and the legacy imageGenerations provider
 	// flag) so chat-completions models that emit images — e.g. Gemini
 	// *-flash-image with output: ["text", "image"] — are also blocked.
-	const isDevPlan = Boolean(
-		organization?.isPersonal && organization.devPlan !== "none",
-	);
 	const modelEmitsImages =
 		modelInfo.output?.includes("image") === true ||
 		modelInfo.providers.some((p) => p.imageGenerations === true);
@@ -2179,10 +2386,26 @@ chat.openapi(completions, async (c) => {
 	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
 	// model qualifies as coding overall but the named mapping itself is uncached.
 	const isDevPlanRestricted = Boolean(
-		organization?.isPersonal &&
+		organization?.kind === "devpass" &&
 			organization.devPlan !== "none" &&
 			!organization.devPlanAllowAllModels,
 	);
+
+	// Source restriction is gated behind DEVPASS_ENFORCE_SOURCE_RESTRICTION so it
+	// can be enabled later. While disabled (default), all sources are allowed —
+	// the `source` value is still normalized and recorded in logs above, so we
+	// get correct x-source attribution without blocking any requests.
+	const isDevPlanSourceRestricted = Boolean(
+		organization?.kind === "devpass" &&
+			organization.devPlan !== "none" &&
+			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
+	);
+	if (isDevPlanSourceRestricted && !isRecognizedCodingAgent(source)) {
+		throw new HTTPException(403, {
+			message: `DevPass coding plans are restricted to recognized coding agents. Your request was not identified as coming from a supported tool. Please ensure your coding tool sends an identifiable User-Agent header or x-source header. Supported agents: ${getSupportedAgentsList()}.`,
+		});
+	}
+
 	if (isDevPlanRestricted) {
 		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
@@ -2209,11 +2432,11 @@ chat.openapi(completions, async (c) => {
 
 	// Chat plan Starter tier is restricted to non-premium models. Plus and Pro
 	// tiers have access to everything. This applies to all requests on a
-	// personal org with chatPlan === "starter" — there's no per-request
+	// chat org with chatPlan === "starter" — there's no per-request
 	// "promote to regular credits" path, so an unrestricted Starter would
-	// silently burn dev-plan/regular credits instead of nudging the upgrade.
+	// silently burn chat-plan/regular credits instead of nudging the upgrade.
 	const isStarterChatPlan = Boolean(
-		organization?.isPersonal && organization.chatPlan === "starter",
+		organization?.kind === "chat" && organization.chatPlan === "starter",
 	);
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
@@ -2222,16 +2445,117 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Validate model capabilities (JSON output, reasoning, tools, web search, documents)
-	validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
-		response_format,
-		reasoning_effort,
-		reasoning_max_tokens,
-		tools,
-		tool_choice,
-		webSearchTool,
-		hasImages,
-		hasDocuments,
-	});
+	try {
+		validateModelCapabilities(modelInfo, requestedModel, requestedProvider, {
+			response_format,
+			reasoning_effort,
+			reasoning_max_tokens,
+			tools,
+			tool_choice,
+			webSearchTool,
+			hasImages,
+			hasDocuments,
+		});
+	} catch (capabilityError) {
+		// The /v1/messages layer flags requests that used Anthropic's explicit-budget
+		// thinking API (`thinking.type: "enabled"`). On adaptive-only models the
+		// mapped reasoning.max_tokens is unsupported and validateModelCapabilities
+		// rejects it. Mirror Anthropic's own "use adaptive thinking" 400 and surface
+		// it in the activity feed as a client_error — the raw capability error is
+		// OpenAI-flavored (mentions a field the native client never sent) and isn't
+		// logged otherwise, so the user never sees the rejected request in history.
+		const usedAnthropicBudgetThinking =
+			c.req.header("x-llmgateway-thinking-type") === "enabled";
+		if (
+			usedAnthropicBudgetThinking &&
+			reasoning_max_tokens !== undefined &&
+			capabilityError instanceof HTTPException &&
+			capabilityError.message.includes("reasoning.max_tokens")
+		) {
+			const message = `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`;
+			try {
+				// Use _insertLog directly (not insertLogEntry): the local insertLog
+				// wrapper is declared further down and would be in its temporal dead
+				// zone here. Mirrors the early service-tier rejection log above.
+				await _insertLog(
+					{
+						...createLogEntry(
+							requestId,
+							project,
+							apiKey,
+							undefined,
+							"",
+							undefined,
+							"llmgateway",
+							requestedModel,
+							requestedProvider,
+							messages as any[],
+							temperature,
+							max_tokens,
+							top_p,
+							frequency_penalty,
+							presence_penalty,
+							reasoning_effort,
+							reasoning_max_tokens,
+							effort as "low" | "medium" | "high" | undefined,
+							response_format,
+							tools,
+							tool_choice,
+							source,
+							customHeaders,
+							debugMode,
+							userAgent,
+							image_config,
+						),
+						...(logIdOverride ? { id: logIdOverride } : {}),
+						responsesApiData,
+						content: null,
+						responseSize: 0,
+						finishReason: "client_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: !!stream,
+						canceled: false,
+						errorDetails: {
+							statusCode: 400,
+							statusText: "Bad Request",
+							responseText: message,
+							cause: "unsupported_reasoning_budget",
+						},
+						duration: 0,
+						timeToFirstToken: null,
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						requestedServiceTier,
+						usedServiceTier: null,
+						dataStorageCost: "0",
+					},
+					{ syncInsert: syncLogInsert },
+				);
+			} catch (error) {
+				logger.error("Failed to log budget-thinking rejection", {
+					error: toError(error),
+				});
+			}
+			throw new HTTPException(400, { message });
+		}
+		throw capabilityError;
+	}
 
 	let usedProvider = requestedProvider;
 	// Canonical LLM Gateway model id (root id). Used for every internal
@@ -2245,12 +2569,6 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
-	// The processing tier the provider actually served (Flex / Priority),
-	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
-	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
-	// this served tier (not the requested one) since Google downgrades
-	// unsupported tiers to standard. Null = standard / no tier.
-	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Extract retention level for data storage cost calculation
 	const retentionLevel = organization?.retentionLevel ?? "none";
@@ -2295,6 +2613,45 @@ chat.openapi(completions, async (c) => {
 			)
 		: routingExpandedModelProviders;
 
+	// Enterprise provider compliance guardrails: drop providers that do not meet
+	// the org's required certifications/data policies, and block the request when
+	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
+	const compliancePolicy = getActiveCompliancePolicy(organization);
+
+	const applyCompliancePolicy = <T extends { providerId: string }>(
+		list: T[],
+	): T[] =>
+		compliancePolicy ? filterCompliantProviders(list, compliancePolicy) : list;
+
+	const enforceCompliancePolicy = async () => {
+		if (!compliancePolicy) {
+			return;
+		}
+		iamFilteredModelProviders = applyCompliancePolicy(
+			iamFilteredModelProviders,
+		);
+		expandedIamFilteredModelProviders = applyCompliancePolicy(
+			expandedIamFilteredModelProviders,
+		);
+		// A pinned provider (e.g. "deepseek/...") is selected directly rather than
+		// from the filtered array, so check it explicitly. Auto/unpinned routing
+		// relies on the emptiness check below.
+		const pinnedBlocked =
+			usedProvider !== undefined &&
+			usedProvider !== "llmgateway" &&
+			usedProvider !== "custom" &&
+			!isProviderIdCompliant(usedProvider, compliancePolicy);
+		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
+			await logComplianceBlock(project.organizationId, {
+				apiKeyId: apiKey.id,
+				model: requestedModel,
+			});
+			throw new HTTPException(403, {
+				message: complianceBlockMessage(modelInfo.id),
+			});
+		}
+	};
+
 	if (isDevPlanRestricted) {
 		iamFilteredModelProviders = iamFilteredModelProviders.filter(
 			providerSupportsCachedInput,
@@ -2308,6 +2665,79 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Flex/Priority is only honored when the request reaches the provider's real
+	// upstream endpoint — a provider key with a custom base URL (proxy) may
+	// silently drop the tier and be billed/reported as standard. Exclude
+	// providers that have no upstream-eligible credential from service-tier
+	// routing (mirroring the compliance policy): auto/model-id routing drops
+	// them, and only fails when none remain; a pinned provider with no eligible
+	// key returns a clear 400 instead of silently downgrading.
+	let serviceTierOrgKeys:
+		| InferSelectModel<typeof tables.providerKey>[]
+		| undefined;
+	const isProviderServiceTierEligible = (providerId: string): boolean => {
+		const dbKeys = (serviceTierOrgKeys ?? []).filter(
+			(key) => key.provider === providerId,
+		);
+		const hasCompliantDbKey = dbKeys.some((key) =>
+			providerKeyBaseUrlSupportsServiceTier(
+				providerId as Provider,
+				key.baseUrl,
+			),
+		);
+		// An env credential is eligible only when at least one of its (possibly
+		// comma-indexed) base URLs targets the managed upstream — a custom base URL
+		// on every env index is just as ineligible as a custom DB key. In hybrid
+		// mode env is used only when no DB key is picked, which the
+		// serviceTierKeyFilter guarantees for a custom base URL.
+		const envEligible =
+			(project.mode === "credits" || project.mode === "hybrid") &&
+			hasServiceTierEligibleEnvCredential(providerId as Provider);
+		if (project.mode === "api-keys") {
+			return hasCompliantDbKey;
+		}
+		return hasCompliantDbKey || envEligible;
+	};
+	const enforceServiceTierKeyEligibility = async () => {
+		if (!isRequestedServiceTier(service_tier)) {
+			return;
+		}
+		if (serviceTierOrgKeys === undefined) {
+			serviceTierOrgKeys = await findActiveProviderKeys(project.organizationId);
+		}
+		iamFilteredModelProviders = iamFilteredModelProviders.filter((provider) =>
+			isProviderServiceTierEligible(provider.providerId),
+		);
+		expandedIamFilteredModelProviders =
+			expandedIamFilteredModelProviders.filter((provider) =>
+				isProviderServiceTierEligible(provider.providerId),
+			);
+		const pinnedIneligible =
+			usedProvider !== undefined &&
+			usedProvider !== "llmgateway" &&
+			usedProvider !== "custom" &&
+			!isProviderServiceTierEligible(usedProvider);
+		if (iamFilteredModelProviders.length === 0 || pinnedIneligible) {
+			throw new HTTPException(400, {
+				message: `Service tier '${service_tier}' requires a provider key that targets the original upstream endpoint. Remove the custom base URL from the ${pinnedIneligible ? `${usedProvider} ` : ""}provider key or omit service_tier.`,
+			});
+		}
+	};
+
+	// For auto routing, modelInfo is still the synthetic "llmgateway" model here;
+	// compliance is enforced after the real model/provider is resolved (and the
+	// auto candidate set is compliance-filtered during selection below).
+	if (usedInternalModel !== "auto") {
+		await enforceCompliancePolicy();
+		await enforceServiceTierKeyEligibility();
+	}
+
+	// Pricing override for custom-provider requests that match an enterprise
+	// custom model catalog entry. Threaded into every calculateCosts call below
+	// so the request is billed at the catalog rates; undefined otherwise (those
+	// requests stay unbilled, as before).
+	let customPricingMapping: ProviderModelMapping | undefined;
+
 	// Validate the custom provider against the database if one was requested
 	if (requestedProvider === "custom" && customProviderName) {
 		const customProviderKey = await findCustomProviderKey(
@@ -2318,6 +2748,118 @@ chat.openapi(completions, async (c) => {
 			throw new HTTPException(400, {
 				message: `Provider '${customProviderName}' not found.`,
 			});
+		}
+
+		// Resolve the per-key custom model catalog entry. When the key is
+		// restricted to its catalog, requests for undefined models are rejected so
+		// cost attribution and limits are always known.
+		const customModelEntry = await findCustomModel(
+			customProviderKey.id,
+			requestedModel,
+		);
+
+		if (customProviderKey.customModelsOnly && !customModelEntry) {
+			throw new HTTPException(400, {
+				message: `Model '${requestedModel}' is not defined in the custom catalog for provider '${customProviderName}'.`,
+			});
+		}
+
+		if (customModelEntry) {
+			customPricingMapping = customModelToProviderMapping(customModelEntry);
+
+			// Apply catalog limits + capabilities to the mock model info so the
+			// rest of the pipeline reflects the defined values.
+			modelInfo = {
+				...modelInfo,
+				providers: [customPricingMapping],
+			};
+
+			// Enforce catalog capability flags when explicitly disabled. The shared
+			// validateModelCapabilities() intentionally skips custom providers (no
+			// static catalog), so gate here using the per-key catalog. Unset (null)
+			// flags stay permissive — the upstream provider enforces what we don't
+			// know.
+			if (customModelEntry.vision === false && hasImages) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to accept image input. Remove the image content or enable vision for this custom model.`,
+				});
+			}
+			if (customModelEntry.audio === false && hasAudio) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to accept audio input. Remove the audio content or enable audio for this custom model.`,
+				});
+			}
+			if (
+				customModelEntry.tools === false &&
+				(tool_choice !== undefined || (tools && tools.length > 0))
+			) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to support tool calls. Remove the tools/tool_choice parameter or enable tools for this custom model.`,
+				});
+			}
+			if (
+				customModelEntry.jsonOutput === false &&
+				(response_format?.type === "json_object" ||
+					response_format?.type === "json_schema")
+			) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to support JSON output mode.`,
+				});
+			}
+			if (
+				customModelEntry.reasoning === false &&
+				(reasoning_effort !== undefined || reasoning_max_tokens !== undefined)
+			) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is not configured to support reasoning. Remove the reasoning parameters or enable reasoning for this custom model.`,
+				});
+			}
+			if (customModelEntry.streaming === "false" && stream) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is configured as non-streaming. Set stream: false.`,
+				});
+			}
+			if (customModelEntry.streaming === "only" && !stream) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' is configured as streaming-only. Set stream: true.`,
+				});
+			}
+
+			// Enforce context window and max output when the catalog defines them.
+			// Custom providers bypass the auto-route context filter, so check here.
+			if (
+				customModelEntry.maxOutput !== null &&
+				max_tokens !== undefined &&
+				max_tokens > customModelEntry.maxOutput
+			) {
+				throw new HTTPException(400, {
+					message: `max_tokens (${max_tokens}) exceeds the configured maxOutput (${customModelEntry.maxOutput}) for model '${requestedModel}'.`,
+				});
+			}
+
+			if (customModelEntry.contextSize !== null) {
+				let estimatedInputTokens =
+					messages && messages.length > 0
+						? encodeChatMessages(messages, requestedModel)
+						: 0;
+				if (tools && tools.length > 0) {
+					estimatedInputTokens += Math.round(JSON.stringify(tools).length / 4);
+				}
+				// Reserve completion budget even when max_tokens is omitted, mirroring
+				// the auto-route default buffer, so a prompt can't fill the entire
+				// context window and leave no room for output.
+				const implicitOutputBudget = Math.min(
+					customModelEntry.maxOutput ?? 4096,
+					4096,
+				);
+				const requiredContextSize =
+					estimatedInputTokens + (max_tokens ?? implicitOutputBudget);
+				if (requiredContextSize > customModelEntry.contextSize) {
+					throw new HTTPException(400, {
+						message: `Request requires ~${requiredContextSize} tokens which exceeds the configured context size (${customModelEntry.contextSize}) for model '${requestedModel}'.`,
+					});
+				}
+			}
 		}
 	}
 
@@ -2402,6 +2944,12 @@ chat.openapi(completions, async (c) => {
 		let selectedProviders: any[] = [];
 		let lowestPrice = Number.MAX_VALUE;
 		const now = new Date(); // Cache current time for deprecation checks
+
+		// Track whether the compliance policy is what removed every candidate, so
+		// a no-selection result fails closed with the policy 403 + security event
+		// instead of the generic errors / hardcoded fallback below.
+		let anyPreComplianceCandidate = false;
+		let anyPostComplianceCandidate = false;
 
 		for (const modelDef of models) {
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
@@ -2493,111 +3041,135 @@ chat.openapi(completions, async (c) => {
 				? availableModelProviders.filter(providerSupportsCachedInput)
 				: availableModelProviders;
 
+			// Drop providers that don't meet the org's compliance policy so auto
+			// routing picks a compliant provider instead of being blocked later.
+			const complianceFilteredProviders = applyCompliancePolicy(
+				cachedFilteredProviders,
+			);
+			if (cachedFilteredProviders.length > 0) {
+				anyPreComplianceCandidate = true;
+				if (complianceFilteredProviders.length > 0) {
+					anyPostComplianceCandidate = true;
+				}
+			}
+
 			// Filter by context size requirement, reasoning capability, and deprecation status
-			const suitableProviders = cachedFilteredProviders.filter((provider) => {
-				// Skip deprecated provider mappings
-				if (provider.deprecatedAt && now > provider.deprecatedAt!) {
-					return false;
-				}
-
-				// Use the provider's context size, defaulting to a reasonable value if not specified
-				const modelContextSize = provider.contextSize ?? 8192;
-				const contextSizeMet = modelContextSize >= requiredContextSize;
-
-				// If no_reasoning is true, exclude reasoning models
-				if (no_reasoning && provider.reasoning === true) {
-					return false;
-				}
-
-				// Check reasoning capability if reasoning_effort is specified.
-				// "none" means "no reasoning", so it doesn't require a
-				// reasoning-capable provider.
-				if (
-					reasoning_effort !== undefined &&
-					reasoning_effort !== "none" &&
-					provider.reasoning !== true
-				) {
-					return false;
-				}
-
-				// Check reasoning.max_tokens support if specified
-				if (
-					reasoning_max_tokens !== undefined &&
-					provider.reasoningMaxTokens !== true
-				) {
-					return false;
-				}
-
-				// Check tool capability if tools or tool_choice is specified
-				if (
-					(tools !== undefined || tool_choice !== undefined) &&
-					provider.tools !== true
-				) {
-					return false;
-				}
-
-				// Check web search capability if web search tool is requested
-				if (webSearchTool && provider.webSearch !== true) {
-					return false;
-				}
-
-				// Skip mappings that don't advertise supportsN when n > 1 so
-				// auto-routing doesn't pick one and trip the post-selection
-				// 400 guard. The post-guard stays as a safety net.
-				if (n !== undefined && n > 1 && provider.supportsN !== true) {
-					return false;
-				}
-
-				// Check JSON output capability if json_object or json_schema response format is requested
-				if (
-					response_format?.type === "json_object" ||
-					response_format?.type === "json_schema"
-				) {
-					if (provider.jsonOutput !== true) {
+			const suitableProviders = complianceFilteredProviders.filter(
+				(provider) => {
+					// Skip deprecated provider mappings
+					if (provider.deprecatedAt && now > provider.deprecatedAt!) {
 						return false;
 					}
-				}
 
-				// Check JSON schema output capability if json_schema response format is requested
-				if (response_format?.type === "json_schema") {
-					if (provider.jsonOutputSchema !== true) {
+					// Use the provider's context size, defaulting to a reasonable value if not specified
+					const modelContextSize = provider.contextSize ?? 8192;
+					const contextSizeMet = modelContextSize >= requiredContextSize;
+
+					// If no_reasoning is true, exclude reasoning models
+					if (no_reasoning && provider.reasoning === true) {
 						return false;
 					}
-				}
 
-				// Check vision capability if images are present in messages
-				if (hasImages && provider.vision !== true) {
-					return false;
-				}
+					// Check reasoning capability if reasoning_effort is specified.
+					// "none" means "no reasoning", so it doesn't require a
+					// reasoning-capable provider.
+					if (
+						reasoning_effort !== undefined &&
+						reasoning_effort !== "none" &&
+						provider.reasoning !== true
+					) {
+						return false;
+					}
 
-				if (hasAudio && provider.audio !== true) {
-					return false;
-				}
+					// Check reasoning.max_tokens support if specified
+					if (
+						reasoning_max_tokens !== undefined &&
+						provider.reasoningMaxTokens !== true
+					) {
+						return false;
+					}
 
-				if (
-					hasAudio &&
-					audioFormats.length > 0 &&
-					!audioFormats.every((fmt) =>
-						googleProviderSupportsAudioFormat(provider.providerId, fmt),
-					)
-				) {
-					return false;
-				}
+					// Check tool capability if tools or tool_choice is specified
+					if (
+						(tools !== undefined || tool_choice !== undefined) &&
+						provider.tools !== true
+					) {
+						return false;
+					}
 
-				if (hasDocuments && provider.document !== true) {
-					return false;
-				}
+					// Check web search capability if web search tool is requested
+					if (webSearchTool && provider.webSearch !== true) {
+						return false;
+					}
 
-				if (
-					max_tokens !== undefined &&
-					provider.maxOutput !== undefined &&
-					max_tokens > provider.maxOutput
-				) {
-					return false;
-				}
+					// Skip mappings that don't advertise supportsN when n > 1 so
+					// auto-routing doesn't pick one and trip the post-selection
+					// 400 guard. The post-guard stays as a safety net. Also skip
+					// mappings whose upstream caps n (maxN) or rejects n > 1 on
+					// streaming (supportsNStreaming === false, e.g. Google).
+					if (n !== undefined && n > 1) {
+						if (provider.supportsN !== true) {
+							return false;
+						}
+						if (provider.maxN !== undefined && n > provider.maxN) {
+							return false;
+						}
+						if (stream && provider.supportsNStreaming === false) {
+							return false;
+						}
+					}
 
-				return contextSizeMet;
-			});
+					// Check JSON output capability if json_object or json_schema response format is requested
+					if (
+						response_format?.type === "json_object" ||
+						response_format?.type === "json_schema"
+					) {
+						if (provider.jsonOutput !== true) {
+							return false;
+						}
+					}
+
+					// Check JSON schema output capability if json_schema response format is requested
+					if (response_format?.type === "json_schema") {
+						if (provider.jsonOutputSchema !== true) {
+							return false;
+						}
+					}
+
+					// Check vision capability if images are present in messages
+					if (hasImages && provider.vision !== true) {
+						return false;
+					}
+
+					if (hasAudio && provider.audio !== true) {
+						return false;
+					}
+
+					if (
+						hasAudio &&
+						audioFormats.length > 0 &&
+						!audioFormats.every((fmt) =>
+							googleProviderSupportsAudioFormat(provider.providerId, fmt),
+						)
+					) {
+						return false;
+					}
+
+					if (hasDocuments && provider.document !== true) {
+						return false;
+					}
+
+					if (
+						max_tokens !== undefined &&
+						provider.maxOutput !== undefined &&
+						max_tokens > provider.maxOutput
+					) {
+						return false;
+					}
+
+					return contextSizeMet;
+				},
+			);
 
 			if (suitableProviders.length > 0) {
 				// Find the cheapest among the suitable providers for this model
@@ -2678,6 +3250,22 @@ chat.openapi(completions, async (c) => {
 				usedExternalId = selectedProviders[0].externalId;
 			}
 		} else {
+			// Compliance removed every otherwise-available candidate: fail closed
+			// with the policy 403 + security event rather than the generic errors or
+			// the hardcoded fallback below.
+			if (
+				compliancePolicy &&
+				anyPreComplianceCandidate &&
+				!anyPostComplianceCandidate
+			) {
+				await logComplianceBlock(project.organizationId, {
+					apiKeyId: apiKey.id,
+					model: requestedModel,
+				});
+				throw new HTTPException(403, {
+					message: complianceBlockMessage(modelInfo.id),
+				});
+			}
 			if (effectiveFreeModelsOnly) {
 				// If free_models_only is true but no suitable model found, return error
 				throw new HTTPException(400, {
@@ -2751,6 +3339,8 @@ chat.openapi(completions, async (c) => {
 			expandedIamFilteredModelProviders =
 				expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
 		}
+		await enforceCompliancePolicy();
+		await enforceServiceTierKeyEligibility();
 	} else if (
 		(usedProvider === "llmgateway" && usedInternalModel === "custom") ||
 		usedInternalModel === "custom"
@@ -2860,6 +3450,7 @@ chat.openapi(completions, async (c) => {
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
+					stream,
 				},
 			);
 
@@ -2927,8 +3518,15 @@ chat.openapi(completions, async (c) => {
 		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
 			: null;
+	// The OpenAI content filter sends prompts to OpenAI's moderation API. When the
+	// org's compliance policy disallows OpenAI, skip it so prompt data never
+	// reaches a non-compliant provider (fail closed on the data guarantee).
+	const openAiContentFilterAllowed =
+		!compliancePolicy || isProviderIdCompliant("openai", compliancePolicy);
 	const openAIContentFilterResult =
-		shouldApplyGatewayContentFilter && contentFilterMethod === "openai"
+		shouldApplyGatewayContentFilter &&
+		contentFilterMethod === "openai" &&
+		openAiContentFilterAllowed
 			? await checkOpenAIContentFilter(
 					messages as BaseMessage[],
 					{
@@ -3222,6 +3820,7 @@ chat.openapi(completions, async (c) => {
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 						n,
+						stream,
 					},
 				).filter(
 					(provider) =>
@@ -3394,32 +3993,69 @@ chat.openapi(completions, async (c) => {
 			const providerLockedRegions = buildProviderLockedRegions(providerKeys);
 
 			// Filter model providers to only those eligible for this request
+			const preparedModelProviders = preferConcreteRegionalMappings(
+				applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
+					explicitLocks: providerLockedRegions,
+					requestedRegion,
+				}),
+			);
+			const eligibilityOptions = {
+				allProviderVariants: modelInfo.providers,
+				availableProviders,
+				providerLockedRegions,
+				webSearchTool,
+				responseFormatType: response_format?.type,
+				hasImages,
+				hasAudio,
+				audioFormats,
+				hasDocuments,
+				maxTokens: max_tokens,
+				reasoningEffort: reasoning_effort,
+			};
 			const availableModelProviders = filterEligibleModelProviders(
-				preferConcreteRegionalMappings(
-					applyPinnedDefaultRegions(expandedIamFilteredModelProviders, {
-						explicitLocks: providerLockedRegions,
-						requestedRegion,
-					}),
-				),
-				{
-					allProviderVariants: modelInfo.providers,
-					availableProviders,
-					providerLockedRegions,
-					webSearchTool,
-					responseFormatType: response_format?.type,
-					hasImages,
-					hasAudio,
-					audioFormats,
-					hasDocuments,
-					maxTokens: max_tokens,
-					reasoningEffort: reasoning_effort,
-					n,
-				},
+				preparedModelProviders,
+				{ ...eligibilityOptions, n, stream },
 			);
 
 			if (availableModelProviders.length === 0) {
 				const audience =
 					project.mode === "api-keys" ? "configured" : "available";
+				// When an n-specific constraint (the upstream cap or streaming)
+				// excluded every otherwise-eligible mapping, surface that precisely
+				// instead of the generic no-provider message. Attribute against the
+				// providers that passed every other filter for this request (re-running
+				// eligibility without the n-specific filters), not modelInfo.providers —
+				// the full variant set includes mappings excluded for unrelated reasons
+				// (vision, region, keys, …) and would misattribute the failure to n.
+				if (n !== undefined && n > 1) {
+					const candidateMappings = filterEligibleModelProviders(
+						preparedModelProviders,
+						eligibilityOptions,
+					);
+					const nCapableMappings = candidateMappings.filter(
+						(p) => p.supportsN === true,
+					);
+					if (
+						stream &&
+						nCapableMappings.length > 0 &&
+						nCapableMappings.every((p) => p.supportsNStreaming === false)
+					) {
+						throw new HTTPException(400, {
+							message: `Model ${usedInternalModel} does not support the n parameter for multiple choices with streaming. Send a non-streaming request instead.`,
+						});
+					}
+					if (
+						nCapableMappings.length > 0 &&
+						nCapableMappings.every((p) => p.maxN !== undefined && n > p.maxN)
+					) {
+						const maxSupportedN = Math.max(
+							...nCapableMappings.map((p) => p.maxN ?? 0),
+						);
+						throw new HTTPException(400, {
+							message: `Model ${usedInternalModel} supports at most ${maxSupportedN} choices per request (n <= ${maxSupportedN}).`,
+						});
+					}
+				}
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
@@ -3695,6 +4331,7 @@ chat.openapi(completions, async (c) => {
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
+					stream,
 				},
 			);
 
@@ -3815,15 +4452,18 @@ chat.openapi(completions, async (c) => {
 			id: usedInternalModel,
 			family: "custom",
 			providers: [
-				{
+				// Reuse the resolved catalog mapping (pricing, limits, capabilities)
+				// when this custom model has an enterprise catalog entry; otherwise
+				// fall back to a zero-price mock. Custom providers have no static
+				// catalog entry, so without an override the gateway cannot know their
+				// limits/capabilities — capability validation is skipped for custom
+				// providers and the upstream provider enforces its own limits.
+				customPricingMapping ?? {
 					providerId: "custom" as const,
 					externalId: usedExternalId,
 					inputPrice: "0",
 					outputPrice: "0",
-					contextSize: 8192,
-					maxOutput: 4096,
 					streaming: true,
-					vision: false,
 				},
 			],
 		};
@@ -3844,12 +4484,20 @@ chat.openapi(completions, async (c) => {
 	// Check if this is an image generation model. Identify the routed mapping
 	// by (providerId, region) — externalId is upstream-only and no longer
 	// participates in mapping selection.
-	const imageGenProviderMapping = finalModelInfo?.providers.find(
-		(p) =>
-			p.providerId === usedProvider &&
-			(p.region ?? null) === (usedRegion ?? null),
-	);
+	const getUsedProviderMapping = () =>
+		finalModelInfo?.providers.find(
+			(p) =>
+				p.providerId === usedProvider &&
+				(p.region ?? null) === (usedRegion ?? null),
+		) ??
+		finalModelInfo?.providers.find(
+			(p) => p.providerId === usedProvider && p.region === undefined,
+		);
+	const imageGenProviderMapping = getUsedProviderMapping();
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
+	const usesAwsBedrockConverse = () =>
+		usedProvider === "aws-bedrock" &&
+		getUsedProviderMapping()?.apiFormat !== "openai-chat-completions";
 
 	// `usedModelMapping` is the log column that stores the upstream model id.
 	let usedModelMapping = usedExternalId;
@@ -3897,6 +4545,17 @@ chat.openapi(completions, async (c) => {
 	// credential via envVarName instead of blaming an unused DB key. Endpoint
 	// and option resolution still use providerKey for BYOK base URLs/options.
 	let trackedKeyHealthId: string | undefined;
+	// Flex/Priority is only honored when the request reaches the provider's real
+	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
+	// silently drop the tier, so a compliant key (or the managed env credential
+	// in hybrid mode) is used instead.
+	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
+		? (key: InferSelectModel<typeof tables.providerKey>) =>
+				providerKeyBaseUrlSupportsServiceTier(
+					key.provider as Provider,
+					key.baseUrl,
+				)
+		: undefined;
 	if (
 		project.mode === "credits" &&
 		(usedProvider === "custom" || usedProvider === "llmgateway")
@@ -3920,6 +4579,8 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				usedProvider,
 				usedInternalModel,
+				undefined,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -4023,6 +4684,9 @@ chat.openapi(completions, async (c) => {
 
 		const envResult = getProviderEnv(usedProvider, {
 			selectionScope: usedInternalModel,
+			excludedIndices: isRequestedServiceTier(service_tier)
+				? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
+				: undefined,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -4057,6 +4721,8 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				usedProvider,
 				usedInternalModel,
+				undefined,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -4149,6 +4815,9 @@ chat.openapi(completions, async (c) => {
 
 			const envResult = getProviderEnv(usedProvider, {
 				selectionScope: usedInternalModel,
+				excludedIndices: isRequestedServiceTier(service_tier)
+					? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
+					: undefined,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -4472,9 +5141,16 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Check if the selected provider supports reasoning (from specific mapping, not any)
-	const selectedProviderMapping = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.region === usedRegion,
+	// Check if the selected provider supports reasoning (from specific mapping, not
+	// any). Resolves the exact (providerId, region) mapping when available and falls
+	// back to the region-agnostic mapping otherwise — unpinned routing leaves
+	// `modelInfo.providers` un-expanded (root mapping only, `region: undefined`)
+	// while `usedRegion` resolves to a concrete value (e.g. AWS Bedrock's `global`),
+	// so an exact-region lookup would silently drop reasoning support.
+	const selectedProviderMapping = selectProviderMapping(
+		modelInfo.providers,
+		usedProvider,
+		usedRegion,
 	);
 	let supportsReasoning = selectedProviderMapping?.reasoning === true;
 	let splitTaggedReasoning =
@@ -4776,6 +5452,7 @@ chat.openapi(completions, async (c) => {
 						cacheWrite1hTokens,
 						audioInputTokens,
 						explicitCacheUsed,
+						customPricing: customPricingMapping,
 					},
 				);
 
@@ -4984,6 +5661,7 @@ chat.openapi(completions, async (c) => {
 						audioInputTokens:
 							cachedResponse.usage?.prompt_tokens_details?.audio_tokens ?? null,
 						explicitCacheUsed,
+						customPricing: customPricingMapping,
 					},
 				);
 
@@ -5038,10 +5716,24 @@ chat.openapi(completions, async (c) => {
 					undefined, // No plugin results for cached response
 				);
 
-				// Estimate cached response size based on content to avoid expensive stringify
-				const cachedContent = cachedResponse.choices?.[0]?.message?.content;
-				const cachedReasoningContent =
-					cachedResponse.choices?.[0]?.message?.reasoning;
+				// Estimate cached response size based on content to avoid expensive stringify.
+				// Aggregate every choice so n > 1 cache hits keep indices > 0 in the log row.
+				const cachedChoices = Array.isArray(cachedResponse.choices)
+					? cachedResponse.choices
+					: [];
+				let cachedContent: string | null = null;
+				let cachedReasoningContent: string | null = null;
+				for (const cachedChoice of cachedChoices) {
+					const choiceContent = cachedChoice?.message?.content;
+					if (typeof choiceContent === "string") {
+						cachedContent = (cachedContent ?? "") + choiceContent;
+					}
+					const choiceReasoning = cachedChoice?.message?.reasoning;
+					if (typeof choiceReasoning === "string") {
+						cachedReasoningContent =
+							(cachedReasoningContent ?? "") + choiceReasoning;
+					}
+				}
 				const estimatedCachedSize =
 					(cachedContent?.length ?? 0) +
 					(cachedReasoningContent?.length ?? 0) +
@@ -5186,7 +5878,7 @@ chat.openapi(completions, async (c) => {
 	// Reject n > 1 when the resolved provider mapping does not advertise
 	// supportsN. We only forward n upstream for providers/models that bill
 	// input tokens once and accumulate output across choices natively
-	// (currently OpenAI Chat Completions models).
+	// (currently OpenAI Chat Completions and Google Gemini 2.5 models).
 	if (n !== undefined && n > 1 && finalModelInfo) {
 		const providerMapping = finalModelInfo.providers.find(
 			(p) => p.providerId === usedProvider && p.region === usedRegion,
@@ -5194,6 +5886,19 @@ chat.openapi(completions, async (c) => {
 		if (!providerMapping?.supportsN) {
 			throw new HTTPException(400, {
 				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+			});
+		}
+		// Google caps candidateCount at 8 and rejects it entirely on
+		// streamGenerateContent, so surface clear 400s instead of opaque
+		// upstream INVALID_ARGUMENT errors.
+		if (providerMapping.maxN !== undefined && n > providerMapping.maxN) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} supports at most ${providerMapping.maxN} choices per request (n <= ${providerMapping.maxN}).`,
+			});
+		}
+		if (effectiveStream && providerMapping.supportsNStreaming === false) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices with streaming. Send a non-streaming request instead.`,
 			});
 		}
 	}
@@ -5334,8 +6039,10 @@ chat.openapi(completions, async (c) => {
 		if (
 			e instanceof InvalidFileContentError ||
 			e instanceof UnsupportedAudioFormatError ||
-			e instanceof UnsupportedDocumentFormatError
+			e instanceof UnsupportedDocumentFormatError ||
+			e instanceof RequestError
 		) {
+			const statusCode = e instanceof RequestError ? e.statusCode : 400;
 			try {
 				await insertLogEntry({
 					...createLogEntry(
@@ -5377,7 +6084,7 @@ chat.openapi(completions, async (c) => {
 					streamed: !!stream,
 					canceled: false,
 					errorDetails: {
-						statusCode: 400,
+						statusCode,
 						statusText: "Bad Request",
 						responseText: e.message,
 						cause: e.constructor.name,
@@ -5759,7 +6466,11 @@ chat.openapi(completions, async (c) => {
 						image_config?.image_quality,
 						null,
 						null,
-						{ explicitCacheUsed, servedServiceTier },
+						{
+							explicitCacheUsed,
+							servedServiceTier,
+							customPricing: customPricingMapping,
+						},
 						true,
 					);
 					streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -5928,6 +6639,10 @@ chat.openapi(completions, async (c) => {
 					}
 
 					try {
+						// Clear any tier served by a previous attempt so a fallback
+						// that fails before fetch returns (timeout/connection error)
+						// logs no served tier instead of the prior provider's.
+						servedServiceTier = null;
 						const forwardedServiceTier = getForwardedServiceTier(
 							usedInternalModel,
 							usedProvider,
@@ -5983,6 +6698,12 @@ chat.openapi(completions, async (c) => {
 
 						res = await fetch(url, {
 							method: "POST",
+							// SSRF: never follow redirects on an authenticated provider
+							// request. A tenant-supplied baseUrl (validated at registration)
+							// could still 3xx to an internal host at request time, and a
+							// redirect would also leak the upstream token. Provider endpoints
+							// never legitimately redirect.
+							redirect: "error",
 							headers,
 							body: JSON.stringify(requestBody),
 							signal: fetchSignal,
@@ -6224,7 +6945,7 @@ chat.openapi(completions, async (c) => {
 									undefined, // imageQuality
 									null, // reportedImageInputTokens
 									null, // reportedImageOutputTokens
-									{ servedServiceTier },
+									{ servedServiceTier, customPricing: customPricingMapping },
 								);
 							}
 
@@ -6547,10 +7268,9 @@ chat.openapi(completions, async (c) => {
 
 					if (!res.ok) {
 						const rawErrorResponseText = await res.text();
-						const errorResponseText =
-							usedProvider === "aws-bedrock"
-								? extractAwsBedrockHttpError(res, rawErrorResponseText)
-								: rawErrorResponseText;
+						const errorResponseText = usesAwsBedrockConverse()
+							? extractAwsBedrockHttpError(res, rawErrorResponseText)
+							: rawErrorResponseText;
 
 						// If the upstream Google provider rejected the document MIME,
 						// surface a typed error event so streaming clients see the same
@@ -6695,7 +7415,7 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										{ servedServiceTier },
+										{ servedServiceTier, customPricing: customPricingMapping },
 										true,
 									)
 								: null;
@@ -7225,7 +7945,7 @@ chat.openapi(completions, async (c) => {
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
-				let webSearchCount = 0; // Track web search calls for cost calculation
+				let webSearchCount = usedProvider === "zai" && webSearchTool ? 1 : 0; // Track web search calls for cost calculation
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
@@ -7240,7 +7960,11 @@ chat.openapi(completions, async (c) => {
 				// failure (e.g. "error"), preserved so the log shows the actual provider
 				// payload rather than only our synthesized error message.
 				let upstreamErrorChunkRaw: string | null = null;
-				const isAwsBedrock = usedProvider === "aws-bedrock";
+				const isAwsBedrock = usesAwsBedrockConverse();
+				const streamFormatProvider: Provider =
+					usedProvider === "aws-bedrock" && !isAwsBedrock
+						? "openai"
+						: (usedProvider as Provider);
 				const taggedReasoningStreamState = {
 					inReasoning: false,
 					pending: "",
@@ -7267,7 +7991,7 @@ chat.openapi(completions, async (c) => {
 						((usedProvider === "anthropic" ||
 							usedProvider === "vertex-anthropic") &&
 							response_format?.type === "json_object") ||
-						(usedProvider === "aws-bedrock" &&
+						(usesAwsBedrockConverse() &&
 							response_format?.type === "json_object") ||
 						usedProvider === "novita" ||
 						splitTaggedReasoning ||
@@ -7667,6 +8391,7 @@ chat.openapi(completions, async (c) => {
 											cachedAudioInputTokens,
 											explicitCacheUsed,
 											servedServiceTier,
+											customPricing: customPricingMapping,
 										},
 									);
 									streamingCosts.dataStorageCost = toDataStorageCostNumber(
@@ -7679,6 +8404,14 @@ chat.openapi(completions, async (c) => {
 
 									// Include costs in response for all users
 									const shouldIncludeCosts = true;
+
+									// Approximate reasoning tokens when the provider streamed
+									// reasoning content but no count (e.g. AWS Bedrock).
+									// Display only — totals/costs keep the raw reasoningTokens.
+									const calculatedReasoningTokens = resolveReasoningTokens(
+										reasoningTokens,
+										fullReasoningContent,
+									);
 
 									const finalStreamUsage: Record<string, any> = {
 										prompt_tokens: Math.max(
@@ -7697,9 +8430,9 @@ chat.openapi(completions, async (c) => {
 													0) +
 												(reasoningTokens ?? 0),
 										),
-										...(reasoningTokens !== null &&
-											reasoningTokens > 0 && {
-												reasoning_tokens: reasoningTokens,
+										...(calculatedReasoningTokens !== null &&
+											calculatedReasoningTokens > 0 && {
+												reasoning_tokens: calculatedReasoningTokens,
 											}),
 										...((cachedTokens !== null ||
 											(cacheCreationTokens !== null &&
@@ -7748,7 +8481,7 @@ chat.openapi(completions, async (c) => {
 											: null,
 										cachedTokens,
 										cacheCreationTokens,
-										reasoningTokens,
+										reasoningTokens: calculatedReasoningTokens,
 										audioInputTokens,
 									});
 									const finalUsageChunk = {
@@ -7858,10 +8591,9 @@ chat.openapi(completions, async (c) => {
 									continue;
 								}
 
-								const awsBedrockStreamError =
-									usedProvider === "aws-bedrock"
-										? extractAwsBedrockStreamError(data)
-										: null;
+								const awsBedrockStreamError = usesAwsBedrockConverse()
+									? extractAwsBedrockStreamError(data)
+									: null;
 								if (
 									data &&
 									typeof data === "object" &&
@@ -8039,7 +8771,7 @@ chat.openapi(completions, async (c) => {
 
 								// Transform streaming responses to OpenAI format for all providers
 								const transformedData = transformStreamingToOpenai(
-									usedProvider,
+									streamFormatProvider,
 									usedInternalModel,
 									data,
 									messages,
@@ -8213,7 +8945,10 @@ chat.openapi(completions, async (c) => {
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
 										// First, extract tool calls to update our tracking
-										const rawToolCalls = extractToolCalls(data, usedProvider);
+										const rawToolCalls = extractToolCalls(
+											data,
+											streamFormatProvider,
+										);
 										if (rawToolCalls && rawToolCalls.length > 0) {
 											streamingToolCalls ??= [];
 											for (const newCall of rawToolCalls) {
@@ -8297,7 +9032,8 @@ chat.openapi(completions, async (c) => {
 								// Extract usage data from transformedData to update tracking variables
 								if (
 									transformedData.usage &&
-									(usedProvider === "openai" || usedProvider === "azure")
+									(streamFormatProvider === "openai" ||
+										streamFormatProvider === "azure")
 								) {
 									const usage = transformedData.usage;
 									if (
@@ -8329,7 +9065,17 @@ chat.openapi(completions, async (c) => {
 								if (Array.isArray(transformedData.choices)) {
 									for (const choice of transformedData.choices) {
 										if (choice?.finish_reason) {
-											finishReason = choice.finish_reason;
+											// Anthropic/Vertex-Anthropic finish reasons are owned by
+											// the provider-specific switch below, which reads the raw
+											// stop_reason (e.g. "refusal") from message_delta. Don't
+											// let the transformed message_stop chunk (mapped to
+											// "stop") clobber a refusal captured moments earlier.
+											if (
+												streamFormatProvider !== "anthropic" &&
+												streamFormatProvider !== "vertex-anthropic"
+											) {
+												finishReason = choice.finish_reason;
+											}
 											sawProviderTerminalEvent = true;
 											sentDownstreamFinishReasonChunk = true;
 										}
@@ -8405,7 +9151,7 @@ chat.openapi(completions, async (c) => {
 											webSearchCount = 1;
 										}
 									}
-								} else if (usedProvider === "openai") {
+								} else if (streamFormatProvider === "openai") {
 									// For OpenAI Responses API, count web_search_call.completed events
 									if (data.type === "response.web_search_call.completed") {
 										webSearchCount++;
@@ -8435,7 +9181,7 @@ chat.openapi(completions, async (c) => {
 
 								const toolCallsChunk = extractToolCalls(
 									data,
-									usedProvider,
+									streamFormatProvider,
 									transformedData,
 								);
 								if (toolCallsChunk && toolCallsChunk.length > 0) {
@@ -8477,7 +9223,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// Handle provider-specific finish reason extraction
-								switch (usedProvider) {
+								switch (streamFormatProvider) {
 									case "google-ai-studio":
 									case "glacier":
 									case "google-vertex":
@@ -8503,10 +9249,29 @@ chat.openapi(completions, async (c) => {
 											data.type === "message_stop" ||
 											data.stop_reason
 										) {
-											finishReason = data.stop_reason ?? "end_turn";
+											// message_stop carries no stop_reason of its own — the
+											// real terminal reason arrived in the preceding
+											// message_delta. Only fall back to end_turn when we never
+											// captured one, so we don't clobber e.g. a "refusal".
+											finishReason =
+												data.stop_reason ?? finishReason ?? "end_turn";
 											sawProviderTerminalEvent = true;
 										} else if (data.delta?.stop_reason) {
 											finishReason = data.delta.stop_reason;
+											sawProviderTerminalEvent = true;
+										}
+										break;
+									case "aws-bedrock":
+										// The client-facing finish_reason comes from the
+										// transformed chunk (a refusal is surfaced as
+										// content_filter). Internally, preserve the raw
+										// "refusal" stop reason from the messageStop event so
+										// billing can skip charging an unbilled refusal.
+										if (
+											data.__aws_event_type === "messageStop" &&
+											data.stopReason === "refusal"
+										) {
+											finishReason = "refusal";
 											sawProviderTerminalEvent = true;
 										}
 										break;
@@ -8526,7 +9291,7 @@ chat.openapi(completions, async (c) => {
 								// Extract token usage using helper function
 								const usage = extractTokenUsage(
 									data,
-									usedProvider,
+									streamFormatProvider,
 									fullContent,
 									imageByteSize,
 								);
@@ -8675,7 +9440,7 @@ chat.openapi(completions, async (c) => {
 							phase: "upstream_read",
 						});
 
-						logger.error("Error reading upstream stream", toError(error), {
+						const upstreamReadErrorMeta = {
 							requestId,
 							usedProvider,
 							requestedProvider,
@@ -8700,12 +9465,30 @@ chat.openapi(completions, async (c) => {
 							firstTokenReceived,
 							firstReasoningTokenReceived,
 							unifiedFinishReason: getUnifiedFinishReason(
-								normalizedStreamingError.client.type === "gateway_error"
-									? "gateway_error"
-									: "upstream_error",
+								normalizedStreamingError.terminated
+									? "upstream_error"
+									: "gateway_error",
 								usedProvider,
 							),
-						});
+						};
+
+						// An upstream-side socket close (e.g. "terminated: other side
+						// closed") is an expected provider disconnect, not a gateway/server
+						// fault, so log it at warn severity to avoid raising server-error
+						// alerts. Genuine gateway-side streaming read faults stay at error.
+						if (normalizedStreamingError.terminated) {
+							logger.warn(
+								"Error reading upstream stream",
+								toError(error),
+								upstreamReadErrorMeta,
+							);
+						} else {
+							logger.error(
+								"Error reading upstream stream",
+								toError(error),
+								upstreamReadErrorMeta,
+							);
+						}
 
 						// Forward the error to the client with the buffered content that caused the error
 						try {
@@ -8732,6 +9515,12 @@ chat.openapi(completions, async (c) => {
 						}
 
 						streamingError = normalizedStreamingError.log;
+						// Classify the inference log so it isn't recorded as UNKNOWN: an
+						// upstream socket close is an upstream error, a genuine read fault
+						// is a gateway error.
+						finishReason = normalizedStreamingError.terminated
+							? "upstream_error"
+							: "gateway_error";
 					}
 				} finally {
 					// Clean up the reader to prevent file descriptor leaks
@@ -8772,12 +9561,12 @@ chat.openapi(completions, async (c) => {
 							(calculatedPromptTokens ?? 0) + (calculatedCompletionTokens ?? 0);
 					}
 
-					// Estimate reasoning tokens if not provided but reasoning content exists
-					let calculatedReasoningTokens = reasoningTokens;
-					if (!reasoningTokens && fullReasoningContent) {
-						calculatedReasoningTokens =
-							estimateTokensFromContent(fullReasoningContent);
-					}
+					// Approximate reasoning tokens when the provider streamed reasoning
+					// content but no count (e.g. AWS Bedrock). Display/logging only.
+					const calculatedReasoningTokens = resolveReasoningTokens(
+						reasoningTokens,
+						fullReasoningContent,
+					);
 
 					if (
 						!streamingError &&
@@ -8892,12 +9681,20 @@ chat.openapi(completions, async (c) => {
 						finishReason,
 						usedProvider,
 					);
+					// A length-limit finish reason (e.g. a tiny `max_tokens`) can
+					// legitimately produce no content, so treat an empty response in
+					// that case as expected rather than an upstream error.
+					const isLengthLimitStreamingResponse = isLengthLimitFinishReason(
+						finishReason,
+						usedProvider,
+					);
 					const hasEmptyResponse =
 						!streamingError &&
 						!hasUpstreamErrorFinishReason &&
 						finishReason &&
 						finishReason !== "incomplete" &&
 						!isContentFilterStreamingResponse &&
+						!isLengthLimitStreamingResponse &&
 						(!calculatedCompletionTokens || calculatedCompletionTokens === 0) &&
 						(!calculatedReasoningTokens || calculatedReasoningTokens === 0) &&
 						(!fullContent || fullContent.trim() === "") &&
@@ -9079,6 +9876,7 @@ chat.openapi(completions, async (c) => {
 											cachedAudioInputTokens,
 											explicitCacheUsed,
 											servedServiceTier,
+											customPricing: customPricingMapping,
 										},
 										finishReason === "content_filter",
 									);
@@ -9091,6 +9889,24 @@ chat.openapi(completions, async (c) => {
 								reasoningTokens,
 								retentionLevel,
 							);
+						}
+
+						// Anthropic-family refusal that produced no output is not billed
+						// (per Anthropic's policy: a refusal before any generated output
+						// is informational only). A mid-stream refusal that already
+						// produced content is billed normally.
+						if (
+							streamingCostsEarly.totalCost !== null &&
+							isRefusalFinishReason(finishReason, usedProvider) &&
+							!hasMeaningfulAssistantOutput({
+								completionTokens: calculatedCompletionTokens,
+								reasoningTokens,
+								content: fullContent,
+								toolResults: streamingToolCalls,
+								images: null,
+							})
+						) {
+							zeroInferenceCosts(streamingCostsEarly);
 						}
 
 						// Always send final usage chunk with cost data for SDK compatibility
@@ -9133,9 +9949,9 @@ chat.openapi(completions, async (c) => {
 											1,
 											Math.round(adjPrompt + adjCompletion),
 										),
-										...(reasoningTokens !== null &&
-											reasoningTokens > 0 && {
-												reasoning_tokens: reasoningTokens,
+										...(calculatedReasoningTokens !== null &&
+											calculatedReasoningTokens > 0 && {
+												reasoning_tokens: calculatedReasoningTokens,
 											}),
 										...((cachedTokens !== null ||
 											(cacheCreationTokens !== null &&
@@ -9183,7 +9999,7 @@ chat.openapi(completions, async (c) => {
 										},
 										cachedTokens,
 										cacheCreationTokens,
-										reasoningTokens,
+										reasoningTokens: calculatedReasoningTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
@@ -9412,6 +10228,7 @@ chat.openapi(completions, async (c) => {
 										cachedAudioInputTokens,
 										explicitCacheUsed,
 										servedServiceTier,
+										customPricing: customPricingMapping,
 									},
 									finishReason === "content_filter",
 								));
@@ -9586,7 +10403,6 @@ chat.openapi(completions, async (c) => {
 						estimatedCost: costs.estimatedCost,
 						discount: costs.discount,
 						pricingTier: costs.pricingTier,
-						serviceTier: servedServiceTier,
 						dataStorageCost: shouldIncludeTokensForBilling
 							? calculateDataStorageCost(
 									calculatedPromptTokens,
@@ -9770,6 +10586,10 @@ chat.openapi(completions, async (c) => {
 		fetchError = null;
 		isTimeoutFetchError = false;
 		res = undefined;
+		// Clear any tier served by a previous attempt so a fallback that fails
+		// before fetch returns (timeout/connection error) logs no served tier
+		// instead of inheriting the prior provider's.
+		servedServiceTier = null;
 
 		try {
 			const forwardedServiceTier = getForwardedServiceTier(
@@ -9832,6 +10652,9 @@ chat.openapi(completions, async (c) => {
 
 			res = await fetch(url, {
 				method: "POST",
+				// SSRF: never follow redirects on an authenticated provider request
+				// (see streaming path above).
+				redirect: "error",
 				headers,
 				body:
 					requestBody instanceof FormData
@@ -10122,7 +10945,7 @@ chat.openapi(completions, async (c) => {
 					undefined, // imageQuality
 					null, // reportedImageInputTokens
 					null, // reportedImageOutputTokens
-					{ servedServiceTier },
+					{ servedServiceTier, customPricing: customPricingMapping },
 				);
 			}
 
@@ -10231,27 +11054,44 @@ chat.openapi(completions, async (c) => {
 			let errorResponseText: string;
 			try {
 				const rawErrorResponseText = await res.text();
-				errorResponseText =
-					usedProvider === "aws-bedrock"
-						? extractAwsBedrockHttpError(res, rawErrorResponseText)
-						: rawErrorResponseText;
+				errorResponseText = usesAwsBedrockConverse()
+					? extractAwsBedrockHttpError(res, rawErrorResponseText)
+					: rawErrorResponseText;
 			} catch (bodyError) {
-				if (isTimeoutError(bodyError)) {
-					const errorMessage =
-						bodyError instanceof Error
-							? bodyError.message
-							: "Timeout reading error response body";
+				// Re-throw non-Error values (mirrors the fetch catch above).
+				if (!(bodyError instanceof Error)) {
+					throw bodyError;
+				}
+				// A client disconnect can abort the in-flight body read; rethrow
+				// so the cancellation path (app.onError -> 499) is preserved
+				// instead of misreporting it as an upstream failure.
+				if (bodyError.name === "AbortError") {
+					throw bodyError;
+				}
+				// A read timeout or a mid-body socket failure (e.g. undici
+				// "terminated: other side closed" / ECONNRESET) both surface
+				// here while reading the upstream error body. Treat them as
+				// upstream errors instead of bubbling up as an unhandled 500.
+				{
+					const isTimeoutBody = isTimeoutError(bodyError);
+					const errorMessage = bodyError.message;
 					const bodyErrorCause = extractErrorCause(bodyError);
-					logger.warn("Timeout reading error response body", {
-						usedProvider,
-						usedInternalModel,
-						status: res.status,
-						cause: bodyErrorCause,
-						unifiedFinishReason: getUnifiedFinishReason(
-							"upstream_error",
+					logger.warn(
+						isTimeoutBody
+							? "Timeout reading error response body"
+							: "Error reading error response body",
+						{
+							error: errorMessage,
 							usedProvider,
-						),
-					});
+							usedInternalModel,
+							status: res.status,
+							cause: bodyErrorCause,
+							unifiedFinishReason: getUnifiedFinishReason(
+								"upstream_error",
+								usedProvider,
+							),
+						},
+					);
 
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
@@ -10309,7 +11149,7 @@ chat.openapi(completions, async (c) => {
 						canceled: false,
 						errorDetails: {
 							statusCode: res.status,
-							statusText: "TimeoutError",
+							statusText: isTimeoutBody ? "TimeoutError" : bodyError.name,
 							responseText: errorMessage,
 							cause: bodyErrorCause,
 						},
@@ -10330,16 +11170,17 @@ chat.openapi(completions, async (c) => {
 					return c.json(
 						{
 							error: {
-								message: `Upstream provider timeout: ${errorMessage}`,
-								type: "upstream_timeout",
+								message: isTimeoutBody
+									? `Upstream provider timeout: ${errorMessage}`
+									: `Failed to read response from provider: ${errorMessage}`,
+								type: isTimeoutBody ? "upstream_timeout" : "upstream_error",
 								param: null,
-								code: "timeout",
+								code: isTimeoutBody ? "timeout" : "fetch_failed",
 							},
 						},
-						504,
+						isTimeoutBody ? 504 : 502,
 					);
 				}
-				throw bodyError;
 			}
 
 			// If the upstream Google provider rejected the request because the
@@ -10484,7 +11325,7 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							{ servedServiceTier },
+							{ servedServiceTier, customPricing: customPricingMapping },
 							true,
 						)
 					: null;
@@ -11009,22 +11850,93 @@ chat.openapi(completions, async (c) => {
 			json = await res.json();
 		}
 	} catch (bodyError) {
-		if (isTimeoutError(bodyError)) {
-			const errorMessage =
-				bodyError instanceof Error
-					? bodyError.message
-					: "Timeout reading response body";
+		// Re-throw non-Error values (mirrors the fetch catch above).
+		if (!(bodyError instanceof Error)) {
+			throw bodyError;
+		}
+		// A client disconnect can abort the in-flight body read; rethrow so the
+		// cancellation path (app.onError -> 499) is preserved instead of
+		// misreporting it as an upstream failure.
+		if (bodyError.name === "AbortError") {
+			throw bodyError;
+		}
+		// Both a read timeout and a mid-body socket failure (e.g. undici
+		// "terminated: other side closed" / ECONNRESET) surface here: the
+		// upstream already returned response headers but then failed while we
+		// read the body. Treat them all as upstream errors instead of letting
+		// them bubble to the global handler as an unhandled 500.
+		{
+			const isTimeoutBody = isTimeoutError(bodyError);
+			const errorMessage = bodyError.message;
 			const bodyReadCause = extractErrorCause(bodyError);
-			logger.warn("Timeout reading response body", {
-				usedProvider,
-				usedInternalModel,
-				initialRequestedModel,
-				cause: bodyReadCause,
-				unifiedFinishReason: getUnifiedFinishReason(
-					"upstream_error",
+			logger.warn(
+				isTimeoutBody
+					? "Timeout reading response body"
+					: "Error reading response body",
+				{
+					error: errorMessage,
 					usedProvider,
-				),
-			});
+					usedInternalModel,
+					initialRequestedModel,
+					cause: bodyReadCause,
+					unifiedFinishReason: getUnifiedFinishReason(
+						"upstream_error",
+						usedProvider,
+					),
+				},
+			);
+
+			// The provider returned response headers (2xx) but the body read
+			// failed, so the post-loop success attempt was already appended to
+			// `routing` as succeeded. Flip it to a failed attempt and re-derive
+			// routingMetadata so dashboards and stored traces don't show this
+			// provider as green for a request that ultimately errored.
+			const bodyErrorType = isTimeoutBody
+				? "upstream_timeout"
+				: "upstream_error";
+			for (let i = routingAttempts.length - 1; i >= 0; i--) {
+				if (
+					routingAttempts[i].provider === usedProvider &&
+					routingAttempts[i].succeeded
+				) {
+					routingAttempts[i] = buildRoutingAttempt(
+						usedProvider,
+						usedInternalModel,
+						res.status,
+						bodyErrorType,
+						false,
+						{
+							region: usedRegion,
+							apiKeyHash: usedApiKeyHash,
+							logId: finalLogId,
+						},
+					);
+					break;
+				}
+			}
+			if (routingMetadata) {
+				const failedMap = new Map(
+					routingAttempts
+						.filter((a) => !a.succeeded)
+						.map((f) => [f.provider, f]),
+				);
+				routingMetadata = {
+					...routingMetadata,
+					routing: routingAttempts,
+					providerScores: routingMetadata.providerScores.map((score) => {
+						const failure = failedMap.get(score.providerId);
+						if (failure) {
+							return {
+								...score,
+								failed: true,
+								status_code: failure.status_code,
+								error_type: failure.error_type,
+							};
+						}
+						return score;
+					}),
+				};
+			}
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 			const baseLogEntry = createLogEntry(
@@ -11082,7 +11994,7 @@ chat.openapi(completions, async (c) => {
 				canceled: false,
 				errorDetails: {
 					statusCode: res.status,
-					statusText: "TimeoutError",
+					statusText: isTimeoutBody ? "TimeoutError" : bodyError.name,
 					responseText: errorMessage,
 					cause: bodyReadCause,
 				},
@@ -11103,16 +12015,21 @@ chat.openapi(completions, async (c) => {
 			return c.json(
 				{
 					error: {
-						message: `Upstream provider timeout: ${errorMessage}`,
-						type: "upstream_timeout",
+						message: isTimeoutBody
+							? `Upstream provider timeout: ${errorMessage}`
+							: `Failed to read response from provider: ${errorMessage}`,
+						type: isTimeoutBody ? "upstream_timeout" : "upstream_error",
 						param: null,
-						code: "timeout",
+						code: isTimeoutBody ? "timeout" : "fetch_failed",
+						requestedProvider,
+						usedProvider,
+						requestedModel: initialRequestedModel,
+						usedInternalModel,
 					},
 				},
-				504,
+				isTimeoutBody ? 504 : 502,
 			);
 		}
-		throw bodyError;
 	}
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });
@@ -11157,6 +12074,7 @@ chat.openapi(completions, async (c) => {
 		messages,
 		supportsReasoning,
 		splitTaggedReasoning,
+		!!webSearchTool,
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {
@@ -11199,8 +12117,7 @@ chat.openapi(completions, async (c) => {
 		(responseHealingEnabled === true ||
 			((usedProvider === "anthropic" || usedProvider === "vertex-anthropic") &&
 				response_format?.type === "json_object") ||
-			(usedProvider === "aws-bedrock" &&
-				response_format?.type === "json_object") ||
+			(usesAwsBedrockConverse() && response_format?.type === "json_object") ||
 			usedProvider === "novita" ||
 			splitTaggedReasoning);
 
@@ -11267,11 +12184,13 @@ chat.openapi(completions, async (c) => {
 	let calculatedPromptTokens = estimatedTokens.calculatedPromptTokens;
 	const calculatedCompletionTokens = estimatedTokens.calculatedCompletionTokens;
 
-	// Estimate reasoning tokens if not provided but reasoning content exists
-	let calculatedReasoningTokens = reasoningTokens;
-	if (!reasoningTokens && reasoningContent) {
-		calculatedReasoningTokens = estimateTokensFromContent(reasoningContent);
-	}
+	// Approximate reasoning tokens when the provider returned reasoning content
+	// but no count (e.g. AWS Bedrock). Display/logging only — never fed into
+	// calculateCosts below, which keeps the raw reasoningTokens.
+	const calculatedReasoningTokens = resolveReasoningTokens(
+		reasoningTokens,
+		reasoningContent,
+	);
 	const costs = await calculateCosts(
 		usedInternalModel,
 		usedProvider,
@@ -11300,9 +12219,29 @@ chat.openapi(completions, async (c) => {
 			cachedAudioInputTokens,
 			explicitCacheUsed,
 			servedServiceTier,
+			customPricing: customPricingMapping,
 		},
 		finishReason === "content_filter",
 	);
+
+	// Anthropic-family refusal that produced no output is not billed (per
+	// Anthropic's policy: a refusal before any generated output is informational
+	// only). A refusal that already produced content is billed normally. This is
+	// applied before transformResponseToOpenai so the cost echoed back to the
+	// client also reflects the zeroed charge.
+	if (
+		isRefusalFinishReason(finishReason, usedProvider) &&
+		!hasMeaningfulAssistantOutput({
+			completionTokens: calculatedCompletionTokens,
+			reasoningTokens: calculatedReasoningTokens,
+			content,
+			toolResults,
+			images: convertedImages,
+		})
+	) {
+		zeroInferenceCosts(costs);
+	}
+
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
 		cachedTokens,
@@ -11341,7 +12280,7 @@ chat.openapi(completions, async (c) => {
 		(costs.promptTokens ?? calculatedPromptTokens ?? 0) +
 			(costs.completionTokens ?? calculatedCompletionTokens ?? 0) +
 			(reasoningTokens ?? 0),
-		reasoningTokens,
+		calculatedReasoningTokens,
 		cachedTokens,
 		toolResults,
 		convertedImages,
@@ -11432,10 +12371,18 @@ chat.openapi(completions, async (c) => {
 		finishReason,
 		usedProvider,
 	);
+	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
+	// produce no content at all, so an empty response in that case is expected
+	// behavior rather than an upstream error.
+	const isLengthLimitResponse = isLengthLimitFinishReason(
+		finishReason,
+		usedProvider,
+	);
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
 		finishReason !== "incomplete" &&
 		!isContentFilterResponse &&
+		!isLengthLimitResponse &&
 		!hasMeaningfulAssistantOutput({
 			completionTokens: calculatedCompletionTokens,
 			reasoningTokens: calculatedReasoningTokens,
@@ -11530,7 +12477,6 @@ chat.openapi(completions, async (c) => {
 		estimatedCost: costs.estimatedCost,
 		discount: costs.discount,
 		pricingTier: costs.pricingTier,
-		serviceTier: servedServiceTier,
 		dataStorageCost: calculateDataStorageCost(
 			calculatedPromptTokens,
 			cachedTokens,

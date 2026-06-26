@@ -1,4 +1,15 @@
 export {
+	CLAW_FORK_PATTERN,
+	CODING_AGENTS,
+	detectCodingAgentFromReferer,
+	detectCodingAgentFromTitle,
+	getSupportedAgentsList,
+	isRecognizedCodingAgent,
+	normalizeSourceToAgentId,
+	type CodingAgentDefinition,
+} from "./coding-agents.js";
+
+export {
 	AUTO_TOP_UP_DEFAULT_AMOUNT,
 	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	calculateFees,
@@ -119,6 +130,12 @@ export {
 	type RoutingWeightsConfig,
 } from "./routing-config.js";
 
-export { assertSafeWebhookUrl, isPrivateOrReservedIp } from "./url-safety.js";
+export {
+	assertSafeContentUrl,
+	assertSafeProviderBaseUrl,
+	assertSafeWebhookUrl,
+	isPrivateOrReservedIp,
+	isProviderUrlGuardEnabled,
+} from "./url-safety.js";
 
 export * from "./components/ui/index.js";

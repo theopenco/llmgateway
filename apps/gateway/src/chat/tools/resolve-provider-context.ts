@@ -10,7 +10,10 @@ import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 import {
 	getProviderEndpoint,
 	getProviderHeaders,
+	isPremiumServiceTier,
 	prepareRequestBody,
+	providerKeyBaseUrlSupportsServiceTier,
+	selectProviderMapping,
 } from "@llmgateway/actions";
 import {
 	type BaseMessage,
@@ -36,7 +39,10 @@ import {
 	isPremiumModel,
 } from "@llmgateway/shared";
 
-import { getProviderEnv } from "./get-provider-env.js";
+import {
+	getProviderEnv,
+	getServiceTierIneligibleEnvIndices,
+} from "./get-provider-env.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -306,6 +312,32 @@ export async function resolveProviderContext(
 	let configIndex = 0;
 	let envVarName: string | undefined;
 
+	// Flex/Priority is only honored when the request reaches the provider's real
+	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
+	// silently drop the tier, so a compliant key (or the managed env credential)
+	// is used instead.
+	const serviceTierKeyFilter = isPremiumServiceTier(options.service_tier)
+		? (key: InferSelectModel<typeof tables.providerKey>) =>
+				providerKeyBaseUrlSupportsServiceTier(
+					key.provider as Provider,
+					key.baseUrl,
+				)
+		: undefined;
+	// Exclude env credential indices whose base URL can't honor the tier, merged
+	// with any already-failed indices, so env fallback also lands on the upstream.
+	const serviceTierEnvExcludedIndices = (
+		provider: Provider,
+	): ReadonlySet<number> | undefined => {
+		if (!serviceTierKeyFilter) {
+			return options.excludedEnvKeyIndices;
+		}
+		const ineligible = getServiceTierIneligibleEnvIndices(provider);
+		if (ineligible.size === 0) {
+			return options.excludedEnvKeyIndices;
+		}
+		return new Set([...(options.excludedEnvKeyIndices ?? []), ...ineligible]);
+	};
+
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
 			providerKey = await findCustomProviderKey(
@@ -320,6 +352,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -333,7 +366,7 @@ export async function resolveProviderContext(
 	} else if (project.mode === "credits") {
 		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
-			excludedIndices: options.excludedEnvKeyIndices,
+			excludedIndices: serviceTierEnvExcludedIndices(usedProvider as Provider),
 			selectionScope: usedInternalModel,
 		});
 		usedToken = envResult.token;
@@ -353,6 +386,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -361,7 +395,9 @@ export async function resolveProviderContext(
 		} else {
 			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {
-				excludedIndices: options.excludedEnvKeyIndices,
+				excludedIndices: serviceTierEnvExcludedIndices(
+					usedProvider as Provider,
+				),
 				selectionScope: usedInternalModel,
 			});
 			usedToken = envResult.token;
@@ -375,10 +411,16 @@ export async function resolveProviderContext(
 	}
 
 	// --- Look up the specific provider mapping for the selected provider ---
-	// modelInfo.providers is already expanded (regions flattened into separate entries)
+	// `modelInfo.providers` is region-expanded only when a provider was explicitly
+	// requested; for unpinned routing it holds just the region-agnostic root
+	// mapping (`region: undefined`) while `usedRegion` is a concrete value
+	// (e.g. AWS Bedrock's `global`). Resolve via the shared fallback helper so a
+	// retry/alternate-key request keeps reasoning support instead of dropping it.
 	const usedRegion = providerMapping.region;
-	const providerMappingForSelected = modelInfo.providers.find(
-		(p) => p.providerId === usedProvider && p.region === usedRegion,
+	const providerMappingForSelected = selectProviderMapping(
+		modelInfo.providers,
+		usedProvider,
+		usedRegion,
 	);
 
 	// --- Region validation ---
@@ -537,17 +579,31 @@ export async function resolveProviderContext(
 	}
 
 	// --- n parameter validation ---
-	// Mirror the initial-path supportsN check (chat.ts) so retry fallbacks
-	// don't silently drop n by routing to a mapping that doesn't natively
-	// accept multiple choices.
-	if (
-		options.n !== undefined &&
-		options.n > 1 &&
-		!providerMappingForSelected?.supportsN
-	) {
-		throw new HTTPException(400, {
-			message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
-		});
+	// Mirror the initial-path supportsN/maxN/supportsNStreaming checks
+	// (chat.ts) so retry fallbacks don't silently drop n by routing to a
+	// mapping that doesn't natively accept multiple choices.
+	if (options.n !== undefined && options.n > 1) {
+		if (!providerMappingForSelected?.supportsN) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+			});
+		}
+		if (
+			providerMappingForSelected.maxN !== undefined &&
+			options.n > providerMappingForSelected.maxN
+		) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} supports at most ${providerMappingForSelected.maxN} choices per request (n <= ${providerMappingForSelected.maxN}).`,
+			});
+		}
+		if (
+			options.effectiveStream &&
+			providerMappingForSelected.supportsNStreaming === false
+		) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices with streaming. Send a non-streaming request instead.`,
+			});
+		}
 	}
 
 	// --- requestCanBeCanceled ---

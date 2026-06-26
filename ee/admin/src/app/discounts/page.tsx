@@ -1,4 +1,4 @@
-import { Globe, Tag } from "lucide-react";
+import { Building2, Globe, Tag } from "lucide-react";
 import Link from "next/link";
 
 import { DeleteDiscountButton, DiscountForm } from "@/components/discount-form";
@@ -15,6 +15,7 @@ import {
 import {
 	createGlobalDiscount,
 	deleteGlobalDiscount,
+	getAllOrganizationDiscounts,
 	getDiscountOptions,
 	getGlobalDiscounts,
 } from "@/lib/admin-discounts";
@@ -53,8 +54,194 @@ function SignInPrompt() {
 	);
 }
 
-export default async function GlobalDiscountsPage() {
+function ViewToggle({ active }: { active: "global" | "organizations" }) {
+	return (
+		<div className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-card p-1">
+			<Button
+				asChild
+				size="sm"
+				variant={active === "global" ? "secondary" : "ghost"}
+			>
+				<Link href="/discounts">Global</Link>
+			</Button>
+			<Button
+				asChild
+				size="sm"
+				variant={active === "organizations" ? "secondary" : "ghost"}
+			>
+				<Link href="/discounts?view=organizations">Organizations</Link>
+			</Button>
+		</div>
+	);
+}
+
+function DiscountCells({
+	discount,
+}: {
+	discount: {
+		provider: string | null;
+		model: string | null;
+		discountPercent: string;
+		reason: string | null;
+		expiresAt: string | null;
+		createdAt: string;
+	};
+}) {
+	return (
+		<>
+			<TableCell>
+				{discount.provider ? (
+					<Badge variant="outline">{discount.provider}</Badge>
+				) : (
+					<span className="text-muted-foreground">All</span>
+				)}
+			</TableCell>
+			<TableCell>
+				{discount.model ? (
+					<Badge variant="secondary">{discount.model}</Badge>
+				) : (
+					<span className="text-muted-foreground">All</span>
+				)}
+			</TableCell>
+			<TableCell>
+				<span className="font-medium text-green-600">
+					{formatDiscount(discount.discountPercent)} off
+				</span>
+			</TableCell>
+			<TableCell className="max-w-[200px] truncate text-muted-foreground">
+				{discount.reason ?? "—"}
+			</TableCell>
+			<TableCell className="text-muted-foreground">
+				{discount.expiresAt ? (
+					<span
+						className={
+							new Date(discount.expiresAt) < new Date()
+								? "text-destructive"
+								: ""
+						}
+					>
+						{formatDate(discount.expiresAt)}
+					</span>
+				) : (
+					"Never"
+				)}
+			</TableCell>
+			<TableCell className="text-muted-foreground">
+				{formatDate(discount.createdAt)}
+			</TableCell>
+		</>
+	);
+}
+
+async function OrganizationDiscountsView() {
+	const discountsData = await getAllOrganizationDiscounts();
+
+	if (discountsData === null) {
+		return <SignInPrompt />;
+	}
+
+	const discounts = discountsData?.discounts ?? [];
+
+	return (
+		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
+			<header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+				<div className="space-y-1">
+					<div className="flex items-center gap-3">
+						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+							<Building2 className="h-5 w-5" />
+						</div>
+						<div>
+							<h1 className="text-2xl font-semibold tracking-tight">
+								Discounts
+							</h1>
+							<p className="text-sm text-muted-foreground">
+								Organizations with custom discounts
+							</p>
+						</div>
+					</div>
+				</div>
+				<ViewToggle active="organizations" />
+			</header>
+
+			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
+				<Table>
+					<TableHeader>
+						<TableRow>
+							<TableHead>Organization</TableHead>
+							<TableHead>Provider</TableHead>
+							<TableHead>Model</TableHead>
+							<TableHead>Discount</TableHead>
+							<TableHead>Reason</TableHead>
+							<TableHead>Expires</TableHead>
+							<TableHead>Created</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{discounts.length === 0 ? (
+							<TableRow>
+								<TableCell
+									colSpan={7}
+									className="h-24 text-center text-muted-foreground"
+								>
+									<div className="flex flex-col items-center gap-2">
+										<Tag className="h-8 w-8 text-muted-foreground/50" />
+										<p>No organization-specific discounts configured</p>
+										<p className="text-xs">
+											Add discounts from an organization&apos;s page
+										</p>
+									</div>
+								</TableCell>
+							</TableRow>
+						) : (
+							discounts.map((discount) => (
+								<TableRow key={discount.id}>
+									<TableCell>
+										{discount.organizationId ? (
+											<Link
+												href={`/organizations/${discount.organizationId}/discounts`}
+												className="font-medium text-primary hover:underline"
+											>
+												{discount.organizationName ?? discount.organizationId}
+											</Link>
+										) : (
+											<span className="text-muted-foreground">—</span>
+										)}
+									</TableCell>
+									<DiscountCells discount={discount} />
+								</TableRow>
+							))
+						)}
+					</TableBody>
+				</Table>
+			</div>
+
+			<div className="rounded-lg border border-border/60 bg-muted/30 p-4">
+				<h3 className="text-sm font-medium">How organization discounts work</h3>
+				<ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+					<li>Organization discounts take precedence over global discounts</li>
+					<li>
+						More specific discounts (provider + model) take precedence over
+						broader ones
+					</li>
+					<li>Manage an organization&apos;s discounts from its detail page</li>
+				</ul>
+			</div>
+		</div>
+	);
+}
+
+export default async function DiscountsPage({
+	searchParams,
+}: {
+	searchParams: Promise<{ view?: string }>;
+}) {
 	await requireSession();
+
+	const { view } = await searchParams;
+
+	if (view === "organizations") {
+		return <OrganizationDiscountsView />;
+	}
 
 	const [discountsData, options] = await Promise.all([
 		getGlobalDiscounts(),
@@ -123,7 +310,7 @@ export default async function GlobalDiscountsPage() {
 						</div>
 						<div>
 							<h1 className="text-2xl font-semibold tracking-tight">
-								Global Discounts
+								Discounts
 							</h1>
 							<p className="text-sm text-muted-foreground">
 								Discounts that apply to all organizations
@@ -131,13 +318,16 @@ export default async function GlobalDiscountsPage() {
 						</div>
 					</div>
 				</div>
-				{options && (
-					<DiscountForm
-						providers={options.providers}
-						mappings={options.mappings}
-						onSubmit={handleCreateDiscount}
-					/>
-				)}
+				<div className="flex flex-wrap items-center gap-3">
+					<ViewToggle active="global" />
+					{options && (
+						<DiscountForm
+							providers={options.providers}
+							mappings={options.mappings}
+							onSubmit={handleCreateDiscount}
+						/>
+					)}
+				</div>
 			</header>
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
@@ -172,46 +362,7 @@ export default async function GlobalDiscountsPage() {
 						) : (
 							discounts.map((discount) => (
 								<TableRow key={discount.id}>
-									<TableCell>
-										{discount.provider ? (
-											<Badge variant="outline">{discount.provider}</Badge>
-										) : (
-											<span className="text-muted-foreground">All</span>
-										)}
-									</TableCell>
-									<TableCell>
-										{discount.model ? (
-											<Badge variant="secondary">{discount.model}</Badge>
-										) : (
-											<span className="text-muted-foreground">All</span>
-										)}
-									</TableCell>
-									<TableCell>
-										<span className="font-medium text-green-600">
-											{formatDiscount(discount.discountPercent)} off
-										</span>
-									</TableCell>
-									<TableCell className="max-w-[200px] truncate text-muted-foreground">
-										{discount.reason ?? "—"}
-									</TableCell>
-									<TableCell className="text-muted-foreground">
-										{discount.expiresAt ? (
-											<span
-												className={
-													new Date(discount.expiresAt) < new Date()
-														? "text-destructive"
-														: ""
-												}
-											>
-												{formatDate(discount.expiresAt)}
-											</span>
-										) : (
-											"Never"
-										)}
-									</TableCell>
-									<TableCell className="text-muted-foreground">
-										{formatDate(discount.createdAt)}
-									</TableCell>
+									<DiscountCells discount={discount} />
 									<TableCell>
 										<DeleteDiscountButton
 											discountId={discount.id}

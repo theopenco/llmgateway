@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	applyRoutingPreference,
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_STICKY,
@@ -10,6 +11,7 @@ import {
 	historyMatchesDefaults,
 	resolveRoutingConfig,
 	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
+	ROUTING_PREFERENCE_WEIGHTS,
 	routingHistoryCacheKey,
 } from "./routing-config.js";
 
@@ -215,6 +217,65 @@ describe("resolveRoutingConfig", () => {
 		);
 		expect(resolved.providerPriorities.openai).toBe(providerDefaults.openai);
 		expect(resolved.providerPriorities.anthropic).toBe(0.7);
+	});
+});
+
+describe("applyRoutingPreference", () => {
+	const providerDefaults = buildProviderPriorityDefaults();
+	const base = resolveRoutingConfig(null, providerDefaults);
+
+	it("returns the config unchanged for auto / undefined", () => {
+		expect(applyRoutingPreference(base, "auto")).toBe(base);
+		expect(applyRoutingPreference(base, undefined)).toBe(base);
+	});
+
+	it("collapses weights onto price, keeping uptime fallback", () => {
+		const resolved = applyRoutingPreference(base, "price");
+		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.price);
+		expect(resolved.weights.price).toBe(0.9);
+		expect(resolved.weights.imagePrice).toBe(0.9);
+		expect(resolved.weights.uptime).toBe(0.1);
+		expect(resolved.weights.throughput).toBe(0);
+		// Provider priorities are preserved.
+		expect(resolved.providerPriorities).toEqual(base.providerPriorities);
+	});
+
+	it("disables exploration for non-auto preferences but keeps other thresholds", () => {
+		for (const preference of ["price", "throughput", "latency"] as const) {
+			const resolved = applyRoutingPreference(base, preference);
+			expect(resolved.thresholds.explorationRate).toBe(0);
+			expect(resolved.thresholds).toEqual({
+				...base.thresholds,
+				explorationRate: 0,
+			});
+		}
+		// auto leaves exploration untouched.
+		expect(
+			applyRoutingPreference(base, "auto").thresholds.explorationRate,
+		).toBe(base.thresholds.explorationRate);
+	});
+
+	it("collapses weights onto throughput, keeping uptime fallback", () => {
+		const resolved = applyRoutingPreference(base, "throughput");
+		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.throughput);
+		expect(resolved.weights.throughput).toBe(0.9);
+		expect(resolved.weights.uptime).toBe(0.1);
+		expect(resolved.weights.price).toBe(0);
+		expect(resolved.weights.imagePrice).toBe(0);
+	});
+
+	it("collapses weights onto latency, keeping uptime fallback", () => {
+		const resolved = applyRoutingPreference(base, "latency");
+		expect(resolved.weights).toEqual(ROUTING_PREFERENCE_WEIGHTS.latency);
+		expect(resolved.weights.latency).toBe(0.9);
+		expect(resolved.weights.uptime).toBe(0.1);
+		expect(resolved.weights.price).toBe(0);
+		expect(resolved.weights.throughput).toBe(0);
+	});
+
+	it("does not mutate the input config", () => {
+		applyRoutingPreference(base, "price");
+		expect(base.weights).toEqual(DEFAULT_ROUTING_WEIGHTS);
 	});
 });
 

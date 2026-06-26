@@ -45,7 +45,7 @@ export function OrganizationSwitcher({
 	// null selection so the trigger shows the Chat plan branding (Sparkles +
 	// "Chat plan") instead of an org icon that looks like a real organization.
 	const isChatPlanContext =
-		!selectedOrganization || selectedOrganization.isChat;
+		!selectedOrganization || selectedOrganization.kind === "chat";
 
 	const activeClass = isChatPlanContext
 		? ""

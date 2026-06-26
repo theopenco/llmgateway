@@ -25,11 +25,11 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
 	metadataBase: new URL("https://chat.llmgateway.io"),
 	title: {
-		default: "AI Playground — Chat with 210+ Models (GPT, Claude, Gemini)",
+		default: "AI Playground — Chat with 280+ Models (GPT, Claude, Gemini)",
 		template: "%s | LLM Gateway Playground",
 	},
 	description:
-		"Test and compare 210+ AI models from one account. Chat with GPT, Claude, Gemini, generate images and videos, and run multi-model group chats — pay-as-you-go with a single balance.",
+		"Test and compare 280+ AI models from one account. Chat with GPT, Claude, Gemini, generate images and videos, and run multi-model group chats — pay-as-you-go with a single balance.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
@@ -45,9 +45,9 @@ export const metadata: Metadata = {
 		},
 	},
 	openGraph: {
-		title: "AI Playground — Chat with 210+ Models (GPT, Claude, Gemini)",
+		title: "AI Playground — Chat with 280+ Models (GPT, Claude, Gemini)",
 		description:
-			"Test and compare 210+ AI models from one account. Chat, generate images and videos, and run multi-model group chats — pay-as-you-go.",
+			"Test and compare 280+ AI models from one account. Chat, generate images and videos, and run multi-model group chats — pay-as-you-go.",
 		images: ["/opengraph.png?v=1"],
 		type: "website",
 		url: "https://chat.llmgateway.io",
@@ -56,9 +56,9 @@ export const metadata: Metadata = {
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "AI Playground — Chat with 210+ Models (GPT, Claude, Gemini)",
+		title: "AI Playground — Chat with 280+ Models (GPT, Claude, Gemini)",
 		description:
-			"Test and compare 210+ AI models from one account. Chat, generate images and videos, and run multi-model group chats — pay-as-you-go.",
+			"Test and compare 280+ AI models from one account. Chat, generate images and videos, and run multi-model group chats — pay-as-you-go.",
 		images: ["/opengraph.png?v=1"],
 		creator: "@llmgateway",
 	},
@@ -70,7 +70,7 @@ const webSiteSchema = {
 	name: "LLM Gateway Playground",
 	url: "https://chat.llmgateway.io",
 	description:
-		"Test and compare 210+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
+		"Test and compare 280+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
 	publisher: {
 		"@type": "Organization",
 		name: "LLM Gateway",
@@ -86,7 +86,7 @@ const softwareApplicationSchema = {
 	applicationCategory: "DeveloperApplication",
 	operatingSystem: "Web",
 	description:
-		"Web playground to chat with 210+ AI models including GPT, Claude, Gemini, plus image and video generation. Pay-as-you-go from a single credit balance.",
+		"Web playground to chat with 280+ AI models including GPT, Claude, Gemini, plus image and video generation. Pay-as-you-go from a single credit balance.",
 	publisher: {
 		"@type": "Organization",
 		name: "LLM Gateway",

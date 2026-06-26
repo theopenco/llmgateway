@@ -2,7 +2,7 @@
 id: opencode-desktop
 slug: opencode-desktop
 title: OpenCode Desktop Integration
-description: Connect OpenCode Desktop to 210+ models through LLM Gateway. No config files — just open Settings, connect, and start building.
+description: Connect OpenCode Desktop to 280+ models through LLM Gateway. No config files — just open Settings, connect, and start building.
 date: 2026-05-11
 ---
 
@@ -65,7 +65,7 @@ Select a model and start chatting. All requests route through LLM Gateway — yo
 
 ## Why Use LLM Gateway with OpenCode Desktop?
 
-- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more from 60+ providers
+- **280+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more from 35+ providers
 - **One API key** — Stop managing separate keys for each provider
 - **Cost tracking** — See exactly what each session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically

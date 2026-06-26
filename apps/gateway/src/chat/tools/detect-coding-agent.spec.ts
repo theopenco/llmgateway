@@ -6,6 +6,7 @@ describe("detectCodingAgentFromUserAgent", () => {
 	it("returns undefined when user agent is missing", () => {
 		expect(detectCodingAgentFromUserAgent(undefined)).toBeUndefined();
 		expect(detectCodingAgentFromUserAgent("")).toBeUndefined();
+		expect(detectCodingAgentFromUserAgent("   ")).toBeUndefined();
 	});
 
 	it("detects Claude Code", () => {
@@ -65,6 +66,68 @@ describe("detectCodingAgentFromUserAgent", () => {
 		expect(detectCodingAgentFromUserAgent("openclaw/0.1.0")).toBe("openclaw");
 	});
 
+	it("detects Aider", () => {
+		expect(detectCodingAgentFromUserAgent("aider/0.50.0")).toBe("aider");
+		expect(detectCodingAgentFromUserAgent("Aider/1.0 (python)")).toBe("aider");
+	});
+
+	it("detects Continue", () => {
+		expect(detectCodingAgentFromUserAgent("continue/1.2.0")).toBe("continue");
+		expect(detectCodingAgentFromUserAgent("continue-dev/0.8.0")).toBe(
+			"continue",
+		);
+	});
+
+	it("detects Windsurf/Codeium", () => {
+		expect(detectCodingAgentFromUserAgent("windsurf/1.0.0")).toBe("windsurf");
+		expect(detectCodingAgentFromUserAgent("codeium/2.0.0")).toBe("windsurf");
+		expect(detectCodingAgentFromUserAgent("VSCode (windsurf extension)")).toBe(
+			"windsurf",
+		);
+	});
+
+	it("detects Roo Code", () => {
+		expect(detectCodingAgentFromUserAgent("roo-code/1.0")).toBe("roo-code");
+		expect(detectCodingAgentFromUserAgent("roo_code/2.0")).toBe("roo-code");
+		expect(detectCodingAgentFromUserAgent("roo-cline/3.0")).toBe("roo-code");
+	});
+
+	it("detects Zed AI", () => {
+		expect(detectCodingAgentFromUserAgent("Zed/0.150.0")).toBe("zed");
+		expect(detectCodingAgentFromUserAgent("zed-editor/1.0")).toBe("zed");
+	});
+
+	it("detects GitHub Copilot", () => {
+		expect(detectCodingAgentFromUserAgent("github-copilot/1.0")).toBe(
+			"github-copilot",
+		);
+		expect(detectCodingAgentFromUserAgent("VSCode copilot extension")).toBe(
+			"github-copilot",
+		);
+	});
+
+	it("detects Pi Agent", () => {
+		expect(detectCodingAgentFromUserAgent("pi-agent/1.0.0")).toBe("pi-agent");
+		expect(detectCodingAgentFromUserAgent("pi_agent/2.0")).toBe("pi-agent");
+	});
+
+	it("detects Hermes Agent", () => {
+		expect(detectCodingAgentFromUserAgent("hermes-agent/0.5.0")).toBe(
+			"hermes-agent",
+		);
+		expect(detectCodingAgentFromUserAgent("hermes_agent/1.0")).toBe(
+			"hermes-agent",
+		);
+	});
+
+	it("detects *claw forks", () => {
+		expect(detectCodingAgentFromUserAgent("myclaw/1.0")).toBe("myclaw");
+		expect(detectCodingAgentFromUserAgent("super-claw/2.0")).toBe("super-claw");
+		expect(detectCodingAgentFromUserAgent("anyclaw-tool/0.1")).toBe(
+			"anyclaw-tool",
+		);
+	});
+
 	it("does not classify unrelated user agents", () => {
 		expect(
 			detectCodingAgentFromUserAgent(
@@ -73,5 +136,8 @@ describe("detectCodingAgentFromUserAgent", () => {
 		).toBeUndefined();
 		expect(detectCodingAgentFromUserAgent("curl/8.4.0")).toBeUndefined();
 		expect(detectCodingAgentFromUserAgent("axios/1.6.5")).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("python-requests/2.31"),
+		).toBeUndefined();
 	});
 });

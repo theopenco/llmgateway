@@ -5,6 +5,7 @@ import {
 	CodexIcon,
 	CursorIcon,
 	KimiIcon,
+	MimoCodeIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -105,6 +106,14 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 		category: "coding",
 		Icon: KimiIcon,
 	},
+	"mimo-code": {
+		displayName: "MiMo Code",
+		url: "https://mimo.xiaomi.com/mimocode",
+		description:
+			"AI-powered coding agent CLI by Xiaomi. Point it at LLM Gateway to code with any model.",
+		category: "coding",
+		Icon: MimoCodeIcon,
+	},
 	zed: {
 		displayName: "Zed",
 		url: "https://zed.dev",
@@ -145,7 +154,7 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 		displayName: "SoulForge",
 		url: "https://soulforge.proxysoul.com/",
 		description:
-			"Graph-powered coding agent. Treats code as structure, not strings. Roughly half the tokens on multi-turn coding sessions.",
+			"Graph-powered coding agent. Treats code as structure, not strings.",
 		category: "coding",
 		Icon: SoulForgeIcon,
 	},

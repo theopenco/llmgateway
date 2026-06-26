@@ -26,6 +26,7 @@ const plans = [
 		description: "Fully managed with custom scaling and pricing",
 		features: [
 			"Everything in Self-Hosted",
+			"30-day trial to start",
 			"Fully managed infrastructure",
 			"Custom rate limits",
 			"Volume-based pricing",
@@ -43,12 +44,17 @@ export function PricingEnterprise() {
 		<section id="pricing" className="py-20 sm:py-28 bg-muted/30">
 			<div className="container mx-auto px-4 sm:px-6 lg:px-8">
 				<div className="mx-auto max-w-2xl text-center mb-16">
+					<span className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-mono uppercase tracking-wider text-blue-500">
+						<span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+						30-day trial included
+					</span>
 					<h2 className="mb-4 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl text-balance">
 						Enterprise pricing that scales with you
 					</h2>
 					<p className="text-lg text-muted-foreground text-balance leading-relaxed">
 						Choose between self-hosted control or fully managed convenience.
-						Both options include all enterprise features.
+						Both options include all enterprise features, and every plan starts
+						with a 30-day trial.
 					</p>
 				</div>
 				<div className="mx-auto max-w-5xl grid gap-8 lg:grid-cols-2">
@@ -85,7 +91,8 @@ export function PricingEnterprise() {
 					))}
 				</div>
 				<p className="mt-8 text-center text-sm text-muted-foreground">
-					Contact us for custom plans and enterprise agreements.
+					Every plan starts with a 30-day trial. Contact us for custom plans and
+					enterprise agreements.
 				</p>
 			</div>
 		</section>

@@ -3,7 +3,7 @@ id: blog-opencode-built-in-provider
 slug: opencode-built-in-provider
 date: 2026-04-18
 title: "LLM Gateway Is Now a Built-in Provider in OpenCode"
-summary: "No config files, no env vars. OpenCode ships LLM Gateway as a first-class provider — select it, paste your key, and start coding with 210+ models."
+summary: "No config files, no env vars. OpenCode ships LLM Gateway as a first-class provider — select it, paste your key, and start coding with 280+ models."
 categories: ["Integrations"]
 image:
   src: "/blog/opencode-built-in-provider.png"
@@ -14,7 +14,7 @@ image:
 
 OpenCode now ships LLM Gateway as a built-in provider. No config files. No environment variables. No npm adapters.
 
-Select "LLM Gateway" from the provider list, paste your API key, and you have instant access to 210+ models from 60+ providers inside your terminal.
+Select "LLM Gateway" from the provider list, paste your API key, and you have instant access to 280+ models from 35+ providers inside your terminal.
 
 ## What changed
 
@@ -36,7 +36,7 @@ The difference between "create a config file, add an adapter, define models, res
 
 Here's what you get with zero configuration:
 
-- **210+ models** across 60+ providers through one API key
+- **280+ models** across 35+ providers through one API key
 - **Automatic cost tracking** for every coding session in your LLM Gateway dashboard
 - **Response caching** that saves tokens on repeated requests
 - **Automatic failover** across providers when one goes down

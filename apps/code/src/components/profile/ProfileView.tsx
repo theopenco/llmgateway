@@ -1,6 +1,7 @@
 "use client";
 
 import { Calendar, Coins, Flame, Github, Hash, Zap } from "lucide-react";
+import Link from "next/link";
 
 import {
 	AGENTS,
@@ -9,6 +10,10 @@ import {
 } from "@/app/dashboard/components/coding-agents-shared";
 import { ProfileHeatmap } from "@/components/profile/ProfileHeatmap";
 import { ProfileTokensChart } from "@/components/profile/ProfileTokensChart";
+import { ProfileViewerCta } from "@/components/profile/ProfileViewerCta";
+import { ProfileWrapped } from "@/components/profile/ProfileWrapped";
+import { useAppConfig } from "@/lib/config";
+import { resolveCanonicalModel } from "@/lib/model-family";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -26,6 +31,42 @@ for (const agent of AGENTS) {
 
 function agentForSource(source: string): AgentDefinition | undefined {
 	return AGENT_BY_SOURCE.get(source.toLowerCase());
+}
+
+interface CanonicalModelUsage {
+	id: string;
+	name: string;
+	iconKey: string;
+	known: boolean;
+	requestCount: number;
+}
+
+// Collapse the raw (model, provider) usage rows into canonical models, summing
+// requests across every provider that served the same model.
+function aggregateCanonicalModels(
+	rows: ProfileData["models"],
+): CanonicalModelUsage[] {
+	const byCanonical = new Map<string, CanonicalModelUsage>();
+	for (const row of rows) {
+		const resolved = resolveCanonicalModel(row.id);
+		const existing = byCanonical.get(resolved.id);
+		if (existing) {
+			existing.requestCount += row.requestCount;
+		} else {
+			byCanonical.set(resolved.id, {
+				id: resolved.id,
+				name: resolved.name,
+				// Unknown models have no family, so fall back to the serving
+				// provider's logo rather than the raw model string.
+				iconKey: resolved.known ? resolved.iconKey : row.provider,
+				known: resolved.known,
+				requestCount: row.requestCount,
+			});
+		}
+	}
+	return Array.from(byCanonical.values()).sort(
+		(a, b) => b.requestCount - a.requestCount,
+	);
 }
 
 function formatCompact(n: number): string {
@@ -91,6 +132,8 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 		profile.name?.trim() || profile.username || "DevPass user";
 	const topAgent =
 		profile.agents.length > 0 ? agentForSource(profile.agents[0].source) : null;
+	const { uiUrl } = useAppConfig();
+	const canonicalModels = aggregateCanonicalModels(profile.models);
 
 	return (
 		<div className="mx-auto w-full max-w-5xl">
@@ -118,6 +161,13 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 					)}
 				</div>
 			</div>
+
+			{/* Wrapped card + share toolkit */}
+			{profile.username && (
+				<div className="mt-8">
+					<ProfileWrapped profile={profile} />
+				</div>
+			)}
 
 			<div className="mt-8 grid gap-8 lg:grid-cols-[240px_1fr]">
 				{/* Sidebar */}
@@ -235,45 +285,38 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 					)}
 
 					{/* Models */}
-					{profile.models.length > 0 && (
+					{canonicalModels.length > 0 && (
 						<section>
 							<h2 className="mb-3 text-sm font-semibold">Models</h2>
 							<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-								{profile.models.map((model) => {
-									const Icon = getProviderIcon(model.provider);
-									return (
-										<div
-											key={`${model.provider}|${model.id}`}
-											className="relative flex items-center gap-2.5 overflow-hidden rounded-xl border bg-card p-3.5"
-										>
+								{canonicalModels.map((model) => {
+									const Icon = getProviderIcon(model.iconKey);
+									const content = (
+										<>
 											{Icon && <Icon className="h-5 w-5 flex-shrink-0" />}
 											<span className="min-w-0 flex-1 truncate text-sm font-medium">
-												{model.id}
+												{model.name}
 											</span>
 											<span className="text-xs text-muted-foreground tabular-nums">
 												{model.requestCount.toLocaleString()}
 											</span>
-										</div>
+										</>
 									);
-								})}
-							</div>
-						</section>
-					)}
-
-					{/* Providers */}
-					{profile.providers.length > 0 && (
-						<section>
-							<h2 className="mb-3 text-sm font-semibold">Providers</h2>
-							<div className="flex flex-wrap gap-2">
-								{profile.providers.map((p) => {
-									const Icon = getProviderIcon(p.provider);
-									return (
-										<div
-											key={p.provider}
-											className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5"
+									const className =
+										"group relative flex items-center gap-2.5 overflow-hidden rounded-xl border bg-card p-3.5 transition-colors hover:border-emerald-500/40 hover:bg-accent";
+									return model.known ? (
+										<a
+											key={model.id}
+											href={`${uiUrl}/models/${encodeURIComponent(model.id)}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											className={className}
 										>
-											{Icon && <Icon className="h-4 w-4" />}
-											<span className="text-sm capitalize">{p.provider}</span>
+											{content}
+										</a>
+									) : (
+										<div key={model.id} className={className}>
+											{content}
 										</div>
 									);
 								})}
@@ -293,6 +336,20 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 						<ProfileTokensChart activity={profile.activity} />
 					</section>
 				</div>
+			</div>
+
+			{/* Convert logged-out visitors */}
+			<ProfileViewerCta profile={profile} />
+
+			{/* Powered by */}
+			<div className="mt-10 border-t pt-6 text-center text-xs text-muted-foreground">
+				<Link href="/" className="transition-colors hover:text-foreground">
+					Powered by{" "}
+					<span className="font-semibold text-emerald-600 dark:text-emerald-400">
+						DevPass
+					</span>{" "}
+					— one key, every model
+				</Link>
 			</div>
 		</div>
 	);

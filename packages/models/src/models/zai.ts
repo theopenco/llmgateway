@@ -2,11 +2,86 @@ import type { ModelDefinition } from "@/models.js";
 
 export const zaiModels = [
 	{
+		id: "glm-5.2",
+		name: "GLM-5.2",
+		description:
+			"Zhipu GLM-5.2 flagship model for long-horizon coding and agentic engineering tasks with a 1M context window.",
+		family: "zai",
+		releasedAt: new Date("2026-06-13"),
+		providers: [
+			{
+				providerId: "zai",
+				externalId: "glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+			},
+			{
+				providerId: "embercloud",
+				externalId: "glm-5.2",
+				inputPrice: "1.26e-6",
+				outputPrice: "3.96e-6",
+				cachedInputPrice: "0.234e-6",
+				requestPrice: "0",
+				contextSize: 203000,
+				maxOutput: 131000,
+				streaming: true,
+				vision: false,
+				tools: true,
+				reasoning: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"messages",
+					"model",
+					"stream",
+					"stream_options",
+					"temperature",
+					"top_p",
+					"max_tokens",
+					"max_completion_tokens",
+					"seed",
+					"stop",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"parallel_tool_calls",
+					"reasoning",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "granite",
+				externalId: "glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "glm-5.1",
 		name: "GLM-5.1",
 		description:
 			"Zhipu GLM-5.1 flagship model engineered for long-horizon autonomous tasks with enhanced coding and agentic capabilities.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2026-04-07"),
 		providers: [
 			{
@@ -85,7 +160,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
-				reasoningOutput: "omit",
 				jsonOutput: false,
 				supportedParameters: [
 					"messages",
@@ -103,6 +177,7 @@ export const zaiModels = [
 					"tool_choice",
 					"parallel_tool_calls",
 					"reasoning",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -111,7 +186,7 @@ export const zaiModels = [
 		id: "glm-5",
 		name: "GLM-5",
 		description: "Zhipu GLM-5 with advanced reasoning capabilities.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2026-02-15"),
 		providers: [
 			{
@@ -205,8 +280,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
-				// Embercloud does not expose reasoning content in responses
-				reasoningOutput: "omit",
 				jsonOutput: false,
 				supportedParameters: [
 					"messages",
@@ -224,11 +297,13 @@ export const zaiModels = [
 					"tool_choice",
 					"parallel_tool_calls",
 					"reasoning",
+					"reasoning_effort",
 				],
 			},
 			{
 				providerId: "nebius",
 				externalId: "zai-org/GLM-5",
+				deactivatedAt: new Date("2026-06-22"),
 				inputPrice: "1.0e-6",
 				outputPrice: "3.2e-6",
 				requestPrice: "0",
@@ -246,7 +321,7 @@ export const zaiModels = [
 		id: "glm-4.5",
 		name: "GLM-4.5",
 		description: "Zhipu GLM-4.5 with reasoning capabilities.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-07-28"),
 		providers: [
 			{
@@ -304,7 +379,7 @@ export const zaiModels = [
 		id: "glm-4.5v",
 		name: "GLM-4.5V",
 		description: "GLM-4.5 with vision support.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-08-11"),
 		providers: [
 			{
@@ -345,7 +420,7 @@ export const zaiModels = [
 		id: "glm-4.5-air",
 		name: "GLM-4.5 Air",
 		description: "Lightweight GLM-4.5 variant.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-07-25"),
 		providers: [
 			{
@@ -402,7 +477,7 @@ export const zaiModels = [
 		id: "glm-4.5-x",
 		name: "GLM-4.5 X",
 		description: "Extended GLM-4.5 with advanced reasoning.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-07-28"),
 		providers: [
 			{
@@ -427,7 +502,7 @@ export const zaiModels = [
 		id: "glm-4.5-airx",
 		name: "GLM-4.5 AirX",
 		description: "Enhanced GLM-4.5 Air variant.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-07-28"),
 		providers: [
 			{
@@ -452,7 +527,7 @@ export const zaiModels = [
 		id: "glm-4.5-flash",
 		name: "GLM-4.5 Flash",
 		description: "Free, fast GLM-4.5 model.",
-		family: "glm",
+		family: "zai",
 		free: true,
 		stability: "unstable",
 		releasedAt: new Date("2025-08-13"),
@@ -478,7 +553,7 @@ export const zaiModels = [
 		id: "glm-4.7",
 		name: "GLM-4.7",
 		description: "Latest GLM with enhanced reasoning capabilities.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-12-22"),
 		providers: [
 			{
@@ -613,8 +688,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
-				// Embercloud does not expose reasoning content in responses
-				reasoningOutput: "omit",
 				jsonOutput: true,
 				supportedParameters: [
 					"messages",
@@ -634,6 +707,7 @@ export const zaiModels = [
 					"tool_choice",
 					"parallel_tool_calls",
 					"reasoning",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -642,7 +716,7 @@ export const zaiModels = [
 		id: "glm-4.7-flashx",
 		name: "GLM-4.7 FlashX",
 		description: "Lightweight, high-speed GLM-4.7 variant.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-12-22"),
 		providers: [
 			{
@@ -672,7 +746,7 @@ export const zaiModels = [
 		id: "glm-4.7-flash-free",
 		name: "GLM-4.7 Flash (Free)",
 		description: "Free, lightweight GLM-4.7 model.",
-		family: "glm",
+		family: "zai",
 		free: true,
 		stability: "unstable",
 		releasedAt: new Date("2025-12-22"),
@@ -699,7 +773,7 @@ export const zaiModels = [
 		id: "glm-4.7-flash",
 		name: "GLM-4.7 Flash",
 		description: "Lightweight, high-speed GLM-4.7 model.",
-		family: "glm",
+		family: "zai",
 		stability: "unstable",
 		releasedAt: new Date("2025-12-22"),
 		providers: [
@@ -741,7 +815,7 @@ export const zaiModels = [
 		id: "glm-4.6",
 		name: "GLM-4.6",
 		description: "Updated GLM with reasoning capabilities.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-09-30"),
 		providers: [
 			{
@@ -831,7 +905,7 @@ export const zaiModels = [
 		id: "glm-4-32b-0414-128k",
 		name: "GLM-4 32B (0414-128k)",
 		description: "GLM-4 32B instruction-tuned model.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-04-14"),
 		providers: [
 			{
@@ -856,7 +930,7 @@ export const zaiModels = [
 		name: "GLM-4.6V",
 		description:
 			"Flagship vision-language model (106B) with native function calling support.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-12-08"),
 		providers: [
 			{
@@ -895,7 +969,7 @@ export const zaiModels = [
 		id: "glm-4.6v-flashx",
 		name: "GLM-4.6V FlashX",
 		description: "Fast vision-language model with extended capabilities.",
-		family: "glm",
+		family: "zai",
 		releasedAt: new Date("2025-12-08"),
 		providers: [
 			{
@@ -920,7 +994,7 @@ export const zaiModels = [
 		name: "GLM-4.6V Flash",
 		description:
 			"Ultra-fast, lightweight vision-language model (9B) for low-latency workloads.",
-		family: "glm",
+		family: "zai",
 		free: true,
 		stability: "unstable",
 		releasedAt: new Date("2025-12-08"),
@@ -939,6 +1013,26 @@ export const zaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// zai rejects temperature outside [0,1] with a 400 ("The temperature
+				// parameter is illegal"). Exclude it so out-of-range values are stripped
+				// instead of failing the request.
+				supportedParameters: [
+					"messages",
+					"model",
+					"stream",
+					"stream_options",
+					"top_p",
+					"max_tokens",
+					"max_completion_tokens",
+					"seed",
+					"stop",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"parallel_tool_calls",
+					"reasoning",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -973,7 +1067,7 @@ export const zaiModels = [
 		name: "GLM-Image",
 		description:
 			"Z.AI's GLM-Image text-to-image generation model with hybrid auto-regressive architecture, excellent for text-rendering and knowledge-intensive generation.",
-		family: "glm",
+		family: "zai",
 		output: ["text", "image"],
 		releasedAt: new Date("2025-01-14"),
 		providers: [

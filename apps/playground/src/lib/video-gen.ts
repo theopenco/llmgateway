@@ -12,7 +12,7 @@ export type VideoSize =
 	| "3840x2160"
 	| "2160x3840";
 
-export type VideoDuration = 4 | 6 | 8 | 10 | 12 | 15;
+export type VideoDuration = 4 | 5 | 6 | 8 | 10 | 12 | 15;
 
 export interface VideoInputImage {
 	dataUrl: string;
@@ -63,12 +63,16 @@ export interface VideoGalleryItem {
 	organizationId?: string;
 	frameInputs?: VideoFrameInputs;
 	referenceImages?: VideoInputImage[];
+	// Small preview images shown next to the prompt (frame/reference inputs).
+	// Data URLs for in-flight items, API input-image URLs for history items so
+	// the history list doesn't need to inline base64 payloads.
+	inputPreviews?: { src: string; label: string }[];
 	models: VideoGalleryModelResult[];
 }
 
 export type VideoInputMode = "none" | "frames" | "reference";
 
-const VIDEO_DURATIONS: VideoDuration[] = [4, 6, 8, 10, 12, 15];
+const VIDEO_DURATIONS: VideoDuration[] = [4, 5, 6, 8, 10, 12, 15];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
 	"848x480": "480p Landscape",
@@ -98,8 +102,20 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		? modelId.split("/", 2)
 		: [undefined, modelId];
 
-	if (rootModelId === "grok-imagine-video-1-5-preview") {
+	if (isSeedance2ReferenceModel(rootModelId)) {
+		return providerId === undefined || providerId === "bytedance";
+	}
+
+	if (rootModelId === "minimax-hailuo-2-3") {
+		return providerId === undefined || providerId === "minimax";
+	}
+
+	if (isGrokImagineVideoModel(rootModelId)) {
 		return providerId === undefined || providerId === "xai";
+	}
+
+	if (isAtlasCloudKlingVideoModel(rootModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
 	}
 
 	if (
@@ -118,6 +134,18 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 
 function isSeedance2ReferenceModel(rootModelId: string): boolean {
 	return rootModelId === "seedance-2-0" || rootModelId === "seedance-2-0-fast";
+}
+
+function isGrokImagineVideoModel(rootModelId: string): boolean {
+	return (
+		rootModelId === "grok-imagine-video-1-5" ||
+		rootModelId === "grok-imagine-video-1-5-preview" ||
+		rootModelId === "grok-imagine-video-1.5-preview"
+	);
+}
+
+function isAtlasCloudKlingVideoModel(rootModelId: string): boolean {
+	return rootModelId === "kling-v3-0" || rootModelId === "kling-v3-0-turbo";
 }
 
 export function supportsVideoReferenceInput(modelId: string): boolean {
@@ -190,16 +218,7 @@ function mappingSupportsVideoRequest(
 	inputMode: VideoInputMode,
 	size: VideoSize,
 	duration: VideoDuration,
-	audioEnabled: boolean,
 ): boolean {
-	if (audioEnabled) {
-		if (mapping.supportsVideoAudio === false) {
-			return false;
-		}
-	} else if (mapping.supportsVideoWithoutAudio !== true) {
-		return false;
-	}
-
 	if (
 		mapping.supportedVideoSizes?.length &&
 		!mapping.supportedVideoSizes.includes(size)
@@ -217,12 +236,31 @@ function mappingSupportsVideoRequest(
 	}
 
 	if (
-		inputMode === "frames" &&
-		mapping.providerId !== "google-vertex" &&
-		mapping.providerId !== "avalanche" &&
-		mapping.providerId !== "xai"
+		mapping.providerId === "minimax" &&
+		(size === "1920x1080" || size === "1080x1920") &&
+		duration > 6
 	) {
 		return false;
+	}
+
+	if (inputMode === "frames") {
+		// Match by canonical root model id — never by the upstream externalId.
+		if (mapping.providerId === "bytedance") {
+			return (
+				mapping.modelId === "seedance-2-0" ||
+				mapping.modelId === "seedance-2-0-fast"
+			);
+		}
+
+		if (
+			mapping.providerId !== "google-vertex" &&
+			mapping.providerId !== "avalanche" &&
+			mapping.providerId !== "minimax" &&
+			mapping.providerId !== "xai" &&
+			mapping.providerId !== "atlascloud"
+		) {
+			return false;
+		}
 	}
 
 	if (inputMode === "reference") {
@@ -258,20 +296,13 @@ export function getSupportedVideoSizesForSelection(
 	selectedModels: string[],
 	inputMode: VideoInputMode,
 	duration: VideoDuration,
-	audioEnabled: boolean,
 ): VideoSize[] {
 	const allSizes = getVideoSizes();
 
 	return allSizes.filter((size) =>
 		selectedModels.every((modelId) =>
 			getSelectedVideoMappings(models, modelId).some((mapping) =>
-				mappingSupportsVideoRequest(
-					mapping,
-					inputMode,
-					size,
-					duration,
-					audioEnabled,
-				),
+				mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 			),
 		),
 	);
@@ -282,18 +313,11 @@ export function getSupportedVideoDurationsForSelection(
 	selectedModels: string[],
 	inputMode: VideoInputMode,
 	size: VideoSize,
-	audioEnabled: boolean,
 ): VideoDuration[] {
 	return VIDEO_DURATIONS.filter((duration) =>
 		selectedModels.every((modelId) =>
 			getSelectedVideoMappings(models, modelId).some((mapping) =>
-				mappingSupportsVideoRequest(
-					mapping,
-					inputMode,
-					size,
-					duration,
-					audioEnabled,
-				),
+				mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 			),
 		),
 	) as VideoDuration[];
@@ -308,7 +332,6 @@ export function getSupportedVideoRequestOptions(
 	models: ApiModel[],
 	selectedModels: string[],
 	inputMode: VideoInputMode,
-	audioEnabled: boolean,
 ): SupportedVideoRequestOptions {
 	const supportedSizes = new Set<VideoSize>();
 	const supportedDurations = new Set<VideoDuration>();
@@ -317,13 +340,7 @@ export function getSupportedVideoRequestOptions(
 		for (const duration of VIDEO_DURATIONS) {
 			const isSupported = selectedModels.every((modelId) =>
 				getSelectedVideoMappings(models, modelId).some((mapping) =>
-					mappingSupportsVideoRequest(
-						mapping,
-						inputMode,
-						size,
-						duration,
-						audioEnabled,
-					),
+					mappingSupportsVideoRequest(mapping, inputMode, size, duration),
 				),
 			);
 
@@ -346,7 +363,6 @@ export function getNormalizedVideoRequestSelection(
 	models: ApiModel[],
 	selectedModels: string[],
 	inputMode: VideoInputMode,
-	audioEnabled: boolean,
 	size: VideoSize,
 	duration: VideoDuration,
 ): { size: VideoSize; duration: VideoDuration } | null {
@@ -359,7 +375,6 @@ export function getNormalizedVideoRequestSelection(
 						inputMode,
 						candidateSize,
 						candidateDuration,
-						audioEnabled,
 					),
 				),
 			)

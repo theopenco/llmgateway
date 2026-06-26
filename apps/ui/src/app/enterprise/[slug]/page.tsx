@@ -1,6 +1,7 @@
 import {
 	ArrowRight,
 	ArrowUpRight,
+	BadgeCheck,
 	Bell,
 	CheckCircle2,
 	FileSearch,
@@ -32,6 +33,7 @@ interface PageProps {
 
 const iconMap = {
 	"shield-check": ShieldCheck,
+	"badge-check": BadgeCheck,
 	"git-branch": GitBranch,
 	audit: FileSearch,
 	bell: Bell,
@@ -129,7 +131,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 
 	const productSchema = {
 		"@context": "https://schema.org",
-		"@type": "Product",
+		"@type": "Service",
 		name: `LLM Gateway Enterprise – ${feature.title}`,
 		description: feature.longDescription,
 		brand: {

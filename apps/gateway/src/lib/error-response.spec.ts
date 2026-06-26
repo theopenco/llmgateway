@@ -21,8 +21,6 @@ describe("error-response", () => {
 				param: null,
 				code: "invalid_api_key",
 			},
-			message: "Unauthorized: LLMGateway API key reached its usage limit.",
-			status: 401,
 		});
 	});
 
@@ -53,8 +51,6 @@ describe("error-response", () => {
 				param: "messages",
 				code: "invalid_json",
 			},
-			message: "bad input",
-			status: 400,
 		});
 	});
 
@@ -63,8 +59,6 @@ describe("error-response", () => {
 			{
 				type: "error",
 				error: { type: "permission_error", message: "denied" },
-				message: "denied",
-				status: 403,
 			},
 		);
 		expect(getAnthropicErrorType(429)).toBe("rate_limit_error");

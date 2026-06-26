@@ -28,7 +28,7 @@
 		"class-variance-authority": "^0.7.1",
 		"flexsearch": "^0.8.212",
 		"fumadocs-core": "16.9.3",
-		"fumadocs-mdx": "15.0.10",
+		"fumadocs-mdx": "15.0.12",
 		"fumadocs-openapi": "10.9.1",
 		"fumadocs-ui": "16.9.3",
 		"gateway": "workspace:*",
@@ -42,7 +42,7 @@
 		"remark-gfm": "4.0.1",
 		"remark-mdx": "3.1.1",
 		"remark-rehype": "11.1.2",
-		"shiki": "3.15.0",
+		"shiki": "3.22.0",
 		"tailwind-merge": "^3.3.1",
 		"unist-util-visit": "5.1.0",
 		"zod": "3.25.76"

@@ -50,6 +50,66 @@ interface ChatMessage {
 }
 
 /**
+ * True when a provider's terminal reason is a safety-classifier "refusal".
+ *
+ * Anthropic-family models (the direct Anthropic API, Anthropic on Vertex, and
+ * Anthropic on AWS Bedrock) emit `stop_reason: "refusal"` when a streaming
+ * classifier intervenes on a potential policy violation. Per Anthropic's
+ * documented billing policy, a refusal that arrives before any output is
+ * generated is not billed (the usage counts in that response are informational
+ * only). Callers pair this with an "any output generated?" check to decide
+ * whether to zero the cost — see {@link zeroInferenceCosts}.
+ */
+export function isRefusalFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	if (finishReason !== "refusal") {
+		return false;
+	}
+	return (
+		provider === "anthropic" ||
+		provider === "vertex-anthropic" ||
+		provider === "aws-bedrock"
+	);
+}
+
+interface MutableInferenceCosts {
+	inputCost: number | null;
+	outputCost: number | null;
+	cachedInputCost: number | null;
+	cacheWriteInputCost: number | null;
+	requestCost: number | null;
+	webSearchCost: number | null;
+	contentFilterCost: number | null;
+	imageInputCost: number | null;
+	imageOutputCost: number | null;
+	audioInputCost: number | null;
+	totalCost: number | null;
+}
+
+/**
+ * Zero out every inference cost field in-place. Used for unbilled refusals (a
+ * refusal that arrives before any output is generated) so the request is still
+ * recorded with full token usage for analytics but is not charged. Data
+ * storage cost is intentionally left untouched since retention is billed
+ * separately from inference.
+ */
+export function zeroInferenceCosts(costs: MutableInferenceCosts): void {
+	costs.inputCost = 0;
+	costs.outputCost = 0;
+	costs.cachedInputCost = 0;
+	costs.cacheWriteInputCost = 0;
+	costs.requestCost = 0;
+	costs.webSearchCost = 0;
+	costs.contentFilterCost = 0;
+	costs.imageInputCost = 0;
+	costs.imageOutputCost = 0;
+	costs.audioInputCost = 0;
+	costs.totalCost = 0;
+}
+
+/**
  * Check if billing for cancelled requests is enabled via environment variable.
  * Defaults to false if not set.
  */
@@ -186,6 +246,15 @@ export async function calculateCosts(
 		 * unsupported tiers to standard.
 		 */
 		servedServiceTier?: string | null;
+		/**
+		 * Pricing override for custom-provider requests backed by an enterprise
+		 * custom model catalog entry. Custom models are not in the static catalog,
+		 * so when present this synthetic provider mapping (providerId "custom")
+		 * supplies pricing directly instead of the `models.find` lookup. Undefined
+		 * for all non-custom requests and for custom requests without a catalog
+		 * entry (which remain unbilled).
+		 */
+		customPricing?: ProviderModelMapping;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -195,11 +264,21 @@ export async function calculateCosts(
 	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
 	const servedServiceTier = options?.servedServiceTier ?? null;
+	const customPricing = options?.customPricing;
 
 	// Look up the model definition by the canonical root id only.
 	// externalId-based lookups are intentionally not supported here — the
 	// upstream provider id must never leak into pricing/discount lookups.
-	const modelInfo = models.find((m) => m.id === model) as ModelDefinition;
+	// For custom-provider requests with a catalog override, use a synthetic
+	// model whose single provider mapping (providerId "custom") matches the
+	// `provider` argument, so the existing provider-pricing path applies.
+	const modelInfo = customPricing
+		? ({
+				id: model,
+				family: "custom",
+				providers: [customPricing],
+			} as ModelDefinition)
+		: (models.find((m) => m.id === model) as ModelDefinition);
 
 	if (!modelInfo) {
 		return {

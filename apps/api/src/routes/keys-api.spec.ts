@@ -3,7 +3,8 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { redisClient, SWR_PREFIX, swrWrap } from "@llmgateway/cache";
+import { db, eq, getTableName, tables } from "@llmgateway/db";
 
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
@@ -266,6 +267,84 @@ describe("keys route", () => {
 		});
 		expect(apiKey).not.toBeNull();
 		expect(apiKey?.status).toBe("inactive");
+	});
+
+	test("POST /keys/api/{id}/roll unauthorized", async () => {
+		const res = await app.request("/keys/api/test-api-key-id/roll", {
+			method: "POST",
+		});
+		expect(res.status).toBe(401);
+	});
+
+	test("POST /keys/api/{id}/roll regenerates the secret and keeps metadata", async () => {
+		// Give the key some usage and a limit to prove they survive the roll.
+		await db
+			.update(tables.apiKey)
+			.set({ usage: "12.34", usageLimit: "100", description: "Keep Me" })
+			.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+		const res = await app.request("/keys/api/test-api-key-id/roll", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+			},
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json).toHaveProperty("message");
+		expect(json).toHaveProperty("apiKey");
+		// Full new secret is returned once, and it differs from the old one.
+		expect(typeof json.apiKey.token).toBe("string");
+		expect(json.apiKey.token).not.toBe("test-token");
+		expect(json.apiKey.id).toBe("test-api-key-id");
+
+		// Verify the DB was updated and metadata/stats are intact.
+		const apiKey = await db.query.apiKey.findFirst({
+			where: {
+				id: {
+					eq: "test-api-key-id",
+				},
+			},
+		});
+		expect(apiKey?.token).toBe(json.apiKey.token);
+		expect(apiKey?.token).not.toBe("test-token");
+		expect(apiKey?.description).toBe("Keep Me");
+		expect(apiKey?.usage).toBe("12.34");
+		expect(apiKey?.usageLimit).toBe("100");
+	});
+
+	test("POST /keys/api/{id}/roll returns 404 for unknown key", async () => {
+		const res = await app.request("/keys/api/does-not-exist/roll", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+			},
+		});
+		expect(res.status).toBe(404);
+	});
+
+	test("POST /keys/api/{id}/roll invalidates the gateway api_key cache", async () => {
+		// The gateway resolves tokens through an SWR-mirrored, cached lookup tagged
+		// with the api_key table. Roll must invalidate that cache so the old secret
+		// stops authenticating immediately. Seed an SWR entry the way the gateway
+		// would, then confirm the roll clears it.
+		const apiKeyTableName = getTableName(tables.apiKey);
+		const swrCacheKey = "apiKey:token:test-token-fingerprint";
+		await swrWrap(swrCacheKey, [apiKeyTableName], async () => ({
+			token: "test-token",
+		}));
+		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).not.toBeNull();
+
+		const res = await app.request("/keys/api/test-api-key-id/roll", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+			},
+		});
+		expect(res.status).toBe(200);
+
+		// The cached lookup for the old token must be gone after the roll.
+		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).toBeNull();
 	});
 
 	test("POST /keys/api creates a period usage limit", async () => {

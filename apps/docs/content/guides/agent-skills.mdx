@@ -29,6 +29,36 @@ The Image Generation skill teaches AI agents how to properly implement image gen
 - **Error Handling** — graceful degradation and retry logic
 - **Performance** — caching, lazy loading, and optimization
 
+### Changelog Writer
+
+The Changelog Writer skill drafts a polished LLM Gateway changelog entry and its OpenGraph image in one pass:
+
+- **House style** — writes in the established changelog voice: problem first, benefits over features, plain and confident
+- **Correct format** — generates the dated Markdown file with valid frontmatter (`id`, `slug`, `date`, `title`, `summary`, `image`)
+- **OG image prompt** — hands back a ready-to-run `gpt-image-2` prompt at the recommended **1536×1024** OpenGraph resolution
+- **Validation** — formats and builds the entry before you commit
+
+It ships as a [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) — a single `SKILL.md` file. Trigger it by typing `changelog` (or "write a changelog entry") in Claude Code.
+
+## Claude Code Skills
+
+Some skills ship as **[Claude Code skills](https://docs.claude.com/en/docs/claude-code/skills)**: a single `SKILL.md` file with YAML frontmatter that Claude Code loads automatically when its description matches what you ask. The **Changelog Writer** above is one of them.
+
+Install one by copying its folder into your project's `.claude/skills/` directory:
+
+```bash
+# from the llmgateway-templates repo
+cp -r skills/changelog /path/to/your/project/.claude/skills/
+```
+
+Then trigger it by name inside Claude Code:
+
+```
+> changelog
+```
+
+Place the folder in `~/.claude/skills/` instead to make the skill available across every project. Browse the available Claude Code skills in the [llmgateway-templates repository](https://github.com/theopenco/llmgateway-templates/tree/main/skills).
+
 ## Installation
 
 <Steps>

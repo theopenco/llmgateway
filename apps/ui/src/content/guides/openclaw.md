@@ -6,7 +6,7 @@ description: Use GPT-5.4, Claude Opus, Gemini, or any model with OpenClaw across
 date: 2026-01-26
 ---
 
-OpenClaw is a self-hosted gateway that connects your favorite chat apps—WhatsApp, Telegram, Discord, iMessage, and more—to AI coding agents. With LLM Gateway as a custom provider, you can route all your OpenClaw traffic through a single API, use any of 180+ models, and keep full visibility into usage and costs.
+OpenClaw is a self-hosted gateway that connects your favorite chat apps—WhatsApp, Telegram, Discord, iMessage, and more—to AI coding agents. With LLM Gateway as a custom provider, you can route all your OpenClaw traffic through a single API, use any of 280+ models, and keep full visibility into usage and costs.
 
 ## Quick Start
 
@@ -62,7 +62,7 @@ export LLMGATEWAY_API_KEY=llmgtwy_your_api_key_here
 
 ## Why Use LLM Gateway with OpenClaw
 
-- **Model flexibility** — Switch between GPT-5.4, Claude Opus, Gemini, or any of 180+ models
+- **Model flexibility** — Switch between GPT-5.4, Claude Opus, Gemini, or any of 280+ models
 - **Cost tracking** — Monitor exactly how much your chat agents cost to run
 - **Single bill** — No need to manage multiple API provider accounts
 - **Response caching** — Repeated queries hit cache, reducing costs

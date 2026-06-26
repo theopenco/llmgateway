@@ -1,5 +1,6 @@
 import {
 	ArrowUpRight,
+	BadgeCheck,
 	Bell,
 	FileSearch,
 	GitBranch,
@@ -13,6 +14,7 @@ import { enterpriseFeatures } from "@/lib/enterprise-features";
 
 const iconMap = {
 	"shield-check": ShieldCheck,
+	"badge-check": BadgeCheck,
 	"git-branch": GitBranch,
 	audit: FileSearch,
 	bell: Bell,
