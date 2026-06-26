@@ -77,7 +77,7 @@ export function useCreateChat({ silent = false }: { silent?: boolean } = {}) {
 	});
 }
 
-export function useUpdateChat() {
+export function useUpdateChat({ silent = false }: { silent?: boolean } = {}) {
 	const queryClient = useQueryClient();
 	const api = useApi();
 
@@ -85,7 +85,9 @@ export function useUpdateChat() {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
 			void queryClient.invalidateQueries({ queryKey });
-			toast("Chat updated successfully");
+			if (!silent) {
+				toast("Chat updated successfully");
+			}
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));
