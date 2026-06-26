@@ -1,10 +1,15 @@
 "use client";
 
 import { format } from "date-fns";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
+
+const PAGE_SIZE = 10;
 
 type Invoice =
 	paths["/dev-plans/invoices"]["get"]["responses"]["200"]["content"]["application/json"]["invoices"][number];
@@ -45,10 +50,16 @@ function formatCredits(creditAmount: string | null): string {
 export default function DevPassInvoices() {
 	const api = useApi();
 	const { data } = api.useQuery("get", "/dev-plans/invoices", {});
+	const [page, setPage] = useState(0);
 
 	if (!data || data.invoices.length === 0) {
 		return null;
 	}
+
+	const pageCount = Math.ceil(data.invoices.length / PAGE_SIZE);
+	const currentPage = Math.min(page, pageCount - 1);
+	const pageStart = currentPage * PAGE_SIZE;
+	const pageInvoices = data.invoices.slice(pageStart, pageStart + PAGE_SIZE);
 
 	return (
 		<div>
@@ -66,7 +77,7 @@ export default function DevPassInvoices() {
 					<div className="text-right">Credits granted</div>
 				</div>
 
-				{data.invoices.map((invoice) => (
+				{pageInvoices.map((invoice) => (
 					<div
 						key={invoice.id}
 						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-center"
@@ -100,6 +111,34 @@ export default function DevPassInvoices() {
 					</div>
 				))}
 			</div>
+
+			{pageCount > 1 && (
+				<div className="mt-4 flex items-center justify-between">
+					<p className="text-xs text-muted-foreground">
+						Page {currentPage + 1} of {pageCount}
+					</p>
+					<div className="flex items-center gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => setPage(currentPage - 1)}
+							disabled={currentPage === 0}
+						>
+							<ChevronLeft className="mr-1 h-4 w-4" />
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => setPage(currentPage + 1)}
+							disabled={currentPage >= pageCount - 1}
+						>
+							Next
+							<ChevronRight className="ml-1 h-4 w-4" />
+						</Button>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
