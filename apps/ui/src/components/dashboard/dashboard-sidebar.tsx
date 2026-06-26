@@ -81,6 +81,11 @@ import {
 	SidebarRail,
 	useSidebar,
 } from "@/lib/components/sidebar";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/lib/components/tooltip";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 
@@ -179,6 +184,7 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/members",
 		label: "Members",
+		enterpriseOnly: true,
 	},
 	{
 		href: "org/audit-logs",
@@ -349,13 +355,17 @@ function ProjectSettingsSection({
 
 function EnterpriseIndicator() {
 	return (
-		<span
-			title="Enterprise feature"
-			aria-label="Enterprise feature"
-			className="ml-auto flex items-center text-blue-500/70 group-data-[collapsible=icon]:hidden dark:text-blue-400/70"
-		>
-			<Building2 className="h-3.5 w-3.5" />
-		</span>
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span
+					aria-label="Enterprise feature"
+					className="ml-auto flex items-center text-blue-500/70 group-data-[collapsible=icon]:hidden dark:text-blue-400/70"
+				>
+					<Building2 className="h-3.5 w-3.5" />
+				</span>
+			</TooltipTrigger>
+			<TooltipContent side="right">Enterprise feature</TooltipContent>
+		</Tooltip>
 	);
 }
 
@@ -428,19 +438,18 @@ function OrganizationSection({
 			<SidebarGroupContent className="mt-2">
 				<SidebarMenu>
 					<OrgNavItem
-						href={buildOrgUrl("org/analytics")}
-						label="Analytics"
-						icon={AnimatedChartArea}
-						isActive={isActive("org/analytics")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
-					/>
-					<OrgNavItem
 						href={buildOrgUrl("org/provider-keys")}
 						label="Provider Keys"
 						icon={AnimatedKeyRound}
 						isActive={isActive("org/provider-keys")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/discounts")}
+						label="Your Discounts"
+						icon={AnimatedPercent}
+						isActive={isActive("org/discounts")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
 					/>
@@ -451,6 +460,16 @@ function OrganizationSection({
 						isActive={isActive("org/custom-models")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/analytics")}
+						label="Analytics"
+						icon={AnimatedChartArea}
+						isActive={isActive("org/analytics")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<OrgNavItem
 						href={buildOrgUrl("org/guardrails")}
@@ -480,20 +499,13 @@ function OrganizationSection({
 						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<OrgNavItem
-						href={buildOrgUrl("org/discounts")}
-						label="Your Discounts"
-						icon={AnimatedPercent}
-						isActive={isActive("org/discounts")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
 						href={buildOrgUrl("org/master-keys")}
 						label="Master Keys"
 						icon={AnimatedKeySquare}
 						isActive={isActive("org/master-keys")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<SidebarMenuItem
 						onMouseEnter={() => setSettingsHovered(true)}
