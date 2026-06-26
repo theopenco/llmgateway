@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { resolveDevPassBillingDetails } from "@/utils/devpass-billing.js";
+import { generateAndEmailInvoice } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -1173,17 +1175,43 @@ devPlans.openapi(changeTier, async (c) => {
 				);
 
 				if (!existingUpgradeTransaction) {
-					await db.insert(tables.transaction).values({
-						organizationId: personalOrg.id,
-						type: "dev_plan_upgrade",
-						amount: paidUpgrade.amount.toString(),
-						creditAmount: creditPreview.proratedCreditDelta.toString(),
-						currency: "USD",
-						status: "completed",
-						stripePaymentIntentId: paidUpgrade.paymentIntentId,
-						stripeInvoiceId: paidUpgrade.invoiceId,
-						description: `Changed from ${currentTier} to ${newTier} plan`,
-					});
+					const [upgradeTransaction] = await db
+						.insert(tables.transaction)
+						.values({
+							organizationId: personalOrg.id,
+							type: "dev_plan_upgrade",
+							amount: paidUpgrade.amount.toString(),
+							creditAmount: creditPreview.proratedCreditDelta.toString(),
+							currency: "USD",
+							status: "completed",
+							stripePaymentIntentId: paidUpgrade.paymentIntentId,
+							stripeInvoiceId: paidUpgrade.invoiceId,
+							description: `Changed from ${currentTier} to ${newTier} plan`,
+						})
+						.returning();
+
+					try {
+						const billingDetails =
+							await resolveDevPassBillingDetails(personalOrg);
+						await generateAndEmailInvoice({
+							invoiceNumber: upgradeTransaction.id,
+							invoiceDate: new Date(),
+							organizationName: personalOrg.name,
+							...billingDetails,
+							lineItems: [
+								{
+									description: `Dev Plan upgrade from ${currentTier.toUpperCase()} to ${newTier.toUpperCase()} ($${creditPreview.proratedCreditDelta} credits included)`,
+									amount: paidUpgrade.amount,
+								},
+							],
+							currency: "USD",
+						});
+					} catch (e) {
+						logger.error(
+							"Invoice email failed (DevPass upgrade invoice); suppressing failure",
+							e as Error,
+						);
+					}
 				}
 			}
 		} else {
