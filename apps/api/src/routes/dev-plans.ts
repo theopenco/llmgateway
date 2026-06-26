@@ -11,8 +11,6 @@ import { cdb, db, tables, eq, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
-	getDevPlanCreditsLimit,
-	getProratedCreditDelta,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -760,41 +758,18 @@ devPlans.openapi(changeTier, async (c) => {
 		if (isUpgrade) {
 			// Only update local DB after Stripe confirms the upgrade is paid/active.
 			//
-			// Credits track prorated dollars: a mid-cycle upgrade grants only the
-			// prorated difference between the two tiers' allotments for the
-			// remaining part of the billing period, mirroring the prorated amount
-			// Stripe charges. Granting the full new-tier allotment on every
-			// upgrade would let a user upgrade cheaply near the end of a cycle to
-			// receive a near-full fresh allotment. Clamp to the new tier's full
-			// allotment so a carried-over higher limit (e.g. credits kept from a
-			// prior downgrade) can never push the balance above the tier cap.
-			const subscriptionItem = updated.items.data[0];
-			const periodStart = subscriptionItem.current_period_start;
-			const periodEnd = subscriptionItem.current_period_end;
-			const nowSeconds = Math.floor(Date.now() / 1000);
-			const periodLength = periodEnd - periodStart;
-			const remainingFraction =
-				periodLength > 0 ? (periodEnd - nowSeconds) / periodLength : 0;
-
-			const creditDelta = getProratedCreditDelta(
-				currentTier,
-				newTier,
-				remainingFraction,
-			);
-			const currentLimit = parseFloat(personalOrg.devPlanCreditsLimit ?? "0");
-			const newCreditsLimit = Math.min(
-				getDevPlanCreditsLimit(newTier),
-				Math.max(0, currentLimit + creditDelta),
-			);
-
-			// The upgrade's proration invoice fires `invoice.payment_succeeded`,
-			// which records the `dev_plan_upgrade` transaction (with the amount
-			// collected) — so we don't record one here to avoid double-counting.
+			// Flip the tier immediately so the new tier's model gating and limits
+			// take effect right away. The prorated credit grant is applied by the
+			// proration invoice's `invoice.payment_succeeded`
+			// (`subscription_update`) webhook, which is the single source of truth
+			// for the upgrade credit delta: it derives the delta from the dollars
+			// actually collected (never from Stripe subscription-period fields,
+			// which can be absent on the update response and silently zero out the
+			// grant) and records the canonical `dev_plan_upgrade` transaction.
 			await db
 				.update(tables.organization)
 				.set({
 					devPlan: newTier,
-					devPlanCreditsLimit: newCreditsLimit.toString(),
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 		} else {

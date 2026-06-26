@@ -11,9 +11,12 @@ export type DevPlanTier = keyof typeof DEV_PLAN_PRICES;
 // removal of the yearly option; no new annual subscriptions are created.
 export type DevPlanCycle = "monthly" | "annual";
 
+export function getDevPlanCreditsMultiplier(): number {
+	return parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER ?? "3");
+}
+
 export function getDevPlanCreditsLimit(tier: DevPlanTier): number {
-	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER ?? "3");
-	return DEV_PLAN_PRICES[tier] * multiplier;
+	return DEV_PLAN_PRICES[tier] * getDevPlanCreditsMultiplier();
 }
 
 /**

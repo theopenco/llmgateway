@@ -28,6 +28,7 @@ export {
 	type DevPlanCycle,
 	type DevPlanTier,
 	getDevPlanCreditsLimit,
+	getDevPlanCreditsMultiplier,
 	getDevPlanPremiumWeeklyLimit,
 	getRemainingPremiumWeeklyAllowance,
 	getProratedCreditDelta,

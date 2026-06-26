@@ -303,13 +303,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(sendEmailMock.mock.calls[0][0].to).toBe("default-billing@acme.test");
 	});
 
-	test("does NOT reset credits on a proration invoice from a tier change", async () => {
-		await seedUsedDevPlanOrg();
+	test("grants prorated credits but does NOT reset usage on a tier-change proration invoice", async () => {
+		// Seed below the pro cap so the granted delta is visible (and not clamped).
+		await seedUsedDevPlanOrg({ devPlanCreditsLimit: "100" });
 
 		await handleInvoicePaymentSucceeded(
 			makeInvoiceEvent({
 				billingReason: "subscription_update",
-				amountPaid: 9221,
+				amountPaid: 4835,
 				invoiceId: "in_proration_001",
 			}),
 		);
@@ -320,14 +321,41 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		// The credit usage must be preserved — otherwise a user could
 		// downgrade then upgrade to repeatedly refresh their full balance.
 		expect(org?.devPlanCreditsUsed).toBe("150");
+		// Prorated grant = dollars collected ($48.35) × multiplier (3) = $145.05,
+		// added to the existing limit: 100 + 145.05 = 245.05, clamped to pro cap 237.
+		expect(org?.devPlanCreditsLimit).toBe("237");
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBeNull();
-		expect(txns[0].amount).toBe("92.21");
+		expect(txns[0].creditAmount).toBe("145.05");
+		expect(txns[0].amount).toBe("48.35");
+	});
+
+	test("clamps the prorated upgrade grant to the new tier's full allotment", async () => {
+		await seedUsedDevPlanOrg({ devPlanCreditsLimit: "87" });
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_update",
+				amountPaid: 1000,
+				invoiceId: "in_proration_002",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		// 87 + ($10 × 3 = 30) = 117, below the pro cap (237), so the full delta lands.
+		expect(org?.devPlanCreditsLimit).toBe("117");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].creditAmount).toBe("30");
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {

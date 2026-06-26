@@ -16,6 +16,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	getDevPlanCreditsMultiplier,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 	type DevPlanCycle,
@@ -3309,16 +3310,39 @@ export async function handleInvoicePaymentSucceeded(event: {
 		isDevPlanSubscription &&
 		invoice.billing_reason === "subscription_update"
 	) {
-		// Proration invoice from a mid-cycle upgrade. The change-tier endpoint
-		// already adjusted `devPlanCreditsLimit` (prorated); here we record the
-		// upgrade — with the amount actually collected — as the single canonical
-		// `dev_plan_upgrade` transaction (change-tier deliberately does not record
-		// one for upgrades, to avoid double-counting). We do NOT reset
-		// `devPlanCreditsUsed` or grant a fresh allotment.
+		// Proration invoice from a mid-cycle upgrade. This webhook is the single
+		// source of truth for the upgrade credit grant: the change-tier endpoint
+		// only flips `devPlan` and leaves crediting to us, so the grant lands
+		// regardless of which path drove the upgrade and never depends on Stripe
+		// subscription-period fields (which can be absent on the update response).
+		//
+		// Credits track prorated dollars: each tier's allotment is its price times
+		// the credits multiplier, so the prorated credit delta is exactly the
+		// dollars actually collected on this proration invoice times that
+		// multiplier — mirroring how Stripe prorated the charge. Clamp to the new
+		// tier's full allotment so a carried-over higher limit (e.g. credits kept
+		// from a prior downgrade) can never push the balance above the cap. We do
+		// NOT reset `devPlanCreditsUsed`. The invoice-level idempotency guard above
+		// ensures this grant runs at most once per proration invoice.
+		const proratedDollars = invoice.amount_paid / 100;
+		const creditDelta = Math.max(
+			0,
+			proratedDollars * getDevPlanCreditsMultiplier(),
+		);
+		const currentLimit = parseFloat(organization.devPlanCreditsLimit ?? "0");
+		const tierCap = getDevPlanCreditsLimit(organization.devPlan as DevPlanTier);
+		const newCreditsLimit = Math.min(tierCap, currentLimit + creditDelta);
+
+		await db
+			.update(tables.organization)
+			.set({ devPlanCreditsLimit: newCreditsLimit.toString() })
+			.where(eq(tables.organization.id, organizationId));
+
 		await db.insert(tables.transaction).values({
 			organizationId,
 			type: "dev_plan_upgrade",
-			amount: (invoice.amount_paid / 100).toString(),
+			amount: proratedDollars.toString(),
+			creditAmount: creditDelta.toString(),
 			currency: invoice.currency.toUpperCase(),
 			status: "completed",
 			stripePaymentIntentId: (invoice as any).payment_intent,
@@ -3327,7 +3351,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 		});
 
 		logger.info(
-			`Recorded dev plan upgrade proration invoice for organization ${organizationId}; credits left unchanged`,
+			`Granted ${creditDelta} prorated dev plan upgrade credits for organization ${organizationId} (limit ${currentLimit} -> ${newCreditsLimit})`,
 		);
 	} else if (isDevPlanSubscription) {
 		// Any other dev-plan invoice (e.g. `manual`, or a `subscription_create`
