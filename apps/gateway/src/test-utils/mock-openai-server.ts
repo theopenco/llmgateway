@@ -1113,6 +1113,34 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		});
 	}
 
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then hangs forever without finishing it. The gateway's res.json()
+	// blocks waiting for the rest, letting a test abort the client mid-read to
+	// exercise the non-streaming body-read cancellation path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
 	const baseChoice = sampleChatCompletionResponse.choices[0];
 	const choices = Array.from({ length: requestedN }, (_, index) => ({
 		...baseChoice,
