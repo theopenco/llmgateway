@@ -11021,6 +11021,14 @@ chat.openapi(completions, async (c) => {
 			// Get the error response text
 			// Body read can throw TimeoutError if the abort signal fires during consumption
 			let errorResponseText: string;
+			// Keep the client-abort listener attached across the error-body read
+			// (it was removed when the fetch settled) so a disconnect during
+			// res.text() aborts the read and is recorded as canceled. Re-run
+			// onAbort if the client already disconnected in the gap.
+			c.req.raw.signal.addEventListener("abort", onAbort);
+			if (c.req.raw.signal.aborted) {
+				onAbort();
+			}
 			try {
 				const rawErrorResponseText = await res.text();
 				errorResponseText = usesAwsBedrockConverse()
@@ -11031,11 +11039,12 @@ chat.openapi(completions, async (c) => {
 				if (!(bodyError instanceof Error)) {
 					throw bodyError;
 				}
-				// A client disconnect can abort the in-flight body read; rethrow
-				// so the cancellation path (app.onError -> 499) is preserved
-				// instead of misreporting it as an upstream failure.
+				// A client disconnect aborts the in-flight error-body read; record
+				// it as a canceled request (same log shape as the fetch-
+				// cancellation path) instead of misreporting it as an upstream
+				// failure or a bare 499.
 				if (bodyError.name === "AbortError") {
-					throw bodyError;
+					return await respondCanceled();
 				}
 				// A read timeout or a mid-body socket failure (e.g. undici
 				// "terminated: other side closed" / ECONNRESET) both surface
@@ -11150,6 +11159,8 @@ chat.openapi(completions, async (c) => {
 						isTimeoutBody ? 504 : 502,
 					);
 				}
+			} finally {
+				c.req.raw.signal.removeEventListener("abort", onAbort);
 			}
 
 			// If the upstream Google provider rejected the request because the
