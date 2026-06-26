@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ProfileReadmeBadge } from "@/components/profile/ProfileReadmeBadge";
 import {
 	ProfileView,
 	type ProfileData,
@@ -235,6 +236,13 @@ export function ProfilePageClient({
 							</div>
 						)}
 					</div>
+
+					{profilePublic && savedUsername && (
+						<div className="space-y-2 border-t pt-5">
+							<Label>README badge</Label>
+							<ProfileReadmeBadge username={savedUsername} />
+						</div>
+					)}
 				</div>
 			</section>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Flame, Link2, Sparkles } from "lucide-react";
+import { Check, Flame, Link2, Sparkles } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -53,7 +53,6 @@ function WrappedStat({ value, label }: { value: string; label: string }) {
 
 export function ProfileWrapped({ profile }: { profile: ProfileData }) {
 	const linkCopy = useCopy();
-	const badgeCopy = useCopy();
 
 	const handle = profile.username ?? "";
 	const displayName = profile.name?.trim() || handle || "DevPass user";
@@ -62,8 +61,6 @@ export function ProfileWrapped({ profile }: { profile: ProfileData }) {
 		profile.agents.length > 0
 			? AGENT_BY_SOURCE.get(profile.agents[0].source.toLowerCase())
 			: undefined;
-
-	const badgeMarkdown = `[![Powered by DevPass](${SITE_URL}/devpass-badge.svg)](${profileUrl})`;
 
 	const tweetText = `My DevPass coding profile: ${formatTokens(
 		profile.stats.totalTokens,
@@ -126,56 +123,31 @@ export function ProfileWrapped({ profile }: { profile: ProfileData }) {
 
 			{/* Share toolkit */}
 			<div className="rounded-2xl border bg-card p-4 sm:p-5">
-				<div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-					<div className="flex flex-shrink-0 gap-2">
-						<Button className="gap-2" asChild>
-							<a href={tweetUrl} target="_blank" rel="noopener noreferrer">
-								<svg
-									viewBox="0 0 24 24"
-									className="h-4 w-4 fill-current"
-									aria-hidden="true"
-								>
-									<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-								</svg>
-								Share on X
-							</a>
-						</Button>
-						<Button
-							variant="outline"
-							className="gap-2"
-							onClick={() => linkCopy.copy(profileUrl)}
-						>
-							{linkCopy.copied ? (
-								<Check className="h-4 w-4 text-emerald-500" />
-							) : (
-								<Link2 className="h-4 w-4" />
-							)}
-							{linkCopy.copied ? "Copied" : "Copy link"}
-						</Button>
-					</div>
-
-					<div className="min-w-0 flex-1">
-						<p className="mb-1.5 text-xs font-medium text-muted-foreground">
-							README badge
-						</p>
-						<div className="relative overflow-hidden rounded-lg border border-border/60 bg-background">
-							<pre className="overflow-x-auto px-3 py-2.5 pr-10 font-mono text-[11px] leading-5 text-foreground/80">
-								{badgeMarkdown}
-							</pre>
-							<button
-								type="button"
-								onClick={() => badgeCopy.copy(badgeMarkdown)}
-								aria-label="Copy badge markdown"
-								className="absolute right-1.5 top-1.5 rounded-md border border-border/60 bg-card p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+				<div className="flex flex-wrap gap-2">
+					<Button className="gap-2" asChild>
+						<a href={tweetUrl} target="_blank" rel="noopener noreferrer">
+							<svg
+								viewBox="0 0 24 24"
+								className="h-4 w-4 fill-current"
+								aria-hidden="true"
 							>
-								{badgeCopy.copied ? (
-									<Check className="h-3.5 w-3.5 text-emerald-500" />
-								) : (
-									<Copy className="h-3.5 w-3.5" />
-								)}
-							</button>
-						</div>
-					</div>
+								<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+							</svg>
+							Share on X
+						</a>
+					</Button>
+					<Button
+						variant="outline"
+						className="gap-2"
+						onClick={() => linkCopy.copy(profileUrl)}
+					>
+						{linkCopy.copied ? (
+							<Check className="h-4 w-4 text-emerald-500" />
+						) : (
+							<Link2 className="h-4 w-4" />
+						)}
+						{linkCopy.copied ? "Copied" : "Copy link"}
+					</Button>
 				</div>
 			</div>
 		</div>

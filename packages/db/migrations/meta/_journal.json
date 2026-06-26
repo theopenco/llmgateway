@@ -1212,6 +1212,13 @@
       "when": 1782388997788,
       "tag": "1782388997_absurd_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "8",
+      "when": 1782486651134,
+      "tag": "1782486651_wealthy_tempest",
+      "breakpoints": true
     }
   ]
 }

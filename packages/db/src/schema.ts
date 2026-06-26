@@ -541,6 +541,9 @@ export const enterpriseContactSubmission = pgTable(
 		email: text().notNull(),
 		country: text().notNull(),
 		size: text().notNull(),
+		deployment: text({
+			enum: ["self_host", "cloud", "not_sure"],
+		}),
 		message: text().notNull(),
 		honeypot: text(),
 		clientTimestampMs: text(),

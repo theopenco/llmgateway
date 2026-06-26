@@ -39,6 +39,9 @@ const contactFormSchema = z.object({
 	email: z.string().email("Invalid email address"),
 	country: z.string().min(1, "Please select a country"),
 	size: z.string().min(1, "Please select company size"),
+	deployment: z.enum(["self_host", "cloud", "not_sure"], {
+		message: "Please select a deployment preference",
+	}),
 	message: z.string().min(10, "Message must be at least 10 characters"),
 	honeypot: z.string().optional(),
 	timestamp: z.number().optional(),
@@ -64,6 +67,7 @@ export function ContactFormEnterprise() {
 			email: "",
 			country: "",
 			size: "",
+			deployment: undefined,
 			message: "",
 			honeypot: "",
 			timestamp: formLoadTime,
@@ -79,6 +83,7 @@ export function ContactFormEnterprise() {
 		posthog.capture("enterprise_contact_submitted", {
 			country: data.country,
 			companySize: data.size,
+			deployment: data.deployment,
 		});
 		setIsSubmitting(true);
 		try {
@@ -101,6 +106,7 @@ export function ContactFormEnterprise() {
 				posthog.capture("enterprise_contact_success", {
 					country: data.country,
 					companySize: data.size,
+					deployment: data.deployment,
 				});
 				setScheduled({ name: data.name, email: data.email });
 				setIsSuccess(true);
@@ -315,6 +321,41 @@ export function ContactFormEnterprise() {
 											)}
 										/>
 									</div>
+
+									<FormField
+										control={form.control}
+										name="deployment"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>
+													How do you plan to run LLMGateway?{" "}
+													<span className="text-destructive">*</span>
+												</FormLabel>
+												<Select
+													onValueChange={field.onChange}
+													defaultValue={field.value}
+												>
+													<FormControl>
+														<SelectTrigger className="w-full bg-background h-11">
+															<SelectValue placeholder="Select deployment preference" />
+														</SelectTrigger>
+													</FormControl>
+													<SelectContent>
+														<SelectItem value="cloud">
+															Cloud (managed)
+														</SelectItem>
+														<SelectItem value="self_host">
+															Self-hosted
+														</SelectItem>
+														<SelectItem value="not_sure">
+															Not sure yet
+														</SelectItem>
+													</SelectContent>
+												</Select>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
 
 									<FormField
 										control={form.control}

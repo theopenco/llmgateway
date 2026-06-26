@@ -8,6 +8,7 @@ import {
 	ExternalLink,
 	MoonIcon,
 	Shield,
+	Sparkles,
 	SunIcon,
 	User as UserIcon,
 	X,
@@ -182,6 +183,7 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/audit-logs",
 		label: "Audit Logs",
+		enterpriseOnly: true,
 	},
 ] as const;
 
@@ -345,6 +347,22 @@ function ProjectSettingsSection({
 	);
 }
 
+// Small amber marker shown next to sidebar entries that require the enterprise
+// plan, so members on lower plans can tell which features are gated before
+// clicking through. Hidden when the sidebar is collapsed to icons.
+function EnterpriseIndicator() {
+	return (
+		<span
+			title="Enterprise feature"
+			aria-label="Enterprise feature"
+			className="ml-auto inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-wide text-amber-600 group-data-[collapsible=icon]:hidden dark:text-amber-400"
+		>
+			<Sparkles className="h-2.5 w-2.5" />
+			Ent
+		</span>
+	);
+}
+
 function OrgNavItem({
 	href,
 	label,
@@ -352,6 +370,7 @@ function OrgNavItem({
 	isActive,
 	isMobile,
 	toggleSidebar,
+	showEnterpriseBadge = false,
 }: {
 	href: string;
 	label: string;
@@ -359,6 +378,7 @@ function OrgNavItem({
 	isActive: boolean;
 	isMobile: boolean;
 	toggleSidebar: () => void;
+	showEnterpriseBadge?: boolean;
 }) {
 	const [isHovered, setIsHovered] = useState(false);
 
@@ -379,6 +399,7 @@ function OrgNavItem({
 				>
 					<Icon isHovered={isHovered} />
 					<span>{label}</span>
+					{showEnterpriseBadge && <EnterpriseIndicator />}
 				</Link>
 			</SidebarMenuButton>
 		</SidebarMenuItem>
@@ -390,14 +411,20 @@ function OrganizationSection({
 	isMobile,
 	toggleSidebar,
 	searchParams,
+	isEnterprise,
 }: {
 	isActive: (path: string) => boolean;
 	isMobile: boolean;
 	toggleSidebar: () => void;
 	searchParams: ReadonlyURLSearchParams;
+	isEnterprise: boolean;
 }) {
 	const { buildOrgUrl } = useDashboardNavigation();
 	const [settingsHovered, setSettingsHovered] = useState(false);
+
+	// Mark gated entries with the Enterprise badge only for non-enterprise orgs;
+	// enterprise members already have access so the badge would be noise.
+	const showEnterpriseBadge = !isEnterprise;
 
 	return (
 		<SidebarGroup>
@@ -406,6 +433,15 @@ function OrganizationSection({
 			</SidebarGroupLabel>
 			<SidebarGroupContent className="mt-2">
 				<SidebarMenu>
+					<OrgNavItem
+						href={buildOrgUrl("org/analytics")}
+						label="Analytics"
+						icon={AnimatedChartArea}
+						isActive={isActive("org/analytics")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
 					<OrgNavItem
 						href={buildOrgUrl("org/provider-keys")}
 						label="Provider Keys"
@@ -429,6 +465,7 @@ function OrganizationSection({
 						isActive={isActive("org/guardrails")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<OrgNavItem
 						href={buildOrgUrl("org/compliance")}
@@ -437,6 +474,7 @@ function OrganizationSection({
 						isActive={isActive("org/compliance")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<OrgNavItem
 						href={buildOrgUrl("org/security-events")}
@@ -445,6 +483,7 @@ function OrganizationSection({
 						isActive={isActive("org/security-events")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<OrgNavItem
 						href={buildOrgUrl("org/discounts")}
@@ -515,6 +554,9 @@ function OrganizationSection({
 											prefetch={true}
 										>
 											<span>{item.label}</span>
+											{"enterpriseOnly" in item &&
+												item.enterpriseOnly &&
+												showEnterpriseBadge && <EnterpriseIndicator />}
 										</Link>
 									</SidebarMenuSubButton>
 								</SidebarMenuSubItem>
@@ -1041,6 +1083,7 @@ export function DashboardSidebar({
 					isMobile={isMobile}
 					toggleSidebar={toggleSidebar}
 					searchParams={searchParams}
+					isEnterprise={selectedOrganization?.plan === "enterprise"}
 				/>
 
 				<ToolsResourcesSection
