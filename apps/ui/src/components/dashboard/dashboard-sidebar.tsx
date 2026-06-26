@@ -347,7 +347,7 @@ function ProjectSettingsSection({
 	);
 }
 
-// Small amber marker shown next to sidebar entries that require the enterprise
+// Subtle blue marker shown next to sidebar entries that require the enterprise
 // plan, so members on lower plans can tell which features are gated before
 // clicking through. Hidden when the sidebar is collapsed to icons.
 function EnterpriseIndicator() {
@@ -355,10 +355,9 @@ function EnterpriseIndicator() {
 		<span
 			title="Enterprise feature"
 			aria-label="Enterprise feature"
-			className="ml-auto inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-wide text-amber-600 group-data-[collapsible=icon]:hidden dark:text-amber-400"
+			className="ml-auto flex items-center text-blue-500/70 group-data-[collapsible=icon]:hidden dark:text-blue-400/70"
 		>
-			<Sparkles className="h-2.5 w-2.5" />
-			Ent
+			<Sparkles className="h-3.5 w-3.5" />
 		</span>
 	);
 }
@@ -963,7 +962,14 @@ export function DashboardSidebar({
 			// For dashboard home, check if we're at the base dashboard route
 			return pathname.match(/^\/dashboard\/[^/]+\/[^/]+$/) !== null;
 		}
-		// For other paths, check if pathname ends with the path
+		// Org-scoped routes live under /dashboard/{orgId}/org/... and project
+		// routes under /dashboard/{orgId}/{projectId}/... . Both can end in the
+		// same segment (e.g. /analytics), so gate on which section we're in —
+		// otherwise the project "Analytics" item also lights up on org/analytics.
+		const isOrgRoute = /^\/dashboard\/[^/]+\/org\//.test(pathname);
+		if (path.startsWith("org/") !== isOrgRoute) {
+			return false;
+		}
 		return pathname.endsWith(`/${path}`);
 	};
 
