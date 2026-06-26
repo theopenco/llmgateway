@@ -455,6 +455,44 @@ describe("fallback and error status code handling", () => {
 			expect(log.requestedModel).toBe("llmgateway/custom");
 		});
 
+		test("mid-body failure marks the routed provider attempt as failed, not a succeeded routing attempt", async () => {
+			await setupMultiProviderKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					// Auto-routed (no provider prefix) so routingMetadata is populated.
+					model: "glm-4.7",
+					messages: [{ role: "user", content: "TRIGGER_BODY_ABORT" }],
+				}),
+			});
+
+			expect(res.status).toBe(502);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			const log = logs[0];
+			expect(log.hasError).toBe(true);
+			expect(log.finishReason).toBe("upstream_error");
+
+			// The headers arrived (2xx) but the body read failed, so the provider
+			// must not be recorded as a succeeded (green) routing attempt.
+			const routing = log.routingMetadata?.routing ?? [];
+			expect(routing.length).toBeGreaterThanOrEqual(1);
+			expect(routing.every((a) => a.succeeded === false)).toBe(true);
+			expect(routing.some((a) => a.error_type === "upstream_error")).toBe(true);
+
+			// The used provider's score is flagged as failed.
+			const usedScore = log.routingMetadata?.providerScores?.find(
+				(s) => s.providerId === log.usedProvider,
+			);
+			expect(usedScore?.failed).toBe(true);
+		});
+
 		test("429 rate limit is classified as upstream_error with correct error details in DB log", async () => {
 			await setupCustomKeys();
 

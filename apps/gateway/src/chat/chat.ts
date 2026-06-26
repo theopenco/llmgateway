@@ -11836,6 +11836,58 @@ chat.openapi(completions, async (c) => {
 				},
 			);
 
+			// The provider returned response headers (2xx) but the body read
+			// failed, so the post-loop success attempt was already appended to
+			// `routing` as succeeded. Flip it to a failed attempt and re-derive
+			// routingMetadata so dashboards and stored traces don't show this
+			// provider as green for a request that ultimately errored.
+			const bodyErrorType = isTimeoutBody
+				? "upstream_timeout"
+				: "upstream_error";
+			for (let i = routingAttempts.length - 1; i >= 0; i--) {
+				if (
+					routingAttempts[i].provider === usedProvider &&
+					routingAttempts[i].succeeded
+				) {
+					routingAttempts[i] = buildRoutingAttempt(
+						usedProvider,
+						usedInternalModel,
+						res.status,
+						bodyErrorType,
+						false,
+						{
+							region: usedRegion,
+							apiKeyHash: usedApiKeyHash,
+							logId: finalLogId,
+						},
+					);
+					break;
+				}
+			}
+			if (routingMetadata) {
+				const failedMap = new Map(
+					routingAttempts
+						.filter((a) => !a.succeeded)
+						.map((f) => [f.provider, f]),
+				);
+				routingMetadata = {
+					...routingMetadata,
+					routing: routingAttempts,
+					providerScores: routingMetadata.providerScores.map((score) => {
+						const failure = failedMap.get(score.providerId);
+						if (failure) {
+							return {
+								...score,
+								failed: true,
+								status_code: failure.status_code,
+								error_type: failure.error_type,
+							};
+						}
+						return score;
+					}),
+				};
+			}
+
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 			const baseLogEntry = createLogEntry(
 				requestId,
