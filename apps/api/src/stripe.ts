@@ -16,6 +16,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 	type DevPlanCycle,
@@ -3311,36 +3312,60 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 	} else if (isDevPlanUpgradeInvoice) {
-		// Invoice from a mid-cycle upgrade. The change-tier endpoint already
-		// adjusted the org's tier/limit and normally records the transaction
-		// synchronously (and emails the invoice); this webhook path is the
-		// fallback if the process exits after Stripe collects payment but before
-		// the local insert. Dedupe on the Stripe invoice id so the fallback
-		// never double-inserts (or double-emails) when the sync path already
-		// ran. We do NOT reset `devPlanCreditsUsed`.
-		const existingUpgradeTransaction = invoice.id
-			? await db.query.transaction.findFirst({
-					where: { stripeInvoiceId: { eq: invoice.id } },
-				})
-			: null;
+		// Invoice from a mid-cycle upgrade. The change-tier endpoint normally
+		// records the transaction (and emails the invoice) synchronously; this
+		// webhook path is the fallback if the process exits after Stripe collects
+		// payment but before the local insert. onConflictDoNothing on the unique
+		// stripeInvoiceId index makes it atomically idempotent with the sync path,
+		// so only the path that wins the insert reconciles org state and emails —
+		// a concurrent sync request can't yield a duplicate row or email. We do
+		// NOT reset `devPlanCreditsUsed`.
+		const fromTier = metadata?.fromTier as DevPlanTier | undefined;
+		const toTier = metadata?.toTier as DevPlanTier | undefined;
+		const remainingFraction = metadata?.remainingFraction
+			? Number(metadata.remainingFraction)
+			: undefined;
+		const proratedCreditDelta =
+			fromTier && toTier && remainingFraction !== undefined
+				? getProratedCreditDelta(fromTier, toTier, remainingFraction)
+				: undefined;
 
-		if (!existingUpgradeTransaction) {
-			const [upgradeTransaction] = await db
-				.insert(tables.transaction)
-				.values({
-					organizationId,
-					type: "dev_plan_upgrade",
-					amount: (invoice.amount_paid / 100).toString(),
-					currency: invoice.currency.toUpperCase(),
-					status: "completed",
-					stripePaymentIntentId: (invoice as any).payment_intent,
-					stripeInvoiceId: invoice.id,
-					description:
-						metadata?.fromTier && metadata?.toTier
-							? `Changed from ${metadata.fromTier} to ${metadata.toTier} plan`
-							: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
-				})
-				.returning();
+		const [upgradeTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_upgrade",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: proratedCreditDelta?.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description:
+					fromTier && toTier
+						? `Changed from ${fromTier} to ${toTier} plan`
+						: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+			})
+			.onConflictDoNothing()
+			.returning();
+
+		if (upgradeTransaction) {
+			// Reconcile org tier/limit in case the sync path died after Stripe
+			// collected payment but before it applied the upgrade. Reproduces the
+			// exact prorated limit the sync path computes (the current tier's full
+			// allotment + the prorated delta), so re-applying when the sync path did
+			// run is a harmless no-op.
+			if (fromTier && toTier && proratedCreditDelta !== undefined) {
+				const newCreditsLimit =
+					getDevPlanCreditsLimit(fromTier) + proratedCreditDelta;
+				await db
+					.update(tables.organization)
+					.set({
+						devPlan: toTier,
+						devPlanCreditsLimit: newCreditsLimit.toString(),
+					})
+					.where(eq(tables.organization.id, organizationId));
+			}
 
 			try {
 				const billingDetails = await resolveDevPassBillingDetails(organization);
@@ -3352,10 +3377,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 					lineItems: [
 						{
 							description:
-								metadata?.fromTier && metadata?.toTier
-									? `Dev Plan upgrade from ${String(
-											metadata.fromTier,
-										).toUpperCase()} to ${String(metadata.toTier).toUpperCase()}`
+								fromTier && toTier
+									? `Dev Plan upgrade from ${fromTier.toUpperCase()} to ${toTier.toUpperCase()}`
 									: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
 							amount: invoice.amount_paid / 100,
 						},

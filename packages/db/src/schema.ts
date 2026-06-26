@@ -393,6 +393,9 @@ export const transaction = pgTable(
 		uniqueIndex("transaction_stripe_refund_id_unique")
 			.on(table.stripeRefundId)
 			.where(sql`${table.stripeRefundId} IS NOT NULL`),
+		uniqueIndex("transaction_stripe_invoice_id_unique")
+			.on(table.stripeInvoiceId)
+			.where(sql`${table.stripeInvoiceId} IS NOT NULL`),
 	],
 );
 

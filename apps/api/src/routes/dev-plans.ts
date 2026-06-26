@@ -1164,32 +1164,28 @@ devPlans.openapi(changeTier, async (c) => {
 				.where(eq(tables.organization.id, personalOrg.id));
 
 			if (paidUpgrade) {
-				const existingUpgradeTransaction = await db.query.transaction.findFirst(
-					{
-						where: {
-							stripeInvoiceId: {
-								eq: paidUpgrade.invoiceId,
-							},
-						},
-					},
-				);
+				// onConflictDoNothing on the unique stripeInvoiceId index makes this
+				// idempotent against the webhook fallback: only the path that wins the
+				// insert emails the invoice, so a concurrent `invoice.payment_succeeded`
+				// webhook can't produce a second transaction row or a duplicate invoice
+				// email for the same charge.
+				const [upgradeTransaction] = await db
+					.insert(tables.transaction)
+					.values({
+						organizationId: personalOrg.id,
+						type: "dev_plan_upgrade",
+						amount: paidUpgrade.amount.toString(),
+						creditAmount: creditPreview.proratedCreditDelta.toString(),
+						currency: "USD",
+						status: "completed",
+						stripePaymentIntentId: paidUpgrade.paymentIntentId,
+						stripeInvoiceId: paidUpgrade.invoiceId,
+						description: `Changed from ${currentTier} to ${newTier} plan`,
+					})
+					.onConflictDoNothing()
+					.returning();
 
-				if (!existingUpgradeTransaction) {
-					const [upgradeTransaction] = await db
-						.insert(tables.transaction)
-						.values({
-							organizationId: personalOrg.id,
-							type: "dev_plan_upgrade",
-							amount: paidUpgrade.amount.toString(),
-							creditAmount: creditPreview.proratedCreditDelta.toString(),
-							currency: "USD",
-							status: "completed",
-							stripePaymentIntentId: paidUpgrade.paymentIntentId,
-							stripeInvoiceId: paidUpgrade.invoiceId,
-							description: `Changed from ${currentTier} to ${newTier} plan`,
-						})
-						.returning();
-
+				if (upgradeTransaction) {
 					try {
 						const billingDetails =
 							await resolveDevPassBillingDetails(personalOrg);
