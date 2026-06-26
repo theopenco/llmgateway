@@ -2,13 +2,13 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	Building2,
 	ChevronUp,
 	ComputerIcon,
 	CreditCard,
 	ExternalLink,
 	MoonIcon,
 	Shield,
-	Sparkles,
 	SunIcon,
 	User as UserIcon,
 	X,
@@ -357,7 +357,7 @@ function EnterpriseIndicator() {
 			aria-label="Enterprise feature"
 			className="ml-auto flex items-center text-blue-500/70 group-data-[collapsible=icon]:hidden dark:text-blue-400/70"
 		>
-			<Sparkles className="h-3.5 w-3.5" />
+			<Building2 className="h-3.5 w-3.5" />
 		</span>
 	);
 }
