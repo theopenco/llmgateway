@@ -1079,7 +1079,7 @@ describe("fallback and error status code handling", () => {
 				.values({
 					id: "glm-4.6",
 					name: "GLM-4.6",
-					family: "glm",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();
@@ -1218,7 +1218,7 @@ describe("fallback and error status code handling", () => {
 				.values({
 					id: "glm-4.6",
 					name: "GLM-4.6",
-					family: "glm",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();
@@ -1341,7 +1341,7 @@ describe("fallback and error status code handling", () => {
 				.values({
 					id: "glm-4.6",
 					name: "GLM-4.6",
-					family: "glm",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();

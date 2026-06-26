@@ -1485,7 +1485,6 @@ export const ModelFamilyIcons: Record<
 	bytedance: BytedanceIcon,
 	deepseek: DeepseekIcon,
 	elevenlabs: ElevenLabsIcon,
-	glm: ZaiIcon,
 	google: GeminiIcon,
 	llmgateway: Logo,
 	meta: MetaIcon,
