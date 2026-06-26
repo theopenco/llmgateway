@@ -1395,6 +1395,11 @@ export default function ChatPageClient({
 
 		const { providerId, modelId } = parseModelSelectorValue(selectedModel);
 		const ocrModel = providerId ? `${providerId}/${modelId}` : modelId;
+		const noFallback = shouldDisableFallback(selectedModel);
+
+		// The OCR result must only land in the chat it was sent from — the user
+		// may switch chats while the request is in flight.
+		const stillOnChat = () => chatIdRef.current === chatId;
 
 		posthog.capture("playground_chat_sent", {
 			model: selectedModel,
@@ -1404,7 +1409,10 @@ export default function ChatPageClient({
 		try {
 			const response = await fetch("/api/ocr", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					...(noFallback ? { "x-no-fallback": "true" } : {}),
+				},
 				body: JSON.stringify({ model: ocrModel, document }),
 			});
 			const data = await response.json();
@@ -1414,7 +1422,9 @@ export default function ChatPageClient({
 					(data?.error?.message as string | undefined) ??
 					(typeof data?.error === "string" ? data.error : undefined) ??
 					"OCR request failed";
-				setError(message);
+				if (stillOnChat()) {
+					setError(message);
+				}
 				toast.error(message);
 				return;
 			}
@@ -1428,14 +1438,18 @@ export default function ChatPageClient({
 				.join("\n\n---\n\n");
 			const content = markdown || "_No text was extracted from the document._";
 
-			setMessages((prev) => [
-				...prev,
-				{
-					id: crypto.randomUUID(),
-					role: "assistant",
-					parts: [{ type: "text", text: content }],
-				},
-			]);
+			// Only mirror into the live view if the user hasn't navigated away;
+			// persistence below still saves to the original chat regardless.
+			if (stillOnChat()) {
+				setMessages((prev) => [
+					...prev,
+					{
+						id: crypto.randomUUID(),
+						role: "assistant",
+						parts: [{ type: "text", text: content }],
+					},
+				]);
+			}
 
 			if (chatId) {
 				try {
@@ -1483,7 +1497,9 @@ export default function ChatPageClient({
 			}
 		} catch (error) {
 			const message = getErrorMessage(error);
-			setError(message);
+			if (stillOnChat()) {
+				setError(message);
+			}
 			toast.error(message);
 		} finally {
 			setOcrPending(false);

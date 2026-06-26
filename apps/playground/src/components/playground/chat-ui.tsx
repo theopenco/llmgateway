@@ -1315,7 +1315,13 @@ export const ChatUI = ({
 			// /v1/ocr endpoint with the same message parts so the upload renders
 			// immediately instead of only after a reload.
 			if (isOcr && onOcrMessage) {
-				const ocrFile = files?.find((f) => f.url);
+				// Only a PDF/document or image can be OCR'd — reject audio/other.
+				const ocrFile = files?.find(
+					(f) =>
+						f.url &&
+						(isDocumentMediaType(f.mediaType) ||
+							f.mediaType?.startsWith("image/")),
+				);
 				if (!ocrFile?.url) {
 					toast.error("Attach a PDF or image to run OCR.");
 					return;
@@ -1337,6 +1343,13 @@ export const ChatUI = ({
 							documentsToSave,
 						)
 					: undefined;
+
+				// Mirror the normal send path's stop gate: if persistence was
+				// expected (persistent chat) but returned nothing, a limit/credit
+				// stop was hit — don't run OCR.
+				if (onUserMessage && !savedMessage && !isTemporaryChat) {
+					return;
+				}
 
 				await onOcrMessage(document, {
 					id: savedMessage?.id ?? crypto.randomUUID(),
