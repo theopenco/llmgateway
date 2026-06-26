@@ -26,7 +26,10 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 });
 
 function formatAmount(amount: string | null, currency: string): string {
-	const value = Number(amount ?? 0);
+	if (amount === null) {
+		return "—";
+	}
+	const value = Number(amount);
 	if (!Number.isFinite(value)) {
 		return "—";
 	}
