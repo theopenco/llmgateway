@@ -1,1 +1,0 @@
-ALTER TABLE "enterprise_contact_submission" ADD COLUMN "deployment" text;

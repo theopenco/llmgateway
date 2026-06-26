@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e57b9c65-08c7-47b8-96c0-80580ebb6f81",
+  "id": "5f09f5a4-0433-4163-afa7-b1db1ed7c89e",
   "prevId": "8874a928-3775-4588-9efe-7c656f579c9b",
   "ddl": [
     {
@@ -23940,6 +23940,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "chat_support_message"
+    },
+    {
+      "value": "\"deployment\" IS NULL OR \"deployment\" IN ('self_host', 'cloud', 'not_sure')",
+      "name": "enterprise_contact_submission_deployment_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "enterprise_contact_submission"
     },
     {
       "value": "\"rating\" >= 1 AND \"rating\" <= 5",
