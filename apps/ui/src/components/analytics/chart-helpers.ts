@@ -210,6 +210,7 @@ export interface DimensionAggregateResult {
 
 export function aggregateByDimension(
 	rows: DimensionRow[],
+	metric: ChartMetric = "cost",
 	limit = 20,
 ): DimensionAggregateResult {
 	const byKey = new Map<string, DimensionAggregate>();
@@ -236,8 +237,10 @@ export function aggregateByDimension(
 		}
 	}
 
+	// Rank by the metric being viewed so Requests/Tokens views surface the right
+	// top-N, not the top spenders.
 	const items = Array.from(byKey.values())
-		.sort((a, b) => b.cost - a.cost)
+		.sort((a, b) => b[metric] - a[metric])
 		.slice(0, limit);
 
 	return { items, totalCost, totalRequests, totalTokens };
@@ -258,6 +261,7 @@ export interface DimensionTimeseriesResult {
 
 export function buildDimensionTimeseries(
 	rows: DimensionRow[],
+	metric: ChartMetric = "cost",
 	topN = 10,
 ): DimensionTimeseriesResult {
 	const totalsByKey = new Map<string, number>();
@@ -266,7 +270,7 @@ export function buildDimensionTimeseries(
 		for (const entry of row.breakdown) {
 			totalsByKey.set(
 				entry.key,
-				(totalsByKey.get(entry.key) ?? 0) + entry.cost,
+				(totalsByKey.get(entry.key) ?? 0) + entry[metric],
 			);
 			labelByKey.set(entry.key, entry.label);
 		}

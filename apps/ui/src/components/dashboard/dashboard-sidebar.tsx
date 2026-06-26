@@ -347,9 +347,6 @@ function ProjectSettingsSection({
 	);
 }
 
-// Subtle blue marker shown next to sidebar entries that require the enterprise
-// plan, so members on lower plans can tell which features are gated before
-// clicking through. Hidden when the sidebar is collapsed to icons.
 function EnterpriseIndicator() {
 	return (
 		<span
@@ -421,8 +418,6 @@ function OrganizationSection({
 	const { buildOrgUrl } = useDashboardNavigation();
 	const [settingsHovered, setSettingsHovered] = useState(false);
 
-	// Mark gated entries with the Enterprise badge only for non-enterprise orgs;
-	// enterprise members already have access so the badge would be noise.
 	const showEnterpriseBadge = !isEnterprise;
 
 	return (

@@ -534,17 +534,28 @@ function canonicalModelId(usedModel: string): string {
 	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
 }
 
+// Daily buckets are padded one calendar day at a time, so cap the window to a
+// year to keep the response bounded and — crucially — to keep the returned
+// buckets covering exactly the same range the SQL totals do (no silent
+// truncation of an over-large span).
+const MAX_ORG_ACTIVITY_RANGE_DAYS = 366;
+
+function rangeDaysInclusive(fromStr: string, toStr: string): number {
+	const from = Date.parse(`${fromStr}T00:00:00Z`);
+	const to = Date.parse(`${toStr}T00:00:00Z`);
+	return Math.round((to - from) / 86_400_000) + 1;
+}
+
 // Inclusive list of UTC calendar dates between two YYYY-MM-DD strings, used to
 // pad the activity series so charts render a continuous axis even on idle days.
+// Callers must validate the span first (see MAX_ORG_ACTIVITY_RANGE_DAYS).
 function eachDay(fromStr: string, toStr: string): string[] {
 	const slots: string[] = [];
 	const cur = new Date(`${fromStr}T00:00:00Z`);
 	const end = new Date(`${toStr}T00:00:00Z`);
-	let guard = 0;
-	while (cur.getTime() <= end.getTime() && guard < 1000) {
+	while (cur.getTime() <= end.getTime()) {
 		slots.push(cur.toISOString().slice(0, 10));
 		cur.setUTCDate(cur.getUTCDate() + 1);
-		guard += 1;
 	}
 	return slots;
 }
@@ -612,6 +623,12 @@ analytics.openapi(getOrgActivity, async (c) => {
 
 	const fromStr = from ?? startDate.toISOString().slice(0, 10);
 	const toStr = to ?? endDate.toISOString().slice(0, 10);
+
+	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
 
 	if (projectIds.length === 0) {
 		return c.json({

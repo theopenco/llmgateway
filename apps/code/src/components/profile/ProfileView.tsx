@@ -56,7 +56,9 @@ function aggregateCanonicalModels(
 			byCanonical.set(resolved.id, {
 				id: resolved.id,
 				name: resolved.name,
-				iconKey: resolved.iconKey,
+				// Unknown models have no family, so fall back to the serving
+				// provider's logo rather than the raw model string.
+				iconKey: resolved.known ? resolved.iconKey : row.provider,
 				known: resolved.known,
 				requestCount: row.requestCount,
 			});

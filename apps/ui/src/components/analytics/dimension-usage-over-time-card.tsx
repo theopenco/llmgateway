@@ -50,7 +50,10 @@ export function DimensionUsageOverTimeCard({
 }: DimensionUsageOverTimeCardProps) {
 	const [activeMetric, setActiveMetric] = useState<ChartMetric>("cost");
 
-	const series = useMemo(() => buildDimensionTimeseries(rows), [rows]);
+	const series = useMemo(
+		() => buildDimensionTimeseries(rows, activeMetric),
+		[rows, activeMetric],
+	);
 
 	const { chartData, config, keyToLabel } = useMemo(() => {
 		const labelMap = new Map<string, string>();

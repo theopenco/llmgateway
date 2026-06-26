@@ -136,6 +136,9 @@ export function OrgAnalyticsClient() {
 		(member) => member.userId === user?.id,
 	)?.role;
 	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	// Distinguish "membership still loading" from "not an admin" so we don't flash
+	// the denial card before team membership resolves.
+	const membershipLoading = isEnterprise && (!teamData || !user);
 
 	const groupBy: GroupBy = (() => {
 		const value = searchParams.get("groupBy");
@@ -233,6 +236,10 @@ export function OrgAnalyticsClient() {
 
 				{!isEnterprise ? (
 					<EnterpriseUpgradeCard />
+				) : membershipLoading ? (
+					<div className="text-muted-foreground py-10 text-center text-sm">
+						Loading…
+					</div>
 				) : !isAdmin ? (
 					<Card className="max-w-2xl">
 						<CardHeader>

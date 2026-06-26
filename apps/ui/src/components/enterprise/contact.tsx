@@ -26,8 +26,8 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { Textarea } from "@/lib/components/textarea";
-import { useAppConfig } from "@/lib/config";
 import { countries } from "@/lib/countries";
+import { useApi } from "@/lib/fetch-client";
 
 import { CalendlyInline } from "./calendly-inline";
 
@@ -50,8 +50,9 @@ const contactFormSchema = z.object({
 type ContactFormData = z.infer<typeof contactFormSchema>;
 
 export function ContactFormEnterprise() {
-	const config = useAppConfig();
+	const api = useApi();
 	const posthog = usePostHog();
+	const submitContact = api.useMutation("post", "/public/contact/enterprise");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [scheduled, setScheduled] = useState<{ name: string; email: string }>({
@@ -87,22 +88,9 @@ export function ContactFormEnterprise() {
 		});
 		setIsSubmitting(true);
 		try {
-			const response = await fetch(
-				`${config.apiUrl}/public/contact/enterprise`,
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify(data),
-				},
-			);
-			const result = (await response.json()) as {
-				success: boolean;
-				message?: string;
-			};
+			const result = await submitContact.mutateAsync({ body: data });
 
-			if (response.ok && result.success) {
+			if (result.success) {
 				posthog.capture("enterprise_contact_success", {
 					country: data.country,
 					companySize: data.size,
@@ -119,10 +107,13 @@ export function ContactFormEnterprise() {
 					description: result.message ?? "Please try again later.",
 				});
 			}
-		} catch {
-			toast.error("Something went wrong", {
-				description: "Please try again later or contact us directly.",
-			});
+		} catch (error) {
+			// Spam/rate-limit responses come back as typed error bodies with a
+			// message; fall back to a generic note for transport failures.
+			const description =
+				(error as { message?: string } | undefined)?.message ??
+				"Please try again later or contact us directly.";
+			toast.error("Failed to send message", { description });
 		} finally {
 			setIsSubmitting(false);
 		}

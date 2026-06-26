@@ -55,7 +55,10 @@ export function DimensionUsageCard({
 }: DimensionUsageCardProps) {
 	const [activeMetric, setActiveMetric] = useState<ChartMetric>("cost");
 
-	const data = useMemo(() => aggregateByDimension(rows), [rows]);
+	const data = useMemo(
+		() => aggregateByDimension(rows, activeMetric),
+		[rows, activeMetric],
+	);
 	const chartRows = useMemo(
 		() =>
 			data.items.map((item) => ({

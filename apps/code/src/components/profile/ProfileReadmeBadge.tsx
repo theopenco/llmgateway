@@ -3,18 +3,23 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
-const SITE_URL = "https://devpass.llmgateway.io";
-
 /**
  * The DevPass README badge snippet. Lives on the edit-profile page only — it's
  * a tool for the profile owner to embed in their own GitHub README, not
- * something public visitors need to see.
+ * something public visitors need to see. `baseUrl` is the deployment's public
+ * origin so preview/staging/self-hosted builds generate correct links.
  */
-export function ProfileReadmeBadge({ username }: { username: string }) {
+export function ProfileReadmeBadge({
+	username,
+	baseUrl,
+}: {
+	username: string;
+	baseUrl: string;
+}) {
 	const [copied, setCopied] = useState(false);
 
-	const profileUrl = `${SITE_URL}/profiles/${username}`;
-	const badgeMarkdown = `[![Powered by DevPass](${SITE_URL}/devpass-badge.svg)](${profileUrl})`;
+	const profileUrl = `${baseUrl}/profiles/${username}`;
+	const badgeMarkdown = `[![Powered by DevPass](${baseUrl}/devpass-badge.svg)](${profileUrl})`;
 
 	const copy = async () => {
 		if (!navigator.clipboard?.writeText) {
@@ -33,7 +38,7 @@ export function ProfileReadmeBadge({ username }: { username: string }) {
 		<div className="space-y-2">
 			<div className="flex items-center gap-2">
 				<img
-					src={`${SITE_URL}/devpass-badge.svg`}
+					src={`${baseUrl}/devpass-badge.svg`}
 					alt="Powered by DevPass"
 					className="h-5"
 				/>

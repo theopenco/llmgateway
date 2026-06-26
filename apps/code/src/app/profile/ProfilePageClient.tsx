@@ -48,10 +48,8 @@ export function ProfilePageClient({
 
 	const updateUser = api.useMutation("patch", "/user/me");
 
-	const shareUrl =
-		savedUsername && typeof window !== "undefined"
-			? `${window.location.origin}/profiles/${savedUsername}`
-			: "";
+	const origin = typeof window !== "undefined" ? window.location.origin : "";
+	const shareUrl = savedUsername ? `${origin}/profiles/${savedUsername}` : "";
 
 	const invalidate = async () => {
 		await queryClient.invalidateQueries({
@@ -240,7 +238,7 @@ export function ProfilePageClient({
 					{profilePublic && savedUsername && (
 						<div className="space-y-2 border-t pt-5">
 							<Label>README badge</Label>
-							<ProfileReadmeBadge username={savedUsername} />
+							<ProfileReadmeBadge username={savedUsername} baseUrl={origin} />
 						</div>
 					)}
 				</div>
