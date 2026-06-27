@@ -8,6 +8,7 @@ import { TimelineList } from "@/components/timeline/timeline-list";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { fetchModels } from "@/lib/fetch-models";
+import { serializeJsonLd } from "@/lib/json-ld";
 import {
 	buildTimelineModels,
 	buildTimelineStats,
@@ -150,22 +151,22 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(itemListSchema) }}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(datasetSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(datasetSchema) }}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbSchema) }}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(faqSchema) }}
 			/>
 
 			<Navbar />
@@ -178,7 +179,6 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 
 				<section className="border-b border-border/60">
 					<div className="container mx-auto px-4 py-10 md:py-14">
-						{/* Breadcrumb */}
 						<nav
 							aria-label="Breadcrumb"
 							className="mb-6 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
@@ -204,7 +204,7 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 							<p className="mx-auto max-w-2xl text-balance text-sm text-muted-foreground md:text-base">
 								{summary.count} large language{" "}
 								{summary.count === 1 ? "model" : "models"} from{" "}
-								{summary.providers.length} providers shipped in {year} and are
+								{summary.providerCount} providers shipped in {year} and are
 								available on LLM Gateway. See each provider release date and
 								when it was added to the gateway.
 							</p>
@@ -242,7 +242,6 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 								) : null}
 							</dl>
 
-							{/* Year switcher */}
 							<nav
 								aria-label="Browse other years"
 								className="flex flex-wrap items-center justify-center gap-1.5 pt-2"
@@ -266,7 +265,6 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 					</div>
 				</section>
 
-				{/* The year's models */}
 				<section className="container mx-auto px-4 py-10 md:py-14">
 					<TimelineList
 						models={yearModels}
@@ -274,7 +272,6 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 					/>
 				</section>
 
-				{/* Prev / next year */}
 				{newerYear || olderYear ? (
 					<section className="border-t border-border/60">
 						<div className="container mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-8">
@@ -302,7 +299,6 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 					</section>
 				) : null}
 
-				{/* FAQ */}
 				<section
 					className="border-t border-border/60 bg-muted/20"
 					aria-labelledby="year-faq-heading"
@@ -334,7 +330,6 @@ export default async function TimelineYearPage({ params }: YearPageProps) {
 					</div>
 				</section>
 
-				{/* CTA */}
 				<section className="border-t border-border/60">
 					<div className="container mx-auto px-4 py-14 md:py-20">
 						<div className="mx-auto flex max-w-3xl flex-col items-center gap-5 rounded-2xl border border-border/70 bg-card/50 px-6 py-10 text-center backdrop-blur md:py-12">

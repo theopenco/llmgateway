@@ -7,6 +7,7 @@ import { ModelCard } from "@/components/timeline/timeline-parts";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import { fetchModels } from "@/lib/fetch-models";
+import { serializeJsonLd } from "@/lib/json-ld";
 import {
 	buildTimelineFaqs,
 	buildTimelineModels,
@@ -128,22 +129,22 @@ export default async function TimelinePage() {
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(datasetSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(datasetSchema) }}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(itemListSchema) }}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbSchema) }}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(faqSchema) }}
 			/>
 
 			<Navbar />
@@ -154,7 +155,6 @@ export default async function TimelinePage() {
 					className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(60%_60%_at_50%_0%,rgba(56,189,248,0.12)_0%,transparent_70%)]"
 				/>
 
-				{/* Hero */}
 				<section className="border-b border-border/60">
 					<div className="container mx-auto px-4 py-12 md:py-16">
 						<div className="mx-auto max-w-3xl space-y-5 text-center">
@@ -231,7 +231,6 @@ export default async function TimelinePage() {
 					</div>
 				</section>
 
-				{/* Browse by year */}
 				<section className="container mx-auto px-4 py-12 md:py-16">
 					<div className="mx-auto max-w-5xl">
 						<div className="mb-8">
@@ -278,7 +277,6 @@ export default async function TimelinePage() {
 					</div>
 				</section>
 
-				{/* Latest releases */}
 				{latest.length ? (
 					<section className="border-t border-border/60 bg-muted/20">
 						<div className="container mx-auto px-4 py-12 md:py-16">
@@ -289,7 +287,7 @@ export default async function TimelinePage() {
 											Latest releases
 										</h2>
 										<p className="mt-2 text-sm text-muted-foreground">
-											The most recent models added to LLM Gateway.
+											The most recently released models, newest first.
 										</p>
 									</div>
 									{stats.firstYear ? (
@@ -321,7 +319,6 @@ export default async function TimelinePage() {
 					</section>
 				) : null}
 
-				{/* FAQ */}
 				<section
 					className="border-t border-border/60"
 					aria-labelledby="timeline-faq-heading"
@@ -353,7 +350,6 @@ export default async function TimelinePage() {
 					</div>
 				</section>
 
-				{/* CTA */}
 				<section className="border-t border-border/60">
 					<div className="container mx-auto px-4 py-14 md:py-20">
 						<div className="mx-auto flex max-w-3xl flex-col items-center gap-5 rounded-2xl border border-border/70 bg-card/50 px-6 py-10 text-center backdrop-blur md:py-12">

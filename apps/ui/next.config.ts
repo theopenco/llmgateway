@@ -117,10 +117,8 @@ const nextConfig: NextConfig = {
 	},
 	async rewrites() {
 		return [
-			{
-				source: "/llms.txt",
-				destination: "https://docs.llmgateway.io/llms.txt",
-			},
+			// /llms.txt is served as a static file from public/ (which takes
+			// precedence over rewrites), so it is intentionally not proxied here.
 			{
 				source: "/llms-full.txt",
 				destination: "https://docs.llmgateway.io/llms-full.txt",

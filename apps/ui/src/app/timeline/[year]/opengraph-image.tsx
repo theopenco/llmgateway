@@ -9,8 +9,7 @@ export const size = {
 
 export const contentType = "image/png";
 
-export const alt =
-	"AI models released this year — LLM Gateway release timeline";
+export const alt = "AI model release timeline by year — LLM Gateway";
 
 interface ImageProps {
 	params: Promise<{ year: string }>;

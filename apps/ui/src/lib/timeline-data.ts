@@ -145,6 +145,11 @@ export function buildTimelineStats(
 ): TimelineStats {
 	const providerIds = new Set<string>();
 	for (const model of raw) {
+		// Only count providers that serve at least one active model, matching the
+		// active-model filtering in buildTimelineModels so stats stay consistent.
+		if (model.status === "inactive") {
+			continue;
+		}
 		for (const mapping of model.mappings ?? []) {
 			if (mapping.providerId && mapping.providerId !== "llmgateway") {
 				providerIds.add(mapping.providerId);
@@ -252,6 +257,9 @@ export interface TimelineYearSummary {
 	year: string;
 	count: number;
 	flagshipCount: number;
+	/** Total distinct providers for the year. */
+	providerCount: number;
+	/** Capped preview of provider names for display. */
 	providers: string[];
 	highlights: string[];
 	latestInYearAt: string | null;
@@ -320,6 +328,7 @@ export function getYearSummaries(
 			year,
 			count: yearModels.length,
 			flagshipCount: yearModels.filter((model) => model.significant).length,
+			providerCount: providers.length,
 			providers: providers.slice(0, 6),
 			highlights,
 			latestInYearAt: released.length ? released[released.length - 1] : null,
@@ -344,7 +353,7 @@ export function buildYearFaqs(
 	const faqs: TimelineFaq[] = [
 		{
 			question: `How many LLMs were released in ${year}?`,
-			answer: `${summary.count} models from ${summary.providers.length === 6 ? "more than 6" : summary.providers.length} providers were released in ${year} and are available on LLM Gateway, including ${flagship.slice(0, 3).join(", ") || "a range of open and proprietary models"}.`,
+			answer: `${summary.count} models from ${summary.providerCount} providers were released in ${year} and are available on LLM Gateway, including ${flagship.slice(0, 3).join(", ") || "a range of open and proprietary models"}.`,
 		},
 	];
 

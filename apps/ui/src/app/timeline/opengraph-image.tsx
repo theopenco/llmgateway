@@ -48,7 +48,6 @@ export default async function TimelineOgImage() {
 					boxSizing: "border-box",
 				}}
 			>
-				{/* Header */}
 				<div
 					style={{
 						display: "flex",
@@ -91,7 +90,6 @@ export default async function TimelineOgImage() {
 					</div>
 				</div>
 
-				{/* Headline */}
 				<div
 					style={{
 						display: "flex",
@@ -124,7 +122,6 @@ export default async function TimelineOgImage() {
 					</p>
 				</div>
 
-				{/* Stat row + footer */}
 				<div
 					style={{
 						display: "flex",

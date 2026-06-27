@@ -36,19 +36,28 @@ const latestModelReleaseDate = (() => {
 	return latest.getTime() === 0 ? buildDate : latest;
 })();
 
-// Distinct release years across the catalog, used to emit /timeline/{year} hub
-// children. The current year changes most often, so it gets a tighter cadence.
+// Distinct release years across the catalog plus the latest release date within
+// each year, used to emit /timeline/{year} hub children. Using the per-year
+// latest release as `lastModified` keeps historical year pages from reporting a
+// change on every deploy.
 const timelineYears = (() => {
-	const years = new Set<number>();
+	const latestByYear = new Map<number, Date>();
 	for (const model of modelDefinitions) {
 		if ("releasedAt" in model && model.releasedAt) {
 			const date = new Date(model.releasedAt);
-			if (!Number.isNaN(date.getTime())) {
-				years.add(date.getUTCFullYear());
+			if (Number.isNaN(date.getTime())) {
+				continue;
+			}
+			const year = date.getUTCFullYear();
+			const current = latestByYear.get(year);
+			if (!current || date.getTime() > current.getTime()) {
+				latestByYear.set(year, date);
 			}
 		}
 	}
-	return Array.from(years).sort((a, b) => b - a);
+	return Array.from(latestByYear.entries())
+		.map(([year, lastModified]) => ({ year, lastModified }))
+		.sort((a, b) => b.year - a.year);
 })();
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -433,9 +442,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	// Per-year timeline hub children (/timeline/{year})
 	const currentYear = buildDate.getFullYear();
 	const timelineYearPages: MetadataRoute.Sitemap = timelineYears.map(
-		(year) => ({
+		({ year, lastModified }) => ({
 			url: `${baseUrl}/timeline/${year}`,
-			lastModified: year === currentYear ? latestModelReleaseDate : buildDate,
+			lastModified,
 			changeFrequency: year === currentYear ? "weekly" : "monthly",
 			priority: year === currentYear ? 0.7 : 0.6,
 		}),

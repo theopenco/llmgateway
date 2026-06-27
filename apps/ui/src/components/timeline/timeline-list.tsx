@@ -95,7 +95,6 @@ export function TimelineList({ models, latestReleasedAt }: TimelineListProps) {
 
 	return (
 		<div>
-			{/* Control bar */}
 			<div className="sticky top-16 z-30 -mx-4 mb-8 border-b border-border/60 bg-background/80 px-4 py-3 backdrop-blur-md">
 				<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 					<label className="relative flex-1 md:max-w-md">
