@@ -20,6 +20,22 @@ function slugify(label: string) {
 // "changed just now" on every crawl, which trains search engines to ignore it.
 const buildDate = new Date();
 
+// Most recent provider release date across the catalog. Used as the timeline
+// page's `lastModified` so it reflects real content freshness (a new model)
+// rather than the deploy time.
+const latestModelReleaseDate = (() => {
+	let latest = new Date(0);
+	for (const model of modelDefinitions) {
+		if ("releasedAt" in model && model.releasedAt) {
+			const date = new Date(model.releasedAt);
+			if (!Number.isNaN(date.getTime()) && date.getTime() > latest.getTime()) {
+				latest = date;
+			}
+		}
+	}
+	return latest.getTime() === 0 ? buildDate : latest;
+})();
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
 
@@ -102,9 +118,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/timeline`,
-			lastModified: buildDate,
-			changeFrequency: "monthly",
-			priority: 0.5,
+			lastModified: latestModelReleaseDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/brand`,

@@ -17,6 +17,7 @@ llmgateway_data
 .claude/scheduled_tasks.lock
 *.http
 *.txt
+!apps/ui/public/llms.txt
 docker-compose-override-*.yml
 benchmark_results.json
 *.pdf
