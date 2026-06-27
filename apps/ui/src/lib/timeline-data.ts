@@ -247,3 +247,126 @@ export function buildTimelineFaqs(
 
 	return faqs;
 }
+
+export interface TimelineYearSummary {
+	year: string;
+	count: number;
+	flagshipCount: number;
+	providers: string[];
+	highlights: string[];
+	latestInYearAt: string | null;
+}
+
+function yearOf(iso: string): string {
+	return String(new Date(iso).getUTCFullYear());
+}
+
+/** Distinct release years, newest-first. */
+export function getTimelineYears(models: TimelineModel[]): string[] {
+	const years = new Set<string>();
+	for (const model of models) {
+		if (model.releasedAt) {
+			years.add(yearOf(model.releasedAt));
+		}
+	}
+	return Array.from(years).sort((a, b) => Number(b) - Number(a));
+}
+
+export function modelsForYear(
+	models: TimelineModel[],
+	year: string,
+): TimelineModel[] {
+	return models.filter(
+		(model) => model.releasedAt && yearOf(model.releasedAt) === year,
+	);
+}
+
+/** The most recent N models across all years, for the hub's latest preview. */
+export function recentModels(
+	models: TimelineModel[],
+	count: number,
+): TimelineModel[] {
+	return [...models]
+		.filter((model) => model.releasedAt)
+		.sort(
+			(a, b) =>
+				new Date(b.releasedAt!).getTime() - new Date(a.releasedAt!).getTime(),
+		)
+		.slice(0, count);
+}
+
+/** Per-year summaries (count, providers, flagship highlights) for the hub. */
+export function getYearSummaries(
+	models: TimelineModel[],
+): TimelineYearSummary[] {
+	return getTimelineYears(models).map((year) => {
+		const yearModels = modelsForYear(models, year);
+		const providers: string[] = [];
+		for (const model of yearModels) {
+			if (!providers.includes(model.providerName)) {
+				providers.push(model.providerName);
+			}
+		}
+		const highlights = yearModels
+			.filter((model) => model.significant)
+			.slice(0, 3)
+			.map((model) => model.name);
+		const released = yearModels
+			.map((model) => model.releasedAt)
+			.filter((date): date is string => Boolean(date))
+			.sort();
+
+		return {
+			year,
+			count: yearModels.length,
+			flagshipCount: yearModels.filter((model) => model.significant).length,
+			providers: providers.slice(0, 6),
+			highlights,
+			latestInYearAt: released.length ? released[released.length - 1] : null,
+		};
+	});
+}
+
+/** Release-date FAQs scoped to a single year, generated from that year's data. */
+export function buildYearFaqs(
+	year: string,
+	yearModels: TimelineModel[],
+	summary: TimelineYearSummary,
+): TimelineFaq[] {
+	const flagship = yearModels
+		.filter((model) => model.significant)
+		.slice(0, 5)
+		.map((model) => model.name);
+	const latest = yearModels.find(
+		(model) => model.releasedAt === summary.latestInYearAt,
+	);
+
+	const faqs: TimelineFaq[] = [
+		{
+			question: `How many LLMs were released in ${year}?`,
+			answer: `${summary.count} models from ${summary.providers.length === 6 ? "more than 6" : summary.providers.length} providers were released in ${year} and are available on LLM Gateway, including ${flagship.slice(0, 3).join(", ") || "a range of open and proprietary models"}.`,
+		},
+	];
+
+	if (flagship.length) {
+		faqs.push({
+			question: `What major AI models came out in ${year}?`,
+			answer: `Notable ${year} releases include ${flagship.join(", ")}. Each links to a detail page with pricing, context window, and capabilities.`,
+		});
+	}
+
+	if (latest?.releasedAt) {
+		faqs.push({
+			question: `What was the newest model released in ${year}?`,
+			answer: `The most recent ${year} release tracked here is ${latest.name} from ${latest.providerName}, released on ${formatDate(latest.releasedAt)}.`,
+		});
+	}
+
+	faqs.push({
+		question: "How soon after release are models added to LLM Gateway?",
+		answer:
+			"New models are typically available on LLM Gateway within 48 hours of their official provider release, so you can switch to them without changing your integration.",
+	});
+
+	return faqs;
+}

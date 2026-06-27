@@ -36,6 +36,21 @@ const latestModelReleaseDate = (() => {
 	return latest.getTime() === 0 ? buildDate : latest;
 })();
 
+// Distinct release years across the catalog, used to emit /timeline/{year} hub
+// children. The current year changes most often, so it gets a tighter cadence.
+const timelineYears = (() => {
+	const years = new Set<number>();
+	for (const model of modelDefinitions) {
+		if ("releasedAt" in model && model.releasedAt) {
+			const date = new Date(model.releasedAt);
+			if (!Number.isNaN(date.getTime())) {
+				years.add(date.getUTCFullYear());
+			}
+		}
+	}
+	return Array.from(years).sort((a, b) => b - a);
+})();
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
 
@@ -415,8 +430,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.7,
 		}));
 
+	// Per-year timeline hub children (/timeline/{year})
+	const currentYear = buildDate.getFullYear();
+	const timelineYearPages: MetadataRoute.Sitemap = timelineYears.map(
+		(year) => ({
+			url: `${baseUrl}/timeline/${year}`,
+			lastModified: year === currentYear ? latestModelReleaseDate : buildDate,
+			changeFrequency: year === currentYear ? "weekly" : "monthly",
+			priority: year === currentYear ? 0.7 : 0.6,
+		}),
+	);
+
 	return [
 		...staticPages,
+		...timelineYearPages,
 		...modelPages,
 		...providerPages,
 		...featurePages,
