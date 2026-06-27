@@ -9,11 +9,10 @@ import { generateAndEmailInvoice } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { cdb, db, tables, eq, shortid } from "@llmgateway/db";
+import { cdb, db, tables, eq, sql, shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
-	getDevPlanCreditsLimit,
 	getProratedCreditDelta,
 	type DevPlanCycle,
 	type DevPlanTier,
@@ -140,9 +139,9 @@ function getDevPlanTierChangeCreditPreview(
 	currentTier: DevPlanTier,
 	newTier: DevPlanTier,
 	remainingFraction: number,
+	currentCreditsLimit: number,
 ) {
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
-	const currentCreditsLimit = getDevPlanCreditsLimit(currentTier);
 	const proratedCreditDelta = isUpgrade
 		? getProratedCreditDelta(currentTier, newTier, remainingFraction)
 		: 0;
@@ -928,6 +927,7 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		currentTier,
 		newTier,
 		remainingFraction,
+		parseFloat(personalOrg.devPlanCreditsLimit),
 	);
 
 	return c.json({
@@ -1153,22 +1153,24 @@ devPlans.openapi(changeTier, async (c) => {
 				currentTier,
 				newTier,
 				remainingFraction,
+				parseFloat(personalOrg.devPlanCreditsLimit),
 			);
 
+			// Reflect the new tier immediately; the credit grant is applied
+			// separately below, gated on winning the transaction insert.
 			await db
 				.update(tables.organization)
 				.set({
 					devPlan: newTier,
-					devPlanCreditsLimit: creditPreview.newCreditsLimit.toString(),
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 
 			if (paidUpgrade) {
 				// onConflictDoNothing on the unique stripeInvoiceId index makes this
 				// idempotent against the webhook fallback: only the path that wins the
-				// insert emails the invoice, so a concurrent `invoice.payment_succeeded`
-				// webhook can't produce a second transaction row or a duplicate invoice
-				// email for the same charge.
+				// insert grants the credits and emails the invoice, so a concurrent
+				// `invoice.payment_succeeded` webhook can't double-apply the credit
+				// delta, produce a second transaction row, or send a duplicate email.
 				const [upgradeTransaction] = await db
 					.insert(tables.transaction)
 					.values({
@@ -1186,6 +1188,20 @@ devPlans.openapi(changeTier, async (c) => {
 					.returning();
 
 				if (upgradeTransaction) {
+					// Add the prorated credit delta on top of the existing allowance.
+					// Never recompute the limit from the tier's base allotment: that
+					// discards credits carried into this period by earlier mid-cycle
+					// changes (e.g. a downgrade then re-upgrade), which would shrink the
+					// allowance below the user's accumulated usage and hide the granted
+					// credit. The atomic increment plus the unique-invoice insert gate
+					// keeps this exactly-once with the webhook fallback.
+					await db
+						.update(tables.organization)
+						.set({
+							devPlanCreditsLimit: sql`${tables.organization.devPlanCreditsLimit} + ${creditPreview.proratedCreditDelta}`,
+						})
+						.where(eq(tables.organization.id, personalOrg.id));
+
 					try {
 						const billingDetails =
 							await resolveDevPassBillingDetails(personalOrg);

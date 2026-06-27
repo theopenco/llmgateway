@@ -3351,18 +3351,18 @@ export async function handleInvoicePaymentSucceeded(event: {
 
 		if (upgradeTransaction) {
 			// Reconcile org tier/limit in case the sync path died after Stripe
-			// collected payment but before it applied the upgrade. Reproduces the
-			// exact prorated limit the sync path computes (the current tier's full
-			// allotment + the prorated delta), so re-applying when the sync path did
-			// run is a harmless no-op.
+			// collected payment but before it applied the upgrade. Mirrors the sync
+			// path: add the prorated credit delta on top of the existing allowance
+			// rather than recomputing from the tier base (which would discard credits
+			// carried over from earlier mid-cycle changes). Winning the unique-invoice
+			// insert above gates this, so the delta is applied exactly once across the
+			// sync and webhook paths.
 			if (fromTier && toTier && proratedCreditDelta !== undefined) {
-				const newCreditsLimit =
-					getDevPlanCreditsLimit(fromTier) + proratedCreditDelta;
 				await db
 					.update(tables.organization)
 					.set({
 						devPlan: toTier,
-						devPlanCreditsLimit: newCreditsLimit.toString(),
+						devPlanCreditsLimit: sql`${tables.organization.devPlanCreditsLimit} + ${proratedCreditDelta}`,
 					})
 					.where(eq(tables.organization.id, organizationId));
 			}
