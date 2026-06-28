@@ -183,6 +183,16 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "granite":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("granite", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "google-vertex":
 				url =
 					envValueOrDefault(
@@ -225,6 +235,16 @@ export function getProviderEndpoint(
 				if (!url) {
 					throw new Error(
 						"Quartz provider requires LLM_QUARTZ_BASE_URL environment variable",
+					);
+				}
+				break;
+			case "tundra":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("tundra", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
 					);
 				}
 				break;
@@ -283,6 +303,9 @@ export function getProviderEndpoint(
 				break;
 			case "minimax":
 				url = "https://api.minimax.io";
+				break;
+			case "sakana":
+				url = "https://api.sakana.ai";
 				break;
 			case "reve":
 				url = "https://api.reve.com";
@@ -615,6 +638,26 @@ export function getProviderEndpoint(
 			return `${url}/v1/image/create`;
 		case "deepinfra":
 			return `${url}/chat/completions`;
+		case "sakana": {
+			// Fugu exposes reasoning summaries only through the Responses API, but
+			// its Responses API streams the whole answer as a single delta on
+			// completion. So use the Responses API only for non-streaming requests
+			// (where reasoning matters and chunking doesn't); stream over the Chat
+			// Completions endpoint, which emits incremental content deltas.
+			if (!stream && model) {
+				const modelDef = models.find((m) => m.id === (modelId ?? model));
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === "sakana",
+				);
+				const supportsResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
+				if (supportsResponsesApi) {
+					return `${url}/v1/responses`;
+				}
+			}
+			return `${url}/v1/chat/completions`;
+		}
 		case "inference.net":
 		case "llmgateway":
 		case "groq":
@@ -627,6 +670,7 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
+		case "tundra":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

@@ -1,8 +1,9 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { KeyIcon, MoreHorizontal } from "lucide-react";
+import { KeyIcon, MoreHorizontal, Plus, Search } from "lucide-react";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
@@ -26,6 +27,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/lib/components/dropdown-menu";
+import { Input } from "@/lib/components/input";
 import { StatusBadge } from "@/lib/components/status-badge";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
@@ -78,6 +80,7 @@ export function ProviderKeysList({
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const { buildOrgUrl } = useDashboardNavigation();
+	const [search, setSearch] = useState("");
 
 	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
 
@@ -94,45 +97,59 @@ export function ProviderKeysList({
 	const deleteMutation = api.useMutation("delete", "/keys/provider/{id}");
 	const toggleMutation = api.useMutation("patch", "/keys/provider/{id}");
 
-	if (!selectedOrganization) {
-		return (
-			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
-				<div className="mb-4">
-					<KeyIcon className="h-10 w-10 text-gray-500" />
-				</div>
-				<p className="text-gray-400 mb-6">
-					Please select an organization to view provider keys.
-				</p>
-			</div>
-		);
-	}
-
-	// Filter provider keys by selected organization
-	const organizationKeys =
-		data?.providerKeys
-			.filter((key) => key.status !== "deleted")
-			.filter((key) => key.organizationId === selectedOrganization.id) ?? [];
-
 	// Filter out LLM Gateway from the providers list
-	const availableProviders = providers.filter(
-		(provider) => provider.id !== "llmgateway",
+	const availableProviders = useMemo(
+		() => providers.filter((provider) => provider.id !== "llmgateway"),
+		[],
 	);
-	const providerKeysByProvider = new Map(
-		availableProviders.map((provider) => [
-			provider.id,
-			organizationKeys
-				.filter((key) => key.provider === provider.id)
-				.sort((a, b) => {
-					const createdAtDiff =
-						new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-					if (createdAtDiff !== 0) {
-						return createdAtDiff;
-					}
 
-					return a.id.localeCompare(b.id);
-				}),
-		]),
+	const organizationKeys = useMemo(
+		() =>
+			selectedOrganization
+				? (data?.providerKeys
+						.filter((key) => key.status !== "deleted")
+						.filter((key) => key.organizationId === selectedOrganization.id) ??
+					[])
+				: [],
+		[data, selectedOrganization],
 	);
+
+	const keysByProvider = useMemo(
+		() =>
+			new Map(
+				availableProviders.map((provider) => [
+					provider.id,
+					organizationKeys
+						.filter((key) => key.provider === provider.id)
+						.sort((a, b) => {
+							const createdAtDiff =
+								new Date(a.createdAt).getTime() -
+								new Date(b.createdAt).getTime();
+							if (createdAtDiff !== 0) {
+								return createdAtDiff;
+							}
+
+							return a.id.localeCompare(b.id);
+						}),
+				]),
+			),
+		[availableProviders, organizationKeys],
+	);
+
+	const normalizedSearch = search.trim().toLowerCase();
+	const filteredProviders = availableProviders.filter(
+		(provider) =>
+			!normalizedSearch ||
+			provider.name.toLowerCase().includes(normalizedSearch) ||
+			provider.id.toLowerCase().includes(normalizedSearch),
+	);
+	const configuredProviders = filteredProviders.filter(
+		(provider) => (keysByProvider.get(provider.id)?.length ?? 0) > 0,
+	);
+	const providersToAdd = filteredProviders.filter(
+		(provider) => (keysByProvider.get(provider.id)?.length ?? 0) === 0,
+	);
+	const totalKeys = organizationKeys.length;
 
 	const deleteKey = (id: string) => {
 		deleteMutation.mutate(
@@ -181,176 +198,265 @@ export function ProviderKeysList({
 		);
 	};
 
+	if (!selectedOrganization) {
+		return (
+			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
+				<div className="mb-4">
+					<KeyIcon className="h-10 w-10 text-gray-500" />
+				</div>
+				<p className="text-gray-400 mb-6">
+					Please select an organization to view provider keys.
+				</p>
+			</div>
+		);
+	}
+
 	return (
 		<div className="space-y-6">
-			<div className="space-y-2">
-				{availableProviders.map((provider) => {
-					const LogoComponent = getProviderIcon(provider.id);
-					const providerKeys = providerKeysByProvider.get(provider.id) ?? [];
+			<div className="relative">
+				<Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+				<Input
+					type="search"
+					placeholder="Search providers by name..."
+					value={search}
+					onChange={(e) => setSearch(e.target.value)}
+					className="pl-9"
+				/>
+			</div>
 
-					return (
-						<div key={provider.id} className="border border-border rounded-lg">
-							<div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-								<div className="flex items-start gap-3 sm:items-center">
-									<div className="flex shrink-0 items-center justify-center w-10 h-10 rounded-lg bg-background border">
-										{LogoComponent ? (
-											<LogoComponent className="h-6 w-6" />
-										) : (
-											<div className="w-6 h-6 bg-muted rounded" />
-										)}
-									</div>
-									<div className="flex min-w-0 flex-col">
-										<div className="flex items-center gap-2 flex-wrap">
-											<span className="font-medium">{provider.name}</span>
-											{providerKeys.length > 0 && (
-												<Badge variant="outline" className="text-xs">
-													{providerKeys.length} key
-													{providerKeys.length === 1 ? "" : "s"}
-												</Badge>
-											)}
-										</div>
-										<p className="text-sm text-muted-foreground">
-											{provider.id === "custom"
-												? "Add multiple named OpenAI-compatible providers."
-												: "Add one or more keys to load balance requests for this provider."}
-										</p>
-									</div>
-								</div>
-
-								<CreateProviderKeyDialog
-									selectedOrganization={selectedOrganization}
-									preselectedProvider={provider.id}
-								>
-									<Button
-										variant="outline"
-										size="sm"
-										className="w-full sm:w-auto sm:shrink-0"
-									>
-										Add Key
-									</Button>
-								</CreateProviderKeyDialog>
+			{configuredProviders.length === 0 && providersToAdd.length === 0 ? (
+				<div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-12 text-center text-muted-foreground">
+					<Search className="mb-3 h-8 w-8 opacity-60" />
+					<p className="text-sm">
+						No providers match{" "}
+						<span className="font-medium text-foreground">“{search}”</span>.
+					</p>
+				</div>
+			) : (
+				<>
+					{configuredProviders.length > 0 && (
+						<section className="space-y-3">
+							<div className="flex items-center gap-2">
+								<h3 className="text-sm font-semibold tracking-tight">
+									Your providers
+								</h3>
+								<Badge variant="secondary" className="text-xs">
+									{totalKeys} key{totalKeys === 1 ? "" : "s"}
+								</Badge>
 							</div>
 
-							{providerKeys.length > 0 ? (
-								<div className="border-t border-border">
-									{providerKeys.map((providerKey) => (
+							<div className="space-y-3">
+								{configuredProviders.map((provider) => {
+									const LogoComponent = getProviderIcon(provider.id);
+									const providerKeys = keysByProvider.get(provider.id) ?? [];
+
+									return (
 										<div
-											key={providerKey.id}
-											className="flex items-center justify-between gap-4 p-4"
+											key={provider.id}
+											className="rounded-lg border border-border"
 										>
-											<div className="min-w-0 flex-1">
-												<div className="flex items-center gap-2 flex-wrap">
-													{provider.id === "custom" && providerKey.name && (
-														<Badge variant="secondary" className="text-xs">
-															{providerKey.name}
-														</Badge>
-													)}
-													{providerKey.baseUrl && (
-														<Badge variant="outline" className="text-xs">
-															{providerKey.baseUrl}
-														</Badge>
-													)}
-													{providerKey.options &&
-														Object.entries(providerKey.options).map(
-															([key, value]) =>
-																value && (
-																	<Badge
-																		key={key}
-																		variant="outline"
-																		className="text-xs"
-																	>
-																		{formatOptionLabel(key, String(value))}
-																	</Badge>
-																),
+											<div className="flex items-center justify-between gap-3 p-3">
+												<div className="flex min-w-0 items-center gap-2.5">
+													<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-background">
+														{LogoComponent ? (
+															<LogoComponent className="h-5 w-5" />
+														) : (
+															<div className="h-5 w-5 rounded bg-muted" />
 														)}
+													</div>
+													<div className="flex items-center gap-2">
+														<span className="font-medium">{provider.name}</span>
+														<Badge variant="outline" className="text-xs">
+															{providerKeys.length} key
+															{providerKeys.length === 1 ? "" : "s"}
+														</Badge>
+													</div>
 												</div>
-												<div className="flex items-center gap-2 mt-2">
-													<StatusBadge
-														status={providerKey.status}
-														variant="simple"
-													/>
-													<span className="text-xs text-muted-foreground font-mono block max-w-[280px] truncate">
-														{providerKey.maskedToken}
-													</span>
-												</div>
+
+												<CreateProviderKeyDialog
+													selectedOrganization={selectedOrganization}
+													preselectedProvider={provider.id}
+												>
+													<Button
+														variant="ghost"
+														size="sm"
+														className="shrink-0"
+													>
+														<Plus className="mr-1.5 h-4 w-4" />
+														Add key
+													</Button>
+												</CreateProviderKeyDialog>
 											</div>
 
-											<DropdownMenu>
-												<DropdownMenuTrigger asChild>
-													<Button variant="ghost" size="sm">
-														<MoreHorizontal className="h-4 w-4" />
-														<span className="sr-only">Open menu</span>
-													</Button>
-												</DropdownMenuTrigger>
-												<DropdownMenuContent align="end">
-													<DropdownMenuLabel>Actions</DropdownMenuLabel>
-													{provider.id === "custom" && (
-														<DropdownMenuItem asChild>
-															<Link
-																href={
-																	`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
-																}
-															>
-																Manage models
-															</Link>
-														</DropdownMenuItem>
-													)}
-													<DropdownMenuItem
-														onClick={() =>
-															toggleStatus(providerKey.id, providerKey.status)
-														}
+											<div className="divide-y divide-border border-t border-border">
+												{providerKeys.map((providerKey) => (
+													<div
+														key={providerKey.id}
+														className="flex items-center justify-between gap-3 px-3 py-2.5"
 													>
-														{providerKey.status === "active"
-															? "Deactivate"
-															: "Activate"}
-													</DropdownMenuItem>
-													<DropdownMenuSeparator />
-													<AlertDialog>
-														<AlertDialogTrigger asChild>
-															<DropdownMenuItem
-																onSelect={(e) => e.preventDefault()}
-																className="text-destructive focus:text-destructive"
-															>
-																Delete
-															</DropdownMenuItem>
-														</AlertDialogTrigger>
-														<AlertDialogContent>
-															<AlertDialogHeader>
-																<AlertDialogTitle>
-																	Are you absolutely sure?
-																</AlertDialogTitle>
-																<AlertDialogDescription>
-																	This action cannot be undone. This will
-																	permanently delete the provider key and any
-																	applications using it will no longer be able
-																	to access the API.
-																</AlertDialogDescription>
-															</AlertDialogHeader>
-															<AlertDialogFooter>
-																<AlertDialogCancel>Cancel</AlertDialogCancel>
-																<AlertDialogAction
-																	onClick={() => deleteKey(providerKey.id)}
-																	className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+														<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+															<StatusBadge
+																status={providerKey.status}
+																variant="simple"
+															/>
+															{provider.id === "custom" && providerKey.name && (
+																<Badge variant="secondary" className="text-xs">
+																	{providerKey.name}
+																</Badge>
+															)}
+															<span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
+																{providerKey.maskedToken}
+															</span>
+															{providerKey.baseUrl && (
+																<Badge
+																	variant="outline"
+																	className="max-w-[220px] truncate text-xs"
 																>
-																	Delete
-																</AlertDialogAction>
-															</AlertDialogFooter>
-														</AlertDialogContent>
-													</AlertDialog>
-												</DropdownMenuContent>
-											</DropdownMenu>
+																	{providerKey.baseUrl}
+																</Badge>
+															)}
+															{providerKey.options &&
+																Object.entries(providerKey.options).map(
+																	([key, value]) =>
+																		value && (
+																			<Badge
+																				key={key}
+																				variant="outline"
+																				className="text-xs"
+																			>
+																				{formatOptionLabel(key, String(value))}
+																			</Badge>
+																		),
+																)}
+														</div>
+
+														<DropdownMenu>
+															<DropdownMenuTrigger asChild>
+																<Button
+																	variant="ghost"
+																	size="sm"
+																	className="shrink-0"
+																>
+																	<MoreHorizontal className="h-4 w-4" />
+																	<span className="sr-only">Open menu</span>
+																</Button>
+															</DropdownMenuTrigger>
+															<DropdownMenuContent align="end">
+																<DropdownMenuLabel>Actions</DropdownMenuLabel>
+																{provider.id === "custom" && (
+																	<DropdownMenuItem asChild>
+																		<Link
+																			href={
+																				`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
+																			}
+																		>
+																			Manage models
+																		</Link>
+																	</DropdownMenuItem>
+																)}
+																<DropdownMenuItem
+																	onClick={() =>
+																		toggleStatus(
+																			providerKey.id,
+																			providerKey.status,
+																		)
+																	}
+																>
+																	{providerKey.status === "active"
+																		? "Deactivate"
+																		: "Activate"}
+																</DropdownMenuItem>
+																<DropdownMenuSeparator />
+																<AlertDialog>
+																	<AlertDialogTrigger asChild>
+																		<DropdownMenuItem
+																			onSelect={(e) => e.preventDefault()}
+																			className="text-destructive focus:text-destructive"
+																		>
+																			Delete
+																		</DropdownMenuItem>
+																	</AlertDialogTrigger>
+																	<AlertDialogContent>
+																		<AlertDialogHeader>
+																			<AlertDialogTitle>
+																				Are you absolutely sure?
+																			</AlertDialogTitle>
+																			<AlertDialogDescription>
+																				This action cannot be undone. This will
+																				permanently delete the provider key and
+																				any applications using it will no longer
+																				be able to access the API.
+																			</AlertDialogDescription>
+																		</AlertDialogHeader>
+																		<AlertDialogFooter>
+																			<AlertDialogCancel>
+																				Cancel
+																			</AlertDialogCancel>
+																			<AlertDialogAction
+																				onClick={() =>
+																					deleteKey(providerKey.id)
+																				}
+																				className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+																			>
+																				Delete
+																			</AlertDialogAction>
+																		</AlertDialogFooter>
+																	</AlertDialogContent>
+																</AlertDialog>
+															</DropdownMenuContent>
+														</DropdownMenu>
+													</div>
+												))}
+											</div>
 										</div>
-									))}
-								</div>
-							) : (
-								<div className="px-4 pb-4 text-sm text-muted-foreground">
-									No keys added yet.
-								</div>
-							)}
-						</div>
-					);
-				})}
-			</div>
+									);
+								})}
+							</div>
+						</section>
+					)}
+
+					{providersToAdd.length > 0 && (
+						<section className="space-y-3">
+							<h3 className="text-sm font-semibold tracking-tight">
+								{configuredProviders.length > 0
+									? "Add another provider"
+									: "Connect a provider"}
+							</h3>
+
+							<div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+								{providersToAdd.map((provider) => {
+									const LogoComponent = getProviderIcon(provider.id);
+
+									return (
+										<CreateProviderKeyDialog
+											key={provider.id}
+											selectedOrganization={selectedOrganization}
+											preselectedProvider={provider.id}
+										>
+											<button
+												type="button"
+												className="group flex items-center gap-2.5 rounded-lg border border-border p-2.5 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+											>
+												<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background">
+													{LogoComponent ? (
+														<LogoComponent className="h-5 w-5" />
+													) : (
+														<div className="h-4 w-4 rounded bg-muted" />
+													)}
+												</div>
+												<span className="min-w-0 flex-1 truncate text-sm font-medium">
+													{provider.name}
+												</span>
+												<Plus className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+											</button>
+										</CreateProviderKeyDialog>
+									);
+								})}
+							</div>
+						</section>
+					)}
+				</>
+			)}
 		</div>
 	);
 }

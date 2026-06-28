@@ -33,6 +33,7 @@ import { publicChatSupport } from "./routes/public-chat-support.js";
 import { publicConfig } from "./routes/public-config.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
+import { publicLeaderboard } from "./routes/public-leaderboard.js";
 import { publicModelRatings } from "./routes/public-model-ratings.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
 import { publicProfile } from "./routes/public-profile.js";
@@ -268,6 +269,7 @@ app.route("/public/chat-support", publicChatSupport);
 app.route("/public/chats/share", publicChatShares);
 app.route("/public/apps", publicApps);
 app.route("/public/profile", publicProfile);
+app.route("/public/leaderboard", publicLeaderboard);
 app.route("/public/providers/stats", publicProvidersStats);
 app.route("/public/model-ratings", publicModelRatings);
 

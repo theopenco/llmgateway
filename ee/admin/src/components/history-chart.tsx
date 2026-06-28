@@ -138,6 +138,7 @@ export function HistoryChart({
 }) {
 	const [data, setData] = useState<HistoryDataPoint[]>([]);
 	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 	const [internalWindow, setInternalWindow] = useState<HistoryWindow>("4h");
 	const window = externalWindow ?? internalWindow;
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
@@ -145,12 +146,16 @@ export function HistoryChart({
 	const loadData = useCallback(
 		async (w: HistoryWindow) => {
 			setLoading(true);
+			setError(null);
 			try {
 				const result = await fetchData(w);
 				setData(result ?? []);
-			} catch (error) {
-				console.error("Failed to load history:", error);
+			} catch (err) {
+				console.error("Failed to load history:", err);
 				setData([]);
+				setError(
+					err instanceof Error ? err.message : "Failed to load history data",
+				);
 			} finally {
 				setLoading(false);
 			}
@@ -359,6 +364,21 @@ export function HistoryChart({
 				{loading ? (
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
 						Loading...
+					</div>
+				) : error ? (
+					<div className="flex h-[200px] flex-col items-center justify-center gap-2 text-sm text-destructive">
+						<span>Failed to load history</span>
+						<span className="max-w-md text-center text-xs text-muted-foreground">
+							{error}
+						</span>
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-7 px-2 text-xs"
+							onClick={() => void loadData(window)}
+						>
+							Retry
+						</Button>
 					</div>
 				) : data.length === 0 ? (
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">

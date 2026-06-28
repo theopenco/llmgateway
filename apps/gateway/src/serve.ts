@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 
 import { redisClient } from "@llmgateway/cache";
-import { closeDatabase } from "@llmgateway/db";
+import { closeDatabase, setQueryTags } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
 	shutdownInstrumentation,
@@ -24,6 +24,9 @@ const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 let sdk: NodeSDK | null = null;
 
 async function startServer() {
+	// Tag every DB query with the originating service for Cloud SQL Query Insights
+	setQueryTags({ application: "gateway" });
+
 	// Initialize tracing for gateway service
 	try {
 		sdk = initializeInstrumentation({

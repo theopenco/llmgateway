@@ -21,13 +21,14 @@ export function isExpectedUnknownFinishReason(
 	if (!finishReason) {
 		return false;
 	}
-	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
+	// Google's "OTHER" and "MALFORMED_RESPONSE" finish reasons are expected and
+	// map to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
-		finishReason === "OTHER"
+		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
 	) {
 		return true;
 	}
@@ -124,7 +125,7 @@ export function getUnifiedFinishReason(
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
-			if (finishReason === "OTHER") {
+			if (finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE") {
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;
@@ -190,6 +191,23 @@ export function isContentFilterFinishReason(
 	return (
 		getUnifiedFinishReason(finishReason, provider) ===
 		UnifiedFinishReason.CONTENT_FILTER
+	);
+}
+
+/**
+ * Whether the finish reason indicates the model stopped because it reached the
+ * token limit (e.g. a small `max_tokens`). With a tiny limit (such as
+ * `max_tokens: 1`) providers like Google can legitimately return no content at
+ * all, so an empty response with this finish reason is expected behavior, not an
+ * upstream error.
+ */
+export function isLengthLimitFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	return (
+		getUnifiedFinishReason(finishReason, provider) ===
+		UnifiedFinishReason.LENGTH_LIMIT
 	);
 }
 

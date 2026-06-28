@@ -42,9 +42,6 @@ features:
   - label: "Works with Claude Code, Cursor, Cline, OpenCode"
     devpass: true
     competitor: true
-  - label: "SoulForge token-reduction agent (~50% fewer tokens)"
-    devpass: true
-    competitor: false
   - label: Usage cap protects against bill shock
     devpass: true
     competitor: Spend limits only
@@ -78,12 +75,12 @@ This is the whole decision in one line: **do you want a predictable bill or a me
 
 For hobby use or spiky workloads, metered billing can win. For daily work, team budgets, or anyone who's been burned by a metered LLM bill, the flat rate is the safer default.
 
-## Model coverage and savings
+## Model coverage
 
-Zen's curated catalog is a feature — fewer, vetted models — but it's also a ceiling. DevPass deliberately goes the other way: **280+ models on every plan**, so the frontier model a task needs is always one switch away, no new key required. Pair DevPass with **SoulForge**, the graph-powered agent that treats your code as structure rather than strings, and you cut roughly half your tokens — effectively doubling what your flat rate buys.
+Zen's curated catalog is a feature — fewer, vetted models — but it's also a ceiling. DevPass deliberately goes the other way: **280+ models on every plan**, so the frontier model a task needs is always one switch away, no new key required.
 
 ## Who should choose which
 
 **Choose OpenCode Zen if** you want at-cost, zero-markup token pricing on a vetted model set and you're comfortable with a variable bill.
 
-**Choose DevPass if** you want a fixed monthly price, the full 200+ model catalog including the frontier models, protection from bill shock, and the option to halve your token spend with SoulForge.
+**Choose DevPass if** you want a fixed monthly price, the full 200+ model catalog including the frontier models, and protection from bill shock.

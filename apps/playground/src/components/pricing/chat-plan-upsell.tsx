@@ -49,15 +49,15 @@ export function ChatPlanUpsell({
 			>
 				<div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground/[0.04] px-3 py-1 text-xs font-medium text-foreground/80">
 					<Sparkles className="h-3.5 w-3.5" />
-					Up to 3× the value you pay for
+					Every frontier model — one subscription
 				</div>
 				<h2 className="mx-auto max-w-2xl text-balance text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
 					{headline}
 				</h2>
 				<p className="mx-auto mt-3 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
-					One subscription powers every studio — chat, images, video, and audio.
-					Each plan gives you more usage than you pay for, every cycle, across
-					every model.
+					Fast models plus the image, video and audio studios from $9 — or add
+					Claude Opus, GPT-5, Gemini and Grok with Plus and Pro. More usage than
+					you pay for, and a 7-day money-back guarantee.
 				</p>
 			</motion.div>
 
@@ -66,7 +66,10 @@ export function ChatPlanUpsell({
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: 0.08 }}
 			>
-				<ChatPricingPlans isAuthenticated={isAuthenticated} />
+				<ChatPricingPlans
+					isAuthenticated={isAuthenticated}
+					viewSource="paywall"
+				/>
 			</motion.div>
 		</div>
 	);

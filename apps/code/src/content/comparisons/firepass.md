@@ -46,9 +46,6 @@ features:
   - label: "Works with Claude Code, Cursor, Cline, OpenCode"
     devpass: true
     competitor: true
-  - label: "SoulForge token-reduction agent (~50% fewer tokens)"
-    devpass: true
-    competitor: false
 faqs:
   - question: What is FirePass by Fireworks?
     answer: "FirePass is an early-access monthly subscription from Fireworks AI that grants unlimited access to a single model — Kimi K2.6 Turbo — for $49/month, with no per-token charges. It's aimed at personal use with agentic coding tools and is currently invite-only. Other models on Fireworks still bill at standard rates."
@@ -75,7 +72,7 @@ DevPass by LLM Gateway is a flat-rate plan covering **280+ models behind one key
 This is the trade in a sentence:
 
 - **FirePass** removes the meter but locks you to **one model**. Brilliant if Kimi K2.6 Turbo does everything you need; a dead end the moment you want Claude for a hard refactor or GPT-5.5 for a reasoning task.
-- **DevPass** keeps a meter — a generous allowance — but gives you **every model**. You're never blocked from the right tool, and SoulForge can halve your token use to stretch the allowance further.
+- **DevPass** keeps a meter — a generous allowance — but gives you **every model**. You're never blocked from the right tool.
 
 If your entire workflow can run on Kimi and it's strictly personal, FirePass at $49/mo is tough to beat on that one model. If you need range, or you're building anything commercial, the single-model limit is the wall you'll hit.
 
@@ -87,4 +84,4 @@ FirePass is **personal-use only**. If you're writing code for a company, sharing
 
 **Choose FirePass if** Kimi K2.6 Turbo covers your needs, you want truly unlimited requests on that model, and your use is strictly personal.
 
-**Choose DevPass if** you want 280+ models including the frontier ones, commercial and team rights, no invite gate, and a per-request cost dashboard — with SoulForge to keep your token spend down.
+**Choose DevPass if** you want 280+ models including the frontier ones, commercial and team rights, no invite gate, and a per-request cost dashboard.

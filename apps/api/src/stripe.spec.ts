@@ -168,6 +168,7 @@ function makeInvoiceEvent(overrides: {
 	billingReason: Stripe.Invoice["billing_reason"];
 	amountPaid: number;
 	invoiceId: string;
+	metadata?: Record<string, string>;
 }): Stripe.InvoicePaymentSucceededEvent {
 	return {
 		id: "evt_test_invoice",
@@ -181,7 +182,7 @@ function makeInvoiceEvent(overrides: {
 				amount_paid: overrides.amountPaid,
 				currency: "usd",
 				payment_intent: "pi_test_001",
-				metadata: { organizationId: ORG_ID },
+				metadata: overrides.metadata ?? { organizationId: ORG_ID },
 				lines: { data: [] },
 			},
 		},
@@ -328,6 +329,39 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].type).toBe("dev_plan_upgrade");
 		expect(txns[0].creditAmount).toBeNull();
 		expect(txns[0].amount).toBe("92.21");
+	});
+
+	test("records a manual upgrade invoice without resetting used credits", async () => {
+		await seedUsedDevPlanOrg();
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "manual",
+				amountPaid: 5000,
+				invoiceId: "in_manual_upgrade_001",
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+					devPlanChange: "upgrade",
+					fromTier: "lite",
+					toTier: "pro",
+				},
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("150");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_upgrade");
+		expect(txns[0].creditAmount).toBeNull();
+		expect(txns[0].amount).toBe("50");
+		expect(txns[0].stripeInvoiceId).toBe("in_manual_upgrade_001");
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {

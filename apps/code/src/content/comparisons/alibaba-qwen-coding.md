@@ -42,9 +42,6 @@ features:
   - label: "Works with Claude Code, Cursor, Cline, Qwen Code"
     devpass: true
     competitor: true
-  - label: "SoulForge token-reduction agent (~50% fewer tokens)"
-    devpass: true
-    competitor: false
 faqs:
   - question: What is Alibaba Cloud's Qwen coding plan?
     answer: "It's a coding subscription from Alibaba Cloud built around the Qwen3-Coder models, with Lite and Pro tiers that grant very high monthly request volumes (the Lite tier is marketed as roughly 3× the usage of a standard Claude Code plan). It includes a handful of partner models and works with tools like Qwen Code, Claude Code, Cline and Cursor via an API key from Model Studio."
@@ -53,7 +50,7 @@ faqs:
   - question: Can I use Qwen models with DevPass?
     answer: "Yes. Qwen3-Coder and Qwen3-Max are part of the DevPass catalog, so you keep Qwen access and gain the frontier models plus the other open-weight coders — all metered in one place with a real per-request cost breakdown."
   - question: Which is better for high-volume agent runs?
-    answer: "Alibaba's plan is designed for sheer Qwen request volume, which suits Qwen-first, high-throughput workflows. DevPass Max ($179/mo, ~$537 of usage) is built for all-day agent runs across any model, and SoulForge can cut roughly half your tokens to push that allowance further. The right choice depends on whether you need one model at high volume or many models with headroom."
+    answer: "Alibaba's plan is designed for sheer Qwen request volume, which suits Qwen-first, high-throughput workflows. DevPass Max ($179/mo, ~$537 of usage) is built for all-day agent runs across any model. The right choice depends on whether you need one model at high volume or many models with headroom."
 ---
 
 ## What is the Alibaba Qwen coding plan?
@@ -70,10 +67,10 @@ DevPass by LLM Gateway is a flat-rate plan covering **280+ models behind one key
 
 Alibaba's plan optimizes for one thing extremely well: **a lot of Qwen**. If your workflow runs on Qwen3-Coder and you want the highest request ceiling for the price, that focus is a strength.
 
-DevPass optimizes for **range**. Qwen is included, so you don't give up the open-weight option — you add the frontier models next to it. When a task outgrows Qwen, Claude, GPT-5.5 and Gemini are already in the same account, one key away, with every request's cost itemized. Pair it with **SoulForge** and you cut roughly half your tokens, stretching the allowance across the whole catalog rather than a single model.
+DevPass optimizes for **range**. Qwen is included, so you don't give up the open-weight option — you add the frontier models next to it. When a task outgrows Qwen, Claude, GPT-5.5 and Gemini are already in the same account, one key away, with every request's cost itemized.
 
 ## Who should choose which
 
 **Choose the Alibaba Qwen plan if** Qwen3-Coder is your primary model and you want the largest request volume at the lowest price.
 
-**Choose DevPass if** you want Qwen _and_ the frontier models under one key, a per-request cost breakdown, monthly billing, and SoulForge to reduce your token spend across every model.
+**Choose DevPass if** you want Qwen _and_ the frontier models under one key, a per-request cost breakdown, and monthly billing.

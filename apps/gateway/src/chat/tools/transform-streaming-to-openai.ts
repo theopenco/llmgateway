@@ -207,8 +207,13 @@ export function transformStreamingToOpenai(
 				};
 			} else if (
 				data.type === "content_block_delta" &&
-				data.delta?.partial_json
+				(data.delta?.type === "input_json_delta" ||
+					data.delta?.partial_json !== undefined)
 			) {
+				// input_json_delta carries the tool-call arguments. The first delta
+				// of a tool_use block often has an empty partial_json (""), so match
+				// on the delta type rather than the truthiness of partial_json.
+				const partialJson = data.delta.partial_json ?? "";
 				// Skip partial_json deltas for server_tool_use blocks (e.g. web search)
 				if (
 					serverToolUseIndices &&
@@ -245,7 +250,7 @@ export function transformStreamingToOpenai(
 										{
 											index: data.index ?? 0,
 											function: {
-												arguments: data.delta.partial_json,
+												arguments: partialJson,
 											},
 										},
 									],
@@ -730,6 +735,7 @@ export function transformStreamingToOpenai(
 		}
 
 		case "azure":
+		case "sakana":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -1342,6 +1348,8 @@ export function transformStreamingToOpenai(
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "granite":
+		case "tundra":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":

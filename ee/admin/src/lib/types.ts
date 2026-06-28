@@ -104,6 +104,10 @@ export type CostByModelTimeseriesResponse =
 	GetJsonResponse<"/admin/organizations/{orgId}/cost-by-model-timeseries">;
 export type ModelView = CostByModelTimeseriesResponse["modelView"];
 
+// Global stats
+export type GlobalStatsResponse = GetJsonResponse<"/admin/global-stats">;
+export type GlobalStatsModelView = GlobalStatsResponse["modelView"];
+
 // Model-Provider Mappings
 export type ModelProviderMappingsResponse =
 	GetJsonResponse<"/admin/model-provider-mappings">;

@@ -21,10 +21,24 @@ const contactFormSchema = z.object({
 	email: z.string().email("Invalid email address"),
 	country: z.string().min(1, "Please select a country"),
 	size: z.string().min(1, "Please select company size"),
+	deployment: z.enum(["self_host", "cloud", "not_sure"]).optional(),
 	message: z.string().min(10, "Message must be at least 10 characters"),
 	honeypot: z.string().optional(),
 	timestamp: z.number().optional(),
 });
+
+const deploymentLabels: Record<string, string> = {
+	self_host: "Self-hosted",
+	cloud: "Cloud (managed)",
+	not_sure: "Not sure yet",
+};
+
+function deploymentLabel(value: string | undefined): string | null {
+	if (!value) {
+		return null;
+	}
+	return deploymentLabels[value] ?? value;
+}
 
 const contactResponseSchema = z.object({
 	success: z.boolean(),
@@ -192,6 +206,7 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 				email: validatedData.email,
 				country: validatedData.country,
 				size: validatedData.size,
+				deployment: validatedData.deployment ?? null,
 				message: validatedData.message,
 				honeypot: validatedData.honeypot ?? null,
 				clientTimestampMs: validatedData.timestamp?.toString() ?? null,
@@ -333,6 +348,15 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 						<div class="value">${escapeHtml(validatedData.size)}</div>
 					</div>
 
+					${
+						deploymentLabel(validatedData.deployment)
+							? `<div class="field">
+						<div class="label">Deployment:</div>
+						<div class="value">${escapeHtml(deploymentLabel(validatedData.deployment)!)}</div>
+					</div>`
+							: ""
+					}
+
 					<div class="field">
 						<div class="label">Message:</div>
 						<div class="value" style="white-space: pre-wrap;">${escapeHtml(validatedData.message)}</div>
@@ -386,6 +410,7 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 		email: validatedData.email,
 		country: validatedData.country,
 		size: validatedData.size,
+		deployment: deploymentLabel(validatedData.deployment),
 		message: validatedData.message,
 		ipAddress,
 	}).catch((err) => {

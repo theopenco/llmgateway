@@ -175,6 +175,138 @@ export function buildModelTimeseries(
 	return { models: topModels, data };
 }
 
+// --- Generic dimension breakdown (org-level analytics) ---------------------
+// The org activity endpoint returns one breakdown per day keyed by the chosen
+// dimension (model, project, or API key). These helpers mirror the model ones
+// but stay dimension-agnostic, keyed by a stable id with a display label.
+
+export interface DimensionEntry {
+	key: string;
+	label: string;
+	cost: number;
+	requestCount: number;
+	totalTokens: number;
+}
+
+export interface DimensionRow {
+	date: string;
+	breakdown: DimensionEntry[];
+}
+
+export interface DimensionAggregate {
+	key: string;
+	label: string;
+	cost: number;
+	requestCount: number;
+	totalTokens: number;
+}
+
+export interface DimensionAggregateResult {
+	items: DimensionAggregate[];
+	totalCost: number;
+	totalRequests: number;
+	totalTokens: number;
+}
+
+export function aggregateByDimension(
+	rows: DimensionRow[],
+	metric: ChartMetric = "cost",
+	limit = 20,
+): DimensionAggregateResult {
+	const byKey = new Map<string, DimensionAggregate>();
+	let totalCost = 0;
+	let totalRequests = 0;
+	let totalTokens = 0;
+
+	for (const row of rows) {
+		for (const entry of row.breakdown) {
+			const agg = byKey.get(entry.key) ?? {
+				key: entry.key,
+				label: entry.label,
+				cost: 0,
+				requestCount: 0,
+				totalTokens: 0,
+			};
+			agg.cost += entry.cost;
+			agg.requestCount += entry.requestCount;
+			agg.totalTokens += entry.totalTokens;
+			byKey.set(entry.key, agg);
+			totalCost += entry.cost;
+			totalRequests += entry.requestCount;
+			totalTokens += entry.totalTokens;
+		}
+	}
+
+	// Rank by the metric being viewed so Requests/Tokens views surface the right
+	// top-N, not the top spenders.
+	const items = Array.from(byKey.values())
+		.sort((a, b) => b[metric] - a[metric])
+		.slice(0, limit);
+
+	return { items, totalCost, totalRequests, totalTokens };
+}
+
+export interface DimensionTimePoint {
+	timestamp: string;
+	entries: Record<
+		string,
+		{ cost: number; requestCount: number; totalTokens: number }
+	>;
+}
+
+export interface DimensionTimeseriesResult {
+	series: { key: string; label: string }[];
+	data: DimensionTimePoint[];
+}
+
+export function buildDimensionTimeseries(
+	rows: DimensionRow[],
+	metric: ChartMetric = "cost",
+	topN = 10,
+): DimensionTimeseriesResult {
+	const totalsByKey = new Map<string, number>();
+	const labelByKey = new Map<string, string>();
+	for (const row of rows) {
+		for (const entry of row.breakdown) {
+			totalsByKey.set(
+				entry.key,
+				(totalsByKey.get(entry.key) ?? 0) + entry[metric],
+			);
+			labelByKey.set(entry.key, entry.label);
+		}
+	}
+
+	const topKeys = Array.from(totalsByKey.entries())
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, topN)
+		.map(([k]) => k);
+	const topSet = new Set(topKeys);
+
+	const data: DimensionTimePoint[] = rows.map((row) => {
+		const entries: DimensionTimePoint["entries"] = {};
+		for (const entry of row.breakdown) {
+			if (!topSet.has(entry.key)) {
+				continue;
+			}
+			const existing = entries[entry.key] ?? {
+				cost: 0,
+				requestCount: 0,
+				totalTokens: 0,
+			};
+			existing.cost += entry.cost;
+			existing.requestCount += entry.requestCount;
+			existing.totalTokens += entry.totalTokens;
+			entries[entry.key] = existing;
+		}
+		return { timestamp: row.date, entries };
+	});
+
+	return {
+		series: topKeys.map((key) => ({ key, label: labelByKey.get(key) ?? key })),
+		data,
+	};
+}
+
 export function sanitizeKey(model: string): string {
 	// Encode each non-alphanumeric char as its code point so distinct model ids
 	// (e.g. "claude-3.5" vs "claude-3-5") can't collapse into the same key and

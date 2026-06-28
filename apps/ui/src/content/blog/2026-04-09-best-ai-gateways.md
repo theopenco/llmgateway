@@ -2,12 +2,12 @@
 id: blog-best-ai-gateways
 slug: best-ai-gateways
 date: 2026-04-09
-title: "7 Best AI Gateways in 2026 (Compared)"
+title: "8 Best AI Gateways in 2026 (Compared)"
 summary: "An honest comparison of the top AI gateways — features, pricing, and trade-offs — so you can pick the right one for your stack."
 categories: ["Guides"]
 image:
   src: "/blog/best-ai-gateways.png"
-  alt: "7 Best AI Gateways in 2026 (Compared)"
+  alt: "8 Best AI Gateways in 2026 (Compared)"
   width: 1024
   height: 1024
 ---
@@ -16,7 +16,7 @@ Calling LLM providers directly works until it doesn't. The moment you're managin
 
 But not all AI gateways are created equal. Some are pure proxies. Some lock you into their ecosystem. Some charge you for features that should be free.
 
-We evaluated seven AI gateways on what actually matters: provider coverage, pricing transparency, self-hosting, observability, and how fast you can get started.
+We evaluated eight AI gateways on what actually matters: provider coverage, pricing transparency, self-hosting, observability, and how fast you can get started.
 
 ## 1. LLM Gateway
 
@@ -71,12 +71,12 @@ OpenRouter aggregates models from many providers and offers a unified API. It ha
 **Weaknesses:**
 
 - Not open source — you can't self-host or audit the code
-- Adds markup on top of provider pricing
-- No BYOK option — you always pay through OpenRouter
-- Limited observability compared to dedicated gateway solutions
-- No built-in caching layer
+- Charges a 5.5% fee on credit purchases (no per-token markup)
+- BYOK is free up to 1M requests/month, then a 5% fee
+- Observability has improved (request logs, exports, OpenTelemetry) but lives behind its own dashboard
+- Response caching is newer and still in beta
 
-**Pricing:** Pay-per-token with OpenRouter's markup on top of provider costs.
+**Pricing:** Pay-as-you-go with a 5.5% credit-purchase fee; provider token rates pass through with no markup.
 
 **Best for:** Developers who want quick access to a wide variety of models and don't need self-hosting.
 
@@ -97,10 +97,10 @@ Portkey positions itself as an AI gateway for enterprises, with emphasis on obse
 
 **Weaknesses:**
 
-- Closed source
+- The gateway and much of the platform are open source (MIT), but persistent observability storage and compliance stay in the managed cloud
 - Enterprise pricing can be opaque
 - Heavier setup compared to simpler gateways
-- Vendor lock-in concerns for critical infrastructure
+- Now part of Palo Alto Networks (acquired May 2026) — a consideration if you prefer an independent vendor
 
 **Pricing:** Free tier with limited requests. Paid plans for higher volume and enterprise features.
 
@@ -124,9 +124,9 @@ LiteLLM is an open-source Python proxy that translates OpenAI-compatible request
 **Weaknesses:**
 
 - Python-only — heavier runtime for deployment
-- Limited built-in analytics and dashboard
+- Built-in usage dashboard and spend logs, though deeper observability still leans on integrations
 - No managed hosting — you handle infrastructure yourself
-- Caching and observability require additional setup
+- Caching is built in, but you configure and run the backend yourself
 - Less polished developer experience
 
 **Pricing:** Free and open source. You pay for your own infrastructure.
@@ -139,7 +139,7 @@ LiteLLM is an open-source Python proxy that translates OpenAI-compatible request
 
 **Observability-first with proxy capabilities.**
 
-Helicone started as an LLM observability platform and added gateway features. It excels at logging, monitoring, and cost tracking.
+Helicone started as an LLM observability platform and added gateway features. It excels at logging, monitoring, and cost tracking. Note: Helicone was acquired by Mintlify in 2026 and is now in maintenance mode rather than active development.
 
 **Strengths:**
 
@@ -150,8 +150,8 @@ Helicone started as an LLM observability platform and added gateway features. It
 
 **Weaknesses:**
 
-- Gateway routing is secondary to observability
-- Limited failover and load-balancing capabilities
+- In maintenance mode since the 2026 Mintlify acquisition — not actively developed
+- Gateway routing has historically been secondary to observability
 - Not designed as a full gateway replacement
 - Can become expensive at high request volumes
 
@@ -161,7 +161,33 @@ Helicone started as an LLM observability platform and added gateway features. It
 
 ---
 
-## 6. Cloudflare AI Gateway
+## 6. Vercel AI Gateway
+
+**Zero markup, deep AI SDK integration.**
+
+Vercel AI Gateway routes to hundreds of models across 45+ providers through one endpoint, with both OpenAI- and Anthropic-compatible APIs. It went GA in 2025 and is the default provider for the Vercel AI SDK.
+
+**Strengths:**
+
+- Zero markup on tokens — including with your own keys (BYOK)
+- First-class Vercel AI SDK integration (`@ai-sdk/gateway`)
+- Automatic failover, provider routing, and automatic caching
+- Observability and spend monitoring built in
+
+**Weaknesses:**
+
+- Not open source or self-hostable — managed cloud only
+- Credits and BYOK are tied to a Vercel team account
+- Some governance features (custom reporting, team-wide ZDR/allowlists) cost extra
+- Strongest when you're already in the Vercel/Next.js ecosystem
+
+**Pricing:** Pay-as-you-go credits with no token markup. Paid add-ons for custom reporting and team-wide governance.
+
+**Best for:** Teams building on the Vercel AI SDK who want zero markup and tight ecosystem integration.
+
+---
+
+## 7. Cloudflare AI Gateway
 
 **Edge-based with Cloudflare ecosystem integration.**
 
@@ -188,7 +214,7 @@ Cloudflare AI Gateway leverages their edge network to proxy and cache LLM reques
 
 ---
 
-## 7. AWS Bedrock
+## 8. AWS Bedrock
 
 **Cloud-native for AWS shops.**
 
@@ -217,18 +243,18 @@ AWS Bedrock provides access to foundation models through AWS infrastructure. It'
 
 ## Comparison Table
 
-| Feature                 | LLM Gateway | OpenRouter | Portkey | LiteLLM | Helicone | Cloudflare AI GW | AWS Bedrock |
-| ----------------------- | ----------- | ---------- | ------- | ------- | -------- | ---------------- | ----------- |
-| **Open Source**         | Yes         | No         | No      | Yes     | No       | No               | No          |
-| **Self-Hostable**       | Yes         | No         | No      | Yes     | No       | No               | No          |
-| **BYOK (No Markup)**    | Yes         | No         | No      | Yes     | N/A      | No               | N/A         |
-| **OpenAI-Compatible**   | Yes         | Yes        | Yes     | Yes     | Yes      | Yes              | No          |
-| **Built-in Caching**    | Yes         | No         | Yes     | Manual  | No       | Yes              | No          |
-| **Analytics Dashboard** | Yes         | Basic      | Yes     | Limited | Yes      | Basic            | CloudWatch  |
-| **Automatic Failover**  | Yes         | Limited    | Yes     | Manual  | No       | No               | No          |
-| **Guardrails**          | Yes         | No         | Yes     | No      | No       | No               | Yes         |
-| **Models**              | 300+        | 200+       | 200+    | 100+    | N/A      | ~20              | ~30         |
-| **Playground**          | Yes         | Yes        | No      | No      | No       | No               | Yes         |
+| Feature                 | LLM Gateway | OpenRouter | Portkey | LiteLLM  | Helicone | Vercel AI GW | Cloudflare AI GW | AWS Bedrock |
+| ----------------------- | ----------- | ---------- | ------- | -------- | -------- | ------------ | ---------------- | ----------- |
+| **Open Source**         | Yes         | No         | Partial | Yes      | Yes      | No           | No               | No          |
+| **Self-Hostable**       | Yes         | No         | Partial | Yes      | Yes      | No           | No               | No          |
+| **BYOK (No Markup)**    | Yes         | After 1M   | Yes     | Yes      | N/A      | Yes          | No               | N/A         |
+| **OpenAI-Compatible**   | Yes         | Yes        | Yes     | Yes      | Yes      | Yes          | Yes              | No          |
+| **Built-in Caching**    | Yes         | Beta       | Yes     | Built-in | No       | Yes          | Yes              | No          |
+| **Analytics Dashboard** | Yes         | Yes        | Yes     | Built-in | Yes      | Yes          | Basic            | CloudWatch  |
+| **Automatic Failover**  | Yes         | Yes        | Yes     | Config   | Limited  | Yes          | No               | No          |
+| **Guardrails**          | Yes         | Enterprise | Yes     | No       | No       | No           | No               | Yes         |
+| **Models**              | 300+        | 400+       | 1,600+  | 100+     | N/A      | Hundreds     | ~20              | ~30         |
+| **Playground**          | Yes         | Yes        | No      | No       | No       | Yes          | No               | Yes         |
 
 ## How to Choose
 
@@ -240,7 +266,9 @@ AWS Bedrock provides access to foundation models through AWS infrastructure. It'
 
 **You're locked into a cloud provider:** AWS Bedrock makes sense if your entire stack is AWS and you need models within that boundary. Just know you're trading flexibility for integration.
 
-**You're cost-conscious:** Gateways that support BYOK (LLM Gateway, LiteLLM) let you avoid middleman markup entirely. Over thousands of daily requests, the savings compound fast.
+**You're on the Vercel AI SDK:** Vercel AI Gateway is the natural fit with zero token markup — though you trade away self-hosting and bring-your-own-infrastructure options.
+
+**You're cost-conscious:** Gateways that support BYOK (LLM Gateway, LiteLLM, Vercel) let you avoid middleman markup entirely. Over thousands of daily requests, the savings compound fast.
 
 ---
 

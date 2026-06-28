@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="138" height="20" role="img" aria-label="powered by: DevPass">
+	<title>powered by: DevPass</title>
+	<linearGradient id="s" x2="0" y2="100%">
+		<stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+		<stop offset="1" stop-opacity=".1"/>
+	</linearGradient>
+	<clipPath id="r">
+		<rect width="138" height="20" rx="3" fill="#fff"/>
+	</clipPath>
+	<g clip-path="url(#r)">
+		<rect width="73" height="20" fill="#2d2d33"/>
+		<rect x="73" width="65" height="20" fill="#10b981"/>
+		<rect width="138" height="20" fill="url(#s)"/>
+	</g>
+	<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+		<text x="36.5" y="14">powered by</text>
+		<text x="105.5" y="14" font-weight="bold">DevPass</text>
+	</g>
+</svg>

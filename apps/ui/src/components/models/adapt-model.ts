@@ -62,6 +62,7 @@ export function adaptProviderMapping(
 			imageInputTokensByResolution: p.imageInputTokensByResolution ?? null,
 			imageOutputTokensByResolution: p.imageOutputTokensByResolution ?? null,
 			requestPrice: toStr(p.requestPrice),
+			ocrPagePrice: toStr(p.ocrPagePrice),
 			contextSize: p.contextSize ?? null,
 			maxOutput: p.maxOutput ?? null,
 			streaming: p.streaming === "only" ? true : p.streaming,

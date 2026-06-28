@@ -920,6 +920,22 @@ export function ProviderSection({
 								/>
 							</div>
 						</div>
+						{activeMapping.ocrPagePrice !== null &&
+							activeMapping.ocrPagePrice !== undefined &&
+							Number(activeMapping.ocrPagePrice) > 0 && (
+								<div className="rounded-md bg-background border border-border/30 p-2 flex items-baseline justify-between">
+									<span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+										OCR
+									</span>
+									<span className="font-mono tabular-nums text-sm">
+										${(Number(activeMapping.ocrPagePrice) * 1000).toFixed(2)}
+										<span className="text-muted-foreground text-xs">
+											{" "}
+											/1K pages
+										</span>
+									</span>
+								</div>
+							)}
 					</div>
 				)}
 

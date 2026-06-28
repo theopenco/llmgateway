@@ -8,6 +8,7 @@ import { ComparisonTable } from "@/components/ComparisonTable";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { CodeCTATracker } from "@/components/LandingTracker";
+import { SwitchIn60 } from "@/components/SwitchIn60";
 import { Button } from "@/components/ui/button";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
@@ -305,6 +306,9 @@ export default async function ComparePage({ params }: ComparePageProps) {
 						</div>
 					</section>
 				)}
+
+				{/* Switch in 60 seconds */}
+				<SwitchIn60 />
 
 				{/* CTA */}
 				<section className="border-t px-4 py-20">

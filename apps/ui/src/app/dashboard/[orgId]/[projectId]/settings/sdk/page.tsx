@@ -33,13 +33,14 @@ export default async function SdkPage({
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="mx-auto max-w-3xl space-y-6">
 					<div className="flex items-center justify-between">
-						<h2 className="text-3xl font-bold tracking-tight">SDK</h2>
+						<h2 className="text-3xl font-bold tracking-tight">Payments SDK</h2>
 					</div>
 					<Card>
 						<CardHeader>
-							<CardTitle>LLM SDK</CardTitle>
+							<CardTitle>Embeddable Payments</CardTitle>
 							<CardDescription>
-								Configure end-user sessions and platform secret keys for this
+								Embed end-user payments and sessions into your own site:
+								configure end-user sessions and platform secret keys for this
 								project.
 							</CardDescription>
 						</CardHeader>

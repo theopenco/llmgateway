@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Cpu, Layers, Server } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
-import type { TokenWindow } from "@/lib/types";
+import type { GlobalStatsModelView, TokenWindow } from "@/lib/types";
 
 export interface CostByModelEntry {
 	model: string;
@@ -49,15 +50,14 @@ const viewConfigs: Record<ActiveView, ChartConfig> = {
 	},
 };
 
-const windowOptions: { value: TokenWindow; label: string }[] = [
-	{ value: "1h", label: "1h" },
-	{ value: "4h", label: "4h" },
-	{ value: "12h", label: "12h" },
-	{ value: "1d", label: "24h" },
-	{ value: "7d", label: "7d" },
-	{ value: "30d", label: "30d" },
-	{ value: "90d", label: "90d" },
-	{ value: "365d", label: "365d" },
+const modelViewOptions: {
+	value: GlobalStatsModelView;
+	label: string;
+	icon: typeof Cpu;
+}[] = [
+	{ value: "mapping", label: "Mappings", icon: Layers },
+	{ value: "canonical", label: "Canonical", icon: Cpu },
+	{ value: "provider", label: "Providers", icon: Server },
 ];
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -72,42 +72,67 @@ export function CostByModelChart({
 	fetchData,
 	fetchDataRange,
 	externalWindow,
+	showModelView = false,
+	modelView: controlledModelView,
+	onModelViewChange,
+	forceRange = false,
 	from,
 	to,
 }: {
 	title: string;
 	description?: string;
-	fetchData: (window: TokenWindow) => Promise<CostByModelData | null>;
+	fetchData?: (
+		window: TokenWindow,
+		modelView: GlobalStatsModelView,
+	) => Promise<CostByModelData | null>;
 	fetchDataRange?: (
-		from: string,
-		to: string,
+		from: string | undefined,
+		to: string | undefined,
+		modelView: GlobalStatsModelView,
 	) => Promise<CostByModelData | null>;
 	externalWindow?: TokenWindow;
+	showModelView?: boolean;
+	modelView?: GlobalStatsModelView;
+	onModelViewChange?: (value: GlobalStatsModelView) => void;
+	forceRange?: boolean;
 	from?: string;
 	to?: string;
 }) {
 	const [data, setData] = useState<CostByModelData | null>(null);
 	const [loading, setLoading] = useState(true);
-	const [internalWindow, setInternalWindow] = useState<TokenWindow>("7d");
-	const window = externalWindow ?? internalWindow;
+	const window = externalWindow ?? "7d";
 	const [activeView, setActiveView] = useState<ActiveView>("cost");
-	const useDateRange = Boolean(from && to && fetchDataRange);
+	const [internalModelView, setInternalModelView] =
+		useState<GlobalStatsModelView>("mapping");
+	const modelView = controlledModelView ?? internalModelView;
+	const setModelView = onModelViewChange ?? setInternalModelView;
+	const useRange = forceRange || Boolean(from && to);
+	const requestIdRef = useRef(0);
 
 	const loadData = useCallback(async () => {
+		const requestId = ++requestIdRef.current;
 		setLoading(true);
 		try {
-			const result =
-				useDateRange && fetchDataRange
-					? await fetchDataRange(from!, to!)
-					: await fetchData(window);
-			setData(result);
+			let result: CostByModelData | null = null;
+			if (useRange && fetchDataRange) {
+				result = await fetchDataRange(from, to, modelView);
+			} else if (fetchData) {
+				result = await fetchData(window, modelView);
+			}
+			if (requestId === requestIdRef.current) {
+				setData(result);
+			}
 		} catch (error) {
 			console.error("Failed to load cost by model:", error);
-			setData(null);
+			if (requestId === requestIdRef.current) {
+				setData(null);
+			}
 		} finally {
-			setLoading(false);
+			if (requestId === requestIdRef.current) {
+				setLoading(false);
+			}
 		}
-	}, [fetchData, fetchDataRange, window, from, to, useDateRange]);
+	}, [fetchData, fetchDataRange, window, modelView, from, to, useRange]);
 
 	useEffect(() => {
 		void loadData();
@@ -146,37 +171,43 @@ export function CostByModelChart({
 							</div>
 						)}
 					</div>
-					{!externalWindow && !useDateRange && (
-						<div className="flex items-center gap-1">
-							{windowOptions.map((opt) => (
-								<Button
-									key={opt.value}
-									variant={window === opt.value ? "default" : "outline"}
-									size="sm"
-									className="h-7 px-2 text-xs"
-									onClick={() => setInternalWindow(opt.value)}
-								>
-									{opt.label}
-								</Button>
-							))}
+				</div>
+				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+					<div className="flex items-center gap-1">
+						{viewTabs.map((tab) => (
+							<button
+								key={tab.key}
+								className={cn(
+									"rounded-md px-3 py-1 text-xs font-medium transition-colors",
+									activeView === tab.key
+										? "bg-primary text-primary-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								onClick={() => setActiveView(tab.key)}
+							>
+								{tab.label}
+							</button>
+						))}
+					</div>
+					{showModelView && (
+						<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
+							{modelViewOptions.map((opt) => {
+								const Icon = opt.icon;
+								return (
+									<Button
+										key={opt.value}
+										variant={modelView === opt.value ? "default" : "ghost"}
+										size="sm"
+										className="h-7 gap-1.5 px-3 text-xs"
+										onClick={() => setModelView(opt.value)}
+									>
+										<Icon className="h-3.5 w-3.5" />
+										{opt.label}
+									</Button>
+								);
+							})}
 						</div>
 					)}
-				</div>
-				<div className="flex items-center gap-1 border-b pb-2">
-					{viewTabs.map((tab) => (
-						<button
-							key={tab.key}
-							className={cn(
-								"rounded-md px-3 py-1 text-xs font-medium transition-colors",
-								activeView === tab.key
-									? "bg-primary text-primary-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-							onClick={() => setActiveView(tab.key)}
-						>
-							{tab.label}
-						</button>
-					))}
 				</div>
 			</CardHeader>
 			<CardContent className="px-2 pb-4 sm:px-6">

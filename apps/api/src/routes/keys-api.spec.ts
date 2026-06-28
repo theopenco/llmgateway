@@ -37,11 +37,12 @@ describe("keys route", () => {
 			organizationId: "test-org-id",
 		});
 
-		// Create test project
+		// Create test project (Payments SDK preview opted in)
 		await db.insert(tables.project).values({
 			id: "test-project-id",
 			name: "Test Project",
 			organizationId: "test-org-id",
+			paymentsSdkEnabled: true,
 		});
 
 		// Create test API key
@@ -133,6 +134,35 @@ describe("keys route", () => {
 		});
 		expect(platformKey?.keyType).toBe("platform_secret");
 		expect(platformKey?.token).toBe(json.platformKey.token);
+	});
+
+	test("POST /keys/platform rejects projects without Payments SDK preview", async () => {
+		await db
+			.update(tables.project)
+			.set({ paymentsSdkEnabled: false })
+			.where(eq(tables.project.id, "test-project-id"));
+
+		const res = await app.request("/keys/platform", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				projectId: "test-project-id",
+				description: "LLM SDK test secret",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+
+		const platformKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-project-id" },
+				keyType: { eq: "platform_secret" },
+			},
+		});
+		expect(platformKeys).toHaveLength(0);
 	});
 
 	test("GET /keys/platform lists masked SDK platform secrets", async () => {

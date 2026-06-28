@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8cc802a8-b9a1-4a51-9d0e-be7db2b3194f",
-  "prevId": "f7abb653-34f3-4099-a888-8516e9d1e743",
+  "id": "9941b6e8-1b90-47d1-9136-745372ac24bd",
+  "prevId": "5f09f5a4-0433-4163-afa7-b1db1ed7c89e",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -4362,6 +4362,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "deployment",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "enterprise_contact_submission"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -7402,7 +7415,20 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "service_tier",
+      "name": "requested_service_tier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "used_service_tier",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
@@ -16710,19 +16736,6 @@
       "table": "video_job"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "log_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "video_job"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -21115,6 +21128,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "stripe_invoice_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"stripe_invoice_id\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "transaction_stripe_invoice_id_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "transaction"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
@@ -21254,27 +21288,6 @@
       "method": "btree",
       "concurrently": false,
       "name": "video_job_upstream_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "video_job"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "log_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "video_job_log_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "video_job"
@@ -22633,23 +22646,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "log_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "log",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "video_job_log_id_log_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "video_job"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -23965,6 +23961,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "chat_support_message"
+    },
+    {
+      "value": "\"deployment\" IS NULL OR \"deployment\" IN ('self_host', 'cloud', 'not_sure')",
+      "name": "enterprise_contact_submission_deployment_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "enterprise_contact_submission"
     },
     {
       "value": "\"rating\" >= 1 AND \"rating\" <= 5",
