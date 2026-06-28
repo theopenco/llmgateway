@@ -1677,6 +1677,97 @@ describe("stats-calculator", () => {
 			expect(gptCurrent?.errorsCount).toBe(1);
 		});
 
+		it("should clear hourly rows when their minute groups disappear", async () => {
+			// Stale hourly rows whose minute data has since dropped to zero.
+			// gpt-4/mapping-1 in the current hour (12:00) where other traffic
+			// remains, and claude/mapping-2 in the previous hour (11:00) which
+			// becomes entirely empty.
+			await db.insert(modelHistoryHourly).values([
+				{ modelId: "gpt-4", hourTimestamp: currentHour, logsCount: 50 },
+				{
+					modelId: "claude-3-5-sonnet",
+					hourTimestamp: previousHour,
+					logsCount: 30,
+				},
+			]);
+			await db.insert(modelProviderMappingHistoryHourly).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					hourTimestamp: currentHour,
+					logsCount: 50,
+				},
+				{
+					modelId: "claude-3-5-sonnet",
+					providerId: "anthropic",
+					modelProviderMappingId: "mapping-2",
+					hourTimestamp: previousHour,
+					logsCount: 30,
+				},
+			]);
+
+			// Only claude has minute traffic in the current hour; nothing in 11:00.
+			await db.insert(modelHistory).values({
+				modelId: "claude-3-5-sonnet",
+				minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+				logsCount: 3,
+			});
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "claude-3-5-sonnet",
+				providerId: "anthropic",
+				modelProviderMappingId: "mapping-2",
+				minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+				logsCount: 3,
+			});
+
+			await calculateHourlyHistory();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			// gpt-4 group vanished from the current hour → its stale row removed
+			expect(
+				modelHourly.find(
+					(r) =>
+						r.modelId === "gpt-4" &&
+						r.hourTimestamp.getTime() === currentHour.getTime(),
+				),
+			).toBeUndefined();
+			// claude's stale previous-hour row (now fully empty) removed
+			expect(
+				modelHourly.find(
+					(r) => r.hourTimestamp.getTime() === previousHour.getTime(),
+				),
+			).toBeUndefined();
+			// claude's current-hour row is recomputed from live minute data
+			expect(
+				modelHourly.find(
+					(r) =>
+						r.modelId === "claude-3-5-sonnet" &&
+						r.hourTimestamp.getTime() === currentHour.getTime(),
+				)?.logsCount,
+			).toBe(3);
+
+			const mappingHourly = await db
+				.select()
+				.from(modelProviderMappingHistoryHourly);
+			expect(
+				mappingHourly.find(
+					(r) =>
+						r.modelProviderMappingId === "mapping-1" &&
+						r.hourTimestamp.getTime() === currentHour.getTime(),
+				),
+			).toBeUndefined();
+			expect(
+				mappingHourly.find(
+					(r) => r.hourTimestamp.getTime() === previousHour.getTime(),
+				),
+			).toBeUndefined();
+			expect(
+				mappingHourly.find((r) => r.modelProviderMappingId === "mapping-2")
+					?.logsCount,
+			).toBe(3);
+		});
+
 		it("should roll up token totals exceeding the 32-bit integer range", async () => {
 			// Each minute fits in a 32-bit int, but the hourly sum (4e9) exceeds
 			// 2,147,483,647, which would throw if the rollup narrowed tokens to int.

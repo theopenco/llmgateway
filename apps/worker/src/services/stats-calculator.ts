@@ -936,8 +936,16 @@ export async function calculateCurrentMinuteHistory() {
  * model_history_hourly row per model. Idempotent: re-running an hour recomputes
  * its totals from the current minute data and overwrites the existing row.
  * @param targetHour Any time within the hour to aggregate
+ * @param reconcile When true, also delete hourly rows whose minute groups have
+ *   disappeared. Only safe for hours whose minute data is still authoritative
+ *   (the live current/previous hour) — minute history is pruned after 30 days
+ *   while the hourly rollup is kept forever, so reconciling a hour with pruned
+ *   minutes would wrongly drop retained data. Backfill leaves this off.
  */
-async function calculateModelHistoryForHour(targetHour: Date) {
+async function calculateModelHistoryForHour(
+	targetHour: Date,
+	reconcile = false,
+) {
 	const roundedHour = roundToHourStart(targetHour);
 	const hourEnd = new Date(roundedHour.getTime() + ONE_HOUR_MS);
 	const database = db;
@@ -987,6 +995,24 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 			});
 	}
 
+	// Drop any hourly row whose minute groups have since disappeared (e.g. the
+	// hour's only traffic was recomputed to zero), which the upsert above can't
+	// reach and would otherwise leave as a stale nonzero hour. Guarded by
+	// `reconcile` so it never runs for hours with pruned minute data.
+	if (reconcile) {
+		const presentModelIds = hourlyStats.map((row) => row.modelId);
+		await database
+			.delete(modelHistoryHourly)
+			.where(
+				presentModelIds.length > 0
+					? and(
+							eq(modelHistoryHourly.hourTimestamp, roundedHour),
+							notInArray(modelHistoryHourly.modelId, presentModelIds),
+						)
+					: eq(modelHistoryHourly.hourTimestamp, roundedHour),
+			);
+	}
+
 	return { totalModels: hourlyStats.length };
 }
 
@@ -994,8 +1020,14 @@ async function calculateModelHistoryForHour(targetHour: Date) {
  * Roll up one hour of model_provider_mapping_history (the 60 minute rows) into a
  * single model_provider_mapping_history_hourly row per mapping. Idempotent.
  * @param targetHour Any time within the hour to aggregate
+ * @param reconcile When true, also delete hourly rows whose minute groups have
+ *   disappeared. Only safe for hours whose minute data is still authoritative
+ *   (the live current/previous hour) — see calculateModelHistoryForHour.
  */
-async function calculateMappingHistoryForHour(targetHour: Date) {
+async function calculateMappingHistoryForHour(
+	targetHour: Date,
+	reconcile = false,
+) {
 	const roundedHour = roundToHourStart(targetHour);
 	const hourEnd = new Date(roundedHour.getTime() + ONE_HOUR_MS);
 	const database = db;
@@ -1061,15 +1093,41 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			});
 	}
 
+	// Drop any hourly row whose minute groups have since disappeared (e.g. the
+	// hour's only traffic was recomputed to zero), which the upsert above can't
+	// reach and would otherwise leave as a stale nonzero hour. Guarded by
+	// `reconcile` so it never runs for hours with pruned minute data.
+	if (reconcile) {
+		const presentMappingIds = hourlyStats.map(
+			(row) => row.modelProviderMappingId,
+		);
+		await database
+			.delete(modelProviderMappingHistoryHourly)
+			.where(
+				presentMappingIds.length > 0
+					? and(
+							eq(modelProviderMappingHistoryHourly.hourTimestamp, roundedHour),
+							notInArray(
+								modelProviderMappingHistoryHourly.modelProviderMappingId,
+								presentMappingIds,
+							),
+						)
+					: eq(modelProviderMappingHistoryHourly.hourTimestamp, roundedHour),
+			);
+	}
+
 	return { totalMappings: hourlyStats.length };
 }
 
 /**
  * Roll up a single hour of minute history into the hourly summary tables.
  */
-async function calculateHistoryForHour(targetHour: Date) {
-	const mappingResult = await calculateMappingHistoryForHour(targetHour);
-	const modelResult = await calculateModelHistoryForHour(targetHour);
+async function calculateHistoryForHour(targetHour: Date, reconcile = false) {
+	const mappingResult = await calculateMappingHistoryForHour(
+		targetHour,
+		reconcile,
+	);
+	const modelResult = await calculateModelHistoryForHour(targetHour, reconcile);
 	return { mappingResult, modelResult };
 }
 
@@ -1083,8 +1141,10 @@ export async function calculateHourlyHistory() {
 	const previousHourStart = new Date(currentHourStart.getTime() - ONE_HOUR_MS);
 
 	try {
-		await calculateHistoryForHour(previousHourStart);
-		await calculateHistoryForHour(currentHourStart);
+		// Reconcile only the live current/previous hour, where minute data is still
+		// authoritative, so a group that dropped to zero clears its stale hourly row.
+		await calculateHistoryForHour(previousHourStart, true);
+		await calculateHistoryForHour(currentHourStart, true);
 
 		logger.debug(
 			`Recorded hourly history for ${previousHourStart.toISOString()} and ${currentHourStart.toISOString()}`,
