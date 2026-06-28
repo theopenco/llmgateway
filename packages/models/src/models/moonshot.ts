@@ -128,8 +128,6 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				// 404 resource_not_found: Moonshot retired the kimi-k2-thinking line
-				// (thinking now folded into kimi-k2.6/k2.7); no longer in /v1/models.
 				deactivatedAt: new Date("2026-06-28"),
 			},
 			{
@@ -146,8 +144,6 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
-				// 404 InvalidEndpointOrModel.NotFound: BytePlus Ark dropped every
-				// kimi-k2-thinking snapshot (-251104 included) alongside Moonshot.
 				deactivatedAt: new Date("2026-06-28"),
 			},
 			{
@@ -192,8 +188,6 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				// 404 resource_not_found: retired with the rest of the
-				// kimi-k2-thinking line; no longer in Moonshot /v1/models.
 				deactivatedAt: new Date("2026-06-28"),
 			},
 		],
