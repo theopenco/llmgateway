@@ -934,7 +934,7 @@ export function parseProviderResponse(
 				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
-				// Only for models that were failing tests: glm-4.5-airx and glm-4.5-flash
+				// Only for models that were failing tests: glm-4.5-airx
 				if (
 					usedProvider === "zai" &&
 					finishReason === "tool_calls" &&
@@ -944,10 +944,7 @@ export function parseProviderResponse(
 					const externalId = json.model;
 
 					// Only apply to specific failing models and only when last message was a tool result
-					if (
-						(externalId === "glm-4.5-airx" || externalId === "glm-4.5-flash") &&
-						lastMessage?.role === "tool"
-					) {
+					if (externalId === "glm-4.5-airx" && lastMessage?.role === "tool") {
 						// Check if the response actually contains new tool calls that should be prevented
 						const hasNewToolCalls =
 							json.choices?.[0]?.message?.tool_calls?.length > 0;
