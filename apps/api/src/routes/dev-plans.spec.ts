@@ -400,4 +400,59 @@ describe("dev plan tier changes", () => {
 		});
 		expect(transaction?.creditAmount).toBe("75");
 	});
+
+	it("rejects a second tier change within the same billing cycle", async () => {
+		// A tier change already happened this cycle (e.g. a downgrade), so
+		// re-upgrading must be blocked before any Stripe charge.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_downgrade",
+			status: "completed",
+			description: "Changed from pro to lite plan",
+		});
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "lite",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: {
+							id: "price_lite",
+						},
+					},
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+			}),
+		});
+
+		expect(res.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+	});
 });

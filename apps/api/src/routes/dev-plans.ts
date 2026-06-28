@@ -1065,6 +1065,27 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
+		// Allow only one tier change per billing cycle. Repeatedly downgrading and
+		// re-upgrading within a cycle re-charges the user for a tier they still
+		// effectively hold and churns the prorated credit accounting. The Stripe
+		// period start is the authoritative cycle boundary — it stays stable across
+		// mid-cycle price swaps (proration is suppressed), so any prior tier-change
+		// transaction since then means a change already happened this cycle.
+		const cycleStart = new Date(subscriptionItem.current_period_start * 1000);
+		const priorChangeThisCycle = await db.query.transaction.findFirst({
+			where: {
+				organizationId: { eq: personalOrg.id },
+				type: { in: ["dev_plan_upgrade", "dev_plan_downgrade"] },
+				createdAt: { gte: cycleStart },
+			},
+		});
+		if (priorChangeThisCycle) {
+			throw new HTTPException(409, {
+				message:
+					"You can only change your plan once per billing cycle. Your next change takes effect at renewal.",
+			});
+		}
+
 		const remainingFraction =
 			getRemainingBillingPeriodFraction(subscriptionItem);
 		const amountDueCents = isUpgrade
