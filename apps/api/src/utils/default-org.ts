@@ -26,11 +26,14 @@ function isActiveDashboardOrganization(userOrganization: {
 // flows that only need to read the default org's settings (e.g. resolving
 // DevPass invoice billing details) and must not create rows in a webhook.
 //
-// When `userEmail` is provided, prefer the organization whose `billingEmail`
-// matches the user's own email. This is a much stronger signal than the
-// arbitrary first-active match, which can be a false positive since a user can
-// join/leave multiple organizations they don't own. Only fall back to the
-// first-active organization when no billing-email match exists.
+// When `userEmail` is provided, prefer the organization the user owns whose
+// `billingEmail` matches the user's own email. This is a much stronger signal
+// than the arbitrary first-active match, which can be a false positive since a
+// user can join/leave multiple organizations they don't own. Requiring
+// ownership prevents mirroring invoice details from someone else's org that
+// merely happens to carry this user's email as its billing email. Only fall
+// back to the first-active organization when no owned billing-email match
+// exists.
 export async function findDefaultOrganization(
 	userId: string,
 	userEmail?: string,
@@ -48,6 +51,7 @@ export async function findDefaultOrganization(
 		const byBillingEmail = userOrganizations.find(
 			(userOrganization) =>
 				isActiveDashboardOrganization(userOrganization) &&
+				userOrganization.role === "owner" &&
 				userOrganization.organization.billingEmail === userEmail,
 		);
 

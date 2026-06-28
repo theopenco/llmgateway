@@ -128,8 +128,13 @@ export function OnboardingWizard() {
 				},
 				body: JSON.stringify({
 					model: "auto",
-					messages: [{ role: "user", content: prompt.trim() }],
-					max_tokens: 200,
+					messages: [
+						{
+							role: "system",
+							content: "Keep your answer short and under 2 sentences.",
+						},
+						{ role: "user", content: prompt.trim() },
+					],
 					stream: true,
 					free_models_only: true,
 					onboarding: true,

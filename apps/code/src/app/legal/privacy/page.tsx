@@ -3,25 +3,47 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Privacy Policy — DevPass",
 	description:
-		"How DevPass collects, uses, and protects your data — including request retention, AI provider routing, cookies, and your privacy rights.",
+		"Supplemental DevPass Privacy Policy. It builds on the LLM Gateway Privacy Policy and covers DevPass-specific request retention, per-agent metadata, AI provider routing, and sub-processors.",
 	alternates: { canonical: "/legal/privacy" },
 };
 
 export default function PrivacyPage() {
 	return (
 		<>
-			<h1>Privacy Policy</h1>
+			<h1>DevPass Supplemental Privacy Policy</h1>
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> June 5, 2026
+				<strong>Last Updated:</strong> June 26, 2026
 			</p>
 			<p>
-				This Privacy Policy describes how <strong>LLM Gateway</strong>{" "}
-				(&ldquo;we&rdquo;, &ldquo;our&rdquo;, or &ldquo;us&rdquo;) collects,
-				uses, and protects information when you use <strong>DevPass</strong>,
-				our flat-rate subscription for AI coding tools, available at{" "}
+				This Supplemental Privacy Policy describes how{" "}
+				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or
+				&ldquo;us&rdquo;) collects, uses, and protects information when you use{" "}
+				<strong>DevPass</strong>, our flat-rate subscription for AI coding
+				tools, available at{" "}
 				<a href="https://devpass.llmgateway.io">devpass.llmgateway.io</a>.
+			</p>
+			<p>
+				<strong>
+					This DevPass Privacy Policy is an addendum to, and incorporates by
+					reference, the main{" "}
+					<a href="https://llmgateway.io/privacy">LLM Gateway Privacy Policy</a>{" "}
+					(the &ldquo;Base Policy&rdquo;), which forms the base of how we handle
+					your data.
+				</strong>{" "}
+				The Base Policy applies in full to DevPass and governs all topics not
+				specifically addressed here — including our role as controller and
+				processor, legal bases for processing, your privacy rights (GDPR,
+				UK&nbsp;GDPR, CCPA/CPRA), security, international transfers, and
+				children&rsquo;s privacy. This DevPass Privacy Policy only adds DevPass-
+				specific detail to the Base Policy.
+			</p>
+			<p>
+				<strong>Order of precedence.</strong> If there is a direct conflict
+				between this DevPass Privacy Policy and the Base Policy with respect to
+				DevPass, this DevPass Privacy Policy controls for that conflict only. In
+				all other respects, the Base Policy remains in full force and effect.
 			</p>
 			<hr />
 			<h2>1. Information We Collect</h2>
@@ -91,9 +113,9 @@ export default function PrivacyPage() {
 				</li>
 			</ul>
 			<p>
-				We do <strong>not</strong> sell your personal data, and we do{" "}
-				<strong>not</strong> use your prompts or completions to train any model
-				of ours.
+				As stated in the Base Policy, we do <strong>not</strong> sell your
+				personal data, and we do <strong>not</strong> use your prompts or
+				completions to train any model of ours.
 			</p>
 			<hr />
 			<h2>3. Sharing With AI Providers</h2>
@@ -103,7 +125,9 @@ export default function PrivacyPage() {
 				provider applies its own privacy and data-retention policy to that
 				traffic. We pass through provider-side opt-outs where supported (for
 				example, &ldquo;no training&rdquo; flags). You are responsible for
-				reviewing the privacy policies of any provider you use.
+				reviewing the privacy policies of any provider you use. The Base
+				Policy&rsquo;s sections on AI Providers and on stealth/undisclosed
+				providers also apply to DevPass.
 			</p>
 			<hr />
 			<h2>4. Sub-processors</h2>
@@ -129,6 +153,9 @@ export default function PrivacyPage() {
 			</p>
 			<hr />
 			<h2>5. Data Retention</h2>
+			<p>
+				This section supplements the Base Policy&rsquo;s Data Retention terms:
+			</p>
 			<ul>
 				<li>
 					<strong>Account and billing data</strong> — kept for the life of your
@@ -153,65 +180,17 @@ export default function PrivacyPage() {
 				</li>
 			</ul>
 			<hr />
-			<h2>6. Security</h2>
+			<h2>6. Your Rights and Contact</h2>
 			<p>
-				We use TLS in transit, encrypted database storage at rest, scoped API
-				keys, and isolated per-organization data access controls. No system is
-				perfectly secure — please report suspected vulnerabilities to{" "}
-				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a>.
-			</p>
-			<hr />
-			<h2>7. Your Rights</h2>
-			<p>
-				Depending on your jurisdiction (GDPR, UK GDPR, CCPA, and others), you
-				may have the right to:
-			</p>
-			<ul>
-				<li>Access, correct, or delete your personal data</li>
-				<li>Export a copy of your data</li>
-				<li>Object to or restrict certain processing</li>
-				<li>Withdraw consent for marketing communications</li>
-			</ul>
-			<p>
-				To exercise these rights, email{" "}
+				Your privacy rights (including access, correction, deletion, export,
+				objection, and the right to lodge a complaint with a supervisory
+				authority), our security practices, and international transfer
+				safeguards are described in the{" "}
+				<a href="https://llmgateway.io/privacy">LLM Gateway Privacy Policy</a>{" "}
+				and apply to DevPass. To exercise any of these rights, or for questions
+				about this Policy, email{" "}
 				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a> from
-				the address associated with your account. We will honor erasure requests
-				except where we are legally obliged to retain data — in particular,
-				records of credits you purchased and spent are kept to comply with tax
-				and accounting law (see Section 5) and cannot be deleted on request
-				during the statutory retention period. If you are in the EU/EEA or UK,
-				you also have the right to lodge a complaint with your data protection
-				supervisory authority.
-			</p>
-			<hr />
-			<h2>8. International Transfers</h2>
-			<p>
-				DevPass is operated from the United States; AI providers we route to may
-				be located in the US, EU, or other regions. Where required, we rely on
-				Standard Contractual Clauses or equivalent mechanisms for cross-border
-				transfers.
-			</p>
-			<hr />
-			<h2>9. Children&rsquo;s Privacy</h2>
-			<p>
-				DevPass is not intended for children under 16 (or the local age of
-				digital consent). We do not knowingly collect data from children.
-			</p>
-			<hr />
-			<h2>10. Changes to This Policy</h2>
-			<p>
-				We may update this Policy from time to time. The latest version is
-				always available at{" "}
-				<a href="https://devpass.llmgateway.io/legal/privacy">
-					devpass.llmgateway.io/legal/privacy
-				</a>
-				. Material changes will be communicated by email or in-app notice.
-			</p>
-			<hr />
-			<h2>11. Contact</h2>
-			<p>
-				Questions about this Policy? Email{" "}
-				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a>.
+				the address associated with your account.
 			</p>
 			<p>© 2026 LLM Gateway. All rights reserved.</p>
 		</>

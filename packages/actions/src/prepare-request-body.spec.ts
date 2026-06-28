@@ -1880,6 +1880,53 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		]);
 	});
 
+	test("forwards base64 image blocks as Bedrock image content", async () => {
+		const pngBase64 =
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What is in this image?" },
+						{
+							type: "image_url",
+							image_url: {
+								url: `data:image/png;base64,${pngBase64}`,
+							},
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What is in this image?" },
+			{
+				image: {
+					format: "png",
+					source: { bytes: pngBase64 },
+				},
+			},
+		]);
+	});
+
 	test("suppresses heuristic cachePoints when caller supplies a 1h ttl marker in messages", async () => {
 		const longContent = "A".repeat(5000);
 		const requestBody = (await prepareRequestBody(

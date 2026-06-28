@@ -1,3 +1,4 @@
+import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	models,
@@ -21,6 +22,7 @@ import {
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
+import { processImageUrl } from "./process-image-url.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
@@ -138,6 +140,30 @@ async function fetchImageAsBlob(
 		blob: new Blob([buffer], { type: mimeType }),
 		filename: `image-${index}.${ext}`,
 	};
+}
+
+/**
+ * Maps an image MIME type to the AWS Bedrock Converse API image `format` enum.
+ * Bedrock only accepts the bare subtype ("png", not "image/png") and supports a
+ * fixed set of formats. Returns undefined for anything Bedrock cannot render so
+ * the caller can skip the block instead of sending an invalid request.
+ */
+function bedrockImageFormat(mimeType: string): string | undefined {
+	// processImageUrl returns the raw Content-Type for remote fetches, which can
+	// carry parameters (e.g. "image/png; charset=binary"). Strip them first.
+	switch (mimeType.toLowerCase().split(";", 1)[0].trim()) {
+		case "image/png":
+			return "png";
+		case "image/jpeg":
+		case "image/jpg":
+			return "jpeg";
+		case "image/gif":
+			return "gif";
+		case "image/webp":
+			return "webp";
+		default:
+			return undefined;
+	}
 }
 
 /**
@@ -2368,7 +2394,7 @@ export async function prepareRequestBody(
 					}
 				} else if (Array.isArray(msg.content)) {
 					// Handle multi-part content (text + images)
-					msg.content.forEach((part: any) => {
+					for (const part of msg.content as any[]) {
 						if (part.type === "text") {
 							if (part.text && part.text.trim()) {
 								// Add text block first
@@ -2397,12 +2423,51 @@ export async function prepareRequestBody(
 									}
 								}
 							}
-						} else if (part.type === "image_url") {
-							// Bedrock uses a different image format
-							// For now, skip images or handle them differently
-							// This would need additional implementation for vision support
+						} else if (part.type === "image_url" && part.image_url) {
+							// Convert the OpenAI/Anthropic image block into the Bedrock
+							// Converse `image` block. The Anthropic endpoint already
+							// rewrites incoming image blocks into image_url data URLs, so
+							// this covers both API surfaces. processImageUrl resolves data
+							// URLs and (SSRF-guarded) remote URLs to raw base64 bytes,
+							// which is exactly what Bedrock's source.bytes expects.
+							const imageUrl =
+								typeof part.image_url === "string"
+									? part.image_url
+									: part.image_url.url;
+
+							try {
+								const { data, mimeType } = await processImageUrl(
+									imageUrl,
+									isProd,
+									maxImageSizeMB,
+									userPlan,
+								);
+								const format = bedrockImageFormat(mimeType);
+								if (!format) {
+									logger.warn("Skipping unsupported image type for Bedrock", {
+										mimeType,
+									});
+									continue;
+								}
+								bedrockMessage.content.push({
+									image: {
+										format,
+										source: {
+											bytes: data,
+										},
+									},
+								});
+							} catch (error) {
+								logger.error("Failed to process image for Bedrock", {
+									err:
+										error instanceof Error ? error : new Error(String(error)),
+								});
+								bedrockMessage.content.push({
+									text: "[Image failed to load]",
+								});
+							}
 						}
-					});
+					}
 				}
 
 				bedrockMessages.push(bedrockMessage);

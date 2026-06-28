@@ -14,6 +14,7 @@
 		"model-release-dates": "tsx src/model-release-dates.ts",
 		"send": "tsx src/send.ts",
 		"stripe-earnings": "tsx src/stripe-earnings.ts",
+		"traffic-report": "tsx src/traffic-report.ts",
 		"test-gemini-tools-complex": "tsx src/test-gemini-tools-complex.ts",
 		"test-gemini-tools-simple": "tsx src/test-gemini-tools-simple.ts"
 	},

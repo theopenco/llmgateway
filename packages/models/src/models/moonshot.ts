@@ -128,6 +128,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-06-28"),
 			},
 			{
 				providerId: "bytedance",
@@ -143,6 +144,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-06-28"),
 			},
 			{
 				test: "skip",
@@ -186,6 +188,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-06-28"),
 			},
 		],
 	},
