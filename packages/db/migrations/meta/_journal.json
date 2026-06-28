@@ -1233,6 +1233,13 @@
       "when": 1782666980506,
       "tag": "1782666980_dashing_squirrel_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "8",
+      "when": 1782672171484,
+      "tag": "1782672171_legal_celestials",
+      "breakpoints": true
     }
   ]
 }
