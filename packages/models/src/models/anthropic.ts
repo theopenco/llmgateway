@@ -604,6 +604,36 @@ export const anthropicModels = [
 		],
 	},
 	{
+		id: "claude-haiku-4-5-free",
+		name: "Claude Haiku 4.5 (Free)",
+		description:
+			"Free, fast, efficient model for high-volume, low-latency applications.",
+		family: "anthropic",
+		free: true,
+		stability: "unstable",
+		releasedAt: new Date("2025-10-15"),
+		providers: [
+			{
+				providerId: "anthropic",
+				externalId: "claude-haiku-4-5",
+				inputPrice: "0",
+				outputPrice: "0",
+				cachedInputPrice: "0",
+				cacheWriteInputPrice: "0",
+				cacheWriteInputPrice1h: "0",
+				minCacheableTokens: 4096,
+				requestPrice: "0",
+				contextSize: 200000,
+				maxOutput: 64000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "claude-haiku-4-5-20251001",
 		name: "Claude Haiku 4.5 (2025-10-01)",
 		description:
