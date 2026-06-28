@@ -1296,6 +1296,36 @@ export const alibabaModels = [
 					"response_format",
 				],
 			},
+			{
+				providerId: "granite",
+				externalId: "qwen3.7-max",
+				inputPrice: "2.5e-6",
+				outputPrice: "7.5e-6",
+				cachedInputPrice: "0.5e-6",
+				cacheReadInputPrice: "0.25e-6",
+				cacheWriteInputPrice: "3.125e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 65536,
+				reasoning: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
+				],
+			},
 		],
 	},
 	{
@@ -1365,6 +1395,7 @@ export const alibabaModels = [
 		description:
 			"Alibaba's Qwen3 Coder Next model optimized for coding tasks with 262K context.",
 		family: "alibaba",
+		releasedAt: new Date("2026-02-04"),
 		providers: [
 			{
 				providerId: "embercloud",

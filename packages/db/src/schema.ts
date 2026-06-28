@@ -393,6 +393,9 @@ export const transaction = pgTable(
 		uniqueIndex("transaction_stripe_refund_id_unique")
 			.on(table.stripeRefundId)
 			.where(sql`${table.stripeRefundId} IS NOT NULL`),
+		uniqueIndex("transaction_stripe_invoice_id_unique")
+			.on(table.stripeInvoiceId)
+			.where(sql`${table.stripeInvoiceId} IS NOT NULL`),
 	],
 );
 
@@ -541,6 +544,9 @@ export const enterpriseContactSubmission = pgTable(
 		email: text().notNull(),
 		country: text().notNull(),
 		size: text().notNull(),
+		deployment: text({
+			enum: ["self_host", "cloud", "not_sure"],
+		}),
 		message: text().notNull(),
 		honeypot: text(),
 		clientTimestampMs: text(),
@@ -559,6 +565,10 @@ export const enterpriseContactSubmission = pgTable(
 		index("enterprise_contact_submission_email_idx").on(table.email),
 		index("enterprise_contact_submission_status_idx").on(
 			table.spamFilterStatus,
+		),
+		check(
+			"enterprise_contact_submission_deployment_check",
+			sql`${table.deployment} IS NULL OR ${table.deployment} IN ('self_host', 'cloud', 'not_sure')`,
 		),
 	],
 );
@@ -1251,10 +1261,13 @@ export const log = pgTable(
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		pricingTier: text(),
+		// The processing tier the client explicitly requested (e.g. "flex" /
+		// "priority"). Null when no premium tier was requested.
+		requestedServiceTier: text(),
 		// The processing tier the provider actually served (e.g. "flex" /
 		// "priority"), resolved from the upstream response. Null for the standard
 		// tier or providers without tiers. Billed token costs reflect this tier.
-		serviceTier: text(),
+		usedServiceTier: text(),
 		canceled: boolean().default(false),
 		streamed: boolean().default(false),
 		cached: boolean().default(false),

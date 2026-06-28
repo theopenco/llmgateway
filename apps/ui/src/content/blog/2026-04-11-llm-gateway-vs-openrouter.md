@@ -20,20 +20,20 @@ This is an honest comparison. We built LLM Gateway, so we're biased — but we'l
 
 | Feature               | LLM Gateway                                           | OpenRouter                          |
 | --------------------- | ----------------------------------------------------- | ----------------------------------- |
-| Models                | 280+ models, 35+ providers                            | 280+ models, many providers         |
+| Models                | 280+ models, 35+ providers                            | 400+ models, 70+ providers          |
 | API compatibility     | OpenAI-compatible                                     | OpenAI-compatible                   |
 | Self-hosting          | Yes (AGPLv3, Docker)                                  | No                                  |
-| Bring Your Own Keys   | Yes (zero gateway markup)                             | No                                  |
+| Bring Your Own Keys   | Yes (zero gateway markup)                             | Yes (1M free, then 5%)              |
 | Smart routing         | Weighted scoring (uptime, throughput, price, latency) | Provider-based routing              |
 | Auto retry & failover | Yes (up to 2 retries, transparent)                    | Yes                                 |
-| Response caching      | Yes (configurable TTL, 10s to 1 year)                 | No                                  |
-| Guardrails            | Yes (prompt injection, PII, jailbreak, secrets)       | No                                  |
-| Audit logs            | Yes (90-day retention)                                | No                                  |
-| Team management       | Yes (roles, permissions)                              | No                                  |
+| Response caching      | Yes (configurable TTL, 10s to 1 year)                 | Yes (beta)                          |
+| Guardrails            | Yes (prompt injection, PII, jailbreak, secrets)       | Enterprise                          |
+| Audit logs            | Yes (90-day retention)                                | Limited                             |
+| Team management       | Yes (roles, permissions)                              | Yes                                 |
 | Image generation      | Yes (Gemini, DALL-E, Qwen, Seedream, CogView)         | Yes                                 |
-| Video generation      | Yes (Veo 3.1, multiple providers)                     | No                                  |
+| Video generation      | Yes (Veo 3.1, multiple providers)                     | Limited                             |
 | AI SDK provider       | Yes (`@llmgateway/ai-sdk-provider`)                   | Yes (`@openrouter/ai-sdk-provider`) |
-| Pricing model         | 5% platform fee or BYOK (0% fee)                      | Per-model markup                    |
+| Pricing model         | 5% platform fee or BYOK (0% fee)                      | 5.5% credit fee (no token markup)   |
 | Free tier             | Yes (3 free models, 20 req/min)                       | Yes (limited free models)           |
 
 ## Where LLM Gateway Wins
@@ -61,7 +61,7 @@ With LLM Gateway, you can add your own provider API keys (OpenAI, Anthropic, Goo
 
 This matters for teams that already have provider contracts, volume discounts, or enterprise agreements.
 
-OpenRouter doesn't support BYOK. All requests go through OpenRouter's accounts.
+OpenRouter does support BYOK — but it adds a 5% fee on usage above 1M requests per month. With LLM Gateway, BYOK always carries zero gateway markup.
 
 ### Smart Routing Algorithm
 
@@ -86,7 +86,7 @@ Cached responses are free — no provider costs. For applications with repetitiv
 
 Caching works with both streaming and non-streaming requests. Cached streaming responses are reconstructed and streamed back normally.
 
-OpenRouter doesn't offer response caching.
+OpenRouter has since added response caching (in beta), and it passes through provider-side prompt caching. LLM Gateway's caching is generally available, works across every provider, and lets you tune the TTL from 10 seconds to a year.
 
 ### Enterprise Features
 
@@ -97,13 +97,13 @@ LLM Gateway includes features that matter for teams and organizations:
 - **Team management** — Roles and permissions. Control who can create API keys, manage billing, or configure settings.
 - **Security events dashboard** — Monitor guardrail violations with breakdowns by category and action.
 
-These features are on the Enterprise plan. OpenRouter doesn't offer equivalent functionality.
+These features are on the Enterprise plan. OpenRouter has added enterprise guardrails and workspace spend controls more recently, but they're newer and scoped to its Enterprise tier.
 
 ### Video Generation
 
 LLM Gateway supports asynchronous video generation through Veo 3.1 with multiple providers and resolutions up to 4K. Signed webhooks notify your application when videos are ready.
 
-OpenRouter doesn't support video generation.
+OpenRouter's generative-media support is newer and more limited; LLM Gateway has routed video models in production for months.
 
 ## Where OpenRouter Wins
 

@@ -91,7 +91,11 @@ export function CreateProviderKeyDialog({
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 
-		if (!selectedProvider || !token) {
+		// Strip whitespace and zero-width characters that get pasted in when a key
+		// is copied from wrapped text (newlines, non-breaking / zero-width spaces).
+		const trimmedToken = token.replace(/[\s\u200B-\u200D\u2060\uFEFF]/g, "");
+
+		if (!selectedProvider || !trimmedToken) {
 			toast({
 				title: "Error",
 				description: !selectedProvider
@@ -143,7 +147,7 @@ export function CreateProviderKeyDialog({
 			organizationId: string;
 		} = {
 			provider: selectedProvider,
-			token,
+			token: trimmedToken,
 			organizationId: selectedOrganization.id,
 		};
 		if (baseUrl) {
@@ -240,8 +244,16 @@ export function CreateProviderKeyDialog({
 							err.error && typeof err.error === "object"
 								? (err.error as Record<string, unknown>)
 								: err;
+						const issues = Array.isArray(nested.issues)
+							? (nested.issues as { message?: unknown }[])
+							: undefined;
 						if (typeof nested.message === "string") {
 							description = nested.message;
+						} else if (
+							issues?.length &&
+							typeof issues[0]?.message === "string"
+						) {
+							description = issues[0].message;
 						}
 					} else if (error instanceof Error) {
 						description = error.message;

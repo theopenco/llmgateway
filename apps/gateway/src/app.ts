@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import {
 	InvalidFileContentError,
+	RequestError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 } from "@llmgateway/actions";
@@ -35,6 +36,7 @@ import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
+import { ocrRoute } from "./ocr/route.js";
 import { responses } from "./responses/responses.js";
 import { speechRoute } from "./speech/route.js";
 import { videosRoute } from "./videos/route.js";
@@ -162,6 +164,14 @@ app.onError((error, c) => {
 			providerTarget: error.providerTarget,
 		});
 		return renderGatewayError(c, 400, error.message);
+	}
+
+	if (error instanceof RequestError) {
+		logger.warn("Invalid request", {
+			message: error.message,
+			statusCode: error.statusCode,
+		});
+		return renderGatewayError(c, error.statusCode, error.message);
 	}
 
 	if (error instanceof HTTPException) {
@@ -336,6 +346,7 @@ v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
 v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
+v1.route("/ocr", ocrRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 v1.route("/audio/speech", speechRoute);

@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowRight, ArrowUp, Loader2 } from "lucide-react";
+import { useState } from "react";
 
 import {
 	AlertDialog,
@@ -14,15 +15,38 @@ import {
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
+import type { paths } from "@/lib/api/v1";
 
 interface ActivePlanChangeTierProps {
 	plans: PlanOption[];
 	currentPlan: PlanTier | "none" | null;
 	subscribingTier: PlanTier | null;
-	onChangeTier: (tier: PlanTier) => void;
+	onChangeTier: (tier: PlanTier, expectedAmountDueCents?: number) => void;
+}
+
+type TierChangePreview =
+	paths["/dev-plans/change-tier-preview"]["post"]["responses"]["200"]["content"]["application/json"];
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+});
+
+const usageFormatter = new Intl.NumberFormat("en-US", {
+	maximumFractionDigits: 2,
+	minimumFractionDigits: 0,
+});
+
+function formatCurrencyFromCents(cents: number) {
+	return currencyFormatter.format(cents / 100);
+}
+
+function formatUsageAmount(amount: number) {
+	return `$${usageFormatter.format(amount)}`;
 }
 
 export default function ActivePlanChangeTier({
@@ -89,74 +113,173 @@ export default function ActivePlanChangeTier({
 								<ArrowRight className="h-3 w-3" />${plan.usage} in usage
 							</div>
 							{!isCurrent && (
-								<AlertDialog>
-									<AlertDialogTrigger asChild>
-										<Button
-											className="mt-auto w-full"
-											variant="outline"
-											size="sm"
-											disabled={isPending}
-										>
-											{isPending ? (
-												<Loader2 className="h-4 w-4 animate-spin" />
-											) : (
-												<>
-													Switch to {plan.name}
-													<ArrowRight className="ml-1 h-3.5 w-3.5" />
-												</>
-											)}
-										</Button>
-									</AlertDialogTrigger>
-									<AlertDialogContent>
-										<AlertDialogHeader>
-											<AlertDialogTitle>
-												{isUpgrade
-													? `Upgrade to ${plan.name}?`
-													: `Switch to ${plan.name}?`}
-											</AlertDialogTitle>
-											<AlertDialogDescription>
-												<span>
-													{isUpgrade ? (
-														<>
-															You&apos;ll be charged a prorated amount today for
-															the rest of your current billing period, then $
-															{plan.price}/mo going forward. Your usage
-															allowance increases to ${plan.usage} right away.
-														</>
-													) : (
-														<>
-															You&apos;ll keep your {currentName} allowance
-															until your next renewal, when you&apos;ll move to{" "}
-															{plan.name} (${plan.price}/mo, ${plan.usage} in
-															usage). No refund is issued for the current
-															period.
-														</>
-													)}
-												</span>
-												<span className="mt-3 block text-center text-[11px] leading-relaxed">
-													Need company/address details on your invoice? Update
-													billing settings before confirming. We email the
-													invoice automatically after payment.
-												</span>
-											</AlertDialogDescription>
-										</AlertDialogHeader>
-										<AlertDialogFooter>
-											<AlertDialogCancel>Keep {currentName}</AlertDialogCancel>
-											<AlertDialogAction
-												onClick={() => onChangeTier(plan.tier)}
-											>
-												{isUpgrade
-													? `Upgrade to ${plan.name}`
-													: `Switch to ${plan.name}`}
-											</AlertDialogAction>
-										</AlertDialogFooter>
-									</AlertDialogContent>
-								</AlertDialog>
+								<TierChangeDialog
+									plan={plan}
+									currentName={currentName}
+									isUpgrade={isUpgrade}
+									isPending={isPending}
+									onChangeTier={onChangeTier}
+								/>
 							)}
 						</div>
 					);
 				})}
 			</div>
 		</div>
+	);
+}
+
+function TierChangeDialog({
+	plan,
+	currentName,
+	isUpgrade,
+	isPending,
+	onChangeTier,
+}: {
+	plan: PlanOption;
+	currentName: string;
+	isUpgrade: boolean;
+	isPending: boolean;
+	onChangeTier: (tier: PlanTier, expectedAmountDueCents?: number) => void;
+}) {
+	const api = useApi();
+	const [open, setOpen] = useState(false);
+	const {
+		data: preview,
+		isLoading,
+		isFetching,
+		isError,
+	} = api.useQuery(
+		"post",
+		"/dev-plans/change-tier-preview",
+		{
+			body: {
+				newTier: plan.tier,
+			},
+		},
+		{
+			enabled: open,
+			refetchOnWindowFocus: false,
+			staleTime: 0,
+		},
+	);
+	const isPreviewLoading = isLoading || isFetching;
+	const canConfirm = !isPending && !!preview && !isPreviewLoading && !isError;
+
+	return (
+		<AlertDialog open={open} onOpenChange={setOpen}>
+			<AlertDialogTrigger asChild>
+				<Button
+					className="mt-auto w-full"
+					variant="outline"
+					size="sm"
+					disabled={isPending}
+				>
+					{isPending ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<>
+							Switch to {plan.name}
+							<ArrowRight className="ml-1 h-3.5 w-3.5" />
+						</>
+					)}
+				</Button>
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						{isUpgrade ? `Upgrade to ${plan.name}?` : `Switch to ${plan.name}?`}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						<TierChangePreviewCopy
+							plan={plan}
+							currentName={currentName}
+							isUpgrade={isUpgrade}
+							preview={preview}
+							isLoading={isPreviewLoading}
+							isError={isError}
+						/>
+						<span className="mt-3 block text-center text-[11px] leading-relaxed">
+							Need company/address details on your invoice? Update billing
+							settings before confirming. We email the invoice automatically
+							after payment.
+						</span>
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>Keep {currentName}</AlertDialogCancel>
+					<AlertDialogAction
+						disabled={!canConfirm}
+						onClick={() => {
+							if (!preview) {
+								return;
+							}
+							onChangeTier(plan.tier, preview.amountDueCents);
+						}}
+					>
+						{isPending && (
+							<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+						)}
+						{isUpgrade ? `Pay and upgrade` : `Switch to ${plan.name}`}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
+function TierChangePreviewCopy({
+	plan,
+	currentName,
+	isUpgrade,
+	preview,
+	isLoading,
+	isError,
+}: {
+	plan: PlanOption;
+	currentName: string;
+	isUpgrade: boolean;
+	preview: TierChangePreview | undefined;
+	isLoading: boolean;
+	isError: boolean;
+}) {
+	if (isLoading) {
+		return (
+			<span className="inline-flex items-center gap-2">
+				<Loader2 className="h-3.5 w-3.5 animate-spin" />
+				Calculating today&apos;s charge...
+			</span>
+		);
+	}
+
+	if (isError || !preview) {
+		return (
+			<span>
+				We couldn&apos;t calculate the exact amount due. Close this dialog and
+				try again before changing plans.
+			</span>
+		);
+	}
+
+	if (isUpgrade) {
+		return (
+			<span>
+				You&apos;ll be charged{" "}
+				<strong>{formatCurrencyFromCents(preview.amountDueCents)}</strong> today
+				for the rest of your current billing period, then ${plan.price}/mo going
+				forward. Your current-period allowance increases by{" "}
+				{formatUsageAmount(preview.proratedCreditDelta)} to{" "}
+				{formatUsageAmount(preview.newCreditsLimit)} in usage.
+			</span>
+		);
+	}
+
+	return (
+		<span>
+			You&apos;ll keep your {currentName} allowance until your next renewal,
+			when you&apos;ll move to {plan.name} (${plan.price}/mo, ${plan.usage} in
+			usage). No refund is issued for the current period and no charge is due
+			today.
+		</span>
 	);
 }

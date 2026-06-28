@@ -18,6 +18,13 @@ export const metadata: Metadata = {
 
 const templates = [
 	{
+		name: "Embeddable Credits",
+		description:
+			"Monetize your AI app — a drop-in wallet and checkout so end-users buy credits and use AI in-app.",
+		command: "npx @llmgateway/cli init --template embeddable-credits",
+		tags: ["Next.js", "Embeddable SDK", "Monetization"],
+	},
+	{
 		name: "AI Chatbot",
 		description:
 			"Streaming chat with conversation history and model switching.",
@@ -58,6 +65,13 @@ const templates = [
 			"AI-powered QA testing agent with browser automation and real-time action timeline.",
 		command: "npx @llmgateway/cli init --template qa-agent",
 		tags: ["Next.js", "AI SDK", "Browser Automation"],
+	},
+	{
+		name: "Showcase",
+		description:
+			"A static, deployable gallery of apps built with LLM Gateway templates, with filtering and submissions.",
+		command: "npx @llmgateway/cli init --template showcase",
+		tags: ["Next.js", "Tailwind CSS", "Static"],
 	},
 ];
 

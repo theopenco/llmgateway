@@ -154,7 +154,7 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 		displayName: "SoulForge",
 		url: "https://soulforge.proxysoul.com/",
 		description:
-			"Graph-powered coding agent. Treats code as structure, not strings. Roughly half the tokens on multi-turn coding sessions.",
+			"Graph-powered coding agent. Treats code as structure, not strings.",
 		category: "coding",
 		Icon: SoulForgeIcon,
 	},

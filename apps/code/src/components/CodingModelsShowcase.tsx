@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { models, type ModelDefinition } from "@llmgateway/models";
-import { getProviderIcon } from "@llmgateway/shared/components";
+import { getModelFamilyIcon } from "@llmgateway/shared/components";
 
 export type CodingModelsView = "all" | "cheap" | "flagship";
 
@@ -188,9 +188,7 @@ export function CodingModelsShowcase({
 			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{recommendedModels.map((model) => {
 					const provider = getCheapestProvider(model.providers);
-					const ProviderIcon = provider
-						? getProviderIcon(provider.providerId)
-						: null;
+					const FamilyIcon = getModelFamilyIcon(model.family);
 					const category = idByCategory.get(model.id);
 
 					return (
@@ -207,11 +205,9 @@ export function CodingModelsShowcase({
 							<div className="flex items-start justify-between gap-2">
 								<div className="flex-1 min-w-0">
 									<div className="flex items-center gap-2">
-										{ProviderIcon && (
-											<div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted">
-												<ProviderIcon className="h-4 w-4" />
-											</div>
-										)}
+										<div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted">
+											<FamilyIcon className="h-4 w-4" />
+										</div>
 										<span className="font-medium text-sm truncate">
 											{model.name ?? model.id}
 										</span>

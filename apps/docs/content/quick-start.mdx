@@ -1,20 +1,19 @@
 ---
 title: Quickstart
-description: Fastest way to start using LLM Gateway in any language or framework.
+description: Fastest way to start using LLM Gateway in any language or framework.
 icon: Rocket
 ---
 
 import { Accordion, Accordions } from "fumadocs-ui/components/accordion";
 import { Tabs, Tab } from "fumadocs-ui/components/tabs";
-import { DynamicCodeBlock } from "fumadocs-ui/components/dynamic-codeblock";
 
-Welcome to **LLM Gateway**—a single drop‑in endpoint that lets you call today’s best large‑language models while keeping **your existing code** and development workflow intact.
+Welcome to **LLM Gateway**—a single drop‑in endpoint that lets you call today’s best large‑language models while keeping **your existing code** and development workflow intact.
 
-> **TL;DR** — Point your HTTP requests to `https://api.llmgateway.io/v1/…`, supply your `LLM_GATEWAY_API_KEY`, and you’re done.
+> **TL;DR** — Point your HTTP requests to `https://api.llmgateway.io/v1/…`, supply your `LLM_GATEWAY_API_KEY`, and you’re done.
 
 ---
 
-## 1 · Get an API key
+## 1 · Get an API key
 
 1. Sign in to the dashboard.
 2. Create a new Project → _Copy the key_.
@@ -42,154 +41,171 @@ export LLM_GATEWAY_API_KEY="llmgtwy_XXXXXXXXXXXXXXXX"
   persist
 >
   <Tab value="cURL">
-    <DynamicCodeBlock lang="bash" code={`curl -X POST https://api.llmgateway.io/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \\
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -d '{
-  "model": "gpt-4o",
-  "messages": [
-    {"role": "user", "content": "Hello, how are you?"}
-  ]
-}'`} />
+    "model": "gpt-4o",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ]
+  }'
+```
+
   </Tab>
   <Tab value="TypeScript">
-    <DynamicCodeBlock lang="typescript" code={`const response = await fetch('https://api.llmgateway.io/v1/chat/completions', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': \`Bearer \${process.env.LLM_GATEWAY_API_KEY}\`
-  },
-  body: JSON.stringify({
-    model: 'gpt-4o',
-    messages: [
-      { role: 'user', content: 'Hello, how are you?' }
-    ]
-  })
+
+```typescript
+const response = await fetch("https://api.llmgateway.io/v1/chat/completions", {
+	method: "POST",
+	headers: {
+		"Content-Type": "application/json",
+		Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
+	},
+	body: JSON.stringify({
+		model: "gpt-4o",
+		messages: [{ role: "user", content: "Hello, how are you?" }],
+	}),
 });
 
 if (!response.ok) {
-throw new Error(\`HTTP error! status: \${response.status}\`);
+	throw new Error(`HTTP error! status: ${response.status}`);
 }
 
 const data = await response.json();
-console.log(data.choices[0].message.content);`} />
+console.log(data.choices[0].message.content);
+```
 
   </Tab>
   <Tab value="React">
-    <DynamicCodeBlock lang="tsx" code={`import { useState } from 'react'
+
+```tsx
+import { useState } from "react";
 
 function ChatComponent() {
-const [response, setResponse] = useState('');
-const [loading, setLoading] = useState(false);
+	const [response, setResponse] = useState("");
+	const [loading, setLoading] = useState(false);
 
-const sendMessage = async () => {
-setLoading(true);
-try {
-const res = await fetch('https://api.llmgateway.io/v1/chat/completions', {
-method: 'POST',
-headers: {
-'Content-Type': 'application/json',
-'Authorization': \`Bearer \${process.env.REACT_APP_LLM_GATEWAY_API_KEY}\`
-},
-body: JSON.stringify({
-model: 'gpt-4o',
-messages: [
-{ role: 'user', content: 'Hello, how are you?' }
-]
-})
-});
+	const sendMessage = async () => {
+		setLoading(true);
+		try {
+			const res = await fetch("https://api.llmgateway.io/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${process.env.REACT_APP_LLM_GATEWAY_API_KEY}`,
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					messages: [{ role: "user", content: "Hello, how are you?" }],
+				}),
+			});
 
-      if (!res.ok) {
-        throw new Error(\`HTTP error! status: \${res.status}\`);
-      }
+			if (!res.ok) {
+				throw new Error(`HTTP error! status: ${res.status}`);
+			}
 
-      const data = await res.json();
-      setResponse(data.choices[0].message.content);
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setLoading(false);
-    }
+			const data = await res.json();
+			setResponse(data.choices[0].message.content);
+		} catch (error) {
+			console.error("Error:", error);
+		} finally {
+			setLoading(false);
+		}
+	};
 
-};
-
-return (
-
-<div>
-	<button onClick={sendMessage} disabled={loading}>
-		{loading ? "Sending..." : "Send Message"}
-	</button>
-	{response && <p>{response}</p>}
-</div>
-); }
+	return (
+		<div>
+			<button onClick={sendMessage} disabled={loading}>
+				{loading ? "Sending..." : "Send Message"}
+			</button>
+			{response && <p>{response}</p>}
+		</div>
+	);
+}
 
 export default ChatComponent;
-`} />
+```
+
   </Tab>
   <Tab value="Next.js">
-    <DynamicCodeBlock lang="typescript" code={`; // app/api/chat/route.ts
+
+```typescript
+// app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
-  const { message } = await request.json();
+	const { message } = await request.json();
 
-const response = await fetch('https://api.llmgateway.io/v1/chat/completions', {
-method: 'POST',
-headers: {
-'Content-Type': 'application/json',
-'Authorization': \`Bearer \${process.env.LLM_GATEWAY_API_KEY}\`
-},
-body: JSON.stringify({
-model: 'gpt-4o',
-messages: [
-{ role: 'user', content: message }
-]
-})
-});
+	const response = await fetch(
+		"https://api.llmgateway.io/v1/chat/completions",
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
+			},
+			body: JSON.stringify({
+				model: "gpt-4o",
+				messages: [{ role: "user", content: message }],
+			}),
+		},
+	);
 
-if (!response.ok) {
-return NextResponse.json({ error: 'Failed to get response' }, { status: response.status });
-}
+	if (!response.ok) {
+		return NextResponse.json(
+			{ error: "Failed to get response" },
+			{ status: response.status },
+		);
+	}
 
-const data = await response.json();
+	const data = await response.json();
 
-return NextResponse.json({
-message: data.choices[0].message.content
-});
+	return NextResponse.json({
+		message: data.choices[0].message.content,
+	});
 }
 
 // Usage in component:
 // const response = await fetch('/api/chat', {
-// method: 'POST',
-// headers: { 'Content-Type': 'application/json' },
-// body: JSON.stringify({ message: 'Hello, how are you?' })
-// });`} />
+//   method: 'POST',
+//   headers: { 'Content-Type': 'application/json' },
+//   body: JSON.stringify({ message: 'Hello, how are you?' })
+// });
+```
 
   </Tab>
   <Tab value="Python">
-    <DynamicCodeBlock lang="python" code={`import requests
+
+```python
+import requests
 import os
 
 response = requests.post(
-'https://api.llmgateway.io/v1/chat/completions',
-headers={
-'Content-Type': 'application/json',
-'Authorization': f'Bearer {os.getenv("LLM_GATEWAY_API_KEY")}'
-},
-json={
-'model': 'gpt-4o',
-'messages': [
-{'role': 'user', 'content': 'Hello, how are you?'}
-]
-}
+    'https://api.llmgateway.io/v1/chat/completions',
+    headers={
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {os.getenv("LLM_GATEWAY_API_KEY")}'
+    },
+    json={
+        'model': 'gpt-4o',
+        'messages': [
+            {'role': 'user', 'content': 'Hello, how are you?'}
+        ]
+    }
 )
 
 response.raise_for_status()
-print(response.json()['choices'][0]['message']['content'])`} />
+print(response.json()['choices'][0]['message']['content'])
+```
 
   </Tab>
   <Tab value="Java">
-    <DynamicCodeBlock lang="java" code={`import java.net.http.HttpClient;
+
+```java
+import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.URI;
@@ -197,35 +213,38 @@ import java.net.URI;
 String apiKey = System.getenv("LLM_GATEWAY_API_KEY");
 String requestBody = """
 {
-\"model\": \"gpt-4o\",
-\"messages\": [
-{\"role\": \"user\", \"content\": \"Hello, how are you?\"}
-]
+  "model": "gpt-4o",
+  "messages": [
+    {"role": "user", "content": "Hello, how are you?"}
+  ]
 }
 """;
 
 HttpRequest request = HttpRequest.newBuilder()
-.uri(URI.create("https://api.llmgateway.io/v1/chat/completions"))
-.header("Content-Type", "application/json")
-.header("Authorization", "Bearer " + apiKey)
-.POST(HttpRequest.BodyPublishers.ofString(requestBody))
-.build();
+    .uri(URI.create("https://api.llmgateway.io/v1/chat/completions"))
+    .header("Content-Type", "application/json")
+    .header("Authorization", "Bearer " + apiKey)
+    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+    .build();
 
 HttpResponse<String> response = HttpClient.newHttpClient()
-.send(request, HttpResponse.BodyHandlers.ofString());
+    .send(request, HttpResponse.BodyHandlers.ofString());
 
-System.out.println(response.body());`} />
+System.out.println(response.body());
+```
 
   </Tab>
   <Tab value="Rust">
-    <DynamicCodeBlock lang="rust" code={`use reqwest::Client;
+
+```rust
+use reqwest::Client;
 use serde_json::json;
 use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let client = Client::new();
-let api_key = env::var("LLM_GATEWAY_API_KEY")?;
+    let client = Client::new();
+    let api_key = env::var("LLM_GATEWAY_API_KEY")?;
 
     let response = client
         .post("https://api.llmgateway.io/v1/chat/completions")
@@ -243,12 +262,14 @@ let api_key = env::var("LLM_GATEWAY_API_KEY")?;
     let result: serde_json::Value = response.json().await?;
     println!("{}", result["choices"][0]["message"]["content"]);
     Ok(())
-
-}`} />
+}
+```
 
   </Tab>
   <Tab value="Go">
-    <DynamicCodeBlock lang="go" code={`package main
+
+```go
+package main
 
 import (
     "bytes"
@@ -259,20 +280,20 @@ import (
 )
 
 type ChatRequest struct {
-Model string ` + "`json:\"model\"`" + `
-Messages []Message ` + "`json:\"messages\"`" + `
+    Model    string    `json:"model"`
+    Messages []Message `json:"messages"`
 }
 
 type Message struct {
-Role string ` + "`json:\"role\"`" + `
-Content string ` + "`json:\"content\"`" + `
+    Role    string `json:"role"`
+    Content string `json:"content"`
 }
 
 func main() {
-apiKey := os.Getenv("LLM_GATEWAY_API_KEY")
+    apiKey := os.Getenv("LLM_GATEWAY_API_KEY")
 
     requestBody := ChatRequest{
-        Model: "gpt-4o",
+        Model:    "gpt-4o",
         Messages: []Message{{Role: "user", Content: "Hello, how are you?"}},
     }
 
@@ -287,19 +308,21 @@ apiKey := os.Getenv("LLM_GATEWAY_API_KEY")
     defer resp.Body.Close()
 
     fmt.Println("Response received")
-
-}`} />
+}
+```
 
   </Tab>
   <Tab value="PHP">
-    <DynamicCodeBlock lang="php" code={`<?php
+
+```php
+<?php
 $apiKey = $_ENV['LLM_GATEWAY_API_KEY'];
 
 $data = [
-'model' => 'gpt-4o',
-'messages' => [
-['role' => 'user', 'content' => 'Hello, how are you?']
-]
+    'model' => 'gpt-4o',
+    'messages' => [
+        ['role' => 'user', 'content' => 'Hello, how are you?']
+    ]
 ];
 
 $options = [
@@ -310,27 +333,30 @@ $options = [
         ],
         'method' => 'POST',
         'content' => json_encode($data)
-]
+    ]
 ];
 
 $context = stream_context_create($options);
 $response = file_get_contents(
-'https://api.llmgateway.io/v1/chat/completions',
-false,
-$context
+    'https://api.llmgateway.io/v1/chat/completions',
+    false,
+    $context
 );
 
 if ($response === FALSE) {
-throw new Exception('Request failed');
+    throw new Exception('Request failed');
 }
 
 $result = json_decode($response, true);
 echo $result['choices'][0]['message']['content'];
-?>`} />
+?>
+```
 
   </Tab>
   <Tab value="Ruby">
-    <DynamicCodeBlock lang="ruby" code={`require 'net/http'
+
+```ruby
+require 'net/http'
 require 'json'
 require 'uri'
 
@@ -343,20 +369,21 @@ request['Content-Type'] = 'application/json'
 request['Authorization'] = "Bearer #{ENV['LLM_GATEWAY_API_KEY']}"
 
 request.body = {
-model: 'gpt-4o',
-messages: [
-{ role: 'user', content: 'Hello, how are you?' }
-]
+  model: 'gpt-4o',
+  messages: [
+    { role: 'user', content: 'Hello, how are you?' }
+  ]
 }.to_json
 
 response = http.request(request)
 
 if response.code != '200'
-raise "HTTP Error: #{response.code}"
+  raise "HTTP Error: #{response.code}"
 end
 
 result = JSON.parse(response.body)
-puts result['choices'][0]['message']['content']`} />
+puts result['choices'][0]['message']['content']
+```
 
   </Tab>
 </Tabs>
@@ -409,14 +436,14 @@ console.log(completion.choices[0].message.content);
 
 ---
 
-## 4 · Going further
+## 4 · Going further
 
 - **Streaming**: pass `stream: true` to any request—Gateway will proxy the event stream unchanged.
 - **Monitoring**: Every call appears in the dashboard with latency, cost & provider breakdown.
 
 ---
 
-## 5 · FAQ
+## 5 · FAQ
 
 <Accordions type="single">
 	<Accordion title="Which models are supported?">
@@ -449,7 +476,7 @@ console.log(completion.choices[0].message.content);
 
 ---
 
-## 6 · Next steps
+## 6 · Next steps
 
 - Read [Self host docs](/self-host) guide.
 - Drop into our [GitHub](https://github.com/theopenco/llmgateway) for help or feature requests.

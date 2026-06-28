@@ -20,13 +20,13 @@ const comparisonData = [
 				title: "Self-host the full platform",
 				description: "Run the entire stack on your own infrastructure",
 				llmgateway: "AGPLv3",
-				portkey: "Gateway only",
+				portkey: "Most (since 2.0)",
 			},
 			{
 				title: "Open-source license",
 				description: "What ships under an open-source license",
 				llmgateway: "Full platform (AGPLv3)",
-				portkey: "Gateway/router (MIT)",
+				portkey: "Gateway + platform (MIT)",
 			},
 			{
 				title: "One-command Docker deploy",
@@ -78,7 +78,7 @@ const comparisonData = [
 				title: "Transparent platform fee",
 				description: "Predictable, easy-to-reason-about pricing",
 				llmgateway: "5% or 0% (BYOK)",
-				portkey: "Usage/seat tiers",
+				portkey: "Usage-based tiers",
 			},
 			{
 				title: "Real-time cost analytics",

@@ -323,6 +323,29 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.2,
 	},
 	{
+		id: "granite",
+		name: "Granite",
+		description:
+			"Granite is a stealth provider with OpenAI-compatible chat completions endpoints.",
+		env: {
+			required: {
+				apiKey: "LLM_GRANITE_API_KEY",
+				baseUrl: "LLM_GRANITE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.5,
+	},
+	{
 		id: "google-vertex",
 		name: "Google Vertex AI",
 		description:
@@ -920,7 +943,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "moonshot",
@@ -1235,6 +1258,27 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+	},
+	{
+		id: "sakana",
+		name: "Sakana AI",
+		description:
+			"Sakana AI's Fugu multi-agent orchestration models, served through a single OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_SAKANA_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#FF5A5F",
+		website: "https://sakana.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://console.sakana.ai/terms-of-service",
+		privacyPolicyUrl: "https://console.sakana.ai/privacy-policy",
+		headquarters: "JP",
+		dataPolicy: null,
 	},
 	{
 		id: "xiaomi",

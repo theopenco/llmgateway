@@ -556,12 +556,12 @@ export default function ReferralsPublicPage() {
 											{
 												feature: "Auto Failover",
 												us: "Built-in",
-												them: "Limited",
+												them: "Yes",
 											},
 											{
 												feature: "Analytics",
 												us: "Request-level insights",
-												them: "Basic",
+												them: "Logs + export",
 											},
 											{
 												feature: "Self-Hosting",
@@ -571,7 +571,7 @@ export default function ReferralsPublicPage() {
 											{
 												feature: "Guardrails",
 												us: "PII, injection, secrets",
-												them: "Not available",
+												them: "Enterprise",
 											},
 											{
 												feature: "Dev Plans (Coding)",

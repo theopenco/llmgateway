@@ -15,6 +15,8 @@ import {
 	Sparkles,
 	Github,
 	Play,
+	Wallet,
+	LayoutGrid,
 } from "lucide-react";
 import Image from "next/image";
 import { useState, useCallback } from "react";
@@ -27,9 +29,9 @@ interface Template {
 	name: string;
 	description: string;
 	href: string;
-	demoUrl: string;
+	demoUrl?: string;
 	demoLabel?: string;
-	image: string;
+	image?: string;
 	icon: typeof ImageIcon;
 	tags: string[];
 	gradient: string;
@@ -37,6 +39,16 @@ interface Template {
 }
 
 const templates: Template[] = [
+	{
+		name: "Embeddable Credits",
+		description:
+			'Monetize your AI app in 5 minutes. Drop in a wallet + checkout so your end-users buy credits and use AI in-app, billed to their own balance — the "Stripe for AI" flagship.',
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits",
+		icon: Wallet,
+		tags: ["TypeScript", "Next.js", "Embeddable SDK"],
+		gradient: "from-emerald-500/20 via-teal-500/20 to-cyan-500/20",
+		featured: true,
+	},
 	{
 		name: "Image Generation",
 		description:
@@ -106,6 +118,15 @@ const templates: Template[] = [
 		tags: ["TypeScript", "Next.js", "AI SDK"],
 		gradient: "from-cyan-500/20 via-teal-500/20 to-blue-500/20",
 	},
+	{
+		name: "Showcase",
+		description:
+			'A static, deployable gallery of apps built with LLM Gateway templates. Tag and type filtering, a "Submit your app" flow, and a Powered-By badge baked in — fork it or use the community directory.',
+		href: "https://github.com/theopenco/llmgateway-templates/tree/main/templates/showcase",
+		icon: LayoutGrid,
+		tags: ["TypeScript", "Next.js", "Tailwind CSS"],
+		gradient: "from-amber-500/20 via-orange-500/20 to-rose-500/20",
+	},
 ];
 
 export function TemplateCards() {
@@ -155,13 +176,21 @@ export function TemplateCards() {
 
 					{/* Preview image */}
 					<div className="relative aspect-video overflow-hidden">
-						<Image
-							src={template.image}
-							alt={`${template.name} preview`}
-							width={1200}
-							height={675}
-							className="h-full w-full object-cover"
-						/>
+						{template.image ? (
+							<Image
+								src={template.image}
+								alt={`${template.name} preview`}
+								width={1200}
+								height={675}
+								className="h-full w-full object-cover"
+							/>
+						) : (
+							<div
+								className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${template.gradient}`}
+							>
+								<template.icon className="h-16 w-16 text-foreground/70" />
+							</div>
+						)}
 						<div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 					</div>
 
@@ -197,22 +226,30 @@ export function TemplateCards() {
 
 						{/* Actions */}
 						<div className="flex flex-col sm:flex-row gap-3 pt-2 mt-auto">
-							<Button asChild className="flex-1 gap-2 font-semibold">
-								<a
-									href={template.demoUrl}
-									target="_blank"
-									rel="noopener noreferrer"
-								>
-									{template.demoLabel ? (
-										<Play className="h-4 w-4" />
-									) : (
-										<ExternalLink className="h-4 w-4" />
-									)}
-									{template.demoLabel ?? "Live Demo"}
-									<ArrowUpRight className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-opacity" />
-								</a>
-							</Button>
-							<Button variant="outline" asChild className="gap-2">
+							{template.demoUrl && (
+								<Button asChild className="flex-1 gap-2 font-semibold">
+									<a
+										href={template.demoUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+									>
+										{template.demoLabel ? (
+											<Play className="h-4 w-4" />
+										) : (
+											<ExternalLink className="h-4 w-4" />
+										)}
+										{template.demoLabel ?? "Live Demo"}
+										<ArrowUpRight className="h-4 w-4 opacity-50 group-hover:opacity-100 transition-opacity" />
+									</a>
+								</Button>
+							)}
+							<Button
+								variant={template.demoUrl ? "outline" : "default"}
+								asChild
+								className={
+									template.demoUrl ? "gap-2" : "flex-1 gap-2 font-semibold"
+								}
+							>
 								<a
 									href={template.href}
 									target="_blank"

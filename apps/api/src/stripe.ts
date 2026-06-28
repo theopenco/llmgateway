@@ -16,6 +16,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 	type DevPlanCycle,
@@ -3037,14 +3038,19 @@ export async function handleInvoicePaymentSucceeded(event: {
 		organization.devPlanStripeSubscriptionId !== subscriptionId;
 
 	// Stripe fires `invoice.payment_succeeded` both for true period renewals
-	// (`subscription_cycle`) and for the proration invoice generated when a
-	// user changes tier mid-cycle (`subscription_update`). Only a real cycle
-	// renewal should reset the credit allotment. Treating a proration invoice
-	// as a renewal lets a user downgrade and then upgrade to repeatedly
-	// refresh a full fresh credit balance — so we gate the credit reset on the
-	// billing reason.
+	// (`subscription_cycle`) and for one-off invoices generated when a user
+	// changes tier mid-cycle. Only a real cycle renewal should reset the credit
+	// allotment. Treating an upgrade invoice as a renewal lets a user downgrade
+	// then upgrade to repeatedly refresh a full fresh credit balance — so we
+	// gate the credit reset on the billing reason.
 	const isDevPlanRenewal =
 		isDevPlanSubscription && invoice.billing_reason === "subscription_cycle";
+	const isDevPlanUpgradeInvoice =
+		isDevPlanSubscription &&
+		(invoice.billing_reason === "subscription_update" ||
+			(invoice.billing_reason === "manual" &&
+				metadata?.subscriptionType === "dev_plan" &&
+				metadata?.devPlanChange === "upgrade"));
 
 	// Same billing-reason gate as dev plans: only reset chat plan credits on a
 	// true cycle renewal, not on mid-cycle tier-change proration invoices.
@@ -3305,30 +3311,95 @@ export async function handleInvoicePaymentSucceeded(event: {
 				organization.devPlan ?? "unknown",
 			);
 		}
-	} else if (
-		isDevPlanSubscription &&
-		invoice.billing_reason === "subscription_update"
-	) {
-		// Proration invoice from a mid-cycle upgrade. The change-tier endpoint
-		// already adjusted `devPlanCreditsLimit` (prorated); here we record the
-		// upgrade — with the amount actually collected — as the single canonical
-		// `dev_plan_upgrade` transaction (change-tier deliberately does not record
-		// one for upgrades, to avoid double-counting). We do NOT reset
-		// `devPlanCreditsUsed` or grant a fresh allotment.
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "dev_plan_upgrade",
-			amount: (invoice.amount_paid / 100).toString(),
-			currency: invoice.currency.toUpperCase(),
-			status: "completed",
-			stripePaymentIntentId: (invoice as any).payment_intent,
-			stripeInvoiceId: invoice.id,
-			description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
-		});
+	} else if (isDevPlanUpgradeInvoice) {
+		// Invoice from a mid-cycle upgrade. The change-tier endpoint normally
+		// records the transaction (and emails the invoice) synchronously; this
+		// webhook path is the fallback if the process exits after Stripe collects
+		// payment but before the local insert. onConflictDoNothing on the unique
+		// stripeInvoiceId index makes it atomically idempotent with the sync path,
+		// so only the path that wins the insert reconciles org state and emails —
+		// a concurrent sync request can't yield a duplicate row or email. We do
+		// NOT reset `devPlanCreditsUsed`.
+		const fromTier = metadata?.fromTier as DevPlanTier | undefined;
+		const toTier = metadata?.toTier as DevPlanTier | undefined;
+		const remainingFraction = metadata?.remainingFraction
+			? Number(metadata.remainingFraction)
+			: undefined;
+		const proratedCreditDelta =
+			fromTier && toTier && remainingFraction !== undefined
+				? getProratedCreditDelta(fromTier, toTier, remainingFraction)
+				: undefined;
 
-		logger.info(
-			`Recorded dev plan upgrade proration invoice for organization ${organizationId}; credits left unchanged`,
-		);
+		const [upgradeTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_upgrade",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: proratedCreditDelta?.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description:
+					fromTier && toTier
+						? `Changed from ${fromTier} to ${toTier} plan`
+						: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+			})
+			.onConflictDoNothing()
+			.returning();
+
+		if (upgradeTransaction) {
+			// Reconcile org tier/limit in case the sync path died after Stripe
+			// collected payment but before it applied the upgrade. Reproduces the
+			// exact prorated limit the sync path computes (the current tier's full
+			// allotment + the prorated delta), so re-applying when the sync path did
+			// run is a harmless no-op.
+			if (fromTier && toTier && proratedCreditDelta !== undefined) {
+				const newCreditsLimit =
+					getDevPlanCreditsLimit(fromTier) + proratedCreditDelta;
+				await db
+					.update(tables.organization)
+					.set({
+						devPlan: toTier,
+						devPlanCreditsLimit: newCreditsLimit.toString(),
+					})
+					.where(eq(tables.organization.id, organizationId));
+			}
+
+			try {
+				const billingDetails = await resolveDevPassBillingDetails(organization);
+				await generateAndEmailInvoice({
+					invoiceNumber: upgradeTransaction.id,
+					invoiceDate: new Date(),
+					organizationName: organization.name,
+					...billingDetails,
+					lineItems: [
+						{
+							description:
+								fromTier && toTier
+									? `Dev Plan upgrade from ${fromTier.toUpperCase()} to ${toTier.toUpperCase()}`
+									: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+							amount: invoice.amount_paid / 100,
+						},
+					],
+					currency: invoice.currency.toUpperCase(),
+				});
+			} catch (e) {
+				logger.error(
+					"Invoice email failed (DevPass upgrade invoice); suppressing failure",
+					e as Error,
+				);
+			}
+
+			logger.info(
+				`Recorded dev plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
+			);
+		} else {
+			logger.info(
+				`Dev plan upgrade transaction already exists for invoice ${invoice.id}; skipping duplicate insert/email`,
+			);
+		}
 	} else if (isDevPlanSubscription) {
 		// Any other dev-plan invoice (e.g. `manual`, or a `subscription_create`
 		// that somehow wasn't deduped above). Leave credits untouched and do not

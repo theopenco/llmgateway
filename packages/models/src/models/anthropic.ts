@@ -1241,6 +1241,11 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				// `temperature` and `top_p` are deprecated for Opus 4.8 on Bedrock
+				// and rejected with a 400, so they are excluded here to strip them
+				// from forwarded requests. `effort` drives adaptive thinking via the
+				// Bedrock Converse builder (output_config.effort).
+				supportedParameters: ["max_tokens", "effort"],
 				regions: [
 					{ id: "global" },
 					{ id: "us" },

@@ -88,3 +88,66 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 		});
 	});
 });
+
+interface BedrockAdaptiveBody {
+	additionalModelRequestFields?: {
+		thinking?: { type: "adaptive" | "enabled"; display?: string };
+		output_config?: { effort?: string };
+	};
+	inferenceConfig?: { temperature?: number; topP?: number; maxTokens?: number };
+}
+
+async function buildBedrockBody(opts: {
+	effort?: "low" | "medium" | "high";
+	reasoning_effort?: "low" | "medium" | "high" | "xhigh";
+	temperature?: number;
+	top_p?: number;
+}): Promise<BedrockAdaptiveBody> {
+	return (await prepareRequestBody(
+		"aws-bedrock",
+		"claude-opus-4-8",
+		"global",
+		"anthropic.claude-opus-4-8",
+		[{ role: "user", content: "hi" }],
+		false, // stream
+		opts.temperature, // temperature
+		undefined, // max_tokens
+		opts.top_p, // top_p
+		undefined, // frequency_penalty
+		undefined, // presence_penalty
+		undefined, // response_format
+		undefined, // tools
+		undefined, // tool_choice
+		opts.reasoning_effort, // reasoning_effort
+		true, // supportsReasoning
+		false, // isProd
+		20, // maxImageSizeMB
+		null, // userPlan
+		undefined, // sensitive_word_check
+		undefined, // image_config
+		opts.effort, // effort
+	)) as BedrockAdaptiveBody;
+}
+
+describe("prepareRequestBody - Bedrock Opus 4.8 deprecated params", () => {
+	test("top-level effort activates adaptive thinking without temperature", async () => {
+		const body = await buildBedrockBody({ effort: "high" });
+		expect(body.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+		expect(body.additionalModelRequestFields?.output_config?.effort).toBe(
+			"high",
+		);
+		// temperature is deprecated for Opus 4.8 and must not be forced to 1.
+		expect(body.inferenceConfig?.temperature).toBeUndefined();
+	});
+
+	test("reasoning_effort does not force the deprecated temperature", async () => {
+		const body = await buildBedrockBody({ reasoning_effort: "high" });
+		expect(body.additionalModelRequestFields?.output_config?.effort).toBe(
+			"high",
+		);
+		expect(body.inferenceConfig?.temperature).toBeUndefined();
+	});
+});

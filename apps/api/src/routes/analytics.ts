@@ -13,9 +13,12 @@ import {
 	inArray,
 	lte,
 	ne,
+	projectHourlyModelStats,
+	projectHourlyStats,
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { models, type ModelDefinition } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -514,4 +517,352 @@ analytics.openapi(getMemberDetail, async (c) => {
 		topProviders,
 		costByModel,
 	});
+});
+
+const modelNameById = new Map<string, string>(
+	(models as ModelDefinition[]).map((m) => [m.id, m.name ?? m.id]),
+);
+
+// Recover the canonical model id (drop provider prefix + version tag) so the
+// same model routed through different providers collapses into one series at
+// the org level.
+function canonicalModelId(usedModel: string): string {
+	const slashIdx = usedModel.indexOf("/");
+	const withoutProvider =
+		slashIdx === -1 ? usedModel : usedModel.slice(slashIdx + 1);
+	const colonIdx = withoutProvider.indexOf(":");
+	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
+}
+
+// Daily buckets are padded one calendar day at a time, so cap the window to a
+// year to keep the response bounded and — crucially — to keep the returned
+// buckets covering exactly the same range the SQL totals do (no silent
+// truncation of an over-large span).
+const MAX_ORG_ACTIVITY_RANGE_DAYS = 366;
+
+function rangeDaysInclusive(fromStr: string, toStr: string): number {
+	const from = Date.parse(`${fromStr}T00:00:00Z`);
+	const to = Date.parse(`${toStr}T00:00:00Z`);
+	return Math.round((to - from) / 86_400_000) + 1;
+}
+
+// Inclusive list of UTC calendar dates between two YYYY-MM-DD strings, used to
+// pad the activity series so charts render a continuous axis even on idle days.
+// Callers must validate the span first (see MAX_ORG_ACTIVITY_RANGE_DAYS).
+function eachDay(fromStr: string, toStr: string): string[] {
+	const slots: string[] = [];
+	const cur = new Date(`${fromStr}T00:00:00Z`);
+	const end = new Date(`${toStr}T00:00:00Z`);
+	while (cur.getTime() <= end.getTime()) {
+		slots.push(cur.toISOString().slice(0, 10));
+		cur.setUTCDate(cur.getUTCDate() + 1);
+	}
+	return slots;
+}
+
+const orgGroupBySchema = z.enum(["model", "project", "apiKey"]);
+
+const orgActivityBreakdownSchema = z.object({
+	key: z.string(),
+	label: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	totalTokens: z.number(),
+});
+
+const orgActivityRowSchema = z.object({
+	date: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	totalTokens: z.number(),
+	breakdown: z.array(orgActivityBreakdownSchema),
+});
+
+const getOrgActivity = createRoute({
+	method: "get",
+	path: "/activity",
+	request: {
+		query: z.object({
+			...dateRangeQuery,
+			groupBy: orgGroupBySchema.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						activity: z.array(orgActivityRowSchema),
+						groupBy: orgGroupBySchema,
+					}),
+				},
+			},
+			description:
+				"Organization-wide activity (daily) with a breakdown by the requested dimension, read from the hourly rollup tables.",
+		},
+	},
+});
+
+analytics.openapi(getOrgActivity, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const {
+		organizationId,
+		from,
+		to,
+		groupBy: groupByParam,
+	} = c.req.valid("query");
+	await requireEnterpriseAdmin(authUser.id, organizationId);
+
+	const groupBy = groupByParam ?? "model";
+	const { startDate, endDate } = resolveDateRange(from, to);
+	const projectIds = await getOrgProjectIds(organizationId);
+
+	const fromStr = from ?? startDate.toISOString().slice(0, 10);
+	const toStr = to ?? endDate.toISOString().slice(0, 10);
+
+	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
+
+	if (projectIds.length === 0) {
+		return c.json({
+			activity: eachDay(fromStr, toStr).map((date) => ({
+				date,
+				cost: 0,
+				requestCount: 0,
+				totalTokens: 0,
+				breakdown: [],
+			})),
+			groupBy,
+		});
+	}
+
+	// Daily org-wide totals (the source of truth for the summary, independent of
+	// the top-N breakdown the client charts).
+	const totalsRows = await db
+		.select({
+			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+				"cost",
+			),
+			requestCount:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlyStats)
+		.where(
+			and(
+				inArray(projectHourlyStats.projectId, projectIds),
+				gte(projectHourlyStats.hourTimestamp, startDate),
+				lte(projectHourlyStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(sql`1`)
+		.orderBy(sql`1 ASC`);
+
+	const totalsByDate = new Map(
+		totalsRows.map((r) => [String(r.date).slice(0, 10), r]),
+	);
+
+	interface BreakdownAgg {
+		label: string;
+		cost: number;
+		requestCount: number;
+		totalTokens: number;
+	}
+	const breakdownByDate = new Map<string, Map<string, BreakdownAgg>>();
+
+	const addBreakdown = (
+		date: string,
+		key: string,
+		label: string,
+		cost: number,
+		requestCount: number,
+		totalTokens: number,
+	) => {
+		let dayMap = breakdownByDate.get(date);
+		if (!dayMap) {
+			dayMap = new Map();
+			breakdownByDate.set(date, dayMap);
+		}
+		const existing = dayMap.get(key);
+		if (existing) {
+			existing.cost += cost;
+			existing.requestCount += requestCount;
+			existing.totalTokens += totalTokens;
+		} else {
+			dayMap.set(key, { label, cost, requestCount, totalTokens });
+		}
+	};
+
+	if (groupBy === "model") {
+		const rows = await db
+			.select({
+				date: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
+					"date",
+				),
+				usedModel: projectHourlyModelStats.usedModel,
+				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					inArray(projectHourlyModelStats.projectId, projectIds),
+					gte(projectHourlyModelStats.hourTimestamp, startDate),
+					lte(projectHourlyModelStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(sql`1, ${projectHourlyModelStats.usedModel}`)
+			.orderBy(sql`1 ASC`);
+
+		for (const row of rows) {
+			const date = String(row.date).slice(0, 10);
+			const usedModel = row.usedModel || "unknown";
+			const key = canonicalModelId(usedModel);
+			const label = modelNameById.get(key) ?? key;
+			addBreakdown(
+				date,
+				key,
+				label,
+				Number(row.cost),
+				Number(row.requestCount),
+				Number(row.totalTokens),
+			);
+		}
+	} else if (groupBy === "project") {
+		const projectNames = new Map(
+			(
+				await db
+					.select({ id: tables.project.id, name: tables.project.name })
+					.from(tables.project)
+					.where(inArray(tables.project.id, projectIds))
+			).map((p) => [p.id, p.name] as const),
+		);
+
+		const rows = await db
+			.select({
+				date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+				projectId: projectHourlyStats.projectId,
+				cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(projectHourlyStats)
+			.where(
+				and(
+					inArray(projectHourlyStats.projectId, projectIds),
+					gte(projectHourlyStats.hourTimestamp, startDate),
+					lte(projectHourlyStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(sql`1, ${projectHourlyStats.projectId}`)
+			.orderBy(sql`1 ASC`);
+
+		for (const row of rows) {
+			const date = String(row.date).slice(0, 10);
+			addBreakdown(
+				date,
+				row.projectId,
+				projectNames.get(row.projectId) ?? "Unknown project",
+				Number(row.cost),
+				Number(row.requestCount),
+				Number(row.totalTokens),
+			);
+		}
+	} else {
+		const rows = await db
+			.select({
+				date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				apiKeyId: apiKeyHourlyStats.apiKeyId,
+				description: tables.apiKey.description,
+				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(apiKeyHourlyStats)
+			.leftJoin(tables.apiKey, eq(tables.apiKey.id, apiKeyHourlyStats.apiKeyId))
+			.where(
+				and(
+					inArray(apiKeyHourlyStats.projectId, projectIds),
+					inArray(tables.apiKey.keyType, ["user", "end_user_customer"]),
+					gte(apiKeyHourlyStats.hourTimestamp, startDate),
+					lte(apiKeyHourlyStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(
+				sql`1, ${apiKeyHourlyStats.apiKeyId}, ${tables.apiKey.description}`,
+			)
+			.orderBy(sql`1 ASC`);
+
+		for (const row of rows) {
+			const date = String(row.date).slice(0, 10);
+			addBreakdown(
+				date,
+				row.apiKeyId,
+				row.description ?? "Deleted key",
+				Number(row.cost),
+				Number(row.requestCount),
+				Number(row.totalTokens),
+			);
+		}
+	}
+
+	const activity = eachDay(fromStr, toStr).map((date) => {
+		const totals = totalsByDate.get(date);
+		const dayMap = breakdownByDate.get(date);
+		return {
+			date,
+			cost: Number(totals?.cost ?? 0),
+			requestCount: Number(totals?.requestCount ?? 0),
+			totalTokens: Number(totals?.totalTokens ?? 0),
+			breakdown: dayMap
+				? Array.from(dayMap.entries()).map(([key, v]) => ({
+						key,
+						label: v.label,
+						cost: v.cost,
+						requestCount: v.requestCount,
+						totalTokens: v.totalTokens,
+					}))
+				: [],
+		};
+	});
+
+	return c.json({ activity, groupBy });
 });

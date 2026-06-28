@@ -22,6 +22,7 @@ describe("normalizeStreamingError", () => {
 			phase: "upstream_read",
 		});
 
+		expect(normalized.terminated).toBe(true);
 		expect(normalized.client.message).toBe(
 			"Upstream stream terminated unexpectedly before completion",
 		);
@@ -45,6 +46,7 @@ describe("normalizeStreamingError", () => {
 			phase: "upstream_read",
 		});
 
+		expect(normalized.terminated).toBe(false);
 		expect(normalized.client.message).toBe(
 			"Streaming error: Unexpected end of JSON input",
 		);
