@@ -45,4 +45,16 @@ describe("parseModelInput / resolveModelInfo free vs paid sibling", () => {
 		const { modelInfo } = resolveModelInfo(requestedModel, requestedProvider);
 		expect(modelInfo.id).toBe("gpt-4o-mini");
 	});
+
+	// Strict catalog-id-only routing: the provider/externalId form (upstream id)
+	// is no longer accepted — callers must use the catalog id.
+	it("rejects the provider/externalId form", () => {
+		expect(() => parseModelInput("together-ai/zai-org/GLM-5.1")).toThrow();
+	});
+
+	it("accepts the canonical provider/catalog-id form", () => {
+		const result = parseModelInput("together-ai/glm-5.1");
+		expect(result.requestedModel).toBe("glm-5.1");
+		expect(result.requestedProvider).toBe("together-ai");
+	});
 });
