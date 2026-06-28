@@ -149,7 +149,9 @@ async function fetchImageAsBlob(
  * the caller can skip the block instead of sending an invalid request.
  */
 function bedrockImageFormat(mimeType: string): string | undefined {
-	switch (mimeType.toLowerCase()) {
+	// processImageUrl returns the raw Content-Type for remote fetches, which can
+	// carry parameters (e.g. "image/png; charset=binary"). Strip them first.
+	switch (mimeType.toLowerCase().split(";", 1)[0].trim()) {
 		case "image/png":
 			return "png";
 		case "image/jpeg":
