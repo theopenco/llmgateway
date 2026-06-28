@@ -41,8 +41,8 @@ function serialize(tags: QueryTags): string {
 }
 
 /**
- * Set the process-wide tags appended to every SQL query. Call once at app
- * startup, e.g. `setQueryTags({ application: "gateway" })`.
+ * Set the process-wide tags appended to every SQL query. Call once at each
+ * app's startup, e.g. `setQueryTags({ application: "gateway" })`.
  *
  * Tags are static per process on purpose: the comment becomes part of the query
  * text, so a per-request value would break prepared-statement caching and could

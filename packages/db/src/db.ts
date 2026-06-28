@@ -4,15 +4,8 @@ import { Pool } from "pg";
 
 import { logger } from "@llmgateway/logger";
 
-import { patchClientQuery, setQueryTags } from "./query-tags.js";
+import { patchClientQuery } from "./query-tags.js";
 import { relations } from "./relations.js";
-
-// Optional default tag from the environment so deployments can label queries
-// without code changes. App entrypoints typically override this via
-// setQueryTags({ application: "..." }).
-if (process.env.DB_APPLICATION_NAME) {
-	setQueryTags({ application: process.env.DB_APPLICATION_NAME });
-}
 
 // Single shared pool for all database connections
 // This prevents connection exhaustion from having multiple pools
