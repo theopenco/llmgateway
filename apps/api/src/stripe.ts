@@ -3330,35 +3330,39 @@ export async function handleInvoicePaymentSucceeded(event: {
 				? getProratedCreditDelta(fromTier, toTier, remainingFraction)
 				: undefined;
 
-		const [upgradeTransaction] = await db
-			.insert(tables.transaction)
-			.values({
-				organizationId,
-				type: "dev_plan_upgrade",
-				amount: (invoice.amount_paid / 100).toString(),
-				creditAmount: proratedCreditDelta?.toString(),
-				currency: invoice.currency.toUpperCase(),
-				status: "completed",
-				stripePaymentIntentId: (invoice as any).payment_intent,
-				stripeInvoiceId: invoice.id,
-				description:
-					fromTier && toTier
-						? `Changed from ${fromTier} to ${toTier} plan`
-						: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
-			})
-			.onConflictDoNothing()
-			.returning();
+		// Insert the unique-stripeInvoiceId marker and reconcile org tier/limit in
+		// one transaction so they commit together. This handles the case where the
+		// sync path died after Stripe collected payment but before it applied the
+		// upgrade. Mirrors the sync path: add the prorated credit delta on top of
+		// the existing allowance rather than recomputing from the tier base (which
+		// would discard credits carried over from earlier mid-cycle changes).
+		// Winning the unique-invoice insert gates the reconcile, so the delta is
+		// applied exactly once across the sync and webhook paths. Atomicity matters
+		// because both paths short-circuit on the existing marker — a crash between
+		// insert and reconcile would otherwise leave the invoice recorded with the
+		// credit never applied.
+		const upgradeTransaction = await db.transaction(async (tx) => {
+			const [created] = await tx
+				.insert(tables.transaction)
+				.values({
+					organizationId,
+					type: "dev_plan_upgrade",
+					amount: (invoice.amount_paid / 100).toString(),
+					creditAmount: proratedCreditDelta?.toString(),
+					currency: invoice.currency.toUpperCase(),
+					status: "completed",
+					stripePaymentIntentId: (invoice as any).payment_intent,
+					stripeInvoiceId: invoice.id,
+					description:
+						fromTier && toTier
+							? `Changed from ${fromTier} to ${toTier} plan`
+							: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+				})
+				.onConflictDoNothing()
+				.returning();
 
-		if (upgradeTransaction) {
-			// Reconcile org tier/limit in case the sync path died after Stripe
-			// collected payment but before it applied the upgrade. Mirrors the sync
-			// path: add the prorated credit delta on top of the existing allowance
-			// rather than recomputing from the tier base (which would discard credits
-			// carried over from earlier mid-cycle changes). Winning the unique-invoice
-			// insert above gates this, so the delta is applied exactly once across the
-			// sync and webhook paths.
-			if (fromTier && toTier && proratedCreditDelta !== undefined) {
-				await db
+			if (created && fromTier && toTier && proratedCreditDelta !== undefined) {
+				await tx
 					.update(tables.organization)
 					.set({
 						devPlan: toTier,
@@ -3367,6 +3371,10 @@ export async function handleInvoicePaymentSucceeded(event: {
 					.where(eq(tables.organization.id, organizationId));
 			}
 
+			return created;
+		});
+
+		if (upgradeTransaction) {
 			try {
 				const billingDetails = await resolveDevPassBillingDetails(organization);
 				await generateAndEmailInvoice({

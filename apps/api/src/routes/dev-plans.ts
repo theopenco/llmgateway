@@ -1166,42 +1166,51 @@ devPlans.openapi(changeTier, async (c) => {
 				.where(eq(tables.organization.id, personalOrg.id));
 
 			if (paidUpgrade) {
-				// onConflictDoNothing on the unique stripeInvoiceId index makes this
-				// idempotent against the webhook fallback: only the path that wins the
-				// insert grants the credits and emails the invoice, so a concurrent
+				// Insert the unique-stripeInvoiceId marker and apply the credit grant
+				// in one transaction so they commit together. onConflictDoNothing makes
+				// this idempotent against the webhook fallback: only the path that wins
+				// the insert grants the credits and emails the invoice, so a concurrent
 				// `invoice.payment_succeeded` webhook can't double-apply the credit
 				// delta, produce a second transaction row, or send a duplicate email.
-				const [upgradeTransaction] = await db
-					.insert(tables.transaction)
-					.values({
-						organizationId: personalOrg.id,
-						type: "dev_plan_upgrade",
-						amount: paidUpgrade.amount.toString(),
-						creditAmount: creditPreview.proratedCreditDelta.toString(),
-						currency: "USD",
-						status: "completed",
-						stripePaymentIntentId: paidUpgrade.paymentIntentId,
-						stripeInvoiceId: paidUpgrade.invoiceId,
-						description: `Changed from ${currentTier} to ${newTier} plan`,
-					})
-					.onConflictDoNothing()
-					.returning();
+				// Atomicity matters because both paths short-circuit on the existing
+				// marker — a crash between insert and grant would otherwise leave the
+				// invoice recorded with the credit never applied.
+				const upgradeTransaction = await db.transaction(async (tx) => {
+					const [created] = await tx
+						.insert(tables.transaction)
+						.values({
+							organizationId: personalOrg.id,
+							type: "dev_plan_upgrade",
+							amount: paidUpgrade.amount.toString(),
+							creditAmount: creditPreview.proratedCreditDelta.toString(),
+							currency: "USD",
+							status: "completed",
+							stripePaymentIntentId: paidUpgrade.paymentIntentId,
+							stripeInvoiceId: paidUpgrade.invoiceId,
+							description: `Changed from ${currentTier} to ${newTier} plan`,
+						})
+						.onConflictDoNothing()
+						.returning();
+
+					if (created) {
+						// Add the prorated credit delta on top of the existing allowance.
+						// Never recompute the limit from the tier's base allotment: that
+						// discards credits carried into this period by earlier mid-cycle
+						// changes (e.g. a downgrade then re-upgrade), which would shrink the
+						// allowance below the user's accumulated usage and hide the granted
+						// credit.
+						await tx
+							.update(tables.organization)
+							.set({
+								devPlanCreditsLimit: sql`${tables.organization.devPlanCreditsLimit} + ${creditPreview.proratedCreditDelta}`,
+							})
+							.where(eq(tables.organization.id, personalOrg.id));
+					}
+
+					return created;
+				});
 
 				if (upgradeTransaction) {
-					// Add the prorated credit delta on top of the existing allowance.
-					// Never recompute the limit from the tier's base allotment: that
-					// discards credits carried into this period by earlier mid-cycle
-					// changes (e.g. a downgrade then re-upgrade), which would shrink the
-					// allowance below the user's accumulated usage and hide the granted
-					// credit. The atomic increment plus the unique-invoice insert gate
-					// keeps this exactly-once with the webhook fallback.
-					await db
-						.update(tables.organization)
-						.set({
-							devPlanCreditsLimit: sql`${tables.organization.devPlanCreditsLimit} + ${creditPreview.proratedCreditDelta}`,
-						})
-						.where(eq(tables.organization.id, personalOrg.id));
-
 					try {
 						const billingDetails =
 							await resolveDevPassBillingDetails(personalOrg);
