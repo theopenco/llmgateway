@@ -1,1 +1,0 @@
-ALTER TABLE "project" ADD COLUMN "payments_sdk_enabled" boolean DEFAULT false NOT NULL;
