@@ -51,6 +51,7 @@ The gateway maps HTTP status codes to OpenAI error types and codes as follows:
 | 429    | `rate_limit_error`      | `rate_limit_exceeded`    |
 | 499    | `invalid_request_error` | `request_cancelled`      |
 | 504    | `timeout_error`         | `timeout`                |
+| 529    | `overloaded`            | `overloaded`             |
 | 5xx    | `api_error`             | _(`null`)_               |
 
 <Callout type="info">

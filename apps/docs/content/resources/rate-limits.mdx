@@ -171,9 +171,52 @@ When you exceed a rate limit, you'll receive a `429 Too Many Requests` response:
 
 This uses the standard OpenAI-compatible error envelope. Requests to the Anthropic-compatible `/v1/messages` endpoint receive the Anthropic error shape instead. See [Error Handling](/resources/error-handling) for the full format and status-code reference.
 
+## Gateway Overload (529)
+
+Separately from per-account rate limits, the gateway protects itself from
+transient overload. When a single gateway instance is holding too many
+concurrent in-flight requests at once (for example during a traffic spike, or
+when an upstream provider is slow and connections pile up), it sheds excess
+requests with an `HTTP 529` response instead of letting them queue indefinitely:
+
+```http
+HTTP/1.1 529
+Retry-After: 1
+```
+
+```json
+{
+	"error": {
+		"message": "Gateway overloaded, please retry",
+		"type": "overloaded",
+		"code": "overloaded"
+	}
+}
+```
+
+Requests to the Anthropic-compatible `/v1/messages` endpoint receive the
+equivalent Anthropic envelope (`{ "type": "error", "error": { "type": "overloaded_error" } }`),
+matching Anthropic's own `529` behavior.
+
+<Callout type="info">
+	A `529` is **transient and retryable** — it reflects momentary capacity, not a
+	quota on your account. Unlike a `429`, it is not tied to your credits or model
+	tier, and retrying after a short delay (honoring the `Retry-After` header)
+	will typically succeed.
+</Callout>
+
+How `529` differs from `429`:
+
+|           | `429 Too Many Requests`                                                | `529` Overloaded                       |
+| --------- | ---------------------------------------------------------------------- | -------------------------------------- |
+| Cause     | Your account exceeded its request quota                                | The gateway is momentarily at capacity |
+| Scope     | Per organization / API key                                             | Transient, server-side                 |
+| Fix       | Slow down, or add credits for [elevated limits](#elevated-rate-limits) | Retry after a short delay              |
+| Retryable | After the window resets                                                | Yes, immediately with backoff          |
+
 ## Best Practices
 
-- **Respect `Retry-After`.** Implement exponential backoff when you receive `429` responses, starting from the `Retry-After` value.
+- **Respect `Retry-After`.** Implement exponential backoff when you receive `429` or `529` responses, starting from the `Retry-After` value.
 - **Watch the headers.** Monitor `X-RateLimit-Remaining` to back off before you hit the limit.
 - **Spread traffic across endpoints.** Limits are per endpoint, so unrelated workloads don't compete for the same budget.
 - **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; [contact us](mailto:contact@llmgateway.io) about an [Enterprise plan](https://llmgateway.io/enterprise) to remove per-organization limits entirely.
