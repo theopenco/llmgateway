@@ -1462,6 +1462,18 @@ export async function prepareRequestBody(
 
 	if (
 		forcesToolUse &&
+		usedProvider === "tundra" &&
+		resolvedToolChoice === "required"
+	) {
+		// The Tundra upstream rejects tool_choice="required" with a 400.
+		// Named/forced function choice works, so only downgrade the "required"
+		// sentinel to "auto" so the request still succeeds.
+		resolvedToolChoice = "auto";
+		requestBody.tool_choice = "auto";
+	}
+
+	if (
+		forcesToolUse &&
 		usedProvider === "azure" &&
 		usedInternalModel === "gpt-oss-120b"
 	) {

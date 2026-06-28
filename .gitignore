@@ -20,6 +20,7 @@ llmgateway_data
 !apps/ui/public/llms.txt
 docker-compose-override-*.yml
 benchmark_results.json
+benchmark-*.json
 *.pdf
 *.b64
 /output.png
