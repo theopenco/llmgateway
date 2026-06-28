@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	Building2,
 	ChevronUp,
 	ComputerIcon,
 	CreditCard,
@@ -26,8 +27,10 @@ import { useMemo, useState, useEffect } from "react";
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import {
 	AnimatedActivity,
+	AnimatedBadgeCheck,
 	AnimatedBarChart3,
 	AnimatedBotMessageSquare,
+	AnimatedChartArea,
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
 	AnimatedKey,
@@ -78,6 +81,11 @@ import {
 	SidebarRail,
 	useSidebar,
 } from "@/lib/components/sidebar";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/lib/components/tooltip";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 
@@ -114,6 +122,11 @@ const PROJECT_NAVIGATION: readonly {
 		href: "model-usage",
 		label: "Model Usage",
 		icon: AnimatedChartColumnBig,
+	},
+	{
+		href: "analytics",
+		label: "Analytics",
+		icon: AnimatedChartArea,
 	},
 	{
 		href: "usage",
@@ -169,8 +182,14 @@ const ORGANIZATION_SETTINGS = [
 		label: "Team",
 	},
 	{
+		href: "org/members",
+		label: "Members",
+		enterpriseOnly: true,
+	},
+	{
 		href: "org/audit-logs",
 		label: "Audit Logs",
+		enterpriseOnly: true,
 	},
 ] as const;
 
@@ -334,6 +353,22 @@ function ProjectSettingsSection({
 	);
 }
 
+function EnterpriseIndicator() {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span
+					aria-label="Enterprise feature"
+					className="ml-auto flex items-center text-blue-500/70 group-data-[collapsible=icon]:hidden dark:text-blue-400/70"
+				>
+					<Building2 className="h-3.5 w-3.5" />
+				</span>
+			</TooltipTrigger>
+			<TooltipContent side="right">Enterprise feature</TooltipContent>
+		</Tooltip>
+	);
+}
+
 function OrgNavItem({
 	href,
 	label,
@@ -341,6 +376,7 @@ function OrgNavItem({
 	isActive,
 	isMobile,
 	toggleSidebar,
+	showEnterpriseBadge = false,
 }: {
 	href: string;
 	label: string;
@@ -348,6 +384,7 @@ function OrgNavItem({
 	isActive: boolean;
 	isMobile: boolean;
 	toggleSidebar: () => void;
+	showEnterpriseBadge?: boolean;
 }) {
 	const [isHovered, setIsHovered] = useState(false);
 
@@ -368,6 +405,7 @@ function OrgNavItem({
 				>
 					<Icon isHovered={isHovered} />
 					<span>{label}</span>
+					{showEnterpriseBadge && <EnterpriseIndicator />}
 				</Link>
 			</SidebarMenuButton>
 		</SidebarMenuItem>
@@ -379,14 +417,18 @@ function OrganizationSection({
 	isMobile,
 	toggleSidebar,
 	searchParams,
+	isEnterprise,
 }: {
 	isActive: (path: string) => boolean;
 	isMobile: boolean;
 	toggleSidebar: () => void;
 	searchParams: ReadonlyURLSearchParams;
+	isEnterprise: boolean;
 }) {
 	const { buildOrgUrl } = useDashboardNavigation();
 	const [settingsHovered, setSettingsHovered] = useState(false);
+
+	const showEnterpriseBadge = !isEnterprise;
 
 	return (
 		<SidebarGroup>
@@ -404,22 +446,6 @@ function OrganizationSection({
 						toggleSidebar={toggleSidebar}
 					/>
 					<OrgNavItem
-						href={buildOrgUrl("org/guardrails")}
-						label="Guardrails"
-						icon={AnimatedShield}
-						isActive={isActive("org/guardrails")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/security-events")}
-						label="Security Events"
-						icon={AnimatedShieldAlert}
-						isActive={isActive("org/security-events")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
 						href={buildOrgUrl("org/discounts")}
 						label="Your Discounts"
 						icon={AnimatedPercent}
@@ -428,12 +454,58 @@ function OrganizationSection({
 						toggleSidebar={toggleSidebar}
 					/>
 					<OrgNavItem
+						href={buildOrgUrl("org/custom-models")}
+						label="Custom Models"
+						icon={AnimatedBotMessageSquare}
+						isActive={isActive("org/custom-models")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/analytics")}
+						label="Analytics"
+						icon={AnimatedChartArea}
+						isActive={isActive("org/analytics")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/guardrails")}
+						label="Guardrails"
+						icon={AnimatedShield}
+						isActive={isActive("org/guardrails")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/compliance")}
+						label="Compliance"
+						icon={AnimatedBadgeCheck}
+						isActive={isActive("org/compliance")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/security-events")}
+						label="Security Events"
+						icon={AnimatedShieldAlert}
+						isActive={isActive("org/security-events")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
 						href={buildOrgUrl("org/master-keys")}
 						label="Master Keys"
 						icon={AnimatedKeySquare}
 						isActive={isActive("org/master-keys")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<SidebarMenuItem
 						onMouseEnter={() => setSettingsHovered(true)}
@@ -448,6 +520,7 @@ function OrganizationSection({
 								isActive("org/policies") ||
 								isActive("org/preferences") ||
 								isActive("org/team") ||
+								isActive("org/members") ||
 								isActive("org/audit-logs")
 							}
 							tooltip="Settings"
@@ -487,6 +560,9 @@ function OrganizationSection({
 											prefetch={true}
 										>
 											<span>{item.label}</span>
+											{"enterpriseOnly" in item &&
+												item.enterpriseOnly &&
+												showEnterpriseBadge && <EnterpriseIndicator />}
 										</Link>
 									</SidebarMenuSubButton>
 								</SidebarMenuSubItem>
@@ -893,7 +969,14 @@ export function DashboardSidebar({
 			// For dashboard home, check if we're at the base dashboard route
 			return pathname.match(/^\/dashboard\/[^/]+\/[^/]+$/) !== null;
 		}
-		// For other paths, check if pathname ends with the path
+		// Org-scoped routes live under /dashboard/{orgId}/org/... and project
+		// routes under /dashboard/{orgId}/{projectId}/... . Both can end in the
+		// same segment (e.g. /analytics), so gate on which section we're in —
+		// otherwise the project "Analytics" item also lights up on org/analytics.
+		const isOrgRoute = /^\/dashboard\/[^/]+\/org\//.test(pathname);
+		if (path.startsWith("org/") !== isOrgRoute) {
+			return false;
+		}
 		return pathname.endsWith(`/${path}`);
 	};
 
@@ -1013,6 +1096,7 @@ export function DashboardSidebar({
 					isMobile={isMobile}
 					toggleSidebar={toggleSidebar}
 					searchParams={searchParams}
+					isEnterprise={selectedOrganization?.plan === "enterprise"}
 				/>
 
 				<ToolsResourcesSection

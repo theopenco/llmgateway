@@ -223,6 +223,46 @@ describe("activity endpoint", () => {
 		expect(modelData).toHaveProperty("cost");
 	});
 
+	test("GET /activity should zero-fill missing days for from/to range", async () => {
+		const today = new Date();
+		const fiveDaysAgo = new Date(today);
+		fiveDaysAgo.setUTCDate(fiveDaysAgo.getUTCDate() - 5);
+		const fromStr = fiveDaysAgo.toISOString().slice(0, 10);
+		const toStr = today.toISOString().slice(0, 10);
+
+		const params = new URLSearchParams({
+			from: fromStr,
+			to: toStr,
+			timezone: "UTC",
+		});
+		const res = await app.request("/activity?" + params, {
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		expect(Array.isArray(data.activity)).toBe(true);
+		// Six contiguous days (fromStr..toStr inclusive), even though only three
+		// of them have logged activity — the rest must be zero-filled.
+		expect(data.activity.length).toBe(6);
+		expect(data.activity.map((d: { date: string }) => d.date)).toEqual([
+			...Array.from({ length: 6 }, (_, i) => {
+				const d = new Date(fiveDaysAgo);
+				d.setUTCDate(d.getUTCDate() + i);
+				return d.toISOString().slice(0, 10);
+			}),
+		]);
+
+		// The oldest day in the window has no activity and must be a zero row.
+		const emptyDay = data.activity[0];
+		expect(emptyDay.requestCount).toBe(0);
+		expect(emptyDay.cost).toBe(0);
+		expect(emptyDay.totalTokens).toBe(0);
+		expect(emptyDay.modelBreakdown).toEqual([]);
+	});
+
 	test("GET /activity should filter by projectId", async () => {
 		const params = new URLSearchParams({
 			days: "7",
@@ -333,6 +373,106 @@ describe("activity endpoint", () => {
 	test("GET /activity should require authentication", async () => {
 		const res = await app.request("/activity?days=7");
 		expect(res.status).toBe(401);
+	});
+
+	test("GET /activity should bucket dates in the requested timezone", async () => {
+		await db.delete(tables.log);
+
+		// Late evening UTC yesterday is already the next day in Athens (UTC+2/+3)
+		const lateUtc = new Date();
+		lateUtc.setUTCDate(lateUtc.getUTCDate() - 1);
+		lateUtc.setUTCHours(23, 30, 0, 0);
+
+		await db.insert(tables.log).values({
+			id: "tz-test-1",
+			requestId: "tz-test-1",
+			createdAt: lateUtc,
+			updatedAt: lateUtc,
+			organizationId: "test-org-id",
+			projectId: "test-project-id",
+			apiKeyId: "test-api-key-id",
+			duration: 100,
+			requestedModel: "gpt-4",
+			requestedProvider: "openai",
+			usedModel: "gpt-4",
+			usedProvider: "openai",
+			responseSize: 1000,
+			promptTokens: "10",
+			completionTokens: "20",
+			totalTokens: "30",
+			messages: JSON.stringify([{ role: "user", content: "Test" }]),
+			mode: "api-keys",
+			usedMode: "api-keys",
+		});
+
+		await aggregateLogsForTesting();
+
+		const utcRes = await app.request("/activity?days=7&timezone=UTC", {
+			headers: {
+				Cookie: token,
+			},
+		});
+		expect(utcRes.status).toBe(200);
+		const utcData = await utcRes.json();
+		expect(utcData.activity.length).toBe(1);
+		expect(utcData.activity[0].date).toBe(lateUtc.toISOString().slice(0, 10));
+
+		const athensRes = await app.request(
+			"/activity?days=7&timezone=Europe/Athens",
+			{
+				headers: {
+					Cookie: token,
+				},
+			},
+		);
+		expect(athensRes.status).toBe(200);
+		const athensData = await athensRes.json();
+		expect(athensData.activity.length).toBe(1);
+		const expectedAthensDate = new Intl.DateTimeFormat("en-CA", {
+			timeZone: "Europe/Athens",
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+		}).format(lateUtc);
+		expect(athensData.activity[0].date).toBe(expectedAthensDate);
+		expect(athensData.activity[0].date).not.toBe(utcData.activity[0].date);
+	});
+
+	test("GET /activity hourly buckets should align with the requested timezone", async () => {
+		const res = await app.request(
+			"/activity?timeRange=24h&timezone=Asia/Kolkata",
+			{
+				headers: {
+					Cookie: token,
+				},
+			},
+		);
+
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		expect(data.granularity).toBe("hourly");
+		expect(data.activity.length).toBeGreaterThan(0);
+
+		// Kolkata is UTC+5:30, so UTC hour buckets land on half-hour wall times
+		for (const row of data.activity) {
+			expect(row.date).toMatch(/T\d{2}:30:00$/);
+		}
+
+		// The logs inserted "now" in beforeEach must land in a padded slot
+		const totalRequests = data.activity.reduce(
+			(sum: number, row: { requestCount: number }) => sum + row.requestCount,
+			0,
+		);
+		expect(totalRequests).toBeGreaterThan(0);
+	});
+
+	test("GET /activity should reject an invalid timezone", async () => {
+		const res = await app.request("/activity?days=7&timezone=not/a-zone", {
+			headers: {
+				Cookie: token,
+			},
+		});
+		expect(res.status).toBe(400);
 	});
 
 	test("GET /activity should correctly aggregate token counts", async () => {

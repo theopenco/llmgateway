@@ -18,7 +18,7 @@ export async function getOrCreatePersonalOrg(user: PersonalOrgUser) {
 	});
 
 	const existingPersonalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	);
 
 	if (existingPersonalOrg?.organization) {
@@ -29,8 +29,8 @@ export async function getOrCreatePersonalOrg(user: PersonalOrgUser) {
 		const [newOrg] = await tx
 			.insert(tables.organization)
 			.values({
-				name: "Personal",
-				isPersonal: true,
+				name: "DevPass",
+				kind: "devpass",
 				billingEmail: user.email,
 				// DevPass orgs retain request/response data by default; users can
 				// disable this from the data retention settings.
@@ -72,7 +72,7 @@ export async function getOrCreateChatOrg(user: PersonalOrgUser) {
 	});
 
 	const existingChatOrg = userOrgs.find(
-		(uo) => uo.organization?.isChat === true,
+		(uo) => uo.organization?.kind === "chat",
 	);
 
 	if (existingChatOrg?.organization) {
@@ -80,7 +80,7 @@ export async function getOrCreateChatOrg(user: PersonalOrgUser) {
 	}
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isPersonal === true,
+		(uo) => uo.organization?.kind === "devpass",
 	)?.organization;
 	const migratedCredits =
 		personalOrg && parseFloat(personalOrg.credits || "0") > 0
@@ -92,7 +92,7 @@ export async function getOrCreateChatOrg(user: PersonalOrgUser) {
 			.insert(tables.organization)
 			.values({
 				name: "Chat",
-				isChat: true,
+				kind: "chat",
 				billingEmail: user.email,
 				retentionLevel: "retain",
 				...(migratedCredits ? { credits: migratedCredits } : {}),

@@ -36,7 +36,10 @@ function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 		"12h": "12h",
 		"24h": "24h",
 		"2d": "2d",
+		"3d": "3d",
 		"7d": "7d",
+		"30d": "30d",
+		"90d": "90d",
 	};
 	return map[pageWindow] ?? "24h";
 }
@@ -47,6 +50,7 @@ type ProviderSortBy =
 	| "logsCount"
 	| "errorsCount"
 	| "cachedCount"
+	| "totalCost"
 	| "avgTimeToFirstToken"
 	| "modelCount"
 	| "updatedAt";
@@ -252,7 +256,7 @@ export function ProvidersTable({
 					{sh("Errors", "errorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
-					<TableHead>Cost</TableHead>
+					{sh("Cost", "totalCost")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>

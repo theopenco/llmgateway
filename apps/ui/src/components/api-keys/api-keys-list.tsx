@@ -5,6 +5,7 @@ import {
 	KeyIcon,
 	MoreHorizontal,
 	PlusIcon,
+	RefreshCwIcon,
 	Shield,
 } from "lucide-react";
 import Link from "next/link";
@@ -58,7 +59,10 @@ import {
 	type ApiKeyLimitPayload,
 } from "./api-key-limit-fields";
 import { ApiKeyLimitsDialog } from "./api-key-limits-dialog";
+import { formatApiKeyExpiry } from "./api-key-ttl-fields";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
+import { ReactivateApiKeyDialog } from "./reactivate-api-key-dialog";
+import { RollApiKeyDialog } from "./roll-api-key-dialog";
 
 import type { ApiKey, Project } from "@/lib/types";
 import type { Route } from "next";
@@ -84,12 +88,14 @@ export function ApiKeysList({
 	);
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
+	const [reactivateKey, setReactivateKey] = useState<ApiKey | null>(null);
+	const [rollKey, setRollKey] = useState<ApiKey | null>(null);
 
 	const getIamRulesUrl = (keyId: string) =>
 		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}/iam` as Route;
 
 	const getStatisticsUrl = (keyId: string) =>
-		`/dashboard/${orgId}/${projectId}/usage?apiKeyId=${keyId}` as Route;
+		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}` as Route;
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
@@ -126,15 +132,19 @@ export function ApiKeysList({
 		"delete",
 		"/keys/api/{id}",
 	);
-	const { mutate: toggleKeyStatus } = api.useMutation(
-		"patch",
-		"/keys/api/{id}",
-	);
+	const {
+		mutate: toggleKeyStatus,
+		mutateAsync: toggleKeyStatusAsync,
+		isPending: isTogglePending,
+	} = api.useMutation("patch", "/keys/api/{id}");
 
 	const updateKeyUsageLimitMutation = api.useMutation(
 		"patch",
 		"/keys/api/limit/{id}",
 	);
+
+	const { mutateAsync: rollKeyAsync, isPending: isRollPending } =
+		api.useMutation("post", "/keys/api/{id}/roll");
 
 	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 	const activeKeys = allKeys.filter((key) => key.status === "active");
@@ -235,16 +245,33 @@ export function ApiKeysList({
 		);
 	};
 
-	const toggleStatus = (
-		id: string,
-		currentStatus: "active" | "inactive" | "deleted" | null,
-	) => {
-		const newStatus = currentStatus === "active" ? "inactive" : "active";
+	const invalidateApiKeys = () => {
+		const queryKey = api.queryOptions("get", "/keys/api", {
+			params: {
+				query: { projectId: selectedProject.id },
+			},
+		}).queryKey;
+
+		void queryClient.invalidateQueries({ queryKey });
+	};
+
+	const toggleStatus = (key: ApiKey) => {
+		// Reactivating a key whose TTL has already passed requires a fresh future
+		// expiration, so prompt for one instead of toggling directly.
+		if (key.status !== "active") {
+			const expiry = formatApiKeyExpiry(key.expiresAt);
+			if (expiry?.expired) {
+				setReactivateKey(key);
+				return;
+			}
+		}
+
+		const newStatus = key.status === "active" ? "inactive" : "active";
 
 		toggleKeyStatus(
 			{
 				params: {
-					path: { id },
+					path: { id: key.id },
 				},
 				body: {
 					status: newStatus,
@@ -252,13 +279,7 @@ export function ApiKeysList({
 			},
 			{
 				onSuccess: () => {
-					const queryKey = api.queryOptions("get", "/keys/api", {
-						params: {
-							query: { projectId: selectedProject.id },
-						},
-					}).queryKey;
-
-					void queryClient.invalidateQueries({ queryKey });
+					invalidateApiKeys();
 
 					toast({
 						title: "API Key Status Updated",
@@ -267,6 +288,66 @@ export function ApiKeysList({
 				},
 			},
 		);
+	};
+
+	const handleReactivate = async (expiresAt: string) => {
+		if (!reactivateKey) {
+			return;
+		}
+
+		try {
+			await toggleKeyStatusAsync({
+				params: {
+					path: { id: reactivateKey.id },
+				},
+				body: {
+					status: "active",
+					expiresAt,
+				},
+			});
+
+			invalidateApiKeys();
+			setReactivateKey(null);
+
+			toast({
+				title: "API Key Reactivated",
+				description: "The API key is active again with a new expiration.",
+			});
+		} catch {
+			toast({
+				title: "Failed to reactivate API key.",
+				variant: "destructive",
+			});
+		}
+	};
+
+	const handleRoll = async (): Promise<string | undefined> => {
+		if (!rollKey) {
+			return undefined;
+		}
+
+		try {
+			const data = await rollKeyAsync({
+				params: {
+					path: { id: rollKey.id },
+				},
+			});
+
+			invalidateApiKeys();
+
+			toast({
+				title: "API Key Rolled",
+				description: "A new secret has been generated for this key.",
+			});
+
+			return data.apiKey.token;
+		} catch {
+			toast({
+				title: "Failed to roll API key.",
+				variant: "destructive",
+			});
+			return undefined;
+		}
 	};
 
 	const updateKeyUsageLimit = async (
@@ -331,6 +412,21 @@ export function ApiKeysList({
 						Resets {summary.resetLabel}
 					</div>
 				)}
+			</div>
+		);
+	};
+
+	const renderExpiry = (key: ApiKey) => {
+		const expiry = formatApiKeyExpiry(key.expiresAt);
+		if (!expiry) {
+			return null;
+		}
+
+		return (
+			<div
+				className={`text-xs ${expiry.expired ? "text-destructive" : "text-muted-foreground"}`}
+			>
+				{expiry.expired ? "Expired" : "Expires"} {expiry.label}
 			</div>
 		);
 	};
@@ -491,7 +587,10 @@ export function ApiKeysList({
 									</div>
 								</TableCell>
 								<TableCell>
-									<StatusBadge status={key.status} variant="detailed" />
+									<div className="space-y-1">
+										<StatusBadge status={key.status} variant="detailed" />
+										{renderExpiry(key)}
+									</div>
 								</TableCell>
 								<TableCell>
 									<Tooltip>
@@ -605,13 +704,15 @@ export function ApiKeysList({
 											{key.description !== "Auto-generated playground key" && (
 												<>
 													<DropdownMenuSeparator />
-													<DropdownMenuItem
-														onClick={() => toggleStatus(key.id, key.status)}
-													>
+													<DropdownMenuItem onClick={() => toggleStatus(key)}>
 														{key.status === "active"
 															? "Deactivate"
 															: "Activate"}{" "}
 														Key
+													</DropdownMenuItem>
+													<DropdownMenuItem onClick={() => setRollKey(key)}>
+														<RefreshCwIcon className="mr-2 h-4 w-4" />
+														Roll Key
 													</DropdownMenuItem>
 													<DropdownMenuSeparator />
 													<AlertDialog>
@@ -665,6 +766,7 @@ export function ApiKeysList({
 									<h3 className="font-medium text-sm">{key.description}</h3>
 									<StatusBadge status={key.status} />
 								</div>
+								{renderExpiry(key)}
 								<div className="flex items-center gap-2 mt-1">
 									<span className="text-xs text-muted-foreground">
 										{Intl.DateTimeFormat(undefined, {
@@ -701,11 +803,13 @@ export function ApiKeysList({
 									{key.description !== "Auto-generated playground key" && (
 										<>
 											<DropdownMenuSeparator />
-											<DropdownMenuItem
-												onClick={() => toggleStatus(key.id, key.status)}
-											>
+											<DropdownMenuItem onClick={() => toggleStatus(key)}>
 												{key.status === "active" ? "Deactivate" : "Activate"}{" "}
 												Key
+											</DropdownMenuItem>
+											<DropdownMenuItem onClick={() => setRollKey(key)}>
+												<RefreshCwIcon className="mr-2 h-4 w-4" />
+												Roll Key
 											</DropdownMenuItem>
 											<DropdownMenuSeparator />
 											<AlertDialog>
@@ -832,6 +936,30 @@ export function ApiKeysList({
 					</div>
 				))}
 			</div>
+
+			<ReactivateApiKeyDialog
+				apiKey={reactivateKey}
+				open={reactivateKey !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setReactivateKey(null);
+					}
+				}}
+				onConfirm={handleReactivate}
+				isPending={isTogglePending}
+			/>
+
+			<RollApiKeyDialog
+				apiKey={rollKey}
+				open={rollKey !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRollKey(null);
+					}
+				}}
+				onConfirm={handleRoll}
+				isPending={isRollPending}
+			/>
 		</>
 	);
 }

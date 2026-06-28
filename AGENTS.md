@@ -18,6 +18,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - `pnpm build` - Build all applications for production. ALWAYS run this after finishing work on a feature. ALWAYS run a full build to make sure things fork.
 - `pnpm clean` - Clean build artifacts and cache directories
 
+To build a single app, ALWAYS use a Turbo filter (`turbo run build --filter=<app>`), e.g. `turbo run build --filter=gateway`. NEVER use `pnpm --filter <app> build` for builds: that runs the app's `tsc` directly without rebuilding workspace dependency packages first, so it compiles against stale `dist/` artifacts and produces spurious errors (missing `@llmgateway/*` modules, "value not in type union", etc.). Turbo's `build` depends on `^build`, so a Turbo filter builds the dependency packages in topological order first.
+
 ### Code Quality
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
@@ -162,25 +164,27 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Always use the internal api (`apps/api/`) for any backend operations, never use NextJS API routes.
 - In frontend apps (`apps/ui`, `apps/playground`, `apps/code`, `ee/admin`), always use the generated typed API client (`useFetchClient()` or `useApi()` from `@/lib/fetch-client`) to call the Hono API. Never use raw `fetch()` for API calls. The client is auto-generated from the OpenAPI spec (`pnpm --filter api generate && pnpm --filter <app> generate`). For non-hook contexts (e.g., utility functions), accept the fetch client as a parameter from the calling component.
 - Do not use useEffect for data fetching in the UI; instead, use TanStack Query for all data fetching and state management.
+- In frontend apps, always prefer Next.js `<Link>` (`next/link`) over raw `<a>` tags for internal navigation, and `next/navigation`'s router for programmatic navigation.
 - Always use top-level `import`, never use require or dynamic imports
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - Do not --amend commits after pushing to remote
 - Never force push on main/default branch; force pushing is only acceptable on feature branches
 - When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
+- Always open pull requests as normal ready-for-review PRs, not draft PRs, unless the user explicitly asks for a draft PR
 - When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse
 - Do not add explicit caching or memoization around `process.env` reads or parsed env-var values unless there is a measured hot-path need
-- Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK.
+- Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK. NEVER add helper functions (e.g. `makeModel(...)`/`makeProvider(...)`) that build model or provider definition objects, even when it means repeating fields across entries — write each model and provider mapping out in full as a plain object literal in the `models` array. Small shared `const` values are fine, but the definition objects themselves must not be constructed by a function.
 - No unnecessary code comments
 - Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
 
 ### Testing and Quality Assurance
 
 - Run `pnpm test:unit` after adding features
-- NEVER RUN THE FULL E2E suite, instead run specific tests related to your changes. Use `TEST_MODELS` to limit the models tested for faster feedback.
+- NEVER run the full E2E suite across all models. Instead, scope `pnpm test:e2e` to the model(s) you changed with `TEST_MODELS`, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e file (streaming, reasoning, tool calls, json, etc.) but only for the pinned mapping, so do NOT invoke the individual `*.e2e.ts` files one by one — let `TEST_MODELS` filter the whole suite in a single run.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
 

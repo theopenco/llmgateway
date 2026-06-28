@@ -89,10 +89,8 @@ export default async function GroupPage({
 	) as Organization[];
 	// The Chat org backs the default billing context and must not appear in the
 	// dashboard org switcher.
-	const chatOrg = allOrganizations.find((o) => o.isChat) ?? null;
-	const organizations = allOrganizations.filter(
-		(o) => !o.isChat && !o.isPersonal,
-	);
+	const chatOrg = allOrganizations.find((o) => o.kind === "chat") ?? null;
+	const organizations = allOrganizations.filter((o) => o.kind === "default");
 	const selectedOrganization =
 		(orgId ? organizations.find((o) => o.id === orgId) : null) ??
 		chatOrg ??

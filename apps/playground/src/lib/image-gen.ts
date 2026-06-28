@@ -12,10 +12,16 @@ export interface GalleryItem {
 	// switches organizations while the generation is in flight.
 	organizationId?: string;
 	inputImages?: { dataUrl: string; mediaType: string }[];
+	// Sidebar thumbnail URL for items loaded from the lightweight history
+	// list, which carries no base64 image data.
+	thumbnailUrl?: string | null;
 	models: {
 		modelId: string;
 		modelName: string;
 		images: GeneratedImage[];
+		// Number of stored images for history items whose image data hasn't
+		// been fetched yet (images stays empty until the detail query resolves).
+		imageCount?: number;
 		error?: string;
 		isLoading: boolean;
 	}[];
@@ -52,10 +58,21 @@ export const GPT_IMAGE_SIZES = [
 	"2160x3840",
 ] as const;
 
+const REVE_ASPECT_RATIOS: AspectRatio[] = [
+	"auto",
+	"1:1",
+	"16:9",
+	"9:16",
+	"3:2",
+	"2:3",
+	"4:3",
+];
+
 export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
 	const isGptImage = lower.includes("gpt-image");
+	const isReve = lower.includes("reve");
 
 	const usesPixelDimensions =
 		isGptImage ||
@@ -71,13 +88,21 @@ export function getModelImageConfig(model: string) {
 
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
-		: isSeedream
-			? (["2K", "4K"] as const)
-			: isGemini31FlashImage
-				? (["0.5K", "1K", "2K", "4K"] as const)
-				: (["1K", "2K", "4K"] as const);
+		: isReve
+			? (["2K"] as const)
+			: isSeedream
+				? (["2K", "4K"] as const)
+				: isGemini31FlashImage
+					? (["0.5K", "1K", "2K", "4K"] as const)
+					: (["1K", "2K", "4K"] as const);
 
-	const defaultSize = isGptImage ? "1024x1024" : isSeedream ? "2K" : "1K";
+	const defaultSize = isGptImage
+		? "1024x1024"
+		: isReve
+			? "2K"
+			: isSeedream
+				? "2K"
+				: "1K";
 
 	const supportsQuality = isGptImage;
 	const availableQualities = isGptImage
@@ -87,17 +112,23 @@ export function getModelImageConfig(model: string) {
 
 	const maxInputImages = getMaxInputImages(lower);
 
+	const supportedAspectRatios: AspectRatio[] | undefined = isReve
+		? REVE_ASPECT_RATIOS
+		: undefined;
+
 	return {
 		usesPixelDimensions,
 		isSeedream,
 		isGemini31FlashImage,
 		isGptImage,
+		isReve,
 		availableSizes,
 		defaultSize,
 		supportsQuality,
 		availableQualities,
 		defaultQuality,
 		maxInputImages,
+		supportedAspectRatios,
 	};
 }
 

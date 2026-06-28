@@ -1,6 +1,6 @@
 import { and, eq, isNull, or } from "drizzle-orm";
 
-import { db } from "./db.js";
+import { cdb } from "./cdb.js";
 import { rateLimit as rateLimitTable } from "./schema.js";
 
 export type RateLimitSource =
@@ -149,7 +149,10 @@ function pickRateLimitByPrecedence(
 
 /**
  * Get the effective rate limits for a given organization, provider, and model.
- * Uses the uncached database client so admin changes take effect immediately.
+ * Uses the cached database client (cdb) so this hot, per-request lookup is served
+ * from the Drizzle cache instead of hitting Postgres on every gateway request.
+ * The WHERE clause is time-independent, so the cache key stays stable. Admin
+ * changes propagate within the cache TTL (default 60s).
  *
  * Rate limits are always keyed by the root model ID — provider-specific model
  * names are reserved for upstream requests and are never persisted as a
@@ -168,7 +171,7 @@ export async function getEffectiveRateLimit(
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
-	const rateLimits = await db
+	const rateLimits = await cdb
 		.select({
 			id: rateLimitTable.id,
 			organizationId: rateLimitTable.organizationId,

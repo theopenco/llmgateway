@@ -11,6 +11,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import {
 	apiKeyPeriodDurationMaxValues,
 	apiKeyPeriodDurationUnits,
+	cdb,
 	db,
 	eq,
 	getApiKeyCurrentPeriodState,
@@ -303,6 +304,7 @@ const apiKeySchema = z.object({
 	currentPeriodUsage: z.string(),
 	currentPeriodStartedAt: z.date().nullable(),
 	currentPeriodResetAt: z.date().nullable(),
+	expiresAt: z.date().nullable(),
 	projectId: z.string(),
 	createdBy: z.string(),
 	creator: z
@@ -351,6 +353,16 @@ const createApiKeySchema = z
 		usageLimit: createNullableLimitSchema("Usage limit")
 			.optional()
 			.default(null),
+		expiresAt: z
+			.string()
+			.datetime()
+			.nullable()
+			.optional()
+			.default(null)
+			.openapi({
+				description:
+					"ISO 8601 timestamp when the key expires (TTL). The worker disables the key once this time passes; the gateway also rejects it immediately. Omit or null for a key that never expires.",
+			}),
 		...createApiKeyPeriodConfigFieldsSchema,
 	})
 	.superRefine(validateApiKeyPeriodConfig);
@@ -369,6 +381,10 @@ const listApiKeysQuerySchema = z.object({
 // Schema for updating an API key status
 const updateApiKeyStatusSchema = z.object({
 	status: z.enum(["active", "inactive"]),
+	expiresAt: z.string().datetime().nullable().optional().openapi({
+		description:
+			"ISO 8601 timestamp when the key expires (TTL). Required to reactivate a key whose TTL has already passed; pass null to remove the TTL. Omit to leave the existing expiry unchanged.",
+	}),
 });
 
 // Schema for updating an API key usage limit
@@ -793,6 +809,7 @@ export interface CreateApiKeyInput {
 	periodUsageLimit?: string | null;
 	periodUsageDurationValue?: number | null;
 	periodUsageDurationUnit?: ApiKeyPeriodDurationUnit | null;
+	expiresAt?: Date | string | null;
 }
 
 export async function createApiKeyForProject(
@@ -808,6 +825,17 @@ export async function createApiKeyForProject(
 		periodUsageDurationValue,
 		periodUsageDurationUnit,
 	} = input;
+
+	const expiresAt =
+		input.expiresAt === undefined || input.expiresAt === null
+			? null
+			: new Date(input.expiresAt);
+
+	if (expiresAt && expiresAt.getTime() <= Date.now()) {
+		throw new HTTPException(400, {
+			message: "Expiration date must be in the future.",
+		});
+	}
 
 	if (!options.skipAccessCheck) {
 		const projectIds = await getUserProjectIds(userId);
@@ -868,6 +896,7 @@ export async function createApiKeyForProject(
 			periodUsageLimit,
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
+			expiresAt,
 			createdBy: userId,
 		})
 		.returning();
@@ -885,6 +914,7 @@ export async function createApiKeyForProject(
 			periodUsageLimit,
 			periodUsageDurationValue,
 			periodUsageDurationUnit,
+			expiresAt: expiresAt?.toISOString() ?? null,
 		},
 	});
 
@@ -1299,7 +1329,7 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status } = c.req.valid("json");
+	const { status, expiresAt: expiresAtInput } = c.req.valid("json");
 
 	// Get the user's projects
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -1372,16 +1402,56 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	// Resolve the effective TTL: an explicit value (or null) overrides, otherwise
+	// keep whatever expiry the key already had.
+	const expiresAtProvided = expiresAtInput !== undefined;
+	const nextExpiresAt = expiresAtProvided
+		? expiresAtInput === null
+			? null
+			: new Date(expiresAtInput)
+		: (apiKey.expiresAt ?? null);
+
+	// Reactivating a key requires its TTL (if any) to point to a future date,
+	// so an expired key can only come back online with a fresh expiry.
+	if (
+		status === "active" &&
+		nextExpiresAt &&
+		nextExpiresAt.getTime() <= Date.now()
+	) {
+		throw new HTTPException(400, {
+			message:
+				"Set a future expiration date to reactivate this API key. Its TTL has already passed.",
+		});
+	}
+
 	// Update the API key status
 	const [updatedApiKey] = await db
 		.update(tables.apiKey)
 		.set({
 			status,
+			...(expiresAtProvided ? { expiresAt: nextExpiresAt } : {}),
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
-	if (apiKey.status !== status) {
+	const statusChanged = apiKey.status !== status;
+	const expiryChanged =
+		expiresAtProvided &&
+		(apiKey.expiresAt?.getTime() ?? null) !==
+			(nextExpiresAt?.getTime() ?? null);
+
+	if (statusChanged || expiryChanged) {
+		const changes: Record<string, { old: unknown; new: unknown }> = {};
+		if (statusChanged) {
+			changes.status = { old: apiKey.status, new: status };
+		}
+		if (expiryChanged) {
+			changes.expiresAt = {
+				old: apiKey.expiresAt?.toISOString() ?? null,
+				new: nextExpiresAt?.toISOString() ?? null,
+			};
+		}
+
 		await logAuditEvent({
 			organizationId: projectOrgId,
 			userId: user.id,
@@ -1390,9 +1460,7 @@ keysApi.openapi(updateStatus, async (c) => {
 			resourceId: id,
 			metadata: {
 				resourceName: apiKey.description,
-				changes: {
-					status: { old: apiKey.status, new: status },
-				},
+				changes,
 			},
 		});
 	}
@@ -1404,6 +1472,169 @@ keysApi.openapi(updateStatus, async (c) => {
 			maskedToken: maskToken(updatedApiKey.token),
 			token: undefined,
 		},
+	});
+});
+
+// Roll (regenerate the secret of) an API key while keeping its metadata and stats
+const roll = createRoute({
+	method: "post",
+	path: "/api/{id}/roll",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						apiKey: apiKeySchema
+							.omit({ token: true })
+							.extend({
+								token: z.string(),
+							})
+							.openapi({}),
+					}),
+				},
+			},
+			description: "API key secret regenerated successfully.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Unauthorized.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "API key not found.",
+		},
+	},
+});
+
+keysApi.openapi(roll, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.param();
+
+	// Get the user's projects
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: {
+				eq: user.id,
+			},
+		},
+		with: {
+			organization: {
+				with: {
+					projects: true,
+				},
+			},
+		},
+	});
+
+	// Get all project IDs the user has access to
+	const projectIds = userOrgs.flatMap((org) =>
+		org
+			.organization!.projects.filter((project) => project.status !== "deleted")
+			.map((project) => project.id),
+	);
+
+	// Find the API key
+	const apiKey = await db.query.apiKey.findFirst({
+		where: {
+			id: {
+				eq: id,
+			},
+			projectId: {
+				in: projectIds,
+			},
+		},
+		with: {
+			project: true,
+		},
+	});
+
+	if (!apiKey) {
+		throw new HTTPException(404, {
+			message: "API key not found",
+		});
+	}
+
+	if (!apiKey.project) {
+		throw new HTTPException(404, {
+			message: "Project not found for API key",
+		});
+	}
+
+	// Only developer keys are rolled here; platform/embeddable keys use a
+	// different token format and lifecycle.
+	if (apiKey.keyType !== "user") {
+		throw new HTTPException(400, {
+			message: "Only developer API keys can be rolled.",
+		});
+	}
+
+	// Check user role and permissions
+	const projectOrgId = apiKey.project.organizationId;
+	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
+	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+
+	// Developers can only modify their own API keys
+	// Owners and admins can modify any API key
+	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+		throw new HTTPException(403, {
+			message: "You don't have permission to modify this API key",
+		});
+	}
+
+	const prefix =
+		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+	const token = prefix + shortid(40);
+
+	// Roll through the cached client so its onMutate invalidates the gateway's
+	// cached token lookups (Drizzle cache + SWR mirror) for the api_key table.
+	// Otherwise the old secret would keep authenticating until the cache expired.
+	const [updatedApiKey] = await cdb
+		.update(tables.apiKey)
+		.set({ token })
+		.where(eq(tables.apiKey.id, id))
+		.returning();
+
+	await logAuditEvent({
+		organizationId: projectOrgId,
+		userId: user.id,
+		action: "api_key.roll",
+		resourceType: "api_key",
+		resourceId: id,
+		metadata: {
+			resourceName: apiKey.description,
+		},
+	});
+
+	return c.json({
+		message: "API key secret regenerated successfully.",
+		apiKey: serializeApiKey({
+			...updatedApiKey,
+			token,
+		}),
 	});
 });
 

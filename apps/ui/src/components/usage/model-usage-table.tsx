@@ -17,6 +17,7 @@ import {
 } from "@/lib/components/table";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import type { ActivityModelUsage, ActivitT } from "@/types/activity";
 
@@ -52,6 +53,7 @@ export function ModelUsageTable({
 				query: {
 					from: fromStr,
 					to: toStr,
+					timezone: getBrowserTimeZone(),
 					...(projectId ? { projectId: projectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},

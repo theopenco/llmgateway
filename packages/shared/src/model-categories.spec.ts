@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	getModelCategory,
-	isPremiumModel,
-	PREMIUM_MODEL_IDS,
-} from "./model-categories.js";
+import { getModelCategory, isPremiumModel } from "./model-categories.js";
 
 describe("model-categories", () => {
 	it("classifies a known premium model as premium", () => {
@@ -35,9 +31,5 @@ describe("model-categories", () => {
 	it("classifies a known standard model as standard", () => {
 		expect(isPremiumModel("gpt-4o-mini")).toBe(false);
 		expect(getModelCategory("gpt-4o-mini")).toBe("standard");
-	});
-
-	it("has a non-empty premium set", () => {
-		expect(PREMIUM_MODEL_IDS.size).toBeGreaterThan(0);
 	});
 });

@@ -935,10 +935,10 @@ The LLM Gateway Team`.trim();
 						(uo) => uo.organization?.status !== "deleted",
 					);
 					const hasActiveDashboardOrganization = activeOrganizations.some(
-						(uo) => uo.organization && !uo.organization.isPersonal,
+						(uo) => uo.organization?.kind === "default",
 					);
 					const hasActivePersonalOrganization = activeOrganizations.some(
-						(uo) => uo.organization?.isPersonal === true,
+						(uo) => uo.organization?.kind === "devpass",
 					);
 
 					// DevPass (code app) signups get a personal organization instead of

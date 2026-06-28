@@ -6,7 +6,7 @@ description: Use GPT-5, Claude, Gemini, or any model with Autohand Code's autono
 date: 2026-03-19
 ---
 
-Autohand Code is an autonomous AI coding agent that works in your terminal, IDE, and Slack. With LLM Gateway, you can route all Autohand Code requests through a single gateway—use any of 180+ models from 60+ providers, with full cost tracking and smart routing.
+Autohand Code is an autonomous AI coding agent that works in your terminal, IDE, and Slack. With LLM Gateway, you can route all Autohand Code requests through a single gateway—use any of 280+ models from 35+ providers, with full cost tracking and smart routing.
 
 ## Quick Start
 
@@ -43,7 +43,7 @@ You can also configure LLM Gateway in Autohand Code's config file. Add or update
 
 ## Why Use LLM Gateway with Autohand Code
 
-- **180+ models** — GPT-5, Claude Opus, Gemini, Llama, and more from 60+ providers
+- **280+ models** — GPT-5, Claude Opus, Gemini, Llama, and more from 35+ providers
 - **Smart routing** — Automatically selects the best provider based on uptime, throughput, price, and latency
 - **Cost tracking** — Monitor exactly how much each autonomous session costs
 - **Single bill** — No need to manage multiple API provider accounts

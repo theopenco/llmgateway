@@ -55,7 +55,7 @@ const features = [
 		icon: Headphones,
 		title: "24/7 Premium Support",
 		description:
-			"Round-the-clock access to our engineering team. Priority response for any issues.",
+			"Round-the-clock access to our engineering team through a dedicated Slack or Discord channel. Priority response for any issues.",
 	},
 	{
 		icon: MessageSquare,
@@ -77,9 +77,9 @@ const features = [
 	},
 	{
 		icon: ShieldCheck,
-		title: "SOC 2 Type II (In Progress)",
+		title: "SOC 2 Type II Compliant",
 		description:
-			"We are actively pursuing SOC 2 Type II certification to meet the highest standards of security, availability, and confidentiality for your data.",
+			"LLM Gateway is SOC 2 Type II compliant, independently audited against the highest standards of security, availability, and confidentiality. Request our report at security.llmgateway.io.",
 	},
 ];
 

@@ -116,7 +116,7 @@ async function main(): Promise<void> {
 			const organization = await db.query.organization.findFirst({
 				where: { id: { eq: row.organizationId } },
 			});
-			if (!organization?.isPersonal) {
+			if (organization?.kind !== "devpass") {
 				nonDevpassRows += 1;
 				continue;
 			}

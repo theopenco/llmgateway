@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./db.js", () => ({
-	db: {
+vi.mock("./cdb.js", () => ({
+	cdb: {
 		select: vi.fn(),
 	},
 }));
 
-const mockDb = await import("./db.js");
+const mockCdb = await import("./cdb.js");
 
 function createQueryMock(results: Array<Record<string, unknown>>) {
 	const chain = {
@@ -14,7 +14,7 @@ function createQueryMock(results: Array<Record<string, unknown>>) {
 		from: vi.fn().mockReturnThis(),
 		where: vi.fn().mockResolvedValue(results),
 	};
-	vi.mocked(mockDb.db.select).mockReturnValue(chain as never);
+	vi.mocked(mockCdb.cdb.select).mockReturnValue(chain as never);
 	return chain;
 }
 
@@ -235,7 +235,7 @@ describe("getEffectiveRateLimit", () => {
 	});
 
 	it("propagates database errors so callers can apply SWR fallback", async () => {
-		vi.mocked(mockDb.db.select).mockImplementation(() => {
+		vi.mocked(mockCdb.cdb.select).mockImplementation(() => {
 			throw new Error("DB error");
 		});
 

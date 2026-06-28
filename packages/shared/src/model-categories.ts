@@ -1,55 +1,48 @@
+import { models } from "@llmgateway/models";
+
 /**
  * Model category classification used for analytics, dashboard filtering,
  * and tier-aware features.
  *
- * - `premium`: frontier/flagship models (top-tier reasoning, coding, and
- *   multimodal models from the major providers).
+ * - `premium`: high-cost frontier/flagship models, determined purely from
+ *   pricing rather than a hardcoded list. A model is premium when any of its
+ *   provider mappings is priced at or above the thresholds below.
  * - `standard`: everything else.
- *
- * The list below is the initial categorization. Update it as the model
- * catalogue evolves.
  */
 
 export type ModelCategory = "standard" | "premium";
 
-export const PREMIUM_MODEL_IDS = new Set<string>([
-	// Anthropic — Opus family
-	"claude-3-opus",
-	"claude-opus-4-20250514",
-	"claude-opus-4-1-20250805",
-	"claude-opus-4-5-20251101",
-	"claude-opus-4-6",
-	"claude-opus-4-7",
-	"claude-opus-4-8",
+/**
+ * Output price (USD per token) at or above which a model is considered
+ * high cost. Equivalent to $15 per million output tokens.
+ */
+export const HIGH_COST_OUTPUT_PRICE = 15e-6;
 
-	// OpenAI — Pro and reasoning flagships
-	"o1",
-	"o3",
-	"gpt-5-pro",
-	"gpt-5.1",
-	"gpt-5.2",
-	"gpt-5.2-pro",
-	"gpt-5.4",
-	"gpt-5.4-pro",
-	"gpt-5.5",
-	"gpt-5.5-pro",
-	"gpt-5.1-codex",
-	"gpt-5.2-codex",
-	"gpt-5.3-codex",
-
-	// Google — Gemini Pro
-	"gemini-3-pro-preview",
-	"gemini-3.1-pro-preview",
-
-	// xAI — Grok 4 top tier
-	"grok-4",
-	"grok-4-3",
-	"grok-4-20-beta-0309-reasoning",
-	"grok-4-20-multi-agent-beta-0309",
-]);
+/**
+ * Input price (USD per token) at or above which a model is considered
+ * high cost. Equivalent to $5 per million input tokens.
+ */
+export const HIGH_COST_INPUT_PRICE = 5e-6;
 
 export function isPremiumModel(modelId: string): boolean {
-	return PREMIUM_MODEL_IDS.has(modelId);
+	const model = models.find((m) => m.id === modelId);
+	if (!model) {
+		return false;
+	}
+	return model.providers.some((provider) => {
+		const inputPrice =
+			provider.inputPrice !== undefined
+				? parseFloat(provider.inputPrice)
+				: undefined;
+		const outputPrice =
+			provider.outputPrice !== undefined
+				? parseFloat(provider.outputPrice)
+				: undefined;
+		return (
+			(outputPrice !== undefined && outputPrice >= HIGH_COST_OUTPUT_PRICE) ||
+			(inputPrice !== undefined && inputPrice >= HIGH_COST_INPUT_PRICE)
+		);
+	});
 }
 
 export function getModelCategory(modelId: string): ModelCategory {

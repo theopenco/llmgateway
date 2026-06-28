@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { reportKeyError, resetKeyHealth } from "@/lib/api-key-health.js";
 import { resetRoundRobinCounters } from "@/lib/round-robin-env.js";
 
-import { getProviderEnv } from "./get-provider-env.js";
+import {
+	getProviderEnv,
+	getServiceTierIneligibleEnvIndices,
+	hasServiceTierEligibleEnvCredential,
+} from "./get-provider-env.js";
 
 describe("getProviderEnv", () => {
 	const originalOpenAIKey = process.env.LLM_OPENAI_API_KEY;
@@ -72,5 +76,85 @@ describe("getProviderEnv", () => {
 
 		expect(gpt4Selection.configIndex).toBe(1);
 		expect(claudeSelection.configIndex).toBe(0);
+	});
+});
+
+describe("service-tier env credential eligibility", () => {
+	const originalKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+	const originalBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+	const originalRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+
+	afterEach(() => {
+		if (originalKey === undefined) {
+			delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		} else {
+			process.env.LLM_GOOGLE_VERTEX_API_KEY = originalKey;
+		}
+		if (originalBaseUrl === undefined) {
+			delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		} else {
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = originalBaseUrl;
+		}
+		if (originalRegion === undefined) {
+			delete process.env.LLM_GOOGLE_VERTEX_REGION;
+		} else {
+			process.env.LLM_GOOGLE_VERTEX_REGION = originalRegion;
+		}
+	});
+
+	it("flags only the env indices whose base URL is a custom proxy", () => {
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "tok-a,tok-b";
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL =
+			"https://vertex-proxy.invalid,https://aiplatform.googleapis.com";
+
+		const ineligible = getServiceTierIneligibleEnvIndices("google-vertex");
+		expect([...ineligible]).toEqual([0]);
+		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(true);
+	});
+
+	it("treats an unset base URL as the eligible managed default", () => {
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "tok-a";
+		delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+
+		expect([...getServiceTierIneligibleEnvIndices("google-vertex")]).toEqual(
+			[],
+		);
+		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(true);
+	});
+
+	it("reports no eligible credential when every index is a custom proxy", () => {
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "tok-a,tok-b";
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL =
+			"https://proxy-one.invalid,https://proxy-two.invalid";
+
+		expect([...getServiceTierIneligibleEnvIndices("google-vertex")]).toEqual([
+			0, 1,
+		]);
+		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(false);
+	});
+
+	it("flags a non-global Vertex region index as ineligible", () => {
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "tok-a,tok-b";
+		delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		process.env.LLM_GOOGLE_VERTEX_REGION = "global,us-central1";
+
+		expect([...getServiceTierIneligibleEnvIndices("google-vertex")]).toEqual([
+			1,
+		]);
+		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(true);
+	});
+
+	it("rejects when the only base-URL-compliant index is a non-global region", () => {
+		// index 0: proxy base URL (global region); index 1: canonical upstream but
+		// us-central1 — neither can carry the tier, so the provider is ineligible.
+		process.env.LLM_GOOGLE_VERTEX_API_KEY = "tok-a,tok-b";
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL =
+			"https://vertex-proxy.invalid,https://aiplatform.googleapis.com";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "global,us-central1";
+
+		expect([...getServiceTierIneligibleEnvIndices("google-vertex")]).toEqual([
+			0, 1,
+		]);
+		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(false);
 	});
 });

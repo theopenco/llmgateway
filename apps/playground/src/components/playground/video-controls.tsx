@@ -50,6 +50,7 @@ interface VideoControlsProps {
 	audioEnabled: boolean;
 	setAudioEnabled: (value: boolean) => void;
 	audioToggleDisabled: boolean;
+	audioToggleDisabledReason?: string;
 	canUseFrameInputs: boolean;
 	canUseReferenceInputs: boolean;
 	canUseReferenceVideoInputs: boolean;
@@ -82,6 +83,7 @@ export function VideoControls({
 	audioEnabled,
 	setAudioEnabled,
 	audioToggleDisabled,
+	audioToggleDisabledReason,
 	canUseFrameInputs,
 	canUseReferenceInputs,
 	canUseReferenceVideoInputs,
@@ -665,7 +667,7 @@ export function VideoControls({
 						className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm"
 						title={
 							audioToggleDisabled && !isGenerating
-								? "Silent output is only available on Google Vertex"
+								? audioToggleDisabledReason
 								: undefined
 						}
 					>

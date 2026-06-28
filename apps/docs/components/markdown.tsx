@@ -2,11 +2,11 @@ import { DynamicCodeBlock } from "fumadocs-ui/components/dynamic-codeblock";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
 import {
-	Children,
 	type ComponentProps,
 	type ReactElement,
 	type ReactNode,
 	Suspense,
+	isValidElement,
 	use,
 	useDeferredValue,
 } from "react";
@@ -88,8 +88,11 @@ function createProcessor(): Processor {
 }
 
 function Pre(props: ComponentProps<"pre">) {
-	const code = Children.only(props.children) as ReactElement;
-	const codeProps = code.props as ComponentProps<"code">;
+	const code = props.children;
+	if (!isValidElement(code)) {
+		return null;
+	}
+	const codeProps = (code as ReactElement).props as ComponentProps<"code">;
 	const content = codeProps.children;
 	if (typeof content !== "string") {
 		return null;

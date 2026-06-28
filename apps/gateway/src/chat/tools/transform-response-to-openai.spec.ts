@@ -119,6 +119,215 @@ describe("transformResponseToOpenai", () => {
 		expect(response.service_tier).toBe("priority");
 	});
 
+	test("maps Google multi-candidate responses to per-choice output", () => {
+		const json = {
+			candidates: [
+				{
+					content: {
+						parts: [
+							{ text: "thought A", thought: true },
+							{ text: "Variant one." },
+							// AI Studio quirk: candidate 0 carries duplicated copies
+							// of the other candidates' parts as a suffix.
+							{ text: "Variant two." },
+							{ text: "Variant three." },
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					// index omitted: Vertex drops the proto3 zero value on
+					// candidate 0, so the transform must fall back to position.
+				},
+				{
+					content: { parts: [{ text: "Variant two." }], role: "model" },
+					finishReason: "STOP",
+					index: 1,
+				},
+				{
+					content: { parts: [{ text: "Variant three." }], role: "model" },
+					finishReason: "MAX_TOKENS",
+					index: 2,
+				},
+			],
+			usageMetadata: {
+				promptTokenCount: 10,
+				candidatesTokenCount: 60,
+				totalTokenCount: 70,
+			},
+		};
+
+		const response = transformResponseToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			json,
+			// parse-provider-response aggregates every candidate for the log
+			// row; the transform must NOT write this back into choice 0.
+			"Variant one.Variant two.Variant three.",
+			"thought A",
+			"STOP",
+			10,
+			60,
+			70,
+			null,
+			null,
+			null,
+			[],
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			null,
+			false,
+			null,
+			null,
+			"req_google_n",
+		);
+
+		expect(response.choices).toHaveLength(3);
+		expect(response.choices[0].index).toBe(0);
+		expect(response.choices[0].message.content).toBe("Variant one.");
+		expect(response.choices[0].message.reasoning).toBe("thought A");
+		expect(response.choices[0].finish_reason).toBe("stop");
+		expect(response.choices[1].index).toBe(1);
+		expect(response.choices[1].message.content).toBe("Variant two.");
+		expect(response.choices[1].message.reasoning).toBeUndefined();
+		expect(response.choices[1].finish_reason).toBe("stop");
+		expect(response.choices[2].index).toBe(2);
+		expect(response.choices[2].message.content).toBe("Variant three.");
+		expect(response.choices[2].finish_reason).toBe("length");
+		expect(response.usage.prompt_tokens).toBe(10);
+		expect(response.usage.completion_tokens).toBe(60);
+	});
+
+	test("keys Google multi-candidate tool calls to their own choice", () => {
+		const json = {
+			candidates: [
+				{
+					content: {
+						parts: [
+							{
+								functionCall: { name: "get_weather", args: { city: "Paris" } },
+							},
+							// duplicated copy of candidate 1's part
+							{
+								functionCall: { name: "get_weather", args: { city: "Rome" } },
+							},
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					index: 0,
+				},
+				{
+					content: {
+						parts: [
+							{
+								functionCall: { name: "get_weather", args: { city: "Rome" } },
+							},
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					index: 1,
+				},
+			],
+		};
+
+		const response = transformResponseToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			json,
+			null,
+			null,
+			"STOP",
+			10,
+			20,
+			30,
+			null,
+			null,
+			null,
+			[],
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			null,
+			false,
+			null,
+			null,
+			"req_google_n_tools",
+		);
+
+		expect(response.choices).toHaveLength(2);
+		expect(response.choices[0].message.tool_calls).toHaveLength(1);
+		expect(response.choices[0].message.tool_calls[0]).toMatchObject({
+			id: "get_weather_0_0",
+			function: {
+				name: "get_weather",
+				arguments: JSON.stringify({ city: "Paris" }),
+			},
+		});
+		expect(response.choices[0].finish_reason).toBe("tool_calls");
+		expect(response.choices[1].message.tool_calls).toHaveLength(1);
+		expect(response.choices[1].message.tool_calls[0]).toMatchObject({
+			id: "get_weather_1_0",
+			function: {
+				name: "get_weather",
+				arguments: JSON.stringify({ city: "Rome" }),
+			},
+		});
+		expect(response.choices[1].finish_reason).toBe("tool_calls");
+	});
+
+	test("does not overwrite choice 0 content on multi-choice OpenAI responses", () => {
+		const json = {
+			id: "chatcmpl-multi",
+			object: "chat.completion",
+			created: 1,
+			model: "gpt-4o-mini",
+			choices: [
+				{
+					index: 0,
+					message: { role: "assistant", content: "variant 1" },
+					finish_reason: "stop",
+				},
+				{
+					index: 1,
+					message: { role: "assistant", content: "variant 2" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+		};
+
+		const response = transformResponseToOpenai(
+			"openai",
+			"gpt-4o-mini",
+			json,
+			// Aggregated across choices for the log row — must not leak into
+			// choice 0 of the client response.
+			"variant 1variant 2",
+			null,
+			"stop",
+			10,
+			20,
+			30,
+			null,
+			null,
+			null,
+			[],
+			"gpt-4o-mini",
+			null,
+			"gpt-4o-mini",
+			null,
+			false,
+			null,
+			null,
+			"req_openai_n",
+		);
+
+		expect(response.choices[0].message.content).toBe("variant 1");
+		expect(response.choices[1].message.content).toBe("variant 2");
+	});
+
 	test("strips request-scoped metadata before caching", () => {
 		const response = stripRequestScopedMetadataFromOpenAiResponse({
 			metadata: {

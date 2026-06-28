@@ -12,6 +12,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod/v3";
 
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Button } from "@/components/ui/button";
 import {
 	Form,
@@ -246,7 +247,7 @@ function SignupForm() {
 						</p>
 					</div>
 
-					<div className="mt-8">
+					<div className="mt-8 space-y-4">
 						<Form {...form}>
 							<form
 								onSubmit={form.handleSubmit(onSubmit)}
@@ -315,6 +316,24 @@ function SignupForm() {
 								</Button>
 							</form>
 						</Form>
+
+						<div className="relative">
+							<div className="absolute inset-0 flex items-center">
+								<span className="w-full border-t" />
+							</div>
+							<div className="relative flex justify-center text-xs uppercase">
+								<span className="bg-background px-2 text-muted-foreground">
+									Or
+								</span>
+							</div>
+						</div>
+
+						<SocialAuthButtons
+							isLoading={isLoading}
+							setIsLoading={setIsLoading}
+							callbackPath={returnUrl}
+							errorCallbackPath="/signup"
+						/>
 					</div>
 
 					<p className="mt-6 text-center text-sm text-muted-foreground">

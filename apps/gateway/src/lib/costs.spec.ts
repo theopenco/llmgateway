@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { calculateCosts } from "./costs.js";
+import {
+	calculateCosts,
+	isRefusalFinishReason,
+	zeroInferenceCosts,
+} from "./costs.js";
 
 const { mockGetEffectiveDiscount } = vi.hoisted(() => ({
 	mockGetEffectiveDiscount: vi.fn(),
@@ -1477,5 +1481,112 @@ describe("calculateCosts", () => {
 				implicit.cachedInputCost ?? 0,
 			);
 		});
+	});
+
+	describe("custom provider catalog pricing", () => {
+		it("returns null costs for a custom provider without an override", async () => {
+			const result = await calculateCosts(
+				"gpt-5.5",
+				"custom",
+				null,
+				100,
+				50,
+				null,
+			);
+
+			expect(result.totalCost).toBeNull();
+			expect(result.inputCost).toBeNull();
+			expect(result.outputCost).toBeNull();
+		});
+
+		it("bills a custom provider request using the catalog override", async () => {
+			const result = await calculateCosts(
+				"gpt-5.5",
+				"custom",
+				null,
+				100,
+				50,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{
+					customPricing: {
+						providerId: "custom",
+						externalId: "gpt-5.5",
+						inputPrice: "0.000002",
+						outputPrice: "0.000008",
+						streaming: true,
+					},
+				},
+			);
+
+			expect(result.inputCost).toBeCloseTo(0.0002); // 100 * 0.000002
+			expect(result.outputCost).toBeCloseTo(0.0004); // 50 * 0.000008
+			expect(result.totalCost).toBeCloseTo(0.0006);
+		});
+	});
+});
+
+describe("isRefusalFinishReason", () => {
+	it("is true for refusal on Anthropic-family providers", () => {
+		expect(isRefusalFinishReason("refusal", "anthropic")).toBe(true);
+		expect(isRefusalFinishReason("refusal", "vertex-anthropic")).toBe(true);
+		expect(isRefusalFinishReason("refusal", "aws-bedrock")).toBe(true);
+	});
+
+	it("is false for non-refusal finish reasons", () => {
+		expect(isRefusalFinishReason("stop", "anthropic")).toBe(false);
+		expect(isRefusalFinishReason("content_filter", "aws-bedrock")).toBe(false);
+		expect(isRefusalFinishReason(null, "anthropic")).toBe(false);
+		expect(isRefusalFinishReason(undefined, "anthropic")).toBe(false);
+	});
+
+	it("is false for refusal on non-Anthropic providers", () => {
+		expect(isRefusalFinishReason("refusal", "openai")).toBe(false);
+		expect(isRefusalFinishReason("refusal", "google-ai-studio")).toBe(false);
+		expect(isRefusalFinishReason("refusal", null)).toBe(false);
+	});
+});
+
+describe("zeroInferenceCosts", () => {
+	it("zeroes every inference cost field in place but leaves data storage", () => {
+		const costs = {
+			inputCost: 0.5,
+			outputCost: 0.5,
+			cachedInputCost: 0.1,
+			cacheWriteInputCost: 0.1,
+			requestCost: 0.2,
+			webSearchCost: 0.3,
+			contentFilterCost: 0.05,
+			imageInputCost: 0.4,
+			imageOutputCost: 0.4,
+			audioInputCost: 0.2,
+			totalCost: 3.25,
+			dataStorageCost: 0.01 as number | null,
+		};
+
+		zeroInferenceCosts(costs);
+
+		expect(costs.inputCost).toBe(0);
+		expect(costs.outputCost).toBe(0);
+		expect(costs.cachedInputCost).toBe(0);
+		expect(costs.cacheWriteInputCost).toBe(0);
+		expect(costs.requestCost).toBe(0);
+		expect(costs.webSearchCost).toBe(0);
+		expect(costs.contentFilterCost).toBe(0);
+		expect(costs.imageInputCost).toBe(0);
+		expect(costs.imageOutputCost).toBe(0);
+		expect(costs.audioInputCost).toBe(0);
+		expect(costs.totalCost).toBe(0);
+		// Storage retention is billed separately from inference.
+		expect(costs.dataStorageCost).toBe(0.01);
 	});
 });

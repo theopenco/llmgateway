@@ -114,6 +114,21 @@ export function AnimatedBarChart3({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// ChartArea — trend line draws itself across the axes
+export function AnimatedChartArea({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<path d="M3 3v16a2 2 0 0 0 2 2h16" />
+			<motion.path
+				d="M7 15l3-4 3 2 4-6"
+				initial={false}
+				animate={isHovered ? { pathLength: [0, 1] } : { pathLength: 1 }}
+				transition={{ duration: 0.5, ease: "easeInOut" }}
+			/>
+		</svg>
+	);
+}
+
 // Key — rotates like turning a lock
 export function AnimatedKey({ isHovered }: AnimatedIconProps) {
 	return (
@@ -231,6 +246,21 @@ export function AnimatedShieldAlert({ isHovered }: AnimatedIconProps) {
 				animate={isHovered ? { scale: [1, 1.8, 1] } : { scale: 1 }}
 				transition={{ duration: 0.3, delay: 0.1 }}
 				style={{ transformOrigin: "12px 16px" }}
+			/>
+		</svg>
+	);
+}
+
+// BadgeCheck — badge steady, check draws itself
+export function AnimatedBadgeCheck({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" />
+			<motion.path
+				d="m9 12 2 2 4-4"
+				initial={false}
+				animate={isHovered ? { pathLength: [0, 1] } : { pathLength: 1 }}
+				transition={{ duration: 0.4, ease: "easeInOut" }}
 			/>
 		</svg>
 	);

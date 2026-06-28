@@ -5,6 +5,6 @@ export default async function RoutingPage({
 }: {
 	params: Promise<{ orgId: string; projectId: string }>;
 }) {
-	const { projectId } = await params;
-	return <RoutingConfigClient projectId={projectId} />;
+	const { orgId, projectId } = await params;
+	return <RoutingConfigClient orgId={orgId} projectId={projectId} />;
 }

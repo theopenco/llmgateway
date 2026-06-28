@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getProviderHeaders } from "./get-provider-headers.js";
 
 const VERTEX_TIER_HEADER = "X-Vertex-AI-LLM-Shared-Request-Type";
+const VERTEX_REQUEST_TYPE_HEADER = "X-Vertex-AI-LLM-Request-Type";
 
 describe("getProviderHeaders - Google Vertex service tiers", () => {
 	it("sets the flex shared-request-type header for google-vertex", () => {
@@ -10,6 +11,8 @@ describe("getProviderHeaders - Google Vertex service tiers", () => {
 			serviceTier: "flex",
 		});
 		expect(headers[VERTEX_TIER_HEADER]).toBe("flex");
+		// Bypass Provisioned Throughput so the shared Flex tier is actually used.
+		expect(headers[VERTEX_REQUEST_TYPE_HEADER]).toBe("shared");
 	});
 
 	it("sets the priority shared-request-type header for google-vertex", () => {
@@ -17,12 +20,18 @@ describe("getProviderHeaders - Google Vertex service tiers", () => {
 			serviceTier: "priority",
 		});
 		expect(headers[VERTEX_TIER_HEADER]).toBe("priority");
+		expect(headers[VERTEX_REQUEST_TYPE_HEADER]).toBe("shared");
 	});
 
-	it("omits the header for the standard/default tier", () => {
+	it("omits the headers for the standard/default tier", () => {
 		expect(
 			getProviderHeaders("google-vertex", "token", { serviceTier: "default" })[
 				VERTEX_TIER_HEADER
+			],
+		).toBeUndefined();
+		expect(
+			getProviderHeaders("google-vertex", "token", { serviceTier: "default" })[
+				VERTEX_REQUEST_TYPE_HEADER
 			],
 		).toBeUndefined();
 		expect(
@@ -32,9 +41,10 @@ describe("getProviderHeaders - Google Vertex service tiers", () => {
 		).toBeUndefined();
 	});
 
-	it("omits the header when no service tier is provided", () => {
+	it("omits the headers when no service tier is provided", () => {
 		const headers = getProviderHeaders("google-vertex", "token");
 		expect(headers[VERTEX_TIER_HEADER]).toBeUndefined();
+		expect(headers[VERTEX_REQUEST_TYPE_HEADER]).toBeUndefined();
 	});
 
 	it("preserves the request id alongside the tier header", () => {

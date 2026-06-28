@@ -19,8 +19,6 @@ interface VideoHeaderProps {
 	onRemoveModel: (index: number) => void;
 	comparisonMode: boolean;
 	onComparisonModeChange: (enabled: boolean) => void;
-	isModelOptionDisabled?: (value: string) => boolean;
-	getModelOptionDisabledReason?: (value: string) => string | undefined;
 	hideCompare?: boolean;
 }
 
@@ -33,8 +31,6 @@ export function VideoHeader({
 	onRemoveModel,
 	comparisonMode,
 	onComparisonModeChange,
-	isModelOptionDisabled,
-	getModelOptionDisabledReason,
 	hideCompare = false,
 }: VideoHeaderProps) {
 	return (
@@ -53,8 +49,6 @@ export function VideoHeader({
 										onValueChange={(v) => onModelChange(index, v)}
 										placeholder="Select model..."
 										mode="video"
-										isOptionDisabled={isModelOptionDisabled}
-										getOptionDisabledReason={getModelOptionDisabledReason}
 									/>
 								</div>
 								{selectedModels.length > 1 && (
@@ -90,8 +84,6 @@ export function VideoHeader({
 							onValueChange={(v) => onModelChange(0, v)}
 							placeholder="Select a video model..."
 							mode="video"
-							isOptionDisabled={isModelOptionDisabled}
-							getOptionDisabledReason={getModelOptionDisabledReason}
 						/>
 					</div>
 				)}

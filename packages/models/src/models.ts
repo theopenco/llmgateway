@@ -1,5 +1,6 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
+import { atlascloudModels } from "./models/atlascloud.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -14,6 +15,8 @@ import { nousresearchModels } from "./models/nousresearch.js";
 import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
+import { reveModels } from "./models/reve.js";
+import { sakanaModels } from "./models/sakana.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -263,6 +266,11 @@ export interface ProviderModelMapping {
 	 */
 	requestPrice?: Price;
 	/**
+	 * Price per page processed in USD for OCR models. Billed against the
+	 * `usage_info.pages_processed` count returned by the /v1/ocr endpoint.
+	 */
+	ocrPagePrice?: Price;
+	/**
 	 * Price per second in USD for video generation models.
 	 * Maps billing keys like "default", "4k", "default_audio", "4k_audio",
 	 * "default_video", and "4k_video" to per-second pricing.
@@ -333,6 +341,11 @@ export interface ProviderModelMapping {
 	 */
 	supportsResponsesApi?: boolean;
 	/**
+	 * Provider-specific request/endpoint format when a provider has multiple API
+	 * surfaces for different models. Defaults to the provider's native format.
+	 */
+	apiFormat?: "openai-chat-completions";
+	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;
 	 * mappings opt in to the subset actually supported by the upstream model.
@@ -355,9 +368,21 @@ export interface ProviderModelMapping {
 	 * forwards `n` to the upstream provider; when false/unset, requests with
 	 * `n > 1` are rejected with a 400 error. Only set this for providers that
 	 * actually accumulate input tokens once and bill output tokens across all
-	 * choices upstream (e.g. OpenAI Chat Completions).
+	 * choices upstream (e.g. OpenAI Chat Completions, Google `candidateCount`).
 	 */
 	supportsN?: boolean;
+	/**
+	 * Whether this mapping supports `n > 1` on streaming requests. Only
+	 * meaningful when supportsN is true; unset means streaming is allowed.
+	 * Google accepts candidateCount on generateContent but rejects it on
+	 * streamGenerateContent, so Google mappings set this to false.
+	 */
+	supportsNStreaming?: boolean;
+	/**
+	 * Upper bound the upstream enforces for `n` (e.g. Google caps
+	 * candidateCount at 8). When unset, only the request-schema cap applies.
+	 */
+	maxN?: number;
 	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
@@ -457,6 +482,13 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this model uses a dedicated OCR (optical character recognition)
+	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
+	 * which extracts text/markdown from documents and images rather than
+	 * returning a chat completion. Billed per page processed via ocrPagePrice.
+	 */
+	ocr?: boolean;
+	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
 	 */
@@ -539,7 +571,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding" | "audio")[];
+	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -585,8 +617,11 @@ export const models = [
 	...minimaxModels,
 	...moonshotModels,
 	...alibabaModels,
+	...atlascloudModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...reveModels,
+	...sakanaModels,
 	...nvidiaModels,
 	...zaiModels,
 	...elevenlabsModels,

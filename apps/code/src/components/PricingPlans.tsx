@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 import Link from "next/link";
 
 import { CodePlanTracker } from "@/components/LandingTracker";
@@ -26,7 +26,7 @@ const plans: PlanContent[] = [
 		description: "For occasional AI-assisted coding",
 		tagline: "Casual hobby work",
 		features: [
-			"All 200+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
+			"All 280+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
 			"Works with Claude Code, OpenCode, SoulForge & every OpenAI-compatible tool",
 			"Real-time usage dashboard with per-request cost",
 			"Switch tiers any time — prorated",
@@ -76,7 +76,6 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 					const displayPrice = monthlyPrice;
 					const usageValue = credits[plan.tier];
 					const ratio = usageValue / monthlyPrice;
-					const usageWithSoulForge = Math.round(usageValue * 2);
 
 					return (
 						<div
@@ -153,26 +152,6 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 											<span>${monthlyPrice} paid</span>
 											<span>{formatUsd(usageValue)} used</span>
 										</div>
-									</div>
-								</div>
-								{/* SoulForge boost callout */}
-								<div className="mt-4 flex items-start gap-2 rounded-lg bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-900 dark:text-emerald-300">
-									<Sparkles
-										className="mt-0.5 h-3.5 w-3.5 shrink-0"
-										strokeWidth={2}
-									/>
-									<div>
-										<span className="font-semibold">With SoulForge</span> →
-										graph-powered context cuts roughly half the tokens,
-										stretching your{" "}
-										<span className="font-mono font-semibold tabular-nums">
-											{formatUsd(usageValue)}
-										</span>{" "}
-										to ~
-										<span className="font-mono font-semibold tabular-nums">
-											{formatUsd(usageWithSoulForge)}
-										</span>{" "}
-										of effective use.
 									</div>
 								</div>
 							</div>

@@ -13,7 +13,6 @@ import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { CodeCTATracker } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
-import { SoulForgeBoost } from "@/components/SoulForgeBoost";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
 
@@ -24,12 +23,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Pricing — DevPass",
 	description:
-		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models. Pair with SoulForge to cut another ~50% of tokens.",
+		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 280+ models metered at provider rates.",
 	alternates: { canonical: "/pricing" },
 	openGraph: {
 		title: "Pricing — DevPass",
 		description:
-			"Flat-rate AI coding plans. Every plan includes 200+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
+			"Flat-rate AI coding plans. Every plan includes 280+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
 	},
 };
 
@@ -56,7 +55,7 @@ const productSchema = {
 	"@type": "Product",
 	name: "DevPass by LLM Gateway",
 	description:
-		"Flat-rate AI coding plans with access to 200+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
+		"Flat-rate AI coding plans with access to 280+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
 	brand: {
 		"@type": "Brand",
 		name: "LLM Gateway",
@@ -142,12 +141,6 @@ const usageRows: UsageRow[] = [
 		pro: formatUsd(proCredits),
 		max: formatUsd(maxCredits),
 		emphasis: true,
-	},
-	{
-		label: "Effective with SoulForge (~50% fewer tokens)",
-		lite: `~${formatUsd(liteCredits * 2)}`,
-		pro: `~${formatUsd(proCredits * 2)}`,
-		max: `~${formatUsd(maxCredits * 2)}`,
 	},
 	{
 		label: "Models included",
@@ -290,10 +283,8 @@ export default function PricingPage() {
 							<p className="mx-auto max-w-xl text-lg leading-relaxed text-muted-foreground">
 								Every dollar you pay turns into{" "}
 								<span className="font-semibold text-foreground">$3</span> of
-								model usage at provider rates — and roughly{" "}
-								<span className="font-semibold text-foreground">$6</span> when
-								you pair DevPass with SoulForge, the graph-powered agent that
-								treats your code as structure, not strings.
+								model usage at provider rates — metered transparently, shown in
+								your dashboard in real time.
 							</p>
 						</div>
 					</div>
@@ -312,13 +303,11 @@ export default function PricingPage() {
 							Premium-tier frontier models (Anthropic Opus, OpenAI
 							Pro/reasoning, Gemini Pro, Grok 4) are subject to a weekly
 							fair-use allowance ($10 / $50 / $140 for Lite / Pro / Max) in
-							addition to the monthly credit allowance. All other 190+ models
+							addition to the monthly credit allowance. All other 280+ models
 							use the full monthly allowance with the 3x multiplier.
 						</p>
 					</div>
 				</section>
-
-				<SoulForgeBoost />
 
 				<section className="py-20 px-4">
 					<div className="container mx-auto max-w-5xl">
@@ -406,9 +395,7 @@ export default function PricingPage() {
 						<p className="mt-4 text-xs text-muted-foreground">
 							Usage is metered at each provider&apos;s published per-token rate
 							(input, output, and cached tokens). Every request shows its dollar
-							value in your dashboard in real time. SoulForge savings vary by
-							workload — ~50% is typical when the agent works through a real
-							project over multiple turns.
+							value in your dashboard in real time.
 						</p>
 					</div>
 				</section>

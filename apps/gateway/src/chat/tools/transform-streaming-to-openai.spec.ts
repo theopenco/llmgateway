@@ -91,6 +91,45 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it.each([{ partial_json: "" }, { partial_json: '{"foo":' }])(
+		"maps Anthropic input_json_delta (%o) to tool_call arguments without warning",
+		({ partial_json }) => {
+			warn.mockClear();
+
+			const result = transformStreamingToOpenai(
+				"anthropic",
+				"claude-opus-4-8",
+				{
+					type: "content_block_delta",
+					index: 1,
+					delta: { type: "input_json_delta", partial_json },
+				},
+				[],
+			);
+
+			expect(result).toMatchObject({
+				object: "chat.completion.chunk",
+				model: "claude-opus-4-8",
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{
+									index: 1,
+									function: { arguments: partial_json },
+								},
+							],
+							role: "assistant",
+						},
+						finish_reason: null,
+					},
+				],
+			});
+			expect(warn).not.toHaveBeenCalled();
+		},
+	);
+
 	it("ignores OpenAI keepalive events without warning", () => {
 		warn.mockClear();
 
@@ -173,6 +212,32 @@ describe("transformStreamingToOpenai", () => {
 						role: "assistant",
 					},
 					finish_reason: null,
+				},
+			],
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("maps AWS Bedrock messageStop refusal to content_filter", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"aws-bedrock",
+			"anthropic.claude-fable-5",
+			{
+				__aws_event_type: "messageStop",
+				stopReason: "refusal",
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			object: "chat.completion.chunk",
+			choices: [
+				{
+					index: 0,
+					delta: {},
+					finish_reason: "content_filter",
 				},
 			],
 		});

@@ -57,8 +57,10 @@ import {
 } from "./services/project-stats-aggregator.js";
 import {
 	backfillHistoryIfNeeded,
+	backfillHourlyHistoryIfNeeded,
 	calculateAggregatedStatistics,
 	calculateCurrentMinuteHistory,
+	calculateHourlyHistory,
 	calculateMinutelyHistory,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
@@ -96,7 +98,9 @@ function getStripe(): Stripe {
 const AUTO_TOPUP_LOCK_KEY = "auto_topup_check";
 const CREDIT_PROCESSING_LOCK_KEY = "credit_processing";
 const DATA_RETENTION_LOCK_KEY = "data_retention_cleanup";
+const MODEL_HISTORY_RETENTION_LOCK_KEY = "model_history_retention_cleanup";
 const END_USER_SESSION_CLEANUP_LOCK_KEY = "end_user_session_cleanup";
+const API_KEY_EXPIRATION_LOCK_KEY = "api_key_expiration";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const LOCK_DURATION_MINUTES = 5;
@@ -109,6 +113,20 @@ const AUTO_TOPUP_DISABLE_AFTER_MS =
 
 // Configuration for batch processing
 const LOG_QUEUE_BATCH_SIZE = Number(process.env.LOG_QUEUE_BATCH_SIZE) || 100;
+// Number of log-drain loops to run concurrently in-process. Each loop pulls an
+// independent batch (LPOP is atomic, so there is no double-processing) and
+// inserts on its own pool connection, multiplying drain throughput without
+// adding worker replicas. Bounded by the DB pool size and Postgres write
+// capacity.
+const LOG_QUEUE_CONCURRENCY = Math.max(
+	1,
+	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
+);
+// Cache organization retention levels to avoid a serial Postgres round-trip
+// before every log batch insert. retentionLevel changes rarely; the short TTL
+// bounds how long a stale value can keep retaining or stripping log payloads.
+const ORG_RETENTION_CACHE_TTL_MS =
+	Number(process.env.ORG_RETENTION_CACHE_TTL_MS) || 60_000;
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
@@ -663,7 +681,14 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						responsesApiData: null,
 						dataRetentionCleanedUp: true,
 					})
-					.where(inArray(log.id, idsToClean));
+					// Use `= ANY($1)` with a single array parameter instead of
+					// `inArray()`, which expands to `IN ($1, $2, ...)` with a
+					// variable number of binds per batch. A varying placeholder
+					// count makes pg_stat_statements fingerprint every batch size
+					// as a distinct query, so one logical operation shows up as
+					// thousands of individual queries. The array form keeps the
+					// query text constant.
+					.where(sql`${log.id} = ANY(${sql.param(idsToClean)}::text[])`);
 
 				return recordsToClean.length;
 			});
@@ -696,12 +721,127 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	}
 }
 
-export async function batchProcessLogs(): Promise<void> {
-	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
+// Delete minute-level model/mapping history rows older than the retention
+// window. These tables gain one row per active model (and per mapping) every
+// minute and otherwise grow unbounded. The hourly rollups
+// (model_history_hourly, model_provider_mapping_history_hourly) are kept
+// forever and now serve every window beyond 24h (7d/30d/90d public stats), so
+// the only readers of the minute tables are short windows (<=24h). 30 days
+// leaves a comfortable buffer over the largest minute-level reader.
+const MODEL_HISTORY_RETENTION_DAYS = 30;
+const MODEL_HISTORY_CLEANUP_BATCH_SIZE = 10000;
+// Cap the work per run (per table) so a single cleanup reliably finishes well
+// within the lock TTL (LOCK_DURATION_MINUTES), even on a large initial backlog.
+// The loop runs hourly, so any remaining rows are drained over subsequent runs.
+// At steady state (~640 rows/min across both tables, i.e. a handful of batches
+// per hour) this cap is never approached; it only bounds the initial backlog
+// drain. Each table gets its own budget so neither starves the other.
+const MODEL_HISTORY_MAX_BATCHES_PER_RUN = 50;
+
+async function cleanupModelHistoryTable(
+	table: typeof tables.modelHistory | typeof tables.modelProviderMappingHistory,
+	cutoffDate: Date,
+	maxBatches: number,
+): Promise<{ deleted: number; batches: number }> {
+	let totalDeleted = 0;
+	let batches = 0;
+	let hasMoreRecords = true;
+
+	while (hasMoreRecords && batches < maxBatches && !isStopRequested()) {
+		const batchDeleted = await db.transaction(async (tx) => {
+			// Prefer the minuteTimestamp index over a sequential scan; SET LOCAL
+			// resets automatically when the transaction commits.
+			await tx.execute(sql`SET LOCAL random_page_cost = 1.1`);
+
+			const recordsToDelete = await tx
+				.select({ id: table.id })
+				.from(table)
+				.where(lt(table.minuteTimestamp, cutoffDate))
+				.limit(MODEL_HISTORY_CLEANUP_BATCH_SIZE)
+				.for("update", { skipLocked: true });
+
+			if (recordsToDelete.length === 0) {
+				return 0;
+			}
+
+			const idsToDelete = recordsToDelete.map((r) => r.id);
+
+			// Use `= ANY($1)` with a single array param instead of inArray()'s
+			// variable-length `IN (...)`, so pg_stat_statements fingerprints
+			// every batch identically.
+			await tx
+				.delete(table)
+				.where(sql`${table.id} = ANY(${sql.param(idsToDelete)}::text[])`);
+
+			return recordsToDelete.length;
+		});
+
+		totalDeleted += batchDeleted;
+		batches++;
+
+		if (batchDeleted < MODEL_HISTORY_CLEANUP_BATCH_SIZE) {
+			hasMoreRecords = false;
+		}
+	}
+
+	return { deleted: totalDeleted, batches };
+}
+
+export async function cleanupExpiredModelHistory(): Promise<void> {
+	if (process.env.ENABLE_DATA_RETENTION_CLEANUP !== "true") {
+		return;
+	}
+
+	const lockAcquired = await acquireLock(MODEL_HISTORY_RETENTION_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
 	}
 
+	try {
+		logger.info("Starting model history retention cleanup...");
+
+		const cutoffDate = new Date(
+			Date.now() - MODEL_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000, // eslint-disable-line no-mixed-operators
+		);
+
+		const mapping = await cleanupModelHistoryTable(
+			tables.modelProviderMappingHistory,
+			cutoffDate,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
+		);
+		const model = await cleanupModelHistoryTable(
+			tables.modelHistory,
+			cutoffDate,
+			MODEL_HISTORY_MAX_BATCHES_PER_RUN,
+		);
+
+		const mappingDeleted = mapping.deleted;
+		const modelDeleted = model.deleted;
+
+		if (mappingDeleted > 0 || modelDeleted > 0) {
+			logger.info(
+				`Model history retention cleanup deleted ${mappingDeleted} model_provider_mapping_history and ${modelDeleted} model_history rows (older than ${MODEL_HISTORY_RETENTION_DAYS} days)`,
+			);
+		}
+
+		logger.info("Model history retention cleanup completed successfully");
+	} catch (error) {
+		logger.error(
+			"Error during model history retention cleanup",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	} finally {
+		await releaseLock(MODEL_HISTORY_RETENTION_LOCK_KEY);
+	}
+}
+
+export async function batchProcessLogs(): Promise<number> {
+	const lockAcquired = await acquireLock(CREDIT_PROCESSING_LOCK_KEY);
+	if (!lockAcquired) {
+		return 0;
+	}
+
+	let processedCount = 0;
 	const deductedOrgIds: string[] = [];
 	// LLM SDK: wallets that crossed below the low-balance threshold this
 	// batch — webhooks are enqueued after the transaction commits.
@@ -713,7 +853,10 @@ export async function batchProcessLogs(): Promise<void> {
 	}> = [];
 
 	try {
-		await db.transaction(async (tx) => {
+		// Only batches that actually commit count toward processedCount, so a
+		// rolled-back transaction leaves it at 0 and the loop backs off instead
+		// of hot-looping on a failing batch.
+		processedCount = await db.transaction(async (tx) => {
 			// Get unprocessed logs with row-level locking to prevent concurrent processing
 			const rows = await tx
 				.select({
@@ -763,7 +906,7 @@ export async function batchProcessLogs(): Promise<void> {
 			const unprocessedLogs = { rows };
 
 			if (unprocessedLogs.rows.length === 0) {
-				return;
+				return 0;
 			}
 
 			logger.info(
@@ -1297,15 +1440,19 @@ export async function batchProcessLogs(): Promise<void> {
 				}
 			}
 
-			// Mark all logs as processed within the same transaction
+			// Mark all logs as processed within the same transaction.
+			// `= ANY($1)` keeps the query text constant across batch sizes; see
+			// the data-retention cleanup above for why this matters.
 			await tx
 				.update(log)
 				.set({
 					processedAt: new Date(),
 				})
-				.where(inArray(log.id, logIds));
+				.where(sql`${log.id} = ANY(${sql.param(logIds)}::text[])`);
 
 			logger.debug(`Marked ${logIds.length} logs as processed`);
+
+			return unprocessedLogs.rows.length;
 		});
 
 		// Async low-balance alert check (outside transaction, non-blocking)
@@ -1341,6 +1488,8 @@ export async function batchProcessLogs(): Promise<void> {
 	} finally {
 		await releaseLock(CREDIT_PROCESSING_LOCK_KEY);
 	}
+
+	return processedCount;
 }
 
 async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
@@ -1487,15 +1636,62 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
-export async function processLogQueue(): Promise<void> {
+const orgRetentionCache = new Map<
+	string,
+	{ retentionLevel: "retain" | "none"; expiresAt: number }
+>();
+
+// Resolve organization retention levels, serving from the in-memory cache when
+// fresh and only querying Postgres for the ids that are missing or expired.
+async function getOrganizationRetentionLevels(
+	organizationIds: string[],
+): Promise<Map<string, "retain" | "none">> {
+	const now = Date.now();
+	const result = new Map<string, "retain" | "none">();
+	const missing: string[] = [];
+
+	for (const id of organizationIds) {
+		const cached = orgRetentionCache.get(id);
+		if (cached && cached.expiresAt > now) {
+			result.set(id, cached.retentionLevel);
+		} else {
+			missing.push(id);
+		}
+	}
+
+	if (missing.length > 0) {
+		const organizations = await cdb
+			.select({
+				id: organization.id,
+				retentionLevel: organization.retentionLevel,
+			})
+			.from(organization)
+			.where(inArray(organization.id, missing));
+
+		for (const org of organizations) {
+			result.set(org.id, org.retentionLevel);
+			orgRetentionCache.set(org.id, {
+				retentionLevel: org.retentionLevel,
+				expiresAt: now + ORG_RETENTION_CACHE_TTL_MS,
+			});
+		}
+	}
+
+	return result;
+}
+
+// Returns the number of messages successfully inserted, so the drain loop can
+// decide whether to sleep (partial batch) or immediately fetch the next batch
+// (full batch, queue likely still backed up).
+export async function processLogQueue(): Promise<number> {
 	if (Date.now() < logInsertCircuit.nextAttemptAt) {
-		return;
+		return 0;
 	}
 
 	const message = await consumeFromQueue(LOG_QUEUE, LOG_QUEUE_BATCH_SIZE);
 
 	if (!message) {
-		return;
+		return 0;
 	}
 
 	const MAX_RETRIES = 5;
@@ -1505,27 +1701,18 @@ export async function processLogQueue(): Promise<void> {
 		const organizationIds = Array.from(
 			new Set(logData.map((data) => data.organizationId)),
 		);
-		const organizations =
+		const selectStart = Date.now();
+		const retentionByOrg =
 			organizationIds.length > 0
-				? await cdb
-						.select({
-							id: organization.id,
-							retentionLevel: organization.retentionLevel,
-						})
-						.from(organization)
-						.where(inArray(organization.id, organizationIds))
-				: [];
-		const organizationsById = new Map(
-			organizations.map((organization) => [organization.id, organization]),
-		);
+				? await getOrganizationRetentionLevels(organizationIds)
+				: new Map<string, "retain" | "none">();
+		const selectMs = Date.now() - selectStart;
 
 		const processedLogData: (
 			| LogInsertData
 			| Omit<LogInsertData, "messages" | "content">
 		)[] = logData.map((data) => {
-			const organization = organizationsById.get(data.organizationId);
-
-			if (organization?.retentionLevel === "none") {
+			if (retentionByOrg.get(data.organizationId) === "none") {
 				const {
 					messages: _messages,
 					content: _content,
@@ -1547,9 +1734,14 @@ export async function processLogQueue(): Promise<void> {
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
 				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
+				const insertStart = Date.now();
 				await db.insert(log).values(processedLogData as LogInsertData[]);
+				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
-				return; // Success, exit function
+				logger.info(
+					`Processed log batch: ${message.length} rows (org lookup ${selectMs}ms, insert ${insertMs}ms)`,
+				);
+				return message.length; // Success, exit function
 			} catch (insertError) {
 				lastError =
 					insertError instanceof Error
@@ -1583,6 +1775,8 @@ export async function processLogQueue(): Promise<void> {
 		for (const msg of message) {
 			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
 		}
+
+		return 0;
 	} catch (error) {
 		// Opens the circuit when the pre-insert postgres read (cdb.select) throws,
 		// so we stop draining the queue while postgres is down.
@@ -1605,25 +1799,41 @@ export async function processLogQueue(): Promise<void> {
 					: new Error(String(requeueError)),
 			);
 		}
+
+		return 0;
 	}
 }
 
 let isWorkerRunning = false;
 let activeLoops = 0;
 let stopFailed = false;
+// Gate minute-history retention on the hourly backfill having completed this
+// process. The hourly rollups are reconstructed from minute rows on startup
+// (backfillHourlyHistoryIfNeeded walks oldest->newest); pruning minute rows
+// older than 30d before that finishes would permanently truncate the
+// kept-forever hourly history. Defaults false so a failed/never-run backfill
+// leaves cleanup disabled rather than risking data loss.
+let hourlyBackfillComplete = false;
 
 // Independent worker loops
-async function runLogQueueLoop() {
+async function runLogQueueLoop(loopIndex = 0) {
 	activeLoops++;
-	logger.info("Starting log queue processing loop...");
+	logger.info(`Starting log queue processing loop ${loopIndex}...`);
 	try {
 		while (!isStopRequested()) {
 			try {
-				await processLogQueue();
-				await interruptibleSleep(1000);
+				const drained = await processLogQueue();
+				// Only idle-poll when the queue came back empty. As long as any
+				// messages were drained the queue is still backed up, so loop
+				// straight into the next batch instead of sleeping. Tying this to
+				// LOG_QUEUE_BATCH_SIZE was wrong: when the batch size is raised
+				// above the steady-state queue depth the sleep fired every cycle.
+				if (drained === 0) {
+					await interruptibleSleep(1000);
+				}
 			} catch (error) {
 				logger.error(
-					"Error in log queue loop",
+					`Error in log queue loop ${loopIndex}`,
 					error instanceof Error ? error : new Error(String(error)),
 				);
 				await interruptibleSleep(5000);
@@ -1631,7 +1841,7 @@ async function runLogQueueLoop() {
 		}
 	} finally {
 		activeLoops--;
-		logger.info("Log queue loop stopped");
+		logger.info(`Log queue loop ${loopIndex} stopped`);
 	}
 }
 
@@ -1672,9 +1882,15 @@ async function runBatchProcessLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await batchProcessLogs();
+				const processed = await batchProcessLogs();
 
-				await interruptibleSleep(interval);
+				// A full batch means more unprocessed logs remain, so loop straight
+				// into the next batch instead of sleeping. Without this the loop is
+				// hard-capped at CREDIT_BATCH_SIZE / interval logs per second (e.g.
+				// 100 / 5s = 20/s) regardless of how far behind credit processing is.
+				if (processed < CREDIT_BATCH_SIZE) {
+					await interruptibleSleep(interval);
+				}
 			} catch (error) {
 				logger.error(
 					"Error in batch process loop",
@@ -1706,6 +1922,15 @@ async function runMinutelyHistoryLoop() {
 			);
 		}
 
+		try {
+			await calculateHourlyHistory();
+		} catch (error) {
+			logger.error(
+				"Error in initial hourly history calculation",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+
 		while (!isStopRequested()) {
 			// Calculate delay to next minute boundary
 			const now = new Date();
@@ -1731,6 +1956,15 @@ async function runMinutelyHistoryLoop() {
 			} catch (error) {
 				logger.error(
 					"Error in minutely history calculation",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+			}
+
+			try {
+				await calculateHourlyHistory();
+			} catch (error) {
+				logger.error(
+					"Error in hourly history calculation",
 					error instanceof Error ? error : new Error(String(error)),
 				);
 			}
@@ -1955,6 +2189,39 @@ async function runDataRetentionLoop() {
 	}
 }
 
+async function runModelHistoryRetentionLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 3600 : 60) * 1000; // hourly in prod, 1 minute in dev
+	logger.info(
+		`Starting model history retention loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (hourlyBackfillComplete) {
+					await cleanupExpiredModelHistory();
+				} else {
+					logger.info(
+						"Skipping model history cleanup until hourly backfill completes",
+					);
+				}
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in model history retention loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Model history retention loop stopped");
+	}
+}
+
 /**
  * LLM SDK: deactivate expired end-user session tokens so they stop
  * authenticating and don't accumulate.
@@ -2009,6 +2276,68 @@ async function runEndUserSessionCleanupLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Ephemeral session cleanup loop stopped");
+	}
+}
+
+/**
+ * Disable developer API keys whose TTL has passed. The gateway already rejects
+ * expired keys in real time; this persists the "inactive" status so the
+ * dashboard reflects it and the key can be reactivated with a fresh TTL.
+ */
+async function disableExpiredApiKeys(): Promise<void> {
+	const lockAcquired = await acquireLock(API_KEY_EXPIRATION_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		// `lt(expiresAt, now)` naturally skips keys with a NULL expiry (never
+		// expire). Scoped to developer keys; platform/end-user keys have their
+		// own lifecycle.
+		const expired = await db
+			.update(tables.apiKey)
+			.set({ status: "inactive" })
+			.where(
+				and(
+					eq(tables.apiKey.keyType, "user"),
+					eq(tables.apiKey.status, "active"),
+					lt(tables.apiKey.expiresAt, new Date()),
+				),
+			)
+			.returning({ id: tables.apiKey.id });
+
+		if (expired.length > 0) {
+			logger.info(`Disabled ${expired.length} expired API key(s)`);
+		}
+	} finally {
+		await releaseLock(API_KEY_EXPIRATION_LOCK_KEY);
+	}
+}
+
+async function runApiKeyExpirationLoop() {
+	activeLoops++;
+	const interval = (process.env.NODE_ENV === "production" ? 300 : 60) * 1000; // 5 minutes in prod, 1 minute in dev
+	logger.info(
+		`Starting API key expiration loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				await disableExpiredApiKeys();
+
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in API key expiration loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("API key expiration loop stopped");
 	}
 }
 
@@ -2338,6 +2667,14 @@ export async function startWorker() {
 	void backfillHistoryIfNeeded()
 		.then(() => {
 			logger.info("History backfill check completed");
+			// Hourly summaries roll up the minute history, so backfill them only
+			// after the minute backfill has had a chance to fill recent gaps.
+			return backfillHourlyHistoryIfNeeded();
+		})
+		.then(() => {
+			logger.info("Hourly history backfill check completed");
+			// Hourly rollups are now populated, so minute-history pruning is safe.
+			hourlyBackfillComplete = true;
 		})
 		.catch((error) => {
 			logger.error(
@@ -2349,12 +2686,15 @@ export async function startWorker() {
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)
 	logger.info("Starting worker loops...");
 	logger.info(
-		`- Log queue: dequeues up to ${LOG_QUEUE_BATCH_SIZE} logs per iteration`,
+		`- Log queue: ${LOG_QUEUE_CONCURRENCY} concurrent loop(s), each dequeues up to ${LOG_QUEUE_BATCH_SIZE} logs per iteration`,
 	);
 	logger.info(
 		`- Credit processing: processes up to ${CREDIT_BATCH_SIZE} logs per batch`,
 	);
 	logger.info("- Minutely history: runs at the first second of every minute");
+	logger.info(
+		"- Hourly history: rolls up minute history into hourly summaries each minute",
+	);
 	logger.info(
 		`- Current minute history: runs every ${CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS} seconds for real-time metrics`,
 	);
@@ -2376,6 +2716,9 @@ export async function startWorker() {
 	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",
 	);
+	logger.info(
+		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
+	);
 
 	void runMinutelyHistoryLoop();
 	void runCurrentMinuteHistoryLoop();
@@ -2384,11 +2727,15 @@ export async function startWorker() {
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();
-	void runLogQueueLoop();
+	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
+		void runLogQueueLoop(i);
+	}
 	void runAutoTopUpLoop();
 	void runBatchProcessLoop();
 	void runDataRetentionLoop();
+	void runModelHistoryRetentionLoop();
 	void runEndUserSessionCleanupLoop();
+	void runApiKeyExpirationLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
 	void runFollowUpEmailsLoop({

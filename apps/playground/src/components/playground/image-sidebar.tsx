@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	AudioLines,
 	ChevronUp,
 	Edit2,
 	ExternalLink,
@@ -10,7 +11,6 @@ import {
 	MessageSquare,
 	MoreVerticalIcon,
 	PenTool,
-	Plus,
 	Trash2,
 	Users,
 } from "lucide-react";
@@ -56,6 +56,7 @@ import { useAuth } from "@/lib/auth-client";
 
 import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
 
 import type { GalleryItem } from "@/lib/image-gen";
 import type { Organization } from "@/lib/types";
@@ -212,9 +213,11 @@ function ImageHistoryRowComponent({
 	const isActive = currentItemId === item.id;
 	const isSaved = item.models.every((m) => !m.isLoading);
 	const firstImage = item.models[0]?.images[0];
-	const thumbnailSrc = firstImage
-		? `data:${firstImage.mediaType};base64,${firstImage.base64}`
-		: null;
+	const thumbnailSrc =
+		item.thumbnailUrl ??
+		(firstImage
+			? `data:${firstImage.mediaType};base64,${firstImage.base64}`
+			: null);
 
 	return (
 		<div {...ariaAttributes} style={style}>
@@ -245,6 +248,7 @@ function ImageHistoryRowComponent({
 									<img
 										src={thumbnailSrc}
 										alt="Generated image thumbnail"
+										loading="lazy"
 										className="h-8 w-8 shrink-0 rounded border object-cover mt-0.5"
 									/>
 								)}
@@ -349,7 +353,7 @@ export function ImageSidebar({
 	className,
 }: ImageSidebarProps) {
 	const switcherOrganizations = organizations.filter(
-		(org) => !org.isPersonal && !org.isChat,
+		(org) => org.kind === "default",
 	);
 	const switcherSelectedOrganization =
 		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
@@ -596,16 +600,8 @@ export function ImageSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							onClick={onNewChat}
-							tooltip="New Generation"
-							className="border border-border"
-						>
-							<Plus className="h-4 w-4" />
-							<span>New Generation</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
+					<SidebarChatSearch disabled />
+					<SidebarNewAction label="New Generation" onAction={onNewChat} />
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild
@@ -651,6 +647,18 @@ export function ImageSidebar({
 							<Link href={withOrg("/video")} prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Audio Studio"
+							isActive={pathname === "/audio"}
+						>
+							<Link href={withOrg("/audio")} prefetch={true}>
+								<AudioLines className="h-4 w-4" />
+								<span>Audio Studio</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

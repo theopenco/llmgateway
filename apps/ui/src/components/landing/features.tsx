@@ -64,7 +64,7 @@ const features: FeatureItem[] = [
 		),
 		title: "Multi-provider Support",
 		description:
-			"Access 25+ providers through one integration—no vendor lock-in, switch models instantly.",
+			"Access 35+ providers through one integration—no vendor lock-in, switch models instantly.",
 		slug: "multi-provider-support",
 	},
 	{

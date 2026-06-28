@@ -196,7 +196,7 @@ chatPlans.openapi(cancel, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isChat === true,
+		(uo) => uo.organization?.kind === "chat",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -285,7 +285,7 @@ chatPlans.openapi(resume, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isChat === true,
+		(uo) => uo.organization?.kind === "chat",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -395,7 +395,7 @@ chatPlans.openapi(changeTier, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isChat === true,
+		(uo) => uo.organization?.kind === "chat",
 	)?.organization;
 
 	if (!personalOrg) {
@@ -571,7 +571,7 @@ chatPlans.openapi(getStatus, async (c) => {
 	});
 
 	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.isChat === true,
+		(uo) => uo.organization?.kind === "chat",
 	)?.organization;
 
 	if (!personalOrg) {

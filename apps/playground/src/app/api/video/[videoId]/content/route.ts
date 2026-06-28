@@ -5,10 +5,13 @@ import {
 	getGatewayErrorMessage,
 	readGatewayResponseBody,
 } from "@/app/api/video/utils";
-import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
+import { getConfig } from "@/lib/config-server";
 import { getUser } from "@/lib/getUser";
 
 export const dynamic = "force-dynamic";
+
+const SESSION_COOKIE_KEY = "better-auth.session_token";
+const STATUS_TIMEOUT_MS = 10_000;
 
 export async function GET(
 	req: Request,
@@ -22,33 +25,69 @@ export async function GET(
 	const { videoId } = await params;
 
 	const cookieStore = await cookies();
-	const apiKey =
-		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
-		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value;
+	const sessionCookie = cookieStore.get(SESSION_COOKIE_KEY);
+	const secureSessionCookie = cookieStore.get(`__Secure-${SESSION_COOKIE_KEY}`);
+	const cookieHeader = secureSessionCookie
+		? `__Secure-${SESSION_COOKIE_KEY}=${secureSessionCookie.value}`
+		: sessionCookie
+			? `${SESSION_COOKIE_KEY}=${sessionCookie.value}`
+			: "";
 
-	if (!apiKey) {
-		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
+	// Resolve the signed, keyless content URL through the session-authorized API
+	// (org-scoped access) rather than the project-scoped gateway API key, so
+	// playback works for any video the user can access regardless of which
+	// playground API key is currently active.
+	const { apiBackendUrl } = getConfig();
+	let statusResponse: Response;
+	try {
+		statusResponse = await fetch(
+			`${apiBackendUrl}/video/${encodeURIComponent(videoId)}`,
+			{
+				headers: {
+					Cookie: cookieHeader,
+				},
+				cache: "no-store",
+				signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+			},
+		);
+	} catch (error) {
+		if (error instanceof Error && error.name === "TimeoutError") {
+			return NextResponse.json(
+				{ error: "Video content request timed out" },
+				{ status: 504 },
+			);
+		}
+		throw error;
 	}
 
-	const gatewayBaseUrl =
-		process.env.GATEWAY_URL?.replace(/\/v1$/, "") ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001"
-			: "https://api.llmgateway.io");
+	if (!statusResponse.ok) {
+		const body = await readGatewayResponseBody(statusResponse);
+		return NextResponse.json(
+			{ error: getGatewayErrorMessage(body, "Failed to fetch video content") },
+			{ status: statusResponse.status },
+		);
+	}
 
+	const job = (await statusResponse.json()) as {
+		content?: { url: string; mime_type?: string | null }[];
+	};
+	const sourceUrl = job.content?.[0]?.url;
+	if (!sourceUrl) {
+		return NextResponse.json(
+			{ error: "Video content is not available yet" },
+			{ status: 404 },
+		);
+	}
+
+	// No timeout here: this streams the (potentially large) video body, and a
+	// fixed timeout would abort slow but healthy downloads mid-stream.
 	const rangeHeader = req.headers.get("Range");
-
-	const response = await fetch(
-		`${gatewayBaseUrl}/v1/videos/${encodeURIComponent(videoId)}/content`,
-		{
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				"x-source": "chat.llmgateway.io",
-				...(rangeHeader ? { Range: rangeHeader } : {}),
-			},
-			cache: "no-store",
+	const response = await fetch(sourceUrl, {
+		headers: {
+			...(rangeHeader ? { Range: rangeHeader } : {}),
 		},
-	);
+		cache: "no-store",
+	});
 
 	if (!response.ok && response.status !== 206) {
 		const body = await readGatewayResponseBody(response);

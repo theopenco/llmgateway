@@ -133,14 +133,14 @@ export function UsageClient({
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
 				<div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 					<h2 className="text-3xl font-bold tracking-tight">Usage & Metrics</h2>
-					<div className="flex items-center space-x-2">
+					<div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
 						<Select
 							value={apiKeyId ?? "all"}
 							onValueChange={(value) =>
 								updateApiKeyIdInUrl(value === "all" ? undefined : value)
 							}
 						>
-							<SelectTrigger size="sm" className="w-[180px]">
+							<SelectTrigger size="sm" className="w-full sm:w-[180px]">
 								<SelectValue placeholder="All API Keys" />
 							</SelectTrigger>
 							<SelectContent>
@@ -156,7 +156,7 @@ export function UsageClient({
 					</div>
 				</div>
 				<Tabs defaultValue="requests" className="space-y-4">
-					<TabsList>
+					<TabsList className="max-w-full overflow-x-auto">
 						<TabsTrigger value="requests">Requests</TabsTrigger>
 						<TabsTrigger value="models">Models</TabsTrigger>
 						<TabsTrigger value="errors">Errors</TabsTrigger>

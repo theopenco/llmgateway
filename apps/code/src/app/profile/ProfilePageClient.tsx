@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ProfileReadmeBadge } from "@/components/profile/ProfileReadmeBadge";
 import {
 	ProfileView,
 	type ProfileData,
@@ -47,10 +48,8 @@ export function ProfilePageClient({
 
 	const updateUser = api.useMutation("patch", "/user/me");
 
-	const shareUrl =
-		savedUsername && typeof window !== "undefined"
-			? `${window.location.origin}/profiles/${savedUsername}`
-			: "";
+	const origin = typeof window !== "undefined" ? window.location.origin : "";
+	const shareUrl = savedUsername ? `${origin}/profiles/${savedUsername}` : "";
 
 	const invalidate = async () => {
 		await queryClient.invalidateQueries({
@@ -235,6 +234,13 @@ export function ProfilePageClient({
 							</div>
 						)}
 					</div>
+
+					{profilePublic && savedUsername && (
+						<div className="space-y-2 border-t pt-5">
+							<Label>README badge</Label>
+							<ProfileReadmeBadge username={savedUsername} baseUrl={origin} />
+						</div>
+					)}
 				</div>
 			</section>
 

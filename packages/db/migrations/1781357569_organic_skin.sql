@@ -1,0 +1,1 @@
+ALTER TABLE "project" ADD COLUMN "default_routing_strategy" text DEFAULT 'auto' NOT NULL;

@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 import { models, type ModelDefinition } from "@llmgateway/models";
-import { getProviderIcon } from "@llmgateway/shared/components";
+import { getModelFamilyIcon } from "@llmgateway/shared/components";
 
 export type CodingModelsView = "all" | "cheap" | "flagship";
 
@@ -20,12 +20,11 @@ interface RecommendedModel {
 // "all" view leads with them — we don't want to heavily promote flagship-only
 // pricing on a fixed-cost DevPass plan.
 const RECOMMENDED_MODELS: RecommendedModel[] = [
-	{ id: "glm-5.1", category: "cheap" },
+	{ id: "glm-5.2", category: "cheap" },
 	{ id: "kimi-k2.6", category: "cheap" },
 	{ id: "qwen3-coder", category: "cheap" },
 	{ id: "deepseek-v4-pro", category: "cheap" },
-	{ id: "gpt-5.3-codex", category: "flagship" },
-	{ id: "claude-opus-4-7", category: "flagship" },
+	{ id: "claude-opus-4-8", category: "flagship" },
 	{ id: "gpt-5.5", category: "flagship" },
 	{ id: "gemini-3.1-pro-preview", category: "flagship" },
 ];
@@ -46,6 +45,31 @@ function formatContextSize(size: number): string {
 		return `${(size / 1000).toFixed(0)}K`;
 	}
 	return size.toString();
+}
+
+type ModelProvider = ModelDefinition["providers"][number];
+
+// Pick the provider with the lowest combined input + output price so the card
+// advertises the best ("starting from") rate available for the model. Providers
+// without pricing are ranked last so we still fall back to a usable mapping.
+function getCheapestProvider(
+	providers: readonly ModelProvider[],
+): ModelProvider | undefined {
+	const cost = (p: ModelProvider): number => {
+		const input = p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
+		const output =
+			p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
+		if (input === undefined && output === undefined) {
+			return Number.POSITIVE_INFINITY;
+		}
+		return (input ?? 0) + (output ?? 0);
+	};
+	return providers.reduce<ModelProvider | undefined>((cheapest, p) => {
+		if (!cheapest) {
+			return p;
+		}
+		return cost(p) < cost(cheapest) ? p : cheapest;
+	}, undefined);
 }
 
 function formatPrice(price: number): string {
@@ -163,10 +187,8 @@ export function CodingModelsShowcase({
 			</p>
 			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{recommendedModels.map((model) => {
-					const provider = model.providers[0];
-					const ProviderIcon = provider
-						? getProviderIcon(provider.providerId)
-						: null;
+					const provider = getCheapestProvider(model.providers);
+					const FamilyIcon = getModelFamilyIcon(model.family);
 					const category = idByCategory.get(model.id);
 
 					return (
@@ -183,11 +205,9 @@ export function CodingModelsShowcase({
 							<div className="flex items-start justify-between gap-2">
 								<div className="flex-1 min-w-0">
 									<div className="flex items-center gap-2">
-										{ProviderIcon && (
-											<div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted">
-												<ProviderIcon className="h-4 w-4" />
-											</div>
-										)}
+										<div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted">
+											<FamilyIcon className="h-4 w-4" />
+										</div>
 										<span className="font-medium text-sm truncate">
 											{model.name ?? model.id}
 										</span>
@@ -226,6 +246,9 @@ export function CodingModelsShowcase({
 									{(provider.inputPrice !== undefined ||
 										provider.outputPrice !== undefined) && (
 										<p>
+											<span className="text-muted-foreground mr-1">
+												starting from
+											</span>
 											{provider.inputPrice !== undefined && (
 												<>
 													<span className="font-mono font-medium text-foreground">

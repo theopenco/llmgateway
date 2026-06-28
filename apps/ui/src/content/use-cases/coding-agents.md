@@ -4,12 +4,12 @@ slug: coding-agents
 date: 2026-06-02
 title: Coding agents & AI assistants
 metaTitle: "LLM Gateway for Coding Agents & AI Assistants"
-description: "Power coding agents and AI assistants with one OpenAI-compatible API. Route across Claude, GPT-5.5, Gemini and 200+ models with automatic fallback, prompt caching, and per-request cost analytics."
+description: "Power coding agents and AI assistants with one OpenAI-compatible API. Route across Claude, GPT-5.5, Gemini and 280+ models with automatic fallback, prompt caching, and per-request cost analytics."
 headline: "One API key behind Claude Code, Cursor, Cline and your own agents — with model fallback and a real cost ledger."
 summary: "Give your coding agent every model through one OpenAI-compatible endpoint, with automatic failover and per-request cost tracking."
 benefits:
   - title: Every model, one key
-    description: "Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, Qwen, Kimi, DeepSeek — 200+ models behind a single OpenAI-compatible endpoint. Switch by changing one string."
+    description: "Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, Qwen, Kimi, DeepSeek — 280+ models behind a single OpenAI-compatible endpoint. Switch by changing one string."
   - title: Automatic fallback
     description: "When a provider rate-limits or errors, the gateway retries on another. Long agent runs keep going instead of dying mid-task."
   - title: Per-request cost analytics
@@ -31,7 +31,7 @@ faqs:
 
 Modern coding agents — Claude Code, Cursor, Cline, or the bespoke one you're building — call a model dozens of times to finish a single task: plan, read files, edit, run, repeat. That puts three demands on whatever sits behind the agent: **access to the right model for each step, reliability across long runs, and visibility into what it all costs.**
 
-LLM Gateway is that layer. One OpenAI-compatible endpoint, 200+ models, automatic fallback, caching, and a cost ledger for every request.
+LLM Gateway is that layer. One OpenAI-compatible endpoint, 280+ models, automatic fallback, caching, and a cost ledger for every request.
 
 ## Use the best model for each step — without rewriting anything
 

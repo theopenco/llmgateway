@@ -149,6 +149,54 @@ This transparency allows you to understand and debug routing decisions.
 	considering cost efficiency.
 </Callout>
 
+### Routing Strategy
+
+By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it:
+
+| Strategy           | Behavior                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `auto` _(default)_ | Full weighted smart-routing score (price, uptime, throughput, latency, cache).       |
+| `price`            | Gives price a **90% relative weight**, so the cheapest provider almost always wins.  |
+| `throughput`       | Gives throughput a **90% relative weight**, so the fastest-generating provider wins. |
+| `latency`          | Gives latency a **90% relative weight**, so the lowest time-to-first-token wins.     |
+
+Each non-`auto` strategy keeps a small (10%) uptime weight, and the [exponential uptime penalty](#smart-routing-algorithm) still applies on top. This means the dominant pick is still skipped in favor of another provider when it has extremely bad uptime — you get the cheapest (or fastest) provider that is actually healthy, not one that is effectively down.
+
+Because time-to-first-token is only measured for streaming requests, `routing: "latency"` only biases streaming requests; for non-streaming requests it falls back to selecting on uptime.
+
+```bash
+# Always pick the cheapest healthy provider for this model
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": "price"
+  }'
+```
+
+```bash
+# Always pick the highest-throughput healthy provider for this model
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": "throughput"
+  }'
+```
+
+<Callout type="info">
+	The `routing` field only applies to model-id routing. Combining it with a
+	specific provider (e.g. `openai/gpt-4o`) returns a `400` error, since the
+	strategy can't influence a pinned provider — remove the provider prefix to use
+	a strategy. On **coding (dev) plans**, only `auto` and `price` are allowed;
+	the other strategies return a `400` error because they would bypass the
+	prompt-cache–aware routing those plans depend on.
+</Callout>
+
 ### Sticky Session Routing
 
 When a model is served by multiple providers, every request is normally scored independently — so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix hit the **same** provider.

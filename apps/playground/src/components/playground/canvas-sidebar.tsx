@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	AudioLines,
 	ChevronUp,
 	ExternalLink,
 	Film,
@@ -8,7 +9,6 @@ import {
 	LogOut,
 	MessageSquare,
 	PenTool,
-	Plus,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -44,6 +44,7 @@ import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
 import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
 
 import type { Organization } from "@/lib/types";
 
@@ -63,7 +64,7 @@ export function CanvasSidebar({
 	onNewCanvas,
 }: CanvasSidebarProps) {
 	const switcherOrganizations = organizations.filter(
-		(org) => !org.isPersonal && !org.isChat,
+		(org) => org.kind === "default",
 	);
 	const switcherSelectedOrganization =
 		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
@@ -188,16 +189,8 @@ export function CanvasSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							onClick={onNewCanvas}
-							tooltip="New Canvas"
-							className="border border-border"
-						>
-							<Plus className="h-4 w-4" />
-							<span>New Canvas</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
+					<SidebarChatSearch disabled />
+					<SidebarNewAction label="New Canvas" onAction={onNewCanvas} />
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild
@@ -243,6 +236,18 @@ export function CanvasSidebar({
 							<Link href={withOrg("/video")} prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Audio Studio"
+							isActive={pathname === "/audio"}
+						>
+							<Link href={withOrg("/audio")} prefetch={true}>
+								<AudioLines className="h-4 w-4" />
+								<span>Audio Studio</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

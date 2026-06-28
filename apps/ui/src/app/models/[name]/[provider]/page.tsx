@@ -21,9 +21,15 @@ import {
 	type DiscountData,
 } from "@/components/models/global-discount-banner";
 import { ModelCtaButton } from "@/components/models/model-cta-button";
+import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
+import {
+	buildRatingSchema,
+	digitalOfferFields,
+	type ModelRatingsData,
+} from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -70,11 +76,16 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	);
 
 	// Fetch global discounts and apply to provider
-	const discountData = await fetchServerData<{ discounts: DiscountData[] }>(
-		"GET",
-		"/public/discounts/model/{modelId}",
-		{ params: { path: { modelId: decodedName } } },
-	);
+	const [discountData, ratingsData] = await Promise.all([
+		fetchServerData<{ discounts: DiscountData[] }>(
+			"GET",
+			"/public/discounts/model/{modelId}",
+			{ params: { path: { modelId: decodedName } } },
+		),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+	]);
 	const discounts = discountData?.discounts ?? [];
 	const globalDiscount = (() => {
 		const providerModel = discounts.find(
@@ -206,6 +217,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		description:
 			modelDef.description ??
 			`Access ${modelDef.name ?? modelDef.id} via ${providerInfo?.name ?? decodedProvider} through LLM Gateway's unified API.`,
+		image: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`,
 		brand: {
 			"@type": "Brand",
 			name: providerInfo?.name ?? decodedProvider,
@@ -225,8 +237,10 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				"@type": "Organization",
 				name: "LLM Gateway",
 			},
+			...digitalOfferFields,
 		},
 		category: "AI/ML API Service",
+		...buildRatingSchema(ratingsData),
 	};
 
 	return (
@@ -311,6 +325,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 							<ModelCtaButton
 								modelId={decodedName}
+								output={modelDef.output}
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
@@ -390,6 +405,8 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								));
 							})()}
 						</div>
+
+						<ModelRating modelId={decodedName} />
 					</div>
 
 					{bannerDiscount && (
@@ -481,6 +498,7 @@ export async function generateMetadata({
 	const title = `${model.name ?? model.id} on ${providerName}`;
 	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
+	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`;
 
 	return {
 		title,
@@ -493,11 +511,20 @@ export async function generateMetadata({
 			description,
 			type: "website",
 			url: canonical,
+			images: [
+				{
+					url: ogImageUrl,
+					width: 1200,
+					height: 630,
+					alt: `${model.name ?? model.id} on ${providerName} model card`,
+				},
+			],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title,
 			description,
+			images: [ogImageUrl],
 		},
 	};
 }
