@@ -39,7 +39,7 @@ const plans: PlanContent[] = [
 		tagline: "All the fast models, one bill",
 		frontierIncluded: false,
 		features: [
-			"Claude Sonnet, Haiku & Gemini Flash — fast, capable models",
+			"Claude Sonnet plus fast models like Haiku & Gemini Flash",
 			"Chat, image, video & audio studios",
 			"Real-time usage and per-message cost",
 			"Upgrade to frontier models anytime — prorated",

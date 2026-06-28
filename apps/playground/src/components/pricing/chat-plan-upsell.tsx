@@ -55,9 +55,9 @@ export function ChatPlanUpsell({
 					{headline}
 				</h2>
 				<p className="mx-auto mt-3 max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
-					Claude Opus, GPT-5, Gemini and Grok — plus the image, video and audio
-					studios — in one subscription. More usage than you pay for, and a
-					7-day money-back guarantee.
+					Fast models plus the image, video and audio studios from $9 — or add
+					Claude Opus, GPT-5, Gemini and Grok with Plus and Pro. More usage than
+					you pay for, and a 7-day money-back guarantee.
 				</p>
 			</motion.div>
 

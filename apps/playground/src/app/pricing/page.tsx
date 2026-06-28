@@ -11,7 +11,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Pricing — LLMGateway Chat",
 	description:
-		"Every frontier model in one subscription — Claude Opus, GPT-5, Gemini and Grok. Replaces ChatGPT Plus, Claude Pro and Gemini Advanced, from $9/mo, with more usage than you pay for.",
+		"Every frontier model in one subscription — Claude Opus, GPT-5, Gemini and Grok, from $19/mo. Start on fast models from $9/mo. Replaces ChatGPT Plus, Claude Pro and Gemini Advanced — with more usage than you pay for.",
 	alternates: {
 		canonical: "/pricing",
 	},
@@ -36,7 +36,8 @@ export default async function PricingPage() {
 				</h1>
 				<p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
 					Claude Opus, GPT-5, Gemini and Grok in one place — for less than a
-					single ChatGPT Plus subscription. Every plan gives you{" "}
+					single ChatGPT Plus subscription. Start on fast models from $9, or
+					unlock every frontier flagship from $19. Every plan gives you{" "}
 					<strong>more usage than you pay for</strong>.
 				</p>
 			</header>

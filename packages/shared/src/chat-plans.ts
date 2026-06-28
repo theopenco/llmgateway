@@ -86,10 +86,13 @@ function estimateMessages(
 	creditsUsd: number,
 	rate: { input: number; output: number },
 ): number {
+	if (creditsUsd <= 0) {
+		return 0;
+	}
 	const inputCost = CHAT_PLAN_ESTIMATE_TOKENS.input * rate.input;
 	const outputCost = CHAT_PLAN_ESTIMATE_TOKENS.output * rate.output;
 	const perMessage = inputCost + outputCost;
-	return perMessage > 0 ? Math.round(creditsUsd / perMessage) : 0;
+	return perMessage > 0 ? Math.floor(creditsUsd / perMessage) : 0;
 }
 
 /**
