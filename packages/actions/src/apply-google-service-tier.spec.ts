@@ -5,6 +5,7 @@ import {
 	isPremiumServiceTier,
 	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
+	webSearchDisablesServiceTier,
 } from "./apply-google-service-tier.js";
 
 import type { GoogleRequestBody } from "@llmgateway/models";
@@ -155,5 +156,44 @@ describe("providerKeyBaseUrlSupportsServiceTier", () => {
 				"https://my-proxy.example.com",
 			),
 		).toBe(true);
+	});
+});
+
+describe("webSearchDisablesServiceTier", () => {
+	it("drops flex on Vertex-compatible providers when web search is on", () => {
+		for (const provider of ["google-vertex", "quartz"] as const) {
+			expect(webSearchDisablesServiceTier(provider, "flex", true)).toBe(true);
+		}
+	});
+
+	it("leaves AI Studio flex alone (it serves grounding quickly)", () => {
+		expect(webSearchDisablesServiceTier("google-ai-studio", "flex", true)).toBe(
+			false,
+		);
+		expect(webSearchDisablesServiceTier("glacier", "flex", true)).toBe(false);
+	});
+
+	it("never drops priority (it serves grounding fine)", () => {
+		expect(
+			webSearchDisablesServiceTier("google-vertex", "priority", true),
+		).toBe(false);
+	});
+
+	it("is a no-op without web search", () => {
+		expect(webSearchDisablesServiceTier("google-vertex", "flex", false)).toBe(
+			false,
+		);
+	});
+
+	it("ignores non-Vertex providers", () => {
+		expect(webSearchDisablesServiceTier("openai", "flex", true)).toBe(false);
+	});
+
+	it("ignores standard/default/auto and missing tiers", () => {
+		for (const tier of ["auto", "default", "standard", "", null, undefined]) {
+			expect(webSearchDisablesServiceTier("google-vertex", tier, true)).toBe(
+				false,
+			);
+		}
 	});
 });

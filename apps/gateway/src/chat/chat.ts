@@ -98,6 +98,7 @@ import {
 	isPremiumServiceTier,
 	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
+	webSearchDisablesServiceTier,
 	googleProviderSupportsAudioFormat,
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
@@ -913,9 +914,16 @@ function getForwardedServiceTier(
 	provider: Provider,
 	region: string | undefined,
 	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
+	webSearchEnabled: boolean,
 	configIndex?: number,
 ): "flex" | "priority" | undefined {
 	if (serviceTier !== "flex" && serviceTier !== "priority") {
+		return undefined;
+	}
+	// Flex can't reliably serve native web search on Vertex (the heavier
+	// grounding request drops/empties on the deprioritized shared-Flex tier), so
+	// a grounding request never forwards Flex — it falls back to standard instead.
+	if (webSearchDisablesServiceTier(provider, serviceTier, webSearchEnabled)) {
 		return undefined;
 	}
 	const effectiveRegion =
@@ -5994,6 +6002,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				usedRegion,
 				service_tier,
+				!!webSearchTool,
 				configIndex,
 			),
 		);
@@ -6613,6 +6622,7 @@ chat.openapi(completions, async (c) => {
 							usedProvider,
 							usedRegion,
 							service_tier,
+							!!webSearchTool,
 							configIndex,
 						);
 						const headers = getProviderHeaders(usedProvider, usedToken, {
@@ -8849,6 +8859,7 @@ chat.openapi(completions, async (c) => {
 											usedProvider,
 											usedRegion,
 											service_tier,
+											!!webSearchTool,
 											configIndex,
 										),
 										data,
@@ -10559,6 +10570,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				usedRegion,
 				service_tier,
+				!!webSearchTool,
 				configIndex,
 			);
 			const headers = getProviderHeaders(usedProvider, usedToken, {
@@ -12006,6 +12018,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			usedRegion,
 			service_tier,
+			!!webSearchTool,
 			configIndex,
 		),
 		json,
