@@ -85,6 +85,7 @@ const providerKeyPublicSchema = z.object({
 	baseUrl: z.string().nullable(),
 	options: providerKeySchema.shape.options,
 	status: providerKeySchema.shape.status,
+	customModelsOnly: providerKeySchema.shape.customModelsOnly,
 	organizationId: z.string(),
 	maskedToken: z.string(),
 });
@@ -101,6 +102,7 @@ function toPublicProviderKey(row: ProviderKeyRow) {
 		baseUrl: row.baseUrl,
 		options: row.options,
 		status: row.status,
+		customModelsOnly: row.customModelsOnly,
 		organizationId: row.organizationId,
 		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
 	};
