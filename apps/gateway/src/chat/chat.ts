@@ -10470,6 +10470,152 @@ chat.openapi(completions, async (c) => {
 	// Add event listener for the 'close' event on the connection
 	c.req.raw.signal.addEventListener("abort", onAbort);
 
+	// Build and persist the canceled-request log, then return the 400 "request
+	// canceled" response. Shared by the in-loop fetch-cancellation path and the
+	// body-read cancellation path so a client disconnect is always recorded as
+	// canceled rather than surfacing as an error or a bare 499.
+	const respondCanceled = async () => {
+		const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) ?? [];
+
+		const billCancelled = shouldBillCancelledRequests();
+		let cancelledCosts: Awaited<ReturnType<typeof calculateCosts>> | null =
+			null;
+		let estimatedPromptTokens: number | null = null;
+
+		if (billCancelled) {
+			const tokenEstimation = estimateTokens(
+				usedProvider!,
+				messages,
+				null,
+				null,
+				null,
+			);
+			estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
+
+			cancelledCosts = await calculateCosts(
+				usedInternalModel,
+				usedProvider!,
+				usedRegion ?? null,
+				estimatedPromptTokens,
+				0, // No completion tokens
+				null, // No cached tokens
+				{
+					prompt: messages
+						.map((m) => messageContentToString(m.content))
+						.join("\n"),
+					completion: "",
+				},
+				null, // No reasoning tokens
+				0, // No output images
+				undefined,
+				inputImageCount,
+				webSearchTool ? 1 : null, // Bill for web search if it was enabled
+				project.organizationId,
+				undefined, // imageQuality
+				null, // reportedImageInputTokens
+				null, // reportedImageOutputTokens
+				{ servedServiceTier, customPricing: customPricingMapping },
+			);
+		}
+
+		const baseLogEntry = createLogEntry(
+			requestId,
+			project,
+			apiKey,
+			providerKey?.id,
+			usedModelFormatted!,
+			usedModelMapping!,
+			usedProvider!,
+			initialRequestedModel,
+			requestedProvider,
+			messages,
+			temperature,
+			max_tokens,
+			top_p,
+			frequency_penalty,
+			presence_penalty,
+			reasoning_effort,
+			reasoning_max_tokens,
+			effort,
+			response_format,
+			tools,
+			tool_choice,
+			source,
+			customHeaders,
+			debugMode,
+			userAgent,
+			image_config,
+			routingMetadata,
+			rawBody,
+			null, // No response for canceled request
+			requestBody, // The request that was prepared before cancellation
+			null, // No upstream response for canceled request
+			canceledNonStreamingPluginIds,
+			undefined, // No plugin results for canceled request
+		);
+
+		await insertLogEntry({
+			...baseLogEntry,
+			duration: Date.now() - startTime,
+			timeToFirstToken: null, // Not applicable for canceled request
+			timeToFirstReasoningToken: null, // Not applicable for canceled request
+			responseSize: 0,
+			content: null,
+			reasoningContent: null,
+			finishReason: "canceled",
+			promptTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
+			completionTokens: billCancelled ? "0" : null,
+			totalTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
+			reasoningTokens: null,
+			cachedTokens: null,
+			hasError: false,
+			streamed: false,
+			canceled: true,
+			errorDetails: null,
+			inputCost: cancelledCosts?.inputCost ?? null,
+			outputCost: cancelledCosts?.outputCost ?? null,
+			cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+			requestCost: cancelledCosts?.requestCost ?? null,
+			webSearchCost: cancelledCosts?.webSearchCost ?? null,
+			imageInputTokens: cancelledCosts?.imageInputTokens?.toString() ?? null,
+			imageOutputTokens: cancelledCosts?.imageOutputTokens?.toString() ?? null,
+			imageInputCost: cancelledCosts?.imageInputCost ?? null,
+			imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+			audioInputTokens: cancelledCosts?.audioInputTokens?.toString() ?? null,
+			audioInputCost: cancelledCosts?.audioInputCost ?? null,
+			cost: cancelledCosts?.totalCost ?? null,
+			estimatedCost: cancelledCosts?.estimatedCost ?? false,
+			discount: cancelledCosts?.discount ?? null,
+			dataStorageCost: billCancelled
+				? calculateDataStorageCost(
+						cancelledCosts?.promptTokens ?? estimatedPromptTokens,
+						null,
+						0,
+						null,
+						retentionLevel,
+					)
+				: "0",
+			cached: false,
+			toolResults: null,
+		});
+
+		return c.json(
+			{
+				error: {
+					message: "Request canceled by client",
+					type: "canceled",
+					param: null,
+					code: "request_canceled",
+				},
+			},
+			400,
+		); // Using 400 status code for client closed request
+	};
+
 	// --- Retry loop for provider fallback ---
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviderIds = new Set<string>();
@@ -10860,158 +11006,21 @@ chat.openapi(completions, async (c) => {
 
 		// If the request was canceled, log it and return a response
 		if (canceled) {
-			// Log the canceled request
-			// Extract plugin IDs for logging (canceled non-streaming)
-			const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) ?? [];
-
-			// Calculate costs for cancelled request if billing is enabled
-			const billCancelled = shouldBillCancelledRequests();
-			let cancelledCosts: Awaited<ReturnType<typeof calculateCosts>> | null =
-				null;
-			let estimatedPromptTokens: number | null = null;
-
-			if (billCancelled) {
-				// Estimate prompt tokens from messages
-				const tokenEstimation = estimateTokens(
-					usedProvider,
-					messages,
-					null,
-					null,
-					null,
-				);
-				estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
-
-				// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
-				// If web search tool was enabled, count it as 1 search for billing
-				cancelledCosts = await calculateCosts(
-					usedInternalModel,
-					usedProvider,
-					usedRegion ?? null,
-					estimatedPromptTokens,
-					0, // No completion tokens
-					null, // No cached tokens
-					{
-						prompt: messages
-							.map((m) => messageContentToString(m.content))
-							.join("\n"),
-						completion: "",
-					},
-					null, // No reasoning tokens
-					0, // No output images
-					undefined,
-					inputImageCount,
-					webSearchTool ? 1 : null, // Bill for web search if it was enabled
-					project.organizationId,
-					undefined, // imageQuality
-					null, // reportedImageInputTokens
-					null, // reportedImageOutputTokens
-					{ servedServiceTier, customPricing: customPricingMapping },
-				);
-			}
-
-			const baseLogEntry = createLogEntry(
-				requestId,
-				project,
-				apiKey,
-				providerKey?.id,
-				usedModelFormatted,
-				usedModelMapping,
-				usedProvider,
-				initialRequestedModel,
-				requestedProvider,
-				messages,
-				temperature,
-				max_tokens,
-				top_p,
-				frequency_penalty,
-				presence_penalty,
-				reasoning_effort,
-				reasoning_max_tokens,
-				effort,
-				response_format,
-				tools,
-				tool_choice,
-				source,
-				customHeaders,
-				debugMode,
-				userAgent,
-				image_config,
-				routingMetadata,
-				rawBody,
-				null, // No response for canceled request
-				requestBody, // The request that was prepared before cancellation
-				null, // No upstream response for canceled request
-				canceledNonStreamingPluginIds,
-				undefined, // No plugin results for canceled request
-			);
-
-			await insertLogEntry({
-				...baseLogEntry,
-				duration,
-				timeToFirstToken: null, // Not applicable for canceled request
-				timeToFirstReasoningToken: null, // Not applicable for canceled request
-				responseSize: 0,
-				content: null,
-				reasoningContent: null,
-				finishReason: "canceled",
-				promptTokens: billCancelled
-					? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
-					: null,
-				completionTokens: billCancelled ? "0" : null,
-				totalTokens: billCancelled
-					? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
-					: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: true,
-				errorDetails: null,
-				inputCost: cancelledCosts?.inputCost ?? null,
-				outputCost: cancelledCosts?.outputCost ?? null,
-				cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
-				requestCost: cancelledCosts?.requestCost ?? null,
-				webSearchCost: cancelledCosts?.webSearchCost ?? null,
-				imageInputTokens: cancelledCosts?.imageInputTokens?.toString() ?? null,
-				imageOutputTokens:
-					cancelledCosts?.imageOutputTokens?.toString() ?? null,
-				imageInputCost: cancelledCosts?.imageInputCost ?? null,
-				imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
-				audioInputTokens: cancelledCosts?.audioInputTokens?.toString() ?? null,
-				audioInputCost: cancelledCosts?.audioInputCost ?? null,
-				cost: cancelledCosts?.totalCost ?? null,
-				estimatedCost: cancelledCosts?.estimatedCost ?? false,
-				discount: cancelledCosts?.discount ?? null,
-				dataStorageCost: billCancelled
-					? calculateDataStorageCost(
-							cancelledCosts?.promptTokens ?? estimatedPromptTokens,
-							null,
-							0,
-							null,
-							retentionLevel,
-						)
-					: "0",
-				cached: false,
-				toolResults: null,
-			});
-
-			return c.json(
-				{
-					error: {
-						message: "Request canceled by client",
-						type: "canceled",
-						param: null,
-						code: "request_canceled",
-					},
-				},
-				400,
-			); // Using 400 status code for client closed request
+			return await respondCanceled();
 		}
 
 		if (res && !res.ok) {
 			// Get the error response text
 			// Body read can throw TimeoutError if the abort signal fires during consumption
 			let errorResponseText: string;
+			// Keep the client-abort listener attached across the error-body read
+			// (it was removed when the fetch settled) so a disconnect during
+			// res.text() aborts the read and is recorded as canceled. Re-run
+			// onAbort if the client already disconnected in the gap.
+			c.req.raw.signal.addEventListener("abort", onAbort);
+			if (c.req.raw.signal.aborted) {
+				onAbort();
+			}
 			try {
 				const rawErrorResponseText = await res.text();
 				errorResponseText = usesAwsBedrockConverse()
@@ -11022,11 +11031,12 @@ chat.openapi(completions, async (c) => {
 				if (!(bodyError instanceof Error)) {
 					throw bodyError;
 				}
-				// A client disconnect can abort the in-flight body read; rethrow
-				// so the cancellation path (app.onError -> 499) is preserved
-				// instead of misreporting it as an upstream failure.
+				// A client disconnect aborts the in-flight error-body read; record
+				// it as a canceled request (same log shape as the fetch-
+				// cancellation path) instead of misreporting it as an upstream
+				// failure or a bare 499.
 				if (bodyError.name === "AbortError") {
-					throw bodyError;
+					return await respondCanceled();
 				}
 				// A read timeout or a mid-body socket failure (e.g. undici
 				// "terminated: other side closed" / ECONNRESET) both surface
@@ -11141,6 +11151,8 @@ chat.openapi(completions, async (c) => {
 						isTimeoutBody ? 504 : 502,
 					);
 				}
+			} finally {
+				c.req.raw.signal.removeEventListener("abort", onAbort);
 			}
 
 			// If the upstream Google provider rejected the request because the
@@ -11571,6 +11583,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	let json: any;
+	// Keep the client-abort listener attached across the body read. The
+	// per-attempt listener was removed when the fetch settled, so without this a
+	// client disconnect during res.json()/res.text() would neither abort the
+	// upstream read nor be recorded as canceled. Re-run onAbort if the client
+	// already disconnected in the gap before we re-attached.
+	c.req.raw.signal.addEventListener("abort", onAbort);
+	if (c.req.raw.signal.aborted) {
+		onAbort();
+	}
 	try {
 		if (forceStream && res.body) {
 			// Stream-only model: upstream returned SSE but client expects JSON.
@@ -11814,11 +11835,32 @@ chat.openapi(completions, async (c) => {
 		if (!(bodyError instanceof Error)) {
 			throw bodyError;
 		}
-		// A client disconnect can abort the in-flight body read; rethrow so the
-		// cancellation path (app.onError -> 499) is preserved instead of
-		// misreporting it as an upstream failure.
+		// A client disconnect aborts the in-flight body read; record it as a
+		// canceled request (same log shape as the fetch-cancellation path)
+		// instead of misreporting it as an upstream failure or a bare 499.
 		if (bodyError.name === "AbortError") {
-			throw bodyError;
+			// The post-loop success append already recorded this provider as a
+			// succeeded routing attempt. Drop it before logging the cancellation
+			// so a client disconnect isn't counted as a provider success in the
+			// routing trace (matching the fetch-cancellation path, which records
+			// no succeeded attempt). A cancel is not a provider failure, so the
+			// attempt is removed rather than flipped to failed.
+			for (let i = routingAttempts.length - 1; i >= 0; i--) {
+				if (
+					routingAttempts[i].provider === usedProvider &&
+					routingAttempts[i].succeeded
+				) {
+					routingAttempts.splice(i, 1);
+					break;
+				}
+			}
+			if (routingMetadata) {
+				routingMetadata = {
+					...routingMetadata,
+					routing: routingAttempts,
+				};
+			}
+			return await respondCanceled();
 		}
 		// Both a read timeout and a mid-body socket failure (e.g. undici
 		// "terminated: other side closed" / ECONNRESET) surface here: the
@@ -11990,6 +12032,8 @@ chat.openapi(completions, async (c) => {
 				isTimeoutBody ? 504 : 502,
 			);
 		}
+	} finally {
+		c.req.raw.signal.removeEventListener("abort", onAbort);
 	}
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });
