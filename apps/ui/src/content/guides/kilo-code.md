@@ -51,7 +51,7 @@ Once connected, select an LLM Gateway model from the model picker at the bottom 
 
 ## Why Use LLM Gateway with Kilo Code?
 
-- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more from 60+ providers
+- **280+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more from 35+ providers
 - **One API key** — Stop managing separate keys for each provider
 - **Cost tracking** — See exactly what each session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically

@@ -16,6 +16,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 	type DevPlanCycle,
@@ -25,6 +26,7 @@ import {
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
+import { resolveDevPassBillingDetails } from "./utils/devpass-billing.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
@@ -648,6 +650,85 @@ async function findDevPlanSubscriptionForSetupSession(
 	});
 }
 
+/**
+ * Cancel stale DevPass subscriptions left on the customer by an earlier checkout
+ * attempt. A setup-mode checkout creates one subscription per setup session, so
+ * a first attempt whose payment never completes leaves a dangling `incomplete`
+ * subscription that later flips to `incomplete_expired` — emitting events for a
+ * plan the org never activated and, before the id-gating fix, freezing the
+ * active plan's credits. Before activating the current session's subscription we
+ * cancel those dangling attempts so the customer is never left with duplicate
+ * DevPass subscriptions. The current session's own subscription is matched by
+ * `setupSessionId` and never cancelled — which also keeps this safe under the
+ * finalize/webhook race (both runs share the same session id).
+ */
+async function cancelStaleDevPlanSubscriptions(
+	customerId: string,
+	currentSessionId: string,
+): Promise<void> {
+	const subscriptions = await getStripe().subscriptions.list({
+		customer: customerId,
+		status: "all",
+		limit: 100,
+	});
+	const stale = subscriptions.data.filter(
+		(s) =>
+			s.metadata?.subscriptionType === "dev_plan" &&
+			s.metadata?.setupSessionId !== currentSessionId &&
+			(s.status === "incomplete" || s.status === "past_due"),
+	);
+	for (const s of stale) {
+		try {
+			await getStripe().subscriptions.cancel(s.id);
+			logger.info(
+				`Cancelled stale DevPass subscription ${s.id} (status ${s.status}) for customer ${customerId}`,
+			);
+		} catch (err) {
+			logger.warn(`Failed to cancel stale DevPass subscription ${s.id}`, {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+}
+
+/**
+ * Collapse duplicate copies of a card down to a single payment method. Each
+ * setup session saves the card as a fresh PaymentMethod object, so a retried
+ * checkout would otherwise leave several PaymentMethods for the same physical
+ * card on the customer. Keeps `keepPaymentMethodId` and detaches every other
+ * payment method that shares its fingerprint.
+ */
+async function detachDuplicateCardPaymentMethods(
+	customerId: string,
+	keepPaymentMethodId: string,
+	fingerprint: string | null,
+): Promise<void> {
+	if (!fingerprint) {
+		return;
+	}
+	const paymentMethods = await getStripe().paymentMethods.list({
+		customer: customerId,
+		type: "card",
+		limit: 100,
+	});
+	const duplicates = paymentMethods.data.filter(
+		(pm) =>
+			pm.id !== keepPaymentMethodId && pm.card?.fingerprint === fingerprint,
+	);
+	for (const pm of duplicates) {
+		try {
+			await getStripe().paymentMethods.detach(pm.id);
+			logger.info(
+				`Detached duplicate card ${pm.id} (fingerprint ${fingerprint}) from customer ${customerId}`,
+			);
+		} catch (err) {
+			logger.warn(`Failed to detach duplicate card ${pm.id}`, {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+}
+
 function shouldForceDevPlan3dsChallenge(): boolean {
 	return process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true";
 }
@@ -799,6 +880,19 @@ export async function finalizeDevPlanSetupSession(
 	await getStripe().customers.update(stripeCustomerId, {
 		invoice_settings: { default_payment_method: paymentMethod.id },
 	});
+
+	// Prevent duplicate DevPass subscriptions/cards from a retried checkout. A
+	// failed first attempt leaves a dangling `incomplete` subscription and a
+	// duplicate copy of the card on the customer; cancel the former and detach the
+	// latter before creating/activating this session's subscription. Cancel stale
+	// subscriptions before detaching cards so we never detach a card still
+	// referenced by a live subscription.
+	await cancelStaleDevPlanSubscriptions(stripeCustomerId, sessionId);
+	await detachDuplicateCardPaymentMethods(
+		stripeCustomerId,
+		paymentMethod.id,
+		fingerprint,
+	);
 
 	// The /finalize endpoint and the checkout.session.completed webhook can
 	// race for the same setup session. We guard against duplicate subscription
@@ -955,15 +1049,12 @@ export async function finalizeDevPlanSetupSession(
 			.returning();
 
 		try {
+			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
-				billingEmail: organization.billingEmail,
-				billingCompany: organization.billingCompany,
-				billingAddress: organization.billingAddress,
-				billingTaxId: organization.billingTaxId,
-				billingNotes: organization.billingNotes,
+				...billingDetails,
 				lineItems: [
 					{
 						description: `Dev Plan ${devPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
@@ -1318,15 +1409,13 @@ async function handleCheckoutSessionCompleted(
 
 				// Generate and email invoice
 				try {
+					const billingDetails =
+						await resolveDevPassBillingDetails(organization);
 					await generateAndEmailInvoice({
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
-						billingEmail: organization.billingEmail,
-						billingCompany: organization.billingCompany,
-						billingAddress: organization.billingAddress,
-						billingTaxId: organization.billingTaxId,
-						billingNotes: organization.billingNotes,
+						...billingDetails,
 						lineItems: [
 							{
 								description: `Dev Plan ${devPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
@@ -1382,10 +1471,11 @@ async function handleCheckoutSessionCompleted(
 			}
 		} else {
 			// Handle regular pro subscription
-			// Skip setting plan to "pro" for personal orgs - they use devPlan field instead
-			if (organization.isPersonal) {
+			// Skip setting plan to "pro" for non-default orgs - devpass orgs use the
+			// devPlan field and chat orgs use the chatPlan field instead.
+			if (organization.kind !== "default") {
 				logger.warn(
-					`Skipping plan: "pro" for personal org ${organizationId} - personal orgs should use devPlan field`,
+					`Skipping plan: "pro" for ${organization.kind} org ${organizationId} - non-default orgs use product-specific plan fields`,
 				);
 				return;
 			}
@@ -2342,7 +2432,7 @@ async function handlePaymentIntentSucceeded(
 	);
 }
 
-async function handlePaymentIntentFailed(
+export async function handlePaymentIntentFailed(
 	event: Stripe.PaymentIntentPaymentFailedEvent,
 ) {
 	const paymentIntent = event.data.object;
@@ -2414,29 +2504,54 @@ async function handlePaymentIntentFailed(
 		stripePaymentIntentId: paymentIntent.id,
 	});
 
-	// Check if this is an auto top-up with an existing pending transaction
+	// Only credit top-up payment intents may be recorded as a `credit_topup`
+	// transaction. Subscription invoice payments (Pro / DevPass / chat plan) also
+	// emit `payment_intent.payment_failed`, but recording them here produced a
+	// phantom "Credit top-up failed" row on the customer's billing history (and
+	// the credit-purchase paths never create such a charge). Mirror the
+	// `baseAmount` guard in handlePaymentIntentSucceeded: actual top-ups always
+	// set `baseAmount` (manual + auto) or carry a pending `transactionId`;
+	// subscription invoice intents carry neither. Failure tracking above
+	// (paymentFailure row + dunning email) still runs for subscription invoices,
+	// and dev/chat plan credit freezes are handled in handleInvoicePaymentFailed.
 	const transactionId = metadata?.transactionId;
-	if (transactionId) {
-		// Update existing pending transaction to failed
-		const updatedTransaction = await db
-			.update(tables.transaction)
-			.set({
-				status: "failed",
-				description: `Auto top-up failed via Stripe webhook: ${errorMessage}`,
-			})
-			.where(eq(tables.transaction.id, transactionId))
-			.returning()
-			.then((rows) => rows[0]);
+	const isCreditTopup =
+		metadata?.baseAmount !== undefined || transactionId !== undefined;
+	if (isCreditTopup) {
+		if (transactionId) {
+			// Update existing pending transaction to failed
+			const updatedTransaction = await db
+				.update(tables.transaction)
+				.set({
+					status: "failed",
+					description: `Auto top-up failed via Stripe webhook: ${errorMessage}`,
+				})
+				.where(eq(tables.transaction.id, transactionId))
+				.returning()
+				.then((rows) => rows[0]);
 
-		if (updatedTransaction) {
-			logger.info(
-				`Updated pending transaction ${transactionId} to failed for organization ${organizationId}`,
-			);
+			if (updatedTransaction) {
+				logger.info(
+					`Updated pending transaction ${transactionId} to failed for organization ${organizationId}`,
+				);
+			} else {
+				logger.warn(
+					`Could not find pending transaction ${transactionId} for organization ${organizationId}`,
+				);
+				// Fallback: create new failed transaction record
+				await db.insert(tables.transaction).values({
+					organizationId,
+					type: "credit_topup",
+					creditAmount: creditAmount ? creditAmount.toString() : null,
+					amount: totalAmountInDollars.toString(),
+					currency: paymentIntent.currency.toUpperCase(),
+					status: "failed",
+					stripePaymentIntentId: paymentIntent.id,
+					description: `Credit top-up failed via Stripe (fallback): ${errorMessage}`,
+				});
+			}
 		} else {
-			logger.warn(
-				`Could not find pending transaction ${transactionId} for organization ${organizationId}`,
-			);
-			// Fallback: create new failed transaction record
+			// Create new failed transaction record (for manual top-ups or payments without transactionId)
 			await db.insert(tables.transaction).values({
 				organizationId,
 				type: "credit_topup",
@@ -2445,21 +2560,9 @@ async function handlePaymentIntentFailed(
 				currency: paymentIntent.currency.toUpperCase(),
 				status: "failed",
 				stripePaymentIntentId: paymentIntent.id,
-				description: `Credit top-up failed via Stripe (fallback): ${errorMessage}`,
+				description: `Credit top-up failed via Stripe: ${errorMessage}`,
 			});
 		}
-	} else {
-		// Create new failed transaction record (for manual top-ups or payments without transactionId)
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "credit_topup",
-			creditAmount: creditAmount ? creditAmount.toString() : null,
-			amount: totalAmountInDollars.toString(),
-			currency: paymentIntent.currency.toUpperCase(),
-			status: "failed",
-			stripePaymentIntentId: paymentIntent.id,
-			description: `Credit top-up failed via Stripe: ${errorMessage}`,
-		});
 	}
 
 	// Update payment failure tracking with exponential backoff
@@ -2935,14 +3038,19 @@ export async function handleInvoicePaymentSucceeded(event: {
 		organization.devPlanStripeSubscriptionId !== subscriptionId;
 
 	// Stripe fires `invoice.payment_succeeded` both for true period renewals
-	// (`subscription_cycle`) and for the proration invoice generated when a
-	// user changes tier mid-cycle (`subscription_update`). Only a real cycle
-	// renewal should reset the credit allotment. Treating a proration invoice
-	// as a renewal lets a user downgrade and then upgrade to repeatedly
-	// refresh a full fresh credit balance — so we gate the credit reset on the
-	// billing reason.
+	// (`subscription_cycle`) and for one-off invoices generated when a user
+	// changes tier mid-cycle. Only a real cycle renewal should reset the credit
+	// allotment. Treating an upgrade invoice as a renewal lets a user downgrade
+	// then upgrade to repeatedly refresh a full fresh credit balance — so we
+	// gate the credit reset on the billing reason.
 	const isDevPlanRenewal =
 		isDevPlanSubscription && invoice.billing_reason === "subscription_cycle";
+	const isDevPlanUpgradeInvoice =
+		isDevPlanSubscription &&
+		(invoice.billing_reason === "subscription_update" ||
+			(invoice.billing_reason === "manual" &&
+				metadata?.subscriptionType === "dev_plan" &&
+				metadata?.devPlanChange === "upgrade"));
 
 	// Same billing-reason gate as dev plans: only reset chat plan credits on a
 	// true cycle renewal, not on mid-cycle tier-change proration invoices.
@@ -3001,15 +3109,12 @@ export async function handleInvoicePaymentSucceeded(event: {
 			.returning();
 
 		try {
+			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
-				billingEmail: organization.billingEmail,
-				billingCompany: organization.billingCompany,
-				billingAddress: organization.billingAddress,
-				billingTaxId: organization.billingTaxId,
-				billingNotes: organization.billingNotes,
+				...billingDetails,
 				lineItems: [
 					{
 						description: `Dev Plan ${initialDevPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
@@ -3121,17 +3226,42 @@ export async function handleInvoicePaymentSucceeded(event: {
 		);
 
 		// Create transaction record for dev plan renewal
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "dev_plan_renewal",
-			amount: (invoice.amount_paid / 100).toString(),
-			creditAmount: creditsLimit.toString(),
-			currency: invoice.currency.toUpperCase(),
-			status: "completed",
-			stripePaymentIntentId: (invoice as any).payment_intent,
-			stripeInvoiceId: invoice.id,
-			description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
-		});
+		const [renewalTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_renewal",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
+			})
+			.returning();
+
+		try {
+			const billingDetails = await resolveDevPassBillingDetails(organization);
+			await generateAndEmailInvoice({
+				invoiceNumber: renewalTransaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				...billingDetails,
+				lineItems: [
+					{
+						description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (DevPass renewal invoice); suppressing failure",
+				e as Error,
+			);
+		}
 
 		// Reset credits used and update billing cycle start. Also reset the
 		// limit to the full tier allotment: mid-cycle tier changes leave the
@@ -3181,30 +3311,95 @@ export async function handleInvoicePaymentSucceeded(event: {
 				organization.devPlan ?? "unknown",
 			);
 		}
-	} else if (
-		isDevPlanSubscription &&
-		invoice.billing_reason === "subscription_update"
-	) {
-		// Proration invoice from a mid-cycle upgrade. The change-tier endpoint
-		// already adjusted `devPlanCreditsLimit` (prorated); here we record the
-		// upgrade — with the amount actually collected — as the single canonical
-		// `dev_plan_upgrade` transaction (change-tier deliberately does not record
-		// one for upgrades, to avoid double-counting). We do NOT reset
-		// `devPlanCreditsUsed` or grant a fresh allotment.
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "dev_plan_upgrade",
-			amount: (invoice.amount_paid / 100).toString(),
-			currency: invoice.currency.toUpperCase(),
-			status: "completed",
-			stripePaymentIntentId: (invoice as any).payment_intent,
-			stripeInvoiceId: invoice.id,
-			description: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
-		});
+	} else if (isDevPlanUpgradeInvoice) {
+		// Invoice from a mid-cycle upgrade. The change-tier endpoint normally
+		// records the transaction (and emails the invoice) synchronously; this
+		// webhook path is the fallback if the process exits after Stripe collects
+		// payment but before the local insert. onConflictDoNothing on the unique
+		// stripeInvoiceId index makes it atomically idempotent with the sync path,
+		// so only the path that wins the insert reconciles org state and emails —
+		// a concurrent sync request can't yield a duplicate row or email. We do
+		// NOT reset `devPlanCreditsUsed`.
+		const fromTier = metadata?.fromTier as DevPlanTier | undefined;
+		const toTier = metadata?.toTier as DevPlanTier | undefined;
+		const remainingFraction = metadata?.remainingFraction
+			? Number(metadata.remainingFraction)
+			: undefined;
+		const proratedCreditDelta =
+			fromTier && toTier && remainingFraction !== undefined
+				? getProratedCreditDelta(fromTier, toTier, remainingFraction)
+				: undefined;
 
-		logger.info(
-			`Recorded dev plan upgrade proration invoice for organization ${organizationId}; credits left unchanged`,
-		);
+		const [upgradeTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_upgrade",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: proratedCreditDelta?.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description:
+					fromTier && toTier
+						? `Changed from ${fromTier} to ${toTier} plan`
+						: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+			})
+			.onConflictDoNothing()
+			.returning();
+
+		if (upgradeTransaction) {
+			// Reconcile org tier/limit in case the sync path died after Stripe
+			// collected payment but before it applied the upgrade. Reproduces the
+			// exact prorated limit the sync path computes (the current tier's full
+			// allotment + the prorated delta), so re-applying when the sync path did
+			// run is a harmless no-op.
+			if (fromTier && toTier && proratedCreditDelta !== undefined) {
+				const newCreditsLimit =
+					getDevPlanCreditsLimit(fromTier) + proratedCreditDelta;
+				await db
+					.update(tables.organization)
+					.set({
+						devPlan: toTier,
+						devPlanCreditsLimit: newCreditsLimit.toString(),
+					})
+					.where(eq(tables.organization.id, organizationId));
+			}
+
+			try {
+				const billingDetails = await resolveDevPassBillingDetails(organization);
+				await generateAndEmailInvoice({
+					invoiceNumber: upgradeTransaction.id,
+					invoiceDate: new Date(),
+					organizationName: organization.name,
+					...billingDetails,
+					lineItems: [
+						{
+							description:
+								fromTier && toTier
+									? `Dev Plan upgrade from ${fromTier.toUpperCase()} to ${toTier.toUpperCase()}`
+									: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+							amount: invoice.amount_paid / 100,
+						},
+					],
+					currency: invoice.currency.toUpperCase(),
+				});
+			} catch (e) {
+				logger.error(
+					"Invoice email failed (DevPass upgrade invoice); suppressing failure",
+					e as Error,
+				);
+			}
+
+			logger.info(
+				`Recorded dev plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
+			);
+		} else {
+			logger.info(
+				`Dev plan upgrade transaction already exists for invoice ${invoice.id}; skipping duplicate insert/email`,
+			);
+		}
 	} else if (isDevPlanSubscription) {
 		// Any other dev-plan invoice (e.g. `manual`, or a `subscription_create`
 		// that somehow wasn't deduped above). Leave credits untouched and do not
@@ -3564,6 +3759,37 @@ export async function handleSubscriptionUpdated(
 	const isDevPlan =
 		metadata?.subscriptionType === "dev_plan" ||
 		organization.devPlanStripeSubscriptionId === subscription.id;
+
+	// A subscription event can target a *superseded* subscription — e.g. an
+	// abandoned first checkout attempt whose payment never completed and that
+	// Stripe later marks `incomplete_expired`. Its metadata still carries
+	// `subscriptionType: dev_plan`/`chat_plan`, so the metadata-based detection
+	// above would let that stale event mutate billing state (expiry/cancel flags)
+	// and — far worse — `freezeDevPlanCredits` would pin the *active* plan's
+	// credit limit to current usage, silently throttling a healthy subscriber.
+	// Once the org has activated a specific subscription, only that subscription
+	// may drive these changes. (handleInvoicePaymentFailed already gates isDevPlan
+	// on this matching id; this mirrors it for subscription.updated.)
+	if (
+		isDevPlan &&
+		organization.devPlanStripeSubscriptionId &&
+		organization.devPlanStripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale dev-plan subscription.updated ${subscription.id} for org ${organizationId} (active sub: ${organization.devPlanStripeSubscriptionId}, status: ${subscription.status})`,
+		);
+		return;
+	}
+	if (
+		isChatPlan &&
+		organization.chatPlanStripeSubscriptionId &&
+		organization.chatPlanStripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale chat-plan subscription.updated ${subscription.id} for org ${organizationId} (active sub: ${organization.chatPlanStripeSubscriptionId}, status: ${subscription.status})`,
+		);
+		return;
+	}
 
 	// Update plan expiration date
 	const expiresAt = currentPeriodEnd
@@ -4041,12 +4267,16 @@ async function handleSubscriptionCreated(
 		`Found organization: ${organization.name} (${organization.id}) for subscription creation`,
 	);
 
-	// DevPass subscriptions (personal orgs) use the devPlan field — they must
+	// DevPass/Chat subscriptions use the devPlan/chatPlan fields — they must
 	// not be coerced to plan="pro" or have stripeSubscriptionId set, which is
 	// reserved for regular Pro subscriptions on team orgs.
-	if (metadata?.subscriptionType === "dev_plan" || organization.isPersonal) {
+	if (
+		metadata?.subscriptionType === "dev_plan" ||
+		metadata?.subscriptionType === "chat_plan" ||
+		organization.kind !== "default"
+	) {
 		logger.info(
-			`Skipping plan: "pro" for dev plan / personal org ${organizationId}`,
+			`Skipping plan: "pro" for dev/chat plan or ${organization.kind} org ${organizationId}`,
 		);
 		return;
 	}

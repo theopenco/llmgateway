@@ -27,6 +27,7 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
@@ -555,10 +556,17 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const token = extractApiToken(c);
 	const apiKey = await findApiKeyByToken(token);
 
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		throw new HTTPException(401, {
 			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
@@ -584,7 +592,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	if (organization.isPersonal && organization.devPlan !== "none") {
+	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
 			message:
 				"Speech generation is not available for coding plans. Coding plans only include text-based inference.",
@@ -602,6 +610,15 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
+
+	// Enterprise provider compliance policy: speech resolves to a single
+	// provider, so block before sending if it doesn't meet the org's policy.
+	await assertProviderCompliant(organization, providerId, {
+		organizationId: project.organizationId,
+		modelId: modelDefId,
+		apiKeyId: apiKey.id,
+		model: requestedModel,
+	});
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -849,6 +866,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				const fetchSignal = createCombinedSignal(controller);
 				upstreamResponse = await fetch(attempt.upstreamUrl, {
 					method: "POST",
+					// SSRF: never follow redirects on an authenticated provider request. A
+					// tenant-supplied baseUrl could 3xx to an internal host at request
+					// time, and a redirect would also leak the upstream token.
+					redirect: "error",
 					headers: {
 						"Content-Type": "application/json",
 						...getProviderHeaders(providerId, attempt.usedToken, { requestId }),

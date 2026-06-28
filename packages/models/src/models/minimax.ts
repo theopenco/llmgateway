@@ -5,7 +5,7 @@ export const minimaxModels = [
 		id: "minimax-m3",
 		name: "MiniMax M3",
 		description:
-			"MiniMax M3 is a multimodal foundation model with 1M token context, native multimodal understanding, and MiniMax Sparse Attention (MSA) for efficient long-context inference.",
+			"MiniMax M3 is a multimodal foundation model with 512K token context, native multimodal understanding, and MiniMax Sparse Attention (MSA) for efficient long-context inference.",
 		family: "minimax",
 		releasedAt: new Date("2026-06-01"),
 		providers: [
@@ -16,7 +16,7 @@ export const minimaxModels = [
 				cachedInputPrice: "0.12e-6",
 				outputPrice: "2.4e-6",
 				requestPrice: "0",
-				contextSize: 1048576,
+				contextSize: 512000,
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
@@ -33,6 +33,7 @@ export const minimaxModels = [
 		description:
 			"MiniMax M2.7 with stronger reasoning and coding performance for complex tasks.",
 		family: "minimax",
+		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -89,6 +90,7 @@ export const minimaxModels = [
 		description:
 			"Highspeed MiniMax M2.7 variant with the same model quality and lower latency.",
 		family: "minimax",
+		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -223,6 +225,7 @@ export const minimaxModels = [
 		description:
 			"Highspeed MiniMax M2.5 variant with the same model quality and lower latency.",
 		family: "minimax",
+		releasedAt: new Date("2026-02-15"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -357,6 +360,42 @@ export const minimaxModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+			},
+		],
+	},
+	{
+		id: "minimax-hailuo-2-3",
+		name: "MiniMax Hailuo 2.3",
+		description:
+			"MiniMax's video generation model supporting text-to-video and image-to-video up to 10 seconds at 768p or 1080p resolution.",
+		family: "minimax",
+		output: ["video"],
+		releasedAt: new Date("2025-11-07"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "minimax",
+				externalId: "MiniMax-Hailuo-2.3",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					"720p": "0.0467",
+					"768p": "0.0467",
+					"1080p": "0.0817",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1280x720", "1366x768", "1920x1080"],
+				supportedVideoDurationsSeconds: [6, 10],
+				supportedVideoDurationsSecondsImageToVideo: [6, 10],
+				supportsVideoAudio: false,
+				supportsVideoWithoutAudio: true,
 			},
 		],
 	},

@@ -596,6 +596,82 @@ describeCache(
 			},
 		);
 
+		// Regression: a caller-supplied ttl:"1h" marker in the *messages* (e.g.
+		// RisuAI's rolling "Automatic Cache Point") must suppress the gateway's
+		// heuristic 5m markers (long-system + turn-boundary). Anthropic requires
+		// longer TTLs before shorter ones, so an injected 5m marker ahead of the
+		// caller's 1h marker used to fail the whole request with "a ttl='1h'
+		// cache_control block must not come after a ttl='5m' cache_control block".
+		(hasAnthropicKey ? test : test.skip)(
+			"native messages defers to caller 1h ttl markers in multi-turn conversations",
+			getTestOptions(),
+			async () => {
+				const longText = buildLongSystemPrompt();
+				const body = {
+					model: "anthropic/claude-haiku-4-5",
+					max_tokens: 50,
+					system: longText,
+					messages: [
+						{ role: "user" as const, content: "Hello, who are you?" },
+						{
+							role: "assistant" as const,
+							content: "I'm an assistant. How can I help?",
+						},
+						{
+							role: "user" as const,
+							content: [
+								{
+									type: "text" as const,
+									text: "Just reply OK.",
+									cache_control: {
+										type: "ephemeral" as const,
+										ttl: "1h" as const,
+									},
+								},
+							],
+						},
+					],
+				};
+
+				const send = async () => {
+					const requestId = generateTestRequestId();
+					const res = await app.request("/v1/messages", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"x-request-id": requestId,
+							Authorization: `Bearer real-token`,
+						},
+						body: JSON.stringify(body),
+					});
+					const json = await res.json();
+					if (logMode) {
+						console.log(
+							"native /v1/messages multi-turn 1h",
+							requestId,
+							"status",
+							res.status,
+							"usage",
+							JSON.stringify(json.usage),
+						);
+					}
+					return { status: res.status, json };
+				};
+
+				const first = await send();
+				expect(first.status).toBe(200);
+				// With auto-injection deferred, the only breakpoint is the caller's
+				// 1h marker, so any cache write must be attributed entirely to the
+				// 1h tier.
+				const firstBreakdown = first.json.usage?.cache_creation;
+				if (first.json.usage?.cache_creation_input_tokens > 0) {
+					expect(firstBreakdown).toBeDefined();
+					expect(firstBreakdown.ephemeral_1h_input_tokens).toBeGreaterThan(0);
+					expect(firstBreakdown.ephemeral_5m_input_tokens).toBe(0);
+				}
+			},
+		);
+
 		// 1h cache TTL via Bedrock /v1/chat/completions: opts into Bedrock's 1h
 		// cache write rate (2x base) on a model that supports it (Haiku 4.5) and
 		// asserts the gateway forwards ttl:"1h" to the Converse API cachePoint and

@@ -182,7 +182,7 @@ export function createGatewayApiTestHarness() {
 			await db
 				.update(tables.organization)
 				.set({
-					isPersonal: true,
+					kind: "devpass",
 					devPlan: options.devPlan,
 					devPlanAllowAllModels: options.allowAllModels ?? false,
 					devPlanCreditsUsed: options.creditsUsed ?? "0",

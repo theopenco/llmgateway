@@ -221,7 +221,7 @@ export default async function OrganizationsPage({
 						<input
 							type="text"
 							name="search"
-							placeholder="Search by name, email, or ID..."
+							placeholder="Search by name, email, member email, or ID..."
 							defaultValue={search}
 							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
 						/>
@@ -254,6 +254,7 @@ export default async function OrganizationsPage({
 									search={search}
 								/>
 							</TableHead>
+							<TableHead>Kind</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Plan"
@@ -324,7 +325,7 @@ export default async function OrganizationsPage({
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={11}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -344,6 +345,13 @@ export default async function OrganizationsPage({
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{org.billingEmail}
+									</TableCell>
+									<TableCell>
+										<Badge
+											variant={org.kind === "default" ? "outline" : "secondary"}
+										>
+											{org.kind}
+										</Badge>
 									</TableCell>
 									<TableCell>
 										<Badge variant={getPlanBadgeVariant(org.plan)}>

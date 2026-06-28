@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 export const metadata: Metadata = {
 	title: "Sign Up",
 	description:
-		"Create your free LLM Gateway account. Get instant access to 210+ AI models from OpenAI, Anthropic, Google, and more through one API key.",
+		"Create your free LLM Gateway account. Get instant access to 280+ AI models from OpenAI, Anthropic, Google, and more through one API key.",
 };
 
 export default function SignupLayout({ children }: { children: ReactNode }) {

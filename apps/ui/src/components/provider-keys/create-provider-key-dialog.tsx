@@ -57,6 +57,9 @@ export function CreateProviderKeyDialog({
 	>("ai-foundry");
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
+	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
+	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
+		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
@@ -88,7 +91,11 @@ export function CreateProviderKeyDialog({
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 
-		if (!selectedProvider || !token) {
+		// Strip whitespace and zero-width characters that get pasted in when a key
+		// is copied from wrapped text (newlines, non-breaking / zero-width spaces).
+		const trimmedToken = token.replace(/[\s\u200B-\u200D\u2060\uFEFF]/g, "");
+
+		if (!selectedProvider || !trimmedToken) {
 			toast({
 				title: "Error",
 				description: !selectedProvider
@@ -118,10 +125,14 @@ export function CreateProviderKeyDialog({
 			return;
 		}
 
-		if (selectedProvider === "custom" && !/^[a-z]+$/.test(customName)) {
+		if (
+			selectedProvider === "custom" &&
+			!/^[a-z]+(-[a-z]+)*$/.test(customName)
+		) {
 			toast({
 				title: "Error",
-				description: "Custom name must contain only lowercase letters a-z",
+				description:
+					"Custom name must contain only lowercase letters a-z and single hyphens between them",
 				variant: "destructive",
 			});
 			return;
@@ -136,7 +147,7 @@ export function CreateProviderKeyDialog({
 			organizationId: string;
 		} = {
 			provider: selectedProvider,
-			token,
+			token: trimmedToken,
 			organizationId: selectedOrganization.id,
 		};
 		if (baseUrl) {
@@ -167,6 +178,33 @@ export function CreateProviderKeyDialog({
 				azure_api_version: azureApiVersion,
 				azure_deployment_type: azureDeploymentType,
 				azure_validation_model: azureValidationModel,
+			};
+		}
+
+		if (selectedProvider === "azure-ai-foundry") {
+			if (!azureAiFoundryResource) {
+				toast({
+					title: "Error",
+					description: "Azure AI Foundry resource name is required",
+					variant: "destructive",
+				});
+				return;
+			}
+			if (!/^[a-zA-Z0-9-]{1,64}$/.test(azureAiFoundryResource)) {
+				toast({
+					title: "Error",
+					description:
+						"Resource name must be 1-64 characters and contain only letters, numbers, and hyphens",
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				...payload.options,
+				azure_ai_foundry_resource: azureAiFoundryResource,
+				...(azureAiFoundryApiVersion
+					? { azure_ai_foundry_api_version: azureAiFoundryApiVersion }
+					: {}),
 			};
 		}
 
@@ -206,8 +244,16 @@ export function CreateProviderKeyDialog({
 							err.error && typeof err.error === "object"
 								? (err.error as Record<string, unknown>)
 								: err;
+						const issues = Array.isArray(nested.issues)
+							? (nested.issues as { message?: unknown }[])
+							: undefined;
 						if (typeof nested.message === "string") {
 							description = nested.message;
+						} else if (
+							issues?.length &&
+							typeof issues[0]?.message === "string"
+						) {
+							description = issues[0].message;
 						}
 					} else if (error instanceof Error) {
 						description = error.message;
@@ -233,6 +279,8 @@ export function CreateProviderKeyDialog({
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
+			setAzureAiFoundryResource("");
+			setAzureAiFoundryApiVersion("2024-05-01-preview");
 			setSelectedRegion("");
 			setGoogleVertexProjectId("");
 		}, 300);
@@ -397,6 +445,41 @@ export function CreateProviderKeyDialog({
 						</>
 					)}
 
+					{selectedProvider === "azure-ai-foundry" && (
+						<>
+							<div className="space-y-2">
+								<Label htmlFor="azure-ai-foundry-resource">Resource Name</Label>
+								<Input
+									id="azure-ai-foundry-resource"
+									type="text"
+									placeholder="my-resource"
+									value={azureAiFoundryResource}
+									onChange={(e) => setAzureAiFoundryResource(e.target.value)}
+									required
+								/>
+								<p className="text-sm text-muted-foreground">
+									Your Azure AI Foundry resource name from the base URL:
+									https://&lt;resource-name&gt;.services.ai.azure.com
+								</p>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="azure-ai-foundry-api-version">
+									API Version
+								</Label>
+								<Input
+									id="azure-ai-foundry-api-version"
+									type="text"
+									placeholder="2024-05-01-preview"
+									value={azureAiFoundryApiVersion}
+									onChange={(e) => setAzureAiFoundryApiVersion(e.target.value)}
+								/>
+								<p className="text-sm text-muted-foreground">
+									Azure AI Foundry API version (default: 2024-05-01-preview)
+								</p>
+							</div>
+						</>
+					)}
+
 					{selectedProvider === "google-vertex" && (
 						<div className="space-y-2">
 							<Label htmlFor="google-vertex-project-id">
@@ -448,7 +531,7 @@ export function CreateProviderKeyDialog({
 									placeholder="myprovider"
 									value={customName}
 									onChange={(e) => setCustomName(e.target.value.toLowerCase())}
-									pattern="[a-z]+"
+									pattern="[a-z]+(-[a-z]+)*"
 									required
 								/>
 								<p className="text-sm text-muted-foreground">

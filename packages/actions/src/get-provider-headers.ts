@@ -46,15 +46,25 @@ export function getProviderHeaders(
 			return requestIdHeader;
 		case "google-vertex": {
 			// Map the OpenAI-compatible `service_tier` to Vertex's Flex / Priority
-			// PayGo header. Only "flex" and "priority" are valid; standard/default
-			// requests omit the header. Flex and Priority PayGo are served only on
-			// the global endpoint (the gateway's default Vertex region).
+			// PayGo headers. Only "flex" and "priority" are valid; standard/default
+			// requests omit them. Flex and Priority PayGo are served only on the
+			// global endpoint (the gateway's default Vertex region).
+			//
+			// Two headers are required: `X-Vertex-AI-LLM-Shared-Request-Type`
+			// selects the tier, and `X-Vertex-AI-LLM-Request-Type: shared` forces
+			// the shared PayGo path. Without the latter, a project that has
+			// Provisioned Throughput allocated consumes PT first and never reaches
+			// the shared Flex/Priority tier, so the request is silently served (and
+			// billed) as standard. An explicit service_tier request always wants the
+			// shared tier, so we bypass PT unconditionally (no-op on projects
+			// without PT).
 			if (
 				options?.serviceTier === "flex" ||
 				options?.serviceTier === "priority"
 			) {
 				return {
 					...requestIdHeader,
+					"X-Vertex-AI-LLM-Request-Type": "shared",
 					"X-Vertex-AI-LLM-Shared-Request-Type": options.serviceTier,
 				};
 			}

@@ -1,0 +1,15 @@
+{
+	"title": "Self Host",
+	"description": "Deploy LLM Gateway on your own infrastructure",
+	"icon": "Server",
+	"defaultOpen": true,
+	"pages": [
+		"index",
+		"docker",
+		"docker-compose",
+		"kubernetes",
+		"aws",
+		"gcp",
+		"azure"
+	]
+}

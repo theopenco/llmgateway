@@ -479,7 +479,7 @@ export function ActivityChart({
 
 	return (
 		<Card>
-			<CardHeader className="flex flex-col space-y-4 md:flex-row items-center justify-between pb-2">
+			<CardHeader className="flex flex-col gap-4 space-y-0 md:flex-row md:items-center justify-between pb-2">
 				<div>
 					<CardTitle>{cardTitle}</CardTitle>
 					<CardDescription>
@@ -491,7 +491,7 @@ export function ActivityChart({
 						)}
 					</CardDescription>
 				</div>
-				<div className="flex items-center space-x-2">
+				<div className="flex items-center justify-end space-x-2">
 					<Select
 						value={breakdownField}
 						onValueChange={(value) =>

@@ -24,7 +24,6 @@ const tools: {
 		id: "soulforge",
 		name: "SoulForge",
 		icon: SoulForgeIcon,
-		highlight: "−50%",
 	},
 	{ id: "autohand", name: "Autohand", icon: AutohandIcon },
 	{ id: "cline", name: "Cline", icon: ClineIcon },

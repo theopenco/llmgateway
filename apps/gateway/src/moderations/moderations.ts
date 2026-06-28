@@ -19,6 +19,7 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
@@ -343,10 +344,17 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	const token = extractApiToken(c);
 	const apiKey = await findApiKeyByToken(token);
 
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		throw new HTTPException(401, {
 			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
@@ -398,6 +406,15 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		wallet,
 		models.find((m) => m.id === moderationModelId),
 	);
+
+	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
+	// before sending if the org's policy doesn't permit it.
+	await assertProviderCompliant(organization, "openai", {
+		organizationId: project.organizationId,
+		modelId: moderationModelId,
+		apiKeyId: apiKey.id,
+		model: upstreamModel,
+	});
 
 	const retentionLevel = organization.retentionLevel ?? "none";
 
@@ -494,6 +511,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		const fetchSignal = createCombinedSignal(controller);
 		upstreamResponse = await fetch(upstreamUrl, {
 			method: "POST",
+			// SSRF: never follow redirects on an authenticated provider request. A
+			// tenant-supplied baseUrl could 3xx to an internal host at request time,
+			// and a redirect would also leak the upstream token.
+			redirect: "error",
 			headers: {
 				"Content-Type": "application/json",
 				...getProviderHeaders("openai", usedToken, { requestId }),

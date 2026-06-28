@@ -81,9 +81,9 @@ export function googleProviderSupportsAudioFormat(
  * format/provider mismatch instead of a generic 500.
  */
 export class UnsupportedAudioFormatError extends Error {
-	readonly format: string;
-	readonly providerTarget: string;
-	constructor(format: string, providerTarget: string) {
+	public readonly format: string;
+	public readonly providerTarget: string;
+	public constructor(format: string, providerTarget: string) {
 		super(`Audio format "${format}" is not supported by ${providerTarget}.`);
 		this.name = "UnsupportedAudioFormatError";
 		this.format = format;
@@ -98,7 +98,7 @@ export class UnsupportedAudioFormatError extends Error {
  * actionable validation error instead of a generic 500.
  */
 export class InvalidFileContentError extends Error {
-	constructor(message: string) {
+	public constructor(message: string) {
 		super(message);
 		this.name = "InvalidFileContentError";
 	}
@@ -113,9 +113,9 @@ export class InvalidFileContentError extends Error {
  * typed error so the client sees a clean 400 with a consistent shape.
  */
 export class UnsupportedDocumentFormatError extends Error {
-	readonly mimeType: string;
-	readonly providerTarget: string;
-	constructor(mimeType: string, providerTarget: string) {
+	public readonly mimeType: string;
+	public readonly providerTarget: string;
+	public constructor(mimeType: string, providerTarget: string) {
 		super(
 			`Document MIME type "${mimeType}" is not supported by ${providerTarget}.`,
 		);

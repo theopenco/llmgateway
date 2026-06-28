@@ -15,16 +15,15 @@ import {
 	and,
 	asc,
 	eq,
-	gte,
 	getTableName,
 	inArray,
 	isNull,
 	ne,
 	or,
 	cdb as db,
-	db as uncachedDb,
 	apiKey as apiKeyTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
+	customModel as customModelTable,
 	discount as discountTable,
 	endCustomer as endCustomerTable,
 	endUserSession as endUserSessionTable,
@@ -51,6 +50,7 @@ import type { InferSelectModel } from "@llmgateway/db";
 import type {
 	apiKey,
 	apiKeyIamRule,
+	customModel,
 	endUserSession,
 	organization,
 	project,
@@ -64,6 +64,7 @@ import type {
 type ApiKey = InferSelectModel<typeof apiKey>;
 type EndUserSession = InferSelectModel<typeof endUserSession>;
 type ApiKeyIamRule = InferSelectModel<typeof apiKeyIamRule>;
+export type CustomModel = InferSelectModel<typeof customModel>;
 type Organization = InferSelectModel<typeof organization>;
 type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
@@ -79,6 +80,7 @@ const endUserSessionTableName = getTableName(endUserSessionTable);
 const organizationTableName = getTableName(organizationTable);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
+const customModelTableName = getTableName(customModelTable);
 const rateLimitTableName = getTableName(rateLimitTable);
 const userTableName = getTableName(userTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
@@ -271,26 +273,45 @@ export async function findProjectById(
 	});
 }
 
+// TTL for the "fresh" credit/balance refetch below. A zero-credit org or
+// zero-balance wallet otherwise refetches on EVERY request; under high
+// throughput that is one Postgres SELECT per request (and the DB pool, max 20,
+// saturates). A short TTL still reflects topups/debits within FRESH_TTL_SECONDS
+// while collapsing per-request DB load to at most one query per window per row.
+const FRESH_TTL_SECONDS = 2;
+
 /**
- * Find an organization by ID without cache (for fresh credit checks)
+ * Find an organization by ID with a short-TTL fresh read (for near-fresh credit
+ * checks when the org shows <= 0 credits). Uses a distinct Drizzle cache tag AND
+ * a distinct SWR mirror key (`org:fresh:${id}`) so it does not collide with the
+ * longer-lived `findOrganizationById` entry. The distinct mirror key matters:
+ * sharing it would let the (possibly stale-zero) regular read claim the mirror
+ * write-throttle slot and suppress this fresh value's mirror write, so a DB
+ * outage right after a topup could keep serving the stale-zero fallback.
  */
-export async function findOrganizationByIdUncached(
+export async function findOrganizationByIdFresh(
 	id: string,
 ): Promise<Organization | undefined> {
-	return await swrWrap(`org:${id}`, [organizationTableName], async () => {
-		const results = await uncachedDb
+	return await swrWrap(`org:fresh:${id}`, [organizationTableName], async () => {
+		const results = await db
 			.select()
 			.from(organizationTable)
 			.where(eq(organizationTable.id, id))
-			.limit(1);
+			.limit(1)
+			.$withCache({
+				tag: `org-fresh:${id}`,
+				autoInvalidate: false,
+				config: { ex: FRESH_TTL_SECONDS },
+			});
 		return results[0];
 	});
 }
 
 /**
  * Find an organization by ID (cacheable)
- * When the organization has 0 credits, refetch without cache to ensure
- * no delay in reflecting topups and usage updates.
+ * When the organization has 0 credits, refetch via a short-TTL fresh read so
+ * topups and usage updates are reflected within FRESH_TTL_SECONDS without
+ * hitting Postgres on every request.
  */
 export async function findOrganizationById(
 	id: string,
@@ -304,8 +325,8 @@ export async function findOrganizationById(
 		return results[0];
 	});
 
-	// If org has 0 or negative credits, refetch without cache
-	// to ensure topups are reflected immediately
+	// If org has 0 or negative credits, refetch via the short-TTL fresh read
+	// so topups are reflected promptly without a per-request Postgres hit
 	if (org) {
 		const regularCredits = parseFloat(org.credits || "0");
 		const devPlanCreditsUsed = parseFloat(org.devPlanCreditsUsed || "0");
@@ -320,7 +341,7 @@ export async function findOrganizationById(
 			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 
 		if (totalCredits <= 0) {
-			return await findOrganizationByIdUncached(id);
+			return await findOrganizationByIdFresh(id);
 		}
 	}
 
@@ -328,25 +349,34 @@ export async function findOrganizationById(
 }
 
 /**
- * Find an end-user wallet by ID without cache (for fresh balance checks)
+ * Find an end-user wallet by ID with a short-TTL fresh read (for near-fresh
+ * balance checks when the wallet shows <= 0 balance). Uses a distinct Drizzle
+ * cache tag AND a distinct SWR mirror key (`wallet:fresh:${id}`) so it does not
+ * collide with the longer-lived `findWalletById` entry — see
+ * `findOrganizationByIdFresh` for why the distinct mirror key matters.
  */
-export async function findWalletByIdUncached(
+export async function findWalletByIdFresh(
 	id: string,
 ): Promise<Wallet | undefined> {
-	return await swrWrap(`wallet:${id}`, [walletTableName], async () => {
-		const results = await uncachedDb
+	return await swrWrap(`wallet:fresh:${id}`, [walletTableName], async () => {
+		const results = await db
 			.select()
 			.from(walletTable)
 			.where(eq(walletTable.id, id))
-			.limit(1);
+			.limit(1)
+			.$withCache({
+				tag: `wallet-fresh:${id}`,
+				autoInvalidate: false,
+				config: { ex: FRESH_TTL_SECONDS },
+			});
 		return results[0];
 	});
 }
 
 /**
  * Find an end-user wallet by ID (cacheable). Mirrors findOrganizationById: when
- * the wallet balance is 0 or negative, refetch without cache so top-ups and
- * usage debits are reflected immediately.
+ * the wallet balance is 0 or negative, refetch via a short-TTL fresh read so
+ * top-ups and usage debits are reflected promptly without a per-request DB hit.
  */
 export async function findWalletById(id: string): Promise<Wallet | undefined> {
 	const w = await swrWrap(`wallet:${id}`, [walletTableName], async () => {
@@ -359,7 +389,7 @@ export async function findWalletById(id: string): Promise<Wallet | undefined> {
 	});
 
 	if (w && parseFloat(w.balance || "0") <= 0) {
-		return await findWalletByIdUncached(id);
+		return await findWalletByIdFresh(id);
 	}
 
 	return w;
@@ -392,6 +422,35 @@ export async function findCustomProviderKey(
 				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
 	);
 	return selectProviderKeyWithFailover(results, selectionScope, excludedKeyIds);
+}
+
+/**
+ * Find a single active custom model catalog entry for a provider key (cacheable).
+ *
+ * Custom models are matched by exact `modelName` (the id used after the provider
+ * prefix). Returns undefined when no catalog entry exists for that model.
+ */
+export async function findCustomModel(
+	providerKeyId: string,
+	modelName: string,
+): Promise<CustomModel | undefined> {
+	const results = await swrWrap(
+		`customModel:${providerKeyId}:${modelName}`,
+		[customModelTableName],
+		async () =>
+			await db
+				.select()
+				.from(customModelTable)
+				.where(
+					and(
+						eq(customModelTable.status, "active"),
+						eq(customModelTable.providerKeyId, providerKeyId),
+						eq(customModelTable.modelName, modelName),
+					),
+				)
+				.limit(1),
+	);
+	return results[0];
 }
 
 /**
@@ -533,24 +592,25 @@ export async function findEffectiveDiscount(
 		`discount:${orgPart}:${provider}:${model}`,
 		[discountTableName],
 		async () => {
-			const now = new Date();
-			const notExpiredCondition = or(
-				isNull(discountTable.expiresAt),
-				gte(discountTable.expiresAt, now),
-			);
-
-			const discounts = await db
+			// The expiry filter is applied in JS below, NOT in SQL: a `now` Date in
+			// the WHERE clause becomes a query parameter, and the cached client keys
+			// its cache on hashQuery(sql, params). A per-request millisecond `now`
+			// would make that key unique every call, so the cache would never hit and
+			// this (hot, per-provider-candidate) lookup would query Postgres on every
+			// request. Keeping the SQL time-independent lets the cache key stay stable
+			// while expiry is still evaluated fresh on each call.
+			const rows = await db
 				.select({
 					id: discountTable.id,
 					organizationId: discountTable.organizationId,
 					provider: discountTable.provider,
 					model: discountTable.model,
 					discountPercent: discountTable.discountPercent,
+					expiresAt: discountTable.expiresAt,
 				})
 				.from(discountTable)
 				.where(
 					and(
-						notExpiredCondition,
 						or(
 							isNull(discountTable.organizationId),
 							organizationId
@@ -564,6 +624,16 @@ export async function findEffectiveDiscount(
 						or(eq(discountTable.model, model), isNull(discountTable.model)),
 					),
 				);
+
+			const now = Date.now();
+			const discounts = rows.filter(
+				// expiresAt is a Date on both a fresh query and a Drizzle cache hit
+				// (the cache stores the raw pg result and re-applies the timestamp
+				// parser on restore). Wrap in new Date() defensively so the compare
+				// is robust even if a serialized value ever reaches here.
+				(row) =>
+					row.expiresAt === null || new Date(row.expiresAt).getTime() >= now,
+			);
 
 			const modelMatches = (discountModel: string | null): boolean =>
 				discountModel !== null && discountModel === model;

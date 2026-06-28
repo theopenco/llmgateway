@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "model_provider_mapping_history_provider_stats_idx" ON "model_provider_mapping_history" ("minute_timestamp","provider_id","logs_count","errors_count","cached_count","total_time_to_first_token","total_output_tokens","total_duration");

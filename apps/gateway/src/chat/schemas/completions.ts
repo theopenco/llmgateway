@@ -188,7 +188,7 @@ export const completionsRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description:
-				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models); requests for unsupported models are rejected with 400. Streaming is supported: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. The one exception is `n > 1` with `stream: true` **and** function `tools` — that combination is rejected with 400 because the streaming tool-call aggregator can't disambiguate concurrent calls across choices. Native `web_search` tools (and the `web_search: true` flag) are exempt.",
+				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models and Google Gemini 2.5 models via `candidateCount`); requests for unsupported models are rejected with 400. Streaming is supported for OpenAI models: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. Exceptions rejected with 400: `n > 1` with `stream: true` **and** function `tools` (the streaming tool-call aggregator can't disambiguate concurrent calls across choices; native `web_search` tools and the `web_search: true` flag are exempt), `n > 1` with `stream: true` on Google models (Gemini rejects candidateCount on streamGenerateContent), and `n > 8` on Google models (Gemini caps candidateCount at 8).",
 			example: 1,
 		}),
 	prompt_cache_key: z
@@ -244,6 +244,8 @@ export const completionsRequestSchema = z.object({
 						.optional(),
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
+					allowed_domains: z.array(z.string()).optional(),
+					blocked_domains: z.array(z.string()).optional(),
 				}),
 			]),
 		)
@@ -309,6 +311,14 @@ export const completionsRequestSchema = z.object({
 			description:
 				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error.",
 			example: "flex",
+		}),
+	routing: z
+		.enum(["auto", "price", "throughput", "latency"])
+		.optional()
+		.openapi({
+			description:
+				"Provider selection strategy for model-id routing, named after the factor it optimizes. `auto` (default) uses the full weighted smart-routing score. `price`, `throughput`, and `latency` each give a 90% relative weight to that factor while keeping a small uptime weight so requests still fall back to other providers when the top pick has extremely bad uptime. `latency` only biases streaming requests. Combining `routing` with a specific provider prefix (e.g. `openai/gpt-4o`) returns a 400. On coding (dev) plans only `auto` and `price` are allowed.",
+			example: "price",
 		}),
 	free_models_only: z.boolean().optional().default(false).openapi({
 		description:

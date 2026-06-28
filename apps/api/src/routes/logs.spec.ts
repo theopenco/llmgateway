@@ -269,6 +269,50 @@ describe("logs route", () => {
 			expect(json.pagination.limit).toBe(50);
 		});
 
+		test("should filter logs by model with a region-suffixed usedModel", async () => {
+			// usedModel is stored as `provider/modelId[:region]`. The model filter
+			// receives the bare model id, so the region suffix must be stripped.
+			await db.insert(tables.log).values({
+				id: "test-log-id-region",
+				requestId: "test-log-id-region",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "claude-opus-4-6",
+				requestedProvider: "aws-bedrock",
+				usedModel: "aws-bedrock/claude-opus-4-6:global",
+				usedProvider: "aws-bedrock",
+				responseSize: 1000,
+				content: "Test response with region-suffixed model",
+				finishReason: "stop",
+				promptTokens: "10",
+				completionTokens: "20",
+				totalTokens: "30",
+				temperature: 0.7,
+				maxTokens: 100,
+				messages: JSON.stringify([{ role: "user", content: "Hello region" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			});
+
+			const params = new URLSearchParams({
+				projectId: "test-project-id",
+				model: "claude-opus-4-6",
+			});
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.logs.length).toBe(1);
+			expect(json.logs[0].id).toBe("test-log-id-region");
+		});
+
 		test("should filter logs by custom header", async () => {
 			// First, add a log with a custom header
 			await db.insert(tables.log).values({

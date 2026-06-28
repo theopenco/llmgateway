@@ -152,6 +152,12 @@ export const filteredModels = models
 		}
 		return !output.includes("video") && !output.includes("audio");
 	})
+	// Filter out OCR models (they use the dedicated /v1/ocr endpoint, not chat
+	// completions, and are covered by ocr.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some((p) => (p as ProviderModelMapping).ocr === true),
+	)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {

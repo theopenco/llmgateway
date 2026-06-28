@@ -1,5 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
+import { validateModelOutput } from "@/lib/validate-model-output.js";
+
 import { logger } from "@llmgateway/logger";
 
 import type {
@@ -47,15 +49,18 @@ export function validateModelCapabilities(
 		hasDocuments,
 	} = options;
 
-	if (
-		requestedModel !== "auto" &&
-		requestedModel !== "custom" &&
-		modelInfo.output?.includes("embedding")
-	) {
-		throw new HTTPException(400, {
-			message: `Model ${requestedModel} is an embeddings model and cannot be used with /v1/chat/completions. Use the /v1/embeddings endpoint instead.`,
-		});
+	// Custom providers have no catalog entry, so the gateway cannot know which
+	// capabilities they support. Skip all capability validation and let the
+	// upstream provider reject anything it doesn't support.
+	if (requestedProvider === "custom") {
+		return;
 	}
+
+	// Chat completions serve text and image output (image generation is routed
+	// through this endpoint). Any model that only produces embeddings, OCR,
+	// video, or audio belongs to a dedicated endpoint and is rejected here with
+	// a pointer to the right one.
+	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
 
 	// Validate vision capability when the request contains images.
 	// Skip this check for "auto" and "custom" models as they will be resolved dynamically.

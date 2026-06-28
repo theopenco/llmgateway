@@ -13,6 +13,7 @@ interface ProviderKeysData {
 		baseUrl: string | null;
 		options: ProviderKeyOptions | null;
 		status: "active" | "inactive" | "deleted" | null;
+		customModelsOnly: boolean;
 		organizationId: string;
 		maskedToken: string;
 	}[];

@@ -66,6 +66,13 @@ interface DashboardClientProps {
 	initialDevPassCollapsed?: boolean;
 }
 
+function formatCredits(credits: number) {
+	return credits.toLocaleString("en-US", {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: credits !== 0 && Math.abs(credits) < 1 ? 4 : 2,
+	});
+}
+
 export function DashboardClient({
 	initialActivityData,
 	initialDevPassCollapsed,
@@ -334,12 +341,12 @@ export function DashboardClient({
 				<DateRangePicker buildUrl={buildUrl} />
 
 				<div className="space-y-4">
-					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+					<div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
 						<MetricCard
 							label="Organization Credits"
 							value={`$${
 								selectedOrganization
-									? Number(selectedOrganization.credits).toFixed(8)
+									? formatCredits(Number(selectedOrganization.credits))
 									: "0.00"
 							}`}
 							subtitle="Available balance"
@@ -476,7 +483,7 @@ export function DashboardClient({
 
 								if (needsTopUp) {
 									return (
-										<Card className="col-span-4 border-primary/40 bg-gradient-to-br from-primary/5 via-transparent to-transparent">
+										<Card className="min-w-0 lg:col-span-4 border-primary/40 bg-gradient-to-br from-primary/5 via-transparent to-transparent">
 											<CardHeader>
 												<div className="flex items-center gap-2">
 													<div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -567,7 +574,7 @@ export function DashboardClient({
 								}
 
 								return (
-									<Card className="col-span-4">
+									<Card className="min-w-0 lg:col-span-4">
 										<CardHeader>
 											<CardTitle>Get Started</CardTitle>
 											<CardDescription>
@@ -616,7 +623,7 @@ export function DashboardClient({
 									</Card>
 								);
 							})()}
-							<Card className="col-span-3">
+							<Card className="min-w-0 lg:col-span-3">
 								<CardHeader>
 									<CardTitle>Quick Actions</CardTitle>
 									<CardDescription>
@@ -649,7 +656,7 @@ export function DashboardClient({
 						</div>
 					) : (
 						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-							<Card className="col-span-4">
+							<Card className="min-w-0 lg:col-span-4">
 								<CardHeader>
 									<div className="flex items-start justify-between">
 										<div className="flex-1">
@@ -684,7 +691,7 @@ export function DashboardClient({
 									/>
 								</CardContent>
 							</Card>
-							<Card className="col-span-3">
+							<Card className="min-w-0 lg:col-span-3">
 								<CardHeader>
 									<CardTitle>Quick Actions</CardTitle>
 									<CardDescription>
@@ -718,14 +725,14 @@ export function DashboardClient({
 					)}
 
 					<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-						<div className="col-span-4 space-y-4">
+						<div className="min-w-0 lg:col-span-4 space-y-4">
 							<CostBreakdownCard initialActivityData={initialActivityData} />
 							<RecentActivityCard
 								activityData={activityData}
 								isLoading={isLoading}
 							/>
 						</div>
-						<div className="col-span-3">
+						<div className="min-w-0 lg:col-span-3">
 							<ErrorsReliabilityCard
 								activityData={activityData}
 								isLoading={isLoading}

@@ -6,6 +6,7 @@ import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
 } from "./extract-token-usage.js";
+import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import {
 	extractReasoningDetailsText,
 	splitReasoningFromTaggedContent,
@@ -24,6 +25,7 @@ export function parseProviderResponse(
 	messages: any[] = [],
 	supportsReasoning = true,
 	splitTaggedReasoning = false,
+	webSearchRequested = false,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -55,6 +57,46 @@ export function parseProviderResponse(
 
 	switch (usedProvider) {
 		case "aws-bedrock": {
+			if (Array.isArray(json.choices)) {
+				const allChoices = json.choices;
+				toolResults = allChoices[0]?.message?.tool_calls ?? null;
+
+				let aggregatedContent = "";
+				let aggregatedReasoning = "";
+				let hasContent = false;
+				let hasReasoning = false;
+				for (const choice of allChoices) {
+					const cContent = choice?.message?.content;
+					if (typeof cContent === "string") {
+						aggregatedContent += cContent;
+						hasContent = true;
+					}
+					const cReasoning =
+						choice?.message?.reasoning ??
+						choice?.message?.reasoning_content ??
+						extractReasoningDetailsText(choice?.message?.reasoning_details) ??
+						null;
+					if (typeof cReasoning === "string" && cReasoning.length > 0) {
+						aggregatedReasoning += cReasoning;
+						hasReasoning = true;
+					}
+				}
+
+				content = hasContent ? aggregatedContent : null;
+				reasoningContent = hasReasoning ? aggregatedReasoning : null;
+				finishReason = allChoices[0]?.finish_reason ?? null;
+				promptTokens = json.usage?.prompt_tokens ?? null;
+				completionTokens = json.usage?.completion_tokens ?? null;
+				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
+				totalTokens =
+					json.usage?.total_tokens ??
+					(promptTokens !== null && completionTokens !== null
+						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						: null);
+				break;
+			}
+
 			// AWS Bedrock Converse API format
 			// Response format: { output: { message: { content: [{text: "..."}], role: "assistant" }}, stopReason: "end_turn", usage: {...} }
 			const message = json.output?.message;
@@ -100,6 +142,11 @@ export function parseProviderResponse(
 				finishReason = "tool_calls";
 			} else if (stopReason === "content_filtered") {
 				finishReason = "content_filter";
+			} else if (stopReason === "refusal") {
+				// Anthropic-on-Bedrock safety-classifier refusal. Preserve the raw
+				// reason so downstream billing can skip charging an unbilled refusal
+				// (getUnifiedFinishReason maps it to content_filter for the log).
+				finishReason = "refusal";
 			} else {
 				finishReason = "stop"; // default fallback
 			}
@@ -272,10 +319,25 @@ export function parseProviderResponse(
 				finishReason = "content_filter";
 			}
 
-			// Extract content and reasoning content from Google response parts
-			const parts = json.candidates?.[0]?.content?.parts ?? [];
-			const contentParts = parts.filter((part: any) => !part.thought);
-			const reasoningParts = parts.filter((part: any) => part.thought);
+			// AI Studio duplicates the other candidates' parts into candidate 0
+			// when candidateCount > 1 — strip that before any extraction. Gated on
+			// the provider so clean responses (e.g. Vertex) are never touched.
+			const candidates = dedupeGoogleCandidateParts(
+				json.candidates ?? [],
+				usedProvider,
+			);
+
+			// Extract content and reasoning content from Google response parts.
+			// The log row only stores a single content/reasoning string, so for
+			// n > 1 we aggregate every candidate into the buffer — otherwise
+			// indices > 0 disappear from logs. Tool calls / images stay keyed
+			// to candidate 0, mirroring the OpenAI multi-choice behavior.
+			const parts = candidates[0]?.content?.parts ?? [];
+			const allParts = candidates.flatMap(
+				(candidate: any) => candidate?.content?.parts ?? [],
+			);
+			const contentParts = allParts.filter((part: any) => !part.thought);
+			const reasoningParts = allParts.filter((part: any) => part.thought);
 
 			const textContent = contentParts.map((part: any) => part.text).join("");
 			const thoughtContent = reasoningParts
@@ -776,6 +838,23 @@ export function parseProviderResponse(
 				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
 				totalTokens = json.usage?.total_tokens ?? null;
 
+				// Sakana Fugu bills the orchestration tokens consumed by its underlying
+				// agent pool on top of the user-visible input/output tokens. They are
+				// reported in the *_tokens_details and are real billable usage, so fold
+				// them into the prompt/completion (and cached) counts used for costing.
+				if (usedProvider === "sakana" && json.usage) {
+					const inDetails = json.usage.input_tokens_details ?? {};
+					const outDetails = json.usage.output_tokens_details ?? {};
+					promptTokens =
+						(promptTokens ?? 0) + (inDetails.orchestration_input_tokens ?? 0);
+					completionTokens =
+						(completionTokens ?? 0) +
+						(outDetails.orchestration_output_tokens ?? 0);
+					cachedTokens =
+						(cachedTokens ?? 0) +
+						(inDetails.orchestration_input_cached_tokens ?? 0);
+				}
+
 				// Count web_search_call items for pricing (each call is billed, not each citation)
 				const webSearchCalls = json.output.filter(
 					(item: any) => item.type === "web_search_call",
@@ -942,6 +1021,8 @@ export function parseProviderResponse(
 								},
 							});
 						}
+					} else if (webSearchRequested) {
+						webSearchCount = 1;
 					}
 				}
 			}

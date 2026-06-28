@@ -3,7 +3,7 @@ id: blog-introducing-llm-gateway
 slug: introducing-llm-gateway
 date: 2025-04-12
 title: Introducing LLM Gateway
-summary: One API for 180+ models across 60+ providers. Route requests, track costs, and switch models without changing your code.
+summary: One API for 280+ models across 35+ providers. Route requests, track costs, and switch models without changing your code.
 categories: ["Announcements"]
 image:
   src: "/blog/blog-introducing-llm-gateway.png"
@@ -14,9 +14,9 @@ image:
 
 # LLM Gateway
 
-LLM Gateway is an open-source API gateway that sits between your apps and LLM providers. One integration gives you access to 180+ models from 60+ providers—and the visibility to control costs.
+LLM Gateway is an open-source API gateway that sits between your apps and LLM providers. One integration gives you access to 280+ models from 35+ providers—and the visibility to control costs.
 
-- **Route**: Switch between OpenAI, Anthropic, Google, and 60+ other providers without changing your code
+- **Route**: Switch between OpenAI, Anthropic, Google, and 35+ other providers without changing your code
 - **Manage**: One dashboard for all your API keys—no more scattered credentials
 - **Observe**: Track every request's cost, latency, and token usage in real-time
 - **Optimize**: Compare models side-by-side to find the best price-to-performance ratio

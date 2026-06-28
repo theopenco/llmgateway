@@ -3,13 +3,13 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { McpContent } from "@/components/mcp/mcp-content";
 
 export const metadata = {
-	title: "MCP Server — 200+ Models for Claude Code & Cursor",
+	title: "MCP Server — 280+ Models for Claude Code & Cursor",
 	description:
-		"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other AI assistants. Access 200+ models from OpenAI, Anthropic, Google, and more.",
+		"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other AI assistants. Access 280+ models from OpenAI, Anthropic, Google, and more.",
 	openGraph: {
-		title: "MCP Server — 200+ Models for Claude Code & Cursor",
+		title: "MCP Server — 280+ Models for Claude Code & Cursor",
 		description:
-			"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other AI assistants. Access 200+ models from OpenAI, Anthropic, Google, and more.",
+			"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other AI assistants. Access 280+ models from OpenAI, Anthropic, Google, and more.",
 	},
 };
 
@@ -24,7 +24,7 @@ export default function McpPage() {
 							MCP Server
 						</h1>
 						<p className="text-lg text-muted-foreground leading-relaxed">
-							Connect your AI assistant to 200+ LLM models through the Model
+							Connect your AI assistant to 280+ LLM models through the Model
 							Context Protocol. Works with Claude Code, Cursor, and any
 							MCP-compatible client.
 						</p>

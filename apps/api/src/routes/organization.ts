@@ -25,6 +25,16 @@ import type { ServerTypes } from "@/vars.js";
 export const organization = new OpenAPIHono<ServerTypes>();
 
 // Define schemas directly with Zod instead of using createSelectSchema
+const providerCompliancePolicySchema = z.object({
+	enabled: z.boolean(),
+	requireSoc2: z.boolean().optional(),
+	requireIso27001: z.boolean().optional(),
+	requireSoc2OrIso27001: z.boolean().optional(),
+	requireGdpr: z.boolean().optional(),
+	blockApiTraining: z.boolean().optional(),
+	blockPromptLogging: z.boolean().optional(),
+});
+
 const organizationSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -39,6 +49,7 @@ const organizationSchema = z.object({
 	plan: z.enum(["free", "pro", "enterprise"]),
 	planExpiresAt: z.date().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	autoTopUpEnabled: z.boolean(),
 	autoTopUpThreshold: z.string().nullable(),
@@ -46,9 +57,9 @@ const organizationSchema = z.object({
 	referralEarnings: z.string(),
 	referralBonusEnabled: z.boolean(),
 	referralBonusPercent: z.string(),
-	// Dev Plans fields
-	isPersonal: z.boolean(),
-	isChat: z.boolean(),
+	// Organization kind: "default" (regular dashboard org), "devpass" (per-user
+	// Dev Plans org), or "chat" (per-user chat.llmgateway.io org).
+	kind: z.enum(["default", "chat", "devpass"]),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
 	devPlanCycle: z.enum(["monthly", "annual"]),
 	devPlanCreditsUsed: z.string(),
@@ -58,6 +69,7 @@ const organizationSchema = z.object({
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
 	devPlanAllowAllModels: z.boolean(),
+	devPlanBillingOverride: z.boolean(),
 	// Chat Plans fields
 	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
 	chatPlanCycle: z.enum(["monthly"]),
@@ -77,6 +89,7 @@ const projectSchema = z.object({
 	cacheDurationSeconds: z.number(),
 	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
+	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
@@ -95,6 +108,9 @@ const updateOrganizationSchema = z.object({
 	billingTaxId: z.string().optional(),
 	billingNotes: z.string().optional(),
 	retentionLevel: z.enum(["retain", "none"]).optional(),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
 	autoTopUpAmount: z
@@ -205,8 +221,8 @@ organization.openapi(getOrganizations, async (c) => {
 		// Personal and chat orgs are hidden from the regular dashboard. The
 		// devpass/playground surfaces opt in via ?includePersonal=true /
 		// ?includeChat=true since their plans + credits live on those orgs.
-		.filter((org) => includePersonal === "true" || !org.isPersonal)
-		.filter((org) => includeChat === "true" || !org.isChat);
+		.filter((org) => includePersonal === "true" || org.kind !== "devpass")
+		.filter((org) => includeChat === "true" || org.kind !== "chat");
 
 	if (organizations.length === 0) {
 		const defaultOrganization = await getOrCreateDefaultOrganization({
@@ -216,7 +232,7 @@ organization.openapi(getOrganizations, async (c) => {
 
 		if (
 			defaultOrganization.status !== "deleted" &&
-			!defaultOrganization.isPersonal
+			defaultOrganization.kind !== "devpass"
 		) {
 			organizations = [defaultOrganization];
 		}
@@ -443,6 +459,7 @@ organization.openapi(updateOrganization, async (c) => {
 		billingTaxId,
 		billingNotes,
 		retentionLevel,
+		providerCompliancePolicy,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
 		autoTopUpAmount,
@@ -490,6 +507,24 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	// Provider compliance policies are an enterprise feature managed by owners
+	// and admins (matching the Guardrails settings page).
+	if (providerCompliancePolicy !== undefined) {
+		if (userOrganization.organization?.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message: "Provider compliance policies require an enterprise plan",
+			});
+		}
+		if (
+			userOrganization.role !== "owner" &&
+			userOrganization.role !== "admin"
+		) {
+			throw new HTTPException(403, {
+				message: "Only owners and admins can manage compliance policies",
+			});
+		}
+	}
+
 	const updateData: any = {};
 	if (name !== undefined) {
 		updateData.name = name;
@@ -511,6 +546,9 @@ organization.openapi(updateOrganization, async (c) => {
 	}
 	if (retentionLevel !== undefined) {
 		updateData.retentionLevel = retentionLevel;
+	}
+	if (providerCompliancePolicy !== undefined) {
+		updateData.providerCompliancePolicy = providerCompliancePolicy;
 	}
 	if (autoTopUpEnabled !== undefined) {
 		updateData.autoTopUpEnabled = autoTopUpEnabled;
@@ -574,6 +612,16 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.retentionLevel = {
 			old: oldOrg.retentionLevel,
 			new: retentionLevel,
+		};
+	}
+	if (
+		providerCompliancePolicy !== undefined &&
+		JSON.stringify(oldOrg.providerCompliancePolicy ?? null) !==
+			JSON.stringify(providerCompliancePolicy ?? null)
+	) {
+		changes.providerCompliancePolicy = {
+			old: oldOrg.providerCompliancePolicy,
+			new: providerCompliancePolicy,
 		};
 	}
 	if (
@@ -717,7 +765,7 @@ organization.openapi(deleteOrganization, async (c) => {
 	}
 
 	// Block deletion of personal orgs - they are managed via dev plans
-	if (userOrganization.organization?.isPersonal) {
+	if (userOrganization.organization?.kind === "devpass") {
 		throw new HTTPException(403, {
 			message:
 				"Personal organizations cannot be deleted. Please cancel your dev plan at devpass.llmgateway.io instead.",
@@ -725,7 +773,7 @@ organization.openapi(deleteOrganization, async (c) => {
 	}
 
 	// Block deletion of the dedicated Chat org - it is managed via chat plans
-	if (userOrganization.organization?.isChat) {
+	if (userOrganization.organization?.kind === "chat") {
 		throw new HTTPException(403, {
 			message:
 				"The Chat organization cannot be deleted. Please cancel your chat plan from the chat.llmgateway.io pricing page instead.",

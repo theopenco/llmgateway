@@ -145,9 +145,10 @@ class LLMGatewayLogger {
 		this.logger.info(this.mergeOptionalArg(traceContext, extra), message);
 	}
 
-	public warn(message: string, extra?: object | Error): void {
+	public warn(message: string, ...args: unknown[]): void {
 		const traceContext = this.getTraceContext();
-		this.logger.warn(this.mergeOptionalArg(traceContext, extra), message);
+		const merged = this.mergeArgs(traceContext, args);
+		this.logger.warn(merged, message);
 	}
 
 	public error(message: string, ...args: unknown[]): void {

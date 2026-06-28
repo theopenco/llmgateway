@@ -33,6 +33,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.userFavoriteModel.userId,
 		}),
+		modelRatings: r.many.modelRating({
+			from: r.user.id,
+			to: r.modelRating.userId,
+		}),
 		skills: r.many.skill({
 			from: r.user.id,
 			to: r.skill.userId,
@@ -309,6 +313,20 @@ export const relations = defineRelations(schema, (r) => ({
 	providerKey: {
 		organization: r.one.organization({
 			from: r.providerKey.organizationId,
+			to: r.organization.id,
+		}),
+		customModels: r.many.customModel({
+			from: r.providerKey.id,
+			to: r.customModel.providerKeyId,
+		}),
+	},
+	customModel: {
+		providerKey: r.one.providerKey({
+			from: r.customModel.providerKeyId,
+			to: r.providerKey.id,
+		}),
+		organization: r.one.organization({
+			from: r.customModel.organizationId,
 			to: r.organization.id,
 		}),
 	},

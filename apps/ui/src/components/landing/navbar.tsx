@@ -540,17 +540,17 @@ export const Navbar = ({
 						</div>
 
 						{/* Right side */}
-						<div className="bg-background group-data-[state=active]:block nav:group-data-[state=active]:flex mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap nav:m-0 nav:flex nav:w-fit nav:shrink-0 nav:gap-3 nav:space-y-0 nav:border-transparent nav:bg-transparent nav:p-0 nav:shadow-none dark:shadow-none dark:nav:bg-transparent">
+						<div className="bg-background group-data-[state=active]:block nav:group-data-[state=active]:flex mb-6 hidden max-h-[calc(100dvh-7rem)] w-full flex-wrap items-center justify-end space-y-6 overflow-y-auto overscroll-contain rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap nav:m-0 nav:flex nav:max-h-none nav:w-fit nav:shrink-0 nav:gap-3 nav:space-y-0 nav:overflow-visible nav:border-transparent nav:bg-transparent nav:p-0 nav:shadow-none dark:shadow-none dark:nav:bg-transparent">
 							{/* Mobile nav */}
 							<div className="nav:hidden">
-								<div className="mb-6">
+								<div className="mb-4">
 									<ModelSearch models={models} providers={providers} />
 								</div>
-								<ul className="space-y-6 text-base">
+								<ul className="text-base">
 									<li>
 										<Link
 											href="/pricing"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 											prefetch={true}
 										>
 											Pricing
@@ -561,7 +561,7 @@ export const Navbar = ({
 											href={config.docsUrl ?? ""}
 											target="_blank"
 											rel="noopener noreferrer"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 										>
 											Docs
 										</a>
@@ -569,7 +569,7 @@ export const Navbar = ({
 									<li>
 										<Link
 											href="/models"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 											prefetch={true}
 										>
 											Models
@@ -577,7 +577,7 @@ export const Navbar = ({
 									</li>
 
 									{mobileSections.map((section) => (
-										<li key={section.label} className="space-y-2">
+										<li key={section.label}>
 											<button
 												type="button"
 												onClick={() =>
@@ -587,10 +587,10 @@ export const Navbar = ({
 															: section.label,
 													)
 												}
-												className="flex w-full items-center justify-between gap-2 text-left"
+												className="flex w-full items-center justify-between gap-2 py-2.5 text-left"
 												aria-expanded={openMobileSection === section.label}
 											>
-												<span className="text-muted-foreground text-sm font-medium">
+												<span className="text-muted-foreground">
 													{section.label}
 												</span>
 												<ChevronDown
@@ -600,36 +600,39 @@ export const Navbar = ({
 													)}
 												/>
 											</button>
-											{openMobileSection === section.label ? (
-												<ul className="space-y-3 pl-4 pt-1">
-													{section.items.map((item) => (
-														<li key={item.name}>
-															{item.external ? (
-																<a
-																	href={item.href}
-																	target="_blank"
-																	rel="noopener noreferrer"
-																	className="text-muted-foreground hover:text-accent-foreground block duration-150 text-sm"
-																>
-																	{item.name}
-																</a>
-															) : (
-																<Link
-																	href={item.href as Route}
-																	className="text-muted-foreground hover:text-accent-foreground block duration-150 text-sm"
-																	prefetch={true}
-																>
-																	{item.name}
-																</Link>
-															)}
-														</li>
-													))}
-												</ul>
-											) : null}
+											<ul
+												className={cn(
+													"grid grid-cols-2 gap-x-4 rounded-xl bg-muted/40 px-3 py-2 mb-2",
+													openMobileSection !== section.label && "hidden",
+												)}
+											>
+												{section.items.map((item) => (
+													<li key={item.name}>
+														{item.external ? (
+															<a
+																href={item.href}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
+															>
+																{item.name}
+															</a>
+														) : (
+															<Link
+																href={item.href as Route}
+																className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
+																prefetch={true}
+															>
+																{item.name}
+															</Link>
+														)}
+													</li>
+												))}
+											</ul>
 										</li>
 									))}
 
-									<li className="flex items-center gap-4 pt-4 border-t border-border">
+									<li className="flex items-center gap-4 pt-3 mt-2 border-t border-border">
 										<a
 											href={config.githubUrl}
 											target="_blank"

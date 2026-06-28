@@ -4,10 +4,11 @@ slug: z-ai-glm-coding-plan
 date: 2026-06-02
 title: DevPass vs z.ai GLM Coding Plan
 metaTitle: "DevPass vs z.ai GLM Coding Plan: One Vendor or 200+?"
-description: "DevPass vs the z.ai GLM Coding Plan compared. z.ai is a low-cost, GLM-only subscription billed quarterly; DevPass is a flat monthly plan for 200+ models — Claude, GPT-5.5, Gemini and GLM — under one key."
+description: "DevPass vs the z.ai GLM Coding Plan compared. z.ai is a low-cost, GLM-only subscription billed quarterly; DevPass is a flat monthly plan for 280+ models — Claude, GPT-5.5, Gemini and GLM — under one key."
 competitor: z.ai GLM Coding Plan
+competitorLogo: zai
 competitorTagline: Low-cost subscription for Zhipu's GLM models
-tagline: "z.ai's coding plan is one of the cheapest ways to run GLM. DevPass costs more but isn't tied to a single vendor — GLM is just one of 200+ models on every plan."
+tagline: "z.ai's coding plan is one of the cheapest ways to run GLM. DevPass costs more but isn't tied to a single vendor — GLM is just one of 280+ models on every plan."
 devpassPrice: "$29–$179/mo"
 competitorPrice: "~$10–$80/mo"
 verdict: "The z.ai GLM Coding Plan is outstanding value if GLM models are all you need — a few dollars a month for GLM-5.1 and friends, billed quarterly. DevPass is single-vendor's opposite: GLM plus Claude, GPT-5.5, Gemini and every other major model, under one key, billed monthly with no quarterly commitment. Pick z.ai to go all-in on GLM; pick DevPass to keep GLM and everything else."
@@ -44,9 +45,6 @@ features:
   - label: "Works with Claude Code, Cursor, Cline, OpenCode"
     devpass: true
     competitor: true
-  - label: "SoulForge token-reduction agent (~50% fewer tokens)"
-    devpass: true
-    competitor: false
 faqs:
   - question: What is the z.ai GLM Coding Plan?
     answer: "It's a low-cost coding subscription from Zhipu AI (z.ai) that gives you access to the GLM family of models — GLM-5.1, GLM-5-Turbo, GLM-4.7 and others — for agentic coding tools. Plans are billed quarterly and range from roughly $10/month (Lite) to about $80/month (Max), with prompt-pool usage limits and MCP features like web search."
@@ -66,13 +64,13 @@ The defining trait is focus: it's a **single-vendor** plan. Every model on it co
 
 ## What is DevPass?
 
-DevPass by LLM Gateway is a flat-rate plan that's single-vendor's opposite. It bundles **200+ models behind one key** — the GLM family _and_ Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, Kimi, Qwen, DeepSeek and the rest. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost dashboard, monthly or annual billing, and the freedom to switch models mid-session without touching your config.
+DevPass by LLM Gateway is a flat-rate plan that's single-vendor's opposite. It bundles **280+ models behind one key** — the GLM family _and_ Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, Kimi, Qwen, DeepSeek and the rest. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost dashboard, monthly or annual billing, and the freedom to switch models mid-session without touching your config.
 
 ## Single vendor vs the whole field
 
 GLM models are strong and cheap, and for plenty of tasks they're all you need. But a single-vendor plan has a hard edge: when a job calls for Claude's reasoning, GPT-5.5's breadth or Gemini's long context, a GLM-only plan can't help — you're back to a second subscription and a second key.
 
-DevPass removes that edge. **GLM is included**, so you don't lose the cheap open-weight option; you simply gain everything else next to it. And because DevPass pairs with **SoulForge** — the graph-powered agent that cuts roughly half your tokens — your allowance stretches further across all of those models, not just one vendor's.
+DevPass removes that edge. **GLM is included**, so you don't lose the cheap open-weight option; you simply gain everything else next to it — Claude, GPT-5.5, Gemini and the rest, one key away the moment a task outgrows GLM.
 
 ## Billing flexibility
 
@@ -82,4 +80,4 @@ z.ai's plan is **quarterly**. DevPass is **monthly**, with an optional annual pl
 
 **Choose the z.ai GLM Coding Plan if** GLM models cover your work, you want the lowest entry price, and a quarterly commitment is fine.
 
-**Choose DevPass if** you want GLM _and_ the frontier models under one key, monthly billing, a per-request cost breakdown, and SoulForge to cut your token spend.
+**Choose DevPass if** you want GLM _and_ the frontier models under one key, monthly billing, and a per-request cost breakdown.

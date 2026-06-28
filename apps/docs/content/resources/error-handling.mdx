@@ -78,29 +78,6 @@ The Anthropic-compatible Messages endpoint (`/v1/messages`) returns errors in An
 }
 ```
 
-## Deprecated Compatibility Fields
-
-<Callout type="warning">
-	For backwards compatibility during the migration to the OpenAI-compatible
-	format, error responses currently also include top-level `message` and
-	`status` fields that mirror the previous error shape. **These fields are
-	deprecated and will be removed in a future release.** Read `error.message`
-	from the envelope and use the HTTP response status code instead.
-</Callout>
-
-```json
-{
-	"error": {
-		"message": "Unauthorized: LLMGateway API key reached its usage limit.",
-		"type": "invalid_request_error",
-		"param": null,
-		"code": "invalid_api_key"
-	},
-	"message": "Unauthorized: LLMGateway API key reached its usage limit.",
-	"status": 401
-}
-```
-
 ## Related
 
 - [Rate Limits](/resources/rate-limits) — details on `429` responses and rate limit headers.

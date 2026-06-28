@@ -41,11 +41,14 @@ export function resolveModelInfo(
 					externalId: requestedModel,
 					inputPrice: "0",
 					outputPrice: "0",
-					contextSize: 8192,
-					maxOutput: 4096,
+					// Custom providers have no catalog entry, so the gateway cannot
+					// know their limits (contextSize, maxOutput) or capabilities
+					// (vision, jsonOutput, ...). Leave them unset rather than
+					// guessing — capability validation is skipped for custom
+					// providers and the upstream provider enforces its own limits.
+					// `streaming` is required by the type but is never read for
+					// custom providers (streaming support comes from the catalog).
 					streaming: true,
-					vision: false,
-					jsonOutput: true,
 				},
 			],
 		};

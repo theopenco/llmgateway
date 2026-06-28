@@ -18,6 +18,7 @@ export default async function ActivityPage({
 		unifiedFinishReason?: string;
 		provider?: string;
 		model?: string;
+		apiKeyId?: string;
 		limit?: string;
 	}>;
 }) {
@@ -55,6 +56,9 @@ export default async function ActivityPage({
 	}
 	if (searchParamsData?.model && searchParamsData.model !== "all") {
 		logsQueryParams.model = searchParamsData.model;
+	}
+	if (searchParamsData?.apiKeyId && searchParamsData.apiKeyId !== "all") {
+		logsQueryParams.apiKeyId = searchParamsData.apiKeyId;
 	}
 
 	if (searchParamsData?.limit) {

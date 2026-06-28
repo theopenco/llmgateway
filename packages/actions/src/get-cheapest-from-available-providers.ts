@@ -230,7 +230,7 @@ function providerSupportsCaching(
 export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
-	resolution: "default" | "hd" | "1080p" | "4k" | "720p" | "480p";
+	resolution: "default" | "hd" | "1080p" | "4k" | "768p" | "720p" | "480p";
 }
 
 function getPerSecondBillingKeys(
@@ -254,10 +254,23 @@ function getPerSecondBillingKeys(
 			: ["1080p_video", "hd_video", "default_video", "1080p", "hd", "default"];
 	}
 
+	if (videoPricing.resolution === "768p") {
+		return videoPricing.includeAudio
+			? ["768p_audio", "default_audio", "768p", "default"]
+			: ["768p_video", "default_video", "768p", "default"];
+	}
+
 	if (videoPricing.resolution === "720p") {
 		return videoPricing.includeAudio
-			? ["720p_audio", "default_audio", "720p", "default"]
-			: ["720p_video", "default_video", "720p", "default"];
+			? ["720p_audio", "768p_audio", "default_audio", "720p", "768p", "default"]
+			: [
+					"720p_video",
+					"768p_video",
+					"default_video",
+					"720p",
+					"768p",
+					"default",
+				];
 	}
 
 	if (videoPricing.resolution === "480p") {
@@ -683,6 +696,19 @@ export async function getCheapestFromAvailableProviders<
 		providerScores[0].price,
 	);
 
+	// When the cheapest provider is free (minPrice == 0), the price/minPrice ratio
+	// is undefined, so without this a free and a paid provider would both score 0
+	// on price and the decision would fall to uptime/throughput — letting a paid
+	// provider beat a free one even under `routing: "price"`. Rank paid providers
+	// against the cheapest *positive* price instead, so a free provider always
+	// scores best (0) while paid providers stay ordered among themselves.
+	const minPositivePrice = providerScores.reduce<Decimal | null>((min, p) => {
+		if (p.price.gt(0) && (min === null || p.price.lt(min))) {
+			return p.price;
+		}
+		return min;
+	}, null);
+
 	const uptimes = providerScores.map(
 		(p) => p.uptime ?? thresholds.defaultUptime,
 	);
@@ -704,7 +730,9 @@ export async function getCheapestFromAvailableProviders<
 		// This preserves the actual magnitude of price differences
 		const priceScore = minPrice.gt(0)
 			? providerScore.price.div(minPrice).minus(1)
-			: new Decimal(0);
+			: providerScore.price.gt(0) && minPositivePrice
+				? providerScore.price.div(minPositivePrice)
+				: new Decimal(0);
 
 		// Uptime ratio: 0 = best uptime, proportional penalty for worse uptime
 		const uptime = providerScore.uptime ?? thresholds.defaultUptime;

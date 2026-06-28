@@ -46,6 +46,7 @@ export default function SettingsPage() {
 			<DevPlanSettings
 				devPlanAllowAllModels={devPlanStatus.devPlanAllowAllModels ?? false}
 				retentionLevel={devPlanStatus.retentionLevel ?? "none"}
+				defaultRoutingStrategy={devPlanStatus.defaultRoutingStrategy ?? "auto"}
 			/>
 
 			<DeleteAccount />
