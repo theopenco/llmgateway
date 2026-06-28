@@ -60,7 +60,10 @@ jobs:
       - name: Send traffic report
         env:
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
-          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          # Project id is non-secret config; the script requires it explicitly
+          # so reports never run against the wrong project. Override via a repo
+          # variable if needed.
+          POSTHOG_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID || '163518' }}
           POSTHOG_QUERY_HOST: ${{ secrets.POSTHOG_QUERY_HOST }}
           DISCORD_TRAFFIC_NOTIFICATION_URL: ${{ secrets.DISCORD_TRAFFIC_NOTIFICATION_URL }}
         run: pnpm --filter @llmgateway/scripts traffic-report --period=${{ steps.period.outputs.period }}

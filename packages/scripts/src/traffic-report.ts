@@ -32,6 +32,7 @@ interface ReportData {
 	overall: { current: ProductTraffic; previous: ProductTraffic };
 	events: Map<string, PeriodPair>;
 	sources: Array<{ source: string; visitors: number }>;
+	sourcesByProduct: Map<string, Array<{ source: string; visitors: number }>>;
 	traffic: Map<string, PeriodPair>; // bucket -> human/bot/ai
 }
 
@@ -65,11 +66,13 @@ function nonEmpty(value: string | undefined): string | undefined {
 
 const POSTHOG_HOST =
 	nonEmpty(process.env.POSTHOG_QUERY_HOST) ?? "https://us.posthog.com";
-const POSTHOG_PROJECT_ID = nonEmpty(process.env.POSTHOG_PROJECT_ID) ?? "163518";
+const POSTHOG_PROJECT_ID = nonEmpty(process.env.POSTHOG_PROJECT_ID);
 const POSTHOG_PERSONAL_API_KEY = nonEmpty(process.env.POSTHOG_PERSONAL_API_KEY);
 const DISCORD_TRAFFIC_NOTIFICATION_URL = nonEmpty(
 	process.env.DISCORD_TRAFFIC_NOTIFICATION_URL,
 );
+
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function startOfUtcDay(d: Date): Date {
 	return new Date(
@@ -118,13 +121,19 @@ function buildWindow(period: Period, now: Date): ReportWindow {
 			end: shiftDays(thisWeek, -7),
 		};
 		const lastDay = shiftDays(current.end, -1);
+		const startYear = current.start.getUTCFullYear();
+		const endYear = lastDay.getUTCFullYear();
+		const rangeLabel =
+			startYear === endYear
+				? `${formatDay(current.start)} – ${formatDay(lastDay)}, ${endYear}`
+				: `${formatDay(current.start)}, ${startYear} – ${formatDay(
+						lastDay,
+					)}, ${endYear}`;
 		return {
 			period,
 			current,
 			previous,
-			rangeLabel: `${formatDay(current.start)} – ${formatDay(
-				lastDay,
-			)}, ${current.start.getUTCFullYear()}`,
+			rangeLabel,
 			comparisonLabel: "vs previous week",
 		};
 	}
@@ -158,6 +167,11 @@ async function runHogql(query: string): Promise<unknown[][]> {
 			"POSTHOG_PERSONAL_API_KEY environment variable is required to query PostHog.",
 		);
 	}
+	if (!POSTHOG_PROJECT_ID) {
+		throw new Error(
+			"POSTHOG_PROJECT_ID environment variable is required to query PostHog.",
+		);
+	}
 	const response = await fetch(
 		`${POSTHOG_HOST}/api/projects/${POSTHOG_PROJECT_ID}/query/`,
 		{
@@ -167,6 +181,7 @@ async function runHogql(query: string): Promise<unknown[][]> {
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),
+			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 		},
 	);
 	if (!response.ok) {
@@ -228,6 +243,25 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 		ORDER BY visitors DESC
 		LIMIT 6`;
 
+	const sourcesByProductQuery = `
+		SELECT host, source, visitors
+		FROM (
+			SELECT host, source, visitors,
+				row_number() OVER (PARTITION BY host ORDER BY visitors DESC) AS rn
+			FROM (
+				SELECT properties.$host AS host,
+					coalesce(nullIf(properties.$referring_domain, ''), '$direct') AS source,
+					count(DISTINCT person_id) AS visitors
+				FROM events
+				WHERE event = '$pageview'
+					AND timestamp >= toDateTime('${curStart}') AND timestamp < toDateTime('${curEnd}')
+					AND properties.$host IN (${HOST_LIST})
+				GROUP BY host, source
+			)
+		)
+		WHERE rn <= 3
+		ORDER BY host, visitors DESC`;
+
 	const trafficQuery = `
 		SELECT ${periodExpr} AS period,
 			multiIf(
@@ -241,13 +275,15 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 			AND properties.$host IN (${HOST_LIST})
 		GROUP BY period, bucket`;
 
-	const [perHost, overall, events, sources, traffic] = await Promise.all([
-		runHogql(perHostQuery),
-		runHogql(overallQuery),
-		runHogql(eventsQuery),
-		runHogql(sourcesQuery),
-		runHogql(trafficQuery),
-	]);
+	const [perHost, overall, events, sources, sourcesByHost, traffic] =
+		await Promise.all([
+			runHogql(perHostQuery),
+			runHogql(overallQuery),
+			runHogql(eventsQuery),
+			runHogql(sourcesQuery),
+			runHogql(sourcesByProductQuery),
+			runHogql(trafficQuery),
+		]);
 
 	const products = new Map<
 		string,
@@ -304,6 +340,24 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 		visitors: num(row[1]),
 	}));
 
+	const sourcesByProduct = new Map<
+		string,
+		Array<{ source: string; visitors: number }>
+	>();
+	for (const { host } of PRODUCTS) {
+		sourcesByProduct.set(host, []);
+	}
+	for (const row of sourcesByHost) {
+		const list = sourcesByProduct.get(String(row[0]));
+		if (!list) {
+			continue;
+		}
+		list.push({
+			source: row[1] === "$direct" ? "direct" : String(row[1]),
+			visitors: num(row[2]),
+		});
+	}
+
 	const trafficData = new Map<string, PeriodPair>();
 	for (const bucket of ["human", "bot", "ai"]) {
 		trafficData.set(bucket, { current: 0, previous: 0 });
@@ -325,6 +379,7 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 		overall: overallData,
 		events: eventsData,
 		sources: sourcesData,
+		sourcesByProduct,
 		traffic: trafficData,
 	};
 }
@@ -407,6 +462,14 @@ function buildEmbed(window: ReportWindow, data: ReportData) {
 		.map((s) => `${s.source} (${formatInt(s.visitors)})`)
 		.join(" · ");
 
+	const sourcesByProduct = PRODUCTS.map(({ host, label }) => {
+		const list = data.sourcesByProduct.get(host) ?? [];
+		const formatted = list
+			.map((s) => `${s.source} (${formatInt(s.visitors)})`)
+			.join(" · ");
+		return `${label} · ${formatted || "no data"}`;
+	}).join("\n");
+
 	const ai = data.traffic.get("ai") ?? { current: 0, previous: 0 };
 	const human = data.traffic.get("human") ?? { current: 0, previous: 0 };
 	const bot = data.traffic.get("bot") ?? { current: 0, previous: 0 };
@@ -427,6 +490,9 @@ function buildEmbed(window: ReportWindow, data: ReportData) {
 		eventTable,
 		"```",
 		`**Top sources** · ${sources || "no data"}`,
+		"",
+		"**Top sources by product**",
+		sourcesByProduct,
 		"",
 		`**AI & bots** · AI assistant/crawler views: ${formatInt(
 			ai.current,
@@ -454,6 +520,7 @@ async function postToDiscord(
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ embeds: [embed] }),
+		signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 	});
 	if (!response.ok) {
 		throw new Error(
