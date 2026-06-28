@@ -100,6 +100,13 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		chatDefaultRpm: 120,
 	},
 	{
+		key: "ocr",
+		prefix: "/v1/ocr",
+		defaultRpm: 300,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 30,
+	},
+	{
 		key: "images",
 		prefix: "/v1/images",
 		defaultRpm: 300,

@@ -28,6 +28,7 @@ The default limits (requests per minute, per organization) are:
 | Embeddings           | `/v1/embeddings`       | 1200           |
 | Moderations          | `/v1/moderations`      | 1200           |
 | Models               | `/v1/models`           | 1200           |
+| OCR                  | `/v1/ocr`              | 300            |
 | Images               | `/v1/images`           | 300            |
 | Speech               | `/v1/audio/speech`     | 300            |
 | Videos               | `/v1/videos`           | 120            |
@@ -53,7 +54,7 @@ For example, an organization that has spent more than $10,000 gets a 4× multipl
 
 Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier.
 
-Dev plans are inference-only and only cover **chat completions, messages, responses, and the models list**, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, moderations, images, speech, videos) are **not available** on Dev plans and are marked **—** below.
+Dev plans are inference-only and only cover **chat completions, messages, responses, the models list, and OCR**, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, moderations, images, speech, videos) are **not available** on Dev plans and are marked **—** below.
 
 | Endpoint             | Dev plan / min | Chat plan / min |
 | -------------------- | -------------- | --------------- |
@@ -61,6 +62,7 @@ Dev plans are inference-only and only cover **chat completions, messages, respon
 | Messages (Anthropic) | 120            | 60              |
 | Responses            | 120            | 60              |
 | Models               | 120            | 120             |
+| OCR                  | 120            | 30              |
 | Embeddings           | —              | 120             |
 | Moderations          | —              | 120             |
 | Images               | —              | 30              |

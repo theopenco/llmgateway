@@ -86,6 +86,7 @@ describe("resolvePathRateLimit", () => {
 		);
 		expect(resolvePathRateLimit("/v1/models")?.key).toBe("models");
 		expect(resolvePathRateLimit("/v1/messages")?.key).toBe("messages");
+		expect(resolvePathRateLimit("/v1/ocr")?.key).toBe("ocr");
 	});
 
 	it("matches sub-paths", () => {
