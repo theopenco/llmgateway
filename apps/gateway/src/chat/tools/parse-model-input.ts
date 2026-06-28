@@ -94,10 +94,12 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 				});
 			}
 
-			const providerMapping = modelDef.providers.find(
-				(p) => p.providerId === requestedProvider,
-			);
-			requestedModel = (providerMapping?.externalId ?? modelName) as Model;
+			// Use the canonical catalog id, never the upstream externalId: two
+			// catalog entries (e.g. a free and a paid sibling) can share the same
+			// externalId, so collapsing to externalId here would let downstream
+			// resolution pick the wrong entry. The upstream externalId is derived
+			// separately from the selected provider mapping at request time.
+			requestedModel = modelDef.id as Model;
 		}
 	} else if (models.find((m) => m.id === modelInput)) {
 		requestedModel = modelInput as Model;
