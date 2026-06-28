@@ -11847,6 +11847,27 @@ chat.openapi(completions, async (c) => {
 		// canceled request (same log shape as the fetch-cancellation path)
 		// instead of misreporting it as an upstream failure or a bare 499.
 		if (bodyError.name === "AbortError") {
+			// The post-loop success append already recorded this provider as a
+			// succeeded routing attempt. Drop it before logging the cancellation
+			// so a client disconnect isn't counted as a provider success in the
+			// routing trace (matching the fetch-cancellation path, which records
+			// no succeeded attempt). A cancel is not a provider failure, so the
+			// attempt is removed rather than flipped to failed.
+			for (let i = routingAttempts.length - 1; i >= 0; i--) {
+				if (
+					routingAttempts[i].provider === usedProvider &&
+					routingAttempts[i].succeeded
+				) {
+					routingAttempts.splice(i, 1);
+					break;
+				}
+			}
+			if (routingMetadata) {
+				routingMetadata = {
+					...routingMetadata,
+					routing: routingAttempts,
+				};
+			}
 			return await respondCanceled();
 		}
 		// Both a read timeout and a mid-body socket failure (e.g. undici
