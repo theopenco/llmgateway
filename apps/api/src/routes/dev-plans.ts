@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { resolveDevPassBillingDetails } from "@/utils/devpass-billing.js";
+import { generateAndEmailInvoice } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -1162,18 +1164,14 @@ devPlans.openapi(changeTier, async (c) => {
 				.where(eq(tables.organization.id, personalOrg.id));
 
 			if (paidUpgrade) {
-				const existingUpgradeTransaction = await db.query.transaction.findFirst(
-					{
-						where: {
-							stripeInvoiceId: {
-								eq: paidUpgrade.invoiceId,
-							},
-						},
-					},
-				);
-
-				if (!existingUpgradeTransaction) {
-					await db.insert(tables.transaction).values({
+				// onConflictDoNothing on the unique stripeInvoiceId index makes this
+				// idempotent against the webhook fallback: only the path that wins the
+				// insert emails the invoice, so a concurrent `invoice.payment_succeeded`
+				// webhook can't produce a second transaction row or a duplicate invoice
+				// email for the same charge.
+				const [upgradeTransaction] = await db
+					.insert(tables.transaction)
+					.values({
 						organizationId: personalOrg.id,
 						type: "dev_plan_upgrade",
 						amount: paidUpgrade.amount.toString(),
@@ -1183,7 +1181,34 @@ devPlans.openapi(changeTier, async (c) => {
 						stripePaymentIntentId: paidUpgrade.paymentIntentId,
 						stripeInvoiceId: paidUpgrade.invoiceId,
 						description: `Changed from ${currentTier} to ${newTier} plan`,
-					});
+					})
+					.onConflictDoNothing()
+					.returning();
+
+				if (upgradeTransaction) {
+					try {
+						const billingDetails =
+							await resolveDevPassBillingDetails(personalOrg);
+						await generateAndEmailInvoice({
+							invoiceNumber: upgradeTransaction.id,
+							invoiceDate: new Date(),
+							organizationName: personalOrg.name,
+							organizationId: personalOrg.id,
+							...billingDetails,
+							lineItems: [
+								{
+									description: `Dev Plan upgrade from ${currentTier.toUpperCase()} to ${newTier.toUpperCase()} ($${creditPreview.proratedCreditDelta} credits included)`,
+									amount: paidUpgrade.amount,
+								},
+							],
+							currency: "USD",
+						});
+					} catch (e) {
+						logger.error(
+							"Invoice email failed (DevPass upgrade invoice); suppressing failure",
+							e as Error,
+						);
+					}
 				}
 			}
 		} else {

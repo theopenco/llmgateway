@@ -26,6 +26,11 @@ const nextConfig: NextConfig = {
 	redirects() {
 		return [
 			{
+				source: "/features/llm-sdk",
+				destination: "/features/embeddable-payments",
+				permanent: true,
+			},
+			{
 				source: "/features/gateway-caching",
 				destination: "/features/caching/gateway-caching",
 				permanent: true,

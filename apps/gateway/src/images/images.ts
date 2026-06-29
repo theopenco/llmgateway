@@ -566,12 +566,7 @@ function assertImageModel(model: string): void {
 	if (modelKey === "auto" || modelKey === "custom") {
 		return;
 	}
-	const modelInfo = models.find(
-		(m) =>
-			m.id === model ||
-			m.id === modelKey ||
-			m.providers.some((p) => p.externalId === modelKey),
-	);
+	const modelInfo = models.find((m) => m.id === model || m.id === modelKey);
 	if (modelInfo) {
 		validateModelOutput(modelInfo, modelKey, ["image"]);
 	}

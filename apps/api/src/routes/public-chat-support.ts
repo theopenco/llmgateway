@@ -605,6 +605,9 @@ publicChatSupport.post("/escalate", async (c) => {
 	const escapedName = escapeHtml(name ?? "Not provided");
 	const escapedEmail = escapeHtml(email ?? "Not provided");
 	const escapedConversationId = escapeHtml(conversationId);
+	const adminBaseUrl = process.env.ADMIN_URL ?? "https://admin.llmgateway.io";
+	const adminConversationUrl = `${adminBaseUrl}/chat-support-logs?chat=${encodeURIComponent(conversationId)}`;
+	const escapedAdminConversationUrl = escapeHtml(adminConversationUrl);
 	const escapedTranscript = (messages ?? [])
 		.map(
 			(m) =>
@@ -627,6 +630,7 @@ publicChatSupport.post("/escalate", async (c) => {
 <p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Name:</strong> ${escapedName}</p>
 <p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Email:</strong> ${escapedEmail}</p>
 <p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Conversation ID:</strong> ${escapedConversationId}</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Admin dashboard:</strong> <a href="${escapedAdminConversationUrl}" style="color:#0066cc;">View conversation</a></p>
 <hr style="border:none;border-top:1px solid #e9ecef;margin:20px 0;">
 <h2 style="margin:0 0 15px;font-size:16px;color:#333;">Conversation History</h2>
 <div style="background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:15px;font-size:14px;line-height:1.6;color:#333;white-space:pre-wrap;">${escapedTranscript}</div>

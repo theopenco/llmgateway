@@ -4,6 +4,7 @@ import { Pool } from "pg";
 
 import { logger } from "@llmgateway/logger";
 
+import { patchClientQuery } from "./query-tags.js";
 import { relations } from "./relations.js";
 
 // Single shared pool for all database connections
@@ -27,8 +28,10 @@ pool.on("error", (err) => {
 	logger.error("Unexpected database pool error", err);
 });
 
-// Log when pool connects (trace level to avoid noise in production)
-pool.on("connect", () => {
+// Log when pool connects (trace level to avoid noise in production) and patch
+// the new client so every statement it runs carries the sqlcommenter tag.
+pool.on("connect", (client) => {
+	patchClientQuery(client);
 	logger.trace("New database connection established");
 });
 

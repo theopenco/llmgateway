@@ -1,3 +1,4 @@
+import { isOrgOwnerEmailVerified } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	fromEmail,
@@ -43,6 +44,14 @@ export interface TransactionalEmailOptions {
 	 * keys so they can be filtered or audited.
 	 */
 	logSafe?: boolean;
+	/**
+	 * When set, the email is only sent if the organization's owner has a
+	 * verified account email. If the owner is unverified the send is skipped
+	 * and logged (policy: never send transactional emails to unverified
+	 * accounts). Omit only for emails that must reach unverified addresses,
+	 * such as the email-verification and password-reset emails.
+	 */
+	organizationId?: string;
 }
 
 export async function sendTransactionalEmail({
@@ -53,7 +62,18 @@ export async function sendTransactionalEmail({
 	attachments,
 	strict = false,
 	logSafe = false,
+	organizationId,
 }: TransactionalEmailOptions): Promise<void> {
+	// Policy gate: never send org-scoped transactional emails to an
+	// organization whose owner has not verified their email.
+	if (organizationId && !(await isOrgOwnerEmailVerified(organizationId))) {
+		logger.warn(
+			"Skipping transactional email: organization owner email not verified",
+			{ to, subject, organizationId },
+		);
+		return;
+	}
+
 	// In non-production environments, just log the email content
 	if (process.env.NODE_ENV !== "production") {
 		logger.info("Email content (not sent in non-production)", {

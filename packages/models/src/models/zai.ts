@@ -119,6 +119,7 @@ export const zaiModels = [
 			{
 				providerId: "together-ai",
 				externalId: "zai-org/GLM-5.1",
+				deactivatedAt: new Date("2026-07-10"),
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
@@ -535,6 +536,7 @@ export const zaiModels = [
 			{
 				providerId: "zai",
 				externalId: "glm-4.5-flash",
+				deactivatedAt: new Date("2026-06-28"),
 				inputPrice: "0",
 				cachedInputPrice: "0",
 				outputPrice: "0",
@@ -754,6 +756,7 @@ export const zaiModels = [
 			{
 				providerId: "zai",
 				externalId: "glm-4.7-flash",
+				deactivatedAt: new Date("2026-06-28"),
 				inputPrice: "0",
 				cachedInputPrice: "0",
 				outputPrice: "0",
@@ -1002,6 +1005,7 @@ export const zaiModels = [
 			{
 				providerId: "zai",
 				externalId: "glm-4.6v-flash",
+				deactivatedAt: new Date("2026-06-28"),
 				inputPrice: "0",
 				cachedInputPrice: "0",
 				outputPrice: "0",

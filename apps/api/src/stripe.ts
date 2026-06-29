@@ -16,6 +16,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	getProratedCreditDelta,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 	type DevPlanCycle,
@@ -856,6 +857,7 @@ export async function finalizeDevPlanSetupSession(
 				try {
 					await sendTransactionalEmail({
 						to: notifyEmail,
+						organizationId: organization.id,
 						subject: "DevPass activation failed — card already in use",
 						html: generateDevPlanDuplicateCardEmailHtml(organization.name),
 					});
@@ -1050,6 +1052,7 @@ export async function finalizeDevPlanSetupSession(
 		try {
 			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -1288,6 +1291,7 @@ async function handleCheckoutSessionCompleted(
 
 				try {
 					await generateAndEmailInvoice({
+						organizationId: organization.id,
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
@@ -1411,6 +1415,7 @@ async function handleCheckoutSessionCompleted(
 					const billingDetails =
 						await resolveDevPassBillingDetails(organization);
 					await generateAndEmailInvoice({
+						organizationId: organization.id,
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
@@ -1523,6 +1528,7 @@ async function handleCheckoutSessionCompleted(
 				// Generate and email invoice
 				try {
 					await generateAndEmailInvoice({
+						organizationId: organization.id,
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
@@ -1783,6 +1789,7 @@ async function recordCreditTopUp({
 
 	try {
 		await generateAndEmailInvoice({
+			organizationId,
 			invoiceNumber: completedTransaction.id,
 			invoiceDate: new Date(),
 			organizationName: organization.name,
@@ -2368,6 +2375,7 @@ async function handlePaymentIntentSucceeded(
 
 		try {
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: completedTransactionId,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -2607,6 +2615,7 @@ export async function handlePaymentIntentFailed(
 		try {
 			await sendTransactionalEmail({
 				to: organization.billingEmail,
+				organizationId: organization.id,
 				subject: "Payment Failed - Action Required",
 				html: generatePaymentFailureEmailHtml(organization.name, {
 					errorMessage,
@@ -3110,6 +3119,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 		try {
 			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -3243,6 +3253,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 		try {
 			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: renewalTransaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -3311,28 +3322,95 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 	} else if (isDevPlanUpgradeInvoice) {
-		// Invoice from a mid-cycle upgrade. The change-tier endpoint already
-		// adjusted the org's tier/limit and normally records the transaction
-		// synchronously; this webhook path is the fallback if the process exits
-		// after Stripe collects payment but before the local insert. We do NOT
-		// reset `devPlanCreditsUsed`.
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "dev_plan_upgrade",
-			amount: (invoice.amount_paid / 100).toString(),
-			currency: invoice.currency.toUpperCase(),
-			status: "completed",
-			stripePaymentIntentId: (invoice as any).payment_intent,
-			stripeInvoiceId: invoice.id,
-			description:
-				metadata?.fromTier && metadata?.toTier
-					? `Changed from ${metadata.fromTier} to ${metadata.toTier} plan`
-					: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
-		});
+		// Invoice from a mid-cycle upgrade. The change-tier endpoint normally
+		// records the transaction (and emails the invoice) synchronously; this
+		// webhook path is the fallback if the process exits after Stripe collects
+		// payment but before the local insert. onConflictDoNothing on the unique
+		// stripeInvoiceId index makes it atomically idempotent with the sync path,
+		// so only the path that wins the insert reconciles org state and emails —
+		// a concurrent sync request can't yield a duplicate row or email. We do
+		// NOT reset `devPlanCreditsUsed`.
+		const fromTier = metadata?.fromTier as DevPlanTier | undefined;
+		const toTier = metadata?.toTier as DevPlanTier | undefined;
+		const remainingFraction = metadata?.remainingFraction
+			? Number(metadata.remainingFraction)
+			: undefined;
+		const proratedCreditDelta =
+			fromTier && toTier && remainingFraction !== undefined
+				? getProratedCreditDelta(fromTier, toTier, remainingFraction)
+				: undefined;
 
-		logger.info(
-			`Recorded dev plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
-		);
+		const [upgradeTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_upgrade",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: proratedCreditDelta?.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description:
+					fromTier && toTier
+						? `Changed from ${fromTier} to ${toTier} plan`
+						: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+			})
+			.onConflictDoNothing()
+			.returning();
+
+		if (upgradeTransaction) {
+			// Reconcile org tier/limit in case the sync path died after Stripe
+			// collected payment but before it applied the upgrade. Reproduces the
+			// exact prorated limit the sync path computes (the current tier's full
+			// allotment + the prorated delta), so re-applying when the sync path did
+			// run is a harmless no-op.
+			if (fromTier && toTier && proratedCreditDelta !== undefined) {
+				const newCreditsLimit =
+					getDevPlanCreditsLimit(fromTier) + proratedCreditDelta;
+				await db
+					.update(tables.organization)
+					.set({
+						devPlan: toTier,
+						devPlanCreditsLimit: newCreditsLimit.toString(),
+					})
+					.where(eq(tables.organization.id, organizationId));
+			}
+
+			try {
+				const billingDetails = await resolveDevPassBillingDetails(organization);
+				await generateAndEmailInvoice({
+					organizationId: organization.id,
+					invoiceNumber: upgradeTransaction.id,
+					invoiceDate: new Date(),
+					organizationName: organization.name,
+					...billingDetails,
+					lineItems: [
+						{
+							description:
+								fromTier && toTier
+									? `Dev Plan upgrade from ${fromTier.toUpperCase()} to ${toTier.toUpperCase()}`
+									: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+							amount: invoice.amount_paid / 100,
+						},
+					],
+					currency: invoice.currency.toUpperCase(),
+				});
+			} catch (e) {
+				logger.error(
+					"Invoice email failed (DevPass upgrade invoice); suppressing failure",
+					e as Error,
+				);
+			}
+
+			logger.info(
+				`Recorded dev plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
+			);
+		} else {
+			logger.info(
+				`Dev plan upgrade transaction already exists for invoice ${invoice.id}; skipping duplicate insert/email`,
+			);
+		}
 	} else if (isDevPlanSubscription) {
 		// Any other dev-plan invoice (e.g. `manual`, or a `subscription_create`
 		// that somehow wasn't deduped above). Leave credits untouched and do not
@@ -3379,6 +3457,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 
 			// Generate and email invoice
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -3830,6 +3909,7 @@ export async function handleSubscriptionUpdated(
 			if (organization.billingEmail) {
 				await sendTransactionalEmail({
 					to: organization.billingEmail,
+					organizationId: organization.id,
 					subject: "Before you go — could we get your feedback?",
 					html: generateDevPlanCancellationFeedbackEmailHtml(organization.name),
 				});
@@ -4027,6 +4107,7 @@ async function handleSubscriptionDeleted(
 
 		await sendTransactionalEmail({
 			to: organization.billingEmail,
+			organizationId: organization.id,
 			subject: "Your LLMGateway Chat Plan Has Been Cancelled",
 			html: generateSubscriptionCancelledEmailHtml(organization.name),
 		});
@@ -4086,6 +4167,7 @@ async function handleSubscriptionDeleted(
 		// Send dev plan cancelled email
 		await sendTransactionalEmail({
 			to: organization.billingEmail,
+			organizationId: organization.id,
 			subject: "Your LLMGateway Dev Plan Has Been Cancelled",
 			html: generateSubscriptionCancelledEmailHtml(organization.name),
 		});
@@ -4137,6 +4219,7 @@ async function handleSubscriptionDeleted(
 		// Send subscription cancelled email
 		await sendTransactionalEmail({
 			to: organization.billingEmail,
+			organizationId: organization.id,
 			subject: "Your LLMGateway Subscription Has Been Cancelled",
 			html: generateSubscriptionCancelledEmailHtml(organization.name),
 		});

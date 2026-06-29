@@ -1,16 +1,23 @@
 ---
-title: LLM SDK
-description: Configure end-user sessions and platform secret keys for the LLM SDK
+title: Payments SDK
+description: Configure end-user sessions and platform secret keys for the Payments SDK (Embeddable Payments)
 icon: Code
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 import { ThemedImage } from "@/components/themed-image";
 
-The **LLM SDK** settings page lets you embed AI and in-app credit purchases into your own application — your end users get their own wallets, and you control markup and access. You'll find it under **Settings → SDK** for a project.
+The **Payments SDK** settings page lets you embed end-user payments and sessions into your own application — your end users get their own wallets, and you control markup and access. It is a payments feature, not a normal AI client SDK like the OpenAI SDK. You'll find it under **Settings → Payments SDK** for a project.
+
+<Callout type="warn">
+	**Preview — opt-in only.** Embeddable Payments is in preview and enabled on an
+	opt-in basis per project. Until it is turned on for your project, this page is
+	read-only and shows a preview of the settings. [Contact
+	us](mailto:contact@llmgateway.io) to request access.
+</Callout>
 
 <ThemedImage
-	alt="LLM SDK settings showing end-user sessions and platform secret keys"
+	alt="Payments SDK settings showing end-user sessions and platform secret keys"
 	basePath="/learn/sdk-settings"
 />
 
@@ -41,5 +48,5 @@ Each key in the list shows its description, a **test** badge when applicable, it
 
 <Callout type="info">
 	For the full SDK integration guide — server, client, and React components —
-	see the [LLM SDK feature docs](/features/llm-sdk).
+	see the [Embeddable Payments feature docs](/features/embeddable-payments).
 </Callout>

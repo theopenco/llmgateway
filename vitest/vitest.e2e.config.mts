@@ -20,11 +20,7 @@ export default defineConfig({
 		},
 		// Configure parallel execution with pool of 16 threads
 		pool: "threads",
-		poolOptions: {
-			threads: {
-				maxThreads: 16,
-				minThreads: 8,
-			},
-		},
+		maxWorkers: 16,
+		minWorkers: 8,
 	},
 });

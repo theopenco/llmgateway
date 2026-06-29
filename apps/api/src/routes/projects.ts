@@ -28,6 +28,7 @@ const projectSchema = z.object({
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	paymentsSdkEnabled: z.boolean(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
@@ -249,7 +250,18 @@ projects.openapi(updateProject, async (c) => {
 		projectUserOrg?.role === "owner" || projectUserOrg?.role === "admin";
 	if (isUpdatingEndUserSettings && !isAdminOrOwner) {
 		throw new HTTPException(403, {
-			message: "Only organization owners and admins can update SDK settings",
+			message:
+				"Only organization owners and admins can update Payments SDK settings",
+		});
+	}
+
+	// The Payments SDK is a preview feature that must be opted into directly in
+	// the database. Until then the dashboard only renders a preview, so reject
+	// any attempt to enable end-user settings through the API.
+	if (isUpdatingEndUserSettings && !project.paymentsSdkEnabled) {
+		throw new HTTPException(403, {
+			message:
+				"The Payments SDK is currently in preview and opt-in only. Contact us to enable it for your project.",
 		});
 	}
 
