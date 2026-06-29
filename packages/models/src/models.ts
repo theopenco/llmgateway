@@ -25,7 +25,7 @@ import type { providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
-export type Model = (typeof models)[number]["providers"][number]["externalId"];
+export type Model = (typeof models)[number]["id"];
 
 /**
  * Decimal-safe price representation. Always a string so values are preserved

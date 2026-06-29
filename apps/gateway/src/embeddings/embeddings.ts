@@ -228,7 +228,7 @@ function findEmbeddingMapping(modelId: string): {
 			if (requestedProvider && candidate.providerId !== requestedProvider) {
 				continue;
 			}
-			if (model.id === modelKey || candidate.externalId === modelKey) {
+			if (model.id === modelKey) {
 				return {
 					mapping: candidate,
 					modelDef: model,
