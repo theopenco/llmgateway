@@ -1,9 +1,10 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { usePostHog } from "posthog-js/react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { formatCredits } from "@/lib/format-credits";
 import {
 	CHAT_PLAN_CREDITS_MULTIPLIERS,
 	CHAT_PLAN_PRICES,
+	estimateChatPlanMessages,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
 
@@ -22,6 +24,10 @@ interface PlanContent {
 	description: string;
 	tagline: string;
 	popular?: boolean;
+	/** Whether the tier unlocks the frontier flagships (Opus, GPT-5, …). */
+	frontierIncluded: boolean;
+	/** Approx. monthly cost of the separate subscriptions this tier replaces. */
+	replacesSubsUsd?: number;
 	features: string[];
 }
 
@@ -29,24 +35,27 @@ const plans: PlanContent[] = [
 	{
 		name: "Starter",
 		tier: "starter",
-		description: "For occasional, light chat use",
-		tagline: "Get a feel for every model",
+		description: "Everyday chat on fast, capable models",
+		tagline: "All the fast models, one bill",
+		frontierIncluded: false,
 		features: [
-			"Most chat models — Claude Haiku, Sonnet, GPT-5-mini, Gemini Flash, …",
-			"Web-based chat at chat.llmgateway.io",
+			"Claude Sonnet plus fast models like Haiku & Gemini Flash",
+			"Chat, image, video & audio studios",
 			"Real-time usage and per-message cost",
-			"Switch tiers any time — prorated",
+			"Upgrade to frontier models anytime — prorated",
 		],
 	},
 	{
 		name: "Plus",
 		tier: "plus",
-		description: "Just above ChatGPT Plus — but every frontier model",
-		tagline: "The everyday default",
+		description: "Every frontier model in one place",
+		tagline: "Replaces ChatGPT Plus + Claude Pro + Gemini",
 		popular: true,
+		frontierIncluded: true,
+		replacesSubsUsd: 60,
 		features: [
-			"Everything in Starter, plus frontier models",
-			"Claude Opus, GPT-5, Gemini 2.5 Pro, Grok 4 — all included",
+			"Claude Opus, GPT-5, Gemini Pro & Grok 4 — every frontier model",
+			"Chat, image, video & audio studios",
 			"Headroom for long daily sessions",
 			"Email support",
 		],
@@ -54,13 +63,14 @@ const plans: PlanContent[] = [
 	{
 		name: "Pro",
 		tier: "pro",
-		description: "For power users who chat all day",
-		tagline: "Heaviest use, best $/usage",
+		description: "For all-day, heavy use",
+		tagline: "Most usage, best per-dollar rate",
+		frontierIncluded: true,
+		replacesSubsUsd: 60,
 		features: [
-			"Everything in Plus",
-			"The largest monthly credit allowance — 3× value",
+			"Everything in Plus, with the most headroom",
+			"Best 3× credit rate — lowest cost per message",
 			"Priority support",
-			"Best value at high volume",
 		],
 	},
 ];
@@ -69,19 +79,42 @@ function formatUsd(amount: number): string {
 	return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(0)}`;
 }
 
+/** Round to two significant figures and group, e.g. 3015 → "3,000". */
+function formatCount(n: number): string {
+	if (n <= 0) {
+		return "0";
+	}
+	const digits = Math.floor(Math.log10(n)) + 1;
+	const factor = Math.pow(10, Math.max(0, digits - 2));
+	return (Math.round(n / factor) * factor).toLocaleString("en-US");
+}
+
 interface ChatPricingPlansProps {
 	isAuthenticated: boolean;
 	creditsMultipliers?: Record<ChatPlanTier, number>;
+	/** Where the plans are rendered — used for funnel analytics. */
+	viewSource?: "pricing_page" | "paywall";
 }
 
 export function ChatPricingPlans({
 	isAuthenticated,
 	creditsMultipliers = CHAT_PLAN_CREDITS_MULTIPLIERS,
+	viewSource = "pricing_page",
 }: ChatPricingPlansProps) {
 	const router = useRouter();
 	const fetchClient = useFetchClient();
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const posthog = usePostHog();
+
+	const viewedRef = useRef(false);
+	useEffect(() => {
+		if (viewedRef.current) {
+			return;
+		}
+		viewedRef.current = true;
+		posthog.capture("chat_pricing_viewed", { source: viewSource });
+	}, [posthog, viewSource]);
 
 	const statusQuery = useQuery({
 		...api.queryOptions("get", "/chat-plans/status"),
@@ -103,6 +136,12 @@ export function ChatPricingPlans({
 	}
 
 	async function handleSubscribe(tier: ChatPlanTier) {
+		posthog.capture("pricing_plan_clicked", {
+			app: "chat",
+			plan: tier,
+			price: CHAT_PLAN_PRICES[tier],
+			source: viewSource,
+		});
 		if (!isAuthenticated) {
 			router.push(`/login?next=${encodeURIComponent(`/pricing?plan=${tier}`)}`);
 			return;
@@ -129,6 +168,13 @@ export function ChatPricingPlans({
 	}
 
 	async function handleChangeTier(newTier: ChatPlanTier) {
+		posthog.capture("pricing_plan_clicked", {
+			app: "chat",
+			plan: newTier,
+			price: CHAT_PLAN_PRICES[newTier],
+			source: viewSource,
+			action: "change_tier",
+		});
 		setPendingTier(newTier);
 		try {
 			const { error } = await fetchClient.POST("/chat-plans/change-tier", {
@@ -248,6 +294,7 @@ export function ChatPricingPlans({
 					const monthlyPrice = CHAT_PLAN_PRICES[plan.tier];
 					const creditsMultiplier = creditsMultipliers[plan.tier];
 					const usageValue = monthlyPrice * creditsMultiplier;
+					const estimate = estimateChatPlanMessages(usageValue);
 					const isPending = pendingTier === plan.tier;
 					const isCurrent = activeTier === plan.tier;
 					const isChangeTarget = Boolean(activeTier) && !isCurrent;
@@ -289,9 +336,20 @@ export function ChatPricingPlans({
 								</span>
 								<span className="text-muted-foreground">/mo</span>
 							</div>
-							<div className="mb-6 min-h-[20px] text-xs text-muted-foreground">
+							<div className="mb-5 min-h-[20px] text-xs text-muted-foreground">
 								{plan.tagline}
 							</div>
+
+							{plan.replacesSubsUsd && (
+								<div className="mb-5 rounded-xl border border-foreground/15 bg-foreground/[0.04] px-4 py-3 text-sm">
+									<span className="font-semibold text-foreground">
+										Replaces ~${plan.replacesSubsUsd}/mo
+									</span>{" "}
+									<span className="text-muted-foreground">
+										of ChatGPT Plus + Claude Pro + Gemini — for ${monthlyPrice}.
+									</span>
+								</div>
+							)}
 
 							<div className="mb-5 rounded-xl border border-dashed bg-muted/40 p-4">
 								<div className="mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -334,6 +392,33 @@ export function ChatPricingPlans({
 											<span>${monthlyPrice} paid</span>
 											<span>{formatUsd(usageValue)} used</span>
 										</div>
+									</div>
+									<div className="border-t border-dashed pt-2.5 text-xs leading-relaxed text-muted-foreground">
+										{plan.frontierIncluded ? (
+											<>
+												≈{" "}
+												<span className="font-semibold text-foreground tabular-nums">
+													{formatCount(estimate.frontier)}
+												</span>{" "}
+												messages/mo on frontier models —{" "}
+												<span className="font-semibold text-foreground tabular-nums">
+													{formatCount(estimate.fast)}
+												</span>{" "}
+												on fast ones
+											</>
+										) : (
+											<>
+												≈{" "}
+												<span className="font-semibold text-foreground tabular-nums">
+													{formatCount(estimate.fast)}
+												</span>{" "}
+												messages/mo on fast models —{" "}
+												<span className="font-semibold text-foreground tabular-nums">
+													{formatCount(estimate.frontier)}
+												</span>{" "}
+												on Claude Sonnet
+											</>
+										)}
 									</div>
 								</div>
 							</div>
@@ -378,10 +463,21 @@ export function ChatPricingPlans({
 					);
 				})}
 			</div>
-			<p className="mt-6 text-center text-xs text-muted-foreground">
-				Credits reset every billing cycle and don&apos;t roll over.
-				Pay-as-you-go credits stay available — chat plan credits drain first on
-				requests from the chat app.
+
+			<div className="mx-auto mt-8 flex max-w-2xl items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+				<ShieldCheck className="h-4 w-4 shrink-0 text-foreground/70" />
+				<span>
+					<span className="font-medium text-foreground">
+						7-day money-back guarantee.
+					</span>{" "}
+					If you&apos;ve barely used your plan, email us within 7 days for a
+					full refund.
+				</span>
+			</div>
+
+			<p className="mt-4 text-center text-xs text-muted-foreground">
+				Your allowance refills in full every cycle. Pay-as-you-go top-ups never
+				expire and kick in automatically once your plan credits are used.
 			</p>
 		</div>
 	);

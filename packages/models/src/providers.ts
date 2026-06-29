@@ -1281,6 +1281,28 @@ export const providers: ProviderDefinition[] = [
 		dataPolicy: null,
 	},
 	{
+		id: "tundra",
+		name: "Tundra",
+		description: "Tundra is a stealth provider with an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_TUNDRA_API_KEY",
+				baseUrl: "LLM_TUNDRA_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#5b8db8",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.1,
+	},
+	{
 		id: "xiaomi",
 		name: "Xiaomi",
 		description:

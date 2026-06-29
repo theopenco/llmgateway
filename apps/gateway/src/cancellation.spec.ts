@@ -152,4 +152,50 @@ describe("client cancellation logging", () => {
 		expect(log.hasError).toBe(false);
 		expect(log.errorDetails).toBeNull();
 	});
+
+	test("abort while reading the response body is logged as canceled, not an error", async () => {
+		const controller = new AbortController();
+		// Mock returns 200 headers + a partial body, then hangs without
+		// finishing it. The abort lands while the gateway is awaiting
+		// res.json(), exercising the body-read cancellation path.
+		const requestPromise = postChat(
+			`TRIGGER_BODY_HANG ${Math.random()}`,
+			controller.signal,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		controller.abort();
+
+		await expect(requestPromise).rejects.toThrow();
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		const log = logs[0];
+		expect(log.canceled).toBe(true);
+		expect(log.finishReason).toBe("canceled");
+		expect(log.hasError).toBe(false);
+		expect(log.errorDetails).toBeNull();
+	});
+
+	test("abort while reading a non-OK error body is logged as canceled, not an error", async () => {
+		const controller = new AbortController();
+		// Mock returns a 500 status + a partial error body, then hangs without
+		// finishing it. The abort lands while the gateway is awaiting res.text()
+		// on the error path, exercising the error-body cancellation path.
+		const requestPromise = postChat(
+			`TRIGGER_5XX_BODY_HANG ${Math.random()}`,
+			controller.signal,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		controller.abort();
+
+		await expect(requestPromise).rejects.toThrow();
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		const log = logs[0];
+		expect(log.canceled).toBe(true);
+		expect(log.finishReason).toBe("canceled");
+		expect(log.hasError).toBe(false);
+		expect(log.errorDetails).toBeNull();
+	});
 });

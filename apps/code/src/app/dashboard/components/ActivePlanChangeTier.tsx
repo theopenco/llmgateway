@@ -199,11 +199,6 @@ function TierChangeDialog({
 							isLoading={isPreviewLoading}
 							isError={isError}
 						/>
-						<span className="mt-3 block text-center text-[11px] leading-relaxed">
-							Need company/address details on your invoice? Update billing
-							settings before confirming. We email the invoice automatically
-							after payment.
-						</span>
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>

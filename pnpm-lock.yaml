@@ -1523,6 +1523,9 @@ importers:
 
   packages/scripts:
     dependencies:
+      '@llmgateway/actions':
+        specifier: workspace:*
+        version: link:../actions
       '@llmgateway/db':
         specifier: workspace:*
         version: link:../db

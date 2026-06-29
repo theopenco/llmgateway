@@ -632,6 +632,11 @@ export const project = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
+		// Payments SDK (embeddable end-user payments) is a preview feature that is
+		// opt-in only: it can be granted per project directly in the database. When
+		// false, the dashboard shows a read-only preview and the end-user settings
+		// below cannot be enabled through the API.
+		paymentsSdkEnabled: boolean().notNull().default(false),
 		// Embeddable end-user SDK: gates whether this project may mint end-user
 		// sessions / wallets at all.
 		endUserEnabled: boolean().notNull().default(false),

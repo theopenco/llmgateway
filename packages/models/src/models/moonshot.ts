@@ -128,6 +128,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-06-28"),
 			},
 			{
 				providerId: "bytedance",
@@ -143,6 +144,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-06-28"),
 			},
 			{
 				test: "skip",
@@ -186,6 +188,7 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-06-28"),
 			},
 		],
 	},
@@ -393,6 +396,28 @@ export const moonshotModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+			},
+			{
+				providerId: "tundra",
+				externalId: "kimi-k2.6",
+				inputPrice: "0.4e-6",
+				cachedInputPrice: "0.08e-6",
+				outputPrice: "2.2e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 262144,
+				streaming: true,
+				reasoning: true,
+				// The Tundra endpoint is asymmetric: streaming responses
+				// emit thinking in a separate reasoning_content field, but
+				// non-streaming responses inline it into content with no
+				// reasoning_content. Mark reasoning output as omitted so the gateway
+				// keeps streaming content clean (reasoning_content -> reasoning) yet
+				// does not require structured reasoning to be returned.
+				reasoningOutput: "omit",
+				vision: true,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},

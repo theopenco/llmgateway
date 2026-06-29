@@ -177,7 +177,16 @@ app.onError((error, c) => {
 	if (error instanceof HTTPException) {
 		const status = error.status;
 
-		if (status >= 500) {
+		// 502/503/504 are upstream/gateway conditions (e.g. a provider
+		// terminating the connection), not application bugs. They are already
+		// recorded as request logs via insertLog by the chat handler, so log
+		// them at warn level instead of error to avoid alerting noise.
+		if (status === 502 || status === 503 || status === 504) {
+			logger.warn("Upstream gateway error", {
+				status,
+				message: error.message,
+			});
+		} else if (status >= 500) {
 			logger.error("HTTP 500 exception", error);
 		} else {
 			logger.warn("HTTP client error", { status, message: error.message });

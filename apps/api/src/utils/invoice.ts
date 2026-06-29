@@ -24,6 +24,9 @@ export interface InvoiceData {
 	invoiceNumber: string;
 	invoiceDate: Date;
 	organizationName: string;
+	// Organization the invoice belongs to. Used to gate delivery on the owner's
+	// verified email; see sendTransactionalEmail.
+	organizationId: string;
 	billingEmail: string;
 	billingCompany?: string | null;
 	billingAddress?: string | null;
@@ -211,6 +214,7 @@ export async function generateAndEmailInvoice(
 
 		await sendTransactionalEmail({
 			to: data.billingEmail,
+			organizationId: data.organizationId,
 			subject: `Invoice ${escapedInvoiceNumber} - LLMGateway`,
 			attachments: [
 				{

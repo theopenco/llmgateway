@@ -426,7 +426,13 @@ const createPlatformKeySchema = z.object({
 	test: z.boolean().optional().default(false),
 });
 
-async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
+async function assertPlatformKeyAdminAccess(
+	userId: string,
+	projectId: string,
+	{
+		requirePaymentsSdkPreview = false,
+	}: { requirePaymentsSdkPreview?: boolean } = {},
+) {
 	const project = await db.query.project.findFirst({
 		where: {
 			id: { eq: projectId },
@@ -464,6 +470,17 @@ async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
 	if (!project.organization) {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+
+	// The Payments SDK is a preview feature that must be opted into directly in
+	// the database. Minting platform secrets is what lets a project actually use
+	// the SDK, so gate it on the same flag rather than relying on the dashboard
+	// button being disabled.
+	if (requirePaymentsSdkPreview && !project.paymentsSdkEnabled) {
+		throw new HTTPException(403, {
+			message:
+				"The Payments SDK is currently in preview and opt-in only. Contact us to enable it for your project.",
 		});
 	}
 
@@ -583,7 +600,9 @@ keysApi.openapi(createPlatformKey, async (c) => {
 	}
 
 	const { projectId, description, test } = c.req.valid("json");
-	const project = await assertPlatformKeyAdminAccess(user.id, projectId);
+	const project = await assertPlatformKeyAdminAccess(user.id, projectId, {
+		requirePaymentsSdkPreview: true,
+	});
 	const token = `sk_${test ? "test" : "live"}_${shortid(40)}`;
 
 	const [platformKey] = await db

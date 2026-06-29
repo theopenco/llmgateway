@@ -238,6 +238,16 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "tundra":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("tundra", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "inference.net":
 				url = "https://api.inference.net";
 				break;
@@ -660,6 +670,7 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
+		case "tundra":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
