@@ -1193,6 +1193,7 @@ devPlans.openapi(changeTier, async (c) => {
 							invoiceNumber: upgradeTransaction.id,
 							invoiceDate: new Date(),
 							organizationName: personalOrg.name,
+							organizationId: personalOrg.id,
 							...billingDetails,
 							lineItems: [
 								{

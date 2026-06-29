@@ -857,6 +857,7 @@ export async function finalizeDevPlanSetupSession(
 				try {
 					await sendTransactionalEmail({
 						to: notifyEmail,
+						organizationId: organization.id,
 						subject: "DevPass activation failed — card already in use",
 						html: generateDevPlanDuplicateCardEmailHtml(organization.name),
 					});
@@ -1051,6 +1052,7 @@ export async function finalizeDevPlanSetupSession(
 		try {
 			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -1289,6 +1291,7 @@ async function handleCheckoutSessionCompleted(
 
 				try {
 					await generateAndEmailInvoice({
+						organizationId: organization.id,
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
@@ -1412,6 +1415,7 @@ async function handleCheckoutSessionCompleted(
 					const billingDetails =
 						await resolveDevPassBillingDetails(organization);
 					await generateAndEmailInvoice({
+						organizationId: organization.id,
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
@@ -1524,6 +1528,7 @@ async function handleCheckoutSessionCompleted(
 				// Generate and email invoice
 				try {
 					await generateAndEmailInvoice({
+						organizationId: organization.id,
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
@@ -1784,6 +1789,7 @@ async function recordCreditTopUp({
 
 	try {
 		await generateAndEmailInvoice({
+			organizationId,
 			invoiceNumber: completedTransaction.id,
 			invoiceDate: new Date(),
 			organizationName: organization.name,
@@ -2369,6 +2375,7 @@ async function handlePaymentIntentSucceeded(
 
 		try {
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: completedTransactionId,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -2608,6 +2615,7 @@ export async function handlePaymentIntentFailed(
 		try {
 			await sendTransactionalEmail({
 				to: organization.billingEmail,
+				organizationId: organization.id,
 				subject: "Payment Failed - Action Required",
 				html: generatePaymentFailureEmailHtml(organization.name, {
 					errorMessage,
@@ -3111,6 +3119,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 		try {
 			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -3244,6 +3253,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 		try {
 			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: renewalTransaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -3370,6 +3380,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			try {
 				const billingDetails = await resolveDevPassBillingDetails(organization);
 				await generateAndEmailInvoice({
+					organizationId: organization.id,
 					invoiceNumber: upgradeTransaction.id,
 					invoiceDate: new Date(),
 					organizationName: organization.name,
@@ -3446,6 +3457,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 
 			// Generate and email invoice
 			await generateAndEmailInvoice({
+				organizationId: organization.id,
 				invoiceNumber: transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
@@ -3897,6 +3909,7 @@ export async function handleSubscriptionUpdated(
 			if (organization.billingEmail) {
 				await sendTransactionalEmail({
 					to: organization.billingEmail,
+					organizationId: organization.id,
 					subject: "Before you go — could we get your feedback?",
 					html: generateDevPlanCancellationFeedbackEmailHtml(organization.name),
 				});
@@ -4094,6 +4107,7 @@ async function handleSubscriptionDeleted(
 
 		await sendTransactionalEmail({
 			to: organization.billingEmail,
+			organizationId: organization.id,
 			subject: "Your LLMGateway Chat Plan Has Been Cancelled",
 			html: generateSubscriptionCancelledEmailHtml(organization.name),
 		});
@@ -4153,6 +4167,7 @@ async function handleSubscriptionDeleted(
 		// Send dev plan cancelled email
 		await sendTransactionalEmail({
 			to: organization.billingEmail,
+			organizationId: organization.id,
 			subject: "Your LLMGateway Dev Plan Has Been Cancelled",
 			html: generateSubscriptionCancelledEmailHtml(organization.name),
 		});
@@ -4204,6 +4219,7 @@ async function handleSubscriptionDeleted(
 		// Send subscription cancelled email
 		await sendTransactionalEmail({
 			to: organization.billingEmail,
+			organizationId: organization.id,
 			subject: "Your LLMGateway Subscription Has Been Cancelled",
 			html: generateSubscriptionCancelledEmailHtml(organization.name),
 		});
