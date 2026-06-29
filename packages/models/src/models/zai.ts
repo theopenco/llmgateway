@@ -319,7 +319,6 @@ export const zaiModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "zai-org/glm-5-maas",
-				region: "global",
 				inputPrice: "1e-6",
 				cachedInputPrice: "0.1e-6",
 				outputPrice: "3.2e-6",
@@ -731,7 +730,6 @@ export const zaiModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "zai-org/glm-4.7-maas",
-				region: "global",
 				inputPrice: "0.6e-6",
 				outputPrice: "2.2e-6",
 				requestPrice: "0",

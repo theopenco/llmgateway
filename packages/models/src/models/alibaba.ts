@@ -514,7 +514,6 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-235b-a22b-instruct-2507-maas",
-				region: "global",
 				inputPrice: "0.22e-6",
 				outputPrice: "0.88e-6",
 				requestPrice: "0",
@@ -915,7 +914,6 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct-maas",
-				region: "us-south1",
 				inputPrice: "0.22e-6",
 				cachedInputPrice: "0.022e-6",
 				outputPrice: "1.8e-6",
@@ -1171,7 +1169,6 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking-maas",
-				region: "global",
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -1234,7 +1231,6 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-instruct-maas",
-				region: "global",
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
