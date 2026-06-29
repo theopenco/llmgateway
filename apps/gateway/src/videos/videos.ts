@@ -586,7 +586,6 @@ const getVideoLogContent = createRoute({
 });
 
 type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
-type LogRecord = InferSelectModel<typeof tables.log>;
 
 interface RequestContext {
 	apiKey: GatewayApiKey;
@@ -2390,64 +2389,33 @@ async function requireVideoJobForProject(
 	return job;
 }
 
-async function requireVideoLogById(logId: string): Promise<LogRecord> {
-	const log = await db
-		.select()
-		.from(tables.log)
-		.where(eq(tables.log.id, logId))
-		.limit(1)
-		.then((rows) => rows[0]);
-
-	if (!log) {
-		throw new HTTPException(404, {
-			message: "Video log not found",
-		});
-	}
-
-	return log;
-}
-
-function getDirectVideoContentUrlFromLog(log: LogRecord): string | null {
+function getDirectVideoContentUrlFromJob(job: VideoJobRecord): string | null {
 	const upstreamResponse =
-		log.upstreamResponse && typeof log.upstreamResponse === "object"
-			? (log.upstreamResponse as Record<string, unknown>)
+		job.upstreamStatusResponse && typeof job.upstreamStatusResponse === "object"
+			? (job.upstreamStatusResponse as Record<string, unknown>)
 			: null;
-	if (upstreamResponse) {
-		const upstreamUrl = extractContentUrl(upstreamResponse);
-		if (upstreamUrl) {
-			return upstreamUrl;
-		}
-	}
-
-	if (
-		typeof log.content === "string" &&
-		log.content.startsWith("http") &&
-		!/\/v1\/videos\/logs\/[^/]+\/content(?:\?.*)?$/.test(log.content)
-	) {
-		return log.content;
-	}
-
-	return null;
+	return upstreamResponse ? extractContentUrl(upstreamResponse) : null;
 }
 
-async function getVideoSourceUrlFromCacheOrLog(
-	log: LogRecord,
+async function getVideoSourceUrlFromCacheOrJob(
+	logId: string,
+	job: VideoJobRecord,
 ): Promise<string | null> {
 	try {
-		const cachedUrl = await redisClient.get(getVideoProxyRedisKey(log.id));
+		const cachedUrl = await redisClient.get(getVideoProxyRedisKey(logId));
 		if (cachedUrl) {
 			return cachedUrl;
 		}
 	} catch (error) {
 		logger.warn("Failed to read video proxy source URL from cache", {
-			logId: log.id,
+			logId,
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}
 
-	const sourceUrl = getDirectVideoContentUrlFromLog(log);
+	const sourceUrl = getDirectVideoContentUrlFromJob(job);
 	if (sourceUrl) {
-		await cacheVideoProxySourceUrl(log.id, sourceUrl);
+		await cacheVideoProxySourceUrl(logId, sourceUrl);
 	}
 
 	return sourceUrl;
@@ -4774,25 +4742,26 @@ videos.openapi(getVideoLogContent, async (c) => {
 		});
 	}
 
-	const log = await requireVideoLogById(logId);
-
-	const directSourceUrl = await getVideoSourceUrlFromCacheOrLog(log);
-	if (directSourceUrl) {
-		const response = await streamVideoFromUrl(directSourceUrl);
-		await markVideoDownloaded(log.id);
-		return response;
-	}
-
 	const videoJob = await db
 		.select()
 		.from(tables.videoJob)
-		.where(eq(tables.videoJob.logId, log.id))
+		.where(eq(tables.videoJob.logId, logId))
 		.limit(1)
 		.then((rows) => rows[0]);
 	if (!videoJob) {
 		throw new HTTPException(404, {
 			message: "Video content is not available",
 		});
+	}
+
+	const directSourceUrl = await getVideoSourceUrlFromCacheOrJob(
+		logId,
+		videoJob,
+	);
+	if (directSourceUrl) {
+		const response = await streamVideoFromUrl(directSourceUrl);
+		await markVideoDownloaded(logId);
+		return response;
 	}
 
 	if (videoJob.storageUri) {
@@ -4804,18 +4773,17 @@ videos.openapi(getVideoLogContent, async (c) => {
 		}
 
 		const response = await streamVideoFromUrl(signedUrl, videoJob.contentType);
-		await markVideoDownloaded(log.id);
+		await markVideoDownloaded(logId);
 		return response;
 	}
 
 	if (shouldProxyDirectUpstreamVideoContent(videoJob)) {
 		const response = await streamDirectUpstreamVideoContent(videoJob);
-		await markVideoDownloaded(log.id);
+		await markVideoDownloaded(logId);
 		return response;
 	}
 
 	const inlineVideo = getInlineGoogleVertexVideoFromBodies([
-		log.upstreamResponse,
 		videoJob.upstreamStatusResponse,
 		videoJob.upstreamCreateResponse,
 	]);
@@ -4825,7 +4793,7 @@ videos.openapi(getVideoLogContent, async (c) => {
 		});
 	}
 
-	await markVideoDownloaded(log.id);
+	await markVideoDownloaded(logId);
 	return new Response(
 		Uint8Array.from(Buffer.from(inlineVideo.bytesBase64Encoded, "base64")),
 		{
