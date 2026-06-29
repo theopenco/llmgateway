@@ -44,8 +44,6 @@ export function findArenaMatch(
 			"claude-sonnet-4-6-20250520",
 		],
 		"claude-opus-4-6-20250605": ["claude-opus-4-6", "claude-opus-4-6-20250605"],
-		"claude-opus-4-8": ["claude-opus-4-8", "claude-opus-4-8-thinking"],
-		"claude-opus-4-7": ["claude-opus-4-7", "claude-opus-4-7-thinking"],
 		"claude-opus-4-5-20251101": ["claude-opus-4-5-20251101"],
 		"claude-sonnet-4-5-20250929": ["claude-sonnet-4-5-20250929"],
 		"claude-haiku-4-5-20251001": ["claude-haiku-4-5-20251001"],
@@ -75,7 +73,6 @@ export function findArenaMatch(
 		"o1-mini": ["o1-mini"],
 		"o1-preview": ["o1-preview"],
 		// Gemini models
-		"gemini-3.5-flash": ["gemini-3.5-flash"],
 		"gemini-2.5-pro": ["gemini-2.5-pro"],
 		"gemini-2.5-flash": ["gemini-2.5-flash"],
 		"gemini-2.0-flash": ["gemini-2.0-flash-001"],
@@ -93,20 +90,12 @@ export function findArenaMatch(
 		"mistral-large-latest": ["mistral-large-3"],
 		"mistral-small-latest": ["mistral-small-2501"],
 		// Qwen models
-		"qwen3.7-max": ["qwen3.7-max"],
-		"qwen3.7-plus": ["qwen3.7-plus"],
 		"qwen-max": ["qwen3-max-preview", "qwen3-max-2025-09-23"],
 		"qwen-plus": ["qwen3-235b-a22b-instruct-2507"],
 		"qwen-turbo": ["qwen3.5-flash"],
 		// Grok models
 		"grok-3": ["grok-3-preview-02-24"],
 		"grok-3-mini": ["grok-3-mini-preview"],
-		// GLM (Z.AI) models
-		"glm-5.2": ["glm-5.2"],
-		"glm-5.1": ["glm-5.1"],
-		// Kimi (Moonshot) models
-		"kimi-k2.6": ["kimi-k2.6", "kimi-k2.6-thinking"],
-		"kimi-k2.5": ["kimi-k2.5", "kimi-k2.5-thinking"],
 	};
 
 	// Check mapped names
