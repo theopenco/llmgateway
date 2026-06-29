@@ -3,9 +3,16 @@ import { EventEmitter } from "node:events";
 import { Hono } from "hono";
 import { afterEach, describe, expect, test } from "vitest";
 
+import { gatewayRequestsShedTotal } from "@llmgateway/instrumentation";
+
 import { backpressureMiddleware } from "./backpressure.js";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+async function shedCount(): Promise<number> {
+	const metric = await gatewayRequestsShedTotal.get();
+	return metric.values[0]?.value ?? 0;
+}
 
 describe("backpressure middleware", () => {
 	afterEach(() => {
@@ -29,6 +36,8 @@ describe("backpressure middleware", () => {
 		const o1 = outgoing();
 		const o2 = outgoing();
 
+		const shedBefore = await shedCount();
+
 		const r1 = app.request("/slow", {}, { outgoing: o1 });
 		const r2 = app.request("/slow", {}, { outgoing: o2 });
 		await tick();
@@ -38,6 +47,7 @@ describe("backpressure middleware", () => {
 		const res3 = await app.request("/slow", {}, { outgoing: outgoing() });
 		expect(res3.status).toBe(529);
 		expect(res3.headers.get("Retry-After")).toBe("1");
+		expect(await shedCount()).toBe(shedBefore + 1);
 
 		// Health stays exempt so the pod keeps passing readiness while shedding.
 		const resHealth = await app.request("/", {}, { outgoing: outgoing() });

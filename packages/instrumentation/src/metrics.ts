@@ -75,6 +75,15 @@ export const gatewayInflightRequests = new Gauge({
 	registers: [metricsRegistry],
 });
 
+// Counter for requests shed by the backpressure middleware (HTTP 529) once the
+// in-flight cap is reached. Lets us alert on dropped traffic and see how often
+// pods hit the cap, rather than inferring it from the gauge riding the limit.
+export const gatewayRequestsShedTotal = new Counter({
+	name: "gateway_requests_shed_total",
+	help: "Total number of requests shed with HTTP 529 due to the in-flight cap",
+	registers: [metricsRegistry],
+});
+
 export interface ChatCompletionMetrics {
 	model: string;
 	provider: string;

@@ -128,6 +128,7 @@ export {
 	tokenUsage,
 	requestsInFlight,
 	gatewayInflightRequests,
+	gatewayRequestsShedTotal,
 	recordChatCompletionMetrics,
 	recordRequestStarted,
 	recordRequestCompleted,

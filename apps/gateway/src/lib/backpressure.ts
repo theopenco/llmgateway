@@ -1,4 +1,7 @@
-import { gatewayInflightRequests } from "@llmgateway/instrumentation";
+import {
+	gatewayInflightRequests,
+	gatewayRequestsShedTotal,
+} from "@llmgateway/instrumentation";
 
 import { renderGatewayError } from "./error-response.js";
 
@@ -39,6 +42,7 @@ export const backpressureMiddleware: MiddlewareHandler<ServerTypes> = async (
 	}
 
 	if (inFlight >= getMaxInflight()) {
+		gatewayRequestsShedTotal.inc();
 		c.header("Retry-After", "1");
 		return renderGatewayError(c, 529, "Gateway overloaded, please retry");
 	}
