@@ -65,9 +65,9 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "quartz":
 			return requestIdHeader;
-		case "google-vertex":
-		case "quartz": {
+		case "google-vertex": {
 			const vertexHeaders: Record<string, string> = { ...requestIdHeader };
 			const tokenType =
 				options?.tokenType ??
@@ -94,8 +94,8 @@ export function getProviderHeaders(
 			// shared tier, so we bypass PT unconditionally (no-op on projects
 			// without PT).
 			if (
-				provider === "google-vertex" &&
-				(options?.serviceTier === "flex" || options?.serviceTier === "priority")
+				options?.serviceTier === "flex" ||
+				options?.serviceTier === "priority"
 			) {
 				vertexHeaders["X-Vertex-AI-LLM-Request-Type"] = "shared";
 				vertexHeaders["X-Vertex-AI-LLM-Shared-Request-Type"] =

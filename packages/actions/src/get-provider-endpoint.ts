@@ -61,14 +61,18 @@ function buildVertexCompatibleEndpoint(
 		);
 	}
 
+	// Only Google Vertex supports OAuth bearer auth; Quartz always uses the
+	// `?key=` API-key query param.
 	const tokenType =
-		vertexTokenType ??
-		resolveVertexTokenType(
-			provider,
-			providerKeyOptions,
-			configIndex,
-			skipEnvVars,
-		);
+		provider === "google-vertex"
+			? (vertexTokenType ??
+				resolveVertexTokenType(
+					provider,
+					providerKeyOptions,
+					configIndex,
+					skipEnvVars,
+				))
+			: "api-key";
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 	const queryParams = [];
 	if (token && tokenType === "api-key") {

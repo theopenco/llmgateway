@@ -478,7 +478,6 @@ export const providers: ProviderDefinition[] = [
 			},
 			optional: {
 				region: "LLM_QUARTZ_REGION",
-				tokenType: "LLM_QUARTZ_TOKEN_TYPE",
 			},
 		},
 		streaming: true,

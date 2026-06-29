@@ -221,13 +221,6 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
-		if (selectedProvider === "quartz") {
-			payload.options = {
-				...payload.options,
-				quartz_token_type: vertexTokenType,
-			};
-		}
-
 		setIsValidating(true);
 		toast({ title: "Validating API Key", description: "Please wait..." });
 
@@ -513,8 +506,7 @@ export function CreateProviderKeyDialog({
 						</div>
 					)}
 
-					{(selectedProvider === "google-vertex" ||
-						selectedProvider === "quartz") && (
+					{selectedProvider === "google-vertex" && (
 						<div className="space-y-2">
 							<Label htmlFor="vertex-token-type">Token Type</Label>
 							<Select

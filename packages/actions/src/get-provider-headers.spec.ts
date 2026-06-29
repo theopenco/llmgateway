@@ -3,19 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getProviderHeaders } from "./get-provider-headers.js";
 
 const originalVertexTokenType = process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
-const originalQuartzTokenType = process.env.LLM_QUARTZ_TOKEN_TYPE;
 
 afterEach(() => {
 	if (originalVertexTokenType === undefined) {
 		delete process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
 	} else {
 		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = originalVertexTokenType;
-	}
-
-	if (originalQuartzTokenType === undefined) {
-		delete process.env.LLM_QUARTZ_TOKEN_TYPE;
-	} else {
-		process.env.LLM_QUARTZ_TOKEN_TYPE = originalQuartzTokenType;
 	}
 });
 
@@ -95,16 +88,9 @@ describe("getProviderHeaders", () => {
 	});
 
 	describe("quartz", () => {
-		it("returns no auth header by default (api-key mode)", () => {
+		it("never sends an Authorization header (api-key only, no OAuth)", () => {
 			expect(getProviderHeaders("quartz", "quartz-api-key")).toEqual({});
-		});
-
-		it("uses Bearer when the provider key is configured for oauth", () => {
-			expect(
-				getProviderHeaders("quartz", "ya29.quartz-oauth", {
-					providerKeyOptions: { quartz_token_type: "oauth" },
-				}),
-			).toEqual({ Authorization: "Bearer ya29.quartz-oauth" });
+			expect(getProviderHeaders("quartz", "ya29.looks-like-oauth")).toEqual({});
 		});
 	});
 });

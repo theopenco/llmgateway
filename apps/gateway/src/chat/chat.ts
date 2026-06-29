@@ -5163,7 +5163,7 @@ chat.openapi(completions, async (c) => {
 			: undefined;
 	const upstreamModelName = azureDeploymentName || usedExternalId;
 
-	// Resolve the Vertex/Quartz token type from the live request state so the
+	// Resolve the Google Vertex token type from the live request state so the
 	// endpoint (`?key=` query param) and the headers (`Authorization: Bearer`)
 	// always agree. Reads the current `let`s so it stays correct across retries
 	// that mutate provider/key/configIndex via applyContext.
@@ -5174,7 +5174,7 @@ chat.openapi(completions, async (c) => {
 	// apply and env-based resolution should win. Hence we gate on
 	// `trackedKeyHealthId`, not `providerKey`.
 	function resolveActiveVertexTokenType(): VertexTokenType | undefined {
-		if (usedProvider !== "google-vertex" && usedProvider !== "quartz") {
+		if (usedProvider !== "google-vertex") {
 			return undefined;
 		}
 		const dbKeyIsActiveCredential = trackedKeyHealthId !== undefined;

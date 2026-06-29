@@ -623,7 +623,7 @@ function resolveVideoVertexTokenType(
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined,
 	configIndex: number | null,
 ): VertexTokenType | undefined {
-	if (providerId !== "google-vertex" && providerId !== "quartz") {
+	if (providerId !== "google-vertex") {
 		return undefined;
 	}
 	return providerKey
