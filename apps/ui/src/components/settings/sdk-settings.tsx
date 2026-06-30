@@ -263,8 +263,14 @@ export function SdkSettings({
 						pay per request through LLM Gateway. It is a payments feature, not
 						an AI client SDK like the OpenAI SDK. This feature is currently in
 						preview and enabled on an opt-in basis. The settings below are
-						read-only until it is enabled for your project — contact us to get
-						access.
+						read-only until it is enabled for your project — contact us at{" "}
+						<a
+							href="mailto:contact@llmgateway.io"
+							className="font-medium underline underline-offset-2"
+						>
+							contact@llmgateway.io
+						</a>{" "}
+						to get access.
 					</p>
 				</div>
 			)}

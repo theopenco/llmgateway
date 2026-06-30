@@ -14,6 +14,7 @@
 		"generate-test-logs": "tsx src/generate-test-logs.ts",
 		"model-release-dates": "tsx src/model-release-dates.ts",
 		"send": "tsx src/send.ts",
+		"send-devpass": "tsx src/send-devpass.ts",
 		"stripe-earnings": "tsx src/stripe-earnings.ts",
 		"traffic-report": "tsx src/traffic-report.ts",
 		"test-gemini-tools-complex": "tsx src/test-gemini-tools-complex.ts",
