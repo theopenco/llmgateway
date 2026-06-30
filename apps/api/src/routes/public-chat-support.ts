@@ -629,9 +629,11 @@ publicChatSupport.post("/resolve", async (c) => {
 
 publicChatSupport.post("/escalate", async (c) => {
 	const ipAddress = extractClientIP(c) ?? "unknown";
+	// Throttle escalation on its own bucket — never the message bucket — so a
+	// visitor who has used up their hourly message quota can still reach a human.
 	const canSubmit = await checkRateLimit(
 		ipAddress,
-		"hour",
+		"escalate",
 		RATE_LIMIT_MAX,
 		RATE_LIMIT_WINDOW_SECONDS,
 	);
