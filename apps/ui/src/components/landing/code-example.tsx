@@ -240,6 +240,7 @@ function tokenStyle(token: ThemedToken): CSSProperties {
 }
 
 interface Highlighted {
+	key: string;
 	tokens: ThemedToken[][];
 	bg: string;
 	fg: string;
@@ -253,10 +254,15 @@ export function CodeExample() {
 	const [highlighted, setHighlighted] = useState<Highlighted | null>(null);
 
 	const currentExample = codeExamples[activeTab];
+	const theme = resolvedTheme === "dark" ? "dracula" : "github-light";
+	const highlightKey = `${activeTab}:${theme}`;
+	// Only use highlighted output that matches the current snippet + theme;
+	// otherwise fall back to raw code so a stale snippet is never rendered.
+	const activeHighlight =
+		highlighted?.key === highlightKey ? highlighted : null;
 
 	useEffect(() => {
 		let cancelled = false;
-		const theme = resolvedTheme === "dark" ? "dracula" : "github-light";
 
 		async function highlight() {
 			try {
@@ -269,12 +275,16 @@ export function CodeExample() {
 					theme,
 				});
 				setHighlighted({
+					key: highlightKey,
 					tokens: result.tokens,
 					bg: result.bg ?? "transparent",
 					fg: result.fg ?? "inherit",
 				});
 			} catch (error) {
 				console.error("Failed to highlight code:", error);
+				if (!cancelled) {
+					setHighlighted(null);
+				}
 			}
 		}
 
@@ -283,7 +293,7 @@ export function CodeExample() {
 		return () => {
 			cancelled = true;
 		};
-	}, [currentExample.code, currentExample.language, resolvedTheme]);
+	}, [currentExample.code, currentExample.language, theme, highlightKey]);
 
 	const copyToClipboard = async (text: string, language: string) => {
 		try {
@@ -421,20 +431,22 @@ export function CodeExample() {
 								<pre
 									className="p-6 overflow-x-auto text-sm leading-relaxed font-mono max-h-96 overflow-y-auto"
 									style={{
-										backgroundColor: highlighted?.bg,
-										color: highlighted?.fg,
+										backgroundColor: activeHighlight?.bg,
+										color: activeHighlight?.fg,
 									}}
 								>
 									<code>
-										{highlighted
-											? highlighted.tokens.map((line, i) => (
+										{activeHighlight
+											? activeHighlight.tokens.map((line, i) => (
 													<Fragment key={i}>
 														{line.map((token, key) => (
 															<span key={key} style={tokenStyle(token)}>
 																{token.content}
 															</span>
 														))}
-														{i < highlighted.tokens.length - 1 ? "\n" : null}
+														{i < activeHighlight.tokens.length - 1
+															? "\n"
+															: null}
 													</Fragment>
 												))
 											: currentExample.code}
