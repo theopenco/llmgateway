@@ -81,6 +81,7 @@ import {
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import { startSseKeepalive } from "@/lib/sse-keepalive.js";
 import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
@@ -6338,18 +6339,11 @@ chat.openapi(completions, async (c) => {
 				}> = [];
 				const streamStartTime = Date.now();
 
-				// SSE keepalive to prevent proxy/load balancer timeouts.
-				// Sends a single-newline comment (no trailing blank line) so buggy
-				// SSE parsers (e.g. openai-python <=2.37.0, openai/openai-python#2722)
-				// don't dispatch an empty-data event from a `\n\n` sequence when
-				// last_event_id is already set.
-				const KEEPALIVE_INTERVAL_MS = 15000;
-				const keepaliveInterval = setInterval(() => {
-					stream.write(": ping\n").catch(() => {
-						// Stream likely closed, cleanup will happen via abort handler or finally
-					});
-				}, KEEPALIVE_INTERVAL_MS);
-				const clearKeepalive = () => clearInterval(keepaliveInterval);
+				// SSE keepalive to prevent proxy/load balancer/client idle-read
+				// timeouts from resetting the socket while the upstream is still
+				// "thinking". Pings immediately (so a slow first token doesn't leave
+				// the connection silent for a full interval) and then periodically.
+				const clearKeepalive = startSseKeepalive(stream);
 
 				// Timing tracking variables
 				let timeToFirstToken: number | null = null;
