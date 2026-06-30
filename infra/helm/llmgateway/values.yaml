@@ -132,6 +132,15 @@ gateway:
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
+  # Seconds the kubelet waits after SIGTERM before SIGKILL. This MUST be at least
+  # shutdownGracePeriodMs/1000 (+ preStopSleepSeconds) so the gateway can drain
+  # in-flight streams instead of having them hard-killed mid-flight on every
+  # rollout/scale-down (which surfaces to clients as "the socket connection was
+  # closed unexpectedly"). Leave empty to derive it from those values.
+  terminationGracePeriodSeconds: ""
+  # preStop sleep so the endpoints controller can deregister the pod (stop
+  # routing new traffic) before the process starts shutting down.
+  preStopSleepSeconds: 5
   extraEnv: []
   nodeSelector: {}
   tolerations: []

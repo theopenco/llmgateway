@@ -48,6 +48,12 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
+          {{- if gt (int (.Values.gateway.preStopSleepSeconds | default 0)) 0 }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", {{ .Values.gateway.preStopSleepSeconds | quote }}]
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "llmgateway.configMapName" . }}
@@ -75,7 +81,12 @@ spec:
             failureThreshold: 3
           resources:
             {{- toYaml .Values.gateway.resources | nindent 12 }}
-      terminationGracePeriodSeconds: 120
+      # terminationGracePeriodSeconds must outlast the app's own drain
+      # (shutdownGracePeriodMs) plus the preStop sleep, otherwise the kubelet
+      # SIGKILLs the pod while streams are still draining and clients see "the
+      # socket connection was closed unexpectedly". Derived from those values
+      # unless gateway.terminationGracePeriodSeconds is set explicitly.
+      terminationGracePeriodSeconds: {{ .Values.gateway.terminationGracePeriodSeconds | default (add (div (int .Values.gateway.config.shutdownGracePeriodMs) 1000) (int (.Values.gateway.preStopSleepSeconds | default 0)) 30) }}
       {{- with .Values.gateway.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
