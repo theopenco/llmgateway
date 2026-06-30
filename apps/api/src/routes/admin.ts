@@ -8439,6 +8439,8 @@ const chatSupportConversationDetailSchema = z.object({
 	archivedAt: z.string().nullable(),
 	resolvedAt: z.string().nullable(),
 	rating: z.number().int().min(0).max(5).nullable(),
+	organizationId: z.string().nullable(),
+	organizationName: z.string().nullable(),
 	messages: z.array(chatSupportMessageSchema),
 });
 
@@ -8735,6 +8737,38 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		.where(eq(mt.conversationId, id))
 		.orderBy(asc(mt.sequence));
 
+	// Best-effort link to the visitor's organization so admins can jump straight
+	// to their account. Matched by email; owners are preferred when a visitor
+	// belongs to more than one org.
+	let organizationId: string | null = null;
+	let organizationName: string | null = null;
+	if (conversation.email) {
+		const orgRows = await db
+			.select({
+				id: tables.organization.id,
+				name: tables.organization.name,
+			})
+			.from(tables.user)
+			.innerJoin(
+				tables.userOrganization,
+				eq(tables.userOrganization.userId, tables.user.id),
+			)
+			.innerJoin(
+				tables.organization,
+				eq(tables.organization.id, tables.userOrganization.organizationId),
+			)
+			.where(sql`LOWER(${tables.user.email}) = LOWER(${conversation.email})`)
+			.orderBy(
+				sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
+				asc(tables.userOrganization.createdAt),
+			)
+			.limit(1);
+		if (orgRows[0]) {
+			organizationId = orgRows[0].id;
+			organizationName = orgRows[0].name;
+		}
+	}
+
 	return c.json({
 		...conversation,
 		createdAt: conversation.createdAt.toISOString(),
@@ -8743,6 +8777,8 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
 		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
 		rating: conversation.rating ?? null,
+		organizationId,
+		organizationName,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),
