@@ -250,6 +250,11 @@ export const organization = pgTable(
 		devPlanCreditsFrozen: boolean().notNull().default(false),
 		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
+		// Stripe current_period_start of the cycle in which the last tier change
+		// was claimed. A tier change atomically advances this to the current cycle
+		// start only if it hasn't been claimed yet, enforcing one change per cycle
+		// without a read-then-write race.
+		devPlanLastTierChangeCycleStart: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
 		devPlanExpiresAt: timestamp(),

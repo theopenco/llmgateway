@@ -9,7 +9,18 @@ import { generateAndEmailInvoice } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { cdb, db, tables, eq, sql, shortid } from "@llmgateway/db";
+import {
+	cdb,
+	db,
+	tables,
+	eq,
+	sql,
+	and,
+	or,
+	lt,
+	isNull,
+	shortid,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
@@ -1040,6 +1051,11 @@ devPlans.openapi(changeTier, async (c) => {
 
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
 
+	// Tracks whether this request won the atomic per-cycle claim, so a failure
+	// after the claim can release it (a declined charge shouldn't burn the user's
+	// one change for the cycle).
+	let claimedCycleThisCall = false;
+
 	try {
 		const subscription =
 			await getStripe().subscriptions.retrieve(subscriptionId);
@@ -1067,24 +1083,35 @@ devPlans.openapi(changeTier, async (c) => {
 
 		// Allow only one tier change per billing cycle. Repeatedly downgrading and
 		// re-upgrading within a cycle re-charges the user for a tier they still
-		// effectively hold and churns the prorated credit accounting. The Stripe
-		// period start is the authoritative cycle boundary — it stays stable across
-		// mid-cycle price swaps (proration is suppressed), so any prior tier-change
-		// transaction since then means a change already happened this cycle.
+		// effectively hold and churns the prorated credit accounting. Claim the
+		// cycle atomically *before* any Stripe call: a single conditional UPDATE
+		// advances the marker to this cycle's Stripe period start only if it hasn't
+		// been claimed yet (NULL or an earlier cycle). Anchoring to the Stripe
+		// period (stable across mid-cycle price swaps, since proration is
+		// suppressed) — rather than a transaction row's createdAt — both avoids a
+		// read-then-write race between concurrent requests and prevents
+		// misattributing a change near a renewal boundary to the wrong cycle.
 		const cycleStart = new Date(subscriptionItem.current_period_start * 1000);
-		const priorChangeThisCycle = await db.query.transaction.findFirst({
-			where: {
-				organizationId: { eq: personalOrg.id },
-				type: { in: ["dev_plan_upgrade", "dev_plan_downgrade"] },
-				createdAt: { gte: cycleStart },
-			},
-		});
-		if (priorChangeThisCycle) {
+		const claimed = await db
+			.update(tables.organization)
+			.set({ devPlanLastTierChangeCycleStart: cycleStart })
+			.where(
+				and(
+					eq(tables.organization.id, personalOrg.id),
+					or(
+						isNull(tables.organization.devPlanLastTierChangeCycleStart),
+						lt(tables.organization.devPlanLastTierChangeCycleStart, cycleStart),
+					),
+				),
+			)
+			.returning({ id: tables.organization.id });
+		if (claimed.length === 0) {
 			throw new HTTPException(409, {
 				message:
 					"You can only change your plan once per billing cycle. Your next change takes effect at renewal.",
 			});
 		}
+		claimedCycleThisCall = true;
 
 		const remainingFraction =
 			getRemainingBillingPeriodFraction(subscriptionItem);
@@ -1294,6 +1321,27 @@ devPlans.openapi(changeTier, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		// Release the per-cycle claim if we won it but the change didn't complete,
+		// so a transient failure (e.g. a declined upgrade charge) doesn't lock the
+		// user out of changing tiers until renewal. Restores the prior marker value
+		// read before the claim.
+		if (claimedCycleThisCall) {
+			await db
+				.update(tables.organization)
+				.set({
+					devPlanLastTierChangeCycleStart:
+						personalOrg.devPlanLastTierChangeCycleStart,
+				})
+				.where(eq(tables.organization.id, personalOrg.id))
+				.catch((rollbackError) => {
+					logger.error(
+						"Failed to release dev plan tier-change cycle claim after error",
+						rollbackError instanceof Error
+							? rollbackError
+							: new Error(String(rollbackError)),
+					);
+				});
+		}
 		if (error instanceof HTTPException) {
 			throw error;
 		}

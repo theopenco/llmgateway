@@ -176,6 +176,13 @@ describe("dev plan tier changes", () => {
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
 		expect(stripeMock.invoices.create).not.toHaveBeenCalled();
+
+		// The per-cycle claim is released when the change aborts before Stripe, so
+		// the user isn't locked out of retrying this cycle.
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
 	});
 
 	it("charges and grants prorated upgrade deltas while preserving usage", async () => {
@@ -402,14 +409,14 @@ describe("dev plan tier changes", () => {
 	});
 
 	it("rejects a second tier change within the same billing cycle", async () => {
-		// A tier change already happened this cycle (e.g. a downgrade), so
-		// re-upgrading must be blocked before any Stripe charge.
-		await db.insert(tables.transaction).values({
-			organizationId: ORG_ID,
-			type: "dev_plan_downgrade",
-			status: "completed",
-			description: "Changed from pro to lite plan",
-		});
+		// A tier change was already claimed for this cycle (marker at the cycle's
+		// Stripe period start), so another change must be blocked before any Stripe
+		// call. current_period_start below is nowSeconds - 500.
+		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
+		await db
+			.update(tables.organization)
+			.set({ devPlanLastTierChangeCycleStart: claimedCycleStart })
+			.where(eq(tables.organization.id, ORG_ID));
 
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
@@ -454,5 +461,9 @@ describe("dev plan tier changes", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlan).toBe("lite");
+		// A rejected attempt must not release the existing claim.
+		expect(org?.devPlanLastTierChangeCycleStart?.getTime()).toBe(
+			claimedCycleStart.getTime(),
+		);
 	});
 });
