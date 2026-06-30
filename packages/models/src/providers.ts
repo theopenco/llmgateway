@@ -420,13 +420,9 @@ export const providers: ProviderDefinition[] = [
 		regionConfig: {
 			optionsKey: "vertex_openai_region",
 			defaultRegion: "global",
-			regions: [
-				{ id: "global", label: "Global (default)" },
-				{ id: "us-west2", label: "US West 2" },
-			],
+			regions: [{ id: "global", label: "Global (default)" }],
 			endpointMap: {
 				global: "https://aiplatform.googleapis.com",
-				"us-west2": "https://us-west2-aiplatform.googleapis.com",
 			},
 		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
