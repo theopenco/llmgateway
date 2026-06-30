@@ -137,17 +137,28 @@ startServer()
 		process.on("SIGTERM", () => gracefulShutdown("SIGTERM", server));
 		process.on("SIGINT", () => gracefulShutdown("SIGINT", server));
 
-		// Handle uncaught errors gracefully - allow in-flight requests to complete
-		// before exiting. This prevents 502s for all concurrent requests when
-		// a single request causes an unhandled error.
+		// An uncaughtException leaves the process in a possibly-corrupt state, so
+		// drain in-flight requests and exit (the orchestrator restarts us). This
+		// prevents 502s for all concurrent requests when a single request causes
+		// a truly fatal error.
 		process.on("uncaughtException", (error) => {
 			logger.fatal("Uncaught exception, initiating graceful shutdown", error);
 			void gracefulShutdown("uncaughtException", server);
 		});
 
+		// An unhandledRejection, by contrast, is almost always a stray background
+		// promise without a `.catch` (a fire-and-forget cache/analytics write, an
+		// undici socket error during streaming, a Redis blip) and does NOT corrupt
+		// the process. Draining the whole instance for one of these is actively
+		// harmful: server.close() + closeIdleConnections() tears down idle
+		// keep-alive connections that pooled clients (behind the load balancer) are
+		// about to reuse, so unrelated users see "the socket connection was closed
+		// unexpectedly". Log it loudly for observability and keep serving instead.
 		process.on("unhandledRejection", (reason) => {
-			logger.fatal("Unhandled rejection, initiating graceful shutdown", reason);
-			void gracefulShutdown("unhandledRejection", server);
+			logger.error(
+				"Unhandled rejection (continuing to serve)",
+				toError(reason),
+			);
 		});
 	})
 	.catch((error) => {
