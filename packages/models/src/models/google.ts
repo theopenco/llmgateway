@@ -963,6 +963,40 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "gemini-3.1-flash-lite-image",
+		name: "Gemini 3.1 Flash Lite Image",
+		description:
+			"Our smallest and most cost effective image generation and editing model, built for at scale usage.",
+		family: "google",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-06-23"),
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				externalId: "gemini-3.1-flash-lite-image",
+				inputPrice: "0.25e-6",
+				outputPrice: "1.5e-6",
+				imageInputPrice: "0.25e-6",
+				imageInputTokensByResolution: { default: 560 },
+				imageOutputPrice: "30e-6",
+				imageOutputTokensByResolution: {
+					"1K": 1120,
+					default: 1120,
+				},
+				requestPrice: "0",
+				contextSize: 65536,
+				maxOutput: 4096,
+				streaming: true,
+				vision: true,
+				tools: true,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
+		],
+	},
+	{
 		id: "gemini-3.5-flash",
 		name: "Gemini 3.5 Flash",
 		description:
