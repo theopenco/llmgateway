@@ -91,6 +91,7 @@ const projectSchema = z.object({
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	paymentsSdkEnabled: z.boolean(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),

@@ -11,7 +11,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Pricing — LLMGateway Chat",
 	description:
-		"Subscribe to a chat plan and get up to 3× the credits for your dollar. All frontier models in one place, billed monthly.",
+		"Every frontier model in one subscription — Claude Opus, GPT-5, Gemini and Grok, from $19/mo. Start on fast models from $9/mo. Replaces ChatGPT Plus, Claude Pro and Gemini Advanced — with more usage than you pay for.",
 	alternates: {
 		canonical: "/pricing",
 	},
@@ -32,12 +32,13 @@ export default async function PricingPage() {
 
 			<header className="mb-12 text-center">
 				<h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
-					Three plans. Frontier models on Plus and Pro.
+					Every frontier model. One subscription.
 				</h1>
 				<p className="mx-auto mt-4 max-w-2xl text-base text-muted-foreground sm:text-lg">
-					Subscribe and get{" "}
-					<strong>up to 3× the credits for your dollar</strong>. Credits reset
-					each cycle — pay-as-you-go top-ups stay available alongside.
+					Claude Opus, GPT-5, Gemini and Grok in one place — for less than a
+					single ChatGPT Plus subscription. Start on fast models from $9, or
+					unlock every frontier flagship from $19. Every plan gives you{" "}
+					<strong>more usage than you pay for</strong>.
 				</p>
 			</header>
 
@@ -52,20 +53,25 @@ export default async function PricingPage() {
 				</h2>
 				<ul className="space-y-2">
 					<li>
-						<strong>Credits expire at month end.</strong> Each cycle you get a
-						fresh allowance — unused credits don&apos;t roll over.
+						<strong>Fresh allowance every cycle.</strong> Your full credit
+						allowance refills at the start of each billing cycle.
 					</li>
 					<li>
 						<strong>Your pay-as-you-go balance stays.</strong> Top-ups never
 						expire and act as a fallback once monthly credits are spent.
 					</li>
 					<li>
+						<strong>7-day money-back guarantee.</strong> If you&apos;ve barely
+						used your plan, email us within 7 days for a full refund.
+					</li>
+					<li>
 						<strong>Cancel anytime.</strong> Subscription stays active until the
 						end of the period you already paid for.
 					</li>
 					<li>
-						<strong>Starter excludes frontier models</strong> (Opus, GPT-5,
-						Gemini 2.5 Pro, Grok 4). Plus and Pro include everything.
+						<strong>Starter covers the fast models</strong> (Claude Sonnet,
+						Haiku, Gemini Flash and more). Plus and Pro add the frontier
+						flagships — Opus, GPT-5, Gemini Pro and Grok 4.
 					</li>
 				</ul>
 			</section>

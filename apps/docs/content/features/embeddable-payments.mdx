@@ -1,14 +1,34 @@
 ---
-title: LLM SDK
-description: Embed AI and in-app credit purchases into your app like Stripe + Stripe Elements. Your end-users get their own wallet, buy credits, and chat with any model — billed through LLM Gateway, with your markup as margin.
+title: Embeddable Payments
+description: Embed end-user payments and sessions into your own site with the Payments SDK. Your end-users get their own wallet, buy credits, and pay per request — billed through LLM Gateway, with your markup as margin.
 icon: Wallet
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# LLM SDK
+# Embeddable Payments (Payments SDK)
 
-The LLM SDK lets you drop **AI + in-app credit purchases** into your product the same way Stripe Elements lets you drop in payments. Your end-users get their **own wallet**, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record; you set a markup and keep the margin.
+The **Payments SDK** lets you drop **end-user payments + in-app credit purchases** into your product the same way Stripe Elements lets you drop in payments. Your end-users get their **own wallet**, buy credits **inside your app**, and pay per request for any model the gateway supports. LLM Gateway is the merchant of record; you set a markup and keep the margin.
+
+<Callout type="warn">
+	**Preview — opt-in only.** Embeddable Payments is in preview and enabled on an
+	opt-in basis per project. The **Settings → Payments SDK** dashboard page shows
+	a read-only preview until the feature is turned on for your project. [Contact
+	us](mailto:contact@llmgateway.io) to request access before integrating.
+</Callout>
+
+## When to use this
+
+Reach for the Payments SDK when **you embed LLM Gateway's billing on your own site** and want **your end-users to pay for the AI they use**, each with their own wallet and credit balance. It handles end-user **payments and sessions**: per-user wallets, in-app credit top-ups (Stripe), short-lived browser sessions scoped to a single wallet, and developer-margin payouts.
+
+<Callout type="info">
+	**This is a payments product, not an AI client SDK.** Do not confuse it with a
+	normal AI SDK such as the OpenAI SDK or the Vercel AI SDK. If you just want to
+	call models from your own backend with a single API key, use the
+	[OpenAI-compatible API](/quick-start) instead — you do not need the Payments
+	SDK. Use the Payments SDK only when you need to **charge your own end-users**
+	and give each of them a wallet and checkout inside your app.
+</Callout>
 
 It ships as three packages:
 
@@ -19,8 +39,8 @@ It ships as three packages:
 | `@llmgateway/elements` | React                     | Drop-in `<Chat/>`, `<BuyCredits/>`, `<CreditBalance/>` + hooks                       |
 
 <Callout type="info">
-	A complete, runnable Next.js example lives in the templates repo: [**LLM SDK
-	credits
+	A complete, runnable Next.js example lives in the templates repo:
+	[**Embeddable Payments
 	template**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits).
 </Callout>
 
@@ -44,7 +64,7 @@ Your backend ──(secret key sk_)──▶ POST /v1/sessions ──▶ ephemer
 Before you write any code, configure the project you want to embed:
 
 1. Open the LLM Gateway dashboard and select your project.
-2. Go to **Settings → SDK** and turn on **End-user sessions**.
+2. Go to **Settings → Payments SDK** and turn on **End-user sessions** (this requires the preview to be enabled for your project).
 3. _(Optional)_ Set a **markup percent** — the margin you earn on every top-up.
 4. Add the browser origins allowed to call the gateway, one per line (e.g. `https://app.example.com`), then click **Save Settings**.
 5. Under **Platform Secret Keys**, click **Create Live Key** (or **Create Test Key**) and copy the `sk_…` value immediately.
@@ -244,4 +264,4 @@ const payout = await lg.connect.payout(); // transfer the accrued margin out
 
 The end-to-end Next.js app — backend session route, provider, chat, and buy-credits — is in the templates repo:
 
-➡️ [**LLM SDK credits template**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)
+➡️ [**Embeddable Payments template**](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)

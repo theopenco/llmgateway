@@ -104,6 +104,43 @@ if (specifiedProviders) {
 	console.log(`TEST_PROVIDERS specified: ${specifiedProviders.join(", ")}`);
 }
 
+/**
+ * Check whether a single TEST_MODELS entry matches at least one real
+ * provider/model mapping (regions expanded).
+ */
+function testModelMatchesAnyMapping(entry: ParsedTestModel): boolean {
+	return models.some((model) => {
+		if (model.id !== entry.modelId) {
+			return false;
+		}
+		return expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		).some(
+			(p) =>
+				p.providerId === entry.providerId &&
+				(entry.region === undefined || p.region === entry.region),
+		);
+	});
+}
+
+// Fail loudly if TEST_MODELS is set but some entries match zero mappings.
+// Otherwise a typo'd model string silently runs no tests and "passes",
+// giving a false sense of security.
+if (specifiedModels && parsedTestModels) {
+	const unmatched = specifiedModels.filter(
+		(_, i) => !testModelMatchesAnyMapping(parsedTestModels[i]),
+	);
+	if (unmatched.length > 0) {
+		throw new Error(
+			`TEST_MODELS contains ${unmatched.length} entr${
+				unmatched.length === 1 ? "y that matches" : "ies that match"
+			} no provider/model mapping: ${unmatched.join(
+				", ",
+			)}. Check for typos (expected "provider/model" or "provider/model:region").`,
+		);
+	}
+}
+
 function hasAllRequiredProviderEnvVars(providerId: string): boolean {
 	const def = getProviderDefinition(providerId);
 	if (!def) {
@@ -152,6 +189,12 @@ export const filteredModels = models
 		}
 		return !output.includes("video") && !output.includes("audio");
 	})
+	// Filter out OCR models (they use the dedicated /v1/ocr endpoint, not chat
+	// completions, and are covered by ocr.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some((p) => (p as ProviderModelMapping).ocr === true),
+	)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {

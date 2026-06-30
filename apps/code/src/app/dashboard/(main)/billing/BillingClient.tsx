@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -44,6 +45,10 @@ const DevPassBillingDetails = dynamic(
 	() => import("@/app/dashboard/components/DevPassBillingDetails"),
 );
 
+const DevPassInvoices = dynamic(
+	() => import("@/app/dashboard/components/DevPassInvoices"),
+);
+
 interface BillingClientProps {
 	initialDevPlanStatus?: DevPlanStatus | null;
 	initialPaymentMethod?: PaymentMethod | null;
@@ -57,8 +62,17 @@ export default function BillingClient({
 	const { posthogKey } = config;
 	const posthog = usePostHog();
 	const api = useApi();
+	const queryClient = useQueryClient();
 
 	const { data: devPlanStatus } = useDevPlanStatus(initialDevPlanStatus);
+
+	const invalidateInvoices = () =>
+		queryClient.invalidateQueries({
+			predicate: (query) => {
+				const key = query.queryKey;
+				return Array.isArray(key) && key[1] === "/dev-plans/invoices";
+			},
+		});
 
 	const cancelMutation = api.useMutation("post", "/dev-plans/cancel");
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
@@ -68,13 +82,21 @@ export default function BillingClient({
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
 
-	const handleChangeTier = async (newTier: PlanTier): Promise<void> => {
+	const handleChangeTier = async (
+		newTier: PlanTier,
+		expectedAmountDueCents?: number,
+	): Promise<void> => {
 		// Cycle is intentionally not sent — the server preserves the existing
 		// monthly/annual cadence by reading it from the org's stored devPlanCycle
 		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
 		try {
-			await changeTierMutation.mutateAsync({ body: { newTier } });
+			await changeTierMutation.mutateAsync({
+				body: { newTier, expectedAmountDueCents },
+			});
+			// An upgrade records a new dev_plan_upgrade invoice server-side; refetch
+			// so the Invoices section reflects the just-paid charge immediately.
+			await invalidateInvoices();
 			if (posthogKey) {
 				posthog.capture("dev_plan_tier_changed", { newTier });
 			}
@@ -128,16 +150,28 @@ export default function BillingClient({
 	const cycle = devPlanStatus.devPlanCycle ?? "monthly";
 	const cancelled = devPlanStatus.devPlanCancelled ?? false;
 	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
+	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
 
 	const renewalHint = (() => {
-		if (!billingCycleStart) {
+		// Prefer Stripe's real `current_period_end`; only fall back to projecting a
+		// cycle from `billingCycleStart` for legacy rows missing the recorded end.
+		// The projection diverges from the actual schedule after a mid-cycle
+		// proration upgrade (the anchor is preserved, the cycle start is not).
+		const renewAt = currentPeriodEnd
+			? new Date(currentPeriodEnd)
+			: billingCycleStart
+				? (() => {
+						const d = new Date(billingCycleStart);
+						if (cycle === "annual") {
+							d.setFullYear(d.getFullYear() + 1);
+						} else {
+							d.setMonth(d.getMonth() + 1);
+						}
+						return d;
+					})()
+				: null;
+		if (!renewAt) {
 			return "—";
-		}
-		const renewAt = new Date(billingCycleStart);
-		if (cycle === "annual") {
-			renewAt.setFullYear(renewAt.getFullYear() + 1);
-		} else {
-			renewAt.setMonth(renewAt.getMonth() + 1);
 		}
 		const when = format(renewAt, "MMM d, yyyy");
 		return cancelled
@@ -249,6 +283,9 @@ export default function BillingClient({
 				subscribingTier={subscribingTier}
 				onChangeTier={handleChangeTier}
 			/>
+
+			{/* Past invoices */}
+			<DevPassInvoices />
 
 			{/* Billing details (invoice details) */}
 			<DevPassBillingDetails />

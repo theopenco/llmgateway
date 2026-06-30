@@ -102,6 +102,9 @@ export function MembersClient() {
 	)?.role;
 	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
 	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	// Distinguish "membership still loading" from "not an admin" so we don't flash
+	// the denial card before team membership resolves.
+	const membershipLoading = isEnterprise && (!teamData || !user);
 
 	useEffect(() => {
 		if (!searchParams.get("from") || !searchParams.get("to")) {
@@ -146,6 +149,10 @@ export function MembersClient() {
 
 				{!isEnterprise ? (
 					<EnterpriseUpgradeCard />
+				) : membershipLoading ? (
+					<div className="text-muted-foreground py-10 text-center text-sm">
+						Loading…
+					</div>
 				) : !isAdmin ? (
 					<Card className="max-w-2xl">
 						<CardHeader>

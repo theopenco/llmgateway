@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
 	applyGoogleServiceTier,
+	isPremiumServiceTier,
+	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
 } from "./apply-google-service-tier.js";
 
@@ -79,10 +81,104 @@ describe("resolveServedServiceTier", () => {
 		).toBeNull();
 	});
 
+	it("maps the AI Studio usageMetadata.serviceTier body field to a tier id", () => {
+		// Streaming AI Studio responses omit the header and carry the served tier
+		// in the body instead.
+		expect(resolveServedServiceTier({ serviceTierBody: "flex" })).toBe("flex");
+		expect(resolveServedServiceTier({ serviceTierBody: "priority" })).toBe(
+			"priority",
+		);
+		expect(
+			resolveServedServiceTier({ serviceTierBody: "standard" }),
+		).toBeNull();
+	});
+
+	it("prefers the header but falls back to the body field", () => {
+		expect(
+			resolveServedServiceTier({
+				serviceTierHeader: null,
+				serviceTierBody: "flex",
+			}),
+		).toBe("flex");
+	});
+
 	it("returns null when no signals are present", () => {
 		expect(resolveServedServiceTier({})).toBeNull();
 		expect(
-			resolveServedServiceTier({ trafficType: null, serviceTierHeader: null }),
+			resolveServedServiceTier({
+				trafficType: null,
+				serviceTierHeader: null,
+				serviceTierBody: null,
+			}),
 		).toBeNull();
+	});
+});
+
+describe("isPremiumServiceTier", () => {
+	it("accepts only flex and priority", () => {
+		expect(isPremiumServiceTier("flex")).toBe(true);
+		expect(isPremiumServiceTier("priority")).toBe(true);
+		for (const tier of ["auto", "default", "", null, undefined]) {
+			expect(isPremiumServiceTier(tier)).toBe(false);
+		}
+	});
+});
+
+describe("providerKeyBaseUrlSupportsServiceTier", () => {
+	it("ignores trailing slashes when matching the canonical upstream", () => {
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"google-vertex",
+				"https://aiplatform.googleapis.com///",
+			),
+		).toBe(true);
+	});
+
+	it("allows a key with no custom base URL (managed default)", () => {
+		expect(providerKeyBaseUrlSupportsServiceTier("google-vertex", null)).toBe(
+			true,
+		);
+		expect(
+			providerKeyBaseUrlSupportsServiceTier("google-ai-studio", undefined),
+		).toBe(true);
+	});
+
+	it("allows a key whose base URL matches the canonical upstream", () => {
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"google-vertex",
+				"https://aiplatform.googleapis.com",
+			),
+		).toBe(true);
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"google-ai-studio",
+				"https://generativelanguage.googleapis.com/",
+			),
+		).toBe(true);
+	});
+
+	it("rejects a custom (proxy) base URL on the google tier providers", () => {
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"google-vertex",
+				"https://my-proxy.example.com",
+			),
+		).toBe(false);
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"google-ai-studio",
+				"https://gateway.internal/v1",
+			),
+		).toBe(false);
+	});
+
+	it("ignores providers without an upstream-only rule", () => {
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"openai",
+				"https://my-proxy.example.com",
+			),
+		).toBe(true);
 	});
 });

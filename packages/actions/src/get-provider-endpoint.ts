@@ -5,8 +5,10 @@ import {
 	type ProviderDefinition,
 	type ProviderModelMapping,
 	type ProviderId,
+	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderEnvConfig,
+	resolveVertexTokenType,
 } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
@@ -40,6 +42,8 @@ function buildVertexCompatibleEndpoint(
 	stream: boolean | undefined,
 	configIndex: number | undefined,
 	providerKeyOptions?: ProviderKeyOptions,
+	skipEnvVars?: boolean,
+	vertexTokenType?: VertexTokenType,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = externalId ?? "gemini-2.5-flash-lite";
@@ -57,9 +61,21 @@ function buildVertexCompatibleEndpoint(
 		);
 	}
 
+	// Only Google Vertex supports OAuth bearer auth; Quartz always uses the
+	// `?key=` API-key query param.
+	const tokenType =
+		provider === "google-vertex"
+			? (vertexTokenType ??
+				resolveVertexTokenType(
+					provider,
+					providerKeyOptions,
+					configIndex,
+					skipEnvVars,
+				))
+			: "api-key";
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 	const queryParams = [];
-	if (token) {
+	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);
 	}
 	if (stream) {
@@ -96,6 +112,7 @@ export function getProviderEndpoint(
 	region?: string,
 	skipEnvVars?: boolean,
 	modelId?: string,
+	vertexTokenType?: VertexTokenType,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -183,6 +200,16 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "granite":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("granite", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "google-vertex":
 				url =
 					envValueOrDefault(
@@ -191,14 +218,17 @@ export function getProviderEndpoint(
 						"https://aiplatform.googleapis.com",
 					) ?? "https://aiplatform.googleapis.com";
 				break;
-			case "vertex-openai":
+			case "vertex-openai": {
+				const vertexOpenaiDefaultHost =
+					regionBaseUrl ?? "https://aiplatform.googleapis.com";
 				url =
 					envValueOrDefault(
 						"vertex-openai",
 						"baseUrl",
-						"https://aiplatform.googleapis.com",
-					) ?? "https://aiplatform.googleapis.com";
+						vertexOpenaiDefaultHost,
+					) ?? vertexOpenaiDefaultHost;
 				break;
+			}
 			case "vertex-anthropic": {
 				const vaDefaultRegion =
 					providerKeyOptions?.vertex_anthropic_region ??
@@ -225,6 +255,16 @@ export function getProviderEndpoint(
 				if (!url) {
 					throw new Error(
 						"Quartz provider requires LLM_QUARTZ_BASE_URL environment variable",
+					);
+				}
+				break;
+			case "tundra":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("tundra", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
 					);
 				}
 				break;
@@ -419,6 +459,8 @@ export function getProviderEndpoint(
 				stream,
 				configIndex,
 				providerKeyOptions,
+				skipEnvVars,
+				vertexTokenType,
 			);
 		case "vertex-openai": {
 			const projectId =
@@ -431,6 +473,8 @@ export function getProviderEndpoint(
 				);
 			}
 			const vertexRegion =
+				region ??
+				providerKeyOptions?.vertex_openai_region ??
 				getProviderEnvValue("vertex-openai", "region", configIndex, "global") ??
 				"global";
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
@@ -650,6 +694,7 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
+		case "tundra":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

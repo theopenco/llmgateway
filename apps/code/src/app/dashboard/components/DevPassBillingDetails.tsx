@@ -1,6 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -18,18 +19,43 @@ type BillingDetails =
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function DevPassBillingDetails() {
+interface DevPassBillingDetailsProps {
+	// When rendered inside the billing-details dialog the surrounding chrome
+	// (heading + card border) is provided by the dialog, so it is omitted here.
+	embedded?: boolean;
+	// Called after a successful save (used to close the dialog).
+	onSaved?: () => void;
+}
+
+export default function DevPassBillingDetails({
+	embedded,
+	onSaved,
+}: DevPassBillingDetailsProps = {}) {
 	const api = useApi();
 	const { data } = api.useQuery("get", "/dev-plans/billing-details", {});
 
 	if (!data) {
-		return null;
+		return embedded ? (
+			<div className="flex justify-center py-8">
+				<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+			</div>
+		) : null;
 	}
 
-	return <BillingDetailsForm data={data} />;
+	return (
+		<BillingDetailsForm data={data} embedded={embedded} onSaved={onSaved} />
+	);
 }
 
-function BillingDetailsForm({ data }: { data: BillingDetails }) {
+function BillingDetailsForm({
+	data,
+	embedded,
+	onSaved,
+}: {
+	data: BillingDetails;
+	embedded?: boolean;
+	onSaved?: () => void;
+}) {
 	const api = useApi();
 	const queryClient = useQueryClient();
 
@@ -105,6 +131,7 @@ function BillingDetailsForm({ data }: { data: BillingDetails }) {
 			await updateMutation.mutateAsync({ body });
 			await invalidate();
 			toast.success("Billing details saved");
+			onSaved?.();
 		} catch {
 			toast.error("Failed to save billing details");
 		}
@@ -112,12 +139,18 @@ function BillingDetailsForm({ data }: { data: BillingDetails }) {
 
 	return (
 		<div>
-			<h2 className="mb-1 font-semibold">Billing details</h2>
-			<p className="mb-4 text-sm text-muted-foreground">
-				These details appear on your DevPass invoices.
-			</p>
+			{!embedded && (
+				<>
+					<h2 className="mb-1 font-semibold">Billing details</h2>
+					<p className="mb-4 text-sm text-muted-foreground">
+						These details appear on your DevPass invoices.
+					</p>
+				</>
+			)}
 
-			<div className="rounded-xl border p-5 space-y-5">
+			<div
+				className={embedded ? "space-y-5" : "rounded-xl border p-5 space-y-5"}
+			>
 				<div className="flex items-center justify-between gap-4">
 					<div className="space-y-0.5">
 						<Label

@@ -36,6 +36,7 @@ import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
+import { ocrRoute } from "./ocr/route.js";
 import { responses } from "./responses/responses.js";
 import { speechRoute } from "./speech/route.js";
 import { videosRoute } from "./videos/route.js";
@@ -176,7 +177,16 @@ app.onError((error, c) => {
 	if (error instanceof HTTPException) {
 		const status = error.status;
 
-		if (status >= 500) {
+		// 502/503/504 are upstream/gateway conditions (e.g. a provider
+		// terminating the connection), not application bugs. They are already
+		// recorded as request logs via insertLog by the chat handler, so log
+		// them at warn level instead of error to avoid alerting noise.
+		if (status === 502 || status === 503 || status === 504) {
+			logger.warn("Upstream gateway error", {
+				status,
+				message: error.message,
+			});
+		} else if (status >= 500) {
 			logger.error("HTTP 500 exception", error);
 		} else {
 			logger.warn("HTTP client error", { status, message: error.message });
@@ -345,6 +355,7 @@ v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
 v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
+v1.route("/ocr", ocrRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 v1.route("/audio/speech", speechRoute);

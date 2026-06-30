@@ -25,7 +25,7 @@ import type { providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
-export type Model = (typeof models)[number]["providers"][number]["externalId"];
+export type Model = (typeof models)[number]["id"];
 
 /**
  * Decimal-safe price representation. Always a string so values are preserved
@@ -266,6 +266,11 @@ export interface ProviderModelMapping {
 	 */
 	requestPrice?: Price;
 	/**
+	 * Price per page processed in USD for OCR models. Billed against the
+	 * `usage_info.pages_processed` count returned by the /v1/ocr endpoint.
+	 */
+	ocrPagePrice?: Price;
+	/**
 	 * Price per second in USD for video generation models.
 	 * Maps billing keys like "default", "4k", "default_audio", "4k_audio",
 	 * "default_video", and "4k_video" to per-second pricing.
@@ -477,6 +482,13 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this model uses a dedicated OCR (optical character recognition)
+	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
+	 * which extracts text/markdown from documents and images rather than
+	 * returning a chat completion. Billed per page processed via ocrPagePrice.
+	 */
+	ocr?: boolean;
+	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
 	 */
@@ -559,7 +571,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding" | "audio")[];
+	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */

@@ -23,6 +23,7 @@ describe("generateInvoicePDF", () => {
 		invoiceNumber: "INV-2025-001",
 		invoiceDate: new Date("2025-01-15"),
 		organizationName: "Test Organization",
+		organizationId: "org-test-id",
 		billingEmail: "billing@example.com",
 		lineItems: [
 			{ description: "API Usage - January 2025", amount: 100.5 },
@@ -201,6 +202,7 @@ describe("generateInvoicePDF", () => {
 			invoiceNumber: "INV-MIN-001",
 			invoiceDate: new Date("2025-01-01"),
 			organizationName: "Minimal Org",
+			organizationId: "org-minimal-id",
 			billingEmail: "min@example.com",
 			lineItems: [{ description: "Service", amount: 100 }],
 			currency: "USD",
@@ -342,6 +344,7 @@ describe("generateAndEmailInvoice", () => {
 		invoiceNumber: "INV-2025-001",
 		invoiceDate: new Date("2025-01-15"),
 		organizationName: "Test Organization",
+		organizationId: "org-test-id",
 		billingEmail: "billing@example.com",
 		lineItems: [
 			{ description: "API Usage - January 2025", amount: 100.5 },

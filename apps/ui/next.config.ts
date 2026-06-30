@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
 	async redirects() {
 		return [
 			{
+				source: "/blog/embeddable-ai-credits-stripe-for-ai",
+				destination: "/blog/embeddable-payments-sdk",
+				permanent: true,
+			},
+			{
 				source: "/models/sherlock-dash-alpha",
 				destination: "/models/grok-4-1-fast-non-reasoning",
 				permanent: true,
@@ -117,10 +122,8 @@ const nextConfig: NextConfig = {
 	},
 	async rewrites() {
 		return [
-			{
-				source: "/llms.txt",
-				destination: "https://docs.llmgateway.io/llms.txt",
-			},
+			// /llms.txt is served as a static file from public/ (which takes
+			// precedence over rewrites), so it is intentionally not proxied here.
 			{
 				source: "/llms-full.txt",
 				destination: "https://docs.llmgateway.io/llms-full.txt",

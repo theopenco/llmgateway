@@ -175,6 +175,7 @@ export type SerializedOrganization = Omit<
 	| "devPlanCardFingerprint"
 	| "devPlanCreditsFrozen"
 	| "devPlanCreditsLimitBeforeFreeze"
+	| "devPlanLastTierChangeCycleStart"
 	| "chatPlanBillingCycleStart"
 	| "chatPlanStripeSubscriptionId"
 	| "chatPlanCancelled"

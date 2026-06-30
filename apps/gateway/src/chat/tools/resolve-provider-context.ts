@@ -10,7 +10,9 @@ import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 import {
 	getProviderEndpoint,
 	getProviderHeaders,
+	isPremiumServiceTier,
 	prepareRequestBody,
+	providerKeyBaseUrlSupportsServiceTier,
 	selectProviderMapping,
 } from "@llmgateway/actions";
 import {
@@ -25,7 +27,9 @@ import {
 	type Provider,
 	type ProviderRequestBody,
 	providers,
+	resolveVertexTokenType,
 	type ToolChoiceType,
+	type VertexTokenType,
 	type WebSearchTool,
 } from "@llmgateway/models";
 import {
@@ -35,7 +39,10 @@ import {
 	isPremiumModel,
 } from "@llmgateway/shared";
 
-import { getProviderEnv } from "./get-provider-env.js";
+import {
+	getProviderEnv,
+	getServiceTierIneligibleEnvIndices,
+} from "./get-provider-env.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -305,6 +312,32 @@ export async function resolveProviderContext(
 	let configIndex = 0;
 	let envVarName: string | undefined;
 
+	// Flex/Priority is only honored when the request reaches the provider's real
+	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
+	// silently drop the tier, so a compliant key (or the managed env credential)
+	// is used instead.
+	const serviceTierKeyFilter = isPremiumServiceTier(options.service_tier)
+		? (key: InferSelectModel<typeof tables.providerKey>) =>
+				providerKeyBaseUrlSupportsServiceTier(
+					key.provider as Provider,
+					key.baseUrl,
+				)
+		: undefined;
+	// Exclude env credential indices whose base URL can't honor the tier, merged
+	// with any already-failed indices, so env fallback also lands on the upstream.
+	const serviceTierEnvExcludedIndices = (
+		provider: Provider,
+	): ReadonlySet<number> | undefined => {
+		if (!serviceTierKeyFilter) {
+			return options.excludedEnvKeyIndices;
+		}
+		const ineligible = getServiceTierIneligibleEnvIndices(provider);
+		if (ineligible.size === 0) {
+			return options.excludedEnvKeyIndices;
+		}
+		return new Set([...(options.excludedEnvKeyIndices ?? []), ...ineligible]);
+	};
+
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
 			providerKey = await findCustomProviderKey(
@@ -319,6 +352,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -332,7 +366,7 @@ export async function resolveProviderContext(
 	} else if (project.mode === "credits") {
 		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 		const envResult = getProviderEnv(usedProvider as Provider, {
-			excludedIndices: options.excludedEnvKeyIndices,
+			excludedIndices: serviceTierEnvExcludedIndices(usedProvider as Provider),
 			selectionScope: usedInternalModel,
 		});
 		usedToken = envResult.token;
@@ -352,6 +386,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
+				serviceTierKeyFilter,
 			);
 		}
 
@@ -360,7 +395,9 @@ export async function resolveProviderContext(
 		} else {
 			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
 			const envResult = getProviderEnv(usedProvider as Provider, {
-				excludedIndices: options.excludedEnvKeyIndices,
+				excludedIndices: serviceTierEnvExcludedIndices(
+					usedProvider as Provider,
+				),
 				selectionScope: usedInternalModel,
 			});
 			usedToken = envResult.token;
@@ -442,6 +479,20 @@ export async function resolveProviderContext(
 	// When using a provider key (BYOK), skip env vars entirely —
 	// only the provider key's baseUrl or hardcoded provider defaults should be used.
 	const isBYOK = providerKey !== undefined;
+	// Resolve the Google Vertex token type once and feed it to both the endpoint
+	// (`?key=` query param) and the headers (`Authorization: Bearer`) so they
+	// never disagree. There is no BYOK region-env override here (the override
+	// above only runs when `!providerKey`), so `isBYOK` correctly reflects
+	// whether the DB key is the active credential.
+	const vertexTokenType: VertexTokenType | undefined =
+		usedProvider === "google-vertex"
+			? resolveVertexTokenType(
+					usedProvider,
+					providerKey?.options ?? undefined,
+					configIndex,
+					isBYOK,
+				)
+			: undefined;
 	const url = getProviderEndpoint(
 		usedProvider as Provider,
 		providerKey?.baseUrl ?? undefined,
@@ -462,6 +513,7 @@ export async function resolveProviderContext(
 		usedRegion,
 		isBYOK,
 		usedInternalModel,
+		vertexTokenType,
 	);
 
 	if (!url) {
@@ -630,6 +682,7 @@ export async function resolveProviderContext(
 	const headers = getProviderHeaders(usedProvider as Provider, usedToken, {
 		requestId: options.requestId,
 		webSearchEnabled: options.webSearchEnabled,
+		tokenType: vertexTokenType,
 	});
 	headers["Content-Type"] = "application/json";
 

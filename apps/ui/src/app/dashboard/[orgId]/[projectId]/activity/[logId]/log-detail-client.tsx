@@ -926,21 +926,30 @@ export function LogDetailClient({
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}
-										{log.serviceTier &&
+										{log.requestedServiceTier && (
+											<Field
+												label="Requested Service Tier"
+												value={
+													log.requestedServiceTier.charAt(0).toUpperCase() +
+													log.requestedServiceTier.slice(1)
+												}
+											/>
+										)}
+										{log.usedServiceTier &&
 											(() => {
 												const tierName =
-													log.serviceTier.charAt(0).toUpperCase() +
-													log.serviceTier.slice(1);
+													log.usedServiceTier.charAt(0).toUpperCase() +
+													log.usedServiceTier.slice(1);
 												const tier = getServiceTier(
 													log.usedProvider ?? "",
-													log.serviceTier,
+													log.usedServiceTier,
 												);
 												const multiplier = tier
 													? formatServiceTierMultiplier(tier.multiplier)
 													: "";
 												return (
 													<Field
-														label="Service Tier"
+														label="Used Service Tier"
 														value={
 															multiplier
 																? `${tierName} (${multiplier})`

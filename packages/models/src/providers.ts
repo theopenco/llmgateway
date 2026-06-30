@@ -323,6 +323,29 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.2,
 	},
 	{
+		id: "granite",
+		name: "Granite",
+		description:
+			"Granite is a stealth provider with OpenAI-compatible chat completions endpoints.",
+		env: {
+			required: {
+				apiKey: "LLM_GRANITE_API_KEY",
+				baseUrl: "LLM_GRANITE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.5,
+	},
+	{
 		id: "google-vertex",
 		name: "Google Vertex AI",
 		description:
@@ -335,6 +358,7 @@ export const providers: ProviderDefinition[] = [
 			optional: {
 				baseUrl: "LLM_GOOGLE_VERTEX_BASE_URL",
 				region: "LLM_GOOGLE_VERTEX_REGION",
+				tokenType: "LLM_GOOGLE_VERTEX_TOKEN_TYPE",
 			},
 		},
 		streaming: true,
@@ -394,6 +418,14 @@ export const providers: ProviderDefinition[] = [
 		statusPageUrl: "https://status.cloud.google.com",
 		announcement: null,
 		priority: 0.2,
+		regionConfig: {
+			optionsKey: "vertex_openai_region",
+			defaultRegion: "global",
+			regions: [{ id: "global", label: "Global (default)" }],
+			endpointMap: {
+				global: "https://aiplatform.googleapis.com",
+			},
+		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -920,7 +952,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "moonshot",
@@ -1256,6 +1288,28 @@ export const providers: ProviderDefinition[] = [
 		privacyPolicyUrl: "https://console.sakana.ai/privacy-policy",
 		headquarters: "JP",
 		dataPolicy: null,
+	},
+	{
+		id: "tundra",
+		name: "Tundra",
+		description: "Tundra is a stealth provider with an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_TUNDRA_API_KEY",
+				baseUrl: "LLM_TUNDRA_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#5b8db8",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.1,
 	},
 	{
 		id: "xiaomi",

@@ -168,6 +168,8 @@ function makeInvoiceEvent(overrides: {
 	billingReason: Stripe.Invoice["billing_reason"];
 	amountPaid: number;
 	invoiceId: string;
+	metadata?: Record<string, string>;
+	periodEnd?: number;
 }): Stripe.InvoicePaymentSucceededEvent {
 	return {
 		id: "evt_test_invoice",
@@ -181,8 +183,13 @@ function makeInvoiceEvent(overrides: {
 				amount_paid: overrides.amountPaid,
 				currency: "usd",
 				payment_intent: "pi_test_001",
-				metadata: { organizationId: ORG_ID },
-				lines: { data: [] },
+				metadata: overrides.metadata ?? { organizationId: ORG_ID },
+				lines: {
+					data:
+						overrides.periodEnd !== undefined
+							? [{ period: { end: overrides.periodEnd } }]
+							: [],
+				},
 			},
 		},
 	} as unknown as Stripe.InvoicePaymentSucceededEvent;
@@ -303,6 +310,25 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(sendEmailMock.mock.calls[0][0].to).toBe("default-billing@acme.test");
 	});
 
+	test("records the new period end as the renewal date on a cycle renewal", async () => {
+		await seedUsedDevPlanOrg();
+
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_period_001",
+				periodEnd,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
+	});
+
 	test("does NOT reset credits on a proration invoice from a tier change", async () => {
 		await seedUsedDevPlanOrg();
 
@@ -328,6 +354,39 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].type).toBe("dev_plan_upgrade");
 		expect(txns[0].creditAmount).toBeNull();
 		expect(txns[0].amount).toBe("92.21");
+	});
+
+	test("records a manual upgrade invoice without resetting used credits", async () => {
+		await seedUsedDevPlanOrg();
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "manual",
+				amountPaid: 5000,
+				invoiceId: "in_manual_upgrade_001",
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+					devPlanChange: "upgrade",
+					fromTier: "lite",
+					toTier: "pro",
+				},
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("150");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_upgrade");
+		expect(txns[0].creditAmount).toBeNull();
+		expect(txns[0].amount).toBe("50");
+		expect(txns[0].stripeInvoiceId).toBe("in_manual_upgrade_001");
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {

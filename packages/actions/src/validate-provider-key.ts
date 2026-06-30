@@ -15,7 +15,7 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
-function getValidationModel(
+export function getValidationModel(
 	provider: ProviderId,
 	providerKeyOptions?: ProviderKeyOptions,
 ): { modelId: string; externalId: string } | null {
@@ -80,7 +80,8 @@ function getValidationModel(
 					providerMapping.imageGenerations ||
 					providerMapping.videoGenerations ||
 					providerMapping.embeddings ||
-					providerMapping.speechGenerations
+					providerMapping.speechGenerations ||
+					providerMapping.ocr
 				) {
 					return [];
 				}
@@ -163,7 +164,10 @@ export async function validateProviderKey(
 		};
 		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
-		const headers = getProviderHeaders(provider, token);
+		const headers = getProviderHeaders(provider, token, {
+			providerKeyOptions,
+			skipEnvVars: true, // provider key validation is always BYOK context
+		});
 		headers["Content-Type"] = "application/json";
 
 		// Look up the model definition by canonical id.

@@ -1,3 +1,4 @@
+import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	models,
@@ -21,6 +22,7 @@ import {
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
+import { processImageUrl } from "./process-image-url.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
@@ -138,6 +140,30 @@ async function fetchImageAsBlob(
 		blob: new Blob([buffer], { type: mimeType }),
 		filename: `image-${index}.${ext}`,
 	};
+}
+
+/**
+ * Maps an image MIME type to the AWS Bedrock Converse API image `format` enum.
+ * Bedrock only accepts the bare subtype ("png", not "image/png") and supports a
+ * fixed set of formats. Returns undefined for anything Bedrock cannot render so
+ * the caller can skip the block instead of sending an invalid request.
+ */
+function bedrockImageFormat(mimeType: string): string | undefined {
+	// processImageUrl returns the raw Content-Type for remote fetches, which can
+	// carry parameters (e.g. "image/png; charset=binary"). Strip them first.
+	switch (mimeType.toLowerCase().split(";", 1)[0].trim()) {
+		case "image/png":
+			return "png";
+		case "image/jpeg":
+		case "image/jpg":
+			return "jpeg";
+		case "image/gif":
+			return "gif";
+		case "image/webp":
+			return "webp";
+		default:
+			return undefined;
+	}
 }
 
 /**
@@ -340,6 +366,7 @@ function resolveRef(ref: string, rootDefs: Record<string, any>): any {
 function stripUnsupportedSchemaProperties(
 	schema: any,
 	rootDefs?: Record<string, any>,
+	seenRefs: Set<string> = new Set(),
 ): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
@@ -347,7 +374,7 @@ function stripUnsupportedSchemaProperties(
 
 	if (Array.isArray(schema)) {
 		return schema.map((item) =>
-			stripUnsupportedSchemaProperties(item, rootDefs),
+			stripUnsupportedSchemaProperties(item, rootDefs, seenRefs),
 		);
 	}
 
@@ -356,10 +383,24 @@ function stripUnsupportedSchemaProperties(
 
 	// Handle $ref - expand the reference inline
 	if (schema.$ref) {
+		// Guard against self-referential schemas (recursive types). Since Google
+		// doesn't support $ref, an inline-expanded cycle would recurse forever and
+		// overflow the stack, so we collapse the recursive node to a generic object.
+		if (seenRefs.has(schema.$ref)) {
+			const fallback: any = { type: "object" };
+			if (schema.description) {
+				fallback.description = schema.description;
+			}
+			return fallback;
+		}
 		const resolved = resolveRef(schema.$ref, defs);
 		if (resolved) {
 			// Expand the reference, preserving only description and default from the original node
-			const expanded = stripUnsupportedSchemaProperties({ ...resolved }, defs);
+			const expanded = stripUnsupportedSchemaProperties(
+				{ ...resolved },
+				defs,
+				new Set(seenRefs).add(schema.$ref),
+			);
 			if (schema.description && !expanded.description) {
 				expanded.description = schema.description;
 			}
@@ -439,6 +480,7 @@ function stripUnsupportedSchemaProperties(
 				cleanedProps[propName] = stripUnsupportedSchemaProperties(
 					propSchema,
 					defs,
+					seenRefs,
 				);
 			}
 			cleaned[key] = cleanedProps;
@@ -447,7 +489,7 @@ function stripUnsupportedSchemaProperties(
 
 		// Recursively clean nested objects
 		if (value && typeof value === "object") {
-			cleaned[key] = stripUnsupportedSchemaProperties(value, defs);
+			cleaned[key] = stripUnsupportedSchemaProperties(value, defs, seenRefs);
 		} else {
 			cleaned[key] = value;
 		}
@@ -491,21 +533,38 @@ function mapGoogleImageSize(imageSize: string): string {
 function sanitizeBedrockSchema(
 	schema: any,
 	rootDefs?: Record<string, any>,
+	seenRefs: Set<string> = new Set(),
 ): any {
 	if (!schema || typeof schema !== "object") {
 		return schema;
 	}
 
 	if (Array.isArray(schema)) {
-		return schema.map((item) => sanitizeBedrockSchema(item, rootDefs));
+		return schema.map((item) =>
+			sanitizeBedrockSchema(item, rootDefs, seenRefs),
+		);
 	}
 
 	const defs = rootDefs ?? schema.$defs ?? schema.definitions ?? {};
 
 	if (typeof schema.$ref === "string") {
+		// Guard against self-referential schemas (recursive types). Bedrock doesn't
+		// support $ref, so an inline-expanded cycle would recurse forever and
+		// overflow the stack; collapse the recursive node to a generic object.
+		if (seenRefs.has(schema.$ref)) {
+			const fallback: any = { type: "object", properties: {} };
+			if (schema.description) {
+				fallback.description = schema.description;
+			}
+			return fallback;
+		}
 		const resolved = resolveRef(schema.$ref, defs);
 		if (resolved) {
-			const expanded = sanitizeBedrockSchema({ ...resolved }, defs);
+			const expanded = sanitizeBedrockSchema(
+				{ ...resolved },
+				defs,
+				new Set(seenRefs).add(schema.$ref),
+			);
 			if (schema.description && !expanded.description) {
 				expanded.description = schema.description;
 			}
@@ -548,14 +607,14 @@ function sanitizeBedrockSchema(
 			cleaned.properties = Object.fromEntries(
 				Object.entries(value).map(([propertyName, propertyValue]) => [
 					propertyName,
-					sanitizeBedrockSchema(propertyValue, defs),
+					sanitizeBedrockSchema(propertyValue, defs, seenRefs),
 				]),
 			);
 			continue;
 		}
 
 		if (value && typeof value === "object") {
-			cleaned[key] = sanitizeBedrockSchema(value, defs);
+			cleaned[key] = sanitizeBedrockSchema(value, defs, seenRefs);
 		} else {
 			cleaned[key] = value;
 		}
@@ -761,18 +820,15 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 			continue;
 		}
 
-		// Regular messages: transform content types
-		const transformed: any = {
+		// Regular messages: transform content types. The Responses API input
+		// message items only accept `role`/`content` and reject `name` (Chat
+		// Completions allows `name` on system/user/assistant messages), so it is
+		// intentionally dropped here to avoid a 400 "Unknown parameter:
+		// 'input[N].name'".
+		items.push({
 			role: msg.role,
 			content: transformContentForResponsesApi(msg.content, msg.role),
-		};
-
-		// Copy name if present (for developer/system messages)
-		if (msg.name) {
-			transformed.name = msg.name;
-		}
-
-		items.push(transformed);
+		});
 	}
 
 	return items;
@@ -1402,6 +1458,18 @@ export async function prepareRequestBody(
 			resolvedToolChoice = "auto";
 			requestBody.tool_choice = "auto";
 		}
+	}
+
+	if (
+		forcesToolUse &&
+		usedProvider === "tundra" &&
+		resolvedToolChoice === "required"
+	) {
+		// The Tundra upstream rejects tool_choice="required" with a 400.
+		// Named/forced function choice works, so only downgrade the "required"
+		// sentinel to "auto" so the request still succeeds.
+		resolvedToolChoice = "auto";
+		requestBody.tool_choice = "auto";
 	}
 
 	if (
@@ -2338,7 +2406,7 @@ export async function prepareRequestBody(
 					}
 				} else if (Array.isArray(msg.content)) {
 					// Handle multi-part content (text + images)
-					msg.content.forEach((part: any) => {
+					for (const part of msg.content as any[]) {
 						if (part.type === "text") {
 							if (part.text && part.text.trim()) {
 								// Add text block first
@@ -2367,12 +2435,51 @@ export async function prepareRequestBody(
 									}
 								}
 							}
-						} else if (part.type === "image_url") {
-							// Bedrock uses a different image format
-							// For now, skip images or handle them differently
-							// This would need additional implementation for vision support
+						} else if (part.type === "image_url" && part.image_url) {
+							// Convert the OpenAI/Anthropic image block into the Bedrock
+							// Converse `image` block. The Anthropic endpoint already
+							// rewrites incoming image blocks into image_url data URLs, so
+							// this covers both API surfaces. processImageUrl resolves data
+							// URLs and (SSRF-guarded) remote URLs to raw base64 bytes,
+							// which is exactly what Bedrock's source.bytes expects.
+							const imageUrl =
+								typeof part.image_url === "string"
+									? part.image_url
+									: part.image_url.url;
+
+							try {
+								const { data, mimeType } = await processImageUrl(
+									imageUrl,
+									isProd,
+									maxImageSizeMB,
+									userPlan,
+								);
+								const format = bedrockImageFormat(mimeType);
+								if (!format) {
+									logger.warn("Skipping unsupported image type for Bedrock", {
+										mimeType,
+									});
+									continue;
+								}
+								bedrockMessage.content.push({
+									image: {
+										format,
+										source: {
+											bytes: data,
+										},
+									},
+								});
+							} catch (error) {
+								logger.error("Failed to process image for Bedrock", {
+									err:
+										error instanceof Error ? error : new Error(String(error)),
+								});
+								bedrockMessage.content.push({
+									text: "[Image failed to load]",
+								});
+							}
 						}
-					});
+					}
 				}
 
 				bedrockMessages.push(bedrockMessage);
@@ -2498,7 +2605,10 @@ export async function prepareRequestBody(
 			}
 
 			// Enable thinking for Bedrock Anthropic models when reasoning is supported
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+			if (
+				supportsReasoning &&
+				(effort || reasoning_effort || reasoning_max_tokens)
+			) {
 				if (providerMappingForOptions?.reasoningMode === "adaptive") {
 					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
 					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
@@ -2581,8 +2691,18 @@ export async function prepareRequestBody(
 						inferenceConfig.maxTokens = reasoningFloor;
 					}
 				}
-				// Anthropic requires temperature to be exactly 1 when thinking is enabled
-				inferenceConfig.temperature = 1;
+				// Anthropic requires temperature to be exactly 1 when thinking is
+				// enabled — but only for models that still accept temperature. Opus
+				// 4.8 deprecated temperature/top_p and returns a 400 for any value,
+				// so honor the mapping's supportedParameters and omit it there.
+				const bedrockSupportedParams =
+					providerMappingForOptions?.supportedParameters;
+				if (
+					!bedrockSupportedParams ||
+					bedrockSupportedParams.includes("temperature")
+				) {
+					inferenceConfig.temperature = 1;
+				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
 				}

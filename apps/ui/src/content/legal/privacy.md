@@ -173,6 +173,12 @@ When you route a request, the **content of that request is sent to the AI provid
 
 Before selecting a model, we encourage you to review the provider's policies on our [Providers page](https://llmgateway.io/providers), which links to each provider's terms, privacy policy, and data-training and compliance information. You are responsible for ensuring your selected provider is appropriate for the sensitivity of the data you submit.
 
+### Stealth and Undisclosed Providers
+
+To improve availability, performance, and pricing, we may route some requests through **stealth providers** whose identity is not publicly disclosed (for example, providers offering preview or unreleased models under confidentiality). For these providers we **endeavor to obtain the same terms, privacy, and data-handling guarantees** described in this Policy, but because their identity and underlying practices are not disclosed to us or to you, **we cannot guarantee that they meet those standards**.
+
+If you do not want your requests routed through stealth or undisclosed providers, you can **pin your requests to specific providers** that publicly declare their terms, privacy policy, and compliance posture on our [Providers page](https://llmgateway.io/providers). You are responsible for selecting providers appropriate for the sensitivity of the data you submit.
+
 ---
 
 ## 11. International Transfers

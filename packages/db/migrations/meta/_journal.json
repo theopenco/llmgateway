@@ -1205,6 +1205,48 @@
       "when": 1781974034275,
       "tag": "1781974034_quick_professor_monster",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "8",
+      "when": 1782388997788,
+      "tag": "1782388997_absurd_shinko_yamashiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "8",
+      "when": 1782496570055,
+      "tag": "1782496570_ordinary_miek",
+      "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "8",
+      "when": 1782505428419,
+      "tag": "1782505428_black_zaran",
+      "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "8",
+      "when": 1782666980506,
+      "tag": "1782666980_dashing_squirrel_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "8",
+      "when": 1782672171484,
+      "tag": "1782672171_legal_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "8",
+      "when": 1782833813481,
+      "tag": "1782833813_good_slapstick",
+      "breakpoints": true
     }
   ]
 }

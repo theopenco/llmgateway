@@ -579,19 +579,23 @@ function delay(ms: number): Promise<void> {
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
 
-	// Check if this request should trigger an error response
-	const shouldError = body.input?.some?.(
-		(msg: any) =>
-			msg.role === "user" && msg.content?.includes?.("TRIGGER_ERROR"),
-	);
+	// Get the user's message to include in the response. Used for both the error
+	// triggers below and the echoed assistant content. Responses-API input
+	// content is an array of parts, so extract the text rather than calling
+	// `.includes` on the raw content (which would miss array-form messages).
+	const userMessage = getResponsesApiUserMessage(body.input);
 
-	if (shouldError) {
+	// Check if this request should trigger an error response
+	const statusTrigger = extractStatusCodeTrigger(userMessage);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (userMessage.includes("TRIGGER_ERROR")) {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
-
-	// Get the user's message to include in the response
-	const userMessage = getResponsesApiUserMessage(body.input);
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -608,6 +612,9 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				object: "response",
 				created_at: Math.floor(Date.now() / 1000),
 				model: body.model ?? "gpt-5-nano",
+				...(typeof body.service_tier === "string"
+					? { service_tier: body.service_tier }
+					: {}),
 			};
 
 			await stream.writeSSE({
@@ -1079,6 +1086,89 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		});
 	}
+
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then closes the socket before the body completes. The gateway's
+	// res.json() then throws undici's "terminated: other side closed"
+	// TypeError, exercising the non-streaming body-read failure path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_ABORT")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const abortedBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					return;
+				}
+				controller.error(new Error("simulated upstream socket close"));
+			},
+		});
+		return new Response(abortedBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then hangs forever without finishing it. The gateway's res.json()
+	// blocks waiting for the rest, letting a test abort the client mid-read to
+	// exercise the non-streaming body-read cancellation path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	// Simulate an upstream that returns a non-OK status (500) plus a partial
+	// error body, then hangs without finishing it. The gateway's res.text() on
+	// the error path blocks waiting for the rest, letting a test abort the
+	// client mid-read to exercise the non-streaming error-body cancellation
+	// path. The trigger deliberately avoids the "TRIGGER_ERROR" substring so the
+	// generic-error handler above doesn't short-circuit it.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingErrorBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingErrorBody, {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
 	const baseChoice = sampleChatCompletionResponse.choices[0];
 	const choices = Array.from({ length: requestedN }, (_, index) => ({
 		...baseChoice,
@@ -1161,6 +1251,46 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 				},
 			},
 		],
+	});
+});
+
+mockOpenAIServer.post("/v1/ocr", async (c) => {
+	const body = await c.req.json();
+	const document = body.document ?? {};
+	const documentUrl =
+		typeof document.document_url === "string"
+			? document.document_url
+			: typeof document.image_url === "string"
+				? document.image_url
+				: typeof document?.image_url?.url === "string"
+					? document.image_url.url
+					: "";
+
+	const statusTrigger = extractStatusCodeTrigger(documentUrl);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (documentUrl.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Allow tests to control the billed page count via the URL marker
+	// "PAGES_<n>"; default to a single page.
+	const pagesMatch = documentUrl.match(/PAGES_(\d+)/);
+	const pageCount = pagesMatch ? Number(pagesMatch[1]) : 1;
+
+	return c.json({
+		pages: Array.from({ length: pageCount }, (_, index) => ({
+			index,
+			markdown: `# Mock OCR page ${index}`,
+			images: [],
+			dimensions: { dpi: 200, height: 1024, width: 1024 },
+		})),
+		model: body.model ?? "mistral-ocr-latest",
+		document_annotation: null,
+		usage_info: { pages_processed: pageCount, doc_size_bytes: 12345 },
 	});
 });
 

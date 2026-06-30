@@ -27,6 +27,40 @@ const mixedVisionModel = getModel("qwen3-max");
 
 const embeddingModel = getModel("text-embedding-3-small");
 
+// Pick a stable fixture for each single-output capability straight from the
+// registry so the tests don't pin to a specific model id that may churn.
+function getModelByOutput(output: string): ModelDefinition {
+	const m = (models as readonly ModelDefinition[]).find(
+		(model) =>
+			Array.isArray(model.output) &&
+			model.output.length === 1 &&
+			model.output[0] === output,
+	);
+	if (!m) {
+		throw new Error(`Test fixture missing: no model with output ["${output}"]`);
+	}
+	return m;
+}
+
+const ocrModel = getModelByOutput("ocr");
+const videoModel = getModelByOutput("video");
+const audioModel = getModelByOutput("audio");
+const imageOnlyModel = getModelByOutput("image");
+const textImageModel = (() => {
+	const m = (models as readonly ModelDefinition[]).find(
+		(model) =>
+			Array.isArray(model.output) &&
+			model.output.includes("text") &&
+			model.output.includes("image"),
+	);
+	if (!m) {
+		throw new Error(
+			'Test fixture missing: no model with output ["text","image"]',
+		);
+	}
+	return m;
+})();
+
 describe("validateModelCapabilities - vision", () => {
 	it("rejects when explicit provider does not support vision", () => {
 		expect(() =>
@@ -152,6 +186,45 @@ describe("validateModelCapabilities - embeddings", () => {
 		).not.toThrow();
 		expect(() =>
 			validateModelCapabilities(embeddingModel, "custom", undefined, {}),
+		).not.toThrow();
+	});
+});
+
+describe("validateModelCapabilities - output capability", () => {
+	it("rejects OCR models on chat completions", () => {
+		expect(() =>
+			validateModelCapabilities(ocrModel, ocrModel.id, undefined, {}),
+		).toThrow(HTTPException);
+	});
+
+	it("rejects video models on chat completions", () => {
+		expect(() =>
+			validateModelCapabilities(videoModel, videoModel.id, undefined, {}),
+		).toThrow(HTTPException);
+	});
+
+	it("rejects audio (speech) models on chat completions", () => {
+		expect(() =>
+			validateModelCapabilities(audioModel, audioModel.id, undefined, {}),
+		).toThrow(HTTPException);
+	});
+
+	it("allows image-output models (image generation routes through chat)", () => {
+		expect(() =>
+			validateModelCapabilities(
+				imageOnlyModel,
+				imageOnlyModel.id,
+				undefined,
+				{},
+			),
+		).not.toThrow();
+		expect(() =>
+			validateModelCapabilities(
+				textImageModel,
+				textImageModel.id,
+				undefined,
+				{},
+			),
 		).not.toThrow();
 	});
 });

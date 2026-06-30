@@ -26,6 +26,15 @@ export interface ResponseMetadataExtras {
 	organizationId?: string;
 	projectId?: string;
 	discount?: number | null;
+	/**
+	 * The Flex/Priority tier the caller requested. When set, both
+	 * `requested_service_tier` and `used_service_tier` are surfaced in the
+	 * response metadata (and the streaming final usage chunk). Null/undefined for
+	 * standard requests, which omit the fields entirely.
+	 */
+	requestedServiceTier?: "flex" | "priority" | null;
+	/** The tier actually served upstream (null when downgraded to standard). */
+	usedServiceTier?: "flex" | "priority" | null;
 }
 
 export function toResponseMetadataExtras(
@@ -42,6 +51,12 @@ export function toResponseMetadataExtras(
 			: {}),
 		...(extras.projectId ? { project_id: extras.projectId } : {}),
 		discount: extras.discount ?? null,
+		...(extras.requestedServiceTier
+			? {
+					requested_service_tier: extras.requestedServiceTier,
+					used_service_tier: extras.usedServiceTier ?? null,
+				}
+			: {}),
 	};
 }
 

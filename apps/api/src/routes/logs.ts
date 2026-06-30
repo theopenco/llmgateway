@@ -202,7 +202,8 @@ const logSchema = z.object({
 		.nullable()
 		.optional(),
 	discount: z.number().nullable().optional(),
-	serviceTier: z.string().nullable().optional(),
+	requestedServiceTier: z.string().nullable().optional(),
+	usedServiceTier: z.string().nullable().optional(),
 	retried: z.boolean().nullable().optional(),
 	retriedByLogId: z.string().nullable().optional(),
 	gatewayContentFilterResponse: gatewayContentFilterResponseSchema

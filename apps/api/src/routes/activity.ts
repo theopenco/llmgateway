@@ -627,9 +627,10 @@ activity.openapi(getActivity, async (c) => {
 			};
 		});
 
-		const paddedActivity = timeRange
-			? padActivity(activityData, startDate, endDate, isHourly, timeZone)
-			: activityData;
+		const paddedActivity =
+			timeRange || (from && to)
+				? padActivity(activityData, startDate, endDate, isHourly, timeZone)
+				: activityData;
 
 		return c.json({
 			activity: paddedActivity,
@@ -948,9 +949,10 @@ activity.openapi(getActivity, async (c) => {
 		};
 	});
 
-	const paddedActivity = timeRange
-		? padActivity(activityData, startDate, endDate, isHourly, timeZone)
-		: activityData;
+	const paddedActivity =
+		timeRange || (from && to)
+			? padActivity(activityData, startDate, endDate, isHourly, timeZone)
+			: activityData;
 
 	return c.json({
 		activity: paddedActivity,

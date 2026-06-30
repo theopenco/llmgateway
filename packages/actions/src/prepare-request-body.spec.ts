@@ -1107,6 +1107,128 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
+	test("should not overflow the stack on self-referential $ref schemas", async () => {
+		const recursiveTools = [
+			{
+				type: "function" as const,
+				function: {
+					name: "build_tree",
+					description: "Build a recursive tree",
+					parameters: {
+						type: "object",
+						properties: {
+							root: { $ref: "#/$defs/TreeNode" },
+						},
+						$defs: {
+							TreeNode: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									children: {
+										type: "array",
+										items: { $ref: "#/$defs/TreeNode" },
+									},
+								},
+								required: ["value"],
+							},
+						},
+						required: ["root"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			recursiveTools,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+		expect(params.$defs).toBeUndefined();
+		// The recursive node is expanded one level then collapsed to a generic
+		// object where it would otherwise recurse forever.
+		expect(params.properties.root.properties.value).toEqual({
+			type: "string",
+		});
+		expect(params.properties.root.properties.children.items).toEqual({
+			type: "object",
+		});
+	});
+
+	test("should not overflow the stack on self-referential $ref schemas for bedrock", async () => {
+		const recursiveTools = [
+			{
+				type: "function" as const,
+				function: {
+					name: "build_tree",
+					description: "Build a recursive tree",
+					parameters: {
+						type: "object",
+						properties: {
+							root: { $ref: "#/$defs/TreeNode" },
+						},
+						$defs: {
+							TreeNode: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									children: {
+										type: "array",
+										items: { $ref: "#/$defs/TreeNode" },
+									},
+								},
+								required: ["value"],
+							},
+						},
+						required: ["root"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			recursiveTools,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const toolSpec = requestBody.toolConfig.tools[0].toolSpec;
+		const schema = toolSpec.inputSchema.json;
+		expect(schema.properties.root.properties.children.items).toEqual({
+			type: "object",
+			properties: {},
+		});
+	});
+
 	test("should strip additionalProperties from tool parameters", async () => {
 		const toolsWithAdditionalProps = [
 			{
@@ -1755,6 +1877,53 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		expect(requestBody.messages[0].content).toEqual([
 			{ text: "What should I do next?" },
 			{ cachePoint: { type: "default", ttl: "5m" } },
+		]);
+	});
+
+	test("forwards base64 image blocks as Bedrock image content", async () => {
+		const pngBase64 =
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What is in this image?" },
+						{
+							type: "image_url",
+							image_url: {
+								url: `data:image/png;base64,${pngBase64}`,
+							},
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What is in this image?" },
+			{
+				image: {
+					format: "png",
+					source: { bytes: pngBase64 },
+				},
+			},
 		]);
 	});
 
@@ -3040,6 +3209,23 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 					]),
 				),
 			).rejects.toBeInstanceOf(RequestError);
+		});
+
+		test("drops message `name` (Responses API rejects input[N].name)", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "system", content: "be terse", name: "system_helper" },
+					{ role: "user", content: "hello", name: "alice" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.every((i: any) => i.name === undefined)).toBe(
+				true,
+			);
+			expect(requestBody.input).toEqual([
+				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
+				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
+			]);
 		});
 	});
 

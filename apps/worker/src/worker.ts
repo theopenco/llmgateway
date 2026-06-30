@@ -26,6 +26,7 @@ import {
 	type LogInsertData,
 	lt,
 	organization,
+	resolveVerifiedOrgRecipient,
 	shortid,
 	sql,
 	tables,
@@ -43,7 +44,6 @@ import {
 
 import { posthog } from "./posthog.js";
 import {
-	getOrgRecipientEmail,
 	runFollowUpEmailsLoop,
 	sendLowBalanceEmail,
 } from "./services/follow-up-emails.js";
@@ -1540,7 +1540,7 @@ async function enqueueLowBalanceEmail(
 	emailType: "low_balance_20" | "low_balance_5",
 	currentBalance: number,
 ): Promise<void> {
-	const email = await getOrgRecipientEmail(organizationId);
+	const email = await resolveVerifiedOrgRecipient(organizationId);
 	if (!email) {
 		return;
 	}

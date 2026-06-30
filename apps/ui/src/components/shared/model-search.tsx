@@ -20,15 +20,17 @@ import {
 } from "@/lib/components/popover";
 import { useAppConfig } from "@/lib/config";
 
-import { getProviderIcon } from "@llmgateway/shared/components";
+import {
+	getModelFamilyIcon,
+	getProviderIcon,
+} from "@llmgateway/shared/components";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 
 interface ModelSearchEntry {
 	id: string;
 	name: string;
-	providerId: string;
-	providerName: string;
+	family: string;
 	createdAt?: Date;
 	free?: boolean;
 	searchText: string;
@@ -138,43 +140,51 @@ export function ModelSearch({
 					? new Date(model.releasedAt)
 					: undefined;
 
-			for (const mapping of model.mappings) {
+			const activeMappings = model.mappings.filter((mapping) => {
 				const isDeactivated =
 					mapping.deactivatedAt &&
 					new Date(mapping.deactivatedAt).getTime() <= now.getTime();
-				if (isDeactivated) {
-					continue;
-				}
+				return !isDeactivated;
+			});
 
-				const provider = providers.find((p) => p.id === mapping.providerId);
-
-				const key = `${String(mapping.providerId)}-${String(model.id)}`;
-				if (!map.has(key)) {
-					const entryName = model.name ?? String(model.id);
-					const entryProviderName =
-						provider?.name ?? String(mapping.providerId);
-					map.set(key, {
-						id: String(model.id),
-						name: entryName,
-						providerId: String(mapping.providerId),
-						providerName: entryProviderName,
-						createdAt,
-						searchText: normalizeForSearch(
-							[
-								entryProviderName,
-								entryName,
-								String(model.id),
-								model.aliases?.join(" ") ?? "",
-							].join(" "),
-						),
-						free:
-							model.free === true &&
-							(mapping.requestPrice === undefined ||
-								mapping.requestPrice === null ||
-								parseFloat(mapping.requestPrice) === 0),
-					});
-				}
+			if (activeMappings.length === 0) {
+				continue;
 			}
+
+			const key = String(model.id);
+			if (map.has(key)) {
+				continue;
+			}
+
+			const entryName = model.name ?? String(model.id);
+			const providerNames = activeMappings.map(
+				(mapping) =>
+					providers.find((p) => p.id === mapping.providerId)?.name ??
+					String(mapping.providerId),
+			);
+			map.set(key, {
+				id: String(model.id),
+				name: entryName,
+				family: model.family,
+				createdAt,
+				searchText: normalizeForSearch(
+					[
+						...providerNames,
+						entryName,
+						String(model.id),
+						model.family ?? "",
+						model.aliases?.join(" ") ?? "",
+					].join(" "),
+				),
+				free:
+					model.free === true &&
+					activeMappings.some(
+						(mapping) =>
+							mapping.requestPrice === undefined ||
+							mapping.requestPrice === null ||
+							parseFloat(mapping.requestPrice) === 0,
+					),
+			});
 		}
 
 		const list = Array.from(map.values());
@@ -311,12 +321,12 @@ export function ModelSearch({
 						{groups.map(([label, items]) => (
 							<CommandGroup key={label} heading={label}>
 								{items.map((entry) => {
-									const ProviderIcon = getProviderIcon(entry.providerId);
+									const FamilyIcon = getModelFamilyIcon(entry.family);
 
 									return (
 										<CommandItem
-											key={`${entry.providerId}-${entry.id}`}
-											value={`${entry.providerId}-${entry.id}`}
+											key={entry.id}
+											value={entry.id}
 											onSelect={() => {
 												router.push(`/models/${encodeURIComponent(entry.id)}`);
 												setOpen(false);
@@ -324,17 +334,11 @@ export function ModelSearch({
 										>
 											<div className="flex items-center gap-3">
 												<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
-													{ProviderIcon ? (
-														<ProviderIcon className="h-5 w-5" />
-													) : (
-														<span className="text-xs font-medium uppercase text-muted-foreground">
-															{entry.providerName.charAt(0)}
-														</span>
-													)}
+													<FamilyIcon className="h-5 w-5" />
 												</div>
 												<div className="flex flex-col items-start">
 													<span className="text-sm font-medium">
-														{entry.providerName}: {entry.name}
+														{entry.name}
 													</span>
 													<span className="text-xs text-muted-foreground">
 														{entry.id}

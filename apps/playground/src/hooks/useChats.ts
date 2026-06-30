@@ -77,15 +77,28 @@ export function useCreateChat({ silent = false }: { silent?: boolean } = {}) {
 	});
 }
 
-export function useUpdateChat() {
+export function useUpdateChat({ silent = false }: { silent?: boolean } = {}) {
 	const queryClient = useQueryClient();
 	const api = useApi();
 
 	return api.useMutation("patch", "/chats/{id}", {
-		onSuccess: () => {
+		onSuccess: (_data, variables) => {
 			const queryKey = api.queryOptions("get", "/chats").queryKey;
 			void queryClient.invalidateQueries({ queryKey });
-			toast("Chat updated successfully");
+
+			// Also refresh the active chat detail (/chats/{id}) so views rendering
+			// it — e.g. the header title — pick up a silent update immediately.
+			const chatId = variables.params?.path?.id;
+			if (chatId) {
+				const chatQueryKey = api.queryOptions("get", "/chats/{id}", {
+					params: { path: { id: chatId } },
+				}).queryKey;
+				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
+			}
+
+			if (!silent) {
+				toast("Chat updated successfully");
+			}
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));
