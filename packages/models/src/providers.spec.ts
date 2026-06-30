@@ -234,6 +234,7 @@ describe("AWS Bedrock Anthropic regions", () => {
 		["claude-sonnet-4-5", ["global", "us", "eu", "au", "jp"]],
 		["claude-sonnet-4-5-20250929", ["global", "us", "eu", "au", "jp"]],
 		["claude-sonnet-4-6", ["global", "us", "eu", "au", "jp", "eu-west-2"]],
+		["claude-sonnet-5", ["global", "us"]],
 		["claude-haiku-4-5", ["global", "us", "eu", "au", "jp"]],
 		["claude-haiku-4-5-20251001", ["global", "us", "eu", "au", "jp"]],
 		["claude-opus-4-5-20251101", ["global", "us", "eu"]],
