@@ -133,9 +133,11 @@ export function ChatSupport() {
 	const [privacyDismissed, setPrivacyDismissed] = useState(false);
 	const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
 	const lastUserMessageRef = useRef<HTMLDivElement>(null);
+	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
 	const prevUserCountRef = useRef(0);
+	const prevAdminCountRef = useRef(0);
 	const sendTimestampsRef = useRef<number[]>([]);
 	const [clientId, setClientId] = useState("");
 	const [mounted, setMounted] = useState(false);
@@ -250,19 +252,29 @@ export function ChatSupport() {
 	const hasConversation = (convData?.messages.length ?? 0) > 0;
 	const isIdentified = isLoggedIn || hasIdentified || hasConversation;
 
-	// Only reposition when the visitor sends a new message — bring their question
-	// to the top so the streaming answer fills in below and reads top-to-bottom.
-	// Crucially, do NOT scroll on every streaming token: the view stays fixed
-	// while the assistant types so the visitor can read at their own pace.
+	// Reposition only on discrete new turns — never on streaming tokens, so the
+	// view stays fixed while the assistant types and the visitor reads at their
+	// own pace. When the visitor sends, anchor their question to the top so the
+	// answer fills in below (top-to-bottom). When a human (admin) reply arrives
+	// via the poll, bring it into view since it's the newest message.
 	useEffect(() => {
 		const userCount = messages.filter((m) => m.role === "user").length;
+		const adminCount = messages.filter(
+			(m) => (m.metadata as MessageMeta | undefined)?.admin === true,
+		).length;
 		if (userCount > prevUserCountRef.current) {
 			lastUserMessageRef.current?.scrollIntoView({
 				behavior: "smooth",
 				block: "start",
 			});
+		} else if (adminCount > prevAdminCountRef.current) {
+			messagesEndRef.current?.scrollIntoView({
+				behavior: "smooth",
+				block: "end",
+			});
 		}
 		prevUserCountRef.current = userCount;
+		prevAdminCountRef.current = adminCount;
 	}, [messages]);
 
 	useEffect(() => {
@@ -715,6 +727,7 @@ export function ChatSupport() {
 										</div>
 									</div>
 								)}
+								<div ref={messagesEndRef} />
 							</div>
 						</div>
 
