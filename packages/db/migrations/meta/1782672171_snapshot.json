@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "72166b88-7bc1-4ea8-ba40-4e1e277687a8",
+  "id": "c0bb582f-3b59-4a96-94f4-dffe394b33f7",
   "prevId": "93f94388-71f7-474c-9421-0e1c1b9cbcce",
   "ddl": [
     {
@@ -11392,19 +11392,6 @@
       "table": "organization"
     },
     {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_last_tier_change_cycle_start",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -16765,6 +16752,19 @@
       "table": "video_job"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "log_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -21325,6 +21325,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "log_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "video_job_log_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "callback_status",
           "isExpression": false,
           "asc": true,
@@ -22671,6 +22692,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "user_organization"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "log_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "log",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "video_job_log_id_log_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "video_job"
     },
     {
       "nameExplicit": false,

@@ -44,6 +44,8 @@ import { logger } from "@llmgateway/logger";
 import {
 	getProviderEnvValue,
 	models as modelDefinitions,
+	resolveVertexTokenType,
+	type VertexTokenType,
 } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
@@ -669,6 +671,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		envVarName: string | undefined;
 		upstreamUrl: string;
 		requestBody: Record<string, unknown>;
+		vertexTokenType?: VertexTokenType;
 	}
 
 	type ResolveResult =
@@ -791,6 +794,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 		let upstreamUrl: string;
 		let requestBody: Record<string, unknown>;
+		let vertexTokenType: VertexTokenType | undefined;
 
 		if (isGoogleAiStudio) {
 			const endpoint =
@@ -860,7 +864,21 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
 				"global";
 
-			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict?key=${encodeURIComponent(usedToken)}`;
+			// OAuth tokens are sent via the Authorization header (below); only API
+			// keys go in the `?key=` query param. Resolve once so the header and
+			// the query param agree. No region-env override here, so providerKey
+			// presence is an accurate BYOK signal.
+			vertexTokenType = resolveVertexTokenType(
+				"google-vertex",
+				providerKey?.options ?? undefined,
+				configIndex,
+				providerKey !== undefined,
+			);
+			const vertexAuthQuery =
+				vertexTokenType === "oauth"
+					? ""
+					: `?key=${encodeURIComponent(usedToken)}`;
+			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict${vertexAuthQuery}`;
 			requestBody = {
 				instances: googleInputs.map((text) => ({ content: text })),
 			};
@@ -893,6 +911,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				envVarName,
 				upstreamUrl,
 				requestBody,
+				vertexTokenType,
 			},
 		};
 	}
@@ -976,7 +995,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					redirect: "error",
 					headers: {
 						"Content-Type": "application/json",
-						...getProviderHeaders(providerId, attempt.usedToken, { requestId }),
+						...getProviderHeaders(providerId, attempt.usedToken, {
+							requestId,
+							tokenType: attempt.vertexTokenType,
+						}),
 					},
 					body: JSON.stringify(attempt.requestBody),
 					signal: fetchSignal,

@@ -1204,12 +1204,18 @@ devPlans.openapi(changeTier, async (c) => {
 				parseFloat(personalOrg.devPlanCreditsLimit),
 			);
 
-			// Reflect the new tier immediately; the credit grant is applied
-			// separately below, gated on winning the transaction insert.
+			// Reflect the new tier immediately, and persist Stripe's actual period
+			// end as the renewal date (a mid-cycle upgrade preserves the billing
+			// anchor, so the UI shouldn't project a fresh cycle from the upgrade
+			// date). The credit grant is applied separately below, gated on winning
+			// the transaction insert.
 			await db
 				.update(tables.organization)
 				.set({
 					devPlan: newTier,
+					devPlanExpiresAt: new Date(
+						subscriptionItem.current_period_end * 1000,
+					),
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 

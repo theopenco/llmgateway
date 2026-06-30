@@ -144,6 +144,8 @@ import {
 	type ProviderModelMapping,
 	type ProviderRequestBody,
 	providers,
+	resolveVertexTokenType,
+	type VertexTokenType,
 	supportsServiceTier,
 	type WebSearchTool,
 	expandAllProviderRegions,
@@ -5161,6 +5163,29 @@ chat.openapi(completions, async (c) => {
 			: undefined;
 	const upstreamModelName = azureDeploymentName || usedExternalId;
 
+	// Resolve the Google Vertex token type from the live request state so the
+	// endpoint (`?key=` query param) and the headers (`Authorization: Bearer`)
+	// always agree. Reads the current `let`s so it stays correct across retries
+	// that mutate provider/key/configIndex via applyContext.
+	//
+	// A region-specific env override replaces `usedToken` while keeping
+	// `providerKey` set and clearing `trackedKeyHealthId`; in that case the DB
+	// key is no longer the active credential, so its token-type option must not
+	// apply and env-based resolution should win. Hence we gate on
+	// `trackedKeyHealthId`, not `providerKey`.
+	function resolveActiveVertexTokenType(): VertexTokenType | undefined {
+		if (usedProvider !== "google-vertex") {
+			return undefined;
+		}
+		const dbKeyIsActiveCredential = trackedKeyHealthId !== undefined;
+		return resolveVertexTokenType(
+			usedProvider,
+			dbKeyIsActiveCredential ? (providerKey?.options ?? undefined) : undefined,
+			configIndex,
+			dbKeyIsActiveCredential,
+		);
+	}
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {
@@ -5182,6 +5207,7 @@ chat.openapi(completions, async (c) => {
 			usedRegion,
 			providerKey !== undefined,
 			usedInternalModel,
+			resolveActiveVertexTokenType(),
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -6618,6 +6644,9 @@ chat.openapi(completions, async (c) => {
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							webSearchEnabled: !!webSearchTool,
+							// Same resolved token type as the endpoint so header auth and
+							// the `?key=` query param never disagree.
+							tokenType: resolveActiveVertexTokenType(),
 							serviceTier: forwardedServiceTier,
 						});
 						headers["Content-Type"] = "application/json";
@@ -10711,6 +10740,9 @@ chat.openapi(completions, async (c) => {
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
+				// Same resolved token type as the endpoint so header auth and the
+				// `?key=` query param never disagree.
+				tokenType: resolveActiveVertexTokenType(),
 				serviceTier: forwardedServiceTier,
 			});
 			if (!(requestBody instanceof FormData)) {

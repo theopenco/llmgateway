@@ -1094,7 +1094,9 @@ export interface ProviderKeyOptions {
 	azure_ai_foundry_api_version?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 	google_vertex_project_id?: string;
+	google_vertex_token_type?: "api-key" | "oauth";
 	vertex_openai_project_id?: string;
+	vertex_openai_region?: "global";
 	vertex_anthropic_region?: string;
 }
 
@@ -1397,6 +1399,9 @@ export const videoJob = pgTable(
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
 		requestId: text().notNull(),
+		// Internal id of the log row created when the job is finalized. Used for
+		// all internal job<->log lookups instead of matching on requestId.
+		logId: text().references(() => log.id, { onDelete: "set null" }),
 		createdAt: timestamp().notNull().defaultNow(),
 		updatedAt: timestamp()
 			.notNull()
@@ -1531,6 +1536,7 @@ export const videoJob = pgTable(
 			table.nextPollAt,
 		),
 		index("video_job_upstream_id_idx").on(table.upstreamId),
+		index("video_job_log_id_idx").on(table.logId),
 		index("video_job_callback_status_idx").on(table.callbackStatus),
 		index("video_job_end_user_session_id_idx").on(table.endUserSessionId),
 	],

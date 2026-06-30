@@ -21,6 +21,7 @@ interface UsageOverviewProps {
 	planName: string;
 	planPrice?: number;
 	billingCycleStart: string | null;
+	currentPeriodEnd: string | null;
 	cancelledAtPeriodEnd: boolean;
 	cycle?: DevPlanCycle;
 }
@@ -113,6 +114,7 @@ export default function UsageOverview({
 	planName,
 	planPrice,
 	billingCycleStart,
+	currentPeriodEnd,
 	cancelledAtPeriodEnd,
 	cycle = "monthly",
 }: UsageOverviewProps) {
@@ -170,18 +172,34 @@ export default function UsageOverview({
 		? `Since ${format(new Date(billingCycleStart), "MMM d, yyyy")}`
 		: "Active";
 
-	const cycleEndsHint = cancelledAtPeriodEnd
-		? "Cancels at period end"
+	// The renewal/period-end date must come from Stripe's actual
+	// `current_period_end` (surfaced as `currentPeriodEnd`), not from
+	// `billingCycleStart + 1 cycle`. The derived value diverges from the real
+	// billing schedule whenever the cycle anchor and the stored cycle start drift
+	// apart — most visibly after a mid-cycle proration upgrade, where the anchor
+	// is preserved but the dashboard would otherwise project a full cycle from the
+	// upgrade date. Fall back to the derived estimate only for legacy rows where
+	// the real period end hasn't been recorded yet.
+	const renewAt = currentPeriodEnd
+		? new Date(currentPeriodEnd)
 		: billingCycleStart
 			? (() => {
-					const renewAt = new Date(billingCycleStart);
+					const d = new Date(billingCycleStart);
 					if (cycle === "annual") {
-						renewAt.setFullYear(renewAt.getFullYear() + 1);
+						d.setFullYear(d.getFullYear() + 1);
 					} else {
-						renewAt.setMonth(renewAt.getMonth() + 1);
+						d.setMonth(d.getMonth() + 1);
 					}
-					return `Renews in ${formatDistanceToNowStrict(renewAt)}`;
+					return d;
 				})()
+			: null;
+
+	const cycleEndsHint = cancelledAtPeriodEnd
+		? renewAt
+			? `Cancels ${format(renewAt, "MMM d, yyyy")}`
+			: "Cancels at period end"
+		: renewAt
+			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
 			: "—";
 
 	return (
