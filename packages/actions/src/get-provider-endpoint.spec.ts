@@ -294,6 +294,20 @@ describe("getProviderEndpoint", () => {
 				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-pro:generateContent",
 			);
 		});
+
+		it("builds the Vertex Express Mode endpoint when token starts with AQ.", () => {
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-pro",
+				"AQ.mock_express_mode_api_key_for_testing",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?key=AQ.mock_express_mode_api_key_for_testing&alt=sse",
+			);
+		});
 	});
 
 	describe("azure-ai-foundry", () => {

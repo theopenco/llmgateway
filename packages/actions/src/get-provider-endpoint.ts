@@ -48,6 +48,17 @@ function buildVertexCompatibleEndpoint(
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = externalId ?? "gemini-2.5-flash-lite";
 
+	// If the token starts with "AQ." (Express Mode API key), we must use the Express Mode path structure:
+	// https://aiplatform.googleapis.com/v1/publishers/google/models/{model}:{endpoint}
+	if (token?.startsWith("AQ.")) {
+		const baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
+		const queryParams = [`key=${token}`];
+		if (stream) {
+			queryParams.push("alt=sse");
+		}
+		return `${baseEndpoint}?${queryParams.join("&")}`;
+	}
+
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
 		getProviderEnvValue(provider, "project", configIndex);
