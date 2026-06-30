@@ -300,12 +300,12 @@ describe("getProviderEndpoint", () => {
 				"google-vertex",
 				undefined,
 				"gemini-2.5-pro",
-				"AQ.mock_express_mode_api_key_for_testing",
+				"AQ.TestExpressKey",
 				true,
 			);
 
 			expect(endpoint).toBe(
-				"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?key=AQ.mock_express_mode_api_key_for_testing&alt=sse",
+				"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?key=AQ.TestExpressKey&alt=sse",
 			);
 		});
 	});

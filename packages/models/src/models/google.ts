@@ -997,8 +997,6 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.1-flash-lite-image",
-				serviceTiers: ["flex"],
-				serviceTierRegions: ["global"],
 				inputPrice: "0.25e-6",
 				outputPrice: "1.5e-6",
 				imageInputPrice: "0.25e-6",
