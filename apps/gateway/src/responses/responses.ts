@@ -409,6 +409,21 @@ responses.post("/", async (c) => {
 			const decoder = new TextDecoder();
 			let buffer = "";
 
+			// SSE keepalive to prevent proxy/load balancer and client idle
+			// timeouts from closing the connection during quiet gaps (slow
+			// time-to-first-token, long reasoning before output, slow tool-arg
+			// generation). Without this, coding clients see "The socket
+			// connection was closed unexpectedly". The inner /v1/chat/completions
+			// keepalive is consumed by this translator and never reaches the
+			// client, so we emit our own here. A `: ping` comment is part of the
+			// SSE spec and ignored by the OpenAI SDK.
+			const KEEPALIVE_INTERVAL_MS = 15000;
+			const keepaliveInterval = setInterval(() => {
+				stream.write(": ping\n").catch(() => {
+					// Stream likely closed; cleanup happens in finally.
+				});
+			}, KEEPALIVE_INTERVAL_MS);
+
 			// Send response.created
 			const createdEvent = createResponseCreatedEvent(state);
 			await stream.writeSSE({
@@ -501,15 +516,33 @@ responses.post("/", async (c) => {
 					await processLine(buffer);
 				}
 			} catch (error) {
-				logger.error("Error processing streaming response", {
-					error,
-				});
-				const failedEvent = createFailedEvent(state);
-				await stream.writeSSE({
-					event: failedEvent.event,
-					data: failedEvent.data,
-				});
+				// A client-side abort needs no terminal event — the socket is
+				// already gone, and writing would throw. For genuine errors, emit a
+				// well-formed response.failed event so the client ends the stream
+				// cleanly instead of seeing the socket close unexpectedly.
+				if (error instanceof Error && error.name === "AbortError") {
+					logger.info("Responses streaming request aborted by client", {
+						message: error.message,
+						path: c.req.path,
+					});
+				} else {
+					logger.error("Error processing streaming response", {
+						error,
+					});
+					try {
+						const failedEvent = createFailedEvent(state);
+						await stream.writeSSE({
+							event: failedEvent.event,
+							data: failedEvent.data,
+						});
+					} catch (sseError) {
+						logger.error("Failed to send response.failed event", {
+							error: sseError,
+						});
+					}
+				}
 			} finally {
+				clearInterval(keepaliveInterval);
 				reader.releaseLock();
 			}
 		});
