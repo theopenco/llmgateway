@@ -2,8 +2,8 @@
 
 import { Check, Copy } from "lucide-react";
 import { useTheme } from "next-themes";
-import { Highlight, themes } from "prism-react-renderer";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
+import { createHighlighter } from "shiki";
 
 import { Button } from "@/lib/components/button";
 import { toast } from "@/lib/components/use-toast";
@@ -11,7 +11,8 @@ import { cn } from "@/lib/utils";
 
 import { AnimatedGroup } from "./animated-group";
 
-import type { Language } from "prism-react-renderer";
+import type { CSSProperties } from "react";
+import type { BundledLanguage, Highlighter, ThemedToken } from "shiki";
 
 const codeExamples = {
 	curl: {
@@ -204,16 +205,85 @@ const bullets = [
 	"Every request tracked with cost, latency, and token usage",
 ];
 
+const highlightLangs: BundledLanguage[] = [
+	"bash",
+	"typescript",
+	"python",
+	"java",
+	"rust",
+	"go",
+	"php",
+	"ruby",
+];
+
+let highlighterPromise: Promise<Highlighter> | null = null;
+
+function getHighlighter() {
+	if (!highlighterPromise) {
+		highlighterPromise = createHighlighter({
+			langs: highlightLangs,
+			themes: ["dracula", "github-light"],
+		});
+	}
+	return highlighterPromise;
+}
+
+// Shiki encodes font styles as bitflags: 1 = italic, 2 = bold, 4 = underline.
+function tokenStyle(token: ThemedToken): CSSProperties {
+	const fontStyle = token.fontStyle ?? 0;
+	return {
+		color: token.color,
+		fontStyle: fontStyle & 1 ? "italic" : undefined,
+		fontWeight: fontStyle & 2 ? "bold" : undefined,
+		textDecoration: fontStyle & 4 ? "underline" : undefined,
+	};
+}
+
+interface Highlighted {
+	tokens: ThemedToken[][];
+	bg: string;
+	fg: string;
+}
+
 export function CodeExample() {
 	const [activeTab, setActiveTab] =
 		useState<keyof typeof codeExamples>("python");
 	const { resolvedTheme } = useTheme();
-	const [mounted, setMounted] = useState(false);
 	const [copied, setCopied] = useState(false);
+	const [highlighted, setHighlighted] = useState<Highlighted | null>(null);
+
+	const currentExample = codeExamples[activeTab];
 
 	useEffect(() => {
-		setMounted(true);
-	}, []);
+		let cancelled = false;
+		const theme = resolvedTheme === "dark" ? "dracula" : "github-light";
+
+		async function highlight() {
+			try {
+				const highlighter = await getHighlighter();
+				if (cancelled) {
+					return;
+				}
+				const result = highlighter.codeToTokens(currentExample.code, {
+					lang: currentExample.language as BundledLanguage,
+					theme,
+				});
+				setHighlighted({
+					tokens: result.tokens,
+					bg: result.bg ?? "transparent",
+					fg: result.fg ?? "inherit",
+				});
+			} catch (error) {
+				console.error("Failed to highlight code:", error);
+			}
+		}
+
+		void highlight();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [currentExample.code, currentExample.language, resolvedTheme]);
 
 	const copyToClipboard = async (text: string, language: string) => {
 		try {
@@ -235,8 +305,6 @@ export function CodeExample() {
 			});
 		}
 	};
-
-	const currentExample = codeExamples[activeTab];
 
 	return (
 		<section className="py-24 md:py-32">
@@ -350,48 +418,28 @@ export function CodeExample() {
 							</div>
 
 							<div className="relative bg-background">
-								<Highlight
-									code={currentExample.code}
-									language={currentExample.language as Language}
-									theme={
-										mounted && resolvedTheme === "dark"
-											? themes.dracula
-											: themes.github
-									}
+								<pre
+									className="p-6 overflow-x-auto text-sm leading-relaxed font-mono max-h-96 overflow-y-auto"
+									style={{
+										backgroundColor: highlighted?.bg,
+										color: highlighted?.fg,
+									}}
 								>
-									{({
-										className,
-										style,
-										tokens,
-										getLineProps,
-										getTokenProps,
-									}) => (
-										<pre
-											className={cn(
-												"p-6 overflow-x-auto text-sm leading-relaxed font-mono max-h-96 overflow-y-auto",
-												className,
-											)}
-											style={{
-												...style,
-												padding: 24,
-												borderRadius: 0,
-												overflowX: "auto",
-											}}
-										>
-											{tokens.map((line, i) => {
-												const lineProps = getLineProps({ line });
-												return (
-													<div key={i} {...lineProps}>
-														{line.map((token, key) => {
-															const tokenProps = getTokenProps({ token });
-															return <span key={key} {...tokenProps} />;
-														})}
-													</div>
-												);
-											})}
-										</pre>
-									)}
-								</Highlight>
+									<code>
+										{highlighted
+											? highlighted.tokens.map((line, i) => (
+													<Fragment key={i}>
+														{line.map((token, key) => (
+															<span key={key} style={tokenStyle(token)}>
+																{token.content}
+															</span>
+														))}
+														{i < highlighted.tokens.length - 1 ? "\n" : null}
+													</Fragment>
+												))
+											: currentExample.code}
+									</code>
+								</pre>
 							</div>
 						</div>
 					</div>
