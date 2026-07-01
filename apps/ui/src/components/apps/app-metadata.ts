@@ -4,6 +4,7 @@ import {
 	ClineIcon,
 	CodexIcon,
 	CursorIcon,
+	DevPassCodeIcon,
 	KimiIcon,
 	MimoCodeIcon,
 	N8nIcon,
@@ -23,6 +24,14 @@ export interface AppMetadata {
 }
 
 export const APP_METADATA: Record<string, AppMetadata> = {
+	"devpass-code": {
+		displayName: "DevPass Code",
+		url: "https://github.com/theopenco/devpass-code",
+		description:
+			"LLM Gateway's first-party terminal coding agent. One-click browser login connects it straight to your DevPass — no keys to copy.",
+		category: "coding",
+		Icon: DevPassCodeIcon,
+	},
 	"claude.com/claude-code": {
 		displayName: "Claude Code",
 		url: "https://claude.com/claude-code",
