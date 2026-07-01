@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
-import { useDefaultProject } from "@/hooks/useDefaultProject";
+import { useDevPassProject } from "@/hooks/useDevPassProject";
 import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import {
@@ -79,10 +79,10 @@ export default function ConnectCliPage() {
 	const posthog = usePostHog();
 	const { user, isLoading: userLoading } = useUser();
 	const {
-		data: defaultProject,
+		data: devPass,
 		isLoading: projectLoading,
 		isError: projectError,
-	} = useDefaultProject();
+	} = useDevPassProject();
 
 	// Read query params only after mount so SSR and the first client render agree.
 	const [params, setParams] = useState<ConnectParams | null>(null);
@@ -101,7 +101,7 @@ export default function ConnectCliPage() {
 		: "";
 
 	const authorize = () => {
-		if (!params || !defaultProject?.id || createApiKey.isPending) {
+		if (!params || !devPass?.project.id || createApiKey.isPending) {
 			return;
 		}
 
@@ -112,7 +112,7 @@ export default function ConnectCliPage() {
 			{
 				body: {
 					description: `${displayName} (CLI) — ${params.name}`.slice(0, 100),
-					projectId: defaultProject.id,
+					projectId: devPass.project.id,
 					usageLimit: null,
 					expiresAt,
 				},
@@ -232,12 +232,12 @@ export default function ConnectCliPage() {
 					<span>
 						Signed in as{" "}
 						<span className="font-medium text-foreground">{user.email}</span>
-						{defaultProject?.name ? (
+						{devPass?.organization.name ? (
 							<>
 								{" "}
-								· project{" "}
+								· organization{" "}
 								<span className="font-medium text-foreground">
-									{defaultProject.name}
+									{devPass.organization.name}
 								</span>
 							</>
 						) : null}
@@ -254,7 +254,7 @@ export default function ConnectCliPage() {
 					className="w-full"
 					onClick={authorize}
 					disabled={
-						createApiKey.isPending || projectLoading || !defaultProject?.id
+						createApiKey.isPending || projectLoading || !devPass?.project.id
 					}
 				>
 					{createApiKey.isPending ? (
@@ -268,8 +268,8 @@ export default function ConnectCliPage() {
 				</Button>
 				{projectError ? (
 					<p className="text-xs text-destructive">
-						No project found on your account. Finish setup in the dashboard
-						first.
+						Couldn&apos;t load your DevPass organization. Refresh this page and
+						try again.
 					</p>
 				) : null}
 			</CardFooter>
