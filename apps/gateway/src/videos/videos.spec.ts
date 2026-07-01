@@ -1640,7 +1640,7 @@ describe("videos", () => {
 				model: "seedance-2-0-fast",
 				prompt: "A vertical clip of a waterfall",
 				size: "1080x1920",
-				seconds: 5,
+				seconds: 15,
 			}),
 		});
 
@@ -1655,6 +1655,7 @@ describe("videos", () => {
 		const mockVideo = getMockVideo(videoJob!.upstreamId);
 		expect(mockVideo?.ratio).toBe("9:16");
 		expect(mockVideo?.resolution).toBe("1080p");
+		expect(mockVideo?.duration).toBe(15);
 	});
 
 	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
