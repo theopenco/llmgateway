@@ -6,17 +6,15 @@ title: "DevPass Code: A Terminal Coding Agent for LLM Gateway"
 summary: "DevPass Code is an open-source terminal coding agent that talks only to LLM Gateway. One browser login, every model, and no per-provider API keys to juggle. Use it pay-as-you-go or on a DevPass coding subscription."
 categories: ["Announcements", "Product"]
 image:
-  src: "/blog/devpass-code.png"
-  alt: "DevPass Code — the terminal coding agent for LLM Gateway, showing a terminal window routing to multiple models"
-  width: 1536
-  height: 1024
+  src: "/blog/devpass-code-splash.png"
+  alt: "The DevPass Code terminal splash screen, showing the model set to Claude Opus 4.8 through LLM Gateway"
+  width: 1320
+  height: 760
 ---
 
 Every terminal coding agent asks you to wire up providers before you can write a line of code: an Anthropic key here, an OpenAI key there, a base URL to override, a config file to babysit. Switch models and you do it again. It's setup tax on the exact tool that's supposed to remove busywork.
 
 Today we're releasing **DevPass Code** — an open-source terminal coding agent that talks to exactly one place: **LLM Gateway**. You log in once from your browser, and every text model the gateway serves is available in the same session. No per-provider keys, no base-URL surgery, no reconfiguring to try a different model.
-
-![The DevPass Code terminal splash screen, showing the model set to Claude Opus 4.8 through LLM Gateway](/blog/devpass-code-splash.png)
 
 ## One login, from the terminal
 
