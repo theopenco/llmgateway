@@ -3542,11 +3542,12 @@ async function createBytedanceVideoJob(
 
 	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
 
+	const videoRatio = getBytedanceVideoAspectRatio(videoSize);
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
 		content,
 		duration: durationSeconds,
-		aspect_ratio: getBytedanceVideoAspectRatio(videoSize),
+		ratio: videoRatio,
 		generate_audio: includeAudio,
 	};
 
@@ -3575,7 +3576,7 @@ async function createBytedanceVideoJob(
 			...rawResponse,
 			status: rawResponse.status ?? "queued",
 			duration: durationSeconds,
-			aspect_ratio: upstreamRequest.aspect_ratio,
+			aspect_ratio: videoRatio,
 		},
 		videoSize,
 	);
