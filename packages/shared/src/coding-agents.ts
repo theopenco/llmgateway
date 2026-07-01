@@ -32,6 +32,12 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		userAgentPatterns: [/^opencode\//i, /\bopencode-cli\b/i],
 	},
 	{
+		id: "devpass-code",
+		label: "DevPass Code",
+		xSourceValues: ["devpass-code"],
+		userAgentPatterns: [/^devpass-code\//i, /\bdevpass-code\b/i],
+	},
+	{
 		id: "roo-code",
 		label: "Roo Code",
 		xSourceValues: ["roo-code", "roo-cline"],

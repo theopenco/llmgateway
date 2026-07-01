@@ -28,6 +28,8 @@ import {
 import { Input } from "@/lib/components/input";
 import { toast } from "@/lib/components/use-toast";
 
+import type { Route } from "next";
+
 const formSchema = z.object({
 	email: z.string().email({
 		message: "Please enter a valid email address",
@@ -45,8 +47,20 @@ export default function Login() {
 	const [showPassword, setShowPassword] = useState(false);
 	const { signIn } = useAuth();
 
+	// Support a post-login `?redirect=` target (e.g. the CLI connect flow). Only
+	// same-origin relative paths are honored to avoid open-redirects.
+	const [redirectTarget] = useState(() => {
+		if (typeof window === "undefined") {
+			return "/dashboard";
+		}
+		const target = new URLSearchParams(window.location.search).get("redirect");
+		return target && target.startsWith("/") && !target.startsWith("//")
+			? target
+			: "/dashboard";
+	});
+
 	useUser({
-		redirectTo: "/dashboard",
+		redirectTo: redirectTarget,
 		redirectWhen: "authenticated",
 		checkOnboarding: true,
 	});
@@ -93,7 +107,7 @@ export default function Login() {
 			if (res?.data) {
 				queryClient.clear();
 				posthog.capture("user_logged_in", { method: "passkey" });
-				router.push("/dashboard");
+				router.push(redirectTarget as Route);
 			} else if (res?.error) {
 				if (res.error.message?.toLowerCase().includes("cancelled")) {
 					return;
@@ -129,7 +143,7 @@ export default function Login() {
 						email: values.email,
 					});
 					toast({ title: "Login successful" });
-					router.push("/dashboard");
+					router.push(redirectTarget as Route);
 				},
 				onError: (ctx) => {
 					toast({
@@ -166,7 +180,7 @@ export default function Login() {
 			}
 			posthog.capture("user_logged_in", { method: "passkey" });
 			toast({ title: "Login successful" });
-			router.push("/dashboard");
+			router.push(redirectTarget as Route);
 		} catch (error: unknown) {
 			toast({
 				title: (error as Error)?.message || "Failed to sign in with passkey",
@@ -298,7 +312,7 @@ export default function Login() {
 				<SocialAuthButtons
 					isLoading={isLoading}
 					setIsLoading={setIsLoading}
-					callbackPath="/dashboard"
+					callbackPath={redirectTarget}
 					errorCallbackPath="/login"
 				/>
 
