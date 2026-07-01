@@ -1,0 +1,122 @@
+---
+title: DevPass Code
+description: DevPass Code is a terminal coding agent that talks only to LLM Gateway. One-click browser login, ~190 models, and DevPass subscription billing handled automatically.
+icon: DevPassCode
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+[DevPass Code](https://github.com/theopenco/devpass-code) is a terminal coding agent that talks **only** to LLM Gateway. It's a rebranded fork of [opencode](https://github.com/anomalyco/opencode) (MIT), trimmed down to two providers that both point at LLM Gateway's OpenAI-compatible API. Every request is tagged with `x-source: devpass-code`, so DevPass usage is attributed correctly and you get access to all ~190 text models LLM Gateway offers.
+
+Log in once from your terminal with a single click in the browser — no copy-pasting API keys unless you want to.
+
+## Install
+
+DevPass Code runs on [Bun](https://bun.sh). Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/theopenco/devpass-code.git
+cd devpass-code
+bun install
+```
+
+Run it from source:
+
+```bash
+bun run packages/devpass-code/src/index.ts --help
+```
+
+Or use the dev script:
+
+```bash
+bun dev
+```
+
+## Authenticate
+
+DevPass Code supports one-click browser login, just like Claude Code. Start the login flow:
+
+```bash
+devpass-code auth login
+```
+
+<Steps>
+<Step>
+### Pick a provider
+
+Choose either **LLM Gateway** (pay-as-you-go with your own API key) or **LLM Gateway DevPass** (the DevPass coding subscription). See [Providers](#providers) below for the difference.
+
+</Step>
+
+<Step>
+### Log in with browser
+
+Select **"Log in with browser."** DevPass Code opens [https://llmgateway.io/connect/cli](https://llmgateway.io/connect/cli) and starts a local loopback server.
+
+</Step>
+
+<Step>
+### Approve in the browser
+
+Approve the request in your browser. The API key is delivered back to the local loopback server automatically — nothing to copy or paste.
+
+</Step>
+
+<Step>
+### Start coding
+
+Your credentials are saved to `~/.local/share/devpass-code/auth.json`. You're ready to go.
+
+</Step>
+</Steps>
+
+<Callout type="info">
+	Prefer to paste a key? Choose **"Paste an API key"** during `devpass-code auth
+	login` and enter a key from your [LLM Gateway
+	dashboard](https://llmgateway.io/dashboard). You can also set the
+	`LLMGATEWAY_API_KEY` environment variable to skip the prompt entirely.
+</Callout>
+
+## Providers
+
+DevPass Code ships exactly two providers. Both hit `https://api.llmgateway.io/v1` (OpenAI-compatible) and expose the same ~190 text models — the only difference is how usage is billed.
+
+| Provider                | Billing                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| **LLM Gateway**         | Pay-as-you-go with your own API key                                                                     |
+| **LLM Gateway DevPass** | The DevPass coding subscription — billing is handled automatically by the gateway based on your account |
+
+<Callout type="info">
+	Both providers route through the same gateway, so you can switch between them
+	at any time without changing anything else. View all available models on the
+	[models page](https://llmgateway.io/models).
+</Callout>
+
+## Use it
+
+Once authenticated, start DevPass Code in any project directory and describe what you want to build. All requests route through LLM Gateway with `x-source: devpass-code`, so every prompt and its cost appear in your [dashboard](https://llmgateway.io/dashboard).
+
+## Configuration
+
+- **Config file** — Place a `devpass-code.json` in your project (or global config directory) to customize models and behavior.
+- **`LLMGATEWAY_API_KEY`** — Provide your LLM Gateway API key without running the login flow.
+- **`DEVPASS_APP_URL`** — Override the app URL used for browser login (defaults to `https://llmgateway.io`).
+
+## Why Use LLM Gateway with DevPass Code
+
+- **~190 text models** — GPT-5, Claude, Gemini, Llama, and more, all through one endpoint
+- **One-click login** — Approve in the browser, key delivered automatically
+- **DevPass billing** — The DevPass subscription is handled automatically by the gateway
+- **Cost tracking** — See exactly what each coding session costs in your dashboard
+- **Response caching** — Repeated requests hit cache automatically
+
+<Callout type="info">
+	Source, issues, and releases live at
+	[github.com/theopenco/devpass-code](https://github.com/theopenco/devpass-code).
+</Callout>
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support and troubleshooting assistance.
+</Callout>
