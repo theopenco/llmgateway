@@ -19,6 +19,8 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
+import { CODING_AGENTS, isRecognizedCodingAgent } from "@llmgateway/shared";
+
 interface ConnectParams {
 	callback: string;
 	state: string;
@@ -42,6 +44,16 @@ function isLoopbackCallback(callback: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+// Freshly minted CLI keys expire so a leaked key can't be used indefinitely.
+// This is time-based (not a spend cap) so it never interferes with how DevPass
+// subscription usage is metered.
+const CLI_KEY_TTL_DAYS = 90;
+
+// Label for a recognized coding-agent source, or undefined if not recognized.
+function agentLabel(source: string): string | undefined {
+	return CODING_AGENTS.find((a) => a.xSourceValues.includes(source))?.label;
 }
 
 function readParams(): ConnectParams | null {
@@ -84,20 +96,25 @@ export default function ConnectCliPage() {
 
 	const createApiKey = api.useMutation("post", "/keys/api");
 
-	const displayName =
-		params?.source === "devpass-code" ? "DevPass Code" : (params?.source ?? "");
+	const displayName = params
+		? (agentLabel(params.source) ?? params.source)
+		: "";
 
 	const authorize = () => {
 		if (!params || !defaultProject?.id || createApiKey.isPending) {
 			return;
 		}
 
+		const ttlMs = CLI_KEY_TTL_DAYS * 24 * 60 * 60 * 1000;
+		const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+
 		createApiKey.mutate(
 			{
 				body: {
-					description: params.name,
+					description: `${displayName} (CLI) — ${params.name}`.slice(0, 100),
 					projectId: defaultProject.id,
 					usageLimit: null,
+					expiresAt,
 				},
 			},
 			{
@@ -135,14 +152,19 @@ export default function ConnectCliPage() {
 		);
 	}
 
-	if (!params || !isLoopbackCallback(params.callback)) {
+	if (
+		!params ||
+		!isLoopbackCallback(params.callback) ||
+		!isRecognizedCodingAgent(params.source)
+	) {
 		return (
 			<Card>
 				<CardHeader>
 					<CardTitle>Invalid connection request</CardTitle>
 					<CardDescription>
-						This link is missing required information or points at a non-local
-						address. Start the login again from your terminal.
+						This link is missing required information, points at a non-local
+						address, or comes from an unrecognized tool. Start the login again
+						from your terminal.
 					</CardDescription>
 				</CardHeader>
 			</Card>
@@ -222,8 +244,9 @@ export default function ConnectCliPage() {
 					</span>
 				</div>
 				<p className="text-xs text-muted-foreground">
-					The key is delivered only to a local address on this machine. You can
-					revoke it any time from the API Keys page.
+					The key is delivered only to a local address on this machine, expires
+					in {CLI_KEY_TTL_DAYS} days, and can be revoked any time from the API
+					Keys page.
 				</p>
 			</CardContent>
 			<CardFooter className="flex-col gap-2">
