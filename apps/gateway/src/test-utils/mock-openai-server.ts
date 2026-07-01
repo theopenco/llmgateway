@@ -357,6 +357,7 @@ interface MockVideoJobState {
 	requestBody?: unknown;
 	size?: string;
 	duration?: number;
+	ratio?: string;
 	resolution?: string;
 	width?: number;
 	height?: number;
@@ -2018,6 +2019,9 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		firstFrame: parseFrameByRole("first_frame"),
 		lastFrame: parseFrameByRole("last_frame"),
 		duration: typeof body.duration === "number" ? body.duration : undefined,
+		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
+		resolution:
+			typeof body.resolution === "string" ? body.resolution : undefined,
 		created_at: Math.floor(Date.now() / 1000),
 		completed_at: null,
 		expires_at: null,
