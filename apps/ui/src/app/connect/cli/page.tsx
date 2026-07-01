@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
+import { useDefaultProject } from "@/hooks/useDefaultProject";
 import { useDevPassProject } from "@/hooks/useDevPassProject";
 import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
@@ -26,6 +27,10 @@ interface ConnectParams {
 	state: string;
 	source: string;
 	name: string;
+	// Which org the minted key should live in. The CLI passes "devpass" when
+	// connecting the DevPass subscription provider so usage bills the DevPass
+	// plan; pay-as-you-go connects keep using the default dashboard org.
+	org: "default" | "devpass";
 }
 
 /**
@@ -71,6 +76,7 @@ function readParams(): ConnectParams | null {
 		state,
 		source: params.get("source") ?? "coding CLI",
 		name: (params.get("name") ?? "DevPass Code CLI").slice(0, 80),
+		org: params.get("org") === "devpass" ? "devpass" : "default",
 	};
 }
 
@@ -78,11 +84,6 @@ export default function ConnectCliPage() {
 	const api = useApi();
 	const posthog = usePostHog();
 	const { user, isLoading: userLoading } = useUser();
-	const {
-		data: devPass,
-		isLoading: projectLoading,
-		isError: projectError,
-	} = useDevPassProject();
 
 	// Read query params only after mount so SSR and the first client render agree.
 	const [params, setParams] = useState<ConnectParams | null>(null);
@@ -94,6 +95,20 @@ export default function ConnectCliPage() {
 		setMounted(true);
 	}, []);
 
+	const wantsDevPassOrg = params?.org === "devpass";
+	const devPassResult = useDevPassProject({ enabled: wantsDevPassOrg });
+	const defaultResult = useDefaultProject();
+
+	const project = wantsDevPassOrg
+		? devPassResult.data?.project
+		: defaultResult.data;
+	const projectLoading = wantsDevPassOrg
+		? devPassResult.isLoading
+		: defaultResult.isLoading;
+	const projectError = wantsDevPassOrg
+		? devPassResult.isError
+		: defaultResult.isError;
+
 	const createApiKey = api.useMutation("post", "/keys/api");
 
 	const displayName = params
@@ -101,7 +116,7 @@ export default function ConnectCliPage() {
 		: "";
 
 	const authorize = () => {
-		if (!params || !devPass?.project.id || createApiKey.isPending) {
+		if (!params || !project?.id || createApiKey.isPending) {
 			return;
 		}
 
@@ -112,7 +127,7 @@ export default function ConnectCliPage() {
 			{
 				body: {
 					description: `${displayName} (CLI) — ${params.name}`.slice(0, 100),
-					projectId: devPass.project.id,
+					projectId: project.id,
 					usageLimit: null,
 					expiresAt,
 				},
@@ -232,12 +247,20 @@ export default function ConnectCliPage() {
 					<span>
 						Signed in as{" "}
 						<span className="font-medium text-foreground">{user.email}</span>
-						{devPass?.organization.name ? (
+						{wantsDevPassOrg && devPassResult.data?.organization.name ? (
 							<>
 								{" "}
 								· organization{" "}
 								<span className="font-medium text-foreground">
-									{devPass.organization.name}
+									{devPassResult.data.organization.name}
+								</span>
+							</>
+						) : !wantsDevPassOrg && project?.name ? (
+							<>
+								{" "}
+								· project{" "}
+								<span className="font-medium text-foreground">
+									{project.name}
 								</span>
 							</>
 						) : null}
@@ -253,9 +276,7 @@ export default function ConnectCliPage() {
 				<Button
 					className="w-full"
 					onClick={authorize}
-					disabled={
-						createApiKey.isPending || projectLoading || !devPass?.project.id
-					}
+					disabled={createApiKey.isPending || projectLoading || !project?.id}
 				>
 					{createApiKey.isPending ? (
 						<>
@@ -268,8 +289,9 @@ export default function ConnectCliPage() {
 				</Button>
 				{projectError ? (
 					<p className="text-xs text-destructive">
-						Couldn&apos;t load your DevPass organization. Refresh this page and
-						try again.
+						{wantsDevPassOrg
+							? "Couldn't load your DevPass organization. Refresh this page and try again."
+							: "No project found on your account. Finish setup in the dashboard first."}
 					</p>
 				) : null}
 			</CardFooter>

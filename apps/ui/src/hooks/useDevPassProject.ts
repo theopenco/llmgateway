@@ -1,16 +1,18 @@
 import { useApi } from "@/lib/fetch-client";
 
 // Resolves the user's personal DevPass organization (created on demand by the
-// API) and its default project. CLI connect keys are minted here — not in a
-// regular dashboard org — so usage is billed against the user's DevPass plan.
-export function useDevPassProject() {
+// API) and its default project. DevPass CLI connect keys are minted here — not
+// in a regular dashboard org — so usage is billed against the DevPass plan.
+// Pass enabled: false to skip the lookup (it creates the org as a side effect).
+export function useDevPassProject(options?: { enabled?: boolean }) {
 	const api = useApi();
+	const enabled = options?.enabled ?? true;
 
 	const {
 		data: personalOrg,
 		isLoading: orgLoading,
 		isError: orgError,
-	} = api.useQuery("get", "/dev-plans/personal-org");
+	} = api.useQuery("get", "/dev-plans/personal-org", {}, { enabled });
 
 	const {
 		data: projectsData,
@@ -25,11 +27,15 @@ export function useDevPassProject() {
 			},
 		},
 		{
-			enabled: !!personalOrg?.id,
+			enabled: enabled && !!personalOrg?.id,
 		},
 	);
 
 	const isLoading = orgLoading || (!!personalOrg && projectsLoading);
+
+	if (!enabled) {
+		return { data: null, isError: false, isLoading: false };
+	}
 
 	if (isLoading) {
 		return { data: null, isError: false, isLoading: true };
