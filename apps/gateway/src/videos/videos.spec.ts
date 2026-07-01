@@ -1637,7 +1637,7 @@ describe("videos", () => {
 				Authorization: "Bearer real-token",
 			},
 			body: JSON.stringify({
-				model: "seedance-2-0-fast",
+				model: "seedance-2-0",
 				prompt: "A vertical clip of a waterfall",
 				size: "1080x1920",
 				seconds: 15,

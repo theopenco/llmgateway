@@ -194,7 +194,7 @@ export const bytedanceModels = [
 				tools: false,
 				jsonOutput: false,
 				videoGenerations: true,
-				supportedVideoSizes: ["1280x720", "720x1280", "1920x1080", "1080x1920"],
+				supportedVideoSizes: ["1280x720", "720x1280"],
 				supportedVideoDurationsSeconds: [
 					4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 				],
