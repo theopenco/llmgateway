@@ -345,3 +345,32 @@ export const MimoCodeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 		/>
 	</svg>
 );
+
+// DevPass Code Icon
+export const DevPassCodeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="none"
+		{...props}
+	>
+		<rect
+			x="2"
+			y="4"
+			width="20"
+			height="16"
+			rx="3"
+			stroke="currentColor"
+			strokeWidth="2"
+		/>
+		<path
+			d="m6 9 3 3-3 3M13 15h4"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		/>
+	</svg>
+);
