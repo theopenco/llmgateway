@@ -121,7 +121,7 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 
 		if (metricsServer) {
 			logger.info("Closing metrics server");
-			metricsServer.close();
+			await closeServer(metricsServer);
 			logger.info("Metrics server closed");
 		}
 
