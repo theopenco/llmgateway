@@ -1081,6 +1081,8 @@ keysApi.openapi(list, async (c) => {
 
 	// Determine user's role for the relevant organization
 	let userRole: "owner" | "admin" | "developer" = "developer";
+	// Project-scoped "developer" members may only ever see their OWN keys.
+	let developerScoped = false;
 	if (projectId) {
 		const project = await db.query.project.findFirst({
 			where: {
@@ -1096,12 +1098,14 @@ keysApi.openapi(list, async (c) => {
 			);
 			if (userOrg) {
 				userRole = userOrg.role as "owner" | "admin" | "developer";
+				developerScoped = userRole === "developer";
 			}
 		}
 	}
 
-	// All users can see all keys, but can still filter to "mine"
-	const shouldFilterByCreator = filter === "mine";
+	// Owners/admins see all keys (with an optional "mine" filter); developers are
+	// always restricted to the keys they created.
+	const shouldFilterByCreator = filter === "mine" || developerScoped;
 
 	// Get API keys for the specified project or all accessible projects
 	const apiKeys = await db.query.apiKey.findMany({

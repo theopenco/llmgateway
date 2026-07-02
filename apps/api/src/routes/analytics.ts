@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { userHasProjectAccess } from "@/utils/authorization.js";
+
 import {
 	and,
 	apiKeyHourlyModelStats,
@@ -614,6 +616,224 @@ analytics.openapi(getMemberDetail, async (c) => {
 		costByModel,
 		activity,
 	});
+});
+
+const selfUsageSchema = z.object({
+	summary: z.object({
+		cost: z.number(),
+		inputTokens: z.number(),
+		outputTokens: z.number(),
+		totalTokens: z.number(),
+		requestCount: z.number(),
+		errorCount: z.number(),
+		apiKeyCount: z.number(),
+	}),
+	activity: z.array(
+		z.object({
+			date: z.string(),
+			cost: z.number(),
+			requestCount: z.number(),
+			totalTokens: z.number(),
+		}),
+	),
+	topModels: z.array(breakdownEntrySchema),
+});
+
+const getSelfUsage = createRoute({
+	method: "get",
+	path: "/me",
+	request: {
+		query: z.object({
+			organizationId: z.string(),
+			projectId: z.string(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: selfUsageSchema,
+				},
+			},
+			description:
+				"The authenticated user's own usage within a project (own API keys only). No admin gate — self-service.",
+		},
+	},
+});
+
+// Self-service: a project-scoped member (developer) can always see their OWN
+// usage for a project they have access to — their keys, their numbers, nothing
+// else. Attributed via api_key.created_by.
+analytics.openapi(getSelfUsage, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { projectId, from, to } = c.req.valid("query");
+
+	if (!(await userHasProjectAccess(authUser.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	const { startDate, endDate } = resolveDateRange(from, to);
+	const fromStr = from ?? startDate.toISOString().slice(0, 10);
+	const toStr = to ?? endDate.toISOString().slice(0, 10);
+
+	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
+
+	const emptySummary = {
+		cost: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		totalTokens: 0,
+		requestCount: 0,
+		errorCount: 0,
+		apiKeyCount: 0,
+	};
+	const emptyActivity = eachDay(fromStr, toStr).map((date) => ({
+		date,
+		cost: 0,
+		requestCount: 0,
+		totalTokens: 0,
+	}));
+
+	const myKeys = await db
+		.select({ id: tables.apiKey.id })
+		.from(tables.apiKey)
+		.where(
+			and(
+				eq(tables.apiKey.projectId, projectId),
+				eq(tables.apiKey.createdBy, authUser.id),
+			),
+		);
+	const keyIds = myKeys.map((k) => k.id);
+
+	if (keyIds.length === 0) {
+		return c.json({
+			summary: emptySummary,
+			activity: emptyActivity,
+			topModels: [],
+		});
+	}
+
+	const summaryRows = await db
+		.select({
+			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"input_tokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"output_tokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			requestCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			errorCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
+					"error_count",
+				),
+		})
+		.from(apiKeyHourlyStats)
+		.where(
+			and(
+				inArray(apiKeyHourlyStats.apiKeyId, keyIds),
+				gte(apiKeyHourlyStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyStats.hourTimestamp, endDate),
+			),
+		);
+	const s = summaryRows[0];
+	const summary = {
+		cost: Number(s?.cost ?? 0),
+		inputTokens: Number(s?.inputTokens ?? 0),
+		outputTokens: Number(s?.outputTokens ?? 0),
+		totalTokens: Number(s?.totalTokens ?? 0),
+		requestCount: Number(s?.requestCount ?? 0),
+		errorCount: Number(s?.errorCount ?? 0),
+		apiKeyCount: keyIds.length,
+	};
+
+	const activityRows = await db
+		.select({
+			date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			requestCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+		})
+		.from(apiKeyHourlyStats)
+		.where(
+			and(
+				inArray(apiKeyHourlyStats.apiKeyId, keyIds),
+				gte(apiKeyHourlyStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(sql`1`)
+		.orderBy(sql`1 ASC`);
+	const byDate = new Map(
+		activityRows.map((r) => [String(r.date).slice(0, 10), r]),
+	);
+	const activity = eachDay(fromStr, toStr).map((date) => {
+		const r = byDate.get(date);
+		return {
+			date,
+			cost: Number(r?.cost ?? 0),
+			requestCount: Number(r?.requestCount ?? 0),
+			totalTokens: Number(r?.totalTokens ?? 0),
+		};
+	});
+
+	const modelRows = await db
+		.select({
+			usedModel: apiKeyHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${apiKeyHourlyModelStats.cost})`.as("cost"),
+			requestCount: sql<number>`SUM(${apiKeyHourlyModelStats.requestCount})`.as(
+				"request_count",
+			),
+			totalTokens:
+				sql<number>`SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(apiKeyHourlyModelStats)
+		.where(
+			and(
+				inArray(apiKeyHourlyModelStats.apiKeyId, keyIds),
+				gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(apiKeyHourlyModelStats.usedModel)
+		.orderBy(desc(sql`SUM(${apiKeyHourlyModelStats.cost})`));
+	const topModels = modelRows.slice(0, 5).map((r) => ({
+		key: r.usedModel || "unknown",
+		cost: Number(r.cost ?? 0),
+		requestCount: Number(r.requestCount ?? 0),
+		totalTokens: Number(r.totalTokens ?? 0),
+	}));
+
+	return c.json({ summary, activity, topModels });
 });
 
 const modelNameById = new Map<string, string>(

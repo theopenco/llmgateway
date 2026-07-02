@@ -141,6 +141,25 @@ const PROJECT_NAVIGATION: readonly {
 	},
 ];
 
+// Navigation shown to project-scoped "developer" members instead of the full
+// Project section: they can only see their own usage and manage their own keys.
+const USER_NAVIGATION: readonly {
+	href: string;
+	label: string;
+	icon: AnimatedIconComponent;
+}[] = [
+	{
+		href: "me",
+		label: "Dashboard",
+		icon: AnimatedLayoutDashboard,
+	},
+	{
+		href: "me/api-keys",
+		label: "API Keys",
+		icon: AnimatedKey,
+	},
+];
+
 const PROJECT_SETTINGS = [
 	{
 		href: "settings/preferences",
@@ -1066,56 +1085,82 @@ export function DashboardSidebar({
 				onOrganizationCreated={onOrganizationCreated}
 			/>
 			<SidebarContent>
-				<SidebarGroup>
-					<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
-						Project
-					</SidebarGroupLabel>
-					<SidebarGroupContent className="mt-2">
-						<SidebarMenu>
-							{PROJECT_NAVIGATION.map((item) => (
-								<NavigationItem
-									key={item.href}
-									item={item}
-									isActive={isActive}
-									onClick={handleNavClick}
-								/>
-							))}
-							<ProjectSettingsSection
-								isActive={isActive}
-								isMobile={isMobile}
-								toggleSidebar={toggleSidebar}
-							/>
-						</SidebarMenu>
-					</SidebarGroupContent>
-				</SidebarGroup>
+				{selectedOrganization?.role === "developer" ? (
+					// Project-scoped "developer" members get a minimal, personal nav:
+					// their own usage dashboard and their own API keys — nothing else.
+					<SidebarGroup>
+						<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+							User
+						</SidebarGroupLabel>
+						<SidebarGroupContent className="mt-2">
+							<SidebarMenu>
+								{USER_NAVIGATION.map((item) => (
+									<NavigationItem
+										key={item.href}
+										item={item}
+										isActive={isActive}
+										onClick={handleNavClick}
+									/>
+								))}
+							</SidebarMenu>
+						</SidebarGroupContent>
+					</SidebarGroup>
+				) : (
+					<>
+						<SidebarGroup>
+							<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+								Project
+							</SidebarGroupLabel>
+							<SidebarGroupContent className="mt-2">
+								<SidebarMenu>
+									{PROJECT_NAVIGATION.map((item) => (
+										<NavigationItem
+											key={item.href}
+											item={item}
+											isActive={isActive}
+											onClick={handleNavClick}
+										/>
+									))}
+									<ProjectSettingsSection
+										isActive={isActive}
+										isMobile={isMobile}
+										toggleSidebar={toggleSidebar}
+									/>
+								</SidebarMenu>
+							</SidebarGroupContent>
+						</SidebarGroup>
 
-				{/* Project-scoped "developer" members have no access to org-level
-				    resources, so the entire Organization section is hidden. */}
-				{selectedOrganization?.role !== "developer" && (
-					<OrganizationSection
-						isActive={isActive}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-						searchParams={searchParams}
-						isEnterprise={selectedOrganization?.plan === "enterprise"}
-					/>
+						<OrganizationSection
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+							searchParams={searchParams}
+							isEnterprise={selectedOrganization?.plan === "enterprise"}
+						/>
+
+						<ToolsResourcesSection
+							toolsResources={toolsResources}
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+						/>
+					</>
 				)}
-
-				<ToolsResourcesSection
-					toolsResources={toolsResources}
-					isActive={isActive}
-					isMobile={isMobile}
-					toggleSidebar={toggleSidebar}
-				/>
 			</SidebarContent>
 
 			<SidebarFooter>
-				<CreditsDisplay selectedOrganization={selectedOrganization} />
-				<UpgradeCTA
-					show={showUpgradeCTA && ctaLoaded}
-					onHide={hideCreditCTA}
-					selectedOrganization={selectedOrganization}
-				/>
+				{/* Org credits + upgrade prompts are org-level; hide them from
+				    project-scoped developers. */}
+				{selectedOrganization?.role !== "developer" && (
+					<>
+						<CreditsDisplay selectedOrganization={selectedOrganization} />
+						<UpgradeCTA
+							show={showUpgradeCTA && ctaLoaded}
+							onHide={hideCreditCTA}
+							selectedOrganization={selectedOrganization}
+						/>
+					</>
+				)}
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<UserDropdownMenu
