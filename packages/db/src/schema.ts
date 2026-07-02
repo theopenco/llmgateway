@@ -221,6 +221,11 @@ export const organization = pgTable(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Enterprise Google SSO auto-join. When set, users signing in via Google
+		// with a verified email at this domain are auto-added to the org as
+		// "developer". Stored lowercase, no leading "@". Unique so a domain can
+		// only be claimed by one organization.
+		ssoAutoJoinDomain: text(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -334,6 +339,11 @@ export const organization = pgTable(
 		// active fingerprints.
 		uniqueIndex("organization_chat_plan_card_fingerprint_uidx").on(
 			table.chatPlanCardFingerprint,
+		),
+		// A given SSO auto-join domain can only be claimed by one organization.
+		// NULLs are distinct in Postgres, so this only constrains configured domains.
+		uniqueIndex("organization_sso_auto_join_domain_uidx").on(
+			table.ssoAutoJoinDomain,
 		),
 	],
 );
@@ -2694,6 +2704,7 @@ export const auditLogActions = [
 	"organization.delete",
 	"organization.block",
 	"organization.manage",
+	"organization.sso_auto_join.update",
 	// Project
 	"project.create",
 	"project.update",
@@ -2706,6 +2717,7 @@ export const auditLogActions = [
 	"team_member.invite",
 	"team_member.invite_accept",
 	"team_member.invite_revoke",
+	"team_member.auto_join",
 	// API Key
 	"api_key.create",
 	"api_key.roll",

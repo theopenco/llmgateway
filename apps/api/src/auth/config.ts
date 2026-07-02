@@ -14,6 +14,7 @@ import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
+import { autoJoinByEmailDomain } from "@/utils/sso-domain.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
@@ -1131,12 +1132,39 @@ The LLM Gateway Team`.trim();
 					const activeOrganizations = userOrganizations.filter(
 						(uo) => uo.organization?.status !== "deleted",
 					);
-					const hasActiveDashboardOrganization = activeOrganizations.some(
+					const hadActiveDashboardOrganization = activeOrganizations.some(
 						(uo) => uo.organization?.kind === "default",
 					);
 					const hasActivePersonalOrganization = activeOrganizations.some(
 						(uo) => uo.organization?.kind === "devpass",
 					);
+
+					// Google SSO domain auto-join: if this user has a Google account and
+					// their verified email domain matches an enterprise org's configured
+					// SSO domain, add them to that org as a developer. A successful join
+					// gives them an active dashboard org, so the default-org creation below
+					// is skipped (no redundant personal "Default Organization"). Existing
+					// members are a no-op. Never fatal to login.
+					let autoJoinedOrgId: string | null = null;
+					if (newSession.user.emailVerified && dbUser?.email) {
+						const googleAccount = await db.query.account.findFirst({
+							where: {
+								userId: { eq: userId },
+								providerId: { eq: "google" },
+							},
+						});
+						if (googleAccount) {
+							try {
+								autoJoinedOrgId = await autoJoinByEmailDomain({
+									userId,
+									email: dbUser.email,
+									name: dbUser.name,
+								});
+							} catch (error) {
+								logger.error("SSO auto-join failed", error);
+							}
+						}
+					}
 
 					// DevPass (code app) signups get a personal organization instead of
 					// the shared "Default Organization" used by the main LLM Gateway
@@ -1154,29 +1182,33 @@ The LLM Gateway Team`.trim();
 						});
 						if (
 							hasActivePersonalOrganization ||
-							hasActiveDashboardOrganization
+							hadActiveDashboardOrganization
 						) {
 							return;
 						}
-					} else if (hasActiveDashboardOrganization) {
+					} else if (hadActiveDashboardOrganization) {
 						return;
 					} else {
-						const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
-						const referralMatch = cookieHeader.match(
-							/llmgateway_referral=([^;]+)/,
-						);
+						// A domain auto-join already gave the user an active dashboard org,
+						// so only create the fallback default org when they didn't join one.
+						if (!autoJoinedOrgId) {
+							const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
+							const referralMatch = cookieHeader.match(
+								/llmgateway_referral=([^;]+)/,
+							);
 
-						await getOrCreateDefaultOrganization(
-							{
-								id: userId,
-								email: newSession.user.email,
-							},
-							{
-								referralOrganizationId: referralMatch
-									? decodeURIComponent(referralMatch[1])
-									: null,
-							},
-						);
+							await getOrCreateDefaultOrganization(
+								{
+									id: userId,
+									email: newSession.user.email,
+								},
+								{
+									referralOrganizationId: referralMatch
+										? decodeURIComponent(referralMatch[1])
+										: null,
+								},
+							);
+						}
 
 						if (activeOrganizations.length > 0) {
 							return;

@@ -19,6 +19,7 @@ import {
 	ProjectMultiSelect,
 	type OrgProject,
 } from "@/components/projects/project-multi-select";
+import { OrganizationSsoSettings } from "@/components/settings/organization-sso-settings";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	useTeamMembers,
@@ -1340,6 +1341,15 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 								</Table>
 							</CardContent>
 						</Card>
+					)}
+
+					{selectedOrganization && (
+						<OrganizationSsoSettings
+							organizationId={selectedOrganization.id}
+							savedDomain={selectedOrganization.ssoAutoJoinDomain ?? null}
+							isEnterprise={isEnterprise}
+							canManage={isAdmin}
+						/>
 					)}
 				</div>
 			</div>
