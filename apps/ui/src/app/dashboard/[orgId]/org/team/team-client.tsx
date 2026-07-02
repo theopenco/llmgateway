@@ -1020,15 +1020,18 @@ export function TeamClient() {
 
 										<Alert>
 											<AlertDescription>
-												Organizations can have up to 5 team members. Contact us
-												at{" "}
-												<a
-													href="mailto:contact@llmgateway.io"
-													className="underline"
-												>
-													contact@llmgateway.io
-												</a>{" "}
-												to unlock more seats.
+												<p>
+													Organizations can have up to 5 team members. Contact
+													us at{" "}
+													<a
+														href="mailto:contact@llmgateway.io"
+														className="underline"
+													>
+														contact@llmgateway.io
+													</a>{" "}
+													to unlock more seats and role-based access control
+													(RBAC).
+												</p>
 											</AlertDescription>
 										</Alert>
 									</div>
