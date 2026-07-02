@@ -612,12 +612,6 @@ export const userOrganization = pgTable(
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
 		index("user_organization_organization_id_idx").on(table.organizationId),
-		// Period budget config is all-or-nothing: value and unit are both set or
-		// both null, so a partial config can never reach the gateway enforcement.
-		check(
-			"user_organization_period_usage_duration_pair",
-			sql`(${table.periodUsageDurationValue} IS NULL) = (${table.periodUsageDurationUnit} IS NULL)`,
-		),
 	],
 );
 
