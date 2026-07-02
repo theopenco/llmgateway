@@ -18,6 +18,7 @@ import {
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
 import { Alert, AlertDescription } from "@/lib/components/alert";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -178,6 +179,31 @@ type TeamMember = NonNullable<
 >["members"][number];
 
 const PERIOD_UNITS = ["hour", "day", "week", "month"] as const;
+
+function budgetBadges(budget: TeamMember["budget"]): string[] {
+	const badges: string[] = [];
+	if (budget.usageLimit !== null) {
+		badges.push(`${currencyFormatter.format(Number(budget.usageLimit))} total`);
+	}
+	if (
+		budget.periodUsageLimit !== null &&
+		budget.periodUsageDurationValue !== null &&
+		budget.periodUsageDurationUnit !== null
+	) {
+		const value = budget.periodUsageDurationValue;
+		const unit = budget.periodUsageDurationUnit;
+		const period = value === 1 ? unit : `${value} ${unit}s`;
+		badges.push(
+			`${currencyFormatter.format(Number(budget.periodUsageLimit))}/${period}`,
+		);
+	}
+	if (budget.maxApiKeys !== null) {
+		badges.push(
+			`${budget.maxApiKeys} ${budget.maxApiKeys === 1 ? "key" : "keys"}`,
+		);
+	}
+	return badges;
+}
 
 function ManageBudgetDialog({
 	organizationId,
@@ -408,7 +434,8 @@ export function TeamClient() {
 	);
 
 	const usageColumnCount = 4;
-	const baseColumnCount = 4;
+	// Name, Email, Role, Limits, Actions
+	const baseColumnCount = 5;
 	const totalColumnCount = showUsage
 		? baseColumnCount + usageColumnCount
 		: baseColumnCount;
@@ -607,6 +634,7 @@ export function TeamClient() {
 													<RolePermissionsHoverCard />
 												</span>
 											</TableHead>
+											<TableHead>Limits</TableHead>
 											{showUsage && (
 												<>
 													<TableHead className="text-right">Cost</TableHead>
@@ -669,6 +697,28 @@ export function TeamClient() {
 																	<SelectItem value="owner">Owner</SelectItem>
 																</SelectContent>
 															</Select>
+														</TableCell>
+														<TableCell>
+															{(() => {
+																const badges = budgetBadges(member.budget);
+																return badges.length ? (
+																	<div className="flex flex-wrap gap-1">
+																		{badges.map((badge) => (
+																			<Badge
+																				key={badge}
+																				variant="secondary"
+																				className="font-normal"
+																			>
+																				{badge}
+																			</Badge>
+																		))}
+																	</div>
+																) : (
+																	<span className="text-muted-foreground">
+																		—
+																	</span>
+																);
+															})()}
 														</TableCell>
 														{showUsage && (
 															<>
