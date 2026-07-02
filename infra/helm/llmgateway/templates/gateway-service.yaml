@@ -12,6 +12,12 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    # Metrics port is only reachable inside the cluster (ClusterIP, not routed
+    # by the ingress), so Prometheus can scrape it without exposing it publicly.
+    - port: {{ .Values.gateway.metricsPort | default 9090 }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
   selector:
     {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "gateway") | nindent 4 }}
 {{- end }}
