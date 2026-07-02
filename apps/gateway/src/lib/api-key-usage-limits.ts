@@ -5,7 +5,7 @@ import {
 	isApiKeyPeriodLimitConfigured,
 	type InferSelectModel,
 } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 
 import {
 	findUserOrganizationBudget,
@@ -106,9 +106,15 @@ export async function assertMemberWithinBudget(
 		if (e instanceof HTTPException) {
 			throw e;
 		}
-		logger.warn("member budget check unavailable, allowing request", {
-			userId,
-			organizationId,
-		});
+		// Fail open, but log the underlying error so a genuine bug here (vs. an
+		// expected transient DB/cache outage) is diagnosable rather than silent.
+		logger.error(
+			"member budget check unavailable, allowing request",
+			toError(e),
+			{
+				userId,
+				organizationId,
+			},
+		);
 	}
 }

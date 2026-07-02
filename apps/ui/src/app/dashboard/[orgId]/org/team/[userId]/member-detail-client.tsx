@@ -52,6 +52,8 @@ export function MemberDetailClient() {
 	const teamMember = teamData?.members.find(
 		(member) => member.userId === userId,
 	);
+	const budget = teamMember?.budget ?? null;
+	const spend = teamMember?.spend ?? null;
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
@@ -169,7 +171,7 @@ export function MemberDetailClient() {
 					)}
 				</div>
 
-				{isAdmin && teamMember && (
+				{isAdmin && budget && spend && (
 					<Card>
 						<CardHeader>
 							<CardTitle className="text-base">Budget &amp; limits</CardTitle>
@@ -194,20 +196,16 @@ export function MemberDetailClient() {
 										Total spend
 									</div>
 									<div className="text-lg font-semibold">
-										{currencyFormatter.format(teamMember.spend.lifetime)}
-										{teamMember.budget.usageLimit !== null && (
+										{currencyFormatter.format(spend.lifetime)}
+										{budget.usageLimit !== null && (
 											<span className="text-muted-foreground text-sm font-normal">
 												{" / "}
-												{currencyFormatter.format(
-													Number(teamMember.budget.usageLimit),
-												)}
+												{currencyFormatter.format(Number(budget.usageLimit))}
 											</span>
 										)}
 									</div>
 									<div className="text-muted-foreground text-xs">
-										{teamMember.budget.usageLimit !== null
-											? "of total limit"
-											: "no limit"}
+										{budget.usageLimit !== null ? "of total limit" : "no limit"}
 									</div>
 								</div>
 
@@ -216,25 +214,25 @@ export function MemberDetailClient() {
 										Period spend
 									</div>
 									<div className="text-lg font-semibold">
-										{teamMember.spend.currentPeriod !== null
-											? currencyFormatter.format(teamMember.spend.currentPeriod)
+										{spend.currentPeriod !== null
+											? currencyFormatter.format(spend.currentPeriod)
 											: "—"}
-										{teamMember.budget.periodUsageLimit !== null && (
+										{budget.periodUsageLimit !== null && (
 											<span className="text-muted-foreground text-sm font-normal">
 												{" / "}
 												{currencyFormatter.format(
-													Number(teamMember.budget.periodUsageLimit),
+													Number(budget.periodUsageLimit),
 												)}
 											</span>
 										)}
 									</div>
 									<div className="text-muted-foreground text-xs">
-										{teamMember.budget.periodUsageLimit !== null &&
-										teamMember.budget.periodUsageDurationValue !== null &&
-										teamMember.budget.periodUsageDurationUnit !== null
+										{budget.periodUsageLimit !== null &&
+										budget.periodUsageDurationValue !== null &&
+										budget.periodUsageDurationUnit !== null
 											? `per ${periodLabel(
-													teamMember.budget.periodUsageDurationValue,
-													teamMember.budget.periodUsageDurationUnit,
+													budget.periodUsageDurationValue,
+													budget.periodUsageDurationUnit,
 												)}`
 											: "no limit"}
 									</div>
@@ -245,18 +243,16 @@ export function MemberDetailClient() {
 										Active API keys
 									</div>
 									<div className="text-lg font-semibold">
-										{teamMember.spend.activeApiKeys}
-										{teamMember.budget.maxApiKeys !== null && (
+										{spend.activeApiKeys}
+										{budget.maxApiKeys !== null && (
 											<span className="text-muted-foreground text-sm font-normal">
 												{" / "}
-												{teamMember.budget.maxApiKeys}
+												{budget.maxApiKeys}
 											</span>
 										)}
 									</div>
 									<div className="text-muted-foreground text-xs">
-										{teamMember.budget.maxApiKeys !== null
-											? "of key limit"
-											: "no limit"}
+										{budget.maxApiKeys !== null ? "of key limit" : "no limit"}
 									</div>
 								</div>
 							</div>

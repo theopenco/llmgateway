@@ -840,9 +840,20 @@ export async function getMemberPeriodSpend(
 	const windowStart = addApiKeyPeriodDuration(flooredHour, -value, unit);
 	const flooredHourEpoch = flooredHour.getTime();
 
+	// Fold the member's key set into the cache key: the SUM depends on which keys
+	// belong to the member, so if that set changes the swr mirror must not serve a
+	// stale value keyed only on org/user/hour. Compact djb2 hash keeps the key
+	// bounded regardless of key count.
+	let keyHash = 5381;
+	for (const id of [...keyIds].sort()) {
+		for (let i = 0; i < id.length; i++) {
+			keyHash = (Math.imul(keyHash, 33) + id.charCodeAt(i)) | 0;
+		}
+	}
+
 	const results = await swrWrap(
-		`memberPeriod:${organizationId}:${userId}:${unit}:${value}:${flooredHourEpoch}`,
-		[apiKeyHourlyStatsTableName],
+		`memberPeriod:${organizationId}:${userId}:${unit}:${value}:${flooredHourEpoch}:${keyHash}`,
+		[apiKeyHourlyStatsTableName, apiKeyTableName, projectTableName],
 		async () =>
 			await db
 				.select({ total: sum(apiKeyHourlyStatsTable.cost) })

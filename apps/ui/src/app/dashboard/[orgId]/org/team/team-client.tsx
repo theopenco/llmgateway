@@ -182,6 +182,9 @@ const PERIOD_UNITS = ["hour", "day", "week", "month"] as const;
 
 function budgetBadges(budget: TeamMember["budget"]): string[] {
 	const badges: string[] = [];
+	if (!budget) {
+		return badges;
+	}
 	if (budget.usageLimit !== null) {
 		badges.push(`${currencyFormatter.format(Number(budget.usageLimit))} total`);
 	}
@@ -215,21 +218,22 @@ function ManageBudgetDialog({
 	onClose: () => void;
 }) {
 	const updateBudget = useUpdateMemberBudget(organizationId);
+	const budget = member.budget;
 
 	const [maxApiKeys, setMaxApiKeys] = useState(
-		member.budget.maxApiKeys !== null ? String(member.budget.maxApiKeys) : "",
+		budget && budget.maxApiKeys !== null ? String(budget.maxApiKeys) : "",
 	);
-	const [usageLimit, setUsageLimit] = useState(member.budget.usageLimit ?? "");
+	const [usageLimit, setUsageLimit] = useState(budget?.usageLimit ?? "");
 	const [periodUsageLimit, setPeriodUsageLimit] = useState(
-		member.budget.periodUsageLimit ?? "",
+		budget?.periodUsageLimit ?? "",
 	);
 	const [periodValue, setPeriodValue] = useState(
-		member.budget.periodUsageDurationValue !== null
-			? String(member.budget.periodUsageDurationValue)
+		budget && budget.periodUsageDurationValue !== null
+			? String(budget.periodUsageDurationValue)
 			: "1",
 	);
 	const [periodUnit, setPeriodUnit] = useState<(typeof PERIOD_UNITS)[number]>(
-		member.budget.periodUsageDurationUnit ?? "month",
+		budget?.periodUsageDurationUnit ?? "month",
 	);
 
 	const memberName = member.user.name ?? member.user.email;
@@ -275,13 +279,13 @@ function ManageBudgetDialog({
 					<div className="text-muted-foreground grid grid-cols-3 gap-2 text-xs">
 						<div>
 							<div className="text-foreground font-medium">
-								{currencyFormatter.format(member.spend.lifetime)}
+								{currencyFormatter.format(member.spend?.lifetime ?? 0)}
 							</div>
 							Lifetime spend
 						</div>
 						<div>
 							<div className="text-foreground font-medium">
-								{member.spend.currentPeriod !== null
+								{typeof member.spend?.currentPeriod === "number"
 									? currencyFormatter.format(member.spend.currentPeriod)
 									: "—"}
 							</div>
@@ -289,7 +293,7 @@ function ManageBudgetDialog({
 						</div>
 						<div>
 							<div className="text-foreground font-medium">
-								{member.spend.activeApiKeys}
+								{member.spend?.activeApiKeys ?? 0}
 							</div>
 							Active API keys
 						</div>

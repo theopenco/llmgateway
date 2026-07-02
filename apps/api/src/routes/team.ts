@@ -48,8 +48,10 @@ const teamMemberSchema = z.object({
 		email: z.string(),
 		name: z.string().nullable(),
 	}),
-	budget: memberBudgetSchema,
-	spend: memberSpendSchema,
+	// budget/spend are financial data — only populated for owner/admin callers,
+	// null otherwise (developers can list members but not see spend/limits).
+	budget: memberBudgetSchema.nullable(),
+	spend: memberSpendSchema.nullable(),
 });
 
 const addMemberSchema = z.object({
@@ -82,6 +84,103 @@ const EMPTY_SPEND: z.infer<typeof memberSpendSchema> = {
 	currentPeriod: null,
 	activeApiKeys: 0,
 };
+
+interface MemberPeriodRow {
+	userId: string;
+	periodUsageLimit: string | null;
+	periodUsageDurationValue: number | null;
+	periodUsageDurationUnit: (typeof apiKeyPeriodDurationUnits)[number] | null;
+}
+
+/**
+ * Compute live per-member spend/key display values from the durable per-key
+ * sources (apiKey.usage + apiKeyHourlyStats.cost) — the same SUM queries the
+ * gateway uses, but off the hot path here. Returns a map keyed by userId.
+ */
+async function computeMemberSpend(
+	organizationId: string,
+	members: MemberPeriodRow[],
+): Promise<Map<string, z.infer<typeof memberSpendSchema>>> {
+	const spendByUser = new Map<string, z.infer<typeof memberSpendSchema>>();
+	if (members.length === 0) {
+		return spendByUser;
+	}
+
+	const orgProjects = await db.query.project.findMany({
+		where: { organizationId: { eq: organizationId } },
+		columns: { id: true },
+	});
+	const orgProjectIds = orgProjects.map((p) => p.id);
+
+	const orgKeys = orgProjectIds.length
+		? await db.query.apiKey.findMany({
+				where: { projectId: { in: orgProjectIds } },
+				columns: {
+					id: true,
+					createdBy: true,
+					usage: true,
+					status: true,
+					keyType: true,
+				},
+			})
+		: [];
+
+	const keysByUser = new Map<
+		string,
+		{ keyIds: string[]; lifetime: number; activeApiKeys: number }
+	>();
+	for (const key of orgKeys) {
+		const entry = keysByUser.get(key.createdBy) ?? {
+			keyIds: [],
+			lifetime: 0,
+			activeApiKeys: 0,
+		};
+		entry.keyIds.push(key.id);
+		entry.lifetime += Number(key.usage ?? 0);
+		if (key.status === "active" && key.keyType === "user") {
+			entry.activeApiKeys += 1;
+		}
+		keysByUser.set(key.createdBy, entry);
+	}
+
+	const now = new Date();
+	for (const member of members) {
+		const keys = keysByUser.get(member.userId);
+		let currentPeriod: number | null = null;
+		if (
+			member.periodUsageLimit !== null &&
+			member.periodUsageDurationValue !== null &&
+			member.periodUsageDurationUnit !== null &&
+			keys &&
+			keys.keyIds.length
+		) {
+			const flooredHour = new Date(now);
+			flooredHour.setMinutes(0, 0, 0);
+			const windowStart = addApiKeyPeriodDuration(
+				flooredHour,
+				-member.periodUsageDurationValue,
+				member.periodUsageDurationUnit,
+			);
+			const rows = await db
+				.select({ total: sum(tables.apiKeyHourlyStats.cost) })
+				.from(tables.apiKeyHourlyStats)
+				.where(
+					and(
+						inArray(tables.apiKeyHourlyStats.apiKeyId, keys.keyIds),
+						gte(tables.apiKeyHourlyStats.hourTimestamp, windowStart),
+					),
+				);
+			currentPeriod = Number(rows[0]?.total ?? 0);
+		}
+		spendByUser.set(member.userId, {
+			lifetime: keys?.lifetime ?? 0,
+			currentPeriod,
+			activeApiKeys: keys?.activeApiKeys ?? 0,
+		});
+	}
+
+	return spendByUser;
+}
 
 const updateMemberSchema = z.object({
 	role: roleSchema,
@@ -153,82 +252,14 @@ team.openapi(getMembers, async (c) => {
 		},
 	});
 
-	// Compute live per-member spend/key display values from the durable per-key
-	// sources (apiKey.usage + apiKeyHourlyStats.cost). Same SUM queries the
-	// gateway uses, but off the hot path here.
-	const orgProjects = await db.query.project.findMany({
-		where: { organizationId: { eq: organizationId } },
-		columns: { id: true },
-	});
-	const orgProjectIds = orgProjects.map((p) => p.id);
+	// Budget config and live spend are financial data — only expose them to
+	// owners/admins. Developers can still list members and their roles.
+	const isPrivileged =
+		userOrganization.role === "owner" || userOrganization.role === "admin";
 
-	const orgKeys = orgProjectIds.length
-		? await db.query.apiKey.findMany({
-				where: { projectId: { in: orgProjectIds } },
-				columns: {
-					id: true,
-					createdBy: true,
-					usage: true,
-					status: true,
-					keyType: true,
-				},
-			})
-		: [];
-
-	const keysByUser = new Map<
-		string,
-		{ keyIds: string[]; lifetime: number; activeApiKeys: number }
-	>();
-	for (const key of orgKeys) {
-		const entry = keysByUser.get(key.createdBy) ?? {
-			keyIds: [],
-			lifetime: 0,
-			activeApiKeys: 0,
-		};
-		entry.keyIds.push(key.id);
-		entry.lifetime += Number(key.usage ?? 0);
-		if (key.status === "active" && key.keyType === "user") {
-			entry.activeApiKeys += 1;
-		}
-		keysByUser.set(key.createdBy, entry);
-	}
-
-	const now = new Date();
-	const spendByUser = new Map<string, z.infer<typeof memberSpendSchema>>();
-	for (const member of members) {
-		const keys = keysByUser.get(member.userId);
-		let currentPeriod: number | null = null;
-		if (
-			member.periodUsageLimit !== null &&
-			member.periodUsageDurationValue !== null &&
-			member.periodUsageDurationUnit !== null &&
-			keys &&
-			keys.keyIds.length
-		) {
-			const flooredHour = new Date(now);
-			flooredHour.setMinutes(0, 0, 0);
-			const windowStart = addApiKeyPeriodDuration(
-				flooredHour,
-				-member.periodUsageDurationValue,
-				member.periodUsageDurationUnit,
-			);
-			const rows = await db
-				.select({ total: sum(tables.apiKeyHourlyStats.cost) })
-				.from(tables.apiKeyHourlyStats)
-				.where(
-					and(
-						inArray(tables.apiKeyHourlyStats.apiKeyId, keys.keyIds),
-						gte(tables.apiKeyHourlyStats.hourTimestamp, windowStart),
-					),
-				);
-			currentPeriod = Number(rows[0]?.total ?? 0);
-		}
-		spendByUser.set(member.userId, {
-			lifetime: keys?.lifetime ?? 0,
-			currentPeriod,
-			activeApiKeys: keys?.activeApiKeys ?? 0,
-		});
-	}
+	const spendByUser = isPrivileged
+		? await computeMemberSpend(organizationId, members)
+		: new Map<string, z.infer<typeof memberSpendSchema>>();
 
 	return c.json({
 		members: members.map((m) => ({
@@ -237,8 +268,8 @@ team.openapi(getMembers, async (c) => {
 			role: m.role,
 			createdAt: m.createdAt,
 			user: m.user!,
-			budget: budgetFromRow(m),
-			spend: spendByUser.get(m.userId) ?? EMPTY_SPEND,
+			budget: isPrivileged ? budgetFromRow(m) : null,
+			spend: isPrivileged ? (spendByUser.get(m.userId) ?? EMPTY_SPEND) : null,
 		})),
 	});
 });
@@ -574,6 +605,11 @@ team.openapi(updateMember, async (c) => {
 		});
 	}
 
+	const spend =
+		(await computeMemberSpend(organizationId, [updatedMember])).get(
+			updatedMember.userId,
+		) ?? EMPTY_SPEND;
+
 	return c.json({
 		message: "Member role updated successfully",
 		member: {
@@ -583,7 +619,7 @@ team.openapi(updateMember, async (c) => {
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
-			spend: EMPTY_SPEND,
+			spend,
 		},
 	});
 });
@@ -600,13 +636,16 @@ function normalizeLimit(value: string | null): string | null {
 	if (value === null || value.trim() === "") {
 		return null;
 	}
-	const num = Number(value);
-	if (!Number.isFinite(num) || num < 0) {
+	const trimmed = value.trim();
+	// Validate as a non-negative decimal string WITHOUT coercing through Number:
+	// the column is a Postgres numeric, and Number() would round very large or
+	// high-precision values before they are stored.
+	if (!/^\d+(\.\d+)?$/.test(trimmed)) {
 		throw new HTTPException(400, {
 			message: "Spend limits must be non-negative numbers.",
 		});
 	}
-	return String(num);
+	return trimmed;
 }
 
 const updateMemberBudget = createRoute({
@@ -714,6 +753,14 @@ team.openapi(updateMemberBudget, async (c) => {
 		});
 	}
 
+	// Mirror the role/remove endpoints: admins may not touch owners (a 0 budget
+	// would break an owner's gateway requests and key creation).
+	if (userOrganization.role === "admin" && targetMember.role === "owner") {
+		throw new HTTPException(403, {
+			message: "Admins cannot modify owner budgets",
+		});
+	}
+
 	const usageLimit = normalizeLimit(body.usageLimit);
 	const periodUsageLimit = normalizeLimit(body.periodUsageLimit);
 
@@ -782,6 +829,11 @@ team.openapi(updateMemberBudget, async (c) => {
 		},
 	});
 
+	const spend =
+		(await computeMemberSpend(organizationId, [updatedMember])).get(
+			updatedMember.userId,
+		) ?? EMPTY_SPEND;
+
 	return c.json({
 		message: "Member budget updated successfully",
 		member: {
@@ -791,7 +843,7 @@ team.openapi(updateMemberBudget, async (c) => {
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
-			spend: EMPTY_SPEND,
+			spend,
 		},
 	});
 });

@@ -1172,6 +1172,9 @@ export async function mcpHandler(c: Context): Promise<Response> {
 			);
 		}
 	} catch (error) {
+		// Preserve the thrown status: assertMemberWithinBudget uses 403 for a
+		// budget breach, which must not be flattened into a 401 (invalid key).
+		const status = error instanceof HTTPException ? error.status : 401;
 		return c.json(
 			{
 				jsonrpc: "2.0",
@@ -1184,7 +1187,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				},
 				id: null,
 			},
-			401,
+			status,
 		);
 	}
 

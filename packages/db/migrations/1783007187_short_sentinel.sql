@@ -1,0 +1,1 @@
+ALTER TABLE "user_organization" ADD CONSTRAINT "user_organization_period_usage_duration_pair" CHECK (("period_usage_duration_value" IS NULL) = ("period_usage_duration_unit" IS NULL));
