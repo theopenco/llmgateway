@@ -499,6 +499,16 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
+	// Project-scoped "developer" access is an Enterprise feature.
+	if (
+		role === "developer" &&
+		userOrganization.organization?.plan !== "enterprise"
+	) {
+		throw new HTTPException(403, {
+			message: "Project-scoped developer access requires the Enterprise plan.",
+		});
+	}
+
 	// Developers must be granted a valid, non-empty set of org projects.
 	const grantedProjects = await resolveDeveloperProjects(
 		organizationId,
@@ -691,6 +701,16 @@ team.openapi(updateMember, async (c) => {
 	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
 		throw new HTTPException(403, {
 			message: "Only owners and admins can update member roles",
+		});
+	}
+
+	// Project-scoped "developer" access is an Enterprise feature.
+	if (
+		role === "developer" &&
+		userOrganization.organization?.plan !== "enterprise"
+	) {
+		throw new HTTPException(403, {
+			message: "Project-scoped developer access requires the Enterprise plan.",
 		});
 	}
 

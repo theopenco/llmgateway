@@ -505,15 +505,46 @@ function ProjectMultiSelect({
 	);
 }
 
+// Project-scoped developer access is an Enterprise feature: the option is
+// disabled (with a badge) off-plan.
+function DeveloperRoleItem({ isEnterprise }: { isEnterprise: boolean }) {
+	return (
+		<SelectItem value="developer" disabled={!isEnterprise}>
+			<span className="flex w-full items-center gap-2">
+				Developer
+				{!isEnterprise && (
+					<Badge variant="outline" className="text-[10px] font-normal">
+						Enterprise
+					</Badge>
+				)}
+			</span>
+		</SelectItem>
+	);
+}
+
+function EnterpriseDeveloperNote() {
+	return (
+		<p className="text-muted-foreground text-xs">
+			Project-scoped developer access requires the Enterprise plan.{" "}
+			<a href="mailto:contact@llmgateway.io" className="underline">
+				Contact sales
+			</a>
+			.
+		</p>
+	);
+}
+
 function ManageAccessDialog({
 	organizationId,
 	member,
 	orgProjects,
+	isEnterprise,
 	onClose,
 }: {
 	organizationId: string;
 	member: TeamMember;
 	orgProjects: OrgProject[];
+	isEnterprise: boolean;
 	onClose: () => void;
 }) {
 	const updateMember = useUpdateTeamMember(organizationId);
@@ -525,6 +556,15 @@ function ManageAccessDialog({
 	const memberName = member.user.name ?? member.user.email;
 
 	const handleSave = async () => {
+		if (role === "developer" && !isEnterprise) {
+			toast({
+				title: "Error",
+				description:
+					"Project-scoped developer access requires the Enterprise plan.",
+				variant: "destructive",
+			});
+			return;
+		}
 		if (role === "developer" && projectIds.length === 0) {
 			toast({
 				title: "Error",
@@ -566,14 +606,15 @@ function ManageAccessDialog({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="developer">Developer</SelectItem>
+								<DeveloperRoleItem isEnterprise={isEnterprise} />
 								<SelectItem value="admin">Admin</SelectItem>
 								<SelectItem value="owner">Owner</SelectItem>
 							</SelectContent>
 						</Select>
+						{!isEnterprise && <EnterpriseDeveloperNote />}
 					</div>
 
-					{role === "developer" && (
+					{role === "developer" && isEnterprise && (
 						<div className="space-y-2">
 							<Label>Project access</Label>
 							<ProjectMultiSelect
@@ -683,6 +724,16 @@ export function TeamClient() {
 			return;
 		}
 
+		if (role === "developer" && !isEnterprise) {
+			toast({
+				title: "Error",
+				description:
+					"Project-scoped developer access requires the Enterprise plan.",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		if (role === "developer" && newMemberProjectIds.length === 0) {
 			toast({
 				title: "Error",
@@ -753,7 +804,17 @@ export function TeamClient() {
 							{showUsage && (
 								<DateRangePicker buildUrl={buildOrgUrl} path="org/team" />
 							)}
-							<Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+							<Dialog
+								open={isAddDialogOpen}
+								onOpenChange={(open) => {
+									setIsAddDialogOpen(open);
+									// Default to a role the org can actually use — developer is
+									// Enterprise-only.
+									if (open) {
+										setRole(isEnterprise ? "developer" : "admin");
+									}
+								}}
+							>
 								<DialogTrigger asChild>
 									<Button disabled={(data?.members.length ?? 0) >= 5}>
 										Add Member
@@ -788,14 +849,15 @@ export function TeamClient() {
 													<SelectValue placeholder="Select a role" />
 												</SelectTrigger>
 												<SelectContent>
-													<SelectItem value="developer">Developer</SelectItem>
+													<DeveloperRoleItem isEnterprise={isEnterprise} />
 													<SelectItem value="admin">Admin</SelectItem>
 													<SelectItem value="owner">Owner</SelectItem>
 												</SelectContent>
 											</Select>
+											{!isEnterprise && <EnterpriseDeveloperNote />}
 										</div>
 
-										{role === "developer" && (
+										{role === "developer" && isEnterprise && (
 											<div className="space-y-2">
 												<Label>Project access</Label>
 												<p className="text-muted-foreground text-xs">
@@ -1054,6 +1116,7 @@ export function TeamClient() {
 					organizationId={organizationId}
 					member={accessMember}
 					orgProjects={orgProjects}
+					isEnterprise={isEnterprise}
 					onClose={() => setAccessMember(null)}
 				/>
 			)}
