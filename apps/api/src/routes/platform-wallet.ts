@@ -6,7 +6,11 @@ import { endUserSessionAuth } from "@/lib/end-user-session-auth.js";
 import { getStripe } from "@/routes/payments.js";
 import { ensureEndCustomerStripeCustomer } from "@/stripe.js";
 
-import { db } from "@llmgateway/db";
+import {
+	apiKeyPeriodDurationUnits,
+	db,
+	getApiKeyCurrentPeriodState,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	calculateFees,
@@ -149,6 +153,21 @@ const getBalance = createRoute({
 								description: z.string().nullable(),
 							}),
 						),
+						// Spend limits enforced on this session, with the values consumed
+						// so far and the reset time of the windowed limit. `null` limit
+						// fields mean that cap is not configured (uncapped).
+						limits: z.object({
+							usageLimit: z.string().nullable(),
+							usage: z.string(),
+							periodUsageLimit: z.string().nullable(),
+							periodUsageDurationValue: z.number().int().nullable(),
+							periodUsageDurationUnit: z
+								.enum(apiKeyPeriodDurationUnits)
+								.nullable(),
+							currentPeriodUsage: z.string(),
+							currentPeriodStartedAt: z.string().nullable(),
+							currentPeriodResetAt: z.string().nullable(),
+						}),
 					}),
 				},
 			},
@@ -170,11 +189,22 @@ platformWallet.openapi(getBalance, async (c) => {
 		throw new HTTPException(404, { message: "Wallet not found" });
 	}
 
+	// Spend limits live on the session token itself (carried forward across
+	// rotations), not on the wallet.
+	const sessionRecord = await db.query.endUserSession.findFirst({
+		where: { id: { eq: session.sessionId } },
+	});
+	if (!sessionRecord) {
+		throw new HTTPException(401, { message: "Invalid session token" });
+	}
+
 	const ledger = await db.query.walletLedger.findMany({
 		where: { walletId: { eq: session.walletId } },
 		orderBy: { createdAt: "desc" },
 		limit: 10,
 	});
+
+	const currentPeriod = getApiKeyCurrentPeriodState(sessionRecord);
 
 	return c.json({
 		balance: wallet.balance,
@@ -187,6 +217,20 @@ platformWallet.openapi(getBalance, async (c) => {
 			createdAt: row.createdAt.toISOString(),
 			description: row.description,
 		})),
+		limits: {
+			usageLimit: sessionRecord.usageLimit,
+			usage: sessionRecord.usage,
+			periodUsageLimit: sessionRecord.periodUsageLimit,
+			periodUsageDurationValue: sessionRecord.periodUsageDurationValue,
+			periodUsageDurationUnit: sessionRecord.periodUsageDurationUnit,
+			currentPeriodUsage: currentPeriod.usage,
+			currentPeriodStartedAt: currentPeriod.startedAt
+				? currentPeriod.startedAt.toISOString()
+				: null,
+			currentPeriodResetAt: currentPeriod.resetAt
+				? currentPeriod.resetAt.toISOString()
+				: null,
+		},
 	});
 });
 

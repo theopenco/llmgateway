@@ -1600,12 +1600,10 @@ async function handleCheckoutSessionCompleted(
 	}
 }
 
-type BonusType = "first_purchase" | "second_topup" | "referral";
+type BonusType = "first_purchase" | "referral";
 
 function getBonusLabel(bonusType: BonusType | null): string {
 	switch (bonusType) {
-		case "second_topup":
-			return "second top-up bonus";
 		case "referral":
 			return "referral bonus";
 		default:
@@ -1667,18 +1665,12 @@ async function applyFirstTimeBonus({
 	const firstBonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
 		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
 		: 0;
-	const secondBonusMultiplier = process.env.SECOND_TOPUP_BONUS_MULTIPLIER
-		? parseFloat(process.env.SECOND_TOPUP_BONUS_MULTIPLIER)
-		: 0;
 
-	const eitherBonusEnabled =
-		firstBonusMultiplier > 1 || secondBonusMultiplier > 1;
-
-	if (!eitherBonusEnabled) {
+	if (firstBonusMultiplier <= 1) {
 		return { finalCreditAmount, bonusAmount, bonusType };
 	}
 
-	if (previousPurchases.length === 0 && firstBonusMultiplier > 1) {
+	if (previousPurchases.length === 0) {
 		const potentialBonus = creditAmount * (firstBonusMultiplier - 1);
 		const maxBonus = 50;
 		bonusAmount = Math.min(potentialBonus, maxBonus);
@@ -1688,25 +1680,6 @@ async function applyFirstTimeBonus({
 		logger.info(
 			`Applied first-time bonus of $${bonusAmount} to organization ${organizationId} (${firstBonusMultiplier}x multiplier, max $${maxBonus})`,
 		);
-	} else if (previousPurchases.length === 1 && secondBonusMultiplier > 1) {
-		const secondBonusWindowDays = Number(
-			process.env.SECOND_TOPUP_BONUS_WINDOW_DAYS ?? "30",
-		);
-		const secondBonusMax = Number(process.env.SECOND_TOPUP_BONUS_MAX ?? "25");
-		const firstPurchaseDate = previousPurchases[0].createdAt;
-		const daysSinceFirst =
-			(Date.now() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24);
-
-		if (daysSinceFirst <= secondBonusWindowDays) {
-			const potentialBonus = creditAmount * (secondBonusMultiplier - 1);
-			bonusAmount = Math.min(potentialBonus, secondBonusMax);
-			finalCreditAmount = creditAmount + bonusAmount;
-			bonusType = "second_topup";
-
-			logger.info(
-				`Applied second top-up bonus of $${bonusAmount} to organization ${organizationId} (${secondBonusMultiplier}x multiplier, max $${secondBonusMax}, ${Math.round(daysSinceFirst)} days since first purchase)`,
-			);
-		}
 	}
 
 	return { finalCreditAmount, bonusAmount, bonusType };
@@ -1839,19 +1812,6 @@ async function recordCreditTopUp({
 			organization: organizationId,
 		},
 	});
-
-	if (bonusType === "second_topup" && bonusAmount > 0) {
-		posthog.capture({
-			distinctId: "organization",
-			event: "second_topup_bonus_applied",
-			groups: { organization: organizationId },
-			properties: {
-				bonusAmount,
-				creditAmount,
-				organization: organizationId,
-			},
-		});
-	}
 }
 
 async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {

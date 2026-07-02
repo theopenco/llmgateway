@@ -1060,6 +1060,25 @@ devPlans.openapi(changeTier, async (c) => {
 		const subscription =
 			await getStripe().subscriptions.retrieve(subscriptionId);
 
+		// A subscription Stripe has fully ended (`canceled`, or expired before its
+		// first payment) can no longer have its price/items changed: Stripe rejects
+		// the update with `invalid_canceled_subscription_fields`, which previously
+		// surfaced as a generic 500. This state is normally transient — the
+		// `customer.subscription.deleted` webhook resets the org's dev plan to
+		// "none", after which this handler short-circuits earlier — but a downgrade
+		// (which has no active-status guard below) reaching Stripe before that
+		// webhook lands, or if it was missed, would hit the rejected update. Bail
+		// out early with a clear message and without claiming the per-cycle change.
+		if (
+			subscription.status === "canceled" ||
+			subscription.status === "incomplete_expired"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"Your dev plan subscription has ended. Subscribe again to choose a new plan.",
+			});
+		}
+
 		if (
 			isUpgrade &&
 			subscription.status !== "active" &&

@@ -466,4 +466,55 @@ describe("dev plan tier changes", () => {
 			claimedCycleStart.getTime(),
 		);
 	});
+
+	it("rejects a tier change on an already-ended subscription", async () => {
+		// The subscription is fully canceled in Stripe but the
+		// `customer.subscription.deleted` webhook hasn't reset the org yet. Stripe
+		// would reject the price update with `invalid_canceled_subscription_fields`,
+		// so bail out with a 409 before ever calling update.
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "canceled",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "lite",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: {
+							id: "price_lite",
+						},
+					},
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+			}),
+		});
+
+		expect(res.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+
+		// The change aborted before claiming the cycle, so nothing is persisted.
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
+	});
 });

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { maskToken } from "@/lib/maskToken.js";
 import {
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
@@ -20,7 +21,7 @@ import {
 import { createProjectForOrg } from "@/routes/projects.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, getApiKeyCurrentPeriodState, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
@@ -109,6 +110,52 @@ async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
 
 	return apiKey as typeof apiKey & {
 		project: NonNullable<typeof apiKey.project>;
+	};
+}
+
+interface SerializableApiKey {
+	id: string;
+	createdAt: Date;
+	updatedAt: Date;
+	description: string;
+	status: "active" | "inactive" | "deleted" | null;
+	projectId: string;
+	createdBy: string;
+	token: string;
+	usageLimit: string | null;
+	usage: string;
+	periodUsageLimit: string | null;
+	periodUsageDurationValue: number | null;
+	periodUsageDurationUnit: "hour" | "day" | "week" | "month" | null;
+	currentPeriodUsage: string;
+	currentPeriodStartedAt: Date | null;
+}
+
+/**
+ * Shape a gateway API key row for the master API, exposing the configured
+ * limits alongside the values consumed so far and — for a windowed limit —
+ * the time the current period resets. Never leaks the plain token.
+ */
+function serializeApiKeyForMaster(apiKey: SerializableApiKey) {
+	const currentPeriod = getApiKeyCurrentPeriodState(apiKey);
+
+	return {
+		id: apiKey.id,
+		createdAt: apiKey.createdAt,
+		updatedAt: apiKey.updatedAt,
+		description: apiKey.description,
+		status: apiKey.status,
+		projectId: apiKey.projectId,
+		createdBy: apiKey.createdBy,
+		maskedToken: maskToken(apiKey.token),
+		usageLimit: apiKey.usageLimit,
+		usage: apiKey.usage,
+		periodUsageLimit: apiKey.periodUsageLimit,
+		periodUsageDurationValue: apiKey.periodUsageDurationValue,
+		periodUsageDurationUnit: apiKey.periodUsageDurationUnit,
+		currentPeriodUsage: currentPeriod.usage,
+		currentPeriodStartedAt: currentPeriod.startedAt,
+		currentPeriodResetAt: currentPeriod.resetAt,
 	};
 }
 
@@ -481,10 +528,18 @@ const apiKeyDetailSchema = z.object({
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	projectId: z.string(),
 	createdBy: z.string(),
+	maskedToken: z.string(),
 	usageLimit: z.string().nullable(),
+	// Total spend accrued against `usageLimit` over the key's lifetime.
+	usage: z.string(),
 	periodUsageLimit: z.string().nullable(),
 	periodUsageDurationValue: z.number().int().nullable(),
 	periodUsageDurationUnit: apiKeyPeriodUnit.nullable(),
+	// Spend accrued in the current window, and when that window resets. Both are
+	// null / "0" when no period limit is configured or the window has lapsed.
+	currentPeriodUsage: z.string(),
+	currentPeriodStartedAt: z.date().nullable(),
+	currentPeriodResetAt: z.date().nullable(),
 });
 
 const updateApiKeyBody = z
@@ -651,7 +706,106 @@ v1Master.openapi(updateApiKey, async (c) => {
 		});
 	}
 
-	return c.json({ apiKey: updated });
+	return c.json({ apiKey: serializeApiKeyForMaster(updated) });
+});
+
+const listApiKeysQuery = z.object({
+	projectId: z.string().min(1).optional(),
+});
+
+const listApiKeys = createRoute({
+	method: "get",
+	path: "/keys",
+	request: {
+		query: listApiKeysQuery,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeys: z.array(apiKeyDetailSchema).openapi({}),
+					}),
+				},
+			},
+			description:
+				"List gateway API keys in the master key's organization, with configured limits, consumed usage, and the current-period reset time. Optionally filter by projectId.",
+		},
+	},
+});
+
+v1Master.openapi(listApiKeys, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { projectId } = c.req.valid("query");
+
+	const projects = await db.query.project.findMany({
+		where: {
+			organizationId: { eq: masterKey.organizationId },
+			status: { ne: "deleted" },
+		},
+		columns: { id: true },
+	});
+	const projectIds = projects.map((p) => p.id);
+
+	if (projectId && !projectIds.includes(projectId)) {
+		throw new HTTPException(404, {
+			message: "Project not found in this organization",
+		});
+	}
+
+	if (projectIds.length === 0) {
+		return c.json({ apiKeys: [] });
+	}
+
+	const apiKeys = await db.query.apiKey.findMany({
+		where: {
+			projectId: { in: projectId ? [projectId] : projectIds },
+			// Only developer-created keys; hide platform and LLM SDK aggregate keys.
+			keyType: { eq: "user" },
+			status: { ne: "deleted" },
+		},
+		orderBy: { createdAt: "desc" },
+	});
+
+	return c.json({ apiKeys: apiKeys.map(serializeApiKeyForMaster) });
+});
+
+const getApiKey = createRoute({
+	method: "get",
+	path: "/keys/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKey: apiKeyDetailSchema.openapi({}),
+					}),
+				},
+			},
+			description:
+				"Get a gateway API key with its configured limits, consumed usage, and the current-period reset time.",
+		},
+	},
+});
+
+v1Master.openapi(getApiKey, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
+
+	return c.json({ apiKey: serializeApiKeyForMaster(apiKey) });
 });
 
 const deleteApiKey = createRoute({

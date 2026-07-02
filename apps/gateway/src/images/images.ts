@@ -16,6 +16,7 @@ import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 const imageGenerationsRequestSchema = z.object({
 	prompt: z.string().min(1).openapi({
@@ -583,20 +584,55 @@ async function forwardToChatCompletions(
 	});
 
 	if (!response.ok) {
-		logger.warn("Images API - chat completions request failed", {
-			status: response.status,
-			statusText: response.statusText,
-		});
 		const errorData = await response.text();
 		let errorMessage = `Image generation failed with status ${response.status}`;
+		let errorType: string | undefined;
 		try {
 			const parsed = JSON.parse(errorData);
 			errorMessage = parsed?.error?.message ?? parsed?.message ?? errorMessage;
+			errorType =
+				(typeof parsed?.error?.type === "string"
+					? parsed.error.type
+					: undefined) ??
+				(typeof parsed?.error?.code === "string"
+					? parsed.error.code
+					: undefined);
 		} catch {
 			// use default message
 		}
 
-		throw new HTTPException(response.status as any, {
+		// The internal chat completions handler retries and tracks unrecovered
+		// provider failures (rate limits, upstream 5xx, connection resets) itself,
+		// then returns them as an HTTP 500 with an upstream/gateway finish reason
+		// (e.g. "Error from provider zai: 429 ..."). Re-throwing that verbatim as a
+		// 500 makes app.onError log it as a backend "HTTP 500 exception" alert, even
+		// though it is a provider-side gateway error, not an application bug. Re-map
+		// those to 502 so onError labels them as an upstream gateway error and logs
+		// at warn. Genuine backend 500s carry no provider signal and stay 500.
+		const isProviderError =
+			errorType === "upstream_error" ||
+			errorType === "gateway_error" ||
+			errorType === "error" ||
+			errorMessage.startsWith("Error from provider");
+		const status =
+			response.status === 500 && isProviderError ? 502 : response.status;
+
+		if (status === 502 || status === 503 || status === 504) {
+			logger.warn("Images API - upstream provider error", {
+				status,
+				originalStatus: response.status,
+				errorType,
+				message: errorMessage,
+			});
+		} else {
+			logger.warn("Images API - chat completions request failed", {
+				status,
+				statusText: response.statusText,
+				errorType,
+			});
+		}
+
+		throw new HTTPException(status as ContentfulStatusCode, {
 			message: errorMessage,
 		});
 	}

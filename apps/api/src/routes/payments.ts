@@ -946,10 +946,7 @@ const calculateFeesRoute = createRoute({
 						bonusEnabled: z.boolean(),
 						bonusEligible: z.boolean(),
 						bonusIneligibilityReason: z.string().optional(),
-						bonusType: z
-							.enum(["first_purchase", "second_topup", "referral"])
-							.optional(),
-						secondTopupBonusExpiresInDays: z.number().optional(),
+						bonusType: z.enum(["first_purchase", "referral"]).optional(),
 					}),
 				},
 			},
@@ -1009,23 +1006,18 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		isInternational,
 	});
 
-	// Calculate bonus for first-time and second top-up credit purchases
+	// Calculate bonus for first-time credit purchases
 	let bonusAmount = 0;
 	let finalCreditAmount = amount;
 	let bonusEligible = false;
 	let bonusIneligibilityReason: string | undefined;
-	let bonusType: "first_purchase" | "second_topup" | "referral" | undefined;
-	let secondTopupBonusExpiresInDays: number | undefined;
+	let bonusType: "first_purchase" | "referral" | undefined;
 
 	const firstBonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
 		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
 		: 0;
-	const secondBonusMultiplier = process.env.SECOND_TOPUP_BONUS_MULTIPLIER
-		? parseFloat(process.env.SECOND_TOPUP_BONUS_MULTIPLIER)
-		: 0;
 
 	const firstBonusEnabled = firstBonusMultiplier > 1;
-	const secondBonusEnabled = secondBonusMultiplier > 1;
 
 	// Referral signup bonus applies to the referred org's first top-up and takes
 	// precedence over the env-driven first-time bonus. Mirrors stripe.ts so the
@@ -1036,8 +1028,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 	);
 	const referralBonusPossible = referralBonusAmount > 0;
 
-	const bonusEnabled =
-		firstBonusEnabled || secondBonusEnabled || referralBonusPossible;
+	const bonusEnabled = firstBonusEnabled || referralBonusPossible;
 
 	if (bonusEnabled) {
 		if (!userOrganization.user || !userOrganization.user.emailVerified) {
@@ -1050,7 +1041,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 					status: { eq: "completed" },
 				},
 				orderBy: { createdAt: "asc" },
-				limit: 2,
+				limit: 1,
 			});
 
 			if (previousPurchases.length === 0 && referralBonusPossible) {
@@ -1065,35 +1056,7 @@ payments.openapi(calculateFeesRoute, async (c) => {
 				const maxBonus = 50;
 				bonusAmount = Math.min(potentialBonus, maxBonus);
 				finalCreditAmount = amount + bonusAmount;
-			} else if (previousPurchases.length === 1 && secondBonusEnabled) {
-				const secondBonusWindowDays = Number(
-					process.env.SECOND_TOPUP_BONUS_WINDOW_DAYS ?? "30",
-				);
-				const secondBonusMax = Number(
-					process.env.SECOND_TOPUP_BONUS_MAX ?? "25",
-				);
-				const firstPurchaseDate = previousPurchases[0].createdAt;
-				const daysSinceFirst =
-					(Date.now() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24);
-
-				if (daysSinceFirst <= secondBonusWindowDays) {
-					bonusEligible = true;
-					bonusType = "second_topup";
-					const potentialBonus = amount * (secondBonusMultiplier - 1);
-					bonusAmount = Math.min(potentialBonus, secondBonusMax);
-					finalCreditAmount = amount + bonusAmount;
-					secondTopupBonusExpiresInDays = Math.ceil(
-						secondBonusWindowDays - daysSinceFirst,
-					);
-				} else {
-					bonusIneligibilityReason = "second_topup_window_expired";
-				}
-			} else if (previousPurchases.length >= 2) {
-				bonusIneligibilityReason = "already_purchased";
-			} else if (previousPurchases.length === 0 && !firstBonusEnabled) {
-				// No first-purchase bonus configured, but second might be
-				// (user hasn't purchased yet, so no second bonus either)
-			} else {
+			} else if (previousPurchases.length > 0) {
 				bonusIneligibilityReason = "already_purchased";
 			}
 		}
@@ -1108,6 +1071,5 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		bonusEligible,
 		bonusIneligibilityReason,
 		bonusType,
-		secondTopupBonusExpiresInDays,
 	});
 });

@@ -189,6 +189,27 @@ const { balance } = await client.getBalance();
 
 The headless client also exposes `chat()`, `image()`, `embeddings()`, `getBalance()`, `createTopUp(amount)`, and `getConfig()`.
 
+### Spend limits
+
+`getBalance()` (and `useBalance()`) also returns a `limits` object describing the spend limits enforced on the session, the amount consumed so far, and — when a windowed limit is configured — when it resets. This lets you show the user how much of their allowance is left before a request is rejected.
+
+```ts
+const { balance, limits } = await client.getBalance();
+
+// limits: {
+//   usageLimit,                // lifetime spend cap (null = uncapped)
+//   usage,                     // consumed over the session's lifetime
+//   periodUsageLimit,          // per-window cap (null = no windowed limit)
+//   periodUsageDurationValue,  // e.g. 1
+//   periodUsageDurationUnit,   // "hour" | "day" | "week" | "month"
+//   currentPeriodUsage,        // consumed in the current window
+//   currentPeriodStartedAt,    // ISO timestamp, or null
+//   currentPeriodResetAt,      // ISO timestamp the window resets, or null
+// }
+```
+
+`null` limit fields mean that cap is not configured. `currentPeriodUsage` is `"0"` and `currentPeriodResetAt` is `null` until the first spend in a fresh window.
+
 ## Buying credits
 
 `<BuyCredits amount={10} />` creates a Stripe PaymentIntent scoped to the user's wallet, renders Stripe's `PaymentElement`, and confirms the payment. Once LLM Gateway's webhook processes it, the wallet is credited the **net** amount (after your markup) and your margin accrues to your organization.

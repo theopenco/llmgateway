@@ -9,6 +9,7 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 
 import { app } from "./app.js";
+import { metricsApp } from "./metrics-app.js";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
@@ -16,12 +17,18 @@ import type { Server } from "node:http";
 
 const port = Number(process.env.PORT) || 4001;
 
+// The Prometheus metrics endpoint is served on a separate port so it can be
+// exposed only internally (via the cluster network / Service) and never through
+// the public gateway ingress.
+const metricsPort = Number(process.env.METRICS_PORT) || 9090;
+
 // GCP Load Balancer has a fixed 600s keepalive timeout. Node.js default is 5s.
 // If Node closes the connection first, the LB sends requests on stale connections → 502.
 // Default to 620s (above GCP's 600s) to ensure the LB closes first.
 const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 
 let sdk: NodeSDK | null = null;
+let metricsServer: ServerType | null = null;
 
 async function startServer() {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
@@ -37,6 +44,13 @@ async function startServer() {
 		logger.error("Failed to initialize instrumentation", error as Error);
 		// Continue without tracing
 	}
+
+	// Serve Prometheus metrics on a separate, internal-only port.
+	logger.info("Metrics server starting", { port: metricsPort });
+	metricsServer = serve({
+		port: metricsPort,
+		fetch: metricsApp.fetch,
+	});
 
 	logger.info("Server starting", { port });
 
@@ -104,6 +118,12 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		logger.info("Closing HTTP server");
 		await closeServer(server);
 		logger.info("HTTP server closed");
+
+		if (metricsServer) {
+			logger.info("Closing metrics server");
+			await closeServer(metricsServer);
+			logger.info("Metrics server closed");
+		}
 
 		logger.info("Closing database connection");
 		await closeDatabase();
