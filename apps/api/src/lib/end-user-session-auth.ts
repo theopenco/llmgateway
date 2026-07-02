@@ -19,6 +19,8 @@ export interface AuthenticatedSession {
 	/** `test` wallets top up against the Stripe sandbox. */
 	mode: "live" | "test";
 	markupPercent: number;
+	/** Top-up bonus multiplier (percent) funded from the developer org's credits. */
+	bonusPercent: number;
 	/** Origins allowed to call with this session (CORS), from the project. */
 	allowedOrigins: string[] | null;
 }
@@ -98,6 +100,12 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 			"0",
 	);
 
+	const bonusPercent = Number(
+		session.wallet.bonusPercentOverride ??
+			session.wallet.project?.endUserTopUpBonusPercent ??
+			"0",
+	);
+
 	c.set("endUserSession", {
 		sessionId: session.id,
 		walletId: session.wallet.id,
@@ -106,6 +114,7 @@ export async function endUserSessionAuth(c: Context, next: Next) {
 		organizationId: session.wallet.organizationId,
 		mode: session.wallet.mode,
 		markupPercent: Number.isFinite(markupPercent) ? markupPercent : 0,
+		bonusPercent: Number.isFinite(bonusPercent) ? bonusPercent : 0,
 		allowedOrigins: session.wallet.project?.allowedOrigins ?? null,
 	});
 

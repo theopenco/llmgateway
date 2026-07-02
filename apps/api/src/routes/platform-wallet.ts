@@ -61,6 +61,7 @@ const createTopUp = createRoute({
 						clientSecret: z.string(),
 						totalAmount: z.number(),
 						netCredited: z.number(),
+						bonusCredited: z.number(),
 						isInternational: z.boolean(),
 					}),
 				},
@@ -92,6 +93,15 @@ platformWallet.openapi(createTopUp, async (c) => {
 	const developerMargin = Math.round((amount - netCredited) * 1e6) / 1e6;
 	const platformFee = feeBreakdown.platformFee + feeBreakdown.internationalFee;
 
+	// Developer-funded bonus: the wallet is credited extra spend power on top of
+	// `netCredited`, paid for out of the developer org's credit balance. Only live
+	// wallets earn it — test-mode top-ups are Stripe-sandbox and must never spend
+	// real org credits. This is an uncapped quote; fulfillment re-caps it against
+	// the org's actual credits at the time the payment succeeds.
+	const bonusFraction =
+		session.mode === "test" ? 0 : session.bonusPercent / 100;
+	const bonusCredited = Math.round(netCredited * bonusFraction * 1e6) / 1e6;
+
 	const stripeCustomerId = await ensureEndCustomerStripeCustomer(
 		session.endCustomerId,
 		session.mode,
@@ -115,6 +125,8 @@ platformWallet.openapi(createTopUp, async (c) => {
 			platformFee: platformFee.toString(),
 			developerMargin: developerMargin.toString(),
 			netCredited: netCredited.toString(),
+			bonusPercent: session.bonusPercent.toString(),
+			bonusCredited: bonusCredited.toString(),
 		},
 	});
 
@@ -123,12 +135,14 @@ platformWallet.openapi(createTopUp, async (c) => {
 		amount,
 		netCredited,
 		developerMargin,
+		bonusCredited,
 	});
 
 	return c.json({
 		clientSecret: paymentIntent.client_secret ?? "",
 		totalAmount: feeBreakdown.totalAmount,
 		netCredited,
+		bonusCredited,
 		isInternational,
 	});
 });
