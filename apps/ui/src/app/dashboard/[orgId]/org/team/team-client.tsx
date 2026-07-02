@@ -182,15 +182,17 @@ function MemberUsageUpsell() {
 					</div>
 					<div className="space-y-1">
 						<h3 className="text-sm font-semibold">
-							See usage by team member
+							SSO, User limits, self-provisioning & User Analytics
 							<span className="text-muted-foreground ml-2 text-xs font-normal">
 								Enterprise
 							</span>
 						</h3>
 						<p className="text-muted-foreground max-w-xl text-sm">
-							Upgrade to Enterprise to break down cost, tokens, requests, and
-							error rate per member — with a drill-down into the models,
-							providers, and apps each person uses most, over any time period.
+							Upgrade to Enterprise to add SSO for one-click team sign-in, scope
+							developers to specific projects with per-user spend and API-key
+							limits, let them self-provision their own keys, and break usage
+							down per member — cost, tokens, requests, and error rate, with a
+							drill-down by model and provider over any time period.
 						</p>
 					</div>
 				</div>
@@ -1053,7 +1055,7 @@ export function TeamClient() {
 
 					{!isEnterprise && <MemberUsageUpsell />}
 
-					{isAdmin && (
+					{isEnterprise && isAdmin && (
 						<Card>
 							<CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
 								<div className="space-y-1">
