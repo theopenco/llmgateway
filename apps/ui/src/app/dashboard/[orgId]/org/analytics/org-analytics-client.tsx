@@ -35,7 +35,7 @@ import { useApi } from "@/lib/fetch-client";
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
 
-type GroupBy = "model" | "project" | "apiKey";
+type GroupBy = "model" | "project" | "apiKey" | "user";
 
 interface OrgActivityRow extends DimensionRow {
 	cost: number;
@@ -47,6 +47,7 @@ const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
 	{ value: "model", label: "Breakdown by model" },
 	{ value: "project", label: "Breakdown by project" },
 	{ value: "apiKey", label: "Breakdown by API key" },
+	{ value: "user", label: "Breakdown by user" },
 ];
 
 const COPY: Record<GroupBy, { noun: string; overTime: string; top: string }> = {
@@ -64,6 +65,11 @@ const COPY: Record<GroupBy, { noun: string; overTime: string; top: string }> = {
 		noun: "API key",
 		overTime: "Spend across your top API keys over the selected window",
 		top: "Top API keys by cost across every project",
+	},
+	user: {
+		noun: "user",
+		overTime: "Spend across your top users over the selected window",
+		top: "Top users by cost, attributed to the member who created each API key",
 	},
 };
 
@@ -142,7 +148,9 @@ export function OrgAnalyticsClient() {
 
 	const groupBy: GroupBy = (() => {
 		const value = searchParams.get("groupBy");
-		return value === "project" || value === "apiKey" ? value : "model";
+		return value === "project" || value === "apiKey" || value === "user"
+			? value
+			: "model";
 	})();
 
 	useEffect(() => {

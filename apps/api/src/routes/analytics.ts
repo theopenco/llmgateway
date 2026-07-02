@@ -657,7 +657,7 @@ function eachDay(fromStr: string, toStr: string): string[] {
 	return slots;
 }
 
-const orgGroupBySchema = z.enum(["model", "project", "apiKey"]);
+const orgGroupBySchema = z.enum(["model", "project", "apiKey", "user"]);
 
 const orgActivityBreakdownSchema = z.object({
 	key: z.string(),
@@ -890,6 +890,68 @@ analytics.openapi(getOrgActivity, async (c) => {
 				date,
 				row.projectId,
 				projectNames.get(row.projectId) ?? "Unknown project",
+				Number(row.cost),
+				Number(row.requestCount),
+				Number(row.totalTokens),
+			);
+		}
+	} else if (groupBy === "user") {
+		// Attribute each key's usage to the member who created it
+		// (api_key.created_by), matching the Teams page member breakdown.
+		const rows = await db
+			.select({
+				date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				userId: tables.apiKey.createdBy,
+				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(apiKeyHourlyStats)
+			.innerJoin(
+				tables.apiKey,
+				eq(tables.apiKey.id, apiKeyHourlyStats.apiKeyId),
+			)
+			.where(
+				and(
+					inArray(apiKeyHourlyStats.projectId, projectIds),
+					inArray(tables.apiKey.keyType, ["user", "end_user_customer"]),
+					gte(apiKeyHourlyStats.hourTimestamp, startDate),
+					lte(apiKeyHourlyStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(sql`1, ${tables.apiKey.createdBy}`)
+			.orderBy(sql`1 ASC`);
+
+		const creatorIds = Array.from(new Set(rows.map((row) => row.userId)));
+		const userLabels = new Map(
+			creatorIds.length
+				? (
+						await db
+							.select({
+								id: tables.user.id,
+								name: tables.user.name,
+								email: tables.user.email,
+							})
+							.from(tables.user)
+							.where(inArray(tables.user.id, creatorIds))
+					).map((u) => [u.id, u.name ?? u.email] as const)
+				: [],
+		);
+
+		for (const row of rows) {
+			const date = String(row.date).slice(0, 10);
+			addBreakdown(
+				date,
+				row.userId,
+				userLabels.get(row.userId) ?? "Unknown user",
 				Number(row.cost),
 				Number(row.requestCount),
 				Number(row.totalTokens),
