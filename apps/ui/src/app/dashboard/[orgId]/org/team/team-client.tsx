@@ -3,11 +3,13 @@
 import { format, subDays } from "date-fns";
 import {
 	BarChart3Icon,
+	ChevronsUpDown,
 	Info,
 	KeyRound,
 	Mail,
 	MoreHorizontal,
 	TrendingUp,
+	X,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -34,7 +36,14 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { Checkbox } from "@/lib/components/checkbox";
+import {
+	Command,
+	CommandEmpty,
+	CommandGroup,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@/lib/components/command";
 import {
 	Dialog,
 	DialogContent,
@@ -59,6 +68,11 @@ import {
 } from "@/lib/components/hover-card";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/lib/components/popover";
 import {
 	Select,
 	SelectContent,
@@ -399,15 +413,17 @@ interface OrgProject {
 	name: string;
 }
 
-function ProjectCheckList({
+function ProjectMultiSelect({
 	orgProjects,
 	selected,
-	onToggle,
+	onChange,
 }: {
 	orgProjects: OrgProject[];
 	selected: string[];
-	onToggle: (projectId: string) => void;
+	onChange: (projectIds: string[]) => void;
 }) {
+	const [open, setOpen] = useState(false);
+
 	if (orgProjects.length === 0) {
 		return (
 			<p className="text-muted-foreground text-sm">
@@ -415,20 +431,76 @@ function ProjectCheckList({
 			</p>
 		);
 	}
+
+	const selectedProjects = selected
+		.map((id) => orgProjects.find((p) => p.id === id))
+		.filter((p): p is OrgProject => Boolean(p));
+	const available = orgProjects.filter((p) => !selected.includes(p.id));
+
 	return (
-		<div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
-			{orgProjects.map((project) => (
-				<label
-					key={project.id}
-					className="flex cursor-pointer items-center gap-2 text-sm"
+		<div className="space-y-2">
+			{selectedProjects.length > 0 && (
+				<div className="flex flex-wrap gap-1.5">
+					{selectedProjects.map((project) => (
+						<Badge key={project.id} variant="secondary" className="gap-1 pr-1">
+							{project.name}
+							<button
+								type="button"
+								aria-label={`Remove ${project.name}`}
+								className="hover:bg-muted-foreground/20 rounded-sm p-0.5"
+								onClick={() =>
+									onChange(selected.filter((id) => id !== project.id))
+								}
+							>
+								<X className="h-3 w-3" />
+							</button>
+						</Badge>
+					))}
+				</div>
+			)}
+
+			<Popover open={open} onOpenChange={setOpen}>
+				<PopoverTrigger asChild>
+					<Button
+						type="button"
+						variant="outline"
+						role="combobox"
+						aria-expanded={open}
+						disabled={available.length === 0}
+						className="w-full justify-between font-normal"
+					>
+						<span className="text-muted-foreground">
+							{available.length === 0 ? "All projects added" : "Add a project…"}
+						</span>
+						<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+					</Button>
+				</PopoverTrigger>
+				<PopoverContent
+					className="w-[--radix-popover-trigger-width] p-0"
+					align="start"
 				>
-					<Checkbox
-						checked={selected.includes(project.id)}
-						onCheckedChange={() => onToggle(project.id)}
-					/>
-					{project.name}
-				</label>
-			))}
+					<Command>
+						<CommandInput placeholder="Search projects…" />
+						<CommandList>
+							<CommandEmpty>No projects found.</CommandEmpty>
+							<CommandGroup>
+								{available.map((project) => (
+									<CommandItem
+										key={project.id}
+										value={project.name}
+										onSelect={() => {
+											onChange([...selected, project.id]);
+											setOpen(false);
+										}}
+									>
+										{project.name}
+									</CommandItem>
+								))}
+							</CommandGroup>
+						</CommandList>
+					</Command>
+				</PopoverContent>
+			</Popover>
 		</div>
 	);
 }
@@ -449,11 +521,6 @@ function ManageAccessDialog({
 	const [projectIds, setProjectIds] = useState<string[]>(
 		member.projects ? member.projects.map((p) => p.id) : [],
 	);
-
-	const toggleProject = (id: string) =>
-		setProjectIds((prev) =>
-			prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
-		);
 
 	const memberName = member.user.name ?? member.user.email;
 
@@ -509,10 +576,10 @@ function ManageAccessDialog({
 					{role === "developer" && (
 						<div className="space-y-2">
 							<Label>Project access</Label>
-							<ProjectCheckList
+							<ProjectMultiSelect
 								orgProjects={orgProjects}
 								selected={projectIds}
-								onToggle={toggleProject}
+								onChange={setProjectIds}
 							/>
 						</div>
 					)}
@@ -735,16 +802,10 @@ export function TeamClient() {
 													Developers can only see and use the projects you
 													grant.
 												</p>
-												<ProjectCheckList
+												<ProjectMultiSelect
 													orgProjects={orgProjects}
 													selected={newMemberProjectIds}
-													onToggle={(id) =>
-														setNewMemberProjectIds((prev) =>
-															prev.includes(id)
-																? prev.filter((p) => p !== id)
-																: [...prev, id],
-														)
-													}
+													onChange={setNewMemberProjectIds}
 												/>
 											</div>
 										)}
