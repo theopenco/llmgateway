@@ -1923,6 +1923,7 @@ async function seed() {
 		name: "Enterprise Developer",
 		email: "developer@example.com",
 		emailVerified: true,
+		onboardingCompleted: true,
 	});
 
 	await upsert(tables.account, {
@@ -1938,6 +1939,12 @@ async function seed() {
 		userId: "enterprise-dev-user-id",
 		organizationId: "enterprise-org-id",
 		role: "developer",
+		// A sample budget so the developer sees the caps an admin set on them.
+		maxApiKeys: 3,
+		usageLimit: "50",
+		periodUsageLimit: "10",
+		periodUsageDurationValue: 1,
+		periodUsageDurationUnit: "day",
 	});
 
 	// Grant the developer access to the Enterprise Project only (not the
