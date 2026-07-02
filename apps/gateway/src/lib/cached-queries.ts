@@ -820,10 +820,21 @@ export async function getMemberKeyUsage(
 }
 
 /**
- * Get a member's rolling-window spend (cacheable). windowStart is floored to the
- * current hour so the SQL bind and swrWrap key rotate at most once per hour —
- * a live millisecond `now` would give a 0% cache hit rate (see
- * findEffectiveDiscount). SUMs apiKeyHourlyStats.cost across the member's keys.
+ * Get a member's period spend (cacheable). SUMs apiKeyHourlyStats.cost across the
+ * member's keys over the current period.
+ *
+ * apiKeyHourlyStats is bucketed by hour, so the window is aligned to whole hourly
+ * buckets. The current hour is floored (setMinutes(0,0,0)) for two reasons:
+ *  - it rotates the SQL bind and swrWrap key at most once per hour — a live
+ *    millisecond `now` would give a 0% cache hit rate (see findEffectiveDiscount);
+ *  - it makes the window span exactly `value` units' worth of buckets. Subtracting
+ *    the duration from the floored hour and then advancing one bucket yields
+ *    [floor(now) - value + 1h, now]: the current partial bucket plus the preceding
+ *    full ones. Without the +1h a 1h window at 10:59 would start at 09:00 and keep
+ *    counting the whole 09:00 bucket (e.g. 09:05 spend) until 11:00 — an almost-2h
+ *    effective window. This matches the fixed-window reset semantics of the per-key
+ *    period limits rather than a sub-hour rolling window (unavailable at this
+ *    granularity).
  */
 export async function getMemberPeriodSpend(
 	organizationId: string,
@@ -840,6 +851,7 @@ export async function getMemberPeriodSpend(
 	const flooredHour = new Date(now);
 	flooredHour.setMinutes(0, 0, 0);
 	const windowStart = addApiKeyPeriodDuration(flooredHour, -value, unit);
+	windowStart.setHours(windowStart.getHours() + 1);
 	const flooredHourEpoch = flooredHour.getTime();
 
 	// Fold the member's key set into the cache key: the SUM depends on which keys
