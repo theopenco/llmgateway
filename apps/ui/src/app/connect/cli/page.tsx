@@ -75,7 +75,7 @@ function readParams(): ConnectParams | null {
 		callback,
 		state,
 		source: params.get("source") ?? "coding CLI",
-		name: (params.get("name") ?? "DevPass Code CLI").slice(0, 80),
+		name: (params.get("name") ?? "").slice(0, 80),
 		org: params.get("org") === "devpass" ? "devpass" : "default",
 	};
 }
@@ -126,7 +126,9 @@ export default function ConnectCliPage() {
 		createApiKey.mutate(
 			{
 				body: {
-					description: `${displayName} (CLI) — ${params.name}`.slice(0, 100),
+					description: `${displayName} (CLI)${
+						params.name ? ` — ${params.name}` : ""
+					}`.slice(0, 100),
 					projectId: project.id,
 					usageLimit: null,
 					expiresAt,

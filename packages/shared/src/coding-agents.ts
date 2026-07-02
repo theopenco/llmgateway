@@ -74,6 +74,12 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		userAgentPatterns: [/^soulforge\//i],
 	},
 	{
+		id: "empryo",
+		label: "Empryo",
+		xSourceValues: ["empryo"],
+		userAgentPatterns: [/^empryo\//i, /\bempryo\b/i],
+	},
+	{
 		id: "n8n",
 		label: "n8n",
 		xSourceValues: ["n8n"],

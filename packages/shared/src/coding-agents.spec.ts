@@ -16,6 +16,7 @@ describe("isRecognizedCodingAgent", () => {
 		expect(isRecognizedCodingAgent("cursor")).toBe(true);
 		expect(isRecognizedCodingAgent("autohand")).toBe(true);
 		expect(isRecognizedCodingAgent("soulforge")).toBe(true);
+		expect(isRecognizedCodingAgent("empryo")).toBe(true);
 		expect(isRecognizedCodingAgent("n8n")).toBe(true);
 		expect(isRecognizedCodingAgent("openclaw")).toBe(true);
 		expect(isRecognizedCodingAgent("aider")).toBe(true);
