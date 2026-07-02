@@ -16,6 +16,7 @@ import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 const imageGenerationsRequestSchema = z.object({
 	prompt: z.string().min(1).openapi({
@@ -616,7 +617,7 @@ async function forwardToChatCompletions(
 		const status =
 			response.status === 500 && isProviderError ? 502 : response.status;
 
-		if (status >= 500) {
+		if (status === 502 || status === 503 || status === 504) {
 			logger.warn("Images API - upstream provider error", {
 				status,
 				originalStatus: response.status,
@@ -627,10 +628,11 @@ async function forwardToChatCompletions(
 			logger.warn("Images API - chat completions request failed", {
 				status,
 				statusText: response.statusText,
+				errorType,
 			});
 		}
 
-		throw new HTTPException(status as any, {
+		throw new HTTPException(status as ContentfulStatusCode, {
 			message: errorMessage,
 		});
 	}
