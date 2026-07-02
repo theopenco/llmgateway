@@ -1902,7 +1902,7 @@ async function seed() {
 	// project they are NOT granted access to (for testing project-scoped RBAC).
 	await upsert(tables.project, {
 		id: "enterprise-project-secondary-id",
-		name: "Enterprise Project (Restricted)",
+		name: "Restricted Project",
 		organizationId: "enterprise-org-id",
 		mode: "hybrid",
 	});
