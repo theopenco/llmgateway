@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getUserOrganizationIds } from "@/utils/authorization.js";
+import { userHasProjectAccess } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -164,15 +164,16 @@ projects.openapi(getProject, async (c) => {
 
 	const { id } = c.req.param();
 
-	const orgIds = await getUserOrganizationIds(user.id);
+	if (!(await userHasProjectAccess(user.id, id))) {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
 
 	const project = await db.query.project.findFirst({
 		where: {
 			id: {
 				eq: id,
-			},
-			organizationId: {
-				in: orgIds,
 			},
 		},
 	});
@@ -234,6 +235,14 @@ projects.openapi(updateProject, async (c) => {
 	});
 
 	if (!project || project.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
+
+	// RBAC: project-scoped "developer" members can only touch projects granted to
+	// them.
+	if (!(await userHasProjectAccess(user.id, project.id))) {
 		throw new HTTPException(404, {
 			message: "Project not found",
 		});

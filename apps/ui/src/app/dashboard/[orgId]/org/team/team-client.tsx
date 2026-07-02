@@ -27,6 +27,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -377,6 +378,143 @@ function ManageBudgetDialog({
 	);
 }
 
+type MemberRole = "owner" | "admin" | "developer";
+interface OrgProject {
+	id: string;
+	name: string;
+}
+
+function ProjectCheckList({
+	orgProjects,
+	selected,
+	onToggle,
+}: {
+	orgProjects: OrgProject[];
+	selected: string[];
+	onToggle: (projectId: string) => void;
+}) {
+	if (orgProjects.length === 0) {
+		return (
+			<p className="text-muted-foreground text-sm">
+				This organization has no projects yet. Create a project first.
+			</p>
+		);
+	}
+	return (
+		<div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
+			{orgProjects.map((project) => (
+				<label
+					key={project.id}
+					className="flex cursor-pointer items-center gap-2 text-sm"
+				>
+					<Checkbox
+						checked={selected.includes(project.id)}
+						onCheckedChange={() => onToggle(project.id)}
+					/>
+					{project.name}
+				</label>
+			))}
+		</div>
+	);
+}
+
+function ManageAccessDialog({
+	organizationId,
+	member,
+	orgProjects,
+	onClose,
+}: {
+	organizationId: string;
+	member: TeamMember;
+	orgProjects: OrgProject[];
+	onClose: () => void;
+}) {
+	const updateMember = useUpdateTeamMember(organizationId);
+	const [role, setRole] = useState<MemberRole>(member.role);
+	const [projectIds, setProjectIds] = useState<string[]>(
+		member.projects ? member.projects.map((p) => p.id) : [],
+	);
+
+	const toggleProject = (id: string) =>
+		setProjectIds((prev) =>
+			prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
+		);
+
+	const memberName = member.user.name ?? member.user.email;
+
+	const handleSave = async () => {
+		if (role === "developer" && projectIds.length === 0) {
+			toast({
+				title: "Error",
+				description: "Select at least one project for a developer.",
+				variant: "destructive",
+			});
+			return;
+		}
+
+		await updateMember.mutateAsync({
+			params: { path: { organizationId, memberId: member.id } },
+			body: {
+				role,
+				...(role === "developer" ? { projectIds } : {}),
+			},
+		});
+		toast({ title: "Success", description: "Access updated successfully" });
+		onClose();
+	};
+
+	return (
+		<Dialog open onOpenChange={(o) => (o ? undefined : onClose())}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Manage access</DialogTitle>
+					<DialogDescription>
+						Set {memberName}'s role. Developers are limited to the projects you
+						grant below; owners and admins can access the whole organization.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-4 py-4">
+					<div className="space-y-2">
+						<Label htmlFor="access-role">Role</Label>
+						<Select
+							value={role}
+							onValueChange={(value) => setRole(value as MemberRole)}
+						>
+							<SelectTrigger id="access-role">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="developer">Developer</SelectItem>
+								<SelectItem value="admin">Admin</SelectItem>
+								<SelectItem value="owner">Owner</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					{role === "developer" && (
+						<div className="space-y-2">
+							<Label>Project access</Label>
+							<ProjectCheckList
+								orgProjects={orgProjects}
+								selected={projectIds}
+								onToggle={toggleProject}
+							/>
+						</div>
+					)}
+				</div>
+				<DialogFooter>
+					<Button variant="outline" onClick={onClose}>
+						Cancel
+					</Button>
+					<Button onClick={handleSave} disabled={updateMember.isPending}>
+						{updateMember.isPending ? "Saving..." : "Save access"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 export function TeamClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
@@ -389,7 +527,6 @@ export function TeamClient() {
 
 	const { data, isLoading } = useTeamMembers(organizationId);
 	const addMemberMutation = useAddTeamMember(organizationId);
-	const updateMemberMutation = useUpdateTeamMember(organizationId);
 	const removeMemberMutation = useRemoveTeamMember(organizationId);
 
 	const currentUserRole = data?.members.find(
@@ -400,11 +537,21 @@ export function TeamClient() {
 	const showUsage = isEnterprise && isAdmin;
 
 	const [email, setEmail] = useState("");
-	const [role, setRole] = useState<"owner" | "admin" | "developer">(
-		"developer",
-	);
+	const [role, setRole] = useState<MemberRole>("developer");
+	const [newMemberProjectIds, setNewMemberProjectIds] = useState<string[]>([]);
 	const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 	const [budgetMember, setBudgetMember] = useState<TeamMember | null>(null);
+	const [accessMember, setAccessMember] = useState<TeamMember | null>(null);
+
+	const { data: orgProjectsData } = api.useQuery(
+		"get",
+		"/orgs/{id}/projects",
+		{ params: { path: { id: organizationId } } },
+		{ enabled: !!organizationId && isAdmin },
+	);
+	const orgProjects: OrgProject[] = (orgProjectsData?.projects ?? []).map(
+		(p) => ({ id: p.id, name: p.name }),
+	);
 
 	useEffect(() => {
 		if (!showUsage) {
@@ -438,8 +585,8 @@ export function TeamClient() {
 	);
 
 	const usageColumnCount = 4;
-	// Name, Email, Role, Limits, Actions
-	const baseColumnCount = 5;
+	// Name, Email, Role, Projects, Limits, Actions
+	const baseColumnCount = 6;
 	const totalColumnCount = showUsage
 		? baseColumnCount + usageColumnCount
 		: baseColumnCount;
@@ -454,13 +601,26 @@ export function TeamClient() {
 			return;
 		}
 
+		if (role === "developer" && newMemberProjectIds.length === 0) {
+			toast({
+				title: "Error",
+				description: "Select at least one project for a developer.",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		await addMemberMutation.mutateAsync({
 			params: {
 				path: {
 					organizationId,
 				},
 			},
-			body: { email, role },
+			body: {
+				email,
+				role,
+				...(role === "developer" ? { projectIds: newMemberProjectIds } : {}),
+			},
 		});
 		toast({
 			title: "Success",
@@ -468,28 +628,8 @@ export function TeamClient() {
 		});
 		setEmail("");
 		setRole("developer");
+		setNewMemberProjectIds([]);
 		setIsAddDialogOpen(false);
-	};
-
-	const handleUpdateRole = async (
-		memberId: string,
-		newRole: "owner" | "admin" | "developer",
-	) => {
-		await updateMemberMutation.mutateAsync({
-			params: {
-				path: {
-					organizationId,
-					memberId,
-				},
-			},
-			body: {
-				role: newRole,
-			},
-		});
-		toast({
-			title: "Success",
-			description: "Role updated successfully",
-		});
 	};
 
 	const handleRemoveMember = async (memberId: string, memberName: string) => {
@@ -560,9 +700,7 @@ export function TeamClient() {
 											<Label htmlFor="role">Role</Label>
 											<Select
 												value={role}
-												onValueChange={(value) =>
-													setRole(value as "owner" | "admin" | "developer")
-												}
+												onValueChange={(value) => setRole(value as MemberRole)}
 											>
 												<SelectTrigger>
 													<SelectValue placeholder="Select a role" />
@@ -574,6 +712,27 @@ export function TeamClient() {
 												</SelectContent>
 											</Select>
 										</div>
+
+										{role === "developer" && (
+											<div className="space-y-2">
+												<Label>Project access</Label>
+												<p className="text-muted-foreground text-xs">
+													Developers can only see and use the projects you
+													grant.
+												</p>
+												<ProjectCheckList
+													orgProjects={orgProjects}
+													selected={newMemberProjectIds}
+													onToggle={(id) =>
+														setNewMemberProjectIds((prev) =>
+															prev.includes(id)
+																? prev.filter((p) => p !== id)
+																: [...prev, id],
+														)
+													}
+												/>
+											</div>
+										)}
 
 										<Alert>
 											<AlertDescription>
@@ -638,6 +797,7 @@ export function TeamClient() {
 													<RolePermissionsHoverCard />
 												</span>
 											</TableHead>
+											<TableHead>Projects</TableHead>
 											<TableHead>Limits</TableHead>
 											{showUsage && (
 												<>
@@ -680,27 +840,32 @@ export function TeamClient() {
 														</TableCell>
 														<TableCell>{member.user.email}</TableCell>
 														<TableCell>
-															<Select
-																value={member.role}
-																onValueChange={(value) =>
-																	handleUpdateRole(
-																		member.id,
-																		value as "owner" | "admin" | "developer",
-																	)
-																}
-																disabled={updateMemberMutation.isPending}
-															>
-																<SelectTrigger className="w-[130px]">
-																	<SelectValue />
-																</SelectTrigger>
-																<SelectContent>
-																	<SelectItem value="developer">
-																		Developer
-																	</SelectItem>
-																	<SelectItem value="admin">Admin</SelectItem>
-																	<SelectItem value="owner">Owner</SelectItem>
-																</SelectContent>
-															</Select>
+															<Badge variant="secondary" className="capitalize">
+																{member.role}
+															</Badge>
+														</TableCell>
+														<TableCell>
+															{member.projects === null ? (
+																<span className="text-muted-foreground text-sm">
+																	All projects
+																</span>
+															) : member.projects.length === 0 ? (
+																<span className="text-muted-foreground text-sm">
+																	No projects
+																</span>
+															) : (
+																<div className="flex flex-wrap gap-1">
+																	{member.projects.map((project) => (
+																		<Badge
+																			key={project.id}
+																			variant="outline"
+																			className="font-normal"
+																		>
+																			{project.name}
+																		</Badge>
+																	))}
+																</div>
+															)}
 														</TableCell>
 														<TableCell>
 															{(() => {
@@ -758,6 +923,15 @@ export function TeamClient() {
 																	<Button
 																		variant="outline"
 																		size="sm"
+																		onClick={() => setAccessMember(member)}
+																	>
+																		Manage access
+																	</Button>
+																)}
+																{isAdmin && (
+																	<Button
+																		variant="outline"
+																		size="sm"
 																		onClick={() => setBudgetMember(member)}
 																	>
 																		Manage budget
@@ -789,6 +963,15 @@ export function TeamClient() {
 					</Card>
 				</div>
 			</div>
+			{accessMember && (
+				<ManageAccessDialog
+					key={accessMember.id}
+					organizationId={organizationId}
+					member={accessMember}
+					orgProjects={orgProjects}
+					onClose={() => setAccessMember(null)}
+				/>
+			)}
 			{budgetMember && (
 				<ManageBudgetDialog
 					key={budgetMember.id}

@@ -1089,13 +1089,17 @@ export function DashboardSidebar({
 					</SidebarGroupContent>
 				</SidebarGroup>
 
-				<OrganizationSection
-					isActive={isActive}
-					isMobile={isMobile}
-					toggleSidebar={toggleSidebar}
-					searchParams={searchParams}
-					isEnterprise={selectedOrganization?.plan === "enterprise"}
-				/>
+				{/* Project-scoped "developer" members have no access to org-level
+				    resources, so the entire Organization section is hidden. */}
+				{selectedOrganization?.role !== "developer" && (
+					<OrganizationSection
+						isActive={isActive}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						searchParams={searchParams}
+						isEnterprise={selectedOrganization?.plan === "enterprise"}
+					/>
+				)}
 
 				<ToolsResourcesSection
 					toolsResources={toolsResources}

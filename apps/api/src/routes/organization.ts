@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import {
+	getUserProjectIds,
+	userHasOrganizationAccess,
+} from "@/utils/authorization.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -77,6 +80,10 @@ const organizationSchema = z.object({
 	chatPlanCreditsLimit: z.string(),
 	chatPlanBillingCycleStart: z.date().nullable(),
 	chatPlanExpiresAt: z.date().nullable(),
+	// The authenticated user's role in this org. Populated by GET /orgs so the
+	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
+	// "developer" members). Omitted by single-org endpoints.
+	role: z.enum(["owner", "admin", "developer"]).optional(),
 });
 
 const projectSchema = z.object({
@@ -217,7 +224,7 @@ organization.openapi(getOrganizations, async (c) => {
 	const { includePersonal, includeChat } = c.req.valid("query");
 
 	let organizations = userOrganizations
-		.map((uo) => uo.organization!)
+		.map((uo) => ({ ...uo.organization!, role: uo.role }))
 		.filter((org) => org.status !== "deleted")
 		// Personal and chat orgs are hidden from the regular dashboard. The
 		// devpass/playground surfaces opt in via ?includePersonal=true /
@@ -235,7 +242,7 @@ organization.openapi(getOrganizations, async (c) => {
 			defaultOrganization.status !== "deleted" &&
 			defaultOrganization.kind !== "devpass"
 		) {
-			organizations = [defaultOrganization];
+			organizations = [{ ...defaultOrganization, role: "owner" as const }];
 		}
 	}
 
@@ -283,6 +290,10 @@ organization.openapi(getProjects, async (c) => {
 		});
 	}
 
+	// RBAC: project-scoped "developer" members only see the projects granted to
+	// them; owners/admins see every project in the org.
+	const accessibleProjectIds = new Set(await getUserProjectIds(user.id));
+
 	const projects = await db.query.project.findMany({
 		where: {
 			organizationId: {
@@ -295,7 +306,9 @@ organization.openapi(getProjects, async (c) => {
 	});
 
 	return c.json({
-		projects,
+		projects: projects.filter((project) =>
+			accessibleProjectIds.has(project.id),
+		),
 	});
 });
 

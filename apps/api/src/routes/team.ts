@@ -38,6 +38,11 @@ const memberSpendSchema = z.object({
 	activeApiKeys: z.number(),
 });
 
+const memberProjectSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+});
+
 const teamMemberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
@@ -52,11 +57,17 @@ const teamMemberSchema = z.object({
 	// null otherwise (developers can list members but not see spend/limits).
 	budget: memberBudgetSchema.nullable(),
 	spend: memberSpendSchema.nullable(),
+	// Project access: null = every project in the org (owner/admin); an array =
+	// the specific projects a project-scoped "developer" is limited to.
+	projects: z.array(memberProjectSchema).nullable(),
 });
 
 const addMemberSchema = z.object({
 	email: z.string().email(),
 	role: roleSchema,
+	// Required (non-empty) when role is "developer": the projects the member is
+	// granted access to. Ignored for owner/admin (they get the whole org).
+	projectIds: z.array(z.string()).optional(),
 });
 
 interface MemberBudgetRow {
@@ -184,7 +195,70 @@ async function computeMemberSpend(
 
 const updateMemberSchema = z.object({
 	role: roleSchema,
+	// When the (new) role is "developer", the projects the member is limited to.
+	projectIds: z.array(z.string()).optional(),
 });
+
+/**
+ * Validate a developer's requested project grants against the org and return the
+ * resolved {id,name} list. Throws 400 when the role/project combination is
+ * invalid.
+ */
+async function resolveDeveloperProjects(
+	organizationId: string,
+	role: z.infer<typeof roleSchema>,
+	projectIds: string[] | undefined,
+): Promise<{ id: string; name: string }[]> {
+	if (role !== "developer") {
+		return [];
+	}
+
+	const unique = Array.from(new Set(projectIds ?? []));
+	if (unique.length === 0) {
+		throw new HTTPException(400, {
+			message: "Developers must be granted access to at least one project.",
+		});
+	}
+
+	const orgProjects = await db.query.project.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			status: { ne: "deleted" },
+			id: { in: unique },
+		},
+		columns: { id: true, name: true },
+	});
+
+	if (orgProjects.length !== unique.length) {
+		throw new HTTPException(400, {
+			message: "One or more selected projects do not belong to this org.",
+		});
+	}
+
+	return orgProjects.map((p) => ({ id: p.id, name: p.name }));
+}
+
+/**
+ * Replace a membership's project grants with exactly `projectIds` (developers),
+ * or clear them entirely (owner/admin have implicit access to every project).
+ */
+async function syncMemberProjects(
+	userOrganizationId: string,
+	projectIds: string[],
+): Promise<void> {
+	await db
+		.delete(tables.userProject)
+		.where(eq(tables.userProject.userOrganizationId, userOrganizationId));
+
+	if (projectIds.length) {
+		await db.insert(tables.userProject).values(
+			projectIds.map((projectId) => ({
+				userOrganizationId,
+				projectId,
+			})),
+		);
+	}
+}
 
 const getMembers = createRoute({
 	method: "get",
@@ -249,6 +323,13 @@ team.openapi(getMembers, async (c) => {
 					name: true,
 				},
 			},
+			userProjects: {
+				with: {
+					project: {
+						columns: { id: true, name: true },
+					},
+				},
+			},
 		},
 	});
 
@@ -270,6 +351,14 @@ team.openapi(getMembers, async (c) => {
 			user: m.user!,
 			budget: isPrivileged ? budgetFromRow(m) : null,
 			spend: isPrivileged ? (spendByUser.get(m.userId) ?? EMPTY_SPEND) : null,
+			// Owner/admin members have implicit access to every project (null);
+			// developers are limited to their granted projects.
+			projects:
+				m.role === "developer"
+					? m.userProjects
+							.filter((up) => up.project)
+							.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+					: null,
 		})),
 	});
 });
@@ -377,7 +466,7 @@ team.openapi(addMember, async (c) => {
 	}
 
 	const { organizationId } = c.req.param();
-	const { email, role } = c.req.valid("json");
+	const { email, role, projectIds } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -409,6 +498,13 @@ team.openapi(addMember, async (c) => {
 				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
 		});
 	}
+
+	// Developers must be granted a valid, non-empty set of org projects.
+	const grantedProjects = await resolveDeveloperProjects(
+		organizationId,
+		role,
+		projectIds,
+	);
 
 	const currentMembers = await db.query.userOrganization.findMany({
 		where: {
@@ -479,6 +575,13 @@ team.openapi(addMember, async (c) => {
 		})
 		.returning();
 
+	if (role === "developer") {
+		await syncMemberProjects(
+			newMember.id,
+			grantedProjects.map((p) => p.id),
+		);
+	}
+
 	await logAuditEvent({
 		organizationId,
 		userId: authUser.id,
@@ -489,6 +592,7 @@ team.openapi(addMember, async (c) => {
 			targetUserId: targetUser.id,
 			targetUserEmail: email,
 			role,
+			projectIds: grantedProjects.map((p) => p.id),
 		},
 	});
 
@@ -506,6 +610,7 @@ team.openapi(addMember, async (c) => {
 			},
 			budget: budgetFromRow(newMember),
 			spend: EMPTY_SPEND,
+			projects: role === "developer" ? grantedProjects : null,
 		},
 	});
 });
@@ -550,7 +655,7 @@ team.openapi(updateMember, async (c) => {
 	}
 
 	const { organizationId, memberId } = c.req.param();
-	const { role } = c.req.valid("json");
+	const { role, projectIds } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -588,6 +693,13 @@ team.openapi(updateMember, async (c) => {
 			message: "Only owners and admins can update member roles",
 		});
 	}
+
+	// Developers need a valid, non-empty project grant list (validated up front).
+	const grantedProjects = await resolveDeveloperProjects(
+		organizationId,
+		role,
+		projectIds,
+	);
 
 	const targetMember = await db.query.userOrganization.findFirst({
 		where: {
@@ -652,6 +764,13 @@ team.openapi(updateMember, async (c) => {
 		.where(eq(tables.userOrganization.id, memberId))
 		.returning();
 
+	// Sync project grants: developers keep exactly the granted set; owner/admin
+	// have implicit access to everything, so their grants are cleared.
+	await syncMemberProjects(
+		memberId,
+		role === "developer" ? grantedProjects.map((p) => p.id) : [],
+	);
+
 	if (targetMember.role !== role) {
 		await logAuditEvent({
 			organizationId,
@@ -684,6 +803,7 @@ team.openapi(updateMember, async (c) => {
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
 			spend,
+			projects: role === "developer" ? grantedProjects : null,
 		},
 	});
 });
@@ -898,6 +1018,18 @@ team.openapi(updateMemberBudget, async (c) => {
 			updatedMember.userId,
 		) ?? EMPTY_SPEND;
 
+	const memberProjects =
+		updatedMember.role === "developer"
+			? (
+					await db.query.userProject.findMany({
+						where: { userOrganizationId: { eq: updatedMember.id } },
+						with: { project: { columns: { id: true, name: true } } },
+					})
+				)
+					.filter((up) => up.project)
+					.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+			: null;
+
 	return c.json({
 		message: "Member budget updated successfully",
 		member: {
@@ -908,6 +1040,7 @@ team.openapi(updateMemberBudget, async (c) => {
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
 			spend,
+			projects: memberProjects,
 		},
 	});
 });

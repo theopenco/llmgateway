@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
+import { getAdminOrganizationIds } from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { invalidateSwrByTables } from "@llmgateway/cache";
@@ -113,7 +113,7 @@ const updateCustomModelSchema = z
  * gated here.
  */
 async function getManageableProviderKey(userId: string, providerKeyId: string) {
-	const organizationIds = await getActiveUserOrganizationIds(userId);
+	const organizationIds = await getAdminOrganizationIds(userId);
 
 	const providerKey = await db.query.providerKey.findFirst({
 		where: {
@@ -178,7 +178,7 @@ customModels.openapi(list, async (c) => {
 
 	const { providerKeyId } = c.req.valid("query");
 
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 	if (!organizationIds.length) {
 		return c.json({ customModels: [] });
 	}
@@ -319,7 +319,7 @@ customModels.openapi(update, async (c) => {
 	const { id } = c.req.param();
 	const fields = c.req.valid("json");
 
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 	const existing = await db.query.customModel.findFirst({
 		where: {
 			id: { eq: id },
@@ -408,7 +408,7 @@ customModels.openapi(deleteCustomModel, async (c) => {
 
 	const { id } = c.req.param();
 
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 	const existing = await db.query.customModel.findFirst({
 		where: {
 			id: { eq: id },

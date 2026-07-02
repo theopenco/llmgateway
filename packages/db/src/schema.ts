@@ -615,6 +615,36 @@ export const userOrganization = pgTable(
 	],
 );
 
+// Project-level access grants for project-scoped members. Owners/admins have
+// implicit access to every project in their org (no rows here); "developer"
+// members are limited to the projects granted via this table. Keyed on the
+// membership so grants cascade-delete when a member is removed from the org.
+export const userProject = pgTable(
+	"user_project",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userOrganizationId: text()
+			.notNull()
+			.references(() => userOrganization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("user_project_membership_project_unique").on(
+			table.userOrganizationId,
+			table.projectId,
+		),
+		index("user_project_user_organization_id_idx").on(table.userOrganizationId),
+		index("user_project_project_id_idx").on(table.projectId),
+	],
+);
+
 export const project = pgTable(
 	"project",
 	{

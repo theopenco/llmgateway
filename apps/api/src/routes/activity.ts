@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getUserOrganizationIds } from "@/utils/authorization.js";
+import {
+	getUserProjectIds,
+	userHasProjectAccess,
+} from "@/utils/authorization.js";
 
 import {
 	db,
@@ -340,39 +343,27 @@ activity.openapi(getActivity, async (c) => {
 			? sql<string>`to_char(${column} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD"T"HH24:MI:SS')`
 			: sql<string>`to_char(${column} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')`;
 
-	// Get all organizations the user is a member of
-	const organizationIds = await getUserOrganizationIds(user.id);
+	// Projects the user can access (RBAC-aware: developers are limited to their
+	// granted projects).
+	const accessibleProjectIds = await getUserProjectIds(user.id);
 
-	if (!organizationIds.length) {
+	if (!accessibleProjectIds.length) {
 		return c.json({
 			activity: [],
 		});
 	}
 
-	// Get all projects associated with the user's organizations
-	const projects = await db.query.project.findMany({
-		where: {
-			organizationId: {
-				in: organizationIds,
-			},
-			status: {
-				ne: "deleted",
-			},
-			...(projectId ? { id: projectId } : {}),
-		},
-	});
-
-	if (!projects.length) {
-		return c.json({
-			activity: [],
-		});
-	}
-
-	const projectIds = projects.map((project) => project.id);
-
-	if (projectId && !projectIds.includes(projectId)) {
+	if (projectId && !accessibleProjectIds.includes(projectId)) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
+		});
+	}
+
+	const projectIds = projectId ? [projectId] : accessibleProjectIds;
+
+	if (!projectIds.length) {
+		return c.json({
+			activity: [],
 		});
 	}
 
@@ -1021,16 +1012,15 @@ activity.openapi(getSourceActivity, async (c) => {
 		startDate.setDate(startDate.getDate() - (timeRange === "30d" ? 30 : 7));
 	}
 
-	const organizationIds = await getUserOrganizationIds(user.id);
-
-	if (!organizationIds.length) {
-		return c.json({ sources: [] });
+	if (!(await userHasProjectAccess(user.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
 	}
 
 	const project = await db.query.project.findFirst({
 		where: {
 			id: projectId,
-			organizationId: { in: organizationIds },
 			status: { ne: "deleted" },
 		},
 	});

@@ -1254,6 +1254,13 @@
       "when": 1783008677771,
       "tag": "1783008677_spooky_rhino",
       "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "8",
+      "when": 1783015392912,
+      "tag": "1783015392_sad_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }
