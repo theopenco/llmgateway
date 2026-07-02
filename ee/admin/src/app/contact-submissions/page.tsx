@@ -108,6 +108,19 @@ function getStatusLabel(status: string) {
 	}
 }
 
+const deploymentLabels: Record<string, string> = {
+	self_host: "Self-hosted",
+	cloud: "Cloud (managed)",
+	not_sure: "Not sure yet",
+};
+
+function deploymentLabel(value: string | null | undefined) {
+	if (!value) {
+		return "—";
+	}
+	return deploymentLabels[value] ?? value;
+}
+
 const statusOptions: { value: Status | ""; label: string }[] = [
 	{ value: "", label: "All" },
 	{ value: "delivered", label: "Delivered" },
@@ -290,6 +303,7 @@ export default async function ContactSubmissionsPage({
 							</TableHead>
 							<TableHead>Country</TableHead>
 							<TableHead>Size</TableHead>
+							<TableHead>Deployment</TableHead>
 							<TableHead>Message</TableHead>
 							<TableHead>
 								<SortableHeader
@@ -310,7 +324,7 @@ export default async function ContactSubmissionsPage({
 						{data.submissions.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={9}
+									colSpan={10}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No submissions found
@@ -341,6 +355,9 @@ export default async function ContactSubmissionsPage({
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{submission.size}
+									</TableCell>
+									<TableCell className="text-muted-foreground">
+										{deploymentLabel(submission.deployment)}
 									</TableCell>
 									<TableCell
 										className="max-w-xs truncate text-muted-foreground"
