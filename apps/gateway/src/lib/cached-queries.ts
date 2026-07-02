@@ -745,6 +745,7 @@ export async function findEffectiveDiscount(
  */
 export type MemberBudget = Pick<
 	UserOrganization,
+	| "role"
 	| "maxApiKeys"
 	| "usageLimit"
 	| "periodUsageLimit"
@@ -762,6 +763,7 @@ export async function findUserOrganizationBudget(
 		async () => {
 			const results = await db
 				.select({
+					role: userOrganizationTable.role,
 					maxApiKeys: userOrganizationTable.maxApiKeys,
 					usageLimit: userOrganizationTable.usageLimit,
 					periodUsageLimit: userOrganizationTable.periodUsageLimit,

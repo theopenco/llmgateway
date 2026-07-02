@@ -297,6 +297,16 @@ export const organization = pgTable(
 		// accrued end-user margin. Null until they onboard.
 		stripeConnectAccountId: text().unique(),
 		stripeConnectOnboarded: boolean().notNull().default(false),
+		// Org-wide default budget applied to every "developer" member. A member's
+		// own per-member budget (on user_organization) overrides these field by
+		// field. null = no default. Same shape as the per-member budget.
+		defaultDeveloperMaxApiKeys: integer(),
+		defaultDeveloperUsageLimit: decimal(),
+		defaultDeveloperPeriodUsageLimit: decimal(),
+		defaultDeveloperPeriodUsageDurationValue: integer(),
+		defaultDeveloperPeriodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
 	},
 	(table) => [
 		index("organization_dev_plan_card_fingerprint_idx").on(

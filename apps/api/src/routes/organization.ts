@@ -80,6 +80,14 @@ const organizationSchema = z.object({
 	chatPlanCreditsLimit: z.string(),
 	chatPlanBillingCycleStart: z.date().nullable(),
 	chatPlanExpiresAt: z.date().nullable(),
+	// Org-wide default developer budget (managed on the Teams page).
+	defaultDeveloperMaxApiKeys: z.number().nullable(),
+	defaultDeveloperUsageLimit: z.string().nullable(),
+	defaultDeveloperPeriodUsageLimit: z.string().nullable(),
+	defaultDeveloperPeriodUsageDurationValue: z.number().nullable(),
+	defaultDeveloperPeriodUsageDurationUnit: z
+		.enum(["hour", "day", "week", "month"])
+		.nullable(),
 	// The authenticated user's role in this org. Populated by GET /orgs so the
 	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
 	// "developer" members). Omitted by single-org endpoints.

@@ -23,6 +23,7 @@ import {
 	useAddTeamMember,
 	useUpdateTeamMember,
 	useUpdateMemberBudget,
+	useUpdateDefaultDeveloperBudget,
 	useRemoveTeamMember,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -407,6 +408,147 @@ function ManageBudgetDialog({
 	);
 }
 
+function DefaultDeveloperLimitsDialog({
+	organizationId,
+	budget,
+	onClose,
+}: {
+	organizationId: string;
+	budget: TeamMember["budget"];
+	onClose: () => void;
+}) {
+	const updateDefault = useUpdateDefaultDeveloperBudget(organizationId);
+
+	const [maxApiKeys, setMaxApiKeys] = useState(
+		budget && budget.maxApiKeys !== null ? String(budget.maxApiKeys) : "",
+	);
+	const [usageLimit, setUsageLimit] = useState(budget?.usageLimit ?? "");
+	const [periodUsageLimit, setPeriodUsageLimit] = useState(
+		budget?.periodUsageLimit ?? "",
+	);
+	const [periodValue, setPeriodValue] = useState(
+		budget && budget.periodUsageDurationValue !== null
+			? String(budget.periodUsageDurationValue)
+			: "1",
+	);
+	const [periodUnit, setPeriodUnit] = useState<(typeof PERIOD_UNITS)[number]>(
+		budget?.periodUsageDurationUnit ?? "month",
+	);
+
+	const handleSave = async () => {
+		const trimmedPeriodLimit = periodUsageLimit.trim();
+		const hasPeriod = trimmedPeriodLimit !== "";
+
+		await updateDefault.mutateAsync({
+			params: { path: { organizationId } },
+			body: {
+				maxApiKeys: maxApiKeys.trim() === "" ? null : Number(maxApiKeys),
+				usageLimit: usageLimit.trim() === "" ? null : usageLimit.trim(),
+				periodUsageLimit: hasPeriod ? trimmedPeriodLimit : null,
+				periodUsageDurationValue: hasPeriod ? Number(periodValue) : null,
+				periodUsageDurationUnit: hasPeriod ? periodUnit : null,
+			},
+		});
+
+		toast({
+			title: "Success",
+			description: "Default developer limits updated",
+		});
+		onClose();
+	};
+
+	return (
+		<Dialog open onOpenChange={(o) => (o ? undefined : onClose())}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Default developer limits</DialogTitle>
+					<DialogDescription>
+						Applied to every developer in the org. A developer's own limits (set
+						via “Manage budget”) override these. Leave a field blank for
+						unlimited.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-4 py-4">
+					<div className="space-y-2">
+						<Label htmlFor="default-max-api-keys">Max active API keys</Label>
+						<Input
+							id="default-max-api-keys"
+							type="number"
+							min={0}
+							placeholder="Unlimited"
+							value={maxApiKeys}
+							onChange={(e) => setMaxApiKeys(e.target.value)}
+						/>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="default-usage-limit">Total spend limit ($)</Label>
+						<Input
+							id="default-usage-limit"
+							type="number"
+							min={0}
+							step="0.01"
+							placeholder="Unlimited"
+							value={usageLimit}
+							onChange={(e) => setUsageLimit(e.target.value)}
+						/>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="default-period-usage-limit">
+							Period spend limit ($)
+						</Label>
+						<Input
+							id="default-period-usage-limit"
+							type="number"
+							min={0}
+							step="0.01"
+							placeholder="No period limit"
+							value={periodUsageLimit}
+							onChange={(e) => setPeriodUsageLimit(e.target.value)}
+						/>
+						<div className="flex items-center gap-2">
+							<span className="text-muted-foreground text-sm">per</span>
+							<Input
+								type="number"
+								min={1}
+								className="w-20"
+								value={periodValue}
+								onChange={(e) => setPeriodValue(e.target.value)}
+							/>
+							<Select
+								value={periodUnit}
+								onValueChange={(value) =>
+									setPeriodUnit(value as (typeof PERIOD_UNITS)[number])
+								}
+							>
+								<SelectTrigger className="w-[130px]">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{PERIOD_UNITS.map((unit) => (
+										<SelectItem key={unit} value={unit}>
+											{unit}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					</div>
+				</div>
+				<DialogFooter>
+					<Button variant="outline" onClick={onClose}>
+						Cancel
+					</Button>
+					<Button onClick={handleSave} disabled={updateDefault.isPending}>
+						{updateDefault.isPending ? "Saving..." : "Save defaults"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 type MemberRole = "owner" | "admin" | "developer";
 interface OrgProject {
 	id: string;
@@ -665,6 +807,8 @@ export function TeamClient() {
 	const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 	const [budgetMember, setBudgetMember] = useState<TeamMember | null>(null);
 	const [accessMember, setAccessMember] = useState<TeamMember | null>(null);
+	const [defaultLimitsOpen, setDefaultLimitsOpen] = useState(false);
+	const defaultDeveloperBudget = data?.defaultDeveloperBudget ?? null;
 
 	const { data: orgProjectsData } = api.useQuery(
 		"get",
@@ -909,6 +1053,52 @@ export function TeamClient() {
 
 					{!isEnterprise && <MemberUsageUpsell />}
 
+					{isAdmin && (
+						<Card>
+							<CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+								<div className="space-y-1">
+									<CardTitle className="text-base">
+										Default developer limits
+									</CardTitle>
+									<CardDescription>
+										Applied to every developer. A developer's own limits
+										override these.
+									</CardDescription>
+								</div>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setDefaultLimitsOpen(true)}
+								>
+									Edit defaults
+								</Button>
+							</CardHeader>
+							<CardContent>
+								{(() => {
+									const badges = budgetBadges(defaultDeveloperBudget);
+									return badges.length ? (
+										<div className="flex flex-wrap gap-1.5">
+											{badges.map((badge) => (
+												<Badge
+													key={badge}
+													variant="secondary"
+													className="font-normal"
+												>
+													{badge}
+												</Badge>
+											))}
+										</div>
+									) : (
+										<span className="text-muted-foreground text-sm">
+											No default limits set — developers are unlimited unless
+											given a personal budget.
+										</span>
+									);
+								})()}
+							</CardContent>
+						</Card>
+					)}
+
 					<Card>
 						<CardHeader>
 							<CardTitle>Team Members</CardTitle>
@@ -1007,7 +1197,9 @@ export function TeamClient() {
 														</TableCell>
 														<TableCell>
 															{(() => {
-																const badges = budgetBadges(member.budget);
+																const badges = budgetBadges(
+																	member.effectiveBudget,
+																);
 																return badges.length ? (
 																	<div className="flex flex-wrap gap-1">
 																		{badges.map((badge) => (
@@ -1126,6 +1318,13 @@ export function TeamClient() {
 					organizationId={organizationId}
 					member={budgetMember}
 					onClose={() => setBudgetMember(null)}
+				/>
+			)}
+			{defaultLimitsOpen && (
+				<DefaultDeveloperLimitsDialog
+					organizationId={organizationId}
+					budget={defaultDeveloperBudget}
+					onClose={() => setDefaultLimitsOpen(false)}
 				/>
 			)}
 		</div>

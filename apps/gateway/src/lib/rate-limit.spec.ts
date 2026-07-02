@@ -133,6 +133,11 @@ describe("Rate Limiting", () => {
 				endUserMarginBalance: "0",
 				stripeConnectAccountId: null,
 				stripeConnectOnboarded: false,
+				defaultDeveloperMaxApiKeys: null,
+				defaultDeveloperUsageLimit: null,
+				defaultDeveloperPeriodUsageLimit: null,
+				defaultDeveloperPeriodUsageDurationValue: null,
+				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(0);
@@ -215,6 +220,11 @@ describe("Rate Limiting", () => {
 				endUserMarginBalance: "0",
 				stripeConnectAccountId: null,
 				stripeConnectOnboarded: false,
+				defaultDeveloperMaxApiKeys: null,
+				defaultDeveloperUsageLimit: null,
+				defaultDeveloperPeriodUsageLimit: null,
+				defaultDeveloperPeriodUsageDurationValue: null,
+				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 			vi.mocked(redis.zcard).mockResolvedValue(0);
 
@@ -298,6 +308,11 @@ describe("Rate Limiting", () => {
 				endUserMarginBalance: "0",
 				stripeConnectAccountId: null,
 				stripeConnectOnboarded: false,
+				defaultDeveloperMaxApiKeys: null,
+				defaultDeveloperUsageLimit: null,
+				defaultDeveloperPeriodUsageLimit: null,
+				defaultDeveloperPeriodUsageDurationValue: null,
+				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(5); // Under elevated limit (20)
@@ -375,6 +390,11 @@ describe("Rate Limiting", () => {
 				endUserMarginBalance: "0",
 				stripeConnectAccountId: null,
 				stripeConnectOnboarded: false,
+				defaultDeveloperMaxApiKeys: null,
+				defaultDeveloperUsageLimit: null,
+				defaultDeveloperPeriodUsageLimit: null,
+				defaultDeveloperPeriodUsageDurationValue: null,
+				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(5); // At limit (5)
@@ -460,6 +480,11 @@ describe("Rate Limiting", () => {
 				endUserMarginBalance: "0",
 				stripeConnectAccountId: null,
 				stripeConnectOnboarded: false,
+				defaultDeveloperMaxApiKeys: null,
+				defaultDeveloperUsageLimit: null,
+				defaultDeveloperPeriodUsageLimit: null,
+				defaultDeveloperPeriodUsageDurationValue: null,
+				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 
 			vi.mocked(redis.zcard).mockResolvedValue(20); // At elevated limit (20)
@@ -545,6 +570,11 @@ describe("Rate Limiting", () => {
 				endUserMarginBalance: "0",
 				stripeConnectAccountId: null,
 				stripeConnectOnboarded: false,
+				defaultDeveloperMaxApiKeys: null,
+				defaultDeveloperUsageLimit: null,
+				defaultDeveloperPeriodUsageLimit: null,
+				defaultDeveloperPeriodUsageDurationValue: null,
+				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 			vi.mocked(redis.zremrangebyscore).mockRejectedValue(
 				new Error("Redis error"),

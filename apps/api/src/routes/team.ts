@@ -12,8 +12,10 @@ import {
 	gte,
 	inArray,
 	isValidApiKeyPeriodDuration,
+	resolveEffectiveMemberBudget,
 	sum,
 	tables,
+	type OrgDefaultDeveloperBudget,
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -55,7 +57,10 @@ const teamMemberSchema = z.object({
 	}),
 	// budget/spend are financial data — only populated for owner/admin callers,
 	// null otherwise (developers can list members but not see spend/limits).
+	// `budget` is the member's own explicit config (for editing); `effectiveBudget`
+	// is what's enforced after applying the org-wide default developer budget.
 	budget: memberBudgetSchema.nullable(),
+	effectiveBudget: memberBudgetSchema.nullable(),
 	spend: memberSpendSchema.nullable(),
 	// Project access: null = every project in the org (owner/admin); an array =
 	// the specific projects a project-scoped "developer" is limited to.
@@ -88,6 +93,42 @@ function budgetFromRow(
 		periodUsageDurationValue: row.periodUsageDurationValue,
 		periodUsageDurationUnit: row.periodUsageDurationUnit,
 	};
+}
+
+function orgDefaultsFrom(
+	org: Partial<OrgDefaultDeveloperBudget> | null | undefined,
+): OrgDefaultDeveloperBudget {
+	return {
+		defaultDeveloperMaxApiKeys: org?.defaultDeveloperMaxApiKeys ?? null,
+		defaultDeveloperUsageLimit: org?.defaultDeveloperUsageLimit ?? null,
+		defaultDeveloperPeriodUsageLimit:
+			org?.defaultDeveloperPeriodUsageLimit ?? null,
+		defaultDeveloperPeriodUsageDurationValue:
+			org?.defaultDeveloperPeriodUsageDurationValue ?? null,
+		defaultDeveloperPeriodUsageDurationUnit:
+			org?.defaultDeveloperPeriodUsageDurationUnit ?? null,
+	};
+}
+
+// The org default developer budget, expressed as the member-budget shape (used
+// by the "Default developer limits" editor).
+function defaultBudgetFrom(
+	defaults: OrgDefaultDeveloperBudget,
+): z.infer<typeof memberBudgetSchema> {
+	return {
+		maxApiKeys: defaults.defaultDeveloperMaxApiKeys,
+		usageLimit: defaults.defaultDeveloperUsageLimit,
+		periodUsageLimit: defaults.defaultDeveloperPeriodUsageLimit,
+		periodUsageDurationValue: defaults.defaultDeveloperPeriodUsageDurationValue,
+		periodUsageDurationUnit: defaults.defaultDeveloperPeriodUsageDurationUnit,
+	};
+}
+
+function effectiveBudgetFrom(
+	row: MemberBudgetRow & { role: z.infer<typeof roleSchema> },
+	defaults: OrgDefaultDeveloperBudget,
+): z.infer<typeof memberBudgetSchema> {
+	return resolveEffectiveMemberBudget(row.role, budgetFromRow(row), defaults);
 }
 
 const EMPTY_SPEND: z.infer<typeof memberSpendSchema> = {
@@ -274,6 +315,8 @@ const getMembers = createRoute({
 				"application/json": {
 					schema: z.object({
 						members: z.array(teamMemberSchema).openapi({}),
+						// The org-wide default developer budget (owner/admin only).
+						defaultDeveloperBudget: memberBudgetSchema.nullable(),
 					}),
 				},
 			},
@@ -342,6 +385,20 @@ team.openapi(getMembers, async (c) => {
 		? await computeMemberSpend(organizationId, members)
 		: new Map<string, z.infer<typeof memberSpendSchema>>();
 
+	const org = isPrivileged
+		? await db.query.organization.findFirst({
+				where: { id: { eq: organizationId } },
+				columns: {
+					defaultDeveloperMaxApiKeys: true,
+					defaultDeveloperUsageLimit: true,
+					defaultDeveloperPeriodUsageLimit: true,
+					defaultDeveloperPeriodUsageDurationValue: true,
+					defaultDeveloperPeriodUsageDurationUnit: true,
+				},
+			})
+		: null;
+	const orgDefaults = orgDefaultsFrom(org);
+
 	return c.json({
 		members: members.map((m) => ({
 			id: m.id,
@@ -350,6 +407,9 @@ team.openapi(getMembers, async (c) => {
 			createdAt: m.createdAt,
 			user: m.user!,
 			budget: isPrivileged ? budgetFromRow(m) : null,
+			effectiveBudget: isPrivileged
+				? effectiveBudgetFrom(m, orgDefaults)
+				: null,
 			spend: isPrivileged ? (spendByUser.get(m.userId) ?? EMPTY_SPEND) : null,
 			// Owner/admin members have implicit access to every project (null);
 			// developers are limited to their granted projects.
@@ -360,6 +420,9 @@ team.openapi(getMembers, async (c) => {
 							.map((up) => ({ id: up.project!.id, name: up.project!.name }))
 					: null,
 		})),
+		defaultDeveloperBudget: isPrivileged
+			? defaultBudgetFrom(orgDefaults)
+			: null,
 	});
 });
 
@@ -408,6 +471,17 @@ team.openapi(getMyBudget, async (c) => {
 				eq: organizationId,
 			},
 		},
+		with: {
+			organization: {
+				columns: {
+					defaultDeveloperMaxApiKeys: true,
+					defaultDeveloperUsageLimit: true,
+					defaultDeveloperPeriodUsageLimit: true,
+					defaultDeveloperPeriodUsageDurationValue: true,
+					defaultDeveloperPeriodUsageDurationUnit: true,
+				},
+			},
+		},
 	});
 
 	if (!membership) {
@@ -421,8 +495,13 @@ team.openapi(getMyBudget, async (c) => {
 			membership.userId,
 		) ?? EMPTY_SPEND;
 
+	// Show the member the budget actually enforced on them (their own values,
+	// falling back to the org-wide default developer budget).
 	return c.json({
-		budget: budgetFromRow(membership),
+		budget: effectiveBudgetFrom(
+			membership,
+			orgDefaultsFrom(membership.organization),
+		),
 		spend,
 	});
 });
@@ -619,6 +698,7 @@ team.openapi(addMember, async (c) => {
 				name: targetUser.name,
 			},
 			budget: budgetFromRow(newMember),
+			effectiveBudget: budgetFromRow(newMember),
 			spend: EMPTY_SPEND,
 			projects: role === "developer" ? grantedProjects : null,
 		},
@@ -822,6 +902,7 @@ team.openapi(updateMember, async (c) => {
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
+			effectiveBudget: budgetFromRow(updatedMember),
 			spend,
 			projects: role === "developer" ? grantedProjects : null,
 		},
@@ -1059,9 +1140,155 @@ team.openapi(updateMemberBudget, async (c) => {
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
+			effectiveBudget: budgetFromRow(updatedMember),
 			spend,
 			projects: memberProjects,
 		},
+	});
+});
+
+const updateDefaultDeveloperBudget = createRoute({
+	method: "patch",
+	path: "/{organizationId}/default-developer-budget",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateBudgetSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						defaultDeveloperBudget: memberBudgetSchema,
+					}),
+				},
+			},
+			description: "Org-wide default developer budget updated",
+		},
+	},
+});
+
+// Set the org-wide default budget applied to every developer member (overridden
+// per member by their own budget). Owner/admin only.
+team.openapi(updateDefaultDeveloperBudget, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId } = c.req.param();
+	const body = c.req.valid("json");
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: authUser.id },
+			organizationId: { eq: organizationId },
+		},
+		with: { organization: true },
+	});
+
+	if (!userOrganization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	if (
+		userOrganization.organization?.kind === "devpass" ||
+		userOrganization.organization?.kind === "chat"
+	) {
+		throw new HTTPException(403, {
+			message:
+				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
+		});
+	}
+
+	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can update the default developer budget",
+		});
+	}
+
+	const usageLimit = normalizeLimit(body.usageLimit);
+	const periodUsageLimit = normalizeLimit(body.periodUsageLimit);
+
+	const hasPeriodParts =
+		periodUsageLimit !== null ||
+		body.periodUsageDurationValue !== null ||
+		body.periodUsageDurationUnit !== null;
+
+	if (hasPeriodParts) {
+		if (
+			periodUsageLimit === null ||
+			body.periodUsageDurationValue === null ||
+			body.periodUsageDurationUnit === null
+		) {
+			throw new HTTPException(400, {
+				message:
+					"A period spend limit requires both a duration value and unit.",
+			});
+		}
+		if (
+			!isValidApiKeyPeriodDuration(
+				body.periodUsageDurationValue,
+				body.periodUsageDurationUnit,
+			)
+		) {
+			throw new HTTPException(400, {
+				message: "Invalid period duration.",
+			});
+		}
+	}
+
+	const nextDefaults = {
+		defaultDeveloperMaxApiKeys: body.maxApiKeys,
+		defaultDeveloperUsageLimit: usageLimit,
+		defaultDeveloperPeriodUsageLimit: periodUsageLimit,
+		defaultDeveloperPeriodUsageDurationValue: hasPeriodParts
+			? body.periodUsageDurationValue
+			: null,
+		defaultDeveloperPeriodUsageDurationUnit: hasPeriodParts
+			? body.periodUsageDurationUnit
+			: null,
+	};
+
+	await db
+		.update(tables.organization)
+		.set(nextDefaults)
+		.where(eq(tables.organization.id, organizationId));
+
+	const defaultDeveloperBudget = defaultBudgetFrom(nextDefaults);
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "organization.update",
+		resourceType: "organization",
+		resourceId: organizationId,
+		metadata: {
+			changes: {
+				defaultDeveloperBudget: {
+					old: defaultBudgetFrom(
+						orgDefaultsFrom(userOrganization.organization),
+					),
+					new: defaultDeveloperBudget,
+				},
+			},
+		},
+	});
+
+	return c.json({
+		message: "Default developer budget updated successfully",
+		defaultDeveloperBudget,
 	});
 });
 

@@ -3,6 +3,7 @@ import * as schema from "./schema.js";
 export * from "./db.js";
 export * from "./cdb.js";
 export * from "./api-key-period-limit.js";
+export * from "./member-budget.js";
 export * from "./cache-helpers.js";
 export * from "./discount-helpers.js";
 export * from "./email-recipients.js";

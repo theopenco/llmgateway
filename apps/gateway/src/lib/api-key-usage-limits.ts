@@ -3,11 +3,13 @@ import { HTTPException } from "hono/http-exception";
 import {
 	getApiKeyCurrentPeriodState,
 	isApiKeyPeriodLimitConfigured,
+	resolveEffectiveMemberBudget,
 	type InferSelectModel,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 
 import {
+	findOrganizationById,
 	findUserOrganizationBudget,
 	getMemberKeyUsage,
 	getMemberPeriodSpend,
@@ -71,8 +73,33 @@ export async function assertMemberWithinBudget(
 	now: Date = new Date(),
 ): Promise<void> {
 	try {
-		const budget = await findUserOrganizationBudget(userId, organizationId);
-		if (!budget || (!budget.usageLimit && !budget.periodUsageLimit)) {
+		const memberBudget = await findUserOrganizationBudget(
+			userId,
+			organizationId,
+		);
+		if (!memberBudget) {
+			return;
+		}
+
+		// The org-wide default developer budget is the fallback; the member's own
+		// values override it field by field.
+		const org = await findOrganizationById(organizationId);
+		const budget = resolveEffectiveMemberBudget(
+			memberBudget.role,
+			memberBudget,
+			{
+				defaultDeveloperMaxApiKeys: org?.defaultDeveloperMaxApiKeys ?? null,
+				defaultDeveloperUsageLimit: org?.defaultDeveloperUsageLimit ?? null,
+				defaultDeveloperPeriodUsageLimit:
+					org?.defaultDeveloperPeriodUsageLimit ?? null,
+				defaultDeveloperPeriodUsageDurationValue:
+					org?.defaultDeveloperPeriodUsageDurationValue ?? null,
+				defaultDeveloperPeriodUsageDurationUnit:
+					org?.defaultDeveloperPeriodUsageDurationUnit ?? null,
+			},
+		);
+
+		if (!budget.usageLimit && !budget.periodUsageLimit) {
 			return;
 		}
 

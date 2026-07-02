@@ -1261,6 +1261,13 @@
       "when": 1783015392912,
       "tag": "1783015392_sad_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 180,
+      "version": "8",
+      "when": 1783024201583,
+      "tag": "1783024201_new_viper",
+      "breakpoints": true
     }
   ]
 }
