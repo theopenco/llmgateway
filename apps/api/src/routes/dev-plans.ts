@@ -791,6 +791,20 @@ devPlans.openapi(resume, async (c) => {
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
+		// A subscription Stripe has fully ended (`canceled`, or expired before its
+		// first payment) can no longer be mutated, so there is nothing to resume —
+		// clearing cancel_at_period_end returns invalid_canceled_subscription_fields,
+		// which previously surfaced as a generic 500. Bail out with a clear message.
+		if (
+			subscription.status === "canceled" ||
+			subscription.status === "incomplete_expired"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"Your dev plan subscription has ended. Subscribe again to choose a new plan.",
+			});
+		}
+
 		if (!subscription.cancel_at_period_end) {
 			throw new HTTPException(400, {
 				message: "Subscription is not cancelled",
@@ -824,6 +838,9 @@ devPlans.openapi(resume, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe dev plan resume error",
 			error instanceof Error ? error : new Error(String(error)),
