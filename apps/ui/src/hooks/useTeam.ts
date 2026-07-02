@@ -14,6 +14,27 @@ export function useTeamMembers(organizationId: string) {
 	});
 }
 
+// The authenticated user's OWN budget/spend for an org (self-service, no admin
+// gate) — so members can see the limits an admin has set on them.
+export function useMyMemberBudget(organizationId: string) {
+	const api = useApi();
+
+	return api.useQuery(
+		"get",
+		"/team/{organizationId}/members/me",
+		{
+			params: {
+				path: {
+					organizationId,
+				},
+			},
+		},
+		{
+			enabled: !!organizationId,
+		},
+	);
+}
+
 export function useAddTeamMember(organizationId: string) {
 	const api = useApi();
 	const queryClient = useQueryClient();

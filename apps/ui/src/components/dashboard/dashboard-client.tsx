@@ -40,6 +40,7 @@ import {
 	getDateRangeFromParams,
 } from "@/components/date-range-picker";
 import { QuickStartSection } from "@/components/shared/quick-start-snippet";
+import { MemberLimitsCard } from "@/components/team/member-limits-card";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -337,6 +338,10 @@ export function DashboardClient({
 				<ReferralBanner />
 
 				<DevPassCard defaultCollapsed={initialDevPassCollapsed} />
+
+				{selectedOrganization && (
+					<MemberLimitsCard organizationId={selectedOrganization.id} />
+				)}
 
 				<DateRangePicker buildUrl={buildUrl} />
 

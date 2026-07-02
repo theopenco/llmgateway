@@ -274,6 +274,70 @@ team.openapi(getMembers, async (c) => {
 	});
 });
 
+const getMyBudget = createRoute({
+	method: "get",
+	path: "/{organizationId}/members/me",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						budget: memberBudgetSchema,
+						spend: memberSpendSchema,
+					}),
+				},
+			},
+			description:
+				"The authenticated member's own budget config and live spend",
+		},
+	},
+});
+
+// Self-service: any member can read their OWN budget/spend (no admin gate), so
+// they are aware of the limits an admin has set on them.
+team.openapi(getMyBudget, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId } = c.req.param();
+
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: authUser.id,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (!membership) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const spend =
+		(await computeMemberSpend(organizationId, [membership])).get(
+			membership.userId,
+		) ?? EMPTY_SPEND;
+
+	return c.json({
+		budget: budgetFromRow(membership),
+		spend,
+	});
+});
+
 const addMember = createRoute({
 	method: "post",
 	path: "/{organizationId}/members",
