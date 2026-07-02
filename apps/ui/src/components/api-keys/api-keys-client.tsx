@@ -6,7 +6,6 @@ import { useMemo } from "react";
 
 import { ApiKeysList } from "@/components/api-keys/api-keys-list";
 import { CreateApiKeyDialog } from "@/components/api-keys/create-api-key-dialog";
-import { MemberLimitsCard } from "@/components/team/member-limits-card";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -115,7 +114,6 @@ export function ApiKeysClient({ initialData }: { initialData: ApiKey[] }) {
 						</CreateApiKeyDialog>
 					)}
 				</div>
-				{orgId && <MemberLimitsCard organizationId={orgId} />}
 				<div className="space-y-4">
 					{/* Desktop Card */}
 					<div className="hidden md:block">
