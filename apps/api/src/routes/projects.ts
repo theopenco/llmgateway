@@ -257,6 +257,16 @@ projects.openapi(updateProject, async (c) => {
 	);
 	const isAdminOrOwner =
 		projectUserOrg?.role === "owner" || projectUserOrg?.role === "admin";
+
+	// Project settings are admin-only; project-scoped "developer" members cannot
+	// edit projects.
+	if (!isAdminOrOwner) {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can update project settings",
+		});
+	}
+
 	if (isUpdatingEndUserSettings && !isAdminOrOwner) {
 		throw new HTTPException(403, {
 			message:
@@ -530,18 +540,13 @@ export async function createProjectForOrg(
 			});
 		}
 
-		// Setting a non-default billing mode (e.g. BYOK "api-keys") is privileged,
-		// mirroring the PATCH guard: a member must not be able to create a project
-		// in a privileged mode to sidestep the update-time role check.
+		// Project management is admin-only; project-scoped "developer" members
+		// cannot create projects.
 		const isAdminOrOwner =
 			userOrganization.role === "owner" || userOrganization.role === "admin";
-		if (
-			input.mode !== undefined &&
-			input.mode !== DEFAULT_PROJECT_MODE &&
-			!isAdminOrOwner
-		) {
+		if (!isAdminOrOwner) {
 			throw new HTTPException(403, {
-				message: "Only organization owners and admins can set the project mode",
+				message: "Only organization owners and admins can create projects",
 			});
 		}
 	}
