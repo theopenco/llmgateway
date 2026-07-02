@@ -1898,12 +1898,63 @@ async function seed() {
 		mode: "hybrid",
 	});
 
+	// A second project in the enterprise org, so the developer below has a
+	// project they are NOT granted access to (for testing project-scoped RBAC).
+	await upsert(tables.project, {
+		id: "enterprise-project-secondary-id",
+		name: "Enterprise Project (Restricted)",
+		organizationId: "enterprise-org-id",
+		mode: "hybrid",
+	});
+
 	await upsert(tables.apiKey, {
 		id: "enterprise-api-key-id",
 		token: "test-enterprise",
 		projectId: "enterprise-project-id",
 		description: "Enterprise API Key",
 		createdBy: "enterprise-user-id",
+	});
+
+	// A project-scoped "developer" member of the enterprise org — limited to the
+	// Enterprise Project only — for testing the RBAC/developer experience. Log in
+	// as developer@example.com with the shared seed password.
+	await upsert(tables.user, {
+		id: "enterprise-dev-user-id",
+		name: "Enterprise Developer",
+		email: "developer@example.com",
+		emailVerified: true,
+	});
+
+	await upsert(tables.account, {
+		id: "enterprise-dev-account-id",
+		providerId: "credential",
+		accountId: "enterprise-dev-account-id",
+		password: PASSWORD_HASH,
+		userId: "enterprise-dev-user-id",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "enterprise-dev-user-org-id",
+		userId: "enterprise-dev-user-id",
+		organizationId: "enterprise-org-id",
+		role: "developer",
+	});
+
+	// Grant the developer access to the Enterprise Project only (not the
+	// restricted one above).
+	await upsert(tables.userProject, {
+		id: "enterprise-dev-user-project-id",
+		userOrganizationId: "enterprise-dev-user-org-id",
+		projectId: "enterprise-project-id",
+	});
+
+	// A key the developer created, so their own-usage view has something to show.
+	await upsert(tables.apiKey, {
+		id: "enterprise-dev-api-key-id",
+		token: "test-enterprise-dev",
+		projectId: "enterprise-project-id",
+		description: "Enterprise Developer API Key",
+		createdBy: "enterprise-dev-user-id",
 	});
 
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
