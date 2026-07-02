@@ -4,6 +4,7 @@ import { ArrowUpRight, ChevronDown, ChevronUp, Terminal } from "lucide-react";
 import { useState } from "react";
 
 import { DEVPASS_CARD_COLLAPSED_COOKIE } from "@/lib/cookies";
+import { useDashboardContext } from "@/lib/dashboard-context";
 
 import { DEV_PLAN_PRICES } from "@llmgateway/shared";
 
@@ -23,7 +24,12 @@ interface DevPassCardProps {
 }
 
 export function DevPassCard({ defaultCollapsed = false }: DevPassCardProps) {
+	const { selectedOrganization } = useDashboardContext();
 	const [collapsed, setCollapsed] = useState(defaultCollapsed);
+
+	if (selectedOrganization?.plan === "enterprise") {
+		return null;
+	}
 
 	const toggle = () => {
 		const next = !collapsed;
