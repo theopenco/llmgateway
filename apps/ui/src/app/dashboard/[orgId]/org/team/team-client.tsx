@@ -25,6 +25,7 @@ import {
 	useUpdateMemberBudget,
 	useUpdateDefaultDeveloperBudget,
 	useRemoveTeamMember,
+	type TeamMembersData,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
 import { Alert, AlertDescription } from "@/lib/components/alert";
@@ -782,7 +783,7 @@ function ManageAccessDialog({
 	);
 }
 
-export function TeamClient() {
+export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const params = useParams();
 	const organizationId = params.orgId as string;
 	const router = useRouter();
@@ -792,7 +793,7 @@ export function TeamClient() {
 	const api = useApi();
 	const { user } = useUser();
 
-	const { data, isLoading } = useTeamMembers(organizationId);
+	const { data, isLoading } = useTeamMembers(organizationId, initialData);
 	const addMemberMutation = useAddTeamMember(organizationId);
 	const removeMemberMutation = useRemoveTeamMember(organizationId);
 

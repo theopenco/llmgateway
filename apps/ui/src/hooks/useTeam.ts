@@ -2,16 +2,29 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useApi } from "@/lib/fetch-client";
 
-export function useTeamMembers(organizationId: string) {
+import type { paths } from "@/lib/api/v1";
+
+export type TeamMembersData =
+	paths["/team/{organizationId}/members"]["get"]["responses"][200]["content"]["application/json"];
+
+export function useTeamMembers(
+	organizationId: string,
+	initialData?: TeamMembersData,
+) {
 	const api = useApi();
 
-	return api.useQuery("get", "/team/{organizationId}/members", {
-		params: {
-			path: {
-				organizationId,
+	return api.useQuery(
+		"get",
+		"/team/{organizationId}/members",
+		{
+			params: {
+				path: {
+					organizationId,
+				},
 			},
 		},
-	});
+		initialData ? { initialData } : undefined,
+	);
 }
 
 // The authenticated user's OWN budget/spend for an org (self-service, no admin
