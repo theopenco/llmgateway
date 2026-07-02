@@ -34,6 +34,10 @@ import { useApi } from "@/lib/fetch-client";
 import type { ActivityRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
 
+function periodLabel(value: number, unit: string): string {
+	return value === 1 ? unit : `${value} ${unit}s`;
+}
+
 export function MemberDetailClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
@@ -164,6 +168,101 @@ export function MemberDetailClient() {
 						/>
 					)}
 				</div>
+
+				{isAdmin && teamMember && (
+					<Card>
+						<CardHeader>
+							<CardTitle className="text-base">Budget &amp; limits</CardTitle>
+							<CardDescription>
+								Spend and API-key caps for this member, enforced on the gateway
+								at request time. Manage them from the{" "}
+								<Link
+									href={
+										`${buildOrgUrl("org/team")}?from=${fromStr}&to=${toStr}` as Route
+									}
+									className="underline"
+								>
+									team page
+								</Link>
+								.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<div className="grid gap-6 sm:grid-cols-3">
+								<div>
+									<div className="text-muted-foreground text-xs">
+										Total spend
+									</div>
+									<div className="text-lg font-semibold">
+										{currencyFormatter.format(teamMember.spend.lifetime)}
+										{teamMember.budget.usageLimit !== null && (
+											<span className="text-muted-foreground text-sm font-normal">
+												{" / "}
+												{currencyFormatter.format(
+													Number(teamMember.budget.usageLimit),
+												)}
+											</span>
+										)}
+									</div>
+									<div className="text-muted-foreground text-xs">
+										{teamMember.budget.usageLimit !== null
+											? "of total limit"
+											: "no limit"}
+									</div>
+								</div>
+
+								<div>
+									<div className="text-muted-foreground text-xs">
+										Period spend
+									</div>
+									<div className="text-lg font-semibold">
+										{teamMember.spend.currentPeriod !== null
+											? currencyFormatter.format(teamMember.spend.currentPeriod)
+											: "—"}
+										{teamMember.budget.periodUsageLimit !== null && (
+											<span className="text-muted-foreground text-sm font-normal">
+												{" / "}
+												{currencyFormatter.format(
+													Number(teamMember.budget.periodUsageLimit),
+												)}
+											</span>
+										)}
+									</div>
+									<div className="text-muted-foreground text-xs">
+										{teamMember.budget.periodUsageLimit !== null &&
+										teamMember.budget.periodUsageDurationValue !== null &&
+										teamMember.budget.periodUsageDurationUnit !== null
+											? `per ${periodLabel(
+													teamMember.budget.periodUsageDurationValue,
+													teamMember.budget.periodUsageDurationUnit,
+												)}`
+											: "no limit"}
+									</div>
+								</div>
+
+								<div>
+									<div className="text-muted-foreground text-xs">
+										Active API keys
+									</div>
+									<div className="text-lg font-semibold">
+										{teamMember.spend.activeApiKeys}
+										{teamMember.budget.maxApiKeys !== null && (
+											<span className="text-muted-foreground text-sm font-normal">
+												{" / "}
+												{teamMember.budget.maxApiKeys}
+											</span>
+										)}
+									</div>
+									<div className="text-muted-foreground text-xs">
+										{teamMember.budget.maxApiKeys !== null
+											? "of key limit"
+											: "no limit"}
+									</div>
+								</div>
+							</div>
+						</CardContent>
+					</Card>
+				)}
 
 				{!isEnterprise ? (
 					<Card className="max-w-2xl">
