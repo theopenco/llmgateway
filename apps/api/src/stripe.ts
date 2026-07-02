@@ -4486,8 +4486,12 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// Record the renewal and apply it in one transaction. The invoice-id marker
 		// makes `handleInvoicePaymentSucceeded` return early on a Stripe retry, so
 		// committing the marker without the state update would strand the org
-		// `past_due` with a stale expiry, permanently — the
+		// `past_due` with a stale expiry and un-reset credits, permanently — the
 		// `subscription.updated` recovery that used to unstick it is gone.
+		// onConflictDoNothing on the unique stripeInvoiceId index makes the pair
+		// idempotent when Stripe's duplicate `invoice.paid` /
+		// `invoice.payment_succeeded` deliveries race past that early-return guard:
+		// only the insert winner applies the reset.
 		const renewalTransaction = await db.transaction(async (tx) => {
 			const [created] = await tx
 				.insert(tables.transaction)
@@ -4502,33 +4506,45 @@ export async function handleInvoicePaymentSucceeded(event: {
 					stripeInvoiceId: invoice.id,
 					description: `Dev Plan ${effectiveTier.toUpperCase()} renewed`,
 				})
+				.onConflictDoNothing()
 				.returning();
 
-			// Reset credits used and update billing cycle start. Also reset the
-			// limit to the full tier allotment: mid-cycle upgrades leave the limit
-			// above it (unused-credit rollover), and that rollover only lasts until
-			// this renewal. Persist the effective tier; a pending change is cleared
-			// when this renewal applied it, and kept when the invoice billed the old
-			// tier (it applies at the next renewal instead).
-			await tx
-				.update(tables.organization)
-				.set({
-					devPlan: effectiveTier,
-					devPlanPendingTier: remainingPendingTier,
-					devPlanCreditsLimit: creditsLimit.toString(),
-					devPlanCreditsUsed: "0",
-					devPlanPremiumCreditsUsed: "0",
-					devPlanPremiumWeekStart: new Date(),
-					devPlanIncludedResetPassesUsed: 0,
-					devPlanBillingCycleStart: new Date(),
-					devPlanExpiresAt: renewedPeriodEnd ?? undefined,
-					devPlanCancelled: false,
-					subscriptionPaymentStatus: "current",
-				})
-				.where(eq(tables.organization.id, organizationId));
+			if (created) {
+				// Reset credits used and update billing cycle start. Also reset the
+				// limit to the full tier allotment: mid-cycle upgrades leave the limit
+				// above it (unused-credit rollover), and that rollover only lasts
+				// until this renewal. Persist the effective tier; a pending change is
+				// cleared when this renewal applied it, and kept when the invoice
+				// billed the old tier (it applies at the next renewal instead).
+				await tx
+					.update(tables.organization)
+					.set({
+						devPlan: effectiveTier,
+						devPlanPendingTier: remainingPendingTier,
+						devPlanCreditsLimit: creditsLimit.toString(),
+						devPlanCreditsUsed: "0",
+						devPlanPremiumCreditsUsed: "0",
+						devPlanPremiumWeekStart: new Date(),
+						devPlanIncludedResetPassesUsed: 0,
+						devPlanBillingCycleStart: new Date(),
+						devPlanExpiresAt: renewedPeriodEnd ?? undefined,
+						devPlanCancelled: false,
+						subscriptionPaymentStatus: "current",
+					})
+					.where(eq(tables.organization.id, organizationId));
+			}
 
 			return created;
 		});
+
+		// Row already existed (concurrent/duplicate event won the insert): the
+		// winning path reconciled state and emailed, so bail out here.
+		if (!renewalTransaction) {
+			logger.info(
+				`Skipping dev plan renewal for invoice ${invoice.id}: a concurrent delivery already recorded it`,
+			);
+			return;
+		}
 
 		logger.info(
 			`Dev plan ${effectiveTier} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
