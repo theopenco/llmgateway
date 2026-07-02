@@ -13,6 +13,7 @@ import {
 	useTeamMembers,
 	useAddTeamMember,
 	useUpdateTeamMember,
+	useUpdateMemberBudget,
 	useRemoveTeamMember,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -110,7 +111,7 @@ const ROLE_PERMISSIONS = [
 	{
 		role: "Restricted Access",
 		description:
-			"If you want a user to just access the API but not the dashboard or settings, just add an API key for them, where you can also set specific permissions.",
+			"If you want a user to just access the API but not the dashboard or settings, just add an API key for them, where you can also set specific permissions. Use “Manage budget” to cap a member's active API keys and their total or per-period spend.",
 	},
 ] as const;
 
@@ -172,6 +173,180 @@ function MemberUsageUpsell() {
 	);
 }
 
+type TeamMember = NonNullable<
+	ReturnType<typeof useTeamMembers>["data"]
+>["members"][number];
+
+const PERIOD_UNITS = ["hour", "day", "week", "month"] as const;
+
+function ManageBudgetDialog({
+	organizationId,
+	member,
+	onClose,
+}: {
+	organizationId: string;
+	member: TeamMember;
+	onClose: () => void;
+}) {
+	const updateBudget = useUpdateMemberBudget(organizationId);
+
+	const [maxApiKeys, setMaxApiKeys] = useState(
+		member.budget.maxApiKeys !== null ? String(member.budget.maxApiKeys) : "",
+	);
+	const [usageLimit, setUsageLimit] = useState(member.budget.usageLimit ?? "");
+	const [periodUsageLimit, setPeriodUsageLimit] = useState(
+		member.budget.periodUsageLimit ?? "",
+	);
+	const [periodValue, setPeriodValue] = useState(
+		member.budget.periodUsageDurationValue !== null
+			? String(member.budget.periodUsageDurationValue)
+			: "1",
+	);
+	const [periodUnit, setPeriodUnit] = useState<(typeof PERIOD_UNITS)[number]>(
+		member.budget.periodUsageDurationUnit ?? "month",
+	);
+
+	const memberName = member.user.name ?? member.user.email;
+
+	const handleSave = async () => {
+		const trimmedPeriodLimit = periodUsageLimit.trim();
+		const hasPeriod = trimmedPeriodLimit !== "";
+
+		await updateBudget.mutateAsync({
+			params: {
+				path: {
+					organizationId,
+					memberId: member.id,
+				},
+			},
+			body: {
+				maxApiKeys: maxApiKeys.trim() === "" ? null : Number(maxApiKeys),
+				usageLimit: usageLimit.trim() === "" ? null : usageLimit.trim(),
+				periodUsageLimit: hasPeriod ? trimmedPeriodLimit : null,
+				periodUsageDurationValue: hasPeriod ? Number(periodValue) : null,
+				periodUsageDurationUnit: hasPeriod ? periodUnit : null,
+			},
+		});
+
+		toast({
+			title: "Success",
+			description: "Member budget updated successfully",
+		});
+		onClose();
+	};
+
+	return (
+		<Dialog open onOpenChange={(o) => (o ? undefined : onClose())}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Manage budget</DialogTitle>
+					<DialogDescription>
+						Set spend and API-key limits for {memberName}. Limits are enforced
+						on the gateway at request time. Leave a field blank for unlimited.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-4 py-4">
+					<div className="text-muted-foreground grid grid-cols-3 gap-2 text-xs">
+						<div>
+							<div className="text-foreground font-medium">
+								{currencyFormatter.format(member.spend.lifetime)}
+							</div>
+							Lifetime spend
+						</div>
+						<div>
+							<div className="text-foreground font-medium">
+								{member.spend.currentPeriod !== null
+									? currencyFormatter.format(member.spend.currentPeriod)
+									: "—"}
+							</div>
+							Period spend
+						</div>
+						<div>
+							<div className="text-foreground font-medium">
+								{member.spend.activeApiKeys}
+							</div>
+							Active API keys
+						</div>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="max-api-keys">Max active API keys</Label>
+						<Input
+							id="max-api-keys"
+							type="number"
+							min={0}
+							placeholder="Unlimited"
+							value={maxApiKeys}
+							onChange={(e) => setMaxApiKeys(e.target.value)}
+						/>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="usage-limit">Total spend limit ($)</Label>
+						<Input
+							id="usage-limit"
+							type="number"
+							min={0}
+							step="0.01"
+							placeholder="Unlimited"
+							value={usageLimit}
+							onChange={(e) => setUsageLimit(e.target.value)}
+						/>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="period-usage-limit">Period spend limit ($)</Label>
+						<Input
+							id="period-usage-limit"
+							type="number"
+							min={0}
+							step="0.01"
+							placeholder="No period limit"
+							value={periodUsageLimit}
+							onChange={(e) => setPeriodUsageLimit(e.target.value)}
+						/>
+						<div className="flex items-center gap-2">
+							<span className="text-muted-foreground text-sm">per</span>
+							<Input
+								type="number"
+								min={1}
+								className="w-20"
+								value={periodValue}
+								onChange={(e) => setPeriodValue(e.target.value)}
+							/>
+							<Select
+								value={periodUnit}
+								onValueChange={(value) =>
+									setPeriodUnit(value as (typeof PERIOD_UNITS)[number])
+								}
+							>
+								<SelectTrigger className="w-[130px]">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{PERIOD_UNITS.map((unit) => (
+										<SelectItem key={unit} value={unit}>
+											{unit}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					</div>
+				</div>
+				<DialogFooter>
+					<Button variant="outline" onClick={onClose}>
+						Cancel
+					</Button>
+					<Button onClick={handleSave} disabled={updateBudget.isPending}>
+						{updateBudget.isPending ? "Saving..." : "Save budget"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 export function TeamClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
@@ -199,6 +374,7 @@ export function TeamClient() {
 		"developer",
 	);
 	const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+	const [budgetMember, setBudgetMember] = useState<TeamMember | null>(null);
 
 	useEffect(() => {
 		if (!showUsage) {
@@ -524,6 +700,15 @@ export function TeamClient() {
 																		Details
 																	</Link>
 																</Button>
+																{isAdmin && (
+																	<Button
+																		variant="outline"
+																		size="sm"
+																		onClick={() => setBudgetMember(member)}
+																	>
+																		Manage budget
+																	</Button>
+																)}
 																<Button
 																	variant="destructive"
 																	size="sm"
@@ -550,6 +735,14 @@ export function TeamClient() {
 					</Card>
 				</div>
 			</div>
+			{budgetMember && (
+				<ManageBudgetDialog
+					key={budgetMember.id}
+					organizationId={organizationId}
+					member={budgetMember}
+					onClose={() => setBudgetMember(null)}
+				/>
+			)}
 		</div>
 	);
 }

@@ -901,6 +901,41 @@ export async function createApiKeyForProject(
 		});
 	}
 
+	// Enforce the per-member active-key cap set on the Teams page. Counts the
+	// creator's active developer keys across the whole org (attributed via
+	// api_key.created_by).
+	const creatorMembership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: project.organization.id },
+		},
+		columns: { maxApiKeys: true },
+	});
+
+	if (creatorMembership && creatorMembership.maxApiKeys !== null) {
+		const orgProjects = await db.query.project.findMany({
+			where: { organizationId: { eq: project.organization.id } },
+			columns: { id: true },
+		});
+		const orgProjectIds = orgProjects.map((p) => p.id);
+
+		const memberActiveKeys = await db.query.apiKey.findMany({
+			where: {
+				createdBy: { eq: userId },
+				status: { eq: "active" },
+				keyType: { eq: "user" },
+				projectId: { in: orgProjectIds },
+			},
+			columns: { id: true },
+		});
+
+		if (memberActiveKeys.length >= creatorMembership.maxApiKeys) {
+			throw new HTTPException(400, {
+				message: `You have reached your limit of ${creatorMembership.maxApiKeys} active API keys set by an organization admin.`,
+			});
+		}
+	}
+
 	const prefix =
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);

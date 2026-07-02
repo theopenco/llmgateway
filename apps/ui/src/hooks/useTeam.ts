@@ -48,6 +48,27 @@ export function useUpdateTeamMember(organizationId: string) {
 	});
 }
 
+export function useUpdateMemberBudget(organizationId: string) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	return api.useMutation(
+		"patch",
+		"/team/{organizationId}/members/{memberId}/budget",
+		{
+			onSuccess: () => {
+				void queryClient.invalidateQueries({
+					queryKey: [
+						"get",
+						"/team/{organizationId}/members",
+						{ params: { path: { organizationId } } },
+					],
+				});
+			},
+		},
+	);
+}
+
 export function useRemoveTeamMember(organizationId: string) {
 	const api = useApi();
 	const queryClient = useQueryClient();

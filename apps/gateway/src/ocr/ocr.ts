@@ -19,7 +19,10 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
-import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findOrganizationById,
@@ -463,6 +466,10 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
+
+	// Enforce the per-member budget set on the Teams page (fails open on read
+	// errors). Uses the key creator + resolved org.
+	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
 
 	const baseOrganization = await findOrganizationById(
 		baseProject.organizationId,

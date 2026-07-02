@@ -16,18 +16,22 @@ import {
 	asc,
 	eq,
 	getTableName,
+	gte,
 	inArray,
 	isNull,
 	ne,
 	or,
+	sum,
 	cdb as db,
 	apiKey as apiKeyTable,
+	apiKeyHourlyStats as apiKeyHourlyStatsTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
 	customModel as customModelTable,
 	discount as discountTable,
 	endCustomer as endCustomerTable,
 	endUserSession as endUserSessionTable,
 	getEffectiveRateLimit,
+	addApiKeyPeriodDuration,
 	organization as organizationTable,
 	project as projectTable,
 	providerKey as providerKeyTable,
@@ -44,6 +48,7 @@ import {
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
 
+import type { ApiKeyPeriodDurationUnit } from "@llmgateway/db";
 import type { EffectiveRateLimit } from "@llmgateway/db";
 import type { EffectiveDiscount } from "@llmgateway/db";
 import type { InferSelectModel } from "@llmgateway/db";
@@ -73,6 +78,7 @@ type UserOrganization = InferSelectModel<typeof userOrganization>;
 type Wallet = InferSelectModel<typeof wallet>;
 
 const apiKeyTableName = getTableName(apiKeyTable);
+const apiKeyHourlyStatsTableName = getTableName(apiKeyHourlyStatsTable);
 const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
 const discountTableName = getTableName(discountTable);
 const endCustomerTableName = getTableName(endCustomerTable);
@@ -730,6 +736,126 @@ export async function findEffectiveDiscount(
 			};
 		},
 	);
+}
+
+/**
+ * Find a member's budget config on their user_organization row (cacheable).
+ * Returns just the budget-limit columns; spend is read separately from the
+ * durable per-key sources (never stored on this row).
+ */
+export type MemberBudget = Pick<
+	UserOrganization,
+	| "maxApiKeys"
+	| "usageLimit"
+	| "periodUsageLimit"
+	| "periodUsageDurationValue"
+	| "periodUsageDurationUnit"
+>;
+
+export async function findUserOrganizationBudget(
+	userId: string,
+	organizationId: string,
+): Promise<MemberBudget | undefined> {
+	return await swrWrap(
+		`uoBudget:${organizationId}:${userId}`,
+		[userOrganizationTableName],
+		async () => {
+			const results = await db
+				.select({
+					maxApiKeys: userOrganizationTable.maxApiKeys,
+					usageLimit: userOrganizationTable.usageLimit,
+					periodUsageLimit: userOrganizationTable.periodUsageLimit,
+					periodUsageDurationValue:
+						userOrganizationTable.periodUsageDurationValue,
+					periodUsageDurationUnit:
+						userOrganizationTable.periodUsageDurationUnit,
+				})
+				.from(userOrganizationTable)
+				.where(
+					and(
+						eq(userOrganizationTable.userId, userId),
+						eq(userOrganizationTable.organizationId, organizationId),
+					),
+				)
+				.limit(1);
+			return results[0];
+		},
+	);
+}
+
+/**
+ * Get the member's API keys and lifetime spend within an org (cacheable).
+ * Lifetime spend is SUM(apiKey.usage) over ALL statuses so deleting a key can't
+ * reset a member's cumulative spend.
+ */
+export async function getMemberKeyUsage(
+	userId: string,
+	organizationId: string,
+): Promise<{ keyIds: string[]; lifetimeUsage: number }> {
+	const rows = await swrWrap(
+		`memberKeys:${organizationId}:${userId}`,
+		[apiKeyTableName, projectTableName],
+		async () =>
+			await db
+				.select({
+					id: apiKeyTable.id,
+					usage: apiKeyTable.usage,
+				})
+				.from(apiKeyTable)
+				.innerJoin(projectTable, eq(projectTable.id, apiKeyTable.projectId))
+				.where(
+					and(
+						eq(apiKeyTable.createdBy, userId),
+						eq(projectTable.organizationId, organizationId),
+					),
+				),
+	);
+
+	return {
+		keyIds: rows.map((row) => row.id),
+		lifetimeUsage: rows.reduce((acc, row) => acc + Number(row.usage ?? 0), 0),
+	};
+}
+
+/**
+ * Get a member's rolling-window spend (cacheable). windowStart is floored to the
+ * current hour so the SQL bind and swrWrap key rotate at most once per hour —
+ * a live millisecond `now` would give a 0% cache hit rate (see
+ * findEffectiveDiscount). SUMs apiKeyHourlyStats.cost across the member's keys.
+ */
+export async function getMemberPeriodSpend(
+	organizationId: string,
+	userId: string,
+	keyIds: string[],
+	unit: ApiKeyPeriodDurationUnit,
+	value: number,
+	now: Date = new Date(),
+): Promise<number> {
+	if (keyIds.length === 0) {
+		return 0;
+	}
+
+	const flooredHour = new Date(now);
+	flooredHour.setMinutes(0, 0, 0);
+	const windowStart = addApiKeyPeriodDuration(flooredHour, -value, unit);
+	const flooredHourEpoch = flooredHour.getTime();
+
+	const results = await swrWrap(
+		`memberPeriod:${organizationId}:${userId}:${unit}:${value}:${flooredHourEpoch}`,
+		[apiKeyHourlyStatsTableName],
+		async () =>
+			await db
+				.select({ total: sum(apiKeyHourlyStatsTable.cost) })
+				.from(apiKeyHourlyStatsTable)
+				.where(
+					and(
+						inArray(apiKeyHourlyStatsTable.apiKeyId, keyIds),
+						gte(apiKeyHourlyStatsTable.hourTimestamp, windowStart),
+					),
+				),
+	);
+
+	return Number(results[0]?.total ?? 0);
 }
 
 /**

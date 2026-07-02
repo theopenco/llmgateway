@@ -3,13 +3,40 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import {
+	addApiKeyPeriodDuration,
+	and,
+	apiKeyPeriodDurationUnits,
+	db,
+	eq,
+	gte,
+	inArray,
+	isValidApiKeyPeriodDuration,
+	sum,
+	tables,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const team = new OpenAPIHono<ServerTypes>();
 
 const roleSchema = z.enum(["owner", "admin", "developer"]);
+
+const periodDurationUnitSchema = z.enum(apiKeyPeriodDurationUnits);
+
+const memberBudgetSchema = z.object({
+	maxApiKeys: z.number().int().nullable(),
+	usageLimit: z.string().nullable(),
+	periodUsageLimit: z.string().nullable(),
+	periodUsageDurationValue: z.number().int().nullable(),
+	periodUsageDurationUnit: periodDurationUnitSchema.nullable(),
+});
+
+const memberSpendSchema = z.object({
+	lifetime: z.number(),
+	currentPeriod: z.number().nullable(),
+	activeApiKeys: z.number(),
+});
 
 const teamMemberSchema = z.object({
 	id: z.string(),
@@ -21,12 +48,40 @@ const teamMemberSchema = z.object({
 		email: z.string(),
 		name: z.string().nullable(),
 	}),
+	budget: memberBudgetSchema,
+	spend: memberSpendSchema,
 });
 
 const addMemberSchema = z.object({
 	email: z.string().email(),
 	role: roleSchema,
 });
+
+interface MemberBudgetRow {
+	maxApiKeys: number | null;
+	usageLimit: string | null;
+	periodUsageLimit: string | null;
+	periodUsageDurationValue: number | null;
+	periodUsageDurationUnit: (typeof apiKeyPeriodDurationUnits)[number] | null;
+}
+
+function budgetFromRow(
+	row: MemberBudgetRow,
+): z.infer<typeof memberBudgetSchema> {
+	return {
+		maxApiKeys: row.maxApiKeys,
+		usageLimit: row.usageLimit,
+		periodUsageLimit: row.periodUsageLimit,
+		periodUsageDurationValue: row.periodUsageDurationValue,
+		periodUsageDurationUnit: row.periodUsageDurationUnit,
+	};
+}
+
+const EMPTY_SPEND: z.infer<typeof memberSpendSchema> = {
+	lifetime: 0,
+	currentPeriod: null,
+	activeApiKeys: 0,
+};
 
 const updateMemberSchema = z.object({
 	role: roleSchema,
@@ -98,6 +153,83 @@ team.openapi(getMembers, async (c) => {
 		},
 	});
 
+	// Compute live per-member spend/key display values from the durable per-key
+	// sources (apiKey.usage + apiKeyHourlyStats.cost). Same SUM queries the
+	// gateway uses, but off the hot path here.
+	const orgProjects = await db.query.project.findMany({
+		where: { organizationId: { eq: organizationId } },
+		columns: { id: true },
+	});
+	const orgProjectIds = orgProjects.map((p) => p.id);
+
+	const orgKeys = orgProjectIds.length
+		? await db.query.apiKey.findMany({
+				where: { projectId: { in: orgProjectIds } },
+				columns: {
+					id: true,
+					createdBy: true,
+					usage: true,
+					status: true,
+					keyType: true,
+				},
+			})
+		: [];
+
+	const keysByUser = new Map<
+		string,
+		{ keyIds: string[]; lifetime: number; activeApiKeys: number }
+	>();
+	for (const key of orgKeys) {
+		const entry = keysByUser.get(key.createdBy) ?? {
+			keyIds: [],
+			lifetime: 0,
+			activeApiKeys: 0,
+		};
+		entry.keyIds.push(key.id);
+		entry.lifetime += Number(key.usage ?? 0);
+		if (key.status === "active" && key.keyType === "user") {
+			entry.activeApiKeys += 1;
+		}
+		keysByUser.set(key.createdBy, entry);
+	}
+
+	const now = new Date();
+	const spendByUser = new Map<string, z.infer<typeof memberSpendSchema>>();
+	for (const member of members) {
+		const keys = keysByUser.get(member.userId);
+		let currentPeriod: number | null = null;
+		if (
+			member.periodUsageLimit !== null &&
+			member.periodUsageDurationValue !== null &&
+			member.periodUsageDurationUnit !== null &&
+			keys &&
+			keys.keyIds.length
+		) {
+			const flooredHour = new Date(now);
+			flooredHour.setMinutes(0, 0, 0);
+			const windowStart = addApiKeyPeriodDuration(
+				flooredHour,
+				-member.periodUsageDurationValue,
+				member.periodUsageDurationUnit,
+			);
+			const rows = await db
+				.select({ total: sum(tables.apiKeyHourlyStats.cost) })
+				.from(tables.apiKeyHourlyStats)
+				.where(
+					and(
+						inArray(tables.apiKeyHourlyStats.apiKeyId, keys.keyIds),
+						gte(tables.apiKeyHourlyStats.hourTimestamp, windowStart),
+					),
+				);
+			currentPeriod = Number(rows[0]?.total ?? 0);
+		}
+		spendByUser.set(member.userId, {
+			lifetime: keys?.lifetime ?? 0,
+			currentPeriod,
+			activeApiKeys: keys?.activeApiKeys ?? 0,
+		});
+	}
+
 	return c.json({
 		members: members.map((m) => ({
 			id: m.id,
@@ -105,6 +237,8 @@ team.openapi(getMembers, async (c) => {
 			role: m.role,
 			createdAt: m.createdAt,
 			user: m.user!,
+			budget: budgetFromRow(m),
+			spend: spendByUser.get(m.userId) ?? EMPTY_SPEND,
 		})),
 	});
 });
@@ -275,6 +409,8 @@ team.openapi(addMember, async (c) => {
 				email: targetUser.email,
 				name: targetUser.name,
 			},
+			budget: budgetFromRow(newMember),
+			spend: EMPTY_SPEND,
 		},
 	});
 });
@@ -446,6 +582,216 @@ team.openapi(updateMember, async (c) => {
 			role: updatedMember.role,
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
+			budget: budgetFromRow(updatedMember),
+			spend: EMPTY_SPEND,
+		},
+	});
+});
+
+const updateBudgetSchema = z.object({
+	maxApiKeys: z.number().int().min(0).nullable(),
+	usageLimit: z.string().nullable(),
+	periodUsageLimit: z.string().nullable(),
+	periodUsageDurationValue: z.number().int().nullable(),
+	periodUsageDurationUnit: periodDurationUnitSchema.nullable(),
+});
+
+function normalizeLimit(value: string | null): string | null {
+	if (value === null || value.trim() === "") {
+		return null;
+	}
+	const num = Number(value);
+	if (!Number.isFinite(num) || num < 0) {
+		throw new HTTPException(400, {
+			message: "Spend limits must be non-negative numbers.",
+		});
+	}
+	return String(num);
+}
+
+const updateMemberBudget = createRoute({
+	method: "patch",
+	path: "/{organizationId}/members/{memberId}/budget",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateBudgetSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						member: teamMemberSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Member budget updated successfully",
+		},
+	},
+});
+
+team.openapi(updateMemberBudget, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId } = c.req.param();
+	const body = c.req.valid("json");
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: authUser.id,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (!userOrganization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	// Block team management for personal orgs (dev plan only)
+	if (
+		userOrganization.organization?.kind === "devpass" ||
+		userOrganization.organization?.kind === "chat"
+	) {
+		throw new HTTPException(403, {
+			message:
+				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
+		});
+	}
+
+	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can update member budgets",
+		});
+	}
+
+	const targetMember = await db.query.userOrganization.findFirst({
+		where: {
+			id: {
+				eq: memberId,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+		with: {
+			user: {
+				columns: {
+					id: true,
+					email: true,
+					name: true,
+				},
+			},
+		},
+	});
+
+	if (!targetMember) {
+		throw new HTTPException(404, {
+			message: "Member not found",
+		});
+	}
+
+	const usageLimit = normalizeLimit(body.usageLimit);
+	const periodUsageLimit = normalizeLimit(body.periodUsageLimit);
+
+	// Period config is all-or-nothing: a limit needs a duration and vice versa.
+	const hasPeriodParts =
+		periodUsageLimit !== null ||
+		body.periodUsageDurationValue !== null ||
+		body.periodUsageDurationUnit !== null;
+
+	if (hasPeriodParts) {
+		if (
+			periodUsageLimit === null ||
+			body.periodUsageDurationValue === null ||
+			body.periodUsageDurationUnit === null
+		) {
+			throw new HTTPException(400, {
+				message:
+					"A period spend limit requires both a duration value and unit.",
+			});
+		}
+		if (
+			!isValidApiKeyPeriodDuration(
+				body.periodUsageDurationValue,
+				body.periodUsageDurationUnit,
+			)
+		) {
+			throw new HTTPException(400, {
+				message: "Invalid period duration.",
+			});
+		}
+	}
+
+	const nextBudget = {
+		maxApiKeys: body.maxApiKeys,
+		usageLimit,
+		periodUsageLimit,
+		periodUsageDurationValue: hasPeriodParts
+			? body.periodUsageDurationValue
+			: null,
+		periodUsageDurationUnit: hasPeriodParts
+			? body.periodUsageDurationUnit
+			: null,
+	};
+
+	const [updatedMember] = await db
+		.update(tables.userOrganization)
+		.set(nextBudget)
+		.where(eq(tables.userOrganization.id, memberId))
+		.returning();
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.budget_update",
+		resourceType: "team_member",
+		resourceId: memberId,
+		metadata: {
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+			changes: {
+				budget: {
+					old: budgetFromRow(targetMember),
+					new: budgetFromRow(updatedMember),
+				},
+			},
+		},
+	});
+
+	return c.json({
+		message: "Member budget updated successfully",
+		member: {
+			id: updatedMember.id,
+			userId: updatedMember.userId,
+			role: updatedMember.role,
+			createdAt: updatedMember.createdAt,
+			user: targetMember.user!,
+			budget: budgetFromRow(updatedMember),
+			spend: EMPTY_SPEND,
 		},
 	});
 });

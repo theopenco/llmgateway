@@ -598,6 +598,16 @@ export const userOrganization = pgTable(
 		})
 			.notNull()
 			.default("owner"),
+		// Per-member budgets (config only; spend is read from existing per-key
+		// sources — apiKey.usage and apiKeyHourlyStats.cost — so no counters here).
+		// null = unlimited.
+		maxApiKeys: integer(),
+		usageLimit: decimal(),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
 	},
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
@@ -2260,6 +2270,7 @@ export const auditLogActions = [
 	// Team
 	"team_member.add",
 	"team_member.update",
+	"team_member.budget_update",
 	"team_member.remove",
 	// API Key
 	"api_key.create",
