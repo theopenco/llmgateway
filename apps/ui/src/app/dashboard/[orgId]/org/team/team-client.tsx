@@ -987,7 +987,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 											/>
 										</div>
 										<div className="space-y-2">
-											<Label htmlFor="role">Role</Label>
+											<div className="flex items-center gap-1.5">
+												<Label htmlFor="role">Role</Label>
+												<RolePermissionsHoverCard />
+											</div>
 											<Select
 												value={role}
 												onValueChange={(value) => setRole(value as MemberRole)}
