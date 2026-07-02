@@ -47,6 +47,13 @@ Do not run test files or suites in parallel unless the repository instructions f
 
 When running curl commands against the local API, you can use `test-token` as authentication.
 
+Every seeded account's password is its own email address (password == email). For example, log into the dashboard as `admin@example.com` with the password `admin@example.com`. This applies to all users created by `packages/db/src/seed.ts`, including:
+
+- `admin@example.com` — default test admin (owns "Test Organization" + a DevPass Pro workspace)
+- `enterprise@example.com` — owner of the enterprise org
+- `developer@example.com` — project-scoped developer in the enterprise org (RBAC testing)
+- the bulk demo users such as `alice.chen@techcorp.io`, `bob@startupinc.com`, etc.
+
 To test a specific provider in isolation (e.g. to reproduce a provider-specific failure without the gateway silently falling back to a healthy provider), pin the provider with the `provider/model` model string and disable fallback with the `x-no-fallback: true` header:
 
 ```bash
