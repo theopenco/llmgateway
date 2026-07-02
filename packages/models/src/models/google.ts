@@ -2123,7 +2123,7 @@ export const googleModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: reasoning disabled by default (enable via reasoning_effort)
+				// Cerebras: reasoning controllable via reasoning_effort; supports image inputs
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "gemma-4-31b",
@@ -2134,7 +2134,7 @@ export const googleModels = [
 				maxOutput: 32768,
 				streaming: true,
 				reasoning: true,
-				vision: false,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: [
@@ -2144,6 +2144,7 @@ export const googleModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 		],
