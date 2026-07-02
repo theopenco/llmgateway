@@ -1,7 +1,14 @@
 "use client";
 
 import { format, subDays } from "date-fns";
-import { BarChart3Icon, Info, KeyRound, Mail, TrendingUp } from "lucide-react";
+import {
+	BarChart3Icon,
+	Info,
+	KeyRound,
+	Mail,
+	MoreHorizontal,
+	TrendingUp,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -37,6 +44,14 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/lib/components/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/lib/components/dropdown-menu";
 import {
 	HoverCard,
 	HoverCardContent,
@@ -906,51 +921,60 @@ export function TeamClient() {
 															</>
 														)}
 														<TableCell className="text-right">
-															<div className="flex items-center justify-end gap-2">
-																<Button asChild variant="outline" size="sm">
-																	<Link
-																		href={
-																			`${buildOrgUrl(
-																				`org/team/${member.userId}`,
-																			)}?from=${fromStr}&to=${toStr}` as Route
+															<DropdownMenu>
+																<DropdownMenuTrigger asChild>
+																	<Button
+																		variant="ghost"
+																		size="icon"
+																		className="h-8 w-8"
+																	>
+																		<MoreHorizontal className="h-4 w-4" />
+																		<span className="sr-only">Open menu</span>
+																	</Button>
+																</DropdownMenuTrigger>
+																<DropdownMenuContent align="end">
+																	<DropdownMenuLabel>Actions</DropdownMenuLabel>
+																	<DropdownMenuItem asChild>
+																		<Link
+																			href={
+																				`${buildOrgUrl(
+																					`org/team/${member.userId}`,
+																				)}?from=${fromStr}&to=${toStr}` as Route
+																			}
+																			prefetch={true}
+																		>
+																			Details
+																		</Link>
+																	</DropdownMenuItem>
+																	{isAdmin && (
+																		<DropdownMenuItem
+																			onSelect={() => setAccessMember(member)}
+																		>
+																			Manage access
+																		</DropdownMenuItem>
+																	)}
+																	{isAdmin && (
+																		<DropdownMenuItem
+																			onSelect={() => setBudgetMember(member)}
+																		>
+																			Manage budget
+																		</DropdownMenuItem>
+																	)}
+																	<DropdownMenuSeparator />
+																	<DropdownMenuItem
+																		className="text-destructive focus:text-destructive"
+																		disabled={removeMemberMutation.isPending}
+																		onSelect={() =>
+																			handleRemoveMember(
+																				member.id,
+																				member.user.name ?? member.user.email,
+																			)
 																		}
-																		prefetch={true}
 																	>
-																		Details
-																	</Link>
-																</Button>
-																{isAdmin && (
-																	<Button
-																		variant="outline"
-																		size="sm"
-																		onClick={() => setAccessMember(member)}
-																	>
-																		Manage access
-																	</Button>
-																)}
-																{isAdmin && (
-																	<Button
-																		variant="outline"
-																		size="sm"
-																		onClick={() => setBudgetMember(member)}
-																	>
-																		Manage budget
-																	</Button>
-																)}
-																<Button
-																	variant="destructive"
-																	size="sm"
-																	onClick={() =>
-																		handleRemoveMember(
-																			member.id,
-																			member.user.name ?? member.user.email,
-																		)
-																	}
-																	disabled={removeMemberMutation.isPending}
-																>
-																	Remove
-																</Button>
-															</div>
+																		Remove
+																	</DropdownMenuItem>
+																</DropdownMenuContent>
+															</DropdownMenu>
 														</TableCell>
 													</TableRow>
 												);
