@@ -176,7 +176,15 @@ describe("analytics endpoints", () => {
 		await deleteAll();
 	});
 
-	function activeRows<T extends { requestCount: number }>(rows: T[]): T[] {
+	interface ActivitySeriesRow {
+		date: string;
+		cost: number;
+		requestCount: number;
+		totalTokens: number;
+		breakdown: { key: string; label: string; cost: number }[];
+	}
+
+	function activeRows(rows: ActivitySeriesRow[]): ActivitySeriesRow[] {
 		return rows.filter((r) => r.requestCount > 0);
 	}
 
