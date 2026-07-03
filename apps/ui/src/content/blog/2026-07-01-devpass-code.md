@@ -48,14 +48,19 @@ It sends an `x-source: devpass-code` header on every request, so if you're on De
 
 ## Install it
 
-DevPass Code runs on [Bun](https://bun.sh). Clone the repo and go:
+DevPass Code is one command away. From npm:
 
 ```bash
-git clone https://github.com/theopenco/devpass-code
-cd devpass-code
-bun install
-bun run packages/devpass-code/src/index.ts --help
+npm i -g devpass-code
 ```
+
+Or with Homebrew:
+
+```bash
+brew install theopenco/tap/devpass-code
+```
+
+Prefer something else? There's an install script (`curl -fsSL https://raw.githubusercontent.com/theopenco/devpass-code/main/install | bash`), an AUR package (`devpass-code-bin`), a Docker image (`ghcr.io/theopenco/devpass-code`), and Windows binaries on [GitHub releases](https://github.com/theopenco/devpass-code/releases).
 
 Then authenticate and start a session:
 
@@ -72,6 +77,10 @@ If you'd rather not log in interactively, set `LLMGATEWAY_API_KEY` in your envir
 
 The tool is open source (MIT) and free to run. You pay only for the models you use through LLM Gateway — either pay-as-you-go credits or a DevPass subscription. There's no separate charge for the agent itself.
 
+### How do I install DevPass Code?
+
+`npm i -g devpass-code` on any platform with Node, or `brew install theopenco/tap/devpass-code` on macOS and Linux. An install script, an AUR package (`devpass-code-bin`), a Docker image, and Windows binaries are also available on [GitHub](https://github.com/theopenco/devpass-code).
+
 ### Do I need a DevPass subscription to use it?
 
 No. Pick the **LLM Gateway** provider and you're on pay-as-you-go with your own key or credits. The **LLM Gateway DevPass** provider is there for subscribers who want flat-rate coding usage.
@@ -87,5 +96,5 @@ opencode supports dozens of providers and needs per-provider setup. DevPass Code
 ## Get started
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** and grab an API key
-- **[DevPass Code on GitHub](https://github.com/theopenco/devpass-code)** — clone, install, and log in
+- Run `npm i -g devpass-code` — or browse the source on [GitHub](https://github.com/theopenco/devpass-code)
 - Read the [coding agents guide](https://docs.llmgateway.io/guides/devpass-code) to connect it to your workflow
