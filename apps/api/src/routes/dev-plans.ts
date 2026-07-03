@@ -791,6 +791,25 @@ devPlans.openapi(resume, async (c) => {
 			personalOrg.devPlanStripeSubscriptionId,
 		);
 
+		// A subscription Stripe has fully ended (`canceled`, or expired before its
+		// first payment) can no longer be resumed by clearing `cancel_at_period_end`:
+		// Stripe rejects the update with `invalid_canceled_subscription_fields`
+		// ("A canceled subscription can only update its cancellation_details and
+		// metadata"), which previously surfaced as a generic 500. This state is
+		// normally transient — the `customer.subscription.deleted` webhook resets the
+		// org's dev plan to "none" — but a resume reaching Stripe before that webhook
+		// lands, or if it was missed, would hit the rejected update. Bail out early
+		// with a clear message telling the user to subscribe again.
+		if (
+			subscription.status === "canceled" ||
+			subscription.status === "incomplete_expired"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"Your dev plan subscription has ended. Subscribe again to choose a new plan.",
+			});
+		}
+
 		if (!subscription.cancel_at_period_end) {
 			throw new HTTPException(400, {
 				message: "Subscription is not cancelled",
@@ -824,6 +843,9 @@ devPlans.openapi(resume, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe dev plan resume error",
 			error instanceof Error ? error : new Error(String(error)),
