@@ -366,6 +366,33 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 	});
 });
 
+// Reset a personal org's dev-plan fields after its Stripe subscription has
+// fully ended (`canceled` / `incomplete_expired`). This mirrors the reset the
+// `customer.subscription.deleted` webhook performs, so the dashboard falls back
+// to the plan chooser and the user can subscribe again. It exists as a
+// self-heal for the case where that webhook was delayed or missed: without it
+// the org is stuck holding a reference to a dead subscription — resume is
+// rejected by Stripe and a fresh subscribe is blocked as "already active".
+async function resetEndedDevPlan(organizationId: string): Promise<void> {
+	await db
+		.update(tables.organization)
+		.set({
+			devPlan: "none",
+			devPlanPendingTier: null,
+			devPlanCreditsLimit: "0",
+			devPlanCreditsUsed: "0",
+			devPlanPremiumCreditsUsed: "0",
+			devPlanPremiumWeekStart: null,
+			devPlanCreditsFrozen: false,
+			devPlanCreditsLimitBeforeFreeze: null,
+			devPlanStripeSubscriptionId: null,
+			devPlanExpiresAt: null,
+			devPlanCancelled: false,
+			devPlanBillingCycleStart: null,
+		})
+		.where(eq(tables.organization.id, organizationId));
+}
+
 // Subscribe to a dev plan
 const subscribe = createRoute({
 	method: "post",
@@ -419,15 +446,28 @@ devPlans.openapi(subscribe, async (c) => {
 	// Get or create personal org
 	const personalOrg = await getOrCreatePersonalOrg(user);
 
-	// Check if already has an active dev plan subscription
+	// Check if already has an active dev plan subscription. A stale reference to
+	// a subscription Stripe has already ended (deletion webhook delayed/missed)
+	// would otherwise permanently block resubscribing, so verify the recorded
+	// subscription is really live before rejecting — and self-heal if it isn't.
 	if (
 		personalOrg.devPlan !== "none" &&
 		personalOrg.devPlanStripeSubscriptionId
 	) {
-		throw new HTTPException(400, {
-			message:
-				"Already have an active dev plan. Please upgrade or cancel first.",
-		});
+		const existing = await getStripe().subscriptions.retrieve(
+			personalOrg.devPlanStripeSubscriptionId,
+		);
+		if (
+			existing.status === "canceled" ||
+			existing.status === "incomplete_expired"
+		) {
+			await resetEndedDevPlan(personalOrg.id);
+		} else {
+			throw new HTTPException(400, {
+				message:
+					"Already have an active dev plan. Please upgrade or cancel first.",
+			});
+		}
 	}
 
 	const priceId = getDevPlanPriceId(tier, cycle);
@@ -750,6 +790,10 @@ const resume = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
+						// True when the subscription had already fully ended and could
+						// not be resumed — the org was reset to "none" and the user
+						// should subscribe again via the plan chooser.
+						ended: z.boolean().optional(),
 					}),
 				},
 			},
@@ -801,19 +845,18 @@ devPlans.openapi(resume, async (c) => {
 		// first payment) can no longer be resumed by clearing `cancel_at_period_end`:
 		// Stripe rejects the update with `invalid_canceled_subscription_fields`
 		// ("A canceled subscription can only update its cancellation_details and
-		// metadata"), which previously surfaced as a generic 500. This state is
-		// normally transient — the `customer.subscription.deleted` webhook resets the
-		// org's dev plan to "none" — but a resume reaching Stripe before that webhook
-		// lands, or if it was missed, would hit the rejected update. Bail out early
-		// with a clear message telling the user to subscribe again.
+		// metadata"). This state is normally transient — the
+		// `customer.subscription.deleted` webhook resets the org's dev plan to
+		// "none" — but a resume reaching Stripe before that webhook lands, or if it
+		// was missed, would hit the rejected update. Self-heal the stale row so the
+		// dashboard falls back to the plan chooser, and tell the client the
+		// subscription has ended so it can prompt a fresh subscribe.
 		if (
 			subscription.status === "canceled" ||
 			subscription.status === "incomplete_expired"
 		) {
-			throw new HTTPException(409, {
-				message:
-					"Your dev plan subscription has ended. Subscribe again to choose a new plan.",
-			});
+			await resetEndedDevPlan(personalOrg.id);
+			return c.json({ success: false, ended: true }, 200);
 		}
 
 		if (!subscription.cancel_at_period_end) {
