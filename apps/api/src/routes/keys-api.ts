@@ -610,7 +610,7 @@ keysApi.openapi(createPlatformKey, async (c) => {
 	});
 	const token = `sk_${test ? "test" : "live"}_${shortid(40)}`;
 
-	const [platformKey] = await db
+	const [platformKey] = await cdb
 		.insert(tables.apiKey)
 		.values({
 			token,
@@ -1063,7 +1063,7 @@ export async function createApiKeyForProject(
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);
 
-	const [apiKey] = await db
+	const [apiKey] = await cdb
 		.insert(tables.apiKey)
 		.values({
 			token,
@@ -2210,7 +2210,7 @@ keysApi.openapi(createIamRule, async (c) => {
 	);
 
 	// Create the IAM rule
-	const [rule] = await db
+	const [rule] = await cdb
 		.insert(tables.apiKeyIamRule)
 		.values({
 			apiKeyId: id,
@@ -2469,7 +2469,7 @@ keysApi.openapi(updateIamRule, async (c) => {
 	);
 
 	// Update the IAM rule
-	const [updatedRule] = await db
+	const [updatedRule] = await cdb
 		.update(tables.apiKeyIamRule)
 		.set(updateData)
 		.where(eq(tables.apiKeyIamRule.id, ruleId))
@@ -2609,7 +2609,7 @@ keysApi.openapi(deleteIamRule, async (c) => {
 	}
 
 	// Delete the IAM rule
-	const result = await db
+	const result = await cdb
 		.delete(tables.apiKeyIamRule)
 		.where(eq(tables.apiKeyIamRule.id, ruleId))
 		.returning();
