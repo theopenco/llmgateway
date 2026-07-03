@@ -950,8 +950,18 @@ organization.openapi(downloadTransactionInvoice, async (c) => {
 		});
 	}
 
+	const originalTransaction =
+		isRefundTransaction(transaction.type) && transaction.relatedTransactionId
+			? await db.query.transaction.findFirst({
+					where: {
+						id: { eq: transaction.relatedTransactionId },
+						organizationId: { eq: id },
+					},
+				})
+			: null;
+
 	const pdf = generateInvoicePDF(
-		buildInvoiceDataForTransaction(transaction, org),
+		buildInvoiceDataForTransaction(transaction, org, originalTransaction),
 	);
 
 	const prefix = isRefundTransaction(transaction.type)

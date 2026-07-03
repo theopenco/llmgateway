@@ -2031,12 +2031,26 @@ devPlans.openapi(downloadInvoice, async (c) => {
 
 	const billingDetails = await resolveDevPassBillingDetails(personalOrg);
 
+	const originalTransaction =
+		isRefundTransaction(transaction.type) && transaction.relatedTransactionId
+			? await db.query.transaction.findFirst({
+					where: {
+						id: { eq: transaction.relatedTransactionId },
+						organizationId: { eq: personalOrg.id },
+					},
+				})
+			: null;
+
 	const pdf = generateInvoicePDF(
-		buildInvoiceDataForTransaction(transaction, {
-			id: personalOrg.id,
-			name: personalOrg.name,
-			...billingDetails,
-		}),
+		buildInvoiceDataForTransaction(
+			transaction,
+			{
+				id: personalOrg.id,
+				name: personalOrg.name,
+				...billingDetails,
+			},
+			originalTransaction,
+		),
 	);
 
 	const prefix = isRefundTransaction(transaction.type)

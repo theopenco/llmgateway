@@ -475,26 +475,49 @@ describe("buildInvoiceDataForTransaction", () => {
 		expect(data.documentType).toBe("invoice");
 	});
 
-	it("marks refunds as a credit note", () => {
+	it("marks refunds as a credit note with a negative net total and original context", () => {
 		const data = buildInvoiceDataForTransaction(
 			{
 				id: "tx-refund",
 				type: "credit_refund",
-				amount: "19.00",
+				amount: "50.00",
 				currency: "USD",
-				description: "Credit refund: $19.00 (100.0% of original purchase)",
+				description: "Credit refund: $50.00 (25.0% of original purchase)",
 				createdAt: new Date("2026-04-01"),
+				status: "completed",
+				relatedTransactionId: "tx-original",
+			},
+			org,
+			{ amount: "200.00", description: "Credit Top-up" },
+		);
+
+		expect(data.documentType).toBe("credit_note");
+		expect(data.originalAmount).toBe(200);
+		expect(data.refundPercentage).toBe(25);
+		expect(data.lineItems).toEqual([
+			{ description: "Refund — Credit Top-up", amount: -50 },
+		]);
+	});
+
+	it("falls back to the refund description when the original is unknown", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-refund-2",
+				type: "end_user_refund",
+				amount: "5.00",
+				currency: "USD",
+				description: "End-user top-up refund",
+				createdAt: new Date("2026-04-02"),
 				status: "completed",
 			},
 			org,
 		);
 
 		expect(data.documentType).toBe("credit_note");
+		expect(data.originalAmount).toBeUndefined();
+		expect(data.refundPercentage).toBeUndefined();
 		expect(data.lineItems).toEqual([
-			{
-				description: "Credit refund: $19.00 (100.0% of original purchase)",
-				amount: 19,
-			},
+			{ description: "End-user top-up refund", amount: -5 },
 		]);
 	});
 
@@ -536,24 +559,44 @@ describe("buildInvoiceDataForTransaction", () => {
 		expect(pdf.length).toBeGreaterThan(0);
 	});
 
-	it("renders a refund as a credit note", () => {
+	it("renders a refund as a credit note with original amount and negative total", () => {
 		const data = buildInvoiceDataForTransaction(
 			{
 				id: "tx-refund-pdf",
 				type: "credit_refund",
-				amount: "19.00",
+				amount: "50.00",
 				currency: "USD",
 				description: "Credit refund",
 				createdAt: new Date("2026-05-01"),
 				status: "completed",
+				relatedTransactionId: "tx-original",
 			},
 			org,
+			{ amount: "200.00", description: "Credit Top-up" },
 		);
 
 		const pdfContent = generateInvoicePDF(data).toString("latin1");
 		expect(pdfContent).toContain("CREDIT NOTE");
 		expect(pdfContent).toContain("Credit Note Number: tx-refund-pdf");
-		expect(pdfContent).toContain("TOTAL REFUNDED");
+		expect(pdfContent).toContain("Original amount: USD 200.00");
+		expect(pdfContent).toContain("Refunded: 25.0% of original purchase");
+		// negative net total
+		expect(pdfContent).toContain("USD -50.00");
+	});
+
+	it("allows negative line item amounts for credit notes", () => {
+		expect(() =>
+			generateInvoicePDF({
+				invoiceNumber: "cn-1",
+				invoiceDate: new Date("2026-05-01"),
+				organizationName: "Org",
+				organizationId: "org-1",
+				billingEmail: "b@example.com",
+				lineItems: [{ description: "Refund", amount: -10 }],
+				currency: "USD",
+				documentType: "credit_note",
+			}),
+		).not.toThrow();
 	});
 });
 
