@@ -9,7 +9,7 @@ import {
 	Braces,
 } from "lucide-react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
@@ -66,7 +66,9 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	);
 
 	if (providerMappings.length === 0) {
-		notFound();
+		// The model exists but this provider mapping was removed; send crawlers
+		// and old links to the model page instead of a 404.
+		permanentRedirect(`/models/${encodeURIComponent(decodedName)}`);
 	}
 
 	const staticProviderMapping = providerMappings[0];
