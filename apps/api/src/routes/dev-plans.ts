@@ -1122,37 +1122,57 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Allow only one tier change per billing cycle. Repeatedly downgrading and
-		// re-upgrading within a cycle re-charges the user for a tier they still
-		// effectively hold and churns the prorated credit accounting. Claim the
-		// cycle atomically *before* any Stripe call: a single conditional UPDATE
-		// advances the marker to this cycle's Stripe period start only if it hasn't
-		// been claimed yet (NULL or an earlier cycle). Anchoring to the Stripe
-		// period (stable across mid-cycle price swaps, since proration is
-		// suppressed) — rather than a transaction row's createdAt — both avoids a
-		// read-then-write race between concurrent requests and prevents
-		// misattributing a change near a renewal boundary to the wrong cycle.
+		// A scheduled downgrade locks the plan until renewal: the user chose to
+		// move to a lower tier at the next cycle, so they can neither upgrade nor
+		// reschedule until then. This is also what closes the credit-refresh abuse
+		// (a downgrade can't be followed by a re-upgrade that re-grants prorated
+		// credits), so upgrades don't need to block downgrades.
 		const cycleStart = new Date(subscriptionItem.current_period_start * 1000);
-		const claimed = await db
-			.update(tables.organization)
-			.set({ devPlanLastTierChangeCycleStart: cycleStart })
-			.where(
-				and(
-					eq(tables.organization.id, personalOrg.id),
-					or(
-						isNull(tables.organization.devPlanLastTierChangeCycleStart),
-						lt(tables.organization.devPlanLastTierChangeCycleStart, cycleStart),
-					),
-				),
-			)
-			.returning({ id: tables.organization.id });
-		if (claimed.length === 0) {
+		if (personalOrg.devPlanPendingTier) {
 			throw new HTTPException(409, {
-				message:
-					"You can only change your plan once per billing cycle. Your next change takes effect at renewal.",
+				message: isUpgrade
+					? "You've scheduled a downgrade that takes effect at your next renewal, so you can't upgrade until then."
+					: "You've already scheduled a plan change for your next renewal.",
 			});
 		}
-		claimedCycleThisCall = true;
+
+		// Rate-limit UPGRADES to one per billing cycle. Repeatedly upgrading would
+		// re-charge and re-grant prorated credits (and a double-submit would double
+		// charge), so claim the cycle atomically *before* any Stripe call: a single
+		// conditional UPDATE advances the marker to this cycle's Stripe period start
+		// only if it hasn't been claimed yet (NULL or an earlier cycle). Anchoring
+		// to the Stripe period (stable across the mid-cycle price swap, since
+		// proration is suppressed) — rather than a transaction row's createdAt —
+		// both avoids a read-then-write race between concurrent requests and
+		// prevents misattributing a change near a renewal boundary to the wrong
+		// cycle. Downgrades are exempt: they only schedule the lower tier for
+		// renewal (no charge, no credit grant), so an earlier upgrade must not block
+		// a later downgrade.
+		if (isUpgrade) {
+			const claimed = await db
+				.update(tables.organization)
+				.set({ devPlanLastTierChangeCycleStart: cycleStart })
+				.where(
+					and(
+						eq(tables.organization.id, personalOrg.id),
+						or(
+							isNull(tables.organization.devPlanLastTierChangeCycleStart),
+							lt(
+								tables.organization.devPlanLastTierChangeCycleStart,
+								cycleStart,
+							),
+						),
+					),
+				)
+				.returning({ id: tables.organization.id });
+			if (claimed.length === 0) {
+				throw new HTTPException(409, {
+					message:
+						"You can only upgrade once per billing cycle. Your next upgrade takes effect at renewal.",
+				});
+			}
+			claimedCycleThisCall = true;
+		}
 
 		const remainingFraction =
 			getRemainingBillingPeriodFraction(subscriptionItem);

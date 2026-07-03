@@ -678,4 +678,108 @@ describe("dev plan tier changes", () => {
 		});
 		expect(transaction?.type).toBe("dev_plan_downgrade");
 	});
+
+	it("allows a downgrade even after an upgrade already claimed the cycle", async () => {
+		// An upgrade earlier this cycle set the once-per-cycle marker. That must
+		// not block a downgrade, which only schedules the lower tier for renewal.
+		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
+		await db
+			.update(tables.organization)
+			.set({
+				devPlan: "pro",
+				devPlanCreditsLimit: "237",
+				devPlanLastTierChangeCycleStart: claimedCycleStart,
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "pro",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: { id: "price_pro" },
+					},
+				],
+			},
+		});
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			items: { data: [{ id: "si_dev_plan" }] },
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ newTier: "lite" }),
+		});
+
+		expect(res.status).toBe(200);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanPendingTier).toBe("lite");
+	});
+
+	it("blocks any change once a downgrade is already pending", async () => {
+		// A pending downgrade locks the plan until renewal — neither an upgrade nor
+		// another downgrade is allowed, and no Stripe call is made.
+		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "pro", devPlanPendingTier: "lite" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "pro",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: { id: "price_pro" },
+					},
+				],
+			},
+		});
+
+		const upgrade = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ newTier: "max" }),
+		});
+		expect(upgrade.status).toBe(409);
+
+		const downgrade = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ newTier: "lite" }),
+		});
+		expect(downgrade.status).toBe(409);
+
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
 });
