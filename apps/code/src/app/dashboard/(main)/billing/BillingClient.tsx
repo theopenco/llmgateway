@@ -153,37 +153,46 @@ export default function BillingClient({
 
 	const currentPlan = devPlanStatus.devPlan ?? null;
 	const currentPlanData = plans.find((p) => p.tier === currentPlan);
+	const pendingTier = devPlanStatus.devPlanPendingTier ?? null;
+	const pendingPlanData = plans.find((p) => p.tier === pendingTier);
 	const cycle = devPlanStatus.devPlanCycle ?? "monthly";
 	const cancelled = devPlanStatus.devPlanCancelled ?? false;
 	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
 	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
 
-	const renewalHint = (() => {
-		// Prefer Stripe's real `current_period_end`; only fall back to projecting a
-		// cycle from `billingCycleStart` for legacy rows missing the recorded end.
-		// The projection diverges from the actual schedule after a mid-cycle
-		// proration upgrade (the anchor is preserved, the cycle start is not).
-		const renewAt = currentPeriodEnd
-			? new Date(currentPeriodEnd)
-			: billingCycleStart
-				? (() => {
-						const d = new Date(billingCycleStart);
-						if (cycle === "annual") {
-							d.setFullYear(d.getFullYear() + 1);
-						} else {
-							d.setMonth(d.getMonth() + 1);
-						}
-						return d;
-					})()
-				: null;
-		if (!renewAt) {
-			return "—";
-		}
-		const when = format(renewAt, "MMM d, yyyy");
-		return cancelled
-			? `Ends ${when}`
-			: `Renews ${when} (in ${formatDistanceToNowStrict(renewAt)})`;
-	})();
+	// Prefer Stripe's real `current_period_end`; only fall back to projecting a
+	// cycle from `billingCycleStart` for legacy rows missing the recorded end.
+	// The projection diverges from the actual schedule after a mid-cycle
+	// proration upgrade (the anchor is preserved, the cycle start is not).
+	const renewAt = currentPeriodEnd
+		? new Date(currentPeriodEnd)
+		: billingCycleStart
+			? (() => {
+					const d = new Date(billingCycleStart);
+					if (cycle === "annual") {
+						d.setFullYear(d.getFullYear() + 1);
+					} else {
+						d.setMonth(d.getMonth() + 1);
+					}
+					return d;
+				})()
+			: null;
+	const renewWhen = renewAt ? format(renewAt, "MMM d, yyyy") : null;
+
+	const renewalHint = !renewAt
+		? "—"
+		: cancelled
+			? `Ends ${renewWhen}`
+			: `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`;
+
+	// A scheduled downgrade keeps the current (higher) tier active until renewal,
+	// then switches. Surface both the pending tier and the date it applies.
+	const pendingDowngradeNotice =
+		pendingTier && pendingPlanData
+			? `Your plan switches to ${pendingPlanData.name}${
+					renewWhen ? ` on ${renewWhen}` : " at your next renewal"
+				}. You keep your current allowance until then.`
+			: null;
 
 	return (
 		<div className="space-y-10">
@@ -210,6 +219,11 @@ export default function BillingClient({
 									Cancelling
 								</span>
 							)}
+							{pendingTier && pendingPlanData && (
+								<span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+									Downgrading to {pendingPlanData.name}
+								</span>
+							)}
 						</div>
 						<p className="mt-1 text-sm text-muted-foreground">
 							${currentPlanData?.price ?? 0}/mo · ${currentPlanData?.usage ?? 0}{" "}
@@ -218,6 +232,11 @@ export default function BillingClient({
 						<p className="mt-0.5 text-xs text-muted-foreground">
 							{renewalHint}
 						</p>
+						{pendingDowngradeNotice && (
+							<p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+								{pendingDowngradeNotice}
+							</p>
+						)}
 					</div>
 
 					{cancelled ? (
@@ -286,6 +305,7 @@ export default function BillingClient({
 			<ActivePlanChangeTier
 				plans={plans}
 				currentPlan={currentPlan}
+				pendingTier={pendingTier}
 				subscribingTier={subscribingTier}
 				onChangeTier={handleChangeTier}
 			/>

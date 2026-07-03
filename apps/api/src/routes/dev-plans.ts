@@ -1264,6 +1264,8 @@ devPlans.openapi(changeTier, async (c) => {
 					devPlanExpiresAt: new Date(
 						subscriptionItem.current_period_end * 1000,
 					),
+					// An immediate upgrade supersedes any scheduled downgrade.
+					devPlanPendingTier: null,
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 
@@ -1339,14 +1341,17 @@ devPlans.openapi(changeTier, async (c) => {
 				}
 			}
 		} else {
-			// Downgrade: keep the current cycle's credits (limit and used) intact;
-			// the lower tier — and its smaller allotment — takes effect at the
-			// next renewal. No proration invoice is generated, so record the
-			// tier-change transaction here.
+			// Downgrade: the lower tier only takes effect at the next renewal, so
+			// keep `devPlan` (and the current cycle's credits, limit and used) on the
+			// current higher tier and record the target tier as pending. The Stripe
+			// price was already swapped above, so the renewal invoice bills the lower
+			// price; the renewal webhook then flips `devPlan` to the pending tier and
+			// resets credits to its allotment. No proration invoice is generated, so
+			// record the tier-change transaction here.
 			await db
 				.update(tables.organization)
 				.set({
-					devPlan: newTier,
+					devPlanPendingTier: newTier,
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 
@@ -1435,6 +1440,7 @@ const getStatus = createRoute({
 					schema: z.object({
 						hasPersonalOrg: z.boolean(),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
+						devPlanPendingTier: z.enum(["lite", "pro", "max"]).nullable(),
 						devPlanCycle: z.enum(["monthly", "annual"]),
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
@@ -1488,6 +1494,7 @@ devPlans.openapi(getStatus, async (c) => {
 		return c.json({
 			hasPersonalOrg: false,
 			devPlan: "none" as const,
+			devPlanPendingTier: null,
 			devPlanCycle: "monthly" as const,
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
@@ -1543,6 +1550,7 @@ devPlans.openapi(getStatus, async (c) => {
 	return c.json({
 		hasPersonalOrg: true,
 		devPlan: personalOrg.devPlan,
+		devPlanPendingTier: personalOrg.devPlanPendingTier,
 		devPlanCycle: personalOrg.devPlanCycle,
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,

@@ -275,6 +275,46 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].creditAmount).toBe("237");
 	});
 
+	test("applies a scheduled downgrade at renewal: switches tier and grants the lower allotment", async () => {
+		// Org is on pro with a pending downgrade to lite. At the cycle renewal the
+		// tier must flip to lite, the pending marker clears, and credits reset to
+		// lite's full allotment (not pro's).
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanPendingTier: "lite",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 2900,
+				invoiceId: "in_cycle_downgrade_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanPendingTier).toBeNull();
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].creditAmount).toBe("87");
+	});
+
 	test("emails an invoice on renewal, falling back to the org's own billing email when no default org exists", async () => {
 		await seedUsedDevPlanOrg();
 

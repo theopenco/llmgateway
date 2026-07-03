@@ -172,6 +172,7 @@ export type SerializedOrganization = Omit<
 	| "devPlanStripeSubscriptionId"
 	| "devPlanCancelled"
 	| "devPlanExpiresAt"
+	| "devPlanPendingTier"
 	| "devPlanCardFingerprint"
 	| "devPlanCreditsFrozen"
 	| "devPlanCreditsLimitBeforeFreeze"

@@ -3210,10 +3210,14 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 	} else if (isDevPlanRenewal) {
-		// Handle dev plan renewal - reset credits
-		const creditsLimit = getDevPlanCreditsLimit(
-			organization.devPlan as DevPlanTier,
-		);
+		// A scheduled downgrade takes effect now, at the renewal boundary: the
+		// lower tier the user selected mid-cycle becomes the active plan for the
+		// new period. When there's no pending downgrade this is just the current
+		// tier. The credit allotment and the tier we persist below both follow
+		// this effective tier.
+		const effectiveTier = (organization.devPlanPendingTier ??
+			organization.devPlan) as DevPlanTier;
+		const creditsLimit = getDevPlanCreditsLimit(effectiveTier);
 
 		// Create transaction record for dev plan renewal
 		const [renewalTransaction] = await db
@@ -3227,7 +3231,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				status: "completed",
 				stripePaymentIntentId: (invoice as any).payment_intent,
 				stripeInvoiceId: invoice.id,
-				description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
+				description: `Dev Plan ${effectiveTier.toUpperCase()} renewed`,
 			})
 			.returning();
 
@@ -3241,7 +3245,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				...billingDetails,
 				lineItems: [
 					{
-						description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						description: `Dev Plan ${effectiveTier.toUpperCase()} renewal ($${creditsLimit} credits included)`,
 						amount: invoice.amount_paid / 100,
 					},
 				],
@@ -3267,11 +3271,14 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// Reset credits used and update billing cycle start. Also reset the
 		// limit to the full tier allotment: mid-cycle tier changes leave the
 		// limit at a prorated value, and a fresh cycle should grant the tier's
-		// full credits. Clear any dunning freeze state since the limit is now
-		// authoritative again.
+		// full credits. Persist the effective tier and clear the pending
+		// downgrade so a scheduled downgrade becomes the active plan now. Clear
+		// any dunning freeze state since the limit is now authoritative again.
 		await db
 			.update(tables.organization)
 			.set({
+				devPlan: effectiveTier,
+				devPlanPendingTier: null,
 				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
@@ -3287,7 +3294,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			.where(eq(tables.organization.id, organizationId));
 
 		logger.info(
-			`Dev plan ${organization.devPlan} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
+			`Dev plan ${effectiveTier} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
 		);
 
 		// Track dev plan renewal in PostHog
@@ -3298,7 +3305,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				organization: organizationId,
 			},
 			properties: {
-				devPlan: organization.devPlan,
+				devPlan: effectiveTier,
 				creditsLimit: creditsLimit,
 				organization: organizationId,
 				source: "stripe_invoice",
@@ -3312,7 +3319,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			await notifyDevPlanRenewed(
 				organization.billingEmail,
 				renewedUser?.name,
-				organization.devPlan ?? "unknown",
+				effectiveTier,
 			);
 		}
 	} else if (isDevPlanUpgradeInvoice) {
@@ -4148,6 +4155,7 @@ async function handleSubscriptionDeleted(
 			.update(tables.organization)
 			.set({
 				devPlan: "none",
+				devPlanPendingTier: null,
 				devPlanCreditsLimit: "0",
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",

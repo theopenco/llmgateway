@@ -596,4 +596,86 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlan).toBe("lite");
 		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
 	});
+
+	it("schedules a downgrade for renewal instead of applying it immediately", async () => {
+		// Start on pro so switching to lite is a downgrade. The lower tier must not
+		// take effect until renewal: devPlan stays pro, the current cycle's credits
+		// are untouched, and the target tier is recorded as pending.
+		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
+		await db
+			.update(tables.organization)
+			.set({
+				devPlan: "pro",
+				devPlanCreditsLimit: "237",
+				devPlanCreditsUsed: "40",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "pro",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: {
+							id: "price_pro",
+						},
+					},
+				],
+			},
+		});
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			items: { data: [{ id: "si_dev_plan" }] },
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "lite",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// Stripe price is swapped so the renewal invoice bills the lower tier, but
+		// no proration charge is collected for a downgrade.
+		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			expect.objectContaining({
+				items: [{ id: "si_dev_plan", price: "price_lite" }],
+				proration_behavior: "none",
+			}),
+		);
+		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		// Current tier and allowance are preserved for the rest of the cycle.
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanPendingTier).toBe("lite");
+		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsUsed).toBe("40");
+
+		const transaction = await db.query.transaction.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transaction?.type).toBe("dev_plan_downgrade");
+	});
 });
