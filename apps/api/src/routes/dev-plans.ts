@@ -1122,17 +1122,18 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// A scheduled downgrade locks the plan until renewal: the user chose to
-		// move to a lower tier at the next cycle, so they can neither upgrade nor
-		// reschedule until then. This is also what closes the credit-refresh abuse
-		// (a downgrade can't be followed by a re-upgrade that re-grants prorated
-		// credits), so upgrades don't need to block downgrades.
+		// A scheduled downgrade doesn't hard-lock the plan: the user can still
+		// upgrade, which supersedes and clears the pending downgrade (the upgrade
+		// branch below sets devPlanPendingTier back to null). Only block scheduling
+		// *another* downgrade while one is already pending — to revert to the
+		// current tier the user uses the dedicated cancel-downgrade action. This
+		// still closes the credit-refresh abuse: an upgrade re-grants prorated
+		// credits only via the once-per-cycle-limited path below.
 		const cycleStart = new Date(subscriptionItem.current_period_start * 1000);
-		if (personalOrg.devPlanPendingTier) {
+		if (personalOrg.devPlanPendingTier && !isUpgrade) {
 			throw new HTTPException(409, {
-				message: isUpgrade
-					? "You've scheduled a downgrade that takes effect at your next renewal, so you can't upgrade until then."
-					: "You've already scheduled a plan change for your next renewal.",
+				message:
+					"You've already scheduled a downgrade for your next renewal. Upgrade to a higher tier or cancel the scheduled downgrade to change your plan.",
 			});
 		}
 
@@ -1444,6 +1445,151 @@ devPlans.openapi(changeTier, async (c) => {
 		}
 		throw new HTTPException(500, {
 			message: "Failed to change dev plan tier",
+		});
+	}
+});
+
+// Cancel a scheduled downgrade and stay on the current tier
+const cancelDowngrade = createRoute({
+	method: "post",
+	path: "/cancel-downgrade",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+					}),
+				},
+			},
+			description: "Scheduled dev plan downgrade cancelled successfully",
+		},
+	},
+});
+
+devPlans.openapi(cancelDowngrade, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: user.id,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.kind === "devpass",
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (!personalOrg.devPlanStripeSubscriptionId) {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	if (!personalOrg.devPlanPendingTier || personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No scheduled downgrade to cancel",
+		});
+	}
+
+	const currentTier: DevPlanTier = personalOrg.devPlan;
+	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
+	const currentTierPriceId = getDevPlanPriceId(currentTier, existingCycle);
+	if (!currentTierPriceId) {
+		const envSuffix =
+			existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
+		throw new HTTPException(500, {
+			message: `STRIPE_DEV_PLAN_${currentTier.toUpperCase()}${envSuffix} environment variable is not set`,
+		});
+	}
+
+	try {
+		const subscription = await getStripe().subscriptions.retrieve(
+			personalOrg.devPlanStripeSubscriptionId,
+		);
+
+		if (
+			subscription.status === "canceled" ||
+			subscription.status === "incomplete_expired"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"Your dev plan subscription has ended. Subscribe again to choose a new plan.",
+			});
+		}
+
+		const subscriptionItem = subscription.items.data[0];
+		const subscriptionItemId = subscriptionItem?.id;
+		if (!subscriptionItem || !subscriptionItemId) {
+			throw new HTTPException(500, {
+				message: "Subscription item not found",
+			});
+		}
+
+		// Scheduling the downgrade swapped the Stripe price to the lower tier so the
+		// renewal would bill it; reverting to the current tier's price keeps the
+		// subscriber on their current plan going forward. Proration stays suppressed
+		// (no charge or refund) — the current tier was never actually left.
+		await getStripe().subscriptions.update(
+			personalOrg.devPlanStripeSubscriptionId,
+			{
+				items: [{ id: subscriptionItemId, price: currentTierPriceId }],
+				proration_behavior: "none",
+				payment_behavior: "allow_incomplete",
+				metadata: {
+					...subscription.metadata,
+					devPlan: currentTier,
+					devPlanCycle: existingCycle,
+				},
+			},
+		);
+
+		await db
+			.update(tables.organization)
+			.set({ devPlanPendingTier: null })
+			.where(eq(tables.organization.id, personalOrg.id));
+
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.cancel_downgrade",
+			resourceType: "dev_plan",
+			resourceId: personalOrg.devPlanStripeSubscriptionId,
+			metadata: {
+				cancelledPendingTier: personalOrg.devPlanPendingTier,
+				tier: currentTier,
+			},
+		});
+
+		return c.json({
+			success: true,
+		});
+	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
+		logger.error(
+			"Stripe dev plan cancel-downgrade error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw new HTTPException(500, {
+			message: "Failed to cancel scheduled downgrade",
 		});
 	}
 });

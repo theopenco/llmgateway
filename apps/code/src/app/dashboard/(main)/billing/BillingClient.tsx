@@ -74,13 +74,26 @@ export default function BillingClient({
 			},
 		});
 
+	const invalidateStatus = () =>
+		queryClient.invalidateQueries({
+			predicate: (query) => {
+				const key = query.queryKey;
+				return Array.isArray(key) && key[1] === "/dev-plans/status";
+			},
+		});
+
 	const cancelMutation = api.useMutation("post", "/dev-plans/cancel");
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
 	const changeTierMutation = api.useMutation("post", "/dev-plans/change-tier");
+	const cancelDowngradeMutation = api.useMutation(
+		"post",
+		"/dev-plans/cancel-downgrade",
+	);
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
+	const [isCancellingDowngrade, setIsCancellingDowngrade] = useState(false);
 
 	const handleChangeTier = async (
 		newTier: PlanTier,
@@ -95,8 +108,9 @@ export default function BillingClient({
 				body: { newTier, expectedAmountDueCents },
 			});
 			// An upgrade records a new dev_plan_upgrade invoice server-side; refetch
-			// so the Invoices section reflects the just-paid charge immediately.
-			await invalidateInvoices();
+			// so the Invoices section reflects the just-paid charge immediately, and
+			// refresh status so the current tier / pending-downgrade state updates.
+			await Promise.all([invalidateInvoices(), invalidateStatus()]);
 			if (posthogKey) {
 				posthog.capture("dev_plan_tier_changed", { newTier });
 			}
@@ -111,6 +125,25 @@ export default function BillingClient({
 			});
 		} finally {
 			setSubscribingTier(null);
+		}
+	};
+
+	const handleCancelDowngrade = async (): Promise<void> => {
+		setIsCancellingDowngrade(true);
+		try {
+			await cancelDowngradeMutation.mutateAsync({});
+			await invalidateStatus();
+			toast.success("Scheduled downgrade cancelled");
+		} catch (error) {
+			const message =
+				error && typeof error === "object" && "message" in error
+					? String((error as { message: unknown }).message)
+					: undefined;
+			toast.error("Failed to cancel downgrade", {
+				description: message,
+			});
+		} finally {
+			setIsCancellingDowngrade(false);
 		}
 	};
 
@@ -307,7 +340,9 @@ export default function BillingClient({
 				currentPlan={currentPlan}
 				pendingTier={pendingTier}
 				subscribingTier={subscribingTier}
+				isCancellingDowngrade={isCancellingDowngrade}
 				onChangeTier={handleChangeTier}
+				onCancelDowngrade={handleCancelDowngrade}
 			/>
 
 			{/* Past invoices */}

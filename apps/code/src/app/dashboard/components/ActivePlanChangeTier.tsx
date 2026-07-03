@@ -26,7 +26,9 @@ interface ActivePlanChangeTierProps {
 	currentPlan: PlanTier | "none" | null;
 	pendingTier: PlanTier | null;
 	subscribingTier: PlanTier | null;
+	isCancellingDowngrade: boolean;
 	onChangeTier: (tier: PlanTier, expectedAmountDueCents?: number) => void;
+	onCancelDowngrade: () => void;
 }
 
 type TierChangePreview =
@@ -55,14 +57,16 @@ export default function ActivePlanChangeTier({
 	currentPlan,
 	pendingTier,
 	subscribingTier,
+	isCancellingDowngrade,
 	onChangeTier,
+	onCancelDowngrade,
 }: ActivePlanChangeTierProps) {
 	const currentPrice = plans.find((p) => p.tier === currentPlan)?.price ?? 0;
 	const currentName =
 		plans.find((p) => p.tier === currentPlan)?.name ?? "your plan";
 	const pendingName = plans.find((p) => p.tier === pendingTier)?.name ?? null;
-	// A scheduled downgrade uses the one plan change allowed per billing cycle, so
-	// no further change can be made until renewal — lock the cards to match.
+	// A scheduled downgrade doesn't lock the plan: the user can still upgrade to a
+	// higher tier, or cancel the downgrade to stay on their current tier.
 	const hasPendingDowngrade = pendingTier !== null;
 
 	return (
@@ -70,7 +74,7 @@ export default function ActivePlanChangeTier({
 			<h2 className="mb-1 font-semibold">Change plan</h2>
 			<p className="mb-4 text-sm text-muted-foreground">
 				{hasPendingDowngrade && pendingName
-					? `You're scheduled to move to ${pendingName} at your next renewal. You can't change plans again until then.`
+					? `You're scheduled to move to ${pendingName} at your next renewal. You can still upgrade, or cancel the scheduled downgrade to keep ${currentName}.`
 					: "Upgrades take effect immediately; downgrades apply at your next renewal."}
 			</p>
 			<div className="grid gap-4 md:grid-cols-3">
@@ -129,17 +133,33 @@ export default function ActivePlanChangeTier({
 								<p className="mt-auto text-xs text-muted-foreground">
 									Takes effect at your next renewal.
 								</p>
+							) : isCurrent ? (
+								hasPendingDowngrade ? (
+									<Button
+										className="mt-auto w-full"
+										variant="outline"
+										size="sm"
+										disabled={isCancellingDowngrade}
+										onClick={onCancelDowngrade}
+									>
+										{isCancellingDowngrade ? (
+											<Loader2 className="h-4 w-4 animate-spin" />
+										) : (
+											`Keep ${plan.name}`
+										)}
+									</Button>
+								) : null
 							) : (
-								!isCurrent && (
-									<TierChangeDialog
-										plan={plan}
-										currentName={currentName}
-										isUpgrade={isUpgrade}
-										isPending={isPending}
-										disabled={hasPendingDowngrade}
-										onChangeTier={onChangeTier}
-									/>
-								)
+								<TierChangeDialog
+									plan={plan}
+									currentName={currentName}
+									isUpgrade={isUpgrade}
+									isPending={isPending}
+									// A pending downgrade blocks scheduling another downgrade, but
+									// upgrades are still allowed (they supersede the downgrade).
+									disabled={hasPendingDowngrade && !isUpgrade}
+									onChangeTier={onChangeTier}
+								/>
 							)}
 						</div>
 					);

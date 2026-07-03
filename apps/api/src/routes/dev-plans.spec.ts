@@ -735,9 +735,9 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanPendingTier).toBe("lite");
 	});
 
-	it("blocks any change once a downgrade is already pending", async () => {
-		// A pending downgrade locks the plan until renewal — neither an upgrade nor
-		// another downgrade is allowed, and no Stripe call is made.
+	it("blocks scheduling another downgrade while one is already pending", async () => {
+		// A second downgrade can't be scheduled while one is pending; the user must
+		// upgrade or cancel the pending downgrade first. No Stripe call is made.
 		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
 		await db
 			.update(tables.organization)
@@ -766,20 +766,157 @@ describe("dev plan tier changes", () => {
 			},
 		});
 
-		const upgrade = await app.request("/dev-plans/change-tier", {
-			method: "POST",
-			headers: { Cookie: token, "Content-Type": "application/json" },
-			body: JSON.stringify({ newTier: "max" }),
-		});
-		expect(upgrade.status).toBe(409);
-
 		const downgrade = await app.request("/dev-plans/change-tier", {
 			method: "POST",
 			headers: { Cookie: token, "Content-Type": "application/json" },
 			body: JSON.stringify({ newTier: "lite" }),
 		});
 		expect(downgrade.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
 
+	it("allows an upgrade while a downgrade is pending and clears the pending tier", async () => {
+		// An upgrade supersedes a scheduled downgrade: it applies immediately and
+		// clears devPlanPendingTier.
+		process.env.STRIPE_DEV_PLAN_MAX_PRICE_ID = "price_max";
+		await db
+			.update(tables.organization)
+			.set({
+				devPlan: "pro",
+				devPlanPendingTier: "lite",
+				devPlanCreditsLimit: "237",
+				devPlanCreditsUsed: "40",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "pro",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: { id: "price_pro" },
+					},
+				],
+			},
+		});
+		stripeMock.invoiceItems.create.mockResolvedValue({ id: "ii_upgrade" });
+		stripeMock.invoices.create.mockResolvedValue({
+			id: "in_upgrade",
+			status: "draft",
+		});
+		stripeMock.invoices.finalizeInvoice.mockResolvedValue({
+			id: "in_upgrade",
+			status: "open",
+		});
+		stripeMock.invoices.pay.mockResolvedValue({
+			id: "in_upgrade",
+			status: "paid",
+			payment_intent: { id: "pi_upgrade" },
+		});
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			items: { data: [{ id: "si_dev_plan" }] },
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ newTier: "max" }),
+		});
+
+		expect(res.status).toBe(200);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("max");
+		expect(org?.devPlanPendingTier).toBeNull();
+	});
+
+	it("cancels a scheduled downgrade and reverts the Stripe price to the current tier", async () => {
+		// Cancelling reverts the price swapped in when the downgrade was scheduled,
+		// keeps the user on their current tier, and clears the pending tier.
+		process.env.STRIPE_DEV_PLAN_MAX_PRICE_ID = "price_max";
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "max", devPlanPendingTier: "pro" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "max",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						// Price was swapped to the lower (pro) tier when scheduling.
+						price: { id: "price_pro" },
+					},
+				],
+			},
+		});
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			items: { data: [{ id: "si_dev_plan" }] },
+		});
+
+		const res = await app.request("/dev-plans/cancel-downgrade", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			expect.objectContaining({
+				items: [{ id: "si_dev_plan", price: "price_max" }],
+				proration_behavior: "none",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("max");
+		expect(org?.devPlanPendingTier).toBeNull();
+	});
+
+	it("cancel-downgrade returns 400 when there is no scheduled downgrade", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "pro", devPlanPendingTier: null })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const res = await app.request("/dev-plans/cancel-downgrade", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(400);
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 	});
 });

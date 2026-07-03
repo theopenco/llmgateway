@@ -2361,6 +2361,7 @@ export const auditLogActions = [
 	"dev_plan.cancel",
 	"dev_plan.resume",
 	"dev_plan.change_tier",
+	"dev_plan.cancel_downgrade",
 	"dev_plan.update_settings",
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
