@@ -20,6 +20,10 @@ export interface InvoiceLineItem {
 	amount: number;
 }
 
+// "invoice" for a charge, "credit_note" for a refund. A credit note renders the
+// same layout but titled as a refund document.
+export type InvoiceDocumentType = "invoice" | "credit_note";
+
 export interface InvoiceData {
 	invoiceNumber: string;
 	invoiceDate: Date;
@@ -34,14 +38,152 @@ export interface InvoiceData {
 	billingNotes?: string | null;
 	lineItems: InvoiceLineItem[];
 	currency: string;
+	// Defaults to "invoice" when omitted.
+	documentType?: InvoiceDocumentType;
+	// Credit-note context: the full amount of the original purchase and the
+	// percentage of it that this refund covers. Shown above the line items.
+	originalAmount?: number;
+	refundPercentage?: number;
+}
+
+// Human-readable fallback labels used when a transaction has no stored
+// description. Covers the charge and refund types that are invoiceable (see
+// isInvoiceableTransaction).
+const TRANSACTION_TYPE_LABELS: Record<string, string> = {
+	credit_topup: "Credit Top-up",
+	subscription_start: "Subscription",
+	dev_plan_start: "DevPass Plan",
+	dev_plan_renewal: "DevPass Plan Renewal",
+	dev_plan_upgrade: "DevPass Plan Upgrade",
+	chat_plan_start: "Chat Plan",
+	chat_plan_renewal: "Chat Plan Renewal",
+	chat_plan_upgrade: "Chat Plan Upgrade",
+	end_user_topup: "Credit Top-up",
+	credit_refund: "Refund",
+	end_user_refund: "Refund",
+};
+
+// Refund transactions record the returned amount as a positive `amount` (see
+// stripe.ts); they render as a credit note rather than an invoice.
+export function isRefundTransaction(type: string): boolean {
+	return type === "credit_refund" || type === "end_user_refund";
+}
+
+interface InvoiceableTransaction {
+	id: string;
+	type: string;
+	amount: string | null;
+	currency: string;
+	description: string | null;
+	createdAt: Date;
+	status: string;
+	relatedTransactionId?: string | null;
+}
+
+// The original purchase a refund relates to (via relatedTransactionId). Used to
+// show the initial full amount and the refunded percentage on the credit note.
+interface OriginalTransaction {
+	amount: string | null;
+	description: string | null;
+}
+
+interface InvoiceOrganization {
+	id: string;
+	name: string;
+	billingEmail: string;
+	billingCompany: string | null;
+	billingAddress: string | null;
+	billingTaxId: string | null;
+	billingNotes: string | null;
+}
+
+// A transaction has a downloadable document when it is completed with a
+// positive amount: a charge (top-ups, subscription/plan starts, renewals and
+// upgrades) yields an invoice, a refund (positive `amount`, see stripe.ts)
+// yields a credit note. Cancels, ends and zero/no-amount gifts are excluded —
+// there is nothing to document for those.
+export function isInvoiceableTransaction(transaction: {
+	status: string;
+	amount: string | null;
+}): boolean {
+	return (
+		transaction.status === "completed" &&
+		transaction.amount !== null &&
+		parseFloat(transaction.amount) > 0
+	);
+}
+
+// Reconstruct the InvoiceData for an existing purchase transaction so it can be
+// re-rendered on demand (e.g. a downloadable PDF). The invoice number and date
+// mirror the invoice originally emailed at purchase time (see stripe.ts).
+export function buildInvoiceDataForTransaction(
+	transaction: InvoiceableTransaction,
+	organization: InvoiceOrganization,
+	originalTransaction?: OriginalTransaction | null,
+): InvoiceData {
+	const amount = transaction.amount ? parseFloat(transaction.amount) : 0;
+
+	const base = {
+		invoiceNumber: transaction.id,
+		invoiceDate: transaction.createdAt,
+		organizationName: organization.name,
+		organizationId: organization.id,
+		billingEmail: organization.billingEmail,
+		billingCompany: organization.billingCompany,
+		billingAddress: organization.billingAddress,
+		billingTaxId: organization.billingTaxId,
+		billingNotes: organization.billingNotes,
+		currency: transaction.currency,
+	};
+
+	if (isRefundTransaction(transaction.type)) {
+		// Refunds record a positive `amount` (see stripe.ts); the credit note
+		// shows it as a negative net total and, when the original purchase is
+		// known, the full initial amount and the refunded percentage.
+		const originalAmountRaw = originalTransaction?.amount;
+		const originalAmount =
+			originalAmountRaw !== null && originalAmountRaw !== undefined
+				? parseFloat(originalAmountRaw)
+				: null;
+		const refundPercentage =
+			originalAmount && originalAmount > 0
+				? (amount / originalAmount) * 100
+				: null;
+		const lineDescription = originalTransaction?.description
+			? `Refund — ${originalTransaction.description}`
+			: (transaction.description ?? "Refund");
+
+		return {
+			...base,
+			documentType: "credit_note",
+			lineItems: [{ description: lineDescription, amount: -amount }],
+			originalAmount: originalAmount ?? undefined,
+			refundPercentage: refundPercentage ?? undefined,
+		};
+	}
+
+	const description =
+		transaction.description ??
+		TRANSACTION_TYPE_LABELS[transaction.type] ??
+		"Purchase";
+
+	return {
+		...base,
+		documentType: "invoice",
+		lineItems: [{ description, amount }],
+	};
 }
 
 export function generateInvoicePDF(data: InvoiceData): Buffer {
+	const isCreditNote = data.documentType === "credit_note";
+
 	// Validate required fields
 	if (!data.lineItems || data.lineItems.length === 0) {
 		throw new Error("Invoice must contain at least one line item");
 	}
-	if (data.lineItems.some((item) => item.amount < 0)) {
+	// Invoices bill for a charge (non-negative); credit notes record a refund as
+	// a negative net amount, so negatives are expected there.
+	if (!isCreditNote && data.lineItems.some((item) => item.amount < 0)) {
 		throw new Error("Line item amounts must be non-negative");
 	}
 
@@ -57,18 +199,42 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 
 	doc.setFontSize(24);
 	doc.setFont("helvetica", "bold");
-	doc.text("INVOICE", pageWidth / 2, yPos, { align: "center" });
+	doc.text(isCreditNote ? "CREDIT NOTE" : "INVOICE", pageWidth / 2, yPos, {
+		align: "center",
+	});
 
 	yPos += 15;
 	doc.setFontSize(10);
 	doc.setFont("helvetica", "normal");
-	doc.text(`Invoice Number: ${invoiceNumber}`, 20, yPos);
+	doc.text(
+		`${isCreditNote ? "Credit Note" : "Invoice"} Number: ${invoiceNumber}`,
+		20,
+		yPos,
+	);
 	yPos += 6;
 	doc.text(
 		`Date: ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`,
 		20,
 		yPos,
 	);
+
+	// Credit-note context: the original purchase amount and the refunded portion.
+	if (isCreditNote && data.originalAmount !== undefined) {
+		yPos += 6;
+		doc.text(
+			`Original amount: ${data.currency} ${data.originalAmount.toFixed(2)}`,
+			20,
+			yPos,
+		);
+		if (data.refundPercentage !== undefined) {
+			yPos += 6;
+			doc.text(
+				`Refunded: ${data.refundPercentage.toFixed(1)}% of original purchase`,
+				20,
+				yPos,
+			);
+		}
+	}
 
 	yPos += 15;
 	const fromYPos = yPos;
@@ -162,6 +328,7 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 
 	doc.setFontSize(12);
 	doc.setFont("helvetica", "bold");
+	// total is negative for a credit note (net refund), e.g. "USD -50.00".
 	doc.text("TOTAL", 20, yPos);
 	doc.text(`${data.currency} ${total.toFixed(2)}`, pageWidth - 20, yPos, {
 		align: "right",

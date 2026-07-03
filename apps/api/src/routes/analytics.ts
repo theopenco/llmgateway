@@ -3,6 +3,12 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { userHasProjectAccess } from "@/utils/authorization.js";
+import {
+	bucketDate,
+	formatInTimeZone,
+	timezoneQueryField,
+	zonedTimeToUtc,
+} from "@/utils/timezone.js";
 
 import {
 	and,
@@ -32,31 +38,45 @@ const dateRangeQuery = {
 	organizationId: z.string(),
 	from: z.string().optional(),
 	to: z.string().optional(),
+	timezone: timezoneQueryField,
 };
 
+// Resolve the query window and the local calendar day-labels used to pad the
+// series. from/to are interpreted as wall-clock days in the caller's timezone
+// (defaulting to UTC), so the returned fromStr/toStr always line up with the
+// day buckets the SQL produces.
 function resolveDateRange(
-	from?: string,
-	to?: string,
+	from: string | undefined,
+	to: string | undefined,
+	timeZone: string,
 ): {
 	startDate: Date;
 	endDate: Date;
+	fromStr: string;
+	toStr: string;
 } {
 	if (from && to) {
-		const startDate = new Date(from + "T00:00:00Z");
-		const endDate = new Date(to + "T00:00:00Z");
-		if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+		if (
+			Number.isNaN(Date.parse(from + "T00:00:00Z")) ||
+			Number.isNaN(Date.parse(to + "T00:00:00Z"))
+		) {
 			throw new HTTPException(400, {
 				message: "Invalid from/to date (expected YYYY-MM-DD)",
 			});
 		}
-		startDate.setUTCHours(0, 0, 0, 0);
-		endDate.setUTCHours(23, 59, 59, 999);
-		return { startDate, endDate };
+		const startDate = zonedTimeToUtc(from + "T00:00:00.000", timeZone);
+		const endDate = zonedTimeToUtc(to + "T23:59:59.999", timeZone);
+		return { startDate, endDate, fromStr: from, toStr: to };
 	}
 	const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 	const endDate = new Date();
 	const startDate = new Date(endDate.getTime() - sevenDaysMs);
-	return { startDate, endDate };
+	return {
+		startDate,
+		endDate,
+		fromStr: formatInTimeZone(startDate, timeZone, false),
+		toStr: formatInTimeZone(endDate, timeZone, false),
+	};
 }
 
 /**
@@ -156,10 +176,11 @@ analytics.openapi(getMembersUsage, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { organizationId, from, to } = c.req.valid("query");
+	const { organizationId, from, to, timezone } = c.req.valid("query");
 	await requireEnterpriseAdmin(authUser.id, organizationId);
 
-	const { startDate, endDate } = resolveDateRange(from, to);
+	const timeZone = timezone ?? "UTC";
+	const { startDate, endDate } = resolveDateRange(from, to, timeZone);
 	const projectIds = await getOrgProjectIds(organizationId);
 
 	const members = await db.query.userOrganization.findMany({
@@ -352,7 +373,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 	}
 
 	const { userId } = c.req.valid("param");
-	const { organizationId, from, to } = c.req.valid("query");
+	const { organizationId, from, to, timezone } = c.req.valid("query");
 	await requireEnterpriseAdmin(authUser.id, organizationId);
 
 	const membership = await db.query.userOrganization.findFirst({
@@ -369,11 +390,13 @@ analytics.openapi(getMemberDetail, async (c) => {
 		throw new HTTPException(404, { message: "Member not found" });
 	}
 
-	const { startDate, endDate } = resolveDateRange(from, to);
+	const timeZone = timezone ?? "UTC";
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		from,
+		to,
+		timeZone,
+	);
 	const projectIds = await getOrgProjectIds(organizationId);
-
-	const fromStr = from ?? startDate.toISOString().slice(0, 10);
-	const toStr = to ?? endDate.toISOString().slice(0, 10);
 
 	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
 		throw new HTTPException(400, {
@@ -546,9 +569,11 @@ analytics.openapi(getMemberDetail, async (c) => {
 
 	const activityRows = await db
 		.select({
-			date: sql<string>`DATE(${apiKeyHourlyModelStats.hourTimestamp})`.as(
-				"date",
-			),
+			date: bucketDate(
+				apiKeyHourlyModelStats.hourTimestamp,
+				timeZone,
+				false,
+			).as("date"),
 			usedModel: apiKeyHourlyModelStats.usedModel,
 			usedProvider: apiKeyHourlyModelStats.usedProvider,
 			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
@@ -648,6 +673,7 @@ const getSelfUsage = createRoute({
 			projectId: z.string(),
 			from: z.string().optional(),
 			to: z.string().optional(),
+			timezone: timezoneQueryField,
 		}),
 	},
 	responses: {
@@ -672,7 +698,7 @@ analytics.openapi(getSelfUsage, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { projectId, from, to } = c.req.valid("query");
+	const { projectId, from, to, timezone } = c.req.valid("query");
 
 	if (!(await userHasProjectAccess(authUser.id, projectId))) {
 		throw new HTTPException(403, {
@@ -680,9 +706,12 @@ analytics.openapi(getSelfUsage, async (c) => {
 		});
 	}
 
-	const { startDate, endDate } = resolveDateRange(from, to);
-	const fromStr = from ?? startDate.toISOString().slice(0, 10);
-	const toStr = to ?? endDate.toISOString().slice(0, 10);
+	const timeZone = timezone ?? "UTC";
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		from,
+		to,
+		timeZone,
+	);
 
 	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
 		throw new HTTPException(400, {
@@ -770,7 +799,9 @@ analytics.openapi(getSelfUsage, async (c) => {
 
 	const activityRows = await db
 		.select({
-			date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+			date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
+				"date",
+			),
 			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
 			requestCount:
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
@@ -930,16 +961,19 @@ analytics.openapi(getOrgActivity, async (c) => {
 		organizationId,
 		from,
 		to,
+		timezone,
 		groupBy: groupByParam,
 	} = c.req.valid("query");
 	await requireEnterpriseAdmin(authUser.id, organizationId);
 
 	const groupBy = groupByParam ?? "model";
-	const { startDate, endDate } = resolveDateRange(from, to);
+	const timeZone = timezone ?? "UTC";
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		from,
+		to,
+		timeZone,
+	);
 	const projectIds = await getOrgProjectIds(organizationId);
-
-	const fromStr = from ?? startDate.toISOString().slice(0, 10);
-	const toStr = to ?? endDate.toISOString().slice(0, 10);
 
 	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
 		throw new HTTPException(400, {
@@ -964,7 +998,9 @@ analytics.openapi(getOrgActivity, async (c) => {
 	// the top-N breakdown the client charts).
 	const totalsRows = await db
 		.select({
-			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, false).as(
+				"date",
+			),
 			cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
 				"cost",
 			),
@@ -1026,9 +1062,11 @@ analytics.openapi(getOrgActivity, async (c) => {
 	if (groupBy === "model") {
 		const rows = await db
 			.select({
-				date: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
-					"date",
-				),
+				date: bucketDate(
+					projectHourlyModelStats.hourTimestamp,
+					timeZone,
+					false,
+				).as("date"),
 				usedModel: projectHourlyModelStats.usedModel,
 				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
 					"cost",
@@ -1079,7 +1117,9 @@ analytics.openapi(getOrgActivity, async (c) => {
 
 		const rows = await db
 			.select({
-				date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, false).as(
+					"date",
+				),
 				projectId: projectHourlyStats.projectId,
 				cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
 					"cost",
@@ -1120,7 +1160,9 @@ analytics.openapi(getOrgActivity, async (c) => {
 		// (api_key.created_by), matching the Teams page member breakdown.
 		const rows = await db
 			.select({
-				date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
+					"date",
+				),
 				userId: tables.apiKey.createdBy,
 				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
 					"cost",
@@ -1180,7 +1222,9 @@ analytics.openapi(getOrgActivity, async (c) => {
 	} else {
 		const rows = await db
 			.select({
-				date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
+					"date",
+				),
 				apiKeyId: apiKeyHourlyStats.apiKeyId,
 				description: tables.apiKey.description,
 				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(

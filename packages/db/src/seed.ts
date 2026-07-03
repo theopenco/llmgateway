@@ -1,4 +1,9 @@
-import { randomInt as cryptoRandomInt, randomUUID } from "crypto";
+import {
+	randomBytes,
+	randomInt as cryptoRandomInt,
+	randomUUID,
+	scrypt,
+} from "crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -79,8 +84,37 @@ function hoursAgo(hours: number) {
 	/* eslint-enable no-mixed-operators */
 }
 
-const PASSWORD_HASH =
-	"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460";
+// Every seeded account uses its own email address as its plaintext password
+// (e.g. log in as admin@example.com with the password "admin@example.com").
+// This replicates better-auth's default scrypt hashing (@better-auth/utils
+// v0.4.1, node impl) so the stored hash verifies against that plaintext at
+// login. Keep these parameters in sync with better-auth if it ever changes.
+const SCRYPT_CONFIG = { N: 16384, r: 16, p: 1, dkLen: 64 } as const;
+
+function hashPassword(password: string): Promise<string> {
+	const salt = randomBytes(16).toString("hex");
+	return new Promise((resolve, reject) => {
+		scrypt(
+			password.normalize("NFKC"),
+			salt,
+			SCRYPT_CONFIG.dkLen,
+			{
+				N: SCRYPT_CONFIG.N,
+				r: SCRYPT_CONFIG.r,
+				p: SCRYPT_CONFIG.p,
+
+				maxmem: 128 * SCRYPT_CONFIG.N * SCRYPT_CONFIG.r * 2,
+			},
+			(err, key) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(`${salt}:${key.toString("hex")}`);
+				}
+			},
+		);
+	});
+}
 
 const MODELS = [
 	{
@@ -187,6 +221,8 @@ function weightedRandomChoice<T extends { weight: number }>(arr: T[]): T {
 	return arr[arr.length - 1]!;
 }
 
+// Each of these users can log in with their email as both username AND password
+// (password == email). See hashPassword() above.
 const EXTRA_USERS = [
 	{ id: "user-alice", name: "Alice Chen", email: "alice.chen@techcorp.io" },
 	{ id: "user-bob", name: "Bob Martinez", email: "bob@startupinc.com" },
@@ -1289,6 +1325,7 @@ async function seed() {
 	await upsert(tables.user, {
 		id: "test-user-id",
 		name: "Test User",
+		// Login: admin@example.com / admin@example.com (password == email)
 		email: "admin@example.com",
 		emailVerified: true,
 	});
@@ -1297,7 +1334,7 @@ async function seed() {
 		id: "test-account-id",
 		providerId: "credential",
 		accountId: "test-account-id",
-		password: PASSWORD_HASH,
+		password: await hashPassword("admin@example.com"),
 		userId: "test-user-id",
 	});
 
@@ -1854,6 +1891,7 @@ async function seed() {
 	await upsert(tables.user, {
 		id: "enterprise-user-id",
 		name: "Enterprise User",
+		// Login: enterprise@example.com / enterprise@example.com (password == email)
 		email: "enterprise@example.com",
 		emailVerified: true,
 	});
@@ -1862,7 +1900,7 @@ async function seed() {
 		id: "enterprise-account-id",
 		providerId: "credential",
 		accountId: "enterprise-account-id",
-		password: PASSWORD_HASH,
+		password: await hashPassword("enterprise@example.com"),
 		userId: "enterprise-user-id",
 	});
 
@@ -1917,7 +1955,7 @@ async function seed() {
 
 	// A project-scoped "developer" member of the enterprise org — limited to the
 	// Enterprise Project only — for testing the RBAC/developer experience. Log in
-	// as developer@example.com with the shared seed password.
+	// as developer@example.com with the password developer@example.com (== email).
 	await upsert(tables.user, {
 		id: "enterprise-dev-user-id",
 		name: "Enterprise Developer",
@@ -1930,7 +1968,7 @@ async function seed() {
 		id: "enterprise-dev-account-id",
 		providerId: "credential",
 		accountId: "enterprise-dev-account-id",
-		password: PASSWORD_HASH,
+		password: await hashPassword("developer@example.com"),
 		userId: "enterprise-dev-user-id",
 	});
 
@@ -2026,7 +2064,8 @@ async function seed() {
 			id: `account-${u.id}`,
 			providerId: "credential",
 			accountId: `account-${u.id}`,
-			password: PASSWORD_HASH,
+			// Password == email, e.g. alice.chen@techcorp.io logs in with that string.
+			password: await hashPassword(u.email),
 			userId: u.id,
 		});
 	}

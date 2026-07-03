@@ -92,6 +92,7 @@ import {
 } from "@/lib/components/table";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import type { Route } from "next";
 
@@ -846,7 +847,16 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { data: usageData } = api.useQuery(
 		"get",
 		"/analytics/members",
-		{ params: { query: { organizationId, from: fromStr, to: toStr } } },
+		{
+			params: {
+				query: {
+					organizationId,
+					from: fromStr,
+					to: toStr,
+					timezone: getBrowserTimeZone(),
+				},
+			},
+		},
 		{ enabled: !!organizationId && showUsage },
 	);
 
