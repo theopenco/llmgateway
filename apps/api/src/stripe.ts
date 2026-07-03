@@ -2613,7 +2613,53 @@ export async function handlePaymentIntentFailed(
 	}
 }
 
-async function handleChargeRefunded(
+// Current Stripe API versions no longer expose the invoice link on the Charge or
+// PaymentIntent objects, so a `charge.refunded` event for a subscription invoice
+// can't be mapped back to its invoice directly. DevPass transactions
+// (`dev_plan_start` from setup-mode checkout, and invoice renewals) store the
+// invoice id rather than the payment intent, so to record the refund we resolve
+// the paid invoice by scanning the customer's recent invoices for the one this
+// payment intent settled. Bounded, and only reached when the faster
+// payment-intent match misses — refunds are infrequent.
+async function resolveRefundInvoiceId(
+	charge: Stripe.Charge,
+	paymentIntentId: string,
+): Promise<string | undefined> {
+	const customerId =
+		typeof charge.customer === "string"
+			? charge.customer
+			: (charge.customer?.id ?? null);
+	if (!customerId) {
+		return undefined;
+	}
+
+	const invoices = await getStripe().invoices.list({
+		customer: customerId,
+		limit: 20,
+	});
+
+	for (const invoice of invoices.data) {
+		if (!invoice.id) {
+			continue;
+		}
+		const payments = await getStripe().invoicePayments.list({
+			invoice: invoice.id,
+			limit: 10,
+		});
+		const paidByThisIntent = payments.data.some((invoicePayment) => {
+			const pi = invoicePayment.payment.payment_intent;
+			const piId = typeof pi === "string" ? pi : (pi?.id ?? null);
+			return piId === paymentIntentId;
+		});
+		if (paidByThisIntent) {
+			return invoice.id;
+		}
+	}
+
+	return undefined;
+}
+
+export async function handleChargeRefunded(
 	event: Stripe.ChargeRefundedEvent,
 	options: { endUserOnly?: boolean } = {},
 ) {
@@ -2647,16 +2693,6 @@ async function handleChargeRefunded(
 		return;
 	}
 
-	// Stripe v18 removed `invoice` from the typed Charge surface, but the
-	// field is still present on the underlying object for invoice-driven
-	// charges (subscriptions). Fall back to it to locate dev_plan_start /
-	// subscription_start transactions that only stored the invoice id.
-	const chargeInvoice = (
-		charge as unknown as { invoice?: string | { id?: string } | null }
-	).invoice;
-	const invoiceId =
-		typeof chargeInvoice === "string" ? chargeInvoice : chargeInvoice?.id;
-
 	const refundableTypes: (
 		| "credit_topup"
 		| "dev_plan_start"
@@ -2672,9 +2708,7 @@ async function handleChargeRefunded(
 	];
 
 	// Find the original transaction by stripePaymentIntentId first (covers
-	// credit_topup, dev_plan_renewal, subscription_start via invoice). Fall
-	// back to stripeInvoiceId since dev_plan_start (initial DevPass checkout)
-	// only records the invoice id, not the payment intent.
+	// credit_topup and any row that recorded the payment intent).
 	let originalTransaction = await db.query.transaction.findFirst({
 		where: {
 			stripePaymentIntentId: { eq: payment_intent as string },
@@ -2682,13 +2716,34 @@ async function handleChargeRefunded(
 		},
 	});
 
-	if (!originalTransaction && invoiceId) {
-		originalTransaction = await db.query.transaction.findFirst({
-			where: {
-				stripeInvoiceId: { eq: invoiceId },
-				type: { in: refundableTypes },
-			},
-		});
+	// Otherwise fall back to the invoice id: dev_plan_start (initial DevPass
+	// setup-mode checkout) and invoice renewals record only the invoice id, not
+	// the payment intent. Prefer the invoice link on the charge (present on older
+	// API versions); current versions drop it, so resolve it from Stripe by
+	// finding which of the customer's invoices this payment intent paid.
+	let invoiceId: string | undefined;
+	if (!originalTransaction) {
+		const chargeInvoice = (
+			charge as unknown as { invoice?: string | { id?: string } | null }
+		).invoice;
+		invoiceId =
+			typeof chargeInvoice === "string"
+				? chargeInvoice
+				: (chargeInvoice?.id ?? undefined);
+		if (!invoiceId) {
+			invoiceId = await resolveRefundInvoiceId(
+				charge,
+				payment_intent as string,
+			);
+		}
+		if (invoiceId) {
+			originalTransaction = await db.query.transaction.findFirst({
+				where: {
+					stripeInvoiceId: { eq: invoiceId },
+					type: { in: refundableTypes },
+				},
+			});
+		}
 	}
 
 	if (!originalTransaction) {
