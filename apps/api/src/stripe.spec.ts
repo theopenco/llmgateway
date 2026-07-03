@@ -116,6 +116,35 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_cancel");
+		expect(txns[0].stripeInvoiceId).toBeNull();
+	});
+
+	test("cancellation does not collide with the payment row's invoice id", async () => {
+		await seedDevPlanOrg();
+
+		// The initial checkout already recorded this invoice on the payment row,
+		// claiming the unique stripeInvoiceId slot. subscription.latest_invoice on
+		// the cancel event is that same invoice.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: "in_test_001",
+			description: "Dev Plan PRO started",
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: true }),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(2);
+		const cancel = txns.find((t) => t.type === "dev_plan_cancel");
+		expect(cancel).toBeDefined();
+		expect(cancel?.stripeInvoiceId).toBeNull();
 	});
 
 	test("does not re-send feedback email on duplicate updated event", async () => {

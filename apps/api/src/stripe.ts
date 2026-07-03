@@ -3822,7 +3822,6 @@ export async function handleSubscriptionUpdated(
 				type: "chat_plan_cancel",
 				currency: "USD",
 				status: "completed",
-				stripeInvoiceId: subscription.latest_invoice as string,
 				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} cancelled`,
 			});
 
@@ -3904,7 +3903,6 @@ export async function handleSubscriptionUpdated(
 				type: "dev_plan_cancel",
 				currency: "USD",
 				status: "completed",
-				stripeInvoiceId: subscription.latest_invoice as string,
 				description: `Dev Plan ${organization.devPlan?.toUpperCase()} cancelled`,
 			});
 
@@ -4006,7 +4004,6 @@ export async function handleSubscriptionUpdated(
 				type: "subscription_cancel",
 				currency: "USD",
 				status: "completed",
-				stripeInvoiceId: subscription.latest_invoice as string,
 				description: "Pro subscription cancelled",
 			});
 		}
@@ -4087,7 +4084,6 @@ async function handleSubscriptionDeleted(
 			type: "chat_plan_end",
 			currency: "USD",
 			status: "completed",
-			stripeInvoiceId: subscription.latest_invoice as string,
 			description: `Chat Plan ${previousChatPlan?.toUpperCase()} ended`,
 		});
 
@@ -4144,7 +4140,6 @@ async function handleSubscriptionDeleted(
 			type: "dev_plan_end",
 			currency: "USD",
 			status: "completed",
-			stripeInvoiceId: subscription.latest_invoice as string,
 			description: `Dev Plan ${previousDevPlan?.toUpperCase()} ended`,
 		});
 
@@ -4203,7 +4198,6 @@ async function handleSubscriptionDeleted(
 			type: "subscription_end",
 			currency: "USD",
 			status: "completed",
-			stripeInvoiceId: subscription.latest_invoice as string,
 			description: "Pro subscription ended",
 		});
 
