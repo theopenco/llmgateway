@@ -344,6 +344,7 @@ export default function BillingClient({
 				plans={plans}
 				currentPlan={currentPlan}
 				pendingTier={showPendingDowngrade ? pendingTier : null}
+				cancelled={cancelled}
 				subscribingTier={subscribingTier}
 				isCancellingDowngrade={isCancellingDowngrade}
 				onChangeTier={handleChangeTier}

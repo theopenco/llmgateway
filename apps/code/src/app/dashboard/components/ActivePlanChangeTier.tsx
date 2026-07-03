@@ -25,6 +25,7 @@ interface ActivePlanChangeTierProps {
 	plans: PlanOption[];
 	currentPlan: PlanTier | "none" | null;
 	pendingTier: PlanTier | null;
+	cancelled: boolean;
 	subscribingTier: PlanTier | null;
 	isCancellingDowngrade: boolean;
 	onChangeTier: (tier: PlanTier, expectedAmountDueCents?: number) => void;
@@ -56,6 +57,7 @@ export default function ActivePlanChangeTier({
 	plans,
 	currentPlan,
 	pendingTier,
+	cancelled,
 	subscribingTier,
 	isCancellingDowngrade,
 	onChangeTier,
@@ -73,9 +75,11 @@ export default function ActivePlanChangeTier({
 		<div>
 			<h2 className="mb-1 font-semibold">Change plan</h2>
 			<p className="mb-4 text-sm text-muted-foreground">
-				{hasPendingDowngrade && pendingName
-					? `You're scheduled to move to ${pendingName} at your next renewal. You can still upgrade, or cancel the scheduled downgrade to keep ${currentName}.`
-					: "Upgrades take effect immediately; downgrades apply at your next renewal."}
+				{cancelled
+					? "Your subscription is scheduled to cancel. Resume it first to change your plan."
+					: hasPendingDowngrade && pendingName
+						? `You're scheduled to move to ${pendingName} at your next renewal. You can still upgrade, or cancel the scheduled downgrade to keep ${currentName}.`
+						: "Upgrades take effect immediately; downgrades apply at your next renewal."}
 			</p>
 			<div className="grid gap-4 md:grid-cols-3">
 				{plans.map((plan) => {
@@ -155,9 +159,10 @@ export default function ActivePlanChangeTier({
 									currentName={currentName}
 									isUpgrade={isUpgrade}
 									isPending={isPending}
-									// A pending downgrade blocks scheduling another downgrade, but
-									// upgrades are still allowed (they supersede the downgrade).
-									disabled={hasPendingDowngrade && !isUpgrade}
+									// A cancelling subscription must be resumed before any tier
+									// change. A pending downgrade blocks scheduling another
+									// downgrade, but upgrades are still allowed (they supersede it).
+									disabled={cancelled || (hasPendingDowngrade && !isUpgrade)}
 									onChangeTier={onChangeTier}
 								/>
 							)}
@@ -165,6 +170,11 @@ export default function ActivePlanChangeTier({
 					);
 				})}
 			</div>
+			{cancelled && (
+				<p className="mt-4 text-sm text-muted-foreground">
+					Resume your subscription above to upgrade or downgrade your plan.
+				</p>
+			)}
 		</div>
 	);
 }
