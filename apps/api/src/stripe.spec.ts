@@ -389,6 +389,45 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].stripeInvoiceId).toBe("in_manual_upgrade_001");
 	});
 
+	test("processes a successful retry on the invoice a prior cancel referenced", async () => {
+		// Failed payment during dunning marks the plan cancelled; the retry then
+		// succeeds on the SAME invoice ("in_test_001", the sub's latest_invoice).
+		// The cancel row must not claim that unique invoice id, or the success
+		// below is silently skipped and the paid plan stays cancelled.
+		await seedUsedDevPlanOrg();
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: true }),
+		);
+
+		const cancelled = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(cancelled?.devPlanCancelled).toBe(true);
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_test_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCancelled).toBe(false);
+		expect(org?.devPlanCreditsUsed).toBe("0");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns.map((t) => t.type).sort()).toEqual([
+			"dev_plan_cancel",
+			"dev_plan_renewal",
+		]);
+	});
+
 	test("skips processing an invoice that was already recorded", async () => {
 		await seedUsedDevPlanOrg();
 		await db.insert(tables.transaction).values({

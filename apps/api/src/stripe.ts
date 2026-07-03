@@ -3822,7 +3822,6 @@ export async function handleSubscriptionUpdated(
 				type: "chat_plan_cancel",
 				currency: "USD",
 				status: "completed",
-				stripeInvoiceId: subscription.latest_invoice as string,
 				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} cancelled`,
 			});
 
@@ -3897,14 +3896,19 @@ export async function handleSubscriptionUpdated(
 		// Handle dev plan subscription update
 		const wasDevPlanCancelled = organization.devPlanCancelled;
 
-		// Create transaction record for dev plan cancellation if it was cancelled
+		// Create transaction record for dev plan cancellation if it was cancelled.
+		// State-change rows must NOT carry the invoice id: stripeInvoiceId is
+		// UNIQUE and `latest_invoice` is often the same invoice that is still
+		// being paid (dunning retries reuse it). Stamping it here would let a
+		// cancel row claim that invoice's slot, so the later successful
+		// `invoice.payment_succeeded` bails on the "already recorded" guard and
+		// the paid plan never gets reactivated / its credits reset.
 		if (!isSubscriptionActive && !wasDevPlanCancelled) {
 			await db.insert(tables.transaction).values({
 				organizationId,
 				type: "dev_plan_cancel",
 				currency: "USD",
 				status: "completed",
-				stripeInvoiceId: subscription.latest_invoice as string,
 				description: `Dev Plan ${organization.devPlan?.toUpperCase()} cancelled`,
 			});
 
@@ -4006,7 +4010,6 @@ export async function handleSubscriptionUpdated(
 				type: "subscription_cancel",
 				currency: "USD",
 				status: "completed",
-				stripeInvoiceId: subscription.latest_invoice as string,
 				description: "Pro subscription cancelled",
 			});
 		}
@@ -4087,7 +4090,6 @@ async function handleSubscriptionDeleted(
 			type: "chat_plan_end",
 			currency: "USD",
 			status: "completed",
-			stripeInvoiceId: subscription.latest_invoice as string,
 			description: `Chat Plan ${previousChatPlan?.toUpperCase()} ended`,
 		});
 
@@ -4138,13 +4140,14 @@ async function handleSubscriptionDeleted(
 		// Handle dev plan subscription deletion
 		const previousDevPlan = organization.devPlan;
 
-		// Create transaction record for dev plan end
+		// Create transaction record for dev plan end. As with the cancel row
+		// above, do not stamp the (unique) invoice id — `latest_invoice` already
+		// belongs to the paid dev_plan_start/renewal transaction.
 		await db.insert(tables.transaction).values({
 			organizationId,
 			type: "dev_plan_end",
 			currency: "USD",
 			status: "completed",
-			stripeInvoiceId: subscription.latest_invoice as string,
 			description: `Dev Plan ${previousDevPlan?.toUpperCase()} ended`,
 		});
 
@@ -4203,7 +4206,6 @@ async function handleSubscriptionDeleted(
 			type: "subscription_end",
 			currency: "USD",
 			status: "completed",
-			stripeInvoiceId: subscription.latest_invoice as string,
 			description: "Pro subscription ended",
 		});
 
