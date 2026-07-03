@@ -2618,45 +2618,21 @@ export async function handlePaymentIntentFailed(
 // can't be mapped back to its invoice directly. DevPass transactions
 // (`dev_plan_start` from setup-mode checkout, and invoice renewals) store the
 // invoice id rather than the payment intent, so to record the refund we resolve
-// the paid invoice by scanning the customer's recent invoices for the one this
-// payment intent settled. Bounded, and only reached when the faster
-// payment-intent match misses — refunds are infrequent.
+// the paid invoice from the invoice payment that this payment intent settled.
+// Filtering the invoice_payments list by the payment intent is an exact,
+// unbounded lookup — it works even for refunds of arbitrarily old invoices.
 async function resolveRefundInvoiceId(
-	charge: Stripe.Charge,
 	paymentIntentId: string,
 ): Promise<string | undefined> {
-	const customerId =
-		typeof charge.customer === "string"
-			? charge.customer
-			: (charge.customer?.id ?? null);
-	if (!customerId) {
+	const payments = await getStripe().invoicePayments.list({
+		payment: { type: "payment_intent", payment_intent: paymentIntentId },
+		limit: 1,
+	});
+	const invoice = payments.data[0]?.invoice;
+	if (!invoice) {
 		return undefined;
 	}
-
-	const invoices = await getStripe().invoices.list({
-		customer: customerId,
-		limit: 20,
-	});
-
-	for (const invoice of invoices.data) {
-		if (!invoice.id) {
-			continue;
-		}
-		const payments = await getStripe().invoicePayments.list({
-			invoice: invoice.id,
-			limit: 10,
-		});
-		const paidByThisIntent = payments.data.some((invoicePayment) => {
-			const pi = invoicePayment.payment.payment_intent;
-			const piId = typeof pi === "string" ? pi : (pi?.id ?? null);
-			return piId === paymentIntentId;
-		});
-		if (paidByThisIntent) {
-			return invoice.id;
-		}
-	}
-
-	return undefined;
+	return typeof invoice === "string" ? invoice : (invoice.id ?? undefined);
 }
 
 export async function handleChargeRefunded(
@@ -2731,10 +2707,7 @@ export async function handleChargeRefunded(
 				? chargeInvoice
 				: (chargeInvoice?.id ?? undefined);
 		if (!invoiceId) {
-			invoiceId = await resolveRefundInvoiceId(
-				charge,
-				payment_intent as string,
-			);
+			invoiceId = await resolveRefundInvoiceId(payment_intent as string);
 		}
 		if (invoiceId) {
 			originalTransaction = await db.query.transaction.findFirst({

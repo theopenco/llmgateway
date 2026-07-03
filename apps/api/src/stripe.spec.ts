@@ -780,11 +780,8 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 
 		// No payment-intent match; resolve the invoice by scanning the customer's
 		// invoices for the one this payment intent paid.
-		stripeMock.invoices.list.mockResolvedValue({
-			data: [{ id: "in_devpass_refund" }],
-		});
 		stripeMock.invoicePayments.list.mockResolvedValue({
-			data: [{ payment: { payment_intent: "pi_devpass_refund" } }],
+			data: [{ invoice: "in_devpass_refund" }],
 		});
 		stripeMock.refunds.list.mockResolvedValue({
 			data: [{ id: "re_devpass_refund", amount: 7900, reason: null }],
@@ -831,11 +828,8 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			stripeInvoiceId: "in_devpass_refund",
 		});
 
-		stripeMock.invoices.list.mockResolvedValue({
-			data: [{ id: "in_devpass_refund" }],
-		});
 		stripeMock.invoicePayments.list.mockResolvedValue({
-			data: [{ payment: { payment_intent: "pi_devpass_refund" } }],
+			data: [{ invoice: "in_devpass_refund" }],
 		});
 		stripeMock.refunds.list.mockResolvedValue({
 			data: [{ id: "re_devpass_refund", amount: 7900, reason: null }],
