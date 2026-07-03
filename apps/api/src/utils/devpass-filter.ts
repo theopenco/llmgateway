@@ -19,3 +19,23 @@ export const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.joi
 	devpassExcludedTypes.map((t) => sql`${t}`),
 	sql`, `,
 )})`;
+
+// LLM SDK end-user wallet bookkeeping. These transaction rows are NOT an org
+// buying credits from LLM Gateway — they record end-user wallet economics
+// (developer margin accrual/payout, refunds) and developer-funded bonus grants
+// (a transfer of the developer org's prepaid credits into an end-user wallet).
+// They must be excluded from org credit-purchase revenue/processed/topped-up
+// metrics; the bonus in particular carries a negative creditAmount that would
+// otherwise deflate reported revenue. Tracked separately where relevant.
+export const endUserWalletTypes = [
+	"end_user_topup",
+	"end_user_margin_accrual",
+	"end_user_refund",
+	"end_user_margin_payout",
+	"end_user_bonus",
+] as const;
+
+export const notEndUserWalletFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
+	endUserWalletTypes.map((t) => sql`${t}`),
+	sql`, `,
+)})`;

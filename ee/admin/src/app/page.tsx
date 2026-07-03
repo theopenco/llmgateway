@@ -225,6 +225,10 @@ export default async function Page({
 							label: "Gifted",
 							value: currencyFormatter.format(metrics.totalGiftedCredits),
 						},
+						{
+							label: "SDK bonus",
+							value: currencyFormatter.format(metrics.totalBonusCredits),
+						},
 					]}
 				/>
 			</section>
