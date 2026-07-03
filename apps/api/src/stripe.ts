@@ -1926,7 +1926,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
  * org), and the platform fee — all carried in the PaymentIntent metadata that
  * /v1/wallet/top-up set.
  */
-async function handleEndUserTopUpSucceeded(
+export async function handleEndUserTopUpSucceeded(
 	paymentIntent: Stripe.PaymentIntent,
 ) {
 	const md = paymentIntent.metadata;
@@ -1980,11 +1980,58 @@ async function handleEndUserTopUpSucceeded(
 	// atomically. The ledger insert hits the unique index first, so a concurrent
 	// duplicate delivery rolls the whole transaction back instead of double-
 	// crediting.
-	let newBalance: string;
+	let txResult: { balance: string; bonusApplied: number };
 	try {
-		newBalance = await db.transaction(async (tx) => {
-			// Lock + credit the wallet first; a concurrent duplicate delivery blocks
-			// on this row, then fails the ledger insert below on the unique index.
+		txResult = await db.transaction(async (tx) => {
+			// Developer-funded bonus: resolve and reserve it FIRST, locking the org
+			// row (SELECT … FOR UPDATE) and debiting its credits before we touch the
+			// wallet. The worker debits org credits before wallet balance
+			// (worker.ts), so acquiring the org lock ahead of the wallet here keeps a
+			// consistent org→wallet lock order and avoids deadlocking a concurrent
+			// usage-debit batch. Live wallets only (test-mode top-ups are Stripe
+			// sandbox and must never spend real org credits), and capped with
+			// `Math.floor` at the org's available credits so `credits` can never go
+			// negative.
+			let bonusApplied = 0;
+			if (bonusCredited > 0 && wallet.mode !== "test") {
+				const [org] = await tx
+					.select({ credits: tables.organization.credits })
+					.from(tables.organization)
+					.where(eq(tables.organization.id, wallet.organizationId))
+					.for("update")
+					.limit(1);
+
+				const availableCredits = Math.max(0, Number(org?.credits ?? "0"));
+				bonusApplied =
+					Math.floor(Math.min(bonusCredited, availableCredits) * 1e6) / 1e6;
+
+				if (bonusApplied > 0) {
+					await tx
+						.update(tables.organization)
+						.set({
+							credits: sql`${tables.organization.credits} - ${bonusApplied}`,
+						})
+						.where(eq(tables.organization.id, wallet.organizationId));
+
+					await tx.insert(tables.transaction).values({
+						organizationId: wallet.organizationId,
+						type: "end_user_bonus",
+						amount: String(bonusApplied),
+						creditAmount: String(-bonusApplied),
+						status: "completed",
+						stripePaymentIntentId: paymentIntent.id,
+						description: `End-user top-up bonus (wallet ${walletId})`,
+					});
+				} else {
+					logger.warn(
+						`Skipping end-user top-up bonus for wallet ${walletId}: developer org ${wallet.organizationId} has insufficient credits (${availableCredits} available, ${bonusCredited} needed)`,
+					);
+				}
+			}
+
+			// Credit the paid amount + write the topup ledger row. The ledger insert
+			// hits the unique index, so a concurrent duplicate delivery blocks on the
+			// wallet row above, then rolls the whole transaction back here.
 			const [updated] = await tx
 				.update(tables.wallet)
 				.set({ balance: sql`${tables.wallet.balance} + ${netCredited}` })
@@ -2027,67 +2074,30 @@ async function handleEndUserTopUpSucceeded(
 				});
 			}
 
-			// Developer-funded bonus: credit the wallet extra spend power on top of
-			// the paid amount, debited from the developer org's credit balance. Only
-			// for live wallets, and capped at the org's available credits so the
-			// balance can never go negative. The org row is locked (SELECT … FOR
-			// UPDATE) so a concurrent debit can't oversell the balance.
+			// Credit the reserved bonus on top of the paid amount, in its own ledger
+			// row so the economic split stays legible.
 			let finalBalance = updated.balance;
-			if (bonusCredited > 0 && wallet.mode !== "test") {
-				const [org] = await tx
-					.select({ credits: tables.organization.credits })
-					.from(tables.organization)
-					.where(eq(tables.organization.id, wallet.organizationId))
-					.for("update")
-					.limit(1);
+			if (bonusApplied > 0) {
+				const [bonusUpdated] = await tx
+					.update(tables.wallet)
+					.set({ balance: sql`${tables.wallet.balance} + ${bonusApplied}` })
+					.where(eq(tables.wallet.id, walletId))
+					.returning();
+				finalBalance = bonusUpdated.balance;
 
-				const availableCredits = Math.max(0, Number(org?.credits ?? "0"));
-				const bonusToApply =
-					Math.round(Math.min(bonusCredited, availableCredits) * 1e6) / 1e6;
-
-				if (bonusToApply > 0) {
-					const [bonusUpdated] = await tx
-						.update(tables.wallet)
-						.set({ balance: sql`${tables.wallet.balance} + ${bonusToApply}` })
-						.where(eq(tables.wallet.id, walletId))
-						.returning();
-					finalBalance = bonusUpdated.balance;
-
-					await tx.insert(tables.walletLedger).values({
-						walletId,
-						endCustomerId: wallet.endCustomerId,
-						organizationId: wallet.organizationId,
-						type: "bonus",
-						amount: String(bonusToApply),
-						balanceAfter: bonusUpdated.balance,
-						stripePaymentIntentId: paymentIntent.id,
-						description: "End-user top-up bonus",
-					});
-
-					await tx
-						.update(tables.organization)
-						.set({
-							credits: sql`${tables.organization.credits} - ${bonusToApply}`,
-						})
-						.where(eq(tables.organization.id, wallet.organizationId));
-
-					await tx.insert(tables.transaction).values({
-						organizationId: wallet.organizationId,
-						type: "end_user_bonus",
-						amount: String(bonusToApply),
-						creditAmount: String(-bonusToApply),
-						status: "completed",
-						stripePaymentIntentId: paymentIntent.id,
-						description: `End-user top-up bonus (wallet ${walletId})`,
-					});
-				} else {
-					logger.warn(
-						`Skipping end-user top-up bonus for wallet ${walletId}: developer org ${wallet.organizationId} has insufficient credits (${availableCredits} available, ${bonusCredited} needed)`,
-					);
-				}
+				await tx.insert(tables.walletLedger).values({
+					walletId,
+					endCustomerId: wallet.endCustomerId,
+					organizationId: wallet.organizationId,
+					type: "bonus",
+					amount: String(bonusApplied),
+					balanceAfter: bonusUpdated.balance,
+					stripePaymentIntentId: paymentIntent.id,
+					description: "End-user top-up bonus",
+				});
 			}
 
-			return finalBalance;
+			return { balance: finalBalance, bonusApplied };
 		});
 	} catch (err) {
 		const code =
@@ -2102,10 +2112,10 @@ async function handleEndUserTopUpSucceeded(
 		throw err;
 	}
 
-	const updated = { balance: newBalance };
+	const { balance: newBalance, bonusApplied } = txResult;
 
 	logger.info(
-		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee}, bonus quote ${bonusCredited}, balance now ${newBalance})`,
+		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee}, bonus ${bonusApplied}, balance now ${newBalance})`,
 	);
 
 	// Notify the developer's webhook endpoints (best-effort). Skip for test-mode
@@ -2121,8 +2131,13 @@ async function handleEndUserTopUpSucceeded(
 					walletId,
 					endCustomerId: wallet.endCustomerId,
 					netCredited,
+					// Developer-funded bonus actually applied (post-cap), and the total
+					// spend power added, so consumers don't have to infer it from the
+					// balance delta.
+					bonusCredited: bonusApplied,
+					totalCredited: netCredited + bonusApplied,
 					grossPaid,
-					balance: updated.balance,
+					balance: newBalance,
 					currency: wallet.currency,
 				},
 			});
@@ -2141,7 +2156,7 @@ async function handleEndUserTopUpSucceeded(
  * end-user may have already spent some), and the developer's accrued margin is
  * clawed back (clamped at zero).
  */
-async function handleEndUserTopUpRefunded(
+export async function handleEndUserTopUpRefunded(
 	topUp: typeof tables.walletLedger.$inferSelect,
 ) {
 	if (!topUp.stripePaymentIntentId) {
@@ -2164,6 +2179,17 @@ async function handleEndUserTopUpRefunded(
 	const credited = Number(topUp.netCredited ?? "0");
 	const developerMargin = Number(topUp.developerMargin ?? "0");
 
+	// The developer-funded bonus (if any) shares this PaymentIntent. Reverse it
+	// too so a refunded top-up can't leave gifted, developer-funded spend power in
+	// the wallet (top up → get bonus → refund → keep bonus).
+	const bonusRow = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: topUp.stripePaymentIntentId },
+			type: { eq: "bonus" },
+		},
+	});
+	const bonusOriginal = Number(bonusRow?.amount ?? "0");
+
 	// Debit the wallet, write the reversal ledger row, and claw back the margin
 	// atomically. The ledger insert hits the unique partial index
 	// (wallet_ledger_reversal_payment_intent_unique), so a concurrent / re-
@@ -2173,6 +2199,18 @@ async function handleEndUserTopUpRefunded(
 	let reversal: number;
 	try {
 		reversal = await db.transaction(async (tx) => {
+			// When restoring org credits for a bonus claw-back, lock the org row
+			// before the wallet to match the worker's org→wallet lock order and the
+			// top-up path above, avoiding a deadlock with a concurrent usage-debit.
+			if (bonusOriginal > 0) {
+				await tx
+					.select({ id: tables.organization.id })
+					.from(tables.organization)
+					.where(eq(tables.organization.id, topUp.organizationId))
+					.for("update")
+					.limit(1);
+			}
+
 			const [wallet] = await tx
 				.select()
 				.from(tables.wallet)
@@ -2184,8 +2222,15 @@ async function handleEndUserTopUpRefunded(
 				return 0;
 			}
 
-			const currentBalance = Number(wallet.balance ?? "0");
-			const amount = Math.min(credited, Math.max(currentBalance, 0));
+			// Reverse the paid top-up first, then the bonus, each clamped to the
+			// balance still in the wallet (the end-user may have already spent some).
+			const currentBalance = Math.max(Number(wallet.balance ?? "0"), 0);
+			const topupReversed = Math.min(credited, currentBalance);
+			const bonusReversed =
+				Math.floor(
+					Math.min(bonusOriginal, currentBalance - topupReversed) * 1e6,
+				) / 1e6;
+			const amount = Math.round((topupReversed + bonusReversed) * 1e6) / 1e6;
 
 			const [updated] = await tx
 				.update(tables.wallet)
@@ -2201,7 +2246,10 @@ async function handleEndUserTopUpRefunded(
 				amount: String(-amount),
 				balanceAfter: updated.balance,
 				stripePaymentIntentId: topUp.stripePaymentIntentId,
-				description: "End-user top-up refund",
+				description:
+					bonusReversed > 0
+						? "End-user top-up refund (incl. bonus claw-back)"
+						: "End-user top-up refund",
 			});
 
 			if (developerMargin > 0) {
@@ -2220,6 +2268,26 @@ async function handleEndUserTopUpRefunded(
 					status: "completed",
 					stripePaymentIntentId: topUp.stripePaymentIntentId,
 					description: `End-user top-up refund margin claw-back (wallet ${topUp.walletId})`,
+				});
+			}
+
+			// Return the clawed-back bonus to the developer org's credit balance.
+			if (bonusReversed > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						credits: sql`${tables.organization.credits} + ${bonusReversed}`,
+					})
+					.where(eq(tables.organization.id, topUp.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: topUp.organizationId,
+					type: "end_user_bonus",
+					amount: String(bonusReversed),
+					creditAmount: String(bonusReversed),
+					status: "completed",
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description: `End-user top-up bonus claw-back on refund (wallet ${topUp.walletId})`,
 				});
 			}
 

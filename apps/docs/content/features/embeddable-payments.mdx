@@ -213,7 +213,7 @@ const { balance, limits } = await client.getBalance();
 
 ## Buying credits
 
-`<BuyCredits amount={10} />` creates a Stripe PaymentIntent scoped to the user's wallet, renders Stripe's `PaymentElement`, and confirms the payment. Once LLM Gateway's webhook processes it, the wallet is credited the **net** amount (after your markup) and your margin accrues to your organization.
+`<BuyCredits amount={10} />` creates a Stripe PaymentIntent scoped to the user's wallet, renders Stripe's `PaymentElement`, and confirms the payment. Once LLM Gateway's webhook processes it, the wallet is credited the **net** amount (after your markup) and your margin accrues to your organization. If you've configured a **top-up bonus**, the additional developer-funded credit is applied on top of the net amount at the same time (debited from your organization's credit balance). The top-up API response and the `wallet.credited` webhook include `bonusCredited` and `totalCredited` so you can show the boosted total.
 
 `@llmgateway/elements` bundles LLM Gateway's browser-safe Stripe publishable keys. Pass `mode="test"` to `<LLMGatewayProvider>` while developing to use Stripe test mode; omit it or pass `mode="prod"` for live payments (`"prod"` is the default). You never need to provide LLM Gateway's Stripe publishable key yourself, and the end-user never sees your `sk_…` secret key.
 
