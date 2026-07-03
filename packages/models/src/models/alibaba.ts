@@ -1366,11 +1366,15 @@ export const alibabaModels = [
 			{
 				providerId: "granite",
 				externalId: "qwen3.7-max",
-				inputPrice: "2.5e-6",
-				outputPrice: "7.5e-6",
-				cachedInputPrice: "0.5e-6",
-				cacheReadInputPrice: "0.25e-6",
-				cacheWriteInputPrice: "3.125e-6",
+				// Granite bills qwen3.7-max at ~$1.25/$3.75 per M (novita-tier), not
+				// Alibaba's $2.5/$7.5 list. Verified against a granite prod usage log
+				// (16 in / 486 out billed $0.0017 => ~$3.46/M output); the old list
+				// rates over-billed this mapping ~2x.
+				inputPrice: "1.25e-6",
+				outputPrice: "3.75e-6",
+				cachedInputPrice: "0.25e-6",
+				cacheReadInputPrice: "0.125e-6",
+				cacheWriteInputPrice: "1.5625e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 65536,

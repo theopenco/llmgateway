@@ -62,9 +62,16 @@ export const zaiModels = [
 			{
 				providerId: "granite",
 				externalId: "glm-5.2",
-				inputPrice: "1.4e-6",
-				cachedInputPrice: "0.26e-6",
-				outputPrice: "4.4e-6",
+				// Rates verified against granite prod usage logs. The upstream's
+				// input ($0.77/M) and output ($2.695/M) rates are accurate, but it
+				// bills cache reads at ~$0.96/M — 5x its advertised $0.192/M. These
+				// values reproduce granite's per-request charges to <1% (a
+				// 79k-in/3.9k-out, 78k-cache request billed $0.0868 vs $0.0868
+				// computed). The prior z.ai reference rates ($1.4/$0.26/$4.4)
+				// mispriced every field.
+				inputPrice: "0.77e-6",
+				cachedInputPrice: "0.96e-6",
+				outputPrice: "2.695e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 128000,
