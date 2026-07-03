@@ -36,6 +36,84 @@ export interface InvoiceData {
 	currency: string;
 }
 
+// Human-readable fallback labels used when a purchase transaction has no
+// stored description. Kept in sync with the transaction types that represent an
+// actual charge (see isInvoiceableTransaction).
+const PURCHASE_TYPE_LABELS: Record<string, string> = {
+	credit_topup: "Credit Top-up",
+	subscription_start: "Subscription",
+	dev_plan_start: "DevPass Plan",
+	dev_plan_renewal: "DevPass Plan Renewal",
+	dev_plan_upgrade: "DevPass Plan Upgrade",
+	chat_plan_start: "Chat Plan",
+	chat_plan_renewal: "Chat Plan Renewal",
+	chat_plan_upgrade: "Chat Plan Upgrade",
+	end_user_topup: "Credit Top-up",
+};
+
+interface InvoiceableTransaction {
+	id: string;
+	type: string;
+	amount: string | null;
+	currency: string;
+	description: string | null;
+	createdAt: Date;
+	status: string;
+}
+
+interface InvoiceOrganization {
+	id: string;
+	name: string;
+	billingEmail: string;
+	billingCompany: string | null;
+	billingAddress: string | null;
+	billingTaxId: string | null;
+	billingNotes: string | null;
+}
+
+// A transaction is invoiceable when it represents a completed, positive-amount
+// charge (top-ups, subscription/plan starts, renewals and upgrades). Cancels,
+// ends, refunds and zero/no-amount gifts are excluded — there is nothing to
+// invoice for those.
+export function isInvoiceableTransaction(transaction: {
+	status: string;
+	amount: string | null;
+}): boolean {
+	return (
+		transaction.status === "completed" &&
+		transaction.amount !== null &&
+		parseFloat(transaction.amount) > 0
+	);
+}
+
+// Reconstruct the InvoiceData for an existing purchase transaction so it can be
+// re-rendered on demand (e.g. a downloadable PDF). The invoice number and date
+// mirror the invoice originally emailed at purchase time (see stripe.ts).
+export function buildInvoiceDataForTransaction(
+	transaction: InvoiceableTransaction,
+	organization: InvoiceOrganization,
+): InvoiceData {
+	const amount = transaction.amount ? parseFloat(transaction.amount) : 0;
+	const description =
+		transaction.description ??
+		PURCHASE_TYPE_LABELS[transaction.type] ??
+		"Purchase";
+
+	return {
+		invoiceNumber: transaction.id,
+		invoiceDate: transaction.createdAt,
+		organizationName: organization.name,
+		organizationId: organization.id,
+		billingEmail: organization.billingEmail,
+		billingCompany: organization.billingCompany,
+		billingAddress: organization.billingAddress,
+		billingTaxId: organization.billingTaxId,
+		billingNotes: organization.billingNotes,
+		lineItems: [{ description, amount }],
+		currency: transaction.currency,
+	};
+}
+
 export function generateInvoicePDF(data: InvoiceData): Buffer {
 	// Validate required fields
 	if (!data.lineItems || data.lineItems.length === 0) {

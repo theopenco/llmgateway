@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+import { ChatBillingHistory } from "@/components/pricing/chat-billing-history";
 import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 import { getUser } from "@/lib/getUser";
 
@@ -75,6 +76,8 @@ export default async function PricingPage() {
 					</li>
 				</ul>
 			</section>
+
+			{user && <ChatBillingHistory />}
 		</main>
 	);
 }

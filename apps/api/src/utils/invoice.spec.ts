@@ -3,7 +3,12 @@ import * as path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { generateAndEmailInvoice, generateInvoicePDF } from "./invoice.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateAndEmailInvoice,
+	generateInvoicePDF,
+	isInvoiceableTransaction,
+} from "./invoice.js";
 
 import type { InvoiceData } from "./invoice.js";
 
@@ -398,5 +403,111 @@ describe("generateAndEmailInvoice", () => {
 				]),
 			}),
 		);
+	});
+});
+
+describe("isInvoiceableTransaction", () => {
+	it("returns true for a completed, positive-amount charge", () => {
+		expect(
+			isInvoiceableTransaction({ status: "completed", amount: "19.00" }),
+		).toBe(true);
+	});
+
+	it("returns false for non-completed transactions", () => {
+		expect(
+			isInvoiceableTransaction({ status: "pending", amount: "19.00" }),
+		).toBe(false);
+		expect(
+			isInvoiceableTransaction({ status: "failed", amount: "19.00" }),
+		).toBe(false);
+	});
+
+	it("returns false when there is no positive amount", () => {
+		expect(
+			isInvoiceableTransaction({ status: "completed", amount: null }),
+		).toBe(false);
+		expect(isInvoiceableTransaction({ status: "completed", amount: "0" })).toBe(
+			false,
+		);
+		expect(
+			isInvoiceableTransaction({ status: "completed", amount: "-5.00" }),
+		).toBe(false);
+	});
+});
+
+describe("buildInvoiceDataForTransaction", () => {
+	const org = {
+		id: "org-1",
+		name: "Test Organization",
+		billingEmail: "billing@example.com",
+		billingCompany: "Test Co",
+		billingAddress: "123 Main St",
+		billingTaxId: "TAX-1",
+		billingNotes: "note",
+	};
+
+	it("uses the transaction id and date as invoice identity", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-1",
+				type: "chat_plan_start",
+				amount: "19.00",
+				currency: "USD",
+				description: "Chat Plan PRO started via Stripe Checkout",
+				createdAt: new Date("2026-01-15"),
+				status: "completed",
+			},
+			org,
+		);
+
+		expect(data.invoiceNumber).toBe("tx-1");
+		expect(data.invoiceDate).toEqual(new Date("2026-01-15"));
+		expect(data.organizationId).toBe("org-1");
+		expect(data.billingCompany).toBe("Test Co");
+		expect(data.currency).toBe("USD");
+		expect(data.lineItems).toEqual([
+			{
+				description: "Chat Plan PRO started via Stripe Checkout",
+				amount: 19,
+			},
+		]);
+	});
+
+	it("falls back to a type label when the transaction has no description", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-2",
+				type: "credit_topup",
+				amount: "50.00",
+				currency: "USD",
+				description: null,
+				createdAt: new Date("2026-02-01"),
+				status: "completed",
+			},
+			org,
+		);
+
+		expect(data.lineItems).toEqual([
+			{ description: "Credit Top-up", amount: 50 },
+		]);
+	});
+
+	it("produces a renderable PDF", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-3",
+				type: "dev_plan_start",
+				amount: "25.00",
+				currency: "USD",
+				description: null,
+				createdAt: new Date("2026-03-01"),
+				status: "completed",
+			},
+			org,
+		);
+
+		const pdf = generateInvoicePDF(data);
+		expect(pdf).toBeInstanceOf(Buffer);
+		expect(pdf.length).toBeGreaterThan(0);
 	});
 });

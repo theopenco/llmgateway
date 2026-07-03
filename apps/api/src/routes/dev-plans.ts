@@ -5,7 +5,12 @@ import { z } from "zod";
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import { resolveDevPassBillingDetails } from "@/utils/devpass-billing.js";
-import { generateAndEmailInvoice } from "@/utils/invoice.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateAndEmailInvoice,
+	generateInvoicePDF,
+	isInvoiceableTransaction,
+} from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -1975,6 +1980,70 @@ devPlans.openapi(getInvoices, async (c) => {
 	}));
 
 	return c.json({ invoices });
+});
+
+// Download a PDF invoice for a single DevPass billing event. Billing details
+// mirror the invoice originally emailed at purchase time (see stripe.ts).
+const downloadInvoice = createRoute({
+	method: "get",
+	path: "/invoices/{invoiceId}/pdf",
+	request: {
+		params: z.object({
+			invoiceId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/pdf": {
+					schema: z.any().openapi({ type: "string", format: "binary" }),
+				},
+			},
+			description: "PDF invoice for the specified DevPass billing event",
+		},
+	},
+});
+
+devPlans.openapi(downloadInvoice, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { invoiceId } = c.req.param();
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, { message: "Invoice not found" });
+	}
+
+	const transaction = await db.query.transaction.findFirst({
+		where: {
+			id: { eq: invoiceId },
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+	if (!transaction || !isInvoiceableTransaction(transaction)) {
+		throw new HTTPException(404, { message: "Invoice not found" });
+	}
+
+	const billingDetails = await resolveDevPassBillingDetails(personalOrg);
+
+	const pdf = generateInvoicePDF(
+		buildInvoiceDataForTransaction(transaction, {
+			id: personalOrg.id,
+			name: personalOrg.name,
+			...billingDetails,
+		}),
+	);
+
+	c.header("Content-Type", "application/pdf");
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="invoice-${transaction.id}.pdf"`,
+	);
+	return c.body(new Uint8Array(pdf));
 });
 
 // Rotate the dev-plan API key — invalidates the current key and issues a new one
