@@ -1160,9 +1160,16 @@ devPlans.openapi(changeTier, async (c) => {
 			? getDevPlanUpgradeAmountCents(currentTier, newTier, remainingFraction)
 			: 0;
 
+		// Guard against charging the user more than the preview they confirmed.
+		// Only reject an *increase*: `remainingFraction` decays with wall-clock
+		// time (it is derived from `Date.now()`), so the amount recomputed here is
+		// almost always slightly lower than the previewed value once any time has
+		// passed between opening the dialog and confirming. A strict `!==` check
+		// treated that benign downward drift as a mismatch and blocked legitimate
+		// upgrades; charging the smaller recomputed amount is always fine.
 		if (
 			typeof expectedAmountDueCents === "number" &&
-			expectedAmountDueCents !== amountDueCents
+			amountDueCents > expectedAmountDueCents
 		) {
 			throw new HTTPException(409, {
 				message:

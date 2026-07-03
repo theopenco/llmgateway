@@ -101,8 +101,14 @@ export default function BillingClient({
 				posthog.capture("dev_plan_tier_changed", { newTier });
 			}
 			toast.success("Plan updated");
-		} catch {
-			toast.error("Failed to change plan");
+		} catch (error) {
+			const message =
+				error && typeof error === "object" && "message" in error
+					? String((error as { message: unknown }).message)
+					: undefined;
+			toast.error("Failed to change plan", {
+				description: message,
+			});
 		} finally {
 			setSubscribingTier(null);
 		}

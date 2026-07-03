@@ -185,6 +185,85 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
 	});
 
+	it("allows the upgrade when the recomputed charge is lower than the previewed amount", async () => {
+		// `remainingFraction` decays with wall-clock time, so the charge recomputed
+		// at confirm time is typically a little lower than the value the user saw in
+		// the preview. That benign downward drift must not block the upgrade — the
+		// user is only ever charged the smaller recomputed amount.
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "lite",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: {
+							id: "price_lite",
+						},
+					},
+				],
+			},
+		});
+		stripeMock.invoiceItems.create.mockResolvedValue({
+			id: "ii_upgrade",
+		});
+		stripeMock.invoices.create.mockResolvedValue({
+			id: "in_upgrade",
+			status: "draft",
+		});
+		stripeMock.invoices.finalizeInvoice.mockResolvedValue({
+			id: "in_upgrade",
+			status: "open",
+		});
+		stripeMock.invoices.pay.mockResolvedValue({
+			id: "in_upgrade",
+			status: "paid",
+			payment_intent: {
+				id: "pi_upgrade",
+			},
+		});
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+					},
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 2600,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(stripeMock.invoiceItems.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				amount: 2500,
+			}),
+		);
+	});
+
 	it("charges and grants prorated upgrade deltas while preserving usage", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
