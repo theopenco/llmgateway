@@ -8,6 +8,7 @@ import {
 	generateAndEmailInvoice,
 	generateInvoicePDF,
 	isInvoiceableTransaction,
+	isRefundTransaction,
 } from "./invoice.js";
 
 import type { InvoiceData } from "./invoice.js";
@@ -471,6 +472,30 @@ describe("buildInvoiceDataForTransaction", () => {
 				amount: 19,
 			},
 		]);
+		expect(data.documentType).toBe("invoice");
+	});
+
+	it("marks refunds as a credit note", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-refund",
+				type: "credit_refund",
+				amount: "19.00",
+				currency: "USD",
+				description: "Credit refund: $19.00 (100.0% of original purchase)",
+				createdAt: new Date("2026-04-01"),
+				status: "completed",
+			},
+			org,
+		);
+
+		expect(data.documentType).toBe("credit_note");
+		expect(data.lineItems).toEqual([
+			{
+				description: "Credit refund: $19.00 (100.0% of original purchase)",
+				amount: 19,
+			},
+		]);
 	});
 
 	it("falls back to a type label when the transaction has no description", () => {
@@ -509,5 +534,38 @@ describe("buildInvoiceDataForTransaction", () => {
 		const pdf = generateInvoicePDF(data);
 		expect(pdf).toBeInstanceOf(Buffer);
 		expect(pdf.length).toBeGreaterThan(0);
+	});
+
+	it("renders a refund as a credit note", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-refund-pdf",
+				type: "credit_refund",
+				amount: "19.00",
+				currency: "USD",
+				description: "Credit refund",
+				createdAt: new Date("2026-05-01"),
+				status: "completed",
+			},
+			org,
+		);
+
+		const pdfContent = generateInvoicePDF(data).toString("latin1");
+		expect(pdfContent).toContain("CREDIT NOTE");
+		expect(pdfContent).toContain("Credit Note Number: tx-refund-pdf");
+		expect(pdfContent).toContain("TOTAL REFUNDED");
+	});
+});
+
+describe("isRefundTransaction", () => {
+	it("is true for refund transaction types", () => {
+		expect(isRefundTransaction("credit_refund")).toBe(true);
+		expect(isRefundTransaction("end_user_refund")).toBe(true);
+	});
+
+	it("is false for charge transaction types", () => {
+		expect(isRefundTransaction("credit_topup")).toBe(false);
+		expect(isRefundTransaction("chat_plan_start")).toBe(false);
+		expect(isRefundTransaction("dev_plan_start")).toBe(false);
 	});
 });

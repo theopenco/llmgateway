@@ -37,14 +37,19 @@ interface TransactionsData {
 	transactions: Transaction[];
 }
 
-// A transaction has a downloadable invoice when it is a completed, positive
-// charge (mirrors isInvoiceableTransaction on the API).
+// A transaction has a downloadable document when it is a completed, positive
+// amount — a charge (invoice) or a refund (credit note). Mirrors
+// isInvoiceableTransaction on the API.
 function isInvoiceable(transaction: Transaction): boolean {
 	return (
 		transaction.status === "completed" &&
 		transaction.amount !== null &&
 		Number(transaction.amount) > 0
 	);
+}
+
+function isRefund(type: Transaction["type"]): boolean {
+	return type === "credit_refund";
 }
 
 function InvoiceDownloadButton({
@@ -62,6 +67,9 @@ function InvoiceDownloadButton({
 		return null;
 	}
 
+	const refund = isRefund(transaction.type);
+	const label = refund ? "Credit note" : "Invoice";
+
 	async function handleDownload() {
 		setLoading(true);
 		try {
@@ -74,20 +82,20 @@ function InvoiceDownloadButton({
 			);
 
 			if (!response.ok || !data) {
-				throw new Error("Failed to download invoice");
+				throw new Error("Failed to download document");
 			}
 
 			const url = URL.createObjectURL(data as unknown as Blob);
 			const link = document.createElement("a");
 			link.href = url;
-			link.download = `invoice-${transaction.id}.pdf`;
+			link.download = `${refund ? "credit-note" : "invoice"}-${transaction.id}.pdf`;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
 			URL.revokeObjectURL(url);
 		} catch {
 			toast({
-				title: "Could not download invoice",
+				title: `Could not download ${label.toLowerCase()}`,
 				description: "Please try again later.",
 				variant: "destructive",
 			});
@@ -108,7 +116,7 @@ function InvoiceDownloadButton({
 			) : (
 				<Download className="h-4 w-4" />
 			)}
-			Invoice
+			{label}
 		</Button>
 	);
 }

@@ -10,6 +10,7 @@ import {
 	generateAndEmailInvoice,
 	generateInvoicePDF,
 	isInvoiceableTransaction,
+	isRefundTransaction,
 } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
@@ -2038,10 +2039,13 @@ devPlans.openapi(downloadInvoice, async (c) => {
 		}),
 	);
 
+	const prefix = isRefundTransaction(transaction.type)
+		? "credit-note"
+		: "invoice";
 	c.header("Content-Type", "application/pdf");
 	c.header(
 		"Content-Disposition",
-		`attachment; filename="invoice-${transaction.id}.pdf"`,
+		`attachment; filename="${prefix}-${transaction.id}.pdf"`,
 	);
 	return c.body(new Uint8Array(pdf));
 });

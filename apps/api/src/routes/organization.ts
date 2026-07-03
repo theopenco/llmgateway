@@ -11,6 +11,7 @@ import {
 	buildInvoiceDataForTransaction,
 	generateInvoicePDF,
 	isInvoiceableTransaction,
+	isRefundTransaction,
 } from "@/utils/invoice.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -953,10 +954,13 @@ organization.openapi(downloadTransactionInvoice, async (c) => {
 		buildInvoiceDataForTransaction(transaction, org),
 	);
 
+	const prefix = isRefundTransaction(transaction.type)
+		? "credit-note"
+		: "invoice";
 	c.header("Content-Type", "application/pdf");
 	c.header(
 		"Content-Disposition",
-		`attachment; filename="invoice-${transaction.id}.pdf"`,
+		`attachment; filename="${prefix}-${transaction.id}.pdf"`,
 	);
 	return c.body(new Uint8Array(pdf));
 });

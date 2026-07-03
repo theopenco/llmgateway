@@ -20,6 +20,10 @@ export interface InvoiceLineItem {
 	amount: number;
 }
 
+// "invoice" for a charge, "credit_note" for a refund. A credit note renders the
+// same layout but titled as a refund document.
+export type InvoiceDocumentType = "invoice" | "credit_note";
+
 export interface InvoiceData {
 	invoiceNumber: string;
 	invoiceDate: Date;
@@ -34,12 +38,14 @@ export interface InvoiceData {
 	billingNotes?: string | null;
 	lineItems: InvoiceLineItem[];
 	currency: string;
+	// Defaults to "invoice" when omitted.
+	documentType?: InvoiceDocumentType;
 }
 
-// Human-readable fallback labels used when a purchase transaction has no
-// stored description. Kept in sync with the transaction types that represent an
-// actual charge (see isInvoiceableTransaction).
-const PURCHASE_TYPE_LABELS: Record<string, string> = {
+// Human-readable fallback labels used when a transaction has no stored
+// description. Covers the charge and refund types that are invoiceable (see
+// isInvoiceableTransaction).
+const TRANSACTION_TYPE_LABELS: Record<string, string> = {
 	credit_topup: "Credit Top-up",
 	subscription_start: "Subscription",
 	dev_plan_start: "DevPass Plan",
@@ -49,7 +55,15 @@ const PURCHASE_TYPE_LABELS: Record<string, string> = {
 	chat_plan_renewal: "Chat Plan Renewal",
 	chat_plan_upgrade: "Chat Plan Upgrade",
 	end_user_topup: "Credit Top-up",
+	credit_refund: "Refund",
+	end_user_refund: "Refund",
 };
+
+// Refund transactions record the returned amount as a positive `amount` (see
+// stripe.ts); they render as a credit note rather than an invoice.
+export function isRefundTransaction(type: string): boolean {
+	return type === "credit_refund" || type === "end_user_refund";
+}
 
 interface InvoiceableTransaction {
 	id: string;
@@ -71,10 +85,11 @@ interface InvoiceOrganization {
 	billingNotes: string | null;
 }
 
-// A transaction is invoiceable when it represents a completed, positive-amount
-// charge (top-ups, subscription/plan starts, renewals and upgrades). Cancels,
-// ends, refunds and zero/no-amount gifts are excluded — there is nothing to
-// invoice for those.
+// A transaction has a downloadable document when it is completed with a
+// positive amount: a charge (top-ups, subscription/plan starts, renewals and
+// upgrades) yields an invoice, a refund (positive `amount`, see stripe.ts)
+// yields a credit note. Cancels, ends and zero/no-amount gifts are excluded —
+// there is nothing to document for those.
 export function isInvoiceableTransaction(transaction: {
 	status: string;
 	amount: string | null;
@@ -96,7 +111,7 @@ export function buildInvoiceDataForTransaction(
 	const amount = transaction.amount ? parseFloat(transaction.amount) : 0;
 	const description =
 		transaction.description ??
-		PURCHASE_TYPE_LABELS[transaction.type] ??
+		TRANSACTION_TYPE_LABELS[transaction.type] ??
 		"Purchase";
 
 	return {
@@ -111,6 +126,9 @@ export function buildInvoiceDataForTransaction(
 		billingNotes: organization.billingNotes,
 		lineItems: [{ description, amount }],
 		currency: transaction.currency,
+		documentType: isRefundTransaction(transaction.type)
+			? "credit_note"
+			: "invoice",
 	};
 }
 
@@ -127,6 +145,7 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 	const invoiceNumber = data.invoiceNumber || "";
 	const organizationName = data.organizationName || "";
 	const billingEmail = data.billingEmail || "";
+	const isCreditNote = data.documentType === "credit_note";
 
 	// eslint-disable-next-line new-cap
 	const doc = new jsPDF();
@@ -135,12 +154,18 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 
 	doc.setFontSize(24);
 	doc.setFont("helvetica", "bold");
-	doc.text("INVOICE", pageWidth / 2, yPos, { align: "center" });
+	doc.text(isCreditNote ? "CREDIT NOTE" : "INVOICE", pageWidth / 2, yPos, {
+		align: "center",
+	});
 
 	yPos += 15;
 	doc.setFontSize(10);
 	doc.setFont("helvetica", "normal");
-	doc.text(`Invoice Number: ${invoiceNumber}`, 20, yPos);
+	doc.text(
+		`${isCreditNote ? "Credit Note" : "Invoice"} Number: ${invoiceNumber}`,
+		20,
+		yPos,
+	);
 	yPos += 6;
 	doc.text(
 		`Date: ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`,
@@ -240,7 +265,7 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 
 	doc.setFontSize(12);
 	doc.setFont("helvetica", "bold");
-	doc.text("TOTAL", 20, yPos);
+	doc.text(isCreditNote ? "TOTAL REFUNDED" : "TOTAL", 20, yPos);
 	doc.text(`${data.currency} ${total.toFixed(2)}`, pageWidth - 20, yPos, {
 		align: "right",
 	});
