@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d640f2a8-42b2-462c-a428-996c07853ba7",
+  "id": "64a86cb0-62df-4246-b86b-dd4ec6d1ff87",
   "prevId": "6038f790-f200-4886-9288-c6506e8558c5",
   "ddl": [
     {
@@ -11455,6 +11455,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_pending_tier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": {
@@ -13014,22 +13027,6 @@
       "generated": null,
       "identity": null,
       "name": "end_user_markup_percent",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "end_user_top_up_bonus_percent",
       "entityType": "columns",
       "schema": "public",
       "table": "project"
@@ -17695,19 +17692,6 @@
       "generated": null,
       "identity": null,
       "name": "markup_percent_override",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "wallet"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "bonus_percent_override",
       "entityType": "columns",
       "schema": "public",
       "table": "wallet"

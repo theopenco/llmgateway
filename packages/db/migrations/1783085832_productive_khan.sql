@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "dev_plan_pending_tier" text;
