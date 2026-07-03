@@ -190,6 +190,11 @@ export default function BillingClient({
 	const pendingPlanData = plans.find((p) => p.tier === pendingTier);
 	const cycle = devPlanStatus.devPlanCycle ?? "monthly";
 	const cancelled = devPlanStatus.devPlanCancelled ?? false;
+	// A cancelled subscription ends before its next renewal, so a scheduled
+	// downgrade would never take effect — surfacing it alongside "Cancelling" is
+	// confusing. Hide the pending-downgrade UI while cancelled; the tier is kept in
+	// the DB (cancel/resume don't clear it), so it reappears if the user resumes.
+	const showPendingDowngrade = pendingTier !== null && !cancelled;
 	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
 	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
 
@@ -221,7 +226,7 @@ export default function BillingClient({
 	// A scheduled downgrade keeps the current (higher) tier active until renewal,
 	// then switches. Surface both the pending tier and the date it applies.
 	const pendingDowngradeNotice =
-		pendingTier && pendingPlanData
+		showPendingDowngrade && pendingPlanData
 			? `Your plan switches to ${pendingPlanData.name}${
 					renewWhen ? ` on ${renewWhen}` : " at your next renewal"
 				}. You keep your current allowance until then.`
@@ -252,7 +257,7 @@ export default function BillingClient({
 									Cancelling
 								</span>
 							)}
-							{pendingTier && pendingPlanData && (
+							{showPendingDowngrade && pendingPlanData && (
 								<span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
 									Downgrading to {pendingPlanData.name}
 								</span>
@@ -338,7 +343,7 @@ export default function BillingClient({
 			<ActivePlanChangeTier
 				plans={plans}
 				currentPlan={currentPlan}
-				pendingTier={pendingTier}
+				pendingTier={showPendingDowngrade ? pendingTier : null}
 				subscribingTier={subscribingTier}
 				isCancellingDowngrade={isCancellingDowngrade}
 				onChangeTier={handleChangeTier}
