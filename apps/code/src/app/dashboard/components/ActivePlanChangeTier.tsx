@@ -271,10 +271,12 @@ function TierChangePreviewCopy({
 
 	return (
 		<span>
-			You&apos;ll keep your {currentName} allowance until your next renewal,
-			when you&apos;ll move to {plan.name} (${plan.price}/mo, ${plan.usage} in
-			usage). No refund is issued for the current period and no charge is due
-			today.
+			You&apos;ll keep your {currentName} allowance until the end of your
+			current billing period, when you&apos;ll move to {plan.name} ($
+			{plan.price}/mo, ${plan.usage} in usage) at your next renewal. The
+			downgrade only takes effect at renewal, and until then you won&apos;t be
+			able to upgrade or change your plan. No refund is issued for the current
+			period and no charge is due today.
 		</span>
 	);
 }
