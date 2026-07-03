@@ -1,9 +1,9 @@
 ---
-id: blog-embeddable-ai-credits
-slug: embeddable-ai-credits-stripe-for-ai
+id: blog-embeddable-payments-sdk
+slug: embeddable-payments-sdk
 date: 2026-06-07
-title: "Stripe for AI: Embed AI + Credit Purchases in Your App"
-summary: Our new LLM SDK lets your end-users buy credits inside your app and chat with any model — billed through LLM Gateway, with your markup as margin. Here's how it works and how to ship it in ~40 lines.
+title: "Stripe for AI: Embeddable Payments for Your App"
+summary: Our new Payments SDK lets your end-users buy credits inside your app and pay per request for any model — billed through LLM Gateway, with your markup as margin. Here's how it works and how to ship it in ~40 lines.
 categories: ["Engineering"]
 image:
   src: "/blog/embeddable-ai-credits.png"
@@ -14,7 +14,7 @@ image:
 
 If you're building an AI feature into your product, you hit the same two problems fast: **how do your users pay for the AI they use**, and **how do you not rebuild billing, wallets, and model plumbing from scratch?**
 
-Today we're shipping the **LLM SDK** — think Stripe + Stripe Elements, but for AI. Your end-users get their own wallet, buy credits **inside your app**, and chat with any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours.
+Today we're shipping the **Payments SDK** — think Stripe + Stripe Elements, but for AI. It's a payments product, not a normal AI client SDK like the OpenAI SDK: it embeds end-user **payments and sessions** into your own site. Your end-users get their own wallet, buy credits **inside your app**, and pay per request for any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours.
 
 <video src="/blog/llmgateway-topup-flow.webm" controls autoplay muted loop playsinline style="width: 100%; border-radius: 12px; margin: 1.5rem 0;">
   Your browser does not support the video tag.
@@ -24,7 +24,7 @@ Today we're shipping the **LLM SDK** — think Stripe + Stripe Elements, but for
 
 Most "add AI to your app" stories assume _you_ eat the model cost and reconcile it later. We wanted the opposite: each of **your** users holds their own balance, tops it up themselves, and is billed per request — while you earn a margin on top.
 
-So the SDK is built around three ideas:
+So the Payments SDK is built around three ideas:
 
 1. **Per-end-user wallets.** Every one of your users has a wallet with a real USD balance, separate from your org credits.
 2. **Markup at top-up time.** You set a markup percent. When a user buys $10 of credits, their wallet is credited the net spend power and your margin accrues to your organization for payout. The per-request path stays simple — it just debits raw cost.
@@ -110,4 +110,4 @@ There's a complete, runnable Next.js example — backend session route, provider
 
 ➡️ **[theopenco/llmgateway-templates → templates/embeddable-credits](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)**
 
-Full reference is in the [LLM SDK docs](https://docs.llmgateway.io/features/llm-sdk). In the dashboard, open your project's **Settings → SDK** to enable end-user sessions and create a platform secret key — and you can be live in an afternoon.
+Full reference is in the [Embeddable Payments docs](https://docs.llmgateway.io/features/embeddable-payments). Embeddable Payments is currently in preview and opt-in only — [contact us](mailto:contact@llmgateway.io) to enable it for your project. Once it's on, open your project's **Settings → Payments SDK** to enable end-user sessions and create a platform secret key — and you can be live in an afternoon.

@@ -1,6 +1,7 @@
 import {
 	streamText,
 	convertToModelMessages,
+	createUIMessageStream,
 	JsonToSseTransformStream,
 	tool,
 	stepCountIs,
@@ -37,6 +38,11 @@ function escapeHtml(text: string): string {
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
+// A short burst window on top of the hourly cap so a single visitor can't
+// fire dozens of messages in a couple of seconds (the hourly cap alone allows
+// the entire quota to be spent instantly).
+const BURST_LIMIT_MAX = 5;
+const BURST_LIMIT_WINDOW_SECONDS = 20;
 const CONVERSATION_TTL_SECONDS = 60 * 60; // 1 hour
 const MAX_CONTEXT_MESSAGES = 30;
 
@@ -90,18 +96,56 @@ function extractClientIP(c: {
 	return c.req.header("X-Real-IP") ?? null;
 }
 
-async function checkRateLimit(identifier: string): Promise<boolean> {
-	const key = `chat_support_rate_limit:${identifier}`;
+async function checkRateLimit(
+	identifier: string,
+	bucket: string,
+	max: number,
+	windowSeconds: number,
+): Promise<boolean> {
+	const key = `chat_support_rate_limit:${bucket}:${identifier}`;
 	try {
 		const count = await redisClient.incr(key);
 		if (count === 1) {
-			await redisClient.expire(key, RATE_LIMIT_WINDOW_SECONDS);
+			await redisClient.expire(key, windowSeconds);
 		}
-		return count <= RATE_LIMIT_MAX;
+		return count <= max;
 	} catch (error) {
 		logger.error("Chat support rate limit check failed", toError(error));
 		return true;
 	}
+}
+
+// Enforces both the short burst window and the hourly cap. The burst check runs
+// first so a request blocked by it doesn't also consume the hourly quota.
+async function checkMessageRateLimit(
+	identifier: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+	const burstOk = await checkRateLimit(
+		identifier,
+		"burst",
+		BURST_LIMIT_MAX,
+		BURST_LIMIT_WINDOW_SECONDS,
+	);
+	if (!burstOk) {
+		return {
+			ok: false,
+			message:
+				"You're sending messages too quickly. Please wait a few seconds and try again.",
+		};
+	}
+	const hourOk = await checkRateLimit(
+		identifier,
+		"hour",
+		RATE_LIMIT_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
+	if (!hourOk) {
+		return {
+			ok: false,
+			message: "Too many messages. Please try again later (max 20 per hour).",
+		};
+	}
+	return { ok: true };
 }
 
 function getTextFromUIMessage(message: UIMessage): string {
@@ -260,15 +304,10 @@ export const publicChatSupport = new Hono<ServerTypes>();
 
 publicChatSupport.post("/", async (c) => {
 	const ipAddress = extractClientIP(c) ?? "unknown";
-	const canSubmit = await checkRateLimit(ipAddress);
+	const rateLimit = await checkMessageRateLimit(ipAddress);
 
-	if (!canSubmit) {
-		return c.json(
-			{
-				error: "Too many messages. Please try again later (max 20 per hour).",
-			},
-			429,
-		);
+	if (!rateLimit.ok) {
+		return c.json({ error: rateLimit.message }, 429);
 	}
 
 	const body = await c.req.json<{
@@ -294,14 +333,6 @@ publicChatSupport.post("/", async (c) => {
 	}
 	const contextMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
 
-	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1";
-
-	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
-	if (!supportApiKey) {
-		logger.error("SUPPORT_CHAT_API_KEY not configured");
-		return c.json({ error: "Chat support is not configured" }, 503);
-	}
-
 	const userAgent = c.req.header("User-Agent");
 	const conversationId = await getOrCreateConversation(
 		clientId,
@@ -310,14 +341,6 @@ publicChatSupport.post("/", async (c) => {
 		name,
 		email,
 	);
-
-	const llmgateway = createLLMGateway({
-		apiKey: supportApiKey,
-		baseURL: gatewayUrl,
-		headers: {
-			"x-source": "support-chat",
-		},
-	});
 
 	// Persist the visitor's message up front so it is never lost if the assistant
 	// errors or a human has taken the conversation over.
@@ -329,6 +352,52 @@ publicChatSupport.post("/", async (c) => {
 			getTextFromUIMessage(newUserMessage),
 		);
 	}
+
+	// Once a visitor escalates to a human, the AI stays silent — only admins
+	// reply from here on. We still persist the visitor's message above so the
+	// support team sees it, then return an empty stream so the widget settles
+	// without producing an assistant turn.
+	const ct = tables.chatSupportConversation;
+	const [escalationRow] = await db
+		.select({ escalatedAt: ct.escalatedAt })
+		.from(ct)
+		.where(eq(ct.id, conversationId))
+		.limit(1);
+	if (escalationRow?.escalatedAt) {
+		const noopStream = createUIMessageStream<UIMessage>({
+			execute: () => {
+				// Intentionally empty — escalated conversations get no AI reply.
+			},
+		});
+		return new Response(
+			noopStream.pipeThrough(new JsonToSseTransformStream()),
+			{
+				headers: {
+					"content-type": "text/event-stream",
+					"cache-control": "no-cache, no-transform",
+					connection: "keep-alive",
+					"x-vercel-ai-ui-message-stream": "v1",
+					"x-accel-buffering": "no",
+				},
+			},
+		);
+	}
+
+	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1";
+
+	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
+	if (!supportApiKey) {
+		logger.error("SUPPORT_CHAT_API_KEY not configured");
+		return c.json({ error: "Chat support is not configured" }, 503);
+	}
+
+	const llmgateway = createLLMGateway({
+		apiKey: supportApiKey,
+		baseURL: gatewayUrl,
+		headers: {
+			"x-source": "support-chat",
+		},
+	});
 
 	const system = await buildSystemPrompt();
 
@@ -560,7 +629,14 @@ publicChatSupport.post("/resolve", async (c) => {
 
 publicChatSupport.post("/escalate", async (c) => {
 	const ipAddress = extractClientIP(c) ?? "unknown";
-	const canSubmit = await checkRateLimit(ipAddress);
+	// Throttle escalation on its own bucket — never the message bucket — so a
+	// visitor who has used up their hourly message quota can still reach a human.
+	const canSubmit = await checkRateLimit(
+		ipAddress,
+		"escalate",
+		RATE_LIMIT_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
 
 	if (!canSubmit) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);

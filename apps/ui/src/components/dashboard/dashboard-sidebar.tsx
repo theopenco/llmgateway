@@ -43,6 +43,7 @@ import {
 	AnimatedShield,
 	AnimatedShieldAlert,
 	AnimatedTerminal,
+	AnimatedUsers,
 } from "@/components/dashboard/animated-nav-icons";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -140,6 +141,25 @@ const PROJECT_NAVIGATION: readonly {
 	},
 ];
 
+// Navigation shown to project-scoped "developer" members instead of the full
+// Project section: they can only see their own usage and manage their own keys.
+const USER_NAVIGATION: readonly {
+	href: string;
+	label: string;
+	icon: AnimatedIconComponent;
+}[] = [
+	{
+		href: "me",
+		label: "Dashboard",
+		icon: AnimatedLayoutDashboard,
+	},
+	{
+		href: "me/api-keys",
+		label: "API Keys",
+		icon: AnimatedKey,
+	},
+];
+
 const PROJECT_SETTINGS = [
 	{
 		href: "settings/preferences",
@@ -147,7 +167,7 @@ const PROJECT_SETTINGS = [
 	},
 	{
 		href: "settings/sdk",
-		label: "SDK",
+		label: "Payments SDK",
 	},
 	{
 		href: "settings/routing",
@@ -176,15 +196,6 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/preferences",
 		label: "Preferences",
-	},
-	{
-		href: "org/team",
-		label: "Team",
-	},
-	{
-		href: "org/members",
-		label: "Members",
-		enterpriseOnly: true,
 	},
 	{
 		href: "org/audit-logs",
@@ -438,6 +449,14 @@ function OrganizationSection({
 			<SidebarGroupContent className="mt-2">
 				<SidebarMenu>
 					<OrgNavItem
+						href={buildOrgUrl("org/team")}
+						label="Team"
+						icon={AnimatedUsers}
+						isActive={isActive("org/team")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
 						href={buildOrgUrl("org/provider-keys")}
 						label="Provider Keys"
 						icon={AnimatedKeyRound}
@@ -519,8 +538,6 @@ function OrganizationSection({
 								isActive("org/referrals") ||
 								isActive("org/policies") ||
 								isActive("org/preferences") ||
-								isActive("org/team") ||
-								isActive("org/members") ||
 								isActive("org/audit-logs")
 							}
 							tooltip="Settings"
@@ -1068,52 +1085,82 @@ export function DashboardSidebar({
 				onOrganizationCreated={onOrganizationCreated}
 			/>
 			<SidebarContent>
-				<SidebarGroup>
-					<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
-						Project
-					</SidebarGroupLabel>
-					<SidebarGroupContent className="mt-2">
-						<SidebarMenu>
-							{PROJECT_NAVIGATION.map((item) => (
-								<NavigationItem
-									key={item.href}
-									item={item}
-									isActive={isActive}
-									onClick={handleNavClick}
-								/>
-							))}
-							<ProjectSettingsSection
-								isActive={isActive}
-								isMobile={isMobile}
-								toggleSidebar={toggleSidebar}
-							/>
-						</SidebarMenu>
-					</SidebarGroupContent>
-				</SidebarGroup>
+				{selectedOrganization?.role === "developer" ? (
+					// Project-scoped "developer" members get a minimal, personal nav:
+					// their own usage dashboard and their own API keys — nothing else.
+					<SidebarGroup>
+						<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+							User
+						</SidebarGroupLabel>
+						<SidebarGroupContent className="mt-2">
+							<SidebarMenu>
+								{USER_NAVIGATION.map((item) => (
+									<NavigationItem
+										key={item.href}
+										item={item}
+										isActive={isActive}
+										onClick={handleNavClick}
+									/>
+								))}
+							</SidebarMenu>
+						</SidebarGroupContent>
+					</SidebarGroup>
+				) : (
+					<>
+						<SidebarGroup>
+							<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+								Project
+							</SidebarGroupLabel>
+							<SidebarGroupContent className="mt-2">
+								<SidebarMenu>
+									{PROJECT_NAVIGATION.map((item) => (
+										<NavigationItem
+											key={item.href}
+											item={item}
+											isActive={isActive}
+											onClick={handleNavClick}
+										/>
+									))}
+									<ProjectSettingsSection
+										isActive={isActive}
+										isMobile={isMobile}
+										toggleSidebar={toggleSidebar}
+									/>
+								</SidebarMenu>
+							</SidebarGroupContent>
+						</SidebarGroup>
 
-				<OrganizationSection
-					isActive={isActive}
-					isMobile={isMobile}
-					toggleSidebar={toggleSidebar}
-					searchParams={searchParams}
-					isEnterprise={selectedOrganization?.plan === "enterprise"}
-				/>
+						<OrganizationSection
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+							searchParams={searchParams}
+							isEnterprise={selectedOrganization?.plan === "enterprise"}
+						/>
 
-				<ToolsResourcesSection
-					toolsResources={toolsResources}
-					isActive={isActive}
-					isMobile={isMobile}
-					toggleSidebar={toggleSidebar}
-				/>
+						<ToolsResourcesSection
+							toolsResources={toolsResources}
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+						/>
+					</>
+				)}
 			</SidebarContent>
 
 			<SidebarFooter>
-				<CreditsDisplay selectedOrganization={selectedOrganization} />
-				<UpgradeCTA
-					show={showUpgradeCTA && ctaLoaded}
-					onHide={hideCreditCTA}
-					selectedOrganization={selectedOrganization}
-				/>
+				{/* Org credits + upgrade prompts are org-level; hide them from
+				    project-scoped developers. */}
+				{selectedOrganization?.role !== "developer" && (
+					<>
+						<CreditsDisplay selectedOrganization={selectedOrganization} />
+						<UpgradeCTA
+							show={showUpgradeCTA && ctaLoaded}
+							onHide={hideCreditCTA}
+							selectedOrganization={selectedOrganization}
+						/>
+					</>
+				)}
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<UserDropdownMenu

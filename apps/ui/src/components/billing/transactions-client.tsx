@@ -1,9 +1,12 @@
 "use client";
 
 import { format } from "date-fns";
+import { Download, Loader2 } from "lucide-react";
+import { useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/lib/components/badge";
+import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
@@ -11,6 +14,8 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { useToast } from "@/lib/components/use-toast";
+import { useFetchClient } from "@/lib/fetch-client";
 
 interface Transaction {
 	id: string;
@@ -32,7 +37,97 @@ interface TransactionsData {
 	transactions: Transaction[];
 }
 
-function TransactionCard({ transaction }: { transaction: Transaction }) {
+// A transaction has a downloadable document when it is a completed, positive
+// amount — a charge (invoice) or a refund (credit note). Mirrors
+// isInvoiceableTransaction on the API.
+function isInvoiceable(transaction: Transaction): boolean {
+	return (
+		transaction.status === "completed" &&
+		transaction.amount !== null &&
+		Number(transaction.amount) > 0
+	);
+}
+
+function isRefund(type: Transaction["type"]): boolean {
+	return type === "credit_refund";
+}
+
+function InvoiceDownloadButton({
+	orgId,
+	transaction,
+}: {
+	orgId: string;
+	transaction: Transaction;
+}) {
+	const fetchClient = useFetchClient();
+	const { toast } = useToast();
+	const [loading, setLoading] = useState(false);
+
+	if (!isInvoiceable(transaction)) {
+		return null;
+	}
+
+	const refund = isRefund(transaction.type);
+	const label = refund ? "Credit note" : "Invoice";
+
+	async function handleDownload() {
+		setLoading(true);
+		try {
+			const { data, response } = await fetchClient.GET(
+				"/orgs/{id}/transactions/{transactionId}/invoice",
+				{
+					params: { path: { id: orgId, transactionId: transaction.id } },
+					parseAs: "blob",
+				},
+			);
+
+			if (!response.ok || !data) {
+				throw new Error("Failed to download document");
+			}
+
+			const url = URL.createObjectURL(data as unknown as Blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = `${refund ? "credit-note" : "invoice"}-${transaction.id}.pdf`;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			URL.revokeObjectURL(url);
+		} catch {
+			toast({
+				title: `Could not download ${label.toLowerCase()}`,
+				description: "Please try again later.",
+				variant: "destructive",
+			});
+		} finally {
+			setLoading(false);
+		}
+	}
+
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			onClick={handleDownload}
+			disabled={loading}
+		>
+			{loading ? (
+				<Loader2 className="h-4 w-4 animate-spin" />
+			) : (
+				<Download className="h-4 w-4" />
+			)}
+			{label}
+		</Button>
+	);
+}
+
+function TransactionCard({
+	transaction,
+	orgId,
+}: {
+	transaction: Transaction;
+	orgId: string;
+}) {
 	const getTypeLabel = (type: Transaction["type"]) => {
 		switch (type) {
 			case "credit_topup":
@@ -103,12 +198,24 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
 						<p className="text-sm">{transaction.description}</p>
 					</div>
 				)}
+
+				{isInvoiceable(transaction) && (
+					<div className="pt-1">
+						<InvoiceDownloadButton orgId={orgId} transaction={transaction} />
+					</div>
+				)}
 			</div>
 		</Card>
 	);
 }
 
-export function TransactionsClient({ data }: { data: TransactionsData }) {
+export function TransactionsClient({
+	data,
+	orgId,
+}: {
+	data: TransactionsData;
+	orgId: string;
+}) {
 	const isMobile = useIsMobile();
 
 	return (
@@ -140,6 +247,7 @@ export function TransactionsClient({ data }: { data: TransactionsData }) {
 										<TransactionCard
 											key={transaction.id}
 											transaction={transaction}
+											orgId={orgId}
 										/>
 									))
 								)}
@@ -167,6 +275,9 @@ export function TransactionsClient({ data }: { data: TransactionsData }) {
 											</th>
 											<th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground whitespace-nowrap">
 												Description
+											</th>
+											<th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground whitespace-nowrap">
+												Invoice
 											</th>
 										</tr>
 									</thead>
@@ -217,12 +328,22 @@ export function TransactionsClient({ data }: { data: TransactionsData }) {
 												<td className="p-4 align-middle text-sm text-muted-foreground max-w-xs truncate">
 													{transaction.description ?? "—"}
 												</td>
+												<td className="p-4 align-middle whitespace-nowrap text-right">
+													{isInvoiceable(transaction) ? (
+														<InvoiceDownloadButton
+															orgId={orgId}
+															transaction={transaction}
+														/>
+													) : (
+														"—"
+													)}
+												</td>
 											</tr>
 										))}
 										{data.transactions.length === 0 && (
 											<tr>
 												<td
-													colSpan={6}
+													colSpan={7}
 													className="p-8 text-center text-muted-foreground"
 												>
 													No transactions found

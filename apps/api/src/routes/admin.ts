@@ -8069,6 +8069,7 @@ const contactSubmissionSchema = z.object({
 	email: z.string(),
 	country: z.string(),
 	size: z.string(),
+	deployment: z.enum(["self_host", "cloud", "not_sure"]).nullable(),
 	message: z.string(),
 	ipAddress: z.string().nullable(),
 	userAgent: z.string().nullable(),
@@ -8169,6 +8170,7 @@ admin.openapi(getContactSubmissions, async (c) => {
 				email: t.email,
 				country: t.country,
 				size: t.size,
+				deployment: t.deployment,
 				message: t.message,
 				ipAddress: t.ipAddress,
 				userAgent: t.userAgent,
@@ -8229,6 +8231,7 @@ admin.openapi(getContactSubmission, async (c) => {
 			email: t.email,
 			country: t.country,
 			size: t.size,
+			deployment: t.deployment,
 			message: t.message,
 			ipAddress: t.ipAddress,
 			userAgent: t.userAgent,
@@ -8440,6 +8443,8 @@ const chatSupportConversationDetailSchema = z.object({
 	archivedAt: z.string().nullable(),
 	resolvedAt: z.string().nullable(),
 	rating: z.number().int().min(0).max(5).nullable(),
+	organizationId: z.string().nullable(),
+	organizationName: z.string().nullable(),
 	messages: z.array(chatSupportMessageSchema),
 });
 
@@ -8736,6 +8741,38 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		.where(eq(mt.conversationId, id))
 		.orderBy(asc(mt.sequence));
 
+	// Best-effort link to the visitor's organization so admins can jump straight
+	// to their account. Matched by email; owners are preferred when a visitor
+	// belongs to more than one org.
+	let organizationId: string | null = null;
+	let organizationName: string | null = null;
+	if (conversation.email) {
+		const orgRows = await db
+			.select({
+				id: tables.organization.id,
+				name: tables.organization.name,
+			})
+			.from(tables.user)
+			.innerJoin(
+				tables.userOrganization,
+				eq(tables.userOrganization.userId, tables.user.id),
+			)
+			.innerJoin(
+				tables.organization,
+				eq(tables.organization.id, tables.userOrganization.organizationId),
+			)
+			.where(sql`LOWER(${tables.user.email}) = LOWER(${conversation.email})`)
+			.orderBy(
+				sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
+				asc(tables.userOrganization.createdAt),
+			)
+			.limit(1);
+		if (orgRows[0]) {
+			organizationId = orgRows[0].id;
+			organizationName = orgRows[0].name;
+		}
+	}
+
 	return c.json({
 		...conversation,
 		createdAt: conversation.createdAt.toISOString(),
@@ -8744,6 +8781,8 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
 		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
 		rating: conversation.rating ?? null,
+		organizationId,
+		organizationName,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),

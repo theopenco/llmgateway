@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a957ad1b-cac0-4cbc-b121-f9fe0614067d",
+  "id": "93f94388-71f7-474c-9421-0e1c1b9cbcce",
   "prevId": "9941b6e8-1b90-47d1-9136-745372ac24bd",
   "ddl": [
     {
@@ -12897,6 +12897,22 @@
       },
       "generated": null,
       "identity": null,
+      "name": "payments_sdk_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
       "name": "end_user_enabled",
       "entityType": "columns",
       "schema": "public",
@@ -15342,38 +15358,12 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_ciphertext",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_masked",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
@@ -24001,13 +23991,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "model_rating"
-    },
-    {
-      "value": "\"token\" IS NULL OR \"token_ciphertext\" IS NULL",
-      "name": "provider_key_token_xor",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "provider_key"
     }
   ],
   "renames": []

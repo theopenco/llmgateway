@@ -86,6 +86,35 @@ export function getProviderEnvValue(
 	return values[configIndex];
 }
 
+export type VertexTokenType = "api-key" | "oauth";
+
+interface VertexTokenTypeOptions {
+	google_vertex_token_type?: VertexTokenType;
+}
+
+/**
+ * Google Vertex AI accepts either an API key (sent as `?key=`) or an OAuth2
+ * Bearer token. Resolution order: provider-key option → env var → "api-key".
+ */
+export function resolveVertexTokenType(
+	provider: "google-vertex",
+	providerKeyOptions?: VertexTokenTypeOptions,
+	configIndex?: number,
+	skipEnvVars?: boolean,
+): VertexTokenType {
+	const optionValue = providerKeyOptions?.google_vertex_token_type;
+	if (optionValue === "api-key" || optionValue === "oauth") {
+		return optionValue;
+	}
+	if (!skipEnvVars) {
+		const envValue = getProviderEnvValue(provider, "tokenType", configIndex);
+		if (envValue === "api-key" || envValue === "oauth") {
+			return envValue;
+		}
+	}
+	return "api-key";
+}
+
 export function validateProviderEnv(provider: Provider): string[] {
 	const config = getProviderEnvConfig(provider);
 	if (!config) {

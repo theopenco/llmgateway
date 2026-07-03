@@ -13,7 +13,7 @@ LLMGateway supports asynchronous video generation through an OpenAI-compatible `
 Currently available models:
 
 - **Veo 3.1** through `avalanche` (1080p, 4k) and `google-vertex` (720p, 1080p, 4k)
-- **Seedance 2.0**, **Seedance 2.0 Fast**, and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p)
+- **Seedance 2.0** and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p), **Seedance 2.0 Fast** through `bytedance` (720p only)
 - **KLING v3.0** and **KLING v3.0 Turbo** through `atlascloud` (720p, 1080p; KLING v3.0 also 4k)
 
 You can find the current list of video-capable models on our [models page with the video filter enabled](https://llmgateway.io/models?filters=1&videoGeneration=true) or programmatically through the [/v1/models endpoint](/v1_models).
@@ -49,13 +49,15 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 
 ### Sizes and durations by model
 
-| Model family                      | Provider        | Supported sizes                                                            | Supported durations |
-| --------------------------------- | --------------- | -------------------------------------------------------------------------- | ------------------- |
-| Veo 3.1                           | `google-vertex` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `4`, `6`, `8`, `10` |
-| Veo 3.1                           | `avalanche`     | `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                         | `8`                 |
-| Seedance 2.0 / 2.0 Fast / 1.5 Pro | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
-| KLING v3.0                        | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `5`, `10`           |
-| KLING v3.0 Turbo                  | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
+| Model family      | Provider        | Supported sizes                                                            | Supported durations |
+| ----------------- | --------------- | -------------------------------------------------------------------------- | ------------------- |
+| Veo 3.1           | `google-vertex` | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `4`, `6`, `8`, `10` |
+| Veo 3.1           | `avalanche`     | `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                         | `8`                 |
+| Seedance 2.0      | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `4`–`15`            |
+| Seedance 2.0 Fast | `bytedance`     | `1280x720`, `720x1280`                                                     | `4`–`15`            |
+| Seedance 1.5 Pro  | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
+| KLING v3.0        | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `5`, `10`           |
+| KLING v3.0 Turbo  | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
 
 Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance and KLING v3.0 derive `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
 
@@ -224,7 +226,6 @@ Seedance (ByteDance):
 | `seedance-2-0`      | `bytedance` | 720p       | `$0.1512 / second`  | `$0.1512 / second`  |
 | `seedance-2-0`      | `bytedance` | 1080p      | `$0.3402 / second`  | `$0.3402 / second`  |
 | `seedance-2-0-fast` | `bytedance` | 720p       | `$0.121 / second`   | `$0.121 / second`   |
-| `seedance-2-0-fast` | `bytedance` | 1080p      | `$0.2722 / second`  | `$0.2722 / second`  |
 | `seedance-1-5-pro`  | `bytedance` | 720p       | `$0.05184 / second` | `$0.02592 / second` |
 | `seedance-1-5-pro`  | `bytedance` | 1080p      | `$0.1166 / second`  | `$0.05832 / second` |
 

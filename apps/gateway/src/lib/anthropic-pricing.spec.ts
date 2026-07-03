@@ -176,6 +176,7 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 		"anthropic.claude-haiku-4-5",
 		"anthropic.claude-sonnet-4-5",
 		"anthropic.claude-sonnet-4-6",
+		"anthropic.claude-sonnet-5",
 	];
 	const supportsBedrock1h = (externalId: string) =>
 		ONE_HOUR_BEDROCK_PREFIXES.some((prefix) => externalId.startsWith(prefix));

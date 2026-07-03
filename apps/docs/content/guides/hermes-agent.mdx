@@ -126,7 +126,7 @@ Once you press `Y`, Hermes launches a full agent session connected to LLM Gatewa
 
 ## DevPass Compatibility
 
-Hermes Agent is fully compatible with [DevPass coding plans](/docs/features/coding-agents). The gateway automatically detects Hermes via multiple signals:
+Hermes Agent is fully compatible with [DevPass coding plans](/features/coding-agents). The gateway automatically detects Hermes via multiple signals:
 
 - **X-Source header** — Hermes sends `X-Source: https://hermes-agent.nousresearch.com` (auto-detected)
 - **User-Agent** — `HermesAgent/<version>` is recognized
@@ -213,7 +213,7 @@ By default, LLM Gateway automatically fails over to alternative providers if you
 
 <Callout type="warn">
 	Disabling fallback means requests will fail if the chosen provider is down.
-	See the [routing docs](/docs/features/routing) for details.
+	See the [routing docs](/features/routing) for details.
 </Callout>
 
 ## Troubleshooting

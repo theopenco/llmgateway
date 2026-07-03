@@ -98,7 +98,11 @@ export function providerKeyBaseUrlSupportsServiceTier(
  * - Vertex AI reports the served tier in `usageMetadata.trafficType`
  *   (`ON_DEMAND_PRIORITY` / `ON_DEMAND_FLEX` / `ON_DEMAND`).
  * - The Gemini Developer API (AI Studio / glacier) reports it in the
- *   `x-gemini-service-tier` response header (`priority` / `flex` / `standard`).
+ *   `x-gemini-service-tier` response header (`priority` / `flex` / `standard`)
+ *   on unary responses, but streaming responses omit that header and instead
+ *   carry it in the body as `usageMetadata.serviceTier` (`flex` / `priority` /
+ *   `standard`). Both are checked so streaming requests aren't misread as
+ *   standard.
  *
  * Billing keys off this value rather than the requested tier so a downgraded
  * request is charged at the rate it actually ran at.
@@ -106,6 +110,7 @@ export function providerKeyBaseUrlSupportsServiceTier(
 export function resolveServedServiceTier(signals: {
 	trafficType?: string | null;
 	serviceTierHeader?: string | null;
+	serviceTierBody?: string | null;
 }): "flex" | "priority" | null {
 	const trafficType = signals.trafficType?.toUpperCase();
 	if (trafficType === "ON_DEMAND_PRIORITY") {
@@ -114,11 +119,13 @@ export function resolveServedServiceTier(signals: {
 	if (trafficType === "ON_DEMAND_FLEX") {
 		return "flex";
 	}
-	const header = signals.serviceTierHeader?.toLowerCase();
-	if (header === "priority") {
+	const tier = (
+		signals.serviceTierHeader ?? signals.serviceTierBody
+	)?.toLowerCase();
+	if (tier === "priority") {
 		return "priority";
 	}
-	if (header === "flex") {
+	if (tier === "flex") {
 		return "flex";
 	}
 	return null;

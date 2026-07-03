@@ -9,6 +9,12 @@ export interface CodingAgentDefinition {
 
 export const CODING_AGENTS: CodingAgentDefinition[] = [
 	{
+		id: "devpass-code",
+		label: "DevPass Code",
+		xSourceValues: ["devpass-code"],
+		userAgentPatterns: [/^devpass-code\//i, /\bdevpass-code\b/i],
+	},
+	{
 		id: "claude.com/claude-code",
 		label: "Claude Code",
 		xSourceValues: ["claude.com/claude-code"],
@@ -66,6 +72,12 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		label: "SoulForge",
 		xSourceValues: ["soulforge"],
 		userAgentPatterns: [/^soulforge\//i],
+	},
+	{
+		id: "empryo",
+		label: "Empryo",
+		xSourceValues: ["empryo"],
+		userAgentPatterns: [/^empryo\//i, /\bempryo\b/i],
 	},
 	{
 		id: "n8n",

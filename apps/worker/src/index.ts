@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 import { validateProviderKeyEncryptionKey } from "@llmgateway/actions";
+import { setQueryTags } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { startWorker, stopWorker } from "./worker.js";
@@ -71,6 +72,10 @@ if (isDirectExecution()) {
 		);
 		process.exit(1);
 	}
+
+	// Tag every DB query with the originating service for Cloud SQL Query Insights
+	setQueryTags({ application: "worker" });
+
 	logger.info("Starting worker application...");
 	startWorker().catch((error) => {
 		logger.error(

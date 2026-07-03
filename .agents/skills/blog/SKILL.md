@@ -81,10 +81,11 @@ The image is an **abstract, on-brand illustration with no text** — AI-rendered
 
 ### Write the prompt
 
-A 2–4 sentence prompt that:
+A 2–4 sentence prompt in the **house image style** — a glossy 3D-rendered circuit-board scene, not a flat/minimal gradient backdrop:
 
-- Describes a clean, modern, **abstract** tech illustration conveying the post's concept (concept over literalism — e.g. interlocking rotating keys and a shield for key rotation; a hub routing glowing streams to many nodes for orchestration).
-- Bakes in the **LLM Gateway brand feel** (from `apps/ui/src/lib/og.tsx`): near-black background, a soft cyan glow (`rgb(56,189,248)`) in one corner and a soft violet glow (`rgb(139,92,246)`) in the opposite corner, subtle depth and glow, generous negative space, premium and minimal, balanced as a backdrop behind a headline.
+- Set the scene: a dark navy computer circuit board in glossy 3D isometric perspective, with bright neon-teal light traces flowing across it toward a central raised chip.
+- Put the post's concept at the center: a glowing element mounted on the central chip (concept over literalism — e.g. a glowing doorway for the gateway, a glowing rotating key for key rotation), surrounded by supporting glossy rounded 3D icons that fit the topic (chat bubbles, keys, charts, coins…) in vivid purple, lime green, and mint, each on small pedestals on the board.
+- Add the render feel: subtle depth of field at the edges, soft reflections, premium 3D render, vibrant against the dark board.
 - **Reserves the top-left corner**: include "the top-left corner is intentionally empty clean negative space, with no logo, no icon, no wordmark and no brand text there." The real logo is composited in afterward (see "Always composite the official logo" below), never drawn by the model.
 - **Ends with**: "no logos, no UI chrome. Wide 3:2 landscape composition, 1536×1024." (If you want a branded card, you may keep a short headline/subtitle in the prompt — gpt-image-2 renders short text well — but **never** the logo.)
 

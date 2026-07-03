@@ -16,18 +16,22 @@ import {
 	asc,
 	eq,
 	getTableName,
+	gte,
 	inArray,
 	isNull,
 	ne,
 	or,
+	sum,
 	cdb as db,
 	apiKey as apiKeyTable,
+	apiKeyHourlyStats as apiKeyHourlyStatsTable,
 	apiKeyIamRule as apiKeyIamRuleTable,
 	customModel as customModelTable,
 	discount as discountTable,
 	endCustomer as endCustomerTable,
 	endUserSession as endUserSessionTable,
 	getEffectiveRateLimit,
+	addApiKeyPeriodDuration,
 	organization as organizationTable,
 	project as projectTable,
 	providerKey as providerKeyTable,
@@ -44,6 +48,7 @@ import {
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
 
+import type { ApiKeyPeriodDurationUnit } from "@llmgateway/db";
 import type { EffectiveRateLimit } from "@llmgateway/db";
 import type { EffectiveDiscount } from "@llmgateway/db";
 import type { InferSelectModel } from "@llmgateway/db";
@@ -73,6 +78,7 @@ type UserOrganization = InferSelectModel<typeof userOrganization>;
 type Wallet = InferSelectModel<typeof wallet>;
 
 const apiKeyTableName = getTableName(apiKeyTable);
+const apiKeyHourlyStatsTableName = getTableName(apiKeyHourlyStatsTable);
 const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
 const discountTableName = getTableName(discountTable);
 const endCustomerTableName = getTableName(endCustomerTable);
@@ -730,6 +736,151 @@ export async function findEffectiveDiscount(
 			};
 		},
 	);
+}
+
+/**
+ * Find a member's budget config on their user_organization row (cacheable).
+ * Returns just the budget-limit columns; spend is read separately from the
+ * durable per-key sources (never stored on this row).
+ */
+export type MemberBudget = Pick<
+	UserOrganization,
+	| "role"
+	| "maxApiKeys"
+	| "usageLimit"
+	| "periodUsageLimit"
+	| "periodUsageDurationValue"
+	| "periodUsageDurationUnit"
+>;
+
+export async function findUserOrganizationBudget(
+	userId: string,
+	organizationId: string,
+): Promise<MemberBudget | undefined> {
+	return await swrWrap(
+		`uoBudget:${organizationId}:${userId}`,
+		[userOrganizationTableName],
+		async () => {
+			const results = await db
+				.select({
+					role: userOrganizationTable.role,
+					maxApiKeys: userOrganizationTable.maxApiKeys,
+					usageLimit: userOrganizationTable.usageLimit,
+					periodUsageLimit: userOrganizationTable.periodUsageLimit,
+					periodUsageDurationValue:
+						userOrganizationTable.periodUsageDurationValue,
+					periodUsageDurationUnit:
+						userOrganizationTable.periodUsageDurationUnit,
+				})
+				.from(userOrganizationTable)
+				.where(
+					and(
+						eq(userOrganizationTable.userId, userId),
+						eq(userOrganizationTable.organizationId, organizationId),
+					),
+				)
+				.limit(1);
+			return results[0];
+		},
+	);
+}
+
+/**
+ * Get the member's API keys and lifetime spend within an org (cacheable).
+ * Lifetime spend is SUM(apiKey.usage) over ALL statuses so deleting a key can't
+ * reset a member's cumulative spend.
+ */
+export async function getMemberKeyUsage(
+	userId: string,
+	organizationId: string,
+): Promise<{ keyIds: string[]; lifetimeUsage: number }> {
+	const rows = await swrWrap(
+		`memberKeys:${organizationId}:${userId}`,
+		[apiKeyTableName, projectTableName],
+		async () =>
+			await db
+				.select({
+					id: apiKeyTable.id,
+					usage: apiKeyTable.usage,
+				})
+				.from(apiKeyTable)
+				.innerJoin(projectTable, eq(projectTable.id, apiKeyTable.projectId))
+				.where(
+					and(
+						eq(apiKeyTable.createdBy, userId),
+						eq(projectTable.organizationId, organizationId),
+					),
+				),
+	);
+
+	return {
+		keyIds: rows.map((row) => row.id),
+		lifetimeUsage: rows.reduce((acc, row) => acc + Number(row.usage ?? 0), 0),
+	};
+}
+
+/**
+ * Get a member's period spend (cacheable). SUMs apiKeyHourlyStats.cost across the
+ * member's keys over the current period.
+ *
+ * apiKeyHourlyStats is bucketed by hour, so the window is aligned to whole hourly
+ * buckets. The current hour is floored (setMinutes(0,0,0)) for two reasons:
+ *  - it rotates the SQL bind and swrWrap key at most once per hour — a live
+ *    millisecond `now` would give a 0% cache hit rate (see findEffectiveDiscount);
+ *  - it makes the window span exactly `value` units' worth of buckets. Subtracting
+ *    the duration from the floored hour and then advancing one bucket yields
+ *    [floor(now) - value + 1h, now]: the current partial bucket plus the preceding
+ *    full ones. Without the +1h a 1h window at 10:59 would start at 09:00 and keep
+ *    counting the whole 09:00 bucket (e.g. 09:05 spend) until 11:00 — an almost-2h
+ *    effective window. This matches the fixed-window reset semantics of the per-key
+ *    period limits rather than a sub-hour rolling window (unavailable at this
+ *    granularity).
+ */
+export async function getMemberPeriodSpend(
+	organizationId: string,
+	userId: string,
+	keyIds: string[],
+	unit: ApiKeyPeriodDurationUnit,
+	value: number,
+	now: Date = new Date(),
+): Promise<number> {
+	if (keyIds.length === 0) {
+		return 0;
+	}
+
+	const flooredHour = new Date(now);
+	flooredHour.setMinutes(0, 0, 0);
+	const windowStart = addApiKeyPeriodDuration(flooredHour, -value, unit);
+	windowStart.setHours(windowStart.getHours() + 1);
+	const flooredHourEpoch = flooredHour.getTime();
+
+	// Fold the member's key set into the cache key: the SUM depends on which keys
+	// belong to the member, so if that set changes the swr mirror must not serve a
+	// stale value keyed only on org/user/hour. Compact djb2 hash keeps the key
+	// bounded regardless of key count.
+	let keyHash = 5381;
+	for (const id of [...keyIds].sort()) {
+		for (let i = 0; i < id.length; i++) {
+			keyHash = (Math.imul(keyHash, 33) + id.charCodeAt(i)) | 0;
+		}
+	}
+
+	const results = await swrWrap(
+		`memberPeriod:${organizationId}:${userId}:${unit}:${value}:${flooredHourEpoch}:${keyHash}`,
+		[apiKeyHourlyStatsTableName, apiKeyTableName, projectTableName],
+		async () =>
+			await db
+				.select({ total: sum(apiKeyHourlyStatsTable.cost) })
+				.from(apiKeyHourlyStatsTable)
+				.where(
+					and(
+						inArray(apiKeyHourlyStatsTable.apiKeyId, keyIds),
+						gte(apiKeyHourlyStatsTable.hourTimestamp, windowStart),
+					),
+				),
+	);
+
+	return Number(results[0]?.total ?? 0);
 }
 
 /**

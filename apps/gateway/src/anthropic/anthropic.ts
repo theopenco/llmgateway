@@ -785,6 +785,21 @@ anthropic.openapi(messages, async (c) => {
 				const reader = response.body.getReader();
 				const decoder = new TextDecoder();
 
+				// SSE keepalive to prevent proxy/load balancer and client idle
+				// timeouts from closing the connection during quiet gaps (slow
+				// time-to-first-token, long reasoning before output, slow tool-arg
+				// generation). Without this, coding clients see "The socket
+				// connection was closed unexpectedly". The inner
+				// /v1/chat/completions keepalive is consumed by this translator and
+				// never reaches the client, so we emit our own here. A `: ping`
+				// comment is part of the SSE spec and ignored by the Anthropic SDK.
+				const KEEPALIVE_INTERVAL_MS = 15000;
+				const keepaliveInterval = setInterval(() => {
+					stream.write(": ping\n").catch(() => {
+						// Stream likely closed; cleanup happens in finally.
+					});
+				}, KEEPALIVE_INTERVAL_MS);
+
 				let buffer = "";
 				let messageId = "";
 				let model = "";
@@ -1183,10 +1198,49 @@ anthropic.openapi(messages, async (c) => {
 						});
 					}
 				} catch (error) {
-					throw new HTTPException(500, {
-						message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
-					});
+					// The 200 response and SSE headers are already sent, so throwing
+					// here cannot produce an HTTP error — it would abruptly tear down
+					// the socket and the client would see "The socket connection was
+					// closed unexpectedly". Instead, emit a well-formed Anthropic
+					// terminal sequence (error event + message_stop) so the client
+					// ends the stream cleanly. A client-side abort needs no write.
+					if (error instanceof Error && error.name === "AbortError") {
+						logger.info("Anthropic streaming request aborted by client", {
+							message: error.message,
+							path: c.req.path,
+						});
+					} else {
+						logger.error(
+							"Anthropic streaming error (mid-stream)",
+							toError(error),
+							{ path: c.req.path },
+						);
+						try {
+							await stream.writeSSE({
+								data: JSON.stringify(
+									buildAnthropicErrorEvent({
+										type: "error",
+										error: {
+											type: "api_error",
+											message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
+										},
+									}),
+								),
+								event: "error",
+							});
+							await stream.writeSSE({
+								data: JSON.stringify({ type: "message_stop" }),
+								event: "message_stop",
+							});
+						} catch (sseError) {
+							logger.error(
+								"Failed to send Anthropic streaming error event",
+								toError(sseError),
+							);
+						}
+					}
 				} finally {
+					clearInterval(keepaliveInterval);
 					reader.releaseLock();
 				}
 			},

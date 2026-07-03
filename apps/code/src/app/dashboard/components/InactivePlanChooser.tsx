@@ -4,6 +4,8 @@ import { ArrowRight, Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
+import BillingDetailsDialog from "./BillingDetailsDialog";
+
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 
 interface InactivePlanChooserProps {
@@ -92,7 +94,15 @@ export default function InactivePlanChooser({
 function InvoiceInfoLabel() {
 	return (
 		<p className="mx-auto mt-4 max-w-2xl text-center text-[11px] leading-relaxed text-muted-foreground">
-			Need company/address details on your invoice? Update billing settings
+			Need company/address details on your invoice?{" "}
+			<BillingDetailsDialog>
+				<button
+					type="button"
+					className="font-medium underline underline-offset-2 hover:text-foreground"
+				>
+					Update billing settings
+				</button>
+			</BillingDetailsDialog>{" "}
 			before purchase. We email the invoice automatically after payment.
 		</p>
 	);

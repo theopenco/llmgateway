@@ -4,8 +4,14 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
+import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 
 import { parseDataUrl } from "@llmgateway/actions";
@@ -1132,6 +1138,56 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				id: null,
 			},
 			401,
+		);
+	}
+
+	// Validate the API key against the database, mirroring the gateway's chat
+	// endpoint. Without this, any arbitrary string was accepted as a valid key
+	// (GHSA-8h26-h6v8-f9cg).
+	const apiKeyRecord = await findApiKeyByToken(apiKey);
+	if (!apiKeyRecord || apiKeyRecord.status !== "active") {
+		return c.json(
+			{
+				jsonrpc: "2.0",
+				error: {
+					code: -32001,
+					message:
+						"Invalid or inactive LLMGateway API key. Generate a new token on the 'API Keys' page.",
+				},
+				id: null,
+			},
+			401,
+		);
+	}
+
+	try {
+		assertApiKeyWithinUsageLimits(apiKeyRecord);
+		// Enforce the per-member budget set on the Teams page (fails open on read
+		// errors). Resolve the project so the org is known for the creator lookup.
+		const mcpProject = await findProjectById(apiKeyRecord.projectId);
+		if (mcpProject) {
+			await assertMemberWithinBudget(
+				apiKeyRecord.createdBy,
+				mcpProject.organizationId,
+			);
+		}
+	} catch (error) {
+		// Preserve the thrown status: assertMemberWithinBudget uses 403 for a
+		// budget breach, which must not be flattened into a 401 (invalid key).
+		const status = error instanceof HTTPException ? error.status : 401;
+		return c.json(
+			{
+				jsonrpc: "2.0",
+				error: {
+					code: -32001,
+					message:
+						error instanceof HTTPException
+							? error.message
+							: "LLMGateway API key cannot be used.",
+				},
+				id: null,
+			},
+			status,
 		);
 	}
 

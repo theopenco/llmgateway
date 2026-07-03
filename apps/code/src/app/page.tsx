@@ -18,6 +18,7 @@ import { getConfig } from "@/lib/config-server";
 import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
+	DevPassCodeIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
@@ -29,6 +30,14 @@ export const metadata: Metadata = {
 };
 
 const featuredTools = [
+	{
+		name: "DevPass Code",
+		icon: DevPassCodeIcon,
+		description:
+			"LLM Gateway's own terminal coding agent — one-click browser login and only LLM Gateway models, no keys to copy.",
+		setup: "devpass-code auth login",
+		highlight: "First-party",
+	},
 	{
 		name: "Claude Code",
 		icon: AnthropicIcon,
@@ -74,7 +83,7 @@ export default function LandingPage() {
 						<div className="mx-auto max-w-3xl text-center">
 							<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border/60 bg-muted/50 px-4 py-1.5 text-sm text-muted-foreground">
 								<Sparkles className="h-3.5 w-3.5" />
-								Built for Claude Code · OpenCode · SoulForge
+								Built for DevPass Code · Claude Code · OpenCode · SoulForge
 							</div>
 							<h1 className="mb-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
 								One key. Every model.
@@ -90,8 +99,9 @@ export default function LandingPage() {
 								token math.
 							</p>
 							<p className="mx-auto mb-10 max-w-xl text-sm text-muted-foreground">
-								Works the same in Claude Code, OpenCode, SoulForge, Cline, and
-								every OpenAI-compatible tool — no SDK changes.
+								Works the same in DevPass Code, Claude Code, OpenCode,
+								SoulForge, Cline, and every OpenAI-compatible tool — no SDK
+								changes.
 							</p>
 							<div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
 								<GetDevPassButton
@@ -123,9 +133,9 @@ export default function LandingPage() {
 								Drop-in for the agents you already use
 							</h2>
 							<p className="text-muted-foreground">
-								DevPass is built around how Claude Code, OpenCode, and SoulForge
-								actually work — not a generic OpenAI-compatible proxy you have
-								to glue together.
+								DevPass is built around how DevPass Code, Claude Code, OpenCode,
+								and SoulForge actually work — not a generic OpenAI-compatible
+								proxy you have to glue together.
 							</p>
 						</div>
 						<div className="grid gap-5 md:grid-cols-3">

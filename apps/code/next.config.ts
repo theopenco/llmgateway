@@ -14,6 +14,21 @@ const nextConfig: NextConfig = {
 	experimental: {
 		serverSourceMaps: true,
 	},
+	async redirects() {
+		// Truncated pricing-toggle URLs ("/mo", "/yr") picked up by crawlers.
+		return [
+			{
+				source: "/mo",
+				destination: "/",
+				permanent: true,
+			},
+			{
+				source: "/yr",
+				destination: "/",
+				permanent: true,
+			},
+		];
+	},
 	typescript: {
 		ignoreBuildErrors: true,
 	},

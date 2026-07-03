@@ -2,6 +2,14 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { userHasProjectAccess } from "@/utils/authorization.js";
+import {
+	bucketDate,
+	formatInTimeZone,
+	timezoneQueryField,
+	zonedTimeToUtc,
+} from "@/utils/timezone.js";
+
 import {
 	and,
 	apiKeyHourlyModelStats,
@@ -30,31 +38,45 @@ const dateRangeQuery = {
 	organizationId: z.string(),
 	from: z.string().optional(),
 	to: z.string().optional(),
+	timezone: timezoneQueryField,
 };
 
+// Resolve the query window and the local calendar day-labels used to pad the
+// series. from/to are interpreted as wall-clock days in the caller's timezone
+// (defaulting to UTC), so the returned fromStr/toStr always line up with the
+// day buckets the SQL produces.
 function resolveDateRange(
-	from?: string,
-	to?: string,
+	from: string | undefined,
+	to: string | undefined,
+	timeZone: string,
 ): {
 	startDate: Date;
 	endDate: Date;
+	fromStr: string;
+	toStr: string;
 } {
 	if (from && to) {
-		const startDate = new Date(from + "T00:00:00Z");
-		const endDate = new Date(to + "T00:00:00Z");
-		if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+		if (
+			Number.isNaN(Date.parse(from + "T00:00:00Z")) ||
+			Number.isNaN(Date.parse(to + "T00:00:00Z"))
+		) {
 			throw new HTTPException(400, {
 				message: "Invalid from/to date (expected YYYY-MM-DD)",
 			});
 		}
-		startDate.setUTCHours(0, 0, 0, 0);
-		endDate.setUTCHours(23, 59, 59, 999);
-		return { startDate, endDate };
+		const startDate = zonedTimeToUtc(from + "T00:00:00.000", timeZone);
+		const endDate = zonedTimeToUtc(to + "T23:59:59.999", timeZone);
+		return { startDate, endDate, fromStr: from, toStr: to };
 	}
 	const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 	const endDate = new Date();
 	const startDate = new Date(endDate.getTime() - sevenDaysMs);
-	return { startDate, endDate };
+	return {
+		startDate,
+		endDate,
+		fromStr: formatInTimeZone(startDate, timeZone, false),
+		toStr: formatInTimeZone(endDate, timeZone, false),
+	};
 }
 
 /**
@@ -154,10 +176,11 @@ analytics.openapi(getMembersUsage, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { organizationId, from, to } = c.req.valid("query");
+	const { organizationId, from, to, timezone } = c.req.valid("query");
 	await requireEnterpriseAdmin(authUser.id, organizationId);
 
-	const { startDate, endDate } = resolveDateRange(from, to);
+	const timeZone = timezone ?? "UTC";
+	const { startDate, endDate } = resolveDateRange(from, to, timeZone);
 	const projectIds = await getOrgProjectIds(organizationId);
 
 	const members = await db.query.userOrganization.findMany({
@@ -283,6 +306,21 @@ const breakdownEntrySchema = z.object({
 	totalTokens: z.number(),
 });
 
+const memberActivityModelSchema = z.object({
+	id: z.string(),
+	provider: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+});
+
+const memberActivityRowSchema = z.object({
+	date: z.string(),
+	modelBreakdown: z.array(memberActivityModelSchema),
+});
+
 const memberDetailSchema = z.object({
 	member: z.object({
 		userId: z.string(),
@@ -303,6 +341,7 @@ const memberDetailSchema = z.object({
 	topModels: z.array(breakdownEntrySchema),
 	topProviders: z.array(breakdownEntrySchema),
 	costByModel: z.array(breakdownEntrySchema),
+	activity: z.array(memberActivityRowSchema),
 });
 
 const getMemberDetail = createRoute({
@@ -334,7 +373,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 	}
 
 	const { userId } = c.req.valid("param");
-	const { organizationId, from, to } = c.req.valid("query");
+	const { organizationId, from, to, timezone } = c.req.valid("query");
 	await requireEnterpriseAdmin(authUser.id, organizationId);
 
 	const membership = await db.query.userOrganization.findFirst({
@@ -351,8 +390,24 @@ analytics.openapi(getMemberDetail, async (c) => {
 		throw new HTTPException(404, { message: "Member not found" });
 	}
 
-	const { startDate, endDate } = resolveDateRange(from, to);
+	const timeZone = timezone ?? "UTC";
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		from,
+		to,
+		timeZone,
+	);
 	const projectIds = await getOrgProjectIds(organizationId);
+
+	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
+
+	const emptyActivity = eachDay(fromStr, toStr).map((date) => ({
+		date,
+		modelBreakdown: [],
+	}));
 
 	const member = {
 		userId: membership.userId,
@@ -379,6 +434,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 			topModels: [],
 			topProviders: [],
 			costByModel: [],
+			activity: emptyActivity,
 		});
 	}
 
@@ -400,6 +456,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 			topModels: [],
 			topProviders: [],
 			costByModel: [],
+			activity: emptyActivity,
 		});
 	}
 
@@ -510,13 +567,304 @@ analytics.openapi(getMemberDetail, async (c) => {
 
 	const topModels = costByModel.slice(0, 5);
 
+	const activityRows = await db
+		.select({
+			date: bucketDate(
+				apiKeyHourlyModelStats.hourTimestamp,
+				timeZone,
+				false,
+			).as("date"),
+			usedModel: apiKeyHourlyModelStats.usedModel,
+			usedProvider: apiKeyHourlyModelStats.usedProvider,
+			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
+				"cost",
+			),
+			requestCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"input_tokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"output_tokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+		})
+		.from(apiKeyHourlyModelStats)
+		.where(
+			and(
+				inArray(apiKeyHourlyModelStats.apiKeyId, keyIds),
+				gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(
+			sql`1, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
+		)
+		.orderBy(sql`1 ASC`);
+
+	const breakdownByDate = new Map<
+		string,
+		z.infer<typeof memberActivityModelSchema>[]
+	>();
+	for (const row of activityRows) {
+		const date = String(row.date).slice(0, 10);
+		const list = breakdownByDate.get(date) ?? [];
+		list.push({
+			id: row.usedModel || "unknown",
+			provider: row.usedProvider || "unknown",
+			cost: Number(row.cost ?? 0),
+			requestCount: Number(row.requestCount ?? 0),
+			inputTokens: Number(row.inputTokens ?? 0),
+			outputTokens: Number(row.outputTokens ?? 0),
+			totalTokens: Number(row.totalTokens ?? 0),
+		});
+		breakdownByDate.set(date, list);
+	}
+
+	const activity = eachDay(fromStr, toStr).map((date) => ({
+		date,
+		modelBreakdown: breakdownByDate.get(date) ?? [],
+	}));
+
 	return c.json({
 		member,
 		summary,
 		topModels,
 		topProviders,
 		costByModel,
+		activity,
 	});
+});
+
+const selfUsageSchema = z.object({
+	summary: z.object({
+		cost: z.number(),
+		inputTokens: z.number(),
+		outputTokens: z.number(),
+		totalTokens: z.number(),
+		requestCount: z.number(),
+		errorCount: z.number(),
+		apiKeyCount: z.number(),
+	}),
+	activity: z.array(
+		z.object({
+			date: z.string(),
+			cost: z.number(),
+			requestCount: z.number(),
+			totalTokens: z.number(),
+		}),
+	),
+	topModels: z.array(breakdownEntrySchema),
+});
+
+const getSelfUsage = createRoute({
+	method: "get",
+	path: "/me",
+	request: {
+		query: z.object({
+			organizationId: z.string(),
+			projectId: z.string(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+			timezone: timezoneQueryField,
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: selfUsageSchema,
+				},
+			},
+			description:
+				"The authenticated user's own usage within a project (own API keys only). No admin gate — self-service.",
+		},
+	},
+});
+
+// Self-service: a project-scoped member (developer) can always see their OWN
+// usage for a project they have access to — their keys, their numbers, nothing
+// else. Attributed via api_key.created_by.
+analytics.openapi(getSelfUsage, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { projectId, from, to, timezone } = c.req.valid("query");
+
+	if (!(await userHasProjectAccess(authUser.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	const timeZone = timezone ?? "UTC";
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		from,
+		to,
+		timeZone,
+	);
+
+	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_ORG_ACTIVITY_RANGE_DAYS} days)`,
+		});
+	}
+
+	const emptySummary = {
+		cost: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		totalTokens: 0,
+		requestCount: 0,
+		errorCount: 0,
+		apiKeyCount: 0,
+	};
+	const emptyActivity = eachDay(fromStr, toStr).map((date) => ({
+		date,
+		cost: 0,
+		requestCount: 0,
+		totalTokens: 0,
+	}));
+
+	const myKeys = await db
+		.select({ id: tables.apiKey.id })
+		.from(tables.apiKey)
+		.where(
+			and(
+				eq(tables.apiKey.projectId, projectId),
+				eq(tables.apiKey.createdBy, authUser.id),
+			),
+		);
+	const keyIds = myKeys.map((k) => k.id);
+
+	if (keyIds.length === 0) {
+		return c.json({
+			summary: emptySummary,
+			activity: emptyActivity,
+			topModels: [],
+		});
+	}
+
+	const summaryRows = await db
+		.select({
+			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"input_tokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"output_tokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			requestCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			errorCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
+					"error_count",
+				),
+		})
+		.from(apiKeyHourlyStats)
+		.where(
+			and(
+				inArray(apiKeyHourlyStats.apiKeyId, keyIds),
+				gte(apiKeyHourlyStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyStats.hourTimestamp, endDate),
+			),
+		);
+	const s = summaryRows[0];
+	const summary = {
+		cost: Number(s?.cost ?? 0),
+		inputTokens: Number(s?.inputTokens ?? 0),
+		outputTokens: Number(s?.outputTokens ?? 0),
+		totalTokens: Number(s?.totalTokens ?? 0),
+		requestCount: Number(s?.requestCount ?? 0),
+		errorCount: Number(s?.errorCount ?? 0),
+		apiKeyCount: keyIds.length,
+	};
+
+	const activityRows = await db
+		.select({
+			date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
+				"date",
+			),
+			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			requestCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+		})
+		.from(apiKeyHourlyStats)
+		.where(
+			and(
+				inArray(apiKeyHourlyStats.apiKeyId, keyIds),
+				gte(apiKeyHourlyStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(sql`1`)
+		.orderBy(sql`1 ASC`);
+	const byDate = new Map(
+		activityRows.map((r) => [String(r.date).slice(0, 10), r]),
+	);
+	const activity = eachDay(fromStr, toStr).map((date) => {
+		const r = byDate.get(date);
+		return {
+			date,
+			cost: Number(r?.cost ?? 0),
+			requestCount: Number(r?.requestCount ?? 0),
+			totalTokens: Number(r?.totalTokens ?? 0),
+		};
+	});
+
+	const modelRows = await db
+		.select({
+			usedModel: apiKeyHourlyModelStats.usedModel,
+			cost: sql<number>`SUM(${apiKeyHourlyModelStats.cost})`.as("cost"),
+			requestCount: sql<number>`SUM(${apiKeyHourlyModelStats.requestCount})`.as(
+				"request_count",
+			),
+			totalTokens:
+				sql<number>`SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(apiKeyHourlyModelStats)
+		.where(
+			and(
+				inArray(apiKeyHourlyModelStats.apiKeyId, keyIds),
+				gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(apiKeyHourlyModelStats.usedModel)
+		.orderBy(desc(sql`SUM(${apiKeyHourlyModelStats.cost})`));
+	const topModels = modelRows.slice(0, 5).map((r) => ({
+		key: r.usedModel || "unknown",
+		cost: Number(r.cost ?? 0),
+		requestCount: Number(r.requestCount ?? 0),
+		totalTokens: Number(r.totalTokens ?? 0),
+	}));
+
+	return c.json({ summary, activity, topModels });
 });
 
 const modelNameById = new Map<string, string>(
@@ -560,7 +908,7 @@ function eachDay(fromStr: string, toStr: string): string[] {
 	return slots;
 }
 
-const orgGroupBySchema = z.enum(["model", "project", "apiKey"]);
+const orgGroupBySchema = z.enum(["model", "project", "apiKey", "user"]);
 
 const orgActivityBreakdownSchema = z.object({
 	key: z.string(),
@@ -613,16 +961,19 @@ analytics.openapi(getOrgActivity, async (c) => {
 		organizationId,
 		from,
 		to,
+		timezone,
 		groupBy: groupByParam,
 	} = c.req.valid("query");
 	await requireEnterpriseAdmin(authUser.id, organizationId);
 
 	const groupBy = groupByParam ?? "model";
-	const { startDate, endDate } = resolveDateRange(from, to);
+	const timeZone = timezone ?? "UTC";
+	const { startDate, endDate, fromStr, toStr } = resolveDateRange(
+		from,
+		to,
+		timeZone,
+	);
 	const projectIds = await getOrgProjectIds(organizationId);
-
-	const fromStr = from ?? startDate.toISOString().slice(0, 10);
-	const toStr = to ?? endDate.toISOString().slice(0, 10);
 
 	if (rangeDaysInclusive(fromStr, toStr) > MAX_ORG_ACTIVITY_RANGE_DAYS) {
 		throw new HTTPException(400, {
@@ -647,7 +998,9 @@ analytics.openapi(getOrgActivity, async (c) => {
 	// the top-N breakdown the client charts).
 	const totalsRows = await db
 		.select({
-			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, false).as(
+				"date",
+			),
 			cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
 				"cost",
 			),
@@ -709,9 +1062,11 @@ analytics.openapi(getOrgActivity, async (c) => {
 	if (groupBy === "model") {
 		const rows = await db
 			.select({
-				date: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
-					"date",
-				),
+				date: bucketDate(
+					projectHourlyModelStats.hourTimestamp,
+					timeZone,
+					false,
+				).as("date"),
 				usedModel: projectHourlyModelStats.usedModel,
 				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
 					"cost",
@@ -762,7 +1117,9 @@ analytics.openapi(getOrgActivity, async (c) => {
 
 		const rows = await db
 			.select({
-				date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, false).as(
+					"date",
+				),
 				projectId: projectHourlyStats.projectId,
 				cost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`.as(
 					"cost",
@@ -798,10 +1155,76 @@ analytics.openapi(getOrgActivity, async (c) => {
 				Number(row.totalTokens),
 			);
 		}
+	} else if (groupBy === "user") {
+		// Attribute each key's usage to the member who created it
+		// (api_key.created_by), matching the Teams page member breakdown.
+		const rows = await db
+			.select({
+				date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
+					"date",
+				),
+				userId: tables.apiKey.createdBy,
+				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(apiKeyHourlyStats)
+			.innerJoin(
+				tables.apiKey,
+				eq(tables.apiKey.id, apiKeyHourlyStats.apiKeyId),
+			)
+			.where(
+				and(
+					inArray(apiKeyHourlyStats.projectId, projectIds),
+					inArray(tables.apiKey.keyType, ["user", "end_user_customer"]),
+					gte(apiKeyHourlyStats.hourTimestamp, startDate),
+					lte(apiKeyHourlyStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(sql`1, ${tables.apiKey.createdBy}`)
+			.orderBy(sql`1 ASC`);
+
+		const creatorIds = Array.from(new Set(rows.map((row) => row.userId)));
+		const userLabels = new Map(
+			creatorIds.length
+				? (
+						await db
+							.select({
+								id: tables.user.id,
+								name: tables.user.name,
+								email: tables.user.email,
+							})
+							.from(tables.user)
+							.where(inArray(tables.user.id, creatorIds))
+					).map((u) => [u.id, u.name ?? u.email] as const)
+				: [],
+		);
+
+		for (const row of rows) {
+			const date = String(row.date).slice(0, 10);
+			addBreakdown(
+				date,
+				row.userId,
+				userLabels.get(row.userId) ?? "Unknown user",
+				Number(row.cost),
+				Number(row.requestCount),
+				Number(row.totalTokens),
+			);
+		}
 	} else {
 		const rows = await db
 			.select({
-				date: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
+					"date",
+				),
 				apiKeyId: apiKeyHourlyStats.apiKeyId,
 				description: tables.apiKey.description,
 				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(

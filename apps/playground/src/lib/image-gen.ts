@@ -85,6 +85,9 @@ export function getModelImageConfig(model: string) {
 		lower.includes("seedream") || lower.includes("bytedance/seedream");
 
 	const isGemini31FlashImage = lower.includes("gemini-3.1-flash-image");
+	const isGemini31FlashLiteImage = lower.includes(
+		"gemini-3.1-flash-lite-image",
+	);
 
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
@@ -92,9 +95,11 @@ export function getModelImageConfig(model: string) {
 			? (["2K"] as const)
 			: isSeedream
 				? (["2K", "4K"] as const)
-				: isGemini31FlashImage
-					? (["0.5K", "1K", "2K", "4K"] as const)
-					: (["1K", "2K", "4K"] as const);
+				: isGemini31FlashLiteImage
+					? (["1K"] as const)
+					: isGemini31FlashImage
+						? (["0.5K", "1K", "2K", "4K"] as const)
+						: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = isGptImage
 		? "1024x1024"

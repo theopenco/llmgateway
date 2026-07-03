@@ -9,6 +9,7 @@ import {
 	organization,
 	project,
 	projectHourlyStats,
+	resolveVerifiedOrgRecipient,
 	sql,
 	transaction,
 	userOrganization,
@@ -137,34 +138,6 @@ The LLM Gateway Team`,
 	}
 }
 
-// ─── Recipient Resolution ────────────────────────────────────────────────────
-
-async function getOrgRecipientEmail(
-	organizationId: string,
-): Promise<string | null> {
-	const org = await db.query.organization.findFirst({
-		where: { id: { eq: organizationId } },
-	});
-
-	if (org?.billingEmail) {
-		return org.billingEmail;
-	}
-
-	const ownerMembership = await db.query.userOrganization.findFirst({
-		where: {
-			organizationId: { eq: organizationId },
-			role: { eq: "owner" },
-		},
-		with: { user: true },
-	});
-
-	if (!ownerMembership?.user?.emailVerified) {
-		return null;
-	}
-
-	return ownerMembership.user.email ?? null;
-}
-
 // ─── Send & Record ───────────────────────────────────────────────────────────
 
 async function sendAndRecord(
@@ -265,7 +238,7 @@ export async function processNoPurchaseEmails(): Promise<void> {
 		if (isStopRequested()) {
 			break;
 		}
-		const email = await getOrgRecipientEmail(organizationId);
+		const email = await resolveVerifiedOrgRecipient(organizationId);
 		if (!email) {
 			logger.warn("No email found for org, skipping no_purchase follow-up", {
 				organizationId,
@@ -367,7 +340,7 @@ async function processLowUsageEmails(): Promise<void> {
 		}
 		const organizationId = row.organization_id;
 		try {
-			const email = await getOrgRecipientEmail(organizationId);
+			const email = await resolveVerifiedOrgRecipient(organizationId);
 			if (!email) {
 				logger.warn("No email found for org, skipping low_usage follow-up", {
 					organizationId,
@@ -444,7 +417,7 @@ async function processNoRepurchaseEmails(): Promise<void> {
 		}
 		const organizationId = row.organization_id;
 		try {
-			const email = await getOrgRecipientEmail(organizationId);
+			const email = await resolveVerifiedOrgRecipient(organizationId);
 			if (!email) {
 				logger.warn(
 					"No email found for org, skipping no_repurchase follow-up",
@@ -501,8 +474,6 @@ The LLM Gateway Team`;
 
 	await sendFollowUpEmail({ to: opts.to, subject, text });
 }
-
-export { getOrgRecipientEmail };
 
 // ─── Main orchestrator ───────────────────────────────────────────────────────
 

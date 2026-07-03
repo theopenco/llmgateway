@@ -250,9 +250,21 @@ export const organization = pgTable(
 		devPlanCreditsFrozen: boolean().notNull().default(false),
 		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
+		// Stripe current_period_start of the cycle in which the last tier change
+		// was claimed. A tier change atomically advances this to the current cycle
+		// start only if it hasn't been claimed yet, enforcing one change per cycle
+		// without a read-then-write race.
+		devPlanLastTierChangeCycleStart: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
 		devPlanExpiresAt: timestamp(),
+		// A scheduled downgrade to a lower tier. Downgrades apply at the next
+		// renewal, so `devPlan` (and the current cycle's credits) stay on the
+		// higher tier until then; this holds the tier the subscription will move
+		// to at renewal. Null means no pending downgrade. The renewal webhook
+		// applies it and clears it. Upgrades take effect immediately and never set
+		// this.
+		devPlanPendingTier: text({ enum: ["lite", "pro", "max"] }),
 		devPlanCycle: text({ enum: ["monthly", "annual"] })
 			.notNull()
 			.default("monthly"),
@@ -292,6 +304,16 @@ export const organization = pgTable(
 		// accrued end-user margin. Null until they onboard.
 		stripeConnectAccountId: text().unique(),
 		stripeConnectOnboarded: boolean().notNull().default(false),
+		// Org-wide default budget applied to every "developer" member. A member's
+		// own per-member budget (on user_organization) overrides these field by
+		// field. null = no default. Same shape as the per-member budget.
+		defaultDeveloperMaxApiKeys: integer(),
+		defaultDeveloperUsageLimit: decimal(),
+		defaultDeveloperPeriodUsageLimit: decimal(),
+		defaultDeveloperPeriodUsageDurationValue: integer(),
+		defaultDeveloperPeriodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
 	},
 	(table) => [
 		index("organization_dev_plan_card_fingerprint_idx").on(
@@ -593,10 +615,50 @@ export const userOrganization = pgTable(
 		})
 			.notNull()
 			.default("owner"),
+		// Per-member budgets (config only; spend is read from existing per-key
+		// sources — apiKey.usage and apiKeyHourlyStats.cost — so no counters here).
+		// null = unlimited.
+		maxApiKeys: integer(),
+		usageLimit: decimal(),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
 	},
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
 		index("user_organization_organization_id_idx").on(table.organizationId),
+	],
+);
+
+// Project-level access grants for project-scoped members. Owners/admins have
+// implicit access to every project in their org (no rows here); "developer"
+// members are limited to the projects granted via this table. Keyed on the
+// membership so grants cascade-delete when a member is removed from the org.
+export const userProject = pgTable(
+	"user_project",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userOrganizationId: text()
+			.notNull()
+			.references(() => userOrganization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("user_project_membership_project_unique").on(
+			table.userOrganizationId,
+			table.projectId,
+		),
+		index("user_project_user_organization_id_idx").on(table.userOrganizationId),
+		index("user_project_project_id_idx").on(table.projectId),
 	],
 );
 
@@ -632,6 +694,11 @@ export const project = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
+		// Payments SDK (embeddable end-user payments) is a preview feature that is
+		// opt-in only: it can be granted per project directly in the database. When
+		// false, the dashboard shows a read-only preview and the end-user settings
+		// below cannot be enabled through the API.
+		paymentsSdkEnabled: boolean().notNull().default(false),
 		// Embeddable end-user SDK: gates whether this project may mint end-user
 		// sessions / wallets at all.
 		endUserEnabled: boolean().notNull().default(false),
@@ -1084,7 +1151,9 @@ export interface ProviderKeyOptions {
 	azure_ai_foundry_api_version?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
 	google_vertex_project_id?: string;
+	google_vertex_token_type?: "api-key" | "oauth";
 	vertex_openai_project_id?: string;
+	vertex_openai_region?: "global";
 	vertex_anthropic_region?: string;
 }
 
@@ -1397,6 +1466,9 @@ export const videoJob = pgTable(
 	{
 		id: text().primaryKey().notNull().$defaultFn(shortid),
 		requestId: text().notNull(),
+		// Internal id of the log row created when the job is finalized. Used for
+		// all internal job<->log lookups instead of matching on requestId.
+		logId: text().references(() => log.id, { onDelete: "set null" }),
 		createdAt: timestamp().notNull().defaultNow(),
 		updatedAt: timestamp()
 			.notNull()
@@ -1531,6 +1603,7 @@ export const videoJob = pgTable(
 			table.nextPollAt,
 		),
 		index("video_job_upstream_id_idx").on(table.upstreamId),
+		index("video_job_log_id_idx").on(table.logId),
 		index("video_job_callback_status_idx").on(table.callbackStatus),
 		index("video_job_end_user_session_id_idx").on(table.endUserSessionId),
 	],
@@ -2254,6 +2327,7 @@ export const auditLogActions = [
 	// Team
 	"team_member.add",
 	"team_member.update",
+	"team_member.budget_update",
 	"team_member.remove",
 	// API Key
 	"api_key.create",
@@ -2297,6 +2371,7 @@ export const auditLogActions = [
 	"dev_plan.cancel",
 	"dev_plan.resume",
 	"dev_plan.change_tier",
+	"dev_plan.cancel_downgrade",
 	"dev_plan.update_settings",
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",

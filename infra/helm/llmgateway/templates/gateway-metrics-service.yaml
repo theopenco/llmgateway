@@ -1,0 +1,19 @@
+{{- if .Values.gateway.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llmgateway.fullname" . }}-gateway-metrics
+  labels:
+    {{- include "llmgateway.componentLabels" (dict "context" . "component" "gateway") | nindent 4 }}
+spec:
+  # Always ClusterIP so the metrics endpoint stays internal to the cluster even
+  # when the main gateway Service is exposed via LoadBalancer/NodePort.
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.gateway.metricsPort | default 9090 }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "gateway") | nindent 4 }}
+{{- end }}

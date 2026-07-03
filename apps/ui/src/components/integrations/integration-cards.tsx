@@ -13,6 +13,7 @@ import {
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
+	DevPassCodeIcon,
 	HermesIcon,
 	KiloCodeIcon,
 	KimiIcon,
@@ -37,6 +38,14 @@ interface Integration {
 }
 
 const integrations: Integration[] = [
+	{
+		name: "DevPass Code",
+		description:
+			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
+		href: "/guides/devpass-code",
+		icon: DevPassCodeIcon,
+		comingSoon: false,
+	},
 	{
 		name: "Autohand Code",
 		description:

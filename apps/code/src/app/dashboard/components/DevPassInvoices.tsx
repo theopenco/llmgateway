@@ -1,11 +1,12 @@
 "use client";
 
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { useApi } from "@/lib/fetch-client";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -13,6 +14,67 @@ const PAGE_SIZE = 10;
 
 type Invoice =
 	paths["/dev-plans/invoices"]["get"]["responses"]["200"]["content"]["application/json"]["invoices"][number];
+
+// A DevPass invoice is downloadable when it is a completed, positive charge
+// (mirrors isInvoiceableTransaction on the API).
+function isInvoiceable(invoice: Invoice): boolean {
+	return (
+		invoice.status === "completed" &&
+		invoice.amount !== null &&
+		Number(invoice.amount) > 0
+	);
+}
+
+function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
+	const fetchClient = useFetchClient();
+	const [loading, setLoading] = useState(false);
+
+	async function handleDownload() {
+		setLoading(true);
+		try {
+			const { data, response } = await fetchClient.GET(
+				"/dev-plans/invoices/{invoiceId}/pdf",
+				{
+					params: { path: { invoiceId: invoice.id } },
+					parseAs: "blob",
+				},
+			);
+
+			if (!response.ok || !data) {
+				throw new Error("Failed to download invoice");
+			}
+
+			const url = URL.createObjectURL(data as unknown as Blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = `invoice-${invoice.id}.pdf`;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			URL.revokeObjectURL(url);
+		} catch {
+			toast.error("Could not download invoice. Please try again later.");
+		} finally {
+			setLoading(false);
+		}
+	}
+
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			onClick={handleDownload}
+			disabled={loading}
+		>
+			{loading ? (
+				<Loader2 className="h-4 w-4 animate-spin" />
+			) : (
+				<Download className="h-4 w-4" />
+			)}
+			<span className="sr-only sm:not-sr-only">Invoice</span>
+		</Button>
+	);
+}
 
 const TYPE_LABELS: Record<Invoice["type"], string> = {
 	dev_plan_start: "Plan started",
@@ -73,17 +135,18 @@ export default function DevPassInvoices() {
 			</p>
 
 			<div className="overflow-hidden rounded-xl border">
-				<div className="hidden grid-cols-[1fr_1fr_auto_auto] gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground sm:grid">
+				<div className="hidden grid-cols-[1fr_1fr_auto_auto_auto] gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground sm:grid">
 					<div>Date</div>
 					<div>Description</div>
 					<div className="text-right">Amount debited</div>
 					<div className="text-right">Credits granted</div>
+					<div className="text-right">Invoice</div>
 				</div>
 
 				{pageInvoices.map((invoice) => (
 					<div
 						key={invoice.id}
-						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-center"
+						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:grid-cols-[1fr_1fr_auto_auto_auto] sm:items-center"
 					>
 						<div className="text-sm tabular-nums">
 							{format(new Date(invoice.date), "MMM d, yyyy")}
@@ -110,6 +173,11 @@ export default function DevPassInvoices() {
 						<div className="text-right text-sm tabular-nums text-muted-foreground sm:text-right">
 							<span className="text-xs sm:hidden">Credits </span>
 							{formatCredits(invoice.creditAmount)}
+						</div>
+						<div className="col-span-2 mt-1 flex justify-end sm:col-span-1 sm:mt-0">
+							{isInvoiceable(invoice) && (
+								<InvoiceDownloadButton invoice={invoice} />
+							)}
 						</div>
 					</div>
 				))}
