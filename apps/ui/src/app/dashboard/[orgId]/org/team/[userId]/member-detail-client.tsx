@@ -30,6 +30,7 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import type { ActivityRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
@@ -87,7 +88,12 @@ export function MemberDetailClient() {
 		{
 			params: {
 				path: { userId },
-				query: { organizationId, from: fromStr, to: toStr },
+				query: {
+					organizationId,
+					from: fromStr,
+					to: toStr,
+					timezone: getBrowserTimeZone(),
+				},
 			},
 		},
 		{ enabled: !!organizationId && !!userId && showUsage },
