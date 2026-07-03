@@ -633,6 +633,68 @@ describe("streaming conversion", () => {
 		expect(JSON.parse(fcDone!.data).item.name).toBe("get_weather");
 	});
 
+	it("gives the message and a following tool call distinct output_index values", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		const contentEvents = processStreamChunk(
+			{ choices: [{ delta: { content: "Let me check" } }] },
+			state,
+		);
+		const toolEvents = processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_1",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+
+		const msgAdded = JSON.parse(
+			contentEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "message",
+			)!.data,
+		);
+		const fcAdded = JSON.parse(
+			toolEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "function_call",
+			)!.data,
+		);
+		expect(msgAdded.output_index).not.toBe(fcAdded.output_index);
+
+		const events = createCompletionEvents(state);
+		const msgDone = JSON.parse(
+			events.find(
+				(e) =>
+					e.event === "response.output_item.done" &&
+					JSON.parse(e.data).item.type === "message",
+			)!.data,
+		);
+		// The message keeps the same output_index across added and done.
+		expect(msgDone.output_index).toBe(msgAdded.output_index);
+
+		// The final output array is ordered by output_index (message before tool).
+		const completed = JSON.parse(
+			events.find((e) => e.event === "response.completed")!.data,
+		);
+		const types = completed.response.output.map(
+			(o: Record<string, unknown>) => o.type,
+		);
+		expect(types).toEqual(["message", "function_call"]);
+	});
+
 	it("maps length finish_reason to incomplete status in streaming", () => {
 		const state = createStreamingState("gpt-4o-mini");
 		processStreamChunk(
