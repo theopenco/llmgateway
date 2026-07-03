@@ -24,8 +24,12 @@ import type { paths } from "@/lib/api/v1";
 interface ActivePlanChangeTierProps {
 	plans: PlanOption[];
 	currentPlan: PlanTier | "none" | null;
+	pendingTier: PlanTier | null;
+	cancelled: boolean;
 	subscribingTier: PlanTier | null;
+	isCancellingDowngrade: boolean;
 	onChangeTier: (tier: PlanTier, expectedAmountDueCents?: number) => void;
+	onCancelDowngrade: () => void;
 }
 
 type TierChangePreview =
@@ -52,22 +56,35 @@ function formatUsageAmount(amount: number) {
 export default function ActivePlanChangeTier({
 	plans,
 	currentPlan,
+	pendingTier,
+	cancelled,
 	subscribingTier,
+	isCancellingDowngrade,
 	onChangeTier,
+	onCancelDowngrade,
 }: ActivePlanChangeTierProps) {
 	const currentPrice = plans.find((p) => p.tier === currentPlan)?.price ?? 0;
 	const currentName =
 		plans.find((p) => p.tier === currentPlan)?.name ?? "your plan";
+	const pendingName = plans.find((p) => p.tier === pendingTier)?.name ?? null;
+	// A scheduled downgrade doesn't lock the plan: the user can still upgrade to a
+	// higher tier, or cancel the downgrade to stay on their current tier.
+	const hasPendingDowngrade = pendingTier !== null;
 
 	return (
 		<div>
 			<h2 className="mb-1 font-semibold">Change plan</h2>
 			<p className="mb-4 text-sm text-muted-foreground">
-				Upgrades take effect immediately; downgrades apply at your next renewal.
+				{cancelled
+					? "Your subscription is scheduled to cancel. Resume it first to change your plan."
+					: hasPendingDowngrade && pendingName
+						? `You're scheduled to move to ${pendingName} at your next renewal. You can still upgrade, or cancel the scheduled downgrade to keep ${currentName}.`
+						: "Upgrades take effect immediately; downgrades apply at your next renewal."}
 			</p>
 			<div className="grid gap-4 md:grid-cols-3">
 				{plans.map((plan) => {
 					const isCurrent = currentPlan === plan.tier;
+					const isScheduled = pendingTier === plan.tier;
 					const isUpgrade = plan.price > currentPrice;
 					const isPending = subscribingTier === plan.tier;
 
@@ -86,6 +103,10 @@ export default function ActivePlanChangeTier({
 								{isCurrent ? (
 									<span className="rounded-md bg-foreground/10 px-2 py-0.5 text-[11px] font-medium">
 										Current
+									</span>
+								) : isScheduled ? (
+									<span className="rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+										Scheduled
 									</span>
 								) : (
 									<span
@@ -112,12 +133,36 @@ export default function ActivePlanChangeTier({
 							<div className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground">
 								<ArrowRight className="h-3 w-3" />${plan.usage} in usage
 							</div>
-							{!isCurrent && (
+							{isScheduled ? (
+								<p className="mt-auto text-xs text-muted-foreground">
+									Takes effect at your next renewal.
+								</p>
+							) : isCurrent ? (
+								hasPendingDowngrade ? (
+									<Button
+										className="mt-auto w-full"
+										variant="outline"
+										size="sm"
+										disabled={isCancellingDowngrade}
+										onClick={onCancelDowngrade}
+									>
+										{isCancellingDowngrade ? (
+											<Loader2 className="h-4 w-4 animate-spin" />
+										) : (
+											`Keep ${plan.name}`
+										)}
+									</Button>
+								) : null
+							) : (
 								<TierChangeDialog
 									plan={plan}
 									currentName={currentName}
 									isUpgrade={isUpgrade}
 									isPending={isPending}
+									// A cancelling subscription must be resumed before any tier
+									// change. A pending downgrade blocks scheduling another
+									// downgrade, but upgrades are still allowed (they supersede it).
+									disabled={cancelled || (hasPendingDowngrade && !isUpgrade)}
 									onChangeTier={onChangeTier}
 								/>
 							)}
@@ -125,6 +170,11 @@ export default function ActivePlanChangeTier({
 					);
 				})}
 			</div>
+			{cancelled && (
+				<p className="mt-4 text-sm text-muted-foreground">
+					Resume your subscription above to upgrade or downgrade your plan.
+				</p>
+			)}
 		</div>
 	);
 }
@@ -134,12 +184,14 @@ function TierChangeDialog({
 	currentName,
 	isUpgrade,
 	isPending,
+	disabled,
 	onChangeTier,
 }: {
 	plan: PlanOption;
 	currentName: string;
 	isUpgrade: boolean;
 	isPending: boolean;
+	disabled?: boolean;
 	onChangeTier: (tier: PlanTier, expectedAmountDueCents?: number) => void;
 }) {
 	const api = useApi();
@@ -173,7 +225,7 @@ function TierChangeDialog({
 					className="mt-auto w-full"
 					variant="outline"
 					size="sm"
-					disabled={isPending}
+					disabled={isPending || disabled}
 				>
 					{isPending ? (
 						<Loader2 className="h-4 w-4 animate-spin" />
@@ -271,10 +323,12 @@ function TierChangePreviewCopy({
 
 	return (
 		<span>
-			You&apos;ll keep your {currentName} allowance until your next renewal,
-			when you&apos;ll move to {plan.name} (${plan.price}/mo, ${plan.usage} in
-			usage). No refund is issued for the current period and no charge is due
-			today.
+			You&apos;ll keep your {currentName} allowance until the end of your
+			current billing period, when you&apos;ll move to {plan.name} ($
+			{plan.price}/mo, ${plan.usage} in usage) at your next renewal. The
+			downgrade only takes effect at renewal, and until then you won&apos;t be
+			able to upgrade or change your plan. No refund is issued for the current
+			period and no charge is due today.
 		</span>
 	);
 }

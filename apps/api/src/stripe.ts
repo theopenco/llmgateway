@@ -2613,7 +2613,29 @@ export async function handlePaymentIntentFailed(
 	}
 }
 
-async function handleChargeRefunded(
+// Current Stripe API versions no longer expose the invoice link on the Charge or
+// PaymentIntent objects, so a `charge.refunded` event for a subscription invoice
+// can't be mapped back to its invoice directly. DevPass transactions
+// (`dev_plan_start` from setup-mode checkout, and invoice renewals) store the
+// invoice id rather than the payment intent, so to record the refund we resolve
+// the paid invoice from the invoice payment that this payment intent settled.
+// Filtering the invoice_payments list by the payment intent is an exact,
+// unbounded lookup — it works even for refunds of arbitrarily old invoices.
+async function resolveRefundInvoiceId(
+	paymentIntentId: string,
+): Promise<string | undefined> {
+	const payments = await getStripe().invoicePayments.list({
+		payment: { type: "payment_intent", payment_intent: paymentIntentId },
+		limit: 1,
+	});
+	const invoice = payments.data[0]?.invoice;
+	if (!invoice) {
+		return undefined;
+	}
+	return typeof invoice === "string" ? invoice : (invoice.id ?? undefined);
+}
+
+export async function handleChargeRefunded(
 	event: Stripe.ChargeRefundedEvent,
 	options: { endUserOnly?: boolean } = {},
 ) {
@@ -2647,16 +2669,6 @@ async function handleChargeRefunded(
 		return;
 	}
 
-	// Stripe v18 removed `invoice` from the typed Charge surface, but the
-	// field is still present on the underlying object for invoice-driven
-	// charges (subscriptions). Fall back to it to locate dev_plan_start /
-	// subscription_start transactions that only stored the invoice id.
-	const chargeInvoice = (
-		charge as unknown as { invoice?: string | { id?: string } | null }
-	).invoice;
-	const invoiceId =
-		typeof chargeInvoice === "string" ? chargeInvoice : chargeInvoice?.id;
-
 	const refundableTypes: (
 		| "credit_topup"
 		| "dev_plan_start"
@@ -2672,9 +2684,7 @@ async function handleChargeRefunded(
 	];
 
 	// Find the original transaction by stripePaymentIntentId first (covers
-	// credit_topup, dev_plan_renewal, subscription_start via invoice). Fall
-	// back to stripeInvoiceId since dev_plan_start (initial DevPass checkout)
-	// only records the invoice id, not the payment intent.
+	// credit_topup and any row that recorded the payment intent).
 	let originalTransaction = await db.query.transaction.findFirst({
 		where: {
 			stripePaymentIntentId: { eq: payment_intent as string },
@@ -2682,13 +2692,31 @@ async function handleChargeRefunded(
 		},
 	});
 
-	if (!originalTransaction && invoiceId) {
-		originalTransaction = await db.query.transaction.findFirst({
-			where: {
-				stripeInvoiceId: { eq: invoiceId },
-				type: { in: refundableTypes },
-			},
-		});
+	// Otherwise fall back to the invoice id: dev_plan_start (initial DevPass
+	// setup-mode checkout) and invoice renewals record only the invoice id, not
+	// the payment intent. Prefer the invoice link on the charge (present on older
+	// API versions); current versions drop it, so resolve it from Stripe by
+	// finding which of the customer's invoices this payment intent paid.
+	let invoiceId: string | undefined;
+	if (!originalTransaction) {
+		const chargeInvoice = (
+			charge as unknown as { invoice?: string | { id?: string } | null }
+		).invoice;
+		invoiceId =
+			typeof chargeInvoice === "string"
+				? chargeInvoice
+				: (chargeInvoice?.id ?? undefined);
+		if (!invoiceId) {
+			invoiceId = await resolveRefundInvoiceId(payment_intent as string);
+		}
+		if (invoiceId) {
+			originalTransaction = await db.query.transaction.findFirst({
+				where: {
+					stripeInvoiceId: { eq: invoiceId },
+					type: { in: refundableTypes },
+				},
+			});
+		}
 	}
 
 	if (!originalTransaction) {
@@ -3210,10 +3238,14 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 	} else if (isDevPlanRenewal) {
-		// Handle dev plan renewal - reset credits
-		const creditsLimit = getDevPlanCreditsLimit(
-			organization.devPlan as DevPlanTier,
-		);
+		// A scheduled downgrade takes effect now, at the renewal boundary: the
+		// lower tier the user selected mid-cycle becomes the active plan for the
+		// new period. When there's no pending downgrade this is just the current
+		// tier. The credit allotment and the tier we persist below both follow
+		// this effective tier.
+		const effectiveTier = (organization.devPlanPendingTier ??
+			organization.devPlan) as DevPlanTier;
+		const creditsLimit = getDevPlanCreditsLimit(effectiveTier);
 
 		// Create transaction record for dev plan renewal
 		const [renewalTransaction] = await db
@@ -3227,7 +3259,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				status: "completed",
 				stripePaymentIntentId: (invoice as any).payment_intent,
 				stripeInvoiceId: invoice.id,
-				description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewed`,
+				description: `Dev Plan ${effectiveTier.toUpperCase()} renewed`,
 			})
 			.returning();
 
@@ -3241,7 +3273,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				...billingDetails,
 				lineItems: [
 					{
-						description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						description: `Dev Plan ${effectiveTier.toUpperCase()} renewal ($${creditsLimit} credits included)`,
 						amount: invoice.amount_paid / 100,
 					},
 				],
@@ -3267,11 +3299,14 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// Reset credits used and update billing cycle start. Also reset the
 		// limit to the full tier allotment: mid-cycle tier changes leave the
 		// limit at a prorated value, and a fresh cycle should grant the tier's
-		// full credits. Clear any dunning freeze state since the limit is now
-		// authoritative again.
+		// full credits. Persist the effective tier and clear the pending
+		// downgrade so a scheduled downgrade becomes the active plan now. Clear
+		// any dunning freeze state since the limit is now authoritative again.
 		await db
 			.update(tables.organization)
 			.set({
+				devPlan: effectiveTier,
+				devPlanPendingTier: null,
 				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
@@ -3287,7 +3322,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			.where(eq(tables.organization.id, organizationId));
 
 		logger.info(
-			`Dev plan ${organization.devPlan} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
+			`Dev plan ${effectiveTier} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
 		);
 
 		// Track dev plan renewal in PostHog
@@ -3298,7 +3333,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				organization: organizationId,
 			},
 			properties: {
-				devPlan: organization.devPlan,
+				devPlan: effectiveTier,
 				creditsLimit: creditsLimit,
 				organization: organizationId,
 				source: "stripe_invoice",
@@ -3312,7 +3347,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			await notifyDevPlanRenewed(
 				organization.billingEmail,
 				renewedUser?.name,
-				organization.devPlan ?? "unknown",
+				effectiveTier,
 			);
 		}
 	} else if (isDevPlanUpgradeInvoice) {
@@ -4148,6 +4183,7 @@ async function handleSubscriptionDeleted(
 			.update(tables.organization)
 			.set({
 				devPlan: "none",
+				devPlanPendingTier: null,
 				devPlanCreditsLimit: "0",
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",

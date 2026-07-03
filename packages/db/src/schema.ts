@@ -258,6 +258,13 @@ export const organization = pgTable(
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
 		devPlanExpiresAt: timestamp(),
+		// A scheduled downgrade to a lower tier. Downgrades apply at the next
+		// renewal, so `devPlan` (and the current cycle's credits) stay on the
+		// higher tier until then; this holds the tier the subscription will move
+		// to at renewal. Null means no pending downgrade. The renewal webhook
+		// applies it and clears it. Upgrades take effect immediately and never set
+		// this.
+		devPlanPendingTier: text({ enum: ["lite", "pro", "max"] }),
 		devPlanCycle: text({ enum: ["monthly", "annual"] })
 			.notNull()
 			.default("monthly"),
@@ -2354,6 +2361,7 @@ export const auditLogActions = [
 	"dev_plan.cancel",
 	"dev_plan.resume",
 	"dev_plan.change_tier",
+	"dev_plan.cancel_downgrade",
 	"dev_plan.update_settings",
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",

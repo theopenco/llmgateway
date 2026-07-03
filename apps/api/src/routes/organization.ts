@@ -7,6 +7,12 @@ import {
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateInvoicePDF,
+	isInvoiceableTransaction,
+	isRefundTransaction,
+} from "@/utils/invoice.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -876,6 +882,97 @@ organization.openapi(getTransactions, async (c) => {
 	return c.json({
 		transactions,
 	});
+});
+
+const downloadTransactionInvoice = createRoute({
+	method: "get",
+	path: "/{id}/transactions/{transactionId}/invoice",
+	request: {
+		params: z.object({
+			id: z.string(),
+			transactionId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/pdf": {
+					schema: z.any().openapi({ type: "string", format: "binary" }),
+				},
+			},
+			description: "PDF invoice for the specified transaction",
+		},
+	},
+});
+
+organization.openapi(downloadTransactionInvoice, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id, transactionId } = c.req.param();
+
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const transaction = await db.query.transaction.findFirst({
+		where: {
+			id: { eq: transactionId },
+			organizationId: { eq: id },
+		},
+	});
+	if (!transaction) {
+		throw new HTTPException(404, {
+			message: "Transaction not found",
+		});
+	}
+	if (!isInvoiceableTransaction(transaction)) {
+		throw new HTTPException(400, {
+			message: "No invoice is available for this transaction",
+		});
+	}
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: id },
+		},
+	});
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const originalTransaction =
+		isRefundTransaction(transaction.type) && transaction.relatedTransactionId
+			? await db.query.transaction.findFirst({
+					where: {
+						id: { eq: transaction.relatedTransactionId },
+						organizationId: { eq: id },
+					},
+				})
+			: null;
+
+	const pdf = generateInvoicePDF(
+		buildInvoiceDataForTransaction(transaction, org, originalTransaction),
+	);
+
+	const prefix = isRefundTransaction(transaction.type)
+		? "credit-note"
+		: "invoice";
+	c.header("Content-Type", "application/pdf");
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="${prefix}-${transaction.id}.pdf"`,
+	);
+	return c.body(new Uint8Array(pdf));
 });
 
 const getReferralStats = createRoute({

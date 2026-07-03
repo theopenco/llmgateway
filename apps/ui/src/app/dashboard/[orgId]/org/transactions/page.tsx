@@ -59,5 +59,5 @@ export default async function TransactionsPage({
 
 	const data = await fetchTransactions(orgId);
 
-	return <TransactionsClient data={data} />;
+	return <TransactionsClient data={data} orgId={orgId} />;
 }

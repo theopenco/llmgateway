@@ -3,14 +3,33 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { db, tables } from "@llmgateway/db";
 
 import {
+	handleChargeRefunded,
 	handleInvoicePaymentSucceeded,
 	handlePaymentIntentFailed,
 	handleSubscriptionUpdated,
 } from "./stripe.js";
 import { deleteAll } from "./testing.js";
 
+import type * as PaymentsModule from "./routes/payments.js";
 import type * as EmailModule from "./utils/email.js";
 import type Stripe from "stripe";
+
+const stripeMock = vi.hoisted(() => ({
+	refunds: { list: vi.fn() },
+	invoices: { list: vi.fn() },
+	invoicePayments: { list: vi.fn() },
+	subscriptions: { retrieve: vi.fn() },
+	paymentIntents: { retrieve: vi.fn() },
+	paymentMethods: { retrieve: vi.fn() },
+}));
+
+vi.mock("./routes/payments.js", async (importOriginal) => {
+	const original = await importOriginal<typeof PaymentsModule>();
+	return {
+		...original,
+		getStripe: () => stripeMock,
+	};
+});
 
 vi.mock("./utils/email.js", async (importOriginal) => {
 	const original = await importOriginal<typeof EmailModule>();
@@ -273,6 +292,46 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
 		expect(txns[0].creditAmount).toBe("237");
+	});
+
+	test("applies a scheduled downgrade at renewal: switches tier and grants the lower allotment", async () => {
+		// Org is on pro with a pending downgrade to lite. At the cycle renewal the
+		// tier must flip to lite, the pending marker clears, and credits reset to
+		// lite's full allotment (not pro's).
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanPendingTier: "lite",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 2900,
+				invoiceId: "in_cycle_downgrade_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanPendingTier).toBeNull();
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].creditAmount).toBe("87");
 	});
 
 	test("emails an invoice on renewal, falling back to the org's own billing email when no default org exists", async () => {
@@ -658,5 +717,134 @@ describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", 
 		expect(txns[0].type).toBe("credit_topup");
 		expect(txns[0].status).toBe("failed");
 		expect(txns[0].creditAmount).toBe("50");
+	});
+});
+
+function makeChargeRefundedEvent(overrides: {
+	paymentIntentId: string;
+	customer: string;
+}): Stripe.ChargeRefundedEvent {
+	return {
+		id: "evt_test_charge_refunded",
+		type: "charge.refunded",
+		data: {
+			object: {
+				id: "ch_test_refund_001",
+				payment_intent: overrides.paymentIntentId,
+				customer: overrides.customer,
+				// Current Stripe API versions omit the invoice link on the charge.
+				invoice: null,
+			},
+		},
+	} as unknown as Stripe.ChargeRefundedEvent;
+}
+
+describe("handleChargeRefunded — dev plan refund tracking", () => {
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		await deleteAll();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("records a refund for a dev_plan_start that stored only the invoice id", async () => {
+		// The DevPass setup-mode checkout records dev_plan_start with the invoice id
+		// but no payment intent, and current Stripe API versions no longer expose the
+		// invoice link on the refunded charge. The handler must resolve the invoice
+		// from the customer's invoices and still record the refund.
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_devpass_refund",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanStripeSubscriptionId: SUB_ID,
+		});
+		const [original] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: ORG_ID,
+				type: "dev_plan_start",
+				amount: "79",
+				creditAmount: "237",
+				currency: "USD",
+				status: "completed",
+				stripeInvoiceId: "in_devpass_refund",
+				description: "Dev Plan PRO started via Stripe Checkout",
+			})
+			.returning();
+
+		// No payment-intent match; resolve the invoice by scanning the customer's
+		// invoices for the one this payment intent paid.
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_devpass_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_devpass_refund", amount: 7900, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_devpass_refund",
+				customer: "cus_devpass_refund",
+			}),
+		);
+
+		const refund = await db.query.transaction.findFirst({
+			where: { stripeRefundId: { eq: "re_devpass_refund" } },
+		});
+		expect(refund?.type).toBe("credit_refund");
+		expect(refund?.amount).toBe("79");
+		expect(refund?.relatedTransactionId).toBe(original.id);
+
+		// A dev plan refund is recorded for reporting only; it must not deduct from
+		// the org's pay-as-you-go credit balance.
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.credits).toBe("0");
+	});
+
+	test("does not double-record when the same refund is delivered twice", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_devpass_refund",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanStripeSubscriptionId: SUB_ID,
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "79",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: "in_devpass_refund",
+		});
+
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_devpass_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_devpass_refund", amount: 7900, reason: null }],
+		});
+
+		const event = makeChargeRefundedEvent({
+			paymentIntentId: "pi_devpass_refund",
+			customer: "cus_devpass_refund",
+		});
+		await handleChargeRefunded(event);
+		await handleChargeRefunded(event);
+
+		const refunds = await db.query.transaction.findMany({
+			where: { stripeRefundId: { eq: "re_devpass_refund" } },
+		});
+		expect(refunds).toHaveLength(1);
 	});
 });
