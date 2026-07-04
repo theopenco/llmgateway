@@ -30,7 +30,6 @@ export {
 	getDevPlanCreditsLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getRemainingPremiumWeeklyAllowance,
-	getProratedCreditDelta,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
 

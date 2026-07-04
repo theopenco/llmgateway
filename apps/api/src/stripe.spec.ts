@@ -418,64 +418,44 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 	});
 
-	test("does NOT reset credits on a proration invoice from a tier change", async () => {
+	test("resets to a fresh new-tier cycle on a tier-change invoice (webhook fallback)", async () => {
+		// The change-tier endpoint normally resets state synchronously; this exercises
+		// the webhook fallback when that process died after Stripe collected payment.
+		// An upgrade invoice (`subscription_update`) starts a brand-new cycle, so the
+		// org resets to the new tier's full allowance with usage zeroed. The target
+		// tier is read from the subscription metadata the update set.
 		await seedUsedDevPlanOrg();
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: { devPlan: "max" },
+		});
 
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
 		await handleInvoicePaymentSucceeded(
 			makeInvoiceEvent({
 				billingReason: "subscription_update",
-				amountPaid: 9221,
-				invoiceId: "in_proration_001",
+				amountPaid: 17900,
+				invoiceId: "in_upgrade_001",
+				periodEnd,
 			}),
 		);
 
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
-		// The credit usage must be preserved — otherwise a user could
-		// downgrade then upgrade to repeatedly refresh their full balance.
-		expect(org?.devPlanCreditsUsed).toBe("150");
+		expect(org?.devPlan).toBe("max");
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("537");
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBeNull();
-		expect(txns[0].amount).toBe("92.21");
-	});
-
-	test("records a manual upgrade invoice without resetting used credits", async () => {
-		await seedUsedDevPlanOrg();
-
-		await handleInvoicePaymentSucceeded(
-			makeInvoiceEvent({
-				billingReason: "manual",
-				amountPaid: 5000,
-				invoiceId: "in_manual_upgrade_001",
-				metadata: {
-					organizationId: ORG_ID,
-					subscriptionType: "dev_plan",
-					devPlanChange: "upgrade",
-					fromTier: "lite",
-					toTier: "pro",
-				},
-			}),
-		);
-
-		const org = await db.query.organization.findFirst({
-			where: { id: { eq: ORG_ID } },
-		});
-		expect(org?.devPlanCreditsUsed).toBe("150");
-
-		const txns = await db.query.transaction.findMany({
-			where: { organizationId: { eq: ORG_ID } },
-		});
-		expect(txns).toHaveLength(1);
-		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBeNull();
-		expect(txns[0].amount).toBe("50");
-		expect(txns[0].stripeInvoiceId).toBe("in_manual_upgrade_001");
+		expect(txns[0].creditAmount).toBe("537");
+		expect(txns[0].amount).toBe("179");
+		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {

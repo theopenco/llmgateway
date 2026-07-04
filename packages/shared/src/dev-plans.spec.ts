@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { getDevPlanCreditsLimit, getProratedCreditDelta } from "./dev-plans.js";
+import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "./dev-plans.js";
 
-describe("getProratedCreditDelta", () => {
+describe("getDevPlanCreditsLimit", () => {
 	const original = process.env.DEV_PLAN_CREDITS_MULTIPLIER;
 
 	beforeEach(() => {
@@ -17,33 +17,18 @@ describe("getProratedCreditDelta", () => {
 		}
 	});
 
-	it("grants the full tier difference when the whole period remains", () => {
-		const delta = getProratedCreditDelta("lite", "max", 1);
-		expect(delta).toBe(
-			getDevPlanCreditsLimit("max") - getDevPlanCreditsLimit("lite"),
+	it("multiplies the tier price by the credits multiplier", () => {
+		expect(getDevPlanCreditsLimit("lite")).toBe(DEV_PLAN_PRICES.lite * 3);
+		expect(getDevPlanCreditsLimit("pro")).toBe(DEV_PLAN_PRICES.pro * 3);
+		expect(getDevPlanCreditsLimit("max")).toBe(DEV_PLAN_PRICES.max * 3);
+	});
+
+	it("grants a higher tier a strictly larger allowance", () => {
+		expect(getDevPlanCreditsLimit("max")).toBeGreaterThan(
+			getDevPlanCreditsLimit("pro"),
 		);
-	});
-
-	it("prorates the upgrade credits by the remaining fraction", () => {
-		const full = getDevPlanCreditsLimit("max") - getDevPlanCreditsLimit("lite");
-		expect(getProratedCreditDelta("lite", "max", 0.5)).toBeCloseTo(full / 2);
-	});
-
-	it("returns a negative delta for a downgrade", () => {
-		const delta = getProratedCreditDelta("max", "lite", 1);
-		expect(delta).toBe(
-			getDevPlanCreditsLimit("lite") - getDevPlanCreditsLimit("max"),
+		expect(getDevPlanCreditsLimit("pro")).toBeGreaterThan(
+			getDevPlanCreditsLimit("lite"),
 		);
-		expect(delta).toBeLessThan(0);
-	});
-
-	it("grants nothing when no time remains in the period", () => {
-		expect(getProratedCreditDelta("lite", "max", 0)).toBe(0);
-	});
-
-	it("clamps out-of-range fractions to [0, 1]", () => {
-		const full = getDevPlanCreditsLimit("max") - getDevPlanCreditsLimit("lite");
-		expect(getProratedCreditDelta("lite", "max", 1.5)).toBe(full);
-		expect(getProratedCreditDelta("lite", "max", -0.5)).toBe(0);
 	});
 });

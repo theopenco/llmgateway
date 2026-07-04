@@ -8,16 +8,8 @@ import { db, eq, tables } from "@llmgateway/db";
 import type * as PaymentsModule from "@/routes/payments.js";
 
 const stripeMock = vi.hoisted(() => ({
-	invoiceItems: {
-		create: vi.fn(),
-		del: vi.fn(),
-	},
-	invoices: {
-		create: vi.fn(),
-		finalizeInvoice: vi.fn(),
-		pay: vi.fn(),
-		del: vi.fn(),
-		voidInvoice: vi.fn(),
+	prices: {
+		retrieve: vi.fn(),
 	},
 	subscriptions: {
 		retrieve: vi.fn(),
@@ -37,6 +29,42 @@ const ORG_ID = "test-dev-plan-org";
 const SUBSCRIPTION_ID = "sub_dev_plan_upgrade";
 const originalProPriceId = process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID;
 
+// A fresh 30-day period the mocked subscription update anchors to (billing cycle
+// resets to now on an upgrade).
+const THIRTY_DAYS = 30 * 24 * 60 * 60;
+
+// Set by beforeEach and read by the retrievedSubscription helper below.
+let nowSecondsValue: number;
+
+function retrievedSubscription(
+	overrides: Record<string, unknown> = {},
+	itemOverrides: Record<string, unknown> = {},
+) {
+	return {
+		id: SUBSCRIPTION_ID,
+		customer: "cus_dev_plan",
+		status: "active",
+		metadata: {
+			organizationId: ORG_ID,
+			subscriptionType: "dev_plan",
+			devPlan: "lite",
+			devPlanCycle: "monthly",
+		},
+		items: {
+			data: [
+				{
+					id: "si_dev_plan",
+					current_period_start: nowSecondsValue - 500,
+					current_period_end: nowSecondsValue + 500,
+					price: { id: "price_lite" },
+					...itemOverrides,
+				},
+			],
+		},
+		...overrides,
+	};
+}
+
 describe("dev plan tier changes", () => {
 	let token: string;
 	let nowSeconds: number;
@@ -47,6 +75,7 @@ describe("dev plan tier changes", () => {
 		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
 		token = await createTestUser();
 		nowSeconds = Math.floor(Date.now() / 1000);
+		nowSecondsValue = nowSeconds;
 		dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(nowSeconds * 1000);
 
 		await db.insert(tables.organization).values({
@@ -79,30 +108,12 @@ describe("dev plan tier changes", () => {
 		await deleteAll();
 	});
 
-	it("previews prorated upgrade charge and credit deltas", async () => {
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "lite",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: {
-							id: "price_lite",
-						},
-					},
-				],
-			},
-		});
+	it("previews the full upgrade charge and new-tier credits", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		// Full monthly price of the pro tier ($79).
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
 
 		const res = await app.request("/dev-plans/change-tier-preview", {
 			method: "POST",
@@ -121,44 +132,25 @@ describe("dev plan tier changes", () => {
 			currentTier: "lite",
 			newTier: "pro",
 			isUpgrade: true,
-			amountDueCents: 2500,
+			// Full new-tier price charged today, not a prorated slice.
+			amountDueCents: 7900,
 			currency: "USD",
 			remainingFraction: 0.5,
 			currentCreditsLimit: 87,
-			proratedCreditDelta: 75,
-			newCreditsLimit: 162,
+			// Allowance resets to the new tier's full allotment (79 * 3 = 237).
+			proratedCreditDelta: 150,
+			newCreditsLimit: 237,
 			billingPeriodStart: new Date((nowSeconds - 500) * 1000).toISOString(),
 			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
 		});
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
-		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
-		expect(stripeMock.invoices.create).not.toHaveBeenCalled();
 	});
 
-	it("rejects upgrade if the expected charge no longer matches", async () => {
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "lite",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: {
-							id: "price_lite",
-						},
-					},
-				],
-			},
-		});
+	it("rejects an upgrade if the full price exceeds the confirmed amount", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
 
 		const res = await app.request("/dev-plans/change-tier", {
 			method: "POST",
@@ -174,8 +166,6 @@ describe("dev plan tier changes", () => {
 
 		expect(res.status).toBe(409);
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
-		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
-		expect(stripeMock.invoices.create).not.toHaveBeenCalled();
 
 		// The per-cycle claim is released when the change aborts before Stripe, so
 		// the user isn't locked out of retrying this cycle.
@@ -185,60 +175,26 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
 	});
 
-	it("allows the upgrade when the recomputed charge is lower than the previewed amount", async () => {
-		// `remainingFraction` decays with wall-clock time, so the charge recomputed
-		// at confirm time is typically a little lower than the value the user saw in
-		// the preview. That benign downward drift must not block the upgrade — the
-		// user is only ever charged the smaller recomputed amount.
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "lite",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: {
-							id: "price_lite",
-						},
-					},
-				],
-			},
-		});
-		stripeMock.invoiceItems.create.mockResolvedValue({
-			id: "ii_upgrade",
-		});
-		stripeMock.invoices.create.mockResolvedValue({
-			id: "in_upgrade",
-			status: "draft",
-		});
-		stripeMock.invoices.finalizeInvoice.mockResolvedValue({
-			id: "in_upgrade",
-			status: "open",
-		});
-		stripeMock.invoices.pay.mockResolvedValue({
-			id: "in_upgrade",
-			status: "paid",
-			payment_intent: {
-				id: "pi_upgrade",
-			},
-		});
+	it("charges the full price, resets usage, and grants full new-tier credits", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
 		stripeMock.subscriptions.update.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
 			customer: "cus_dev_plan",
 			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade" },
+			},
 			items: {
 				data: [
 					{
 						id: "si_dev_plan",
+						current_period_end: nowSeconds + THIRTY_DAYS,
 					},
 				],
 			},
@@ -252,110 +208,20 @@ describe("dev plan tier changes", () => {
 			},
 			body: JSON.stringify({
 				newTier: "pro",
-				expectedAmountDueCents: 2600,
+				expectedAmountDueCents: 7900,
 			}),
 		});
 
 		expect(res.status).toBe(200);
-		expect(stripeMock.invoiceItems.create).toHaveBeenCalledWith(
-			expect.objectContaining({
-				amount: 2500,
-			}),
-		);
-	});
-
-	it("charges and grants prorated upgrade deltas while preserving usage", async () => {
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "lite",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: {
-							id: "price_lite",
-						},
-					},
-				],
-			},
-		});
-		stripeMock.invoiceItems.create.mockResolvedValue({
-			id: "ii_upgrade",
-		});
-		stripeMock.invoices.create.mockResolvedValue({
-			id: "in_upgrade",
-			status: "draft",
-		});
-		stripeMock.invoices.finalizeInvoice.mockResolvedValue({
-			id: "in_upgrade",
-			status: "open",
-		});
-		stripeMock.invoices.pay.mockResolvedValue({
-			id: "in_upgrade",
-			status: "paid",
-			payment_intent: {
-				id: "pi_upgrade",
-			},
-		});
-		stripeMock.subscriptions.update.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-					},
-				],
-			},
-		});
-
-		const res = await app.request("/dev-plans/change-tier", {
-			method: "POST",
-			headers: {
-				Cookie: token,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				newTier: "pro",
-				expectedAmountDueCents: 2500,
-			}),
-		});
-
-		expect(res.status).toBe(200);
-		expect(stripeMock.invoiceItems.create).toHaveBeenCalledWith(
-			expect.objectContaining({
-				customer: "cus_dev_plan",
-				subscription: SUBSCRIPTION_ID,
-				amount: 2500,
-				currency: "usd",
-				metadata: expect.objectContaining({
-					organizationId: ORG_ID,
-					devPlanChange: "upgrade",
-					fromTier: "lite",
-					toTier: "pro",
-					remainingFraction: "0.5",
-				}),
-			}),
-		);
-		expect(stripeMock.invoices.pay).toHaveBeenCalledWith("in_upgrade", {
-			off_session: true,
-			expand: ["payment_intent"],
-		});
+		// Upgrade resets the billing cycle to now, charges the full new price, and
+		// suppresses proration.
 		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
 			SUBSCRIPTION_ID,
 			expect.objectContaining({
+				items: [{ id: "si_dev_plan", price: "price_pro" }],
 				proration_behavior: "none",
-				payment_behavior: "allow_incomplete",
+				billing_cycle_anchor: "now",
+				payment_behavior: "error_if_incomplete",
 			}),
 		);
 
@@ -367,8 +233,13 @@ describe("dev plan tier changes", () => {
 			},
 		});
 		expect(org?.devPlan).toBe("pro");
-		expect(org?.devPlanCreditsUsed).toBe("12.5");
-		expect(org?.devPlanCreditsLimit).toBe("162");
+		// Fresh cycle: usage wiped, limit reset to the full new-tier allowance.
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanBillingCycleStart).not.toBeNull();
+		expect(org?.devPlanExpiresAt).toEqual(
+			new Date((nowSeconds + THIRTY_DAYS) * 1000),
+		);
 
 		const transaction = await db.query.transaction.findFirst({
 			where: {
@@ -378,76 +249,40 @@ describe("dev plan tier changes", () => {
 			},
 		});
 		expect(transaction?.type).toBe("dev_plan_upgrade");
-		expect(transaction?.amount).toBe("25");
+		expect(transaction?.amount).toBe("79");
+		expect(transaction?.creditAmount).toBe("237");
 		expect(transaction?.stripeInvoiceId).toBe("in_upgrade");
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");
 	});
 
-	it("adds the upgrade credit on top of a carried-over limit from an earlier mid-cycle change", async () => {
-		// Reproduces a downgrade-then-re-upgrade within the same period: the org is
-		// on lite but still carries the pro-era limit (237) and the usage it
-		// accumulated before downgrading (220.31). The upgrade must add the prorated
-		// delta on top of the carried-over limit (237 + 75 = 312), not overwrite it
-		// with the lite tier base + delta (87 + 75 = 162), which would leave the
-		// allowance below current usage and hide the granted credit.
+	it("wipes prior mid-cycle usage on upgrade (fresh cycle)", async () => {
+		// The org has heavy prior usage this period; an upgrade starts a brand-new
+		// cycle, so usage resets to 0 rather than carrying over.
 		await db
 			.update(tables.organization)
 			.set({
-				devPlanCreditsLimit: "237",
-				devPlanCreditsUsed: "220.31",
+				devPlanCreditsLimit: "87",
+				devPlanCreditsUsed: "80.42",
 			})
 			.where(eq(tables.organization.id, ORG_ID));
 
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "lite",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: {
-							id: "price_lite",
-						},
-					},
-				],
-			},
-		});
-		stripeMock.invoiceItems.create.mockResolvedValue({
-			id: "ii_upgrade",
-		});
-		stripeMock.invoices.create.mockResolvedValue({
-			id: "in_upgrade",
-			status: "draft",
-		});
-		stripeMock.invoices.finalizeInvoice.mockResolvedValue({
-			id: "in_upgrade",
-			status: "open",
-		});
-		stripeMock.invoices.pay.mockResolvedValue({
-			id: "in_upgrade",
-			status: "paid",
-			payment_intent: {
-				id: "pi_upgrade",
-			},
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
 		stripeMock.subscriptions.update.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
 			customer: "cus_dev_plan",
 			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade" },
+			},
 			items: {
 				data: [
-					{
-						id: "si_dev_plan",
-					},
+					{ id: "si_dev_plan", current_period_end: nowSeconds + THIRTY_DAYS },
 				],
 			},
 		});
@@ -460,7 +295,7 @@ describe("dev plan tier changes", () => {
 			},
 			body: JSON.stringify({
 				newTier: "pro",
-				expectedAmountDueCents: 2500,
+				expectedAmountDueCents: 7900,
 			}),
 		});
 
@@ -474,52 +309,24 @@ describe("dev plan tier changes", () => {
 			},
 		});
 		expect(org?.devPlan).toBe("pro");
-		expect(org?.devPlanCreditsUsed).toBe("220.31");
-		expect(org?.devPlanCreditsLimit).toBe("312");
-
-		const transaction = await db.query.transaction.findFirst({
-			where: {
-				organizationId: {
-					eq: ORG_ID,
-				},
-			},
-		});
-		expect(transaction?.creditAmount).toBe("75");
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("237");
 	});
 
-	it("rejects a second tier change within the same billing cycle", async () => {
-		// A tier change was already claimed for this cycle (marker at the cycle's
-		// Stripe period start), so another change must be blocked before any Stripe
-		// call. current_period_start below is nowSeconds - 500.
+	it("blocks a concurrent duplicate upgrade for the same period", async () => {
+		// A double-clicked confirm: the current Stripe period was already claimed
+		// (marker at the period start), so the second request is rejected before any
+		// Stripe call, preventing a second full-price charge and cycle reset.
 		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
 		await db
 			.update(tables.organization)
 			.set({ devPlanLastTierChangeCycleStart: claimedCycleStart })
 			.where(eq(tables.organization.id, ORG_ID));
 
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "lite",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: {
-							id: "price_lite",
-						},
-					},
-				],
-			},
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
 
 		const res = await app.request("/dev-plans/change-tier", {
 			method: "POST",
@@ -534,7 +341,6 @@ describe("dev plan tier changes", () => {
 
 		expect(res.status).toBe(409);
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
-		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
 
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
@@ -551,29 +357,9 @@ describe("dev plan tier changes", () => {
 		// `customer.subscription.deleted` webhook hasn't reset the org yet. Stripe
 		// would reject the price update with `invalid_canceled_subscription_fields`,
 		// so bail out with a 409 before ever calling update.
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "canceled",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "lite",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: {
-							id: "price_lite",
-						},
-					},
-				],
-			},
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription({ status: "canceled" }),
+		);
 
 		const res = await app.request("/dev-plans/change-tier", {
 			method: "POST",
@@ -608,28 +394,12 @@ describe("dev plan tier changes", () => {
 			.set({ devPlanCancelled: true })
 			.where(eq(tables.organization.id, ORG_ID));
 
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "canceled",
-			cancel_at_period_end: false,
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "lite",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: { id: "price_lite" },
-					},
-				],
-			},
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription({
+				status: "canceled",
+				cancel_at_period_end: false,
+			}),
+		);
 
 		const res = await app.request("/dev-plans/resume", {
 			method: "POST",
@@ -667,29 +437,12 @@ describe("dev plan tier changes", () => {
 			})
 			.where(eq(tables.organization.id, ORG_ID));
 
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "pro",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: {
-							id: "price_pro",
-						},
-					},
-				],
-			},
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(
+				{ metadata: { devPlan: "pro" } },
+				{ price: { id: "price_pro" } },
+			),
+		);
 		stripeMock.subscriptions.update.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
 			customer: "cus_dev_plan",
@@ -709,8 +462,8 @@ describe("dev plan tier changes", () => {
 		});
 
 		expect(res.status).toBe(200);
-		// Stripe price is swapped so the renewal invoice bills the lower tier, but
-		// no proration charge is collected for a downgrade.
+		// Stripe price is swapped so the renewal invoice bills the lower tier, but no
+		// charge is collected and the cycle is NOT reset for a downgrade.
 		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
 			SUBSCRIPTION_ID,
 			expect.objectContaining({
@@ -718,7 +471,10 @@ describe("dev plan tier changes", () => {
 				proration_behavior: "none",
 			}),
 		);
-		expect(stripeMock.invoiceItems.create).not.toHaveBeenCalled();
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			expect.objectContaining({ billing_cycle_anchor: "now" }),
+		);
 
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
@@ -736,7 +492,7 @@ describe("dev plan tier changes", () => {
 	});
 
 	it("allows a downgrade even after an upgrade already claimed the cycle", async () => {
-		// An upgrade earlier this cycle set the once-per-cycle marker. That must
+		// An upgrade earlier this cycle set the double-charge-guard marker. That must
 		// not block a downgrade, which only schedules the lower tier for renewal.
 		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
 		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
@@ -749,27 +505,12 @@ describe("dev plan tier changes", () => {
 			})
 			.where(eq(tables.organization.id, ORG_ID));
 
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "pro",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: { id: "price_pro" },
-					},
-				],
-			},
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(
+				{ metadata: { devPlan: "pro" } },
+				{ price: { id: "price_pro" } },
+			),
+		);
 		stripeMock.subscriptions.update.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
 			customer: "cus_dev_plan",
@@ -800,27 +541,12 @@ describe("dev plan tier changes", () => {
 			.set({ devPlan: "pro", devPlanPendingTier: "lite" })
 			.where(eq(tables.organization.id, ORG_ID));
 
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "pro",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: { id: "price_pro" },
-					},
-				],
-			},
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(
+				{ metadata: { devPlan: "pro" } },
+				{ price: { id: "price_pro" } },
+			),
+		);
 
 		const downgrade = await app.request("/dev-plans/change-tier", {
 			method: "POST",
@@ -832,8 +558,8 @@ describe("dev plan tier changes", () => {
 	});
 
 	it("allows an upgrade while a downgrade is pending and clears the pending tier", async () => {
-		// An upgrade supersedes a scheduled downgrade: it applies immediately and
-		// clears devPlanPendingTier.
+		// An upgrade supersedes a scheduled downgrade: it applies immediately, starts
+		// a fresh cycle and clears devPlanPendingTier.
 		process.env.STRIPE_DEV_PLAN_MAX_PRICE_ID = "price_max";
 		await db
 			.update(tables.organization)
@@ -845,46 +571,28 @@ describe("dev plan tier changes", () => {
 			})
 			.where(eq(tables.organization.id, ORG_ID));
 
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "pro",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						price: { id: "price_pro" },
-					},
-				],
-			},
-		});
-		stripeMock.invoiceItems.create.mockResolvedValue({ id: "ii_upgrade" });
-		stripeMock.invoices.create.mockResolvedValue({
-			id: "in_upgrade",
-			status: "draft",
-		});
-		stripeMock.invoices.finalizeInvoice.mockResolvedValue({
-			id: "in_upgrade",
-			status: "open",
-		});
-		stripeMock.invoices.pay.mockResolvedValue({
-			id: "in_upgrade",
-			status: "paid",
-			payment_intent: { id: "pi_upgrade" },
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(
+				{ metadata: { devPlan: "pro" } },
+				{ price: { id: "price_pro" } },
+			),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 17900 });
 		stripeMock.subscriptions.update.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
 			customer: "cus_dev_plan",
 			status: "active",
-			items: { data: [{ id: "si_dev_plan" }] },
+			metadata: { devPlan: "max" },
+			latest_invoice: {
+				id: "in_max",
+				amount_paid: 17900,
+				payment_intent: { id: "pi_max" },
+			},
+			items: {
+				data: [
+					{ id: "si_dev_plan", current_period_end: nowSeconds + THIRTY_DAYS },
+				],
+			},
 		});
 
 		const res = await app.request("/dev-plans/change-tier", {
@@ -899,6 +607,8 @@ describe("dev plan tier changes", () => {
 		});
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanPendingTier).toBeNull();
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("537");
 	});
 
 	it("cancels a scheduled downgrade and reverts the Stripe price to the current tier", async () => {
@@ -910,28 +620,13 @@ describe("dev plan tier changes", () => {
 			.set({ devPlan: "max", devPlanPendingTier: "pro" })
 			.where(eq(tables.organization.id, ORG_ID));
 
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			id: SUBSCRIPTION_ID,
-			customer: "cus_dev_plan",
-			status: "active",
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "max",
-				devPlanCycle: "monthly",
-			},
-			items: {
-				data: [
-					{
-						id: "si_dev_plan",
-						current_period_start: nowSeconds - 500,
-						current_period_end: nowSeconds + 500,
-						// Price was swapped to the lower (pro) tier when scheduling.
-						price: { id: "price_pro" },
-					},
-				],
-			},
-		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(
+				{ metadata: { devPlan: "max" } },
+				// Price was swapped to the lower (pro) tier when scheduling.
+				{ price: { id: "price_pro" } },
+			),
+		);
 		stripeMock.subscriptions.update.mockResolvedValue({
 			id: SUBSCRIPTION_ID,
 			customer: "cus_dev_plan",
