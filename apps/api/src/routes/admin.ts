@@ -1493,7 +1493,7 @@ admin.openapi(getGlobalStats, async (c) => {
 				row as (typeof timeseriesBreakdownRows)[number] & { source: string }
 			).source;
 		}
-		const mapKey = `${row.date} ${key}`;
+		const mapKey = `${row.date}:${key}`;
 		const existing = timeseriesBreakdownMap.get(mapKey);
 		if (existing) {
 			existing.requestCount += Number(row.requestCount);
