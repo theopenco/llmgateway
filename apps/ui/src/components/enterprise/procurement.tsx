@@ -34,8 +34,8 @@ const items: ProcurementItem[] = [
 		title: "DPA & subprocessor list",
 		description:
 			"GDPR-aligned data processing agreement and a current subprocessor list, ready for your legal team.",
-		href: "/legal/privacy",
-		linkLabel: "Read the privacy policy",
+		href: "/enterprise#contact",
+		linkLabel: "Request the DPA",
 		external: false,
 	},
 	{

@@ -141,14 +141,11 @@ export function Faq() {
 								</AccordionPrimitive.Header>
 								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
 									<div className="border-l-2 border-foreground/10 pl-4">
-										We support {MARKETING_STATS.models} models across{" "}
-										{MARKETING_STATS.providers} providers—including GPT-4o,
-										Claude, Gemini, Llama, Mistral, and more. Check the{" "}
+										{faqData[1].answer} Check the{" "}
 										<Link href="/models" className="underline">
 											models page
 										</Link>{" "}
-										for the full list. We add new releases within 48 hours of
-										launch.
+										for the full list.
 									</div>
 								</AccordionContent>
 							</AccordionItem>

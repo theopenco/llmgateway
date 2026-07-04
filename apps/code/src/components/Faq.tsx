@@ -38,7 +38,7 @@ const faqData = [
 	{
 		question: "Are all 200+ models included on every plan?",
 		answer:
-			"Yes. Every plan includes the full catalog — Claude, GPT-5, Gemini, Llama, Qwen, and the rest. Plans differ only in the size of your monthly usage allowance.",
+			"Yes. Every plan includes the full catalog — Claude, GPT-5, Gemini, Llama, Qwen, and the rest. Plans differ in the size of your monthly usage allowance and the weekly fair-use allowance on premium frontier models.",
 	},
 	{
 		question: "Are there limits on premium models?",
@@ -251,8 +251,9 @@ export function Faq() {
 								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
 									<div className="border-l-2 border-foreground/10 pl-4">
 										Yes. Every plan includes the full catalog — Claude, GPT-5,
-										Gemini, Llama, Qwen, and the rest. Plans differ only in the
-										size of your monthly usage allowance.
+										Gemini, Llama, Qwen, and the rest. Plans differ in the size
+										of your monthly usage allowance and the weekly fair-use
+										allowance on premium frontier models.
 									</div>
 								</AccordionContent>
 							</AccordionItem>

@@ -319,8 +319,9 @@ export default function PricingPage() {
 								What&apos;s in each plan
 							</h2>
 							<p className="mt-3 text-muted-foreground">
-								Every tier ships with the full model catalog. The only thing
-								that changes is how much usage you have to play with each month.
+								Every tier ships with the full model catalog. What changes is
+								your monthly usage allowance and the weekly fair-use cap on
+								premium models.
 							</p>
 						</div>
 

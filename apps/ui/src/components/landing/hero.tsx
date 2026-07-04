@@ -198,8 +198,8 @@ export function Hero({
 								<div className="text-center max-w-4xl mx-auto">
 									<AnimatedGroup variants={transitionVariants}>
 										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
-											LLM Gateway — One API for OpenAI, Anthropic, Google, and{" "}
-											{MARKETING_STATS.providers} providers
+											LLM Gateway — One API for {MARKETING_STATS.providers}{" "}
+											providers, including OpenAI, Anthropic, and Google
 										</h1>
 										<p className="mt-4 md:mt-6 max-w-2xl mx-auto text-balance text-base md:text-lg text-muted-foreground">
 											Stop juggling API keys and provider dashboards. Route

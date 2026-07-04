@@ -117,8 +117,8 @@ export default function LandingPage() {
 								</CodeCTATracker>
 							</div>
 							<p className="mt-5 text-xs text-muted-foreground">
-								First-month guarantee — cancel within 7 days for a refund, minus
-								metered usage.
+								First-month guarantee — cancel within 7 days of your first
+								purchase and we refund your first month, minus metered usage.
 							</p>
 						</div>
 
@@ -210,8 +210,8 @@ export default function LandingPage() {
 							</h2>
 							<p className="text-muted-foreground">
 								Every plan includes the full {MARKETING_STATS.models} model
-								catalog. The only thing that changes is the size of your monthly
-								usage allowance.
+								catalog. The only things that change are your monthly usage
+								allowance and the weekly fair-use cap on premium models.
 							</p>
 						</div>
 						<PricingPlans credits={credits} />
