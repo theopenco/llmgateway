@@ -116,7 +116,7 @@ export function HeroEnterprise({
 						/>
 						<StatCard value={200} suffix="M" label="Daily Tokens" delay={0.2} />
 						<StatCard
-							value={60}
+							value={80}
 							suffix="K"
 							prefix="$"
 							label="Customer Savings"

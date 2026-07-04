@@ -18,6 +18,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Fragment } from "react";
 
+import { EnterpriseFeatureShowcase } from "@/components/enterprise/feature-showcase";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { Badge } from "@/lib/components/badge";
@@ -32,6 +33,8 @@ import type { Metadata } from "next";
 interface PageProps {
 	params: Promise<{ slug: string }>;
 }
+
+const SHOWCASE_SLUGS = new Set(["organization-analytics", "member-budgets"]);
 
 const iconMap = {
 	"shield-check": ShieldCheck,
@@ -94,6 +97,7 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 	}
 
 	const Icon = iconMap[feature.iconName];
+	const hasShowcase = SHOWCASE_SLUGS.has(slug);
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -227,6 +231,29 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 						</div>
 					</div>
 				</section>
+
+				{hasShowcase && (
+					<section className="border-b border-border bg-muted/20">
+						<div className="container mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+							<div className="mx-auto max-w-6xl">
+								<div className="mb-12">
+									<p className="text-sm font-mono uppercase tracking-wider text-muted-foreground mb-3">
+										In the dashboard
+									</p>
+									<h2 className="text-3xl font-bold tracking-tight sm:text-4xl text-balance max-w-3xl">
+										The real UI, with sample data
+									</h2>
+									<p className="mt-3 text-muted-foreground max-w-2xl">
+										The same components your team gets in the dashboard — switch
+										the Cost / Requests / Tokens tabs below. Numbers are
+										illustrative.
+									</p>
+								</div>
+								<EnterpriseFeatureShowcase slug={slug} />
+							</div>
+						</div>
+					</section>
+				)}
 
 				<section className="border-b border-border">
 					<div className="container mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
