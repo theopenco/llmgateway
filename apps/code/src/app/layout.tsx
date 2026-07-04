@@ -1,4 +1,4 @@
-import { Inter, Geist_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Inter, Geist_Mono } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
@@ -16,6 +16,12 @@ const inter = Inter({
 
 const geistMono = Geist_Mono({
 	variable: "--font-mono",
+	subsets: ["latin"],
+	display: "swap",
+});
+
+const bricolage = Bricolage_Grotesque({
+	variable: "--font-bricolage",
 	subsets: ["latin"],
 	display: "swap",
 });
@@ -92,7 +98,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body className={`${inter.variable} ${geistMono.variable} antialiased`}>
+			<body
+				className={`${inter.variable} ${geistMono.variable} ${bricolage.variable} antialiased`}
+			>
 				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>

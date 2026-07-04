@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 import Link from "next/link";
 
 import { CodePlanTracker } from "@/components/LandingTracker";
+import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
 
 import {
@@ -91,11 +92,19 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 							}`}
 						>
 							{plan.popular && (
-								<div className="absolute -top-3 left-6">
-									<span className="rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background">
-										Most popular
-									</span>
-								</div>
+								<>
+									<BorderBeam
+										size={110}
+										duration={9}
+										colorFrom="#10b981"
+										colorTo="#34d399"
+									/>
+									<div className="absolute -top-3 left-6">
+										<span className="rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background">
+											Most popular
+										</span>
+									</div>
+								</>
 							)}
 
 							<div className="mb-5">
