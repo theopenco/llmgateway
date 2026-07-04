@@ -4083,7 +4083,7 @@ export async function handleSubscriptionUpdated(
 	}
 }
 
-async function handleSubscriptionDeleted(
+export async function handleSubscriptionDeleted(
 	event: Stripe.CustomerSubscriptionDeletedEvent,
 ) {
 	const subscription = event.data.object;
@@ -4110,6 +4110,46 @@ async function handleSubscriptionDeleted(
 	const isDevPlan =
 		metadata?.subscriptionType === "dev_plan" ||
 		organization.devPlanStripeSubscriptionId === subscription.id;
+
+	// A deletion event can target a *superseded* subscription — e.g. the user
+	// cancelled at period end, then started a NEW plan before the old one's
+	// period actually elapsed. The old subscription's metadata still carries
+	// `subscriptionType: dev_plan`/`chat_plan`, so the metadata-based detection
+	// above would let its deletion wipe the org's fresh plan (tier, credits,
+	// subscription id) hours after the new checkout completed. Once the org has
+	// activated a different subscription, its deletion events must be ignored.
+	// (handleSubscriptionUpdated applies the same guard.)
+	if (
+		isDevPlan &&
+		organization.devPlanStripeSubscriptionId &&
+		organization.devPlanStripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale dev-plan subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.devPlanStripeSubscriptionId})`,
+		);
+		return;
+	}
+	if (
+		isChatPlan &&
+		organization.chatPlanStripeSubscriptionId &&
+		organization.chatPlanStripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale chat-plan subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.chatPlanStripeSubscriptionId})`,
+		);
+		return;
+	}
+	if (
+		!isDevPlan &&
+		!isChatPlan &&
+		organization.stripeSubscriptionId &&
+		organization.stripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.stripeSubscriptionId})`,
+		);
+		return;
+	}
 
 	if (isChatPlan) {
 		const previousChatPlan = organization.chatPlan;
