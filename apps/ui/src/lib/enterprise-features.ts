@@ -12,7 +12,9 @@ export interface EnterpriseFeatureDefinition {
 		| "audit"
 		| "bell"
 		| "lock"
-		| "paintbrush";
+		| "paintbrush"
+		| "chart"
+		| "users";
 	accent: "indigo" | "amber" | "emerald" | "rose" | "sky" | "violet";
 	keywords: string[];
 	benefits: Array<{ title: string; description: string }>;
@@ -23,6 +25,217 @@ export interface EnterpriseFeatureDefinition {
 }
 
 export const enterpriseFeatures: EnterpriseFeatureDefinition[] = [
+	{
+		slug: "organization-analytics",
+		title: "Organization-Wide Analytics",
+		subtitle: "Every project, every member, one page",
+		tagline:
+			"Roll spend up across the org — then break it down by model, project, key, or member.",
+		description:
+			"Cost, requests, and tokens totaled across every project, with breakdowns by model, project, API key, and member. Built on pre-aggregated rollups, so any date range stays fast.",
+		longDescription:
+			'Per-project analytics answers "where did this project\'s spend go?" — Organization Analytics does the rollup for the whole org. One page totals cost, requests, and tokens across every project for any date range, and a single group-by control pivots the cost-over-time and ranking charts by canonical model, project, or API key. Enterprise organizations also get usage broken down by person: a per-member table sorted by spend, and a detail view per member with summary cards, their top model, provider, and app, and cost-by-model breakdowns. Usage is attributed by who created each API key, every chart respects the shared date-range picker, and daily buckets follow your own timezone rather than UTC midnight. It all reads from the same pre-aggregated hourly rollups the rest of the dashboard uses — no scans over raw request logs — so it stays fast on windows up to a year.',
+		iconName: "chart",
+		accent: "sky",
+		keywords: [
+			"LLM cost analytics",
+			"organization AI spend",
+			"per-member LLM usage",
+			"AI cost attribution",
+			"LLM usage breakdown",
+		],
+		benefits: [
+			{
+				title: "Org-wide rollups",
+				description:
+					"Spend, requests, and tokens totaled across every project in the organization — no more opening projects one by one and adding the numbers up yourself.",
+			},
+			{
+				title: "Pivot three ways",
+				description:
+					"Group the same charts by canonical model, project, or API key, each with Cost / Requests / Tokens tabs on the shared date-range picker.",
+			},
+			{
+				title: "Per-member attribution",
+				description:
+					"See cost, tokens, requests, error rate, and key count per person, with a detail view of their top models, providers, and apps. Spend lands on whoever owns the key.",
+			},
+			{
+				title: "Fast on any window",
+				description:
+					"Reads pre-aggregated hourly rollups instead of raw request logs, and buckets days in your own timezone — charts line up with your wall clock.",
+			},
+		],
+		useCases: [
+			{
+				title: "Which team drives the bill",
+				description:
+					"Group by project to see which team or workload is behind this month's invoice — before finance asks.",
+			},
+			{
+				title: "Chargeback and showback",
+				description:
+					"Attribute spend to members and API keys for internal cost allocation, straight from the dashboard or the API.",
+			},
+			{
+				title: "Spotting expensive outliers",
+				description:
+					"Rank models by cost across the whole org to catch the experiment quietly burning budget on a frontier model.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Open Organization → Analytics",
+				description:
+					"Summary cards total spend, requests, and tokens for the selected range across all projects.",
+			},
+			{
+				step: "02",
+				title: "Pick a breakdown",
+				description:
+					"Switch the group-by between model, project, and API key. Every view keeps the Cost / Requests / Tokens tabs.",
+			},
+			{
+				step: "03",
+				title: "Drill into people and keys",
+				description:
+					"Open the Members table for per-person spend, or any API key's statistics page for cost, tokens, requests, and error rate scoped to that key.",
+			},
+		],
+		faq: [
+			{
+				question: "Who can access organization analytics?",
+				answer:
+					"Organization owners and admins on the Enterprise plan. Non-enterprise orgs see an upgrade card, and enterprise-gated entries are marked in the sidebar so members can tell before clicking through.",
+			},
+			{
+				question: "How is member usage attributed?",
+				answer:
+					"By who created each API key — spend lands on the member who owns the key. Member analytics are exposed through GET /analytics/members and GET /analytics/members/{userId}.",
+			},
+			{
+				question: "Does it scan my request logs?",
+				answer:
+					"No. The page reads the same pre-aggregated hourly rollups the rest of the dashboard uses, so it stays fast across any range up to a year. Every analytics endpoint also accepts an IANA timezone parameter so daily buckets follow your local day.",
+			},
+		],
+		codeExample: {
+			title: "Daily series with a project breakdown",
+			language: "bash",
+			code: `GET /analytics/activity?organizationId=org_123\\
+  &groupBy=project\\
+  &from=2026-06-01&to=2026-06-30\\
+  &timezone=Europe/Paris`,
+		},
+	},
+	{
+		slug: "member-budgets",
+		title: "Per-Member Budgets & Developer Role",
+		subtitle: "Give every teammate guard rails, not the whole wallet",
+		tagline:
+			"Cap any member's spend and keys — and scope contractors to exactly the projects you pick.",
+		description:
+			"Per-member spend caps enforced at request time, org-wide default developer limits, and a project-scoped Developer role. An over-budget request is rejected before it ever reaches a provider.",
+		longDescription:
+			"Everyone in an organization used to draw from one pool of credits with no per-person guard rails — one over-eager script could spend the whole team's budget. Per-Member Budgets give each member their own: cap how many API keys they can have active at once, their lifetime spend across all keys, and their spend per rolling hour, day, week, or month. The gateway enforces the caps at request time across chat, embeddings, OCR, speech, and video — an over-budget request is rejected with a 403 before it reaches a provider, and key creation past the cap fails with a clear 400. Org-wide default developer limits cover every developer without a personal override, and each member sees their remaining allowance on their own dashboard. The Developer role completes the picture: it grants access to exactly the projects you pick and nothing else, with a minimal dashboard scoped to the member's own usage and keys — pair it with default limits and a contractor is productive, and capped, in one invite. Spend against each cap is visible per member on the Team page alongside [[organization-analytics]].",
+		iconName: "users",
+		accent: "rose",
+		keywords: [
+			"LLM spend limits per user",
+			"AI budget controls",
+			"LLM API key limits",
+			"AI contractor access",
+			"LLM RBAC developer role",
+		],
+		benefits: [
+			{
+				title: "Enforced at request time",
+				description:
+					"Spend caps are checked in the gateway on every request — chat, embeddings, OCR, speech, and video. Over-budget requests return a 403 before any data reaches a provider.",
+			},
+			{
+				title: "Three kinds of cap",
+				description:
+					"Max active API keys, lifetime spend across all of a member's keys, and period spend per rolling hour, day, week, or month.",
+			},
+			{
+				title: "Default developer limits",
+				description:
+					"Set org-wide defaults that cover every developer without a personal override. Members see their remaining allowance on their own dashboard.",
+			},
+			{
+				title: "Project-scoped Developer role",
+				description:
+					"Developers get exactly the projects you pick and a minimal dashboard with their own usage and keys — the rest of the org UI stays out of reach.",
+			},
+		],
+		useCases: [
+			{
+				title: "Contractors in one invite",
+				description:
+					"Invite with the Developer role, scope them to one project, and let default limits cap their spend — productive and contained from day one.",
+			},
+			{
+				title: "Runaway-script protection",
+				description:
+					"A rolling daily cap means an agent loop gone wrong stops at the member's limit instead of draining the team's credits overnight.",
+			},
+			{
+				title: "Per-person accountability",
+				description:
+					"Admins see each member's cost, tokens, requests, and key count on the Team page — spend against each cap, per person.",
+			},
+		],
+		howItWorks: [
+			{
+				step: "01",
+				title: "Open Organization → Team",
+				description:
+					"Invites, roles, and budgets live on one page. Enterprise admins also see per-member cost, tokens, requests, and API-key columns.",
+			},
+			{
+				step: "02",
+				title: "Set budgets and defaults",
+				description:
+					"Use Manage budget on any row for personal caps, or set org-wide default developer limits that cover everyone without an override.",
+			},
+			{
+				step: "03",
+				title: "Scope with the Developer role",
+				description:
+					"Assign Developer and pick the member's projects. An info card next to the role picker spells out exactly what Owner, Admin, and Developer can do.",
+			},
+		],
+		faq: [
+			{
+				question: "What happens when a member hits their cap?",
+				answer:
+					'Requests are rejected with a 403 ("Member has reached their total spend budget.") before reaching a provider, and creating a key past the max-active-keys cap fails with a clear 400.',
+			},
+			{
+				question: "Which plans include this?",
+				answer:
+					"Per-member budgets are available to admins on every plan. The project-scoped Developer role and per-member cost columns on the Team page are Enterprise features.",
+			},
+			{
+				question: "Can platforms see a key's remaining headroom?",
+				answer:
+					"Yes — the Master Keys API and the payments SDK's getBalance() report consumed usage next to the configured limits, including when the current window resets.",
+			},
+		],
+		codeExample: {
+			title: "Key usage and reset times in the API",
+			language: "json",
+			code: `{
+  "usageLimit": "100",
+  "usage": "42.13",
+  "periodUsageLimit": "10",
+  "currentPeriodUsage": "3.20",
+  "currentPeriodResetAt": "2026-07-04T00:00:00.000Z"
+}`,
+		},
+	},
 	{
 		slug: "audit-logs",
 		title: "Enterprise Audit Logs",

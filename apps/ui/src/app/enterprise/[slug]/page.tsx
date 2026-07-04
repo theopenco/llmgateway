@@ -2,6 +2,7 @@ import {
 	ArrowRight,
 	ArrowUpRight,
 	BadgeCheck,
+	BarChart3,
 	Bell,
 	CheckCircle2,
 	FileSearch,
@@ -11,6 +12,7 @@ import {
 	Paintbrush,
 	Sparkles,
 	ShieldCheck,
+	Users,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -39,6 +41,8 @@ const iconMap = {
 	bell: Bell,
 	lock: Lock,
 	paintbrush: Paintbrush,
+	chart: BarChart3,
+	users: Users,
 } as const;
 
 const accentBg: Record<string, string> = {
