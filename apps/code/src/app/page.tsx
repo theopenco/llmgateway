@@ -19,7 +19,11 @@ import { Marquee } from "@/components/ui/marquee";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { getConfig } from "@/lib/config-server";
 
-import { getDevPlanCreditsLimit, MARKETING_STATS } from "@llmgateway/shared";
+import {
+	DEV_PLAN_PRICES,
+	getDevPlanCreditsLimit,
+	MARKETING_STATS,
+} from "@llmgateway/shared";
 import {
 	AnthropicIcon,
 	AutohandIcon,
@@ -34,6 +38,9 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	alternates: { canonical: "/" },
 };
+
+const modelCount = parseInt(MARKETING_STATS.models, 10);
+const providerCount = parseInt(MARKETING_STATS.providers, 10);
 
 const marqueeTools = [
 	{ name: "DevPass Code", icon: DevPassCodeIcon },
@@ -99,6 +106,7 @@ export default function LandingPage() {
 		pro: getDevPlanCreditsLimit("pro"),
 		max: getDevPlanCreditsLimit("max"),
 	};
+	const usageRatio = Math.round(credits.lite / DEV_PLAN_PRICES.lite);
 
 	return (
 		<div className="min-h-screen bg-background">
@@ -208,7 +216,7 @@ export default function LandingPage() {
 						<div className="mx-auto grid max-w-3xl grid-cols-3 divide-x divide-border/60 text-center">
 							<div className="px-2">
 								<p className="font-display text-3xl font-bold tabular-nums sm:text-4xl">
-									<NumberTicker value={200} />+
+									<NumberTicker value={modelCount} />+
 								</p>
 								<p className="mt-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
 									Models
@@ -216,7 +224,7 @@ export default function LandingPage() {
 							</div>
 							<div className="px-2">
 								<p className="font-display text-3xl font-bold tabular-nums sm:text-4xl">
-									<NumberTicker value={40} />+
+									<NumberTicker value={providerCount} />+
 								</p>
 								<p className="mt-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
 									Providers
@@ -224,7 +232,7 @@ export default function LandingPage() {
 							</div>
 							<div className="px-2">
 								<p className="font-display text-3xl font-bold tabular-nums sm:text-4xl">
-									<NumberTicker value={3} />×
+									<NumberTicker value={usageRatio} />×
 								</p>
 								<p className="mt-1 font-mono text-xs uppercase tracking-wider text-muted-foreground">
 									Usage value
