@@ -15,7 +15,7 @@ import { TerminalPreview } from "@/components/TerminalPreview";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
 
-import { getDevPlanCreditsLimit } from "@llmgateway/shared";
+import { getDevPlanCreditsLimit, MARKETING_STATS } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
 	DevPassCodeIcon,
@@ -116,9 +116,30 @@ export default function LandingPage() {
 									</Button>
 								</CodeCTATracker>
 							</div>
+							<p className="mt-5 text-xs text-muted-foreground">
+								First-month guarantee — cancel within 7 days for a refund, minus
+								metered usage.
+							</p>
 						</div>
 
 						<TerminalPreview />
+
+						<div className="mt-12 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
+							<span>
+								Runs on the open-source LLM Gateway —{" "}
+								{MARKETING_STATS.tokensRouted} tokens routed across{" "}
+								{MARKETING_STATS.providers} providers
+							</span>
+							<span className="hidden h-3 w-px bg-border sm:block" />
+							<a
+								href="https://github.com/theopenco/llmgateway"
+								target="_blank"
+								rel="noopener noreferrer"
+								className="font-medium text-foreground underline-offset-4 hover:underline"
+							>
+								{MARKETING_STATS.githubStars} GitHub stars
+							</a>
+						</div>
 					</div>
 				</section>
 
@@ -188,11 +209,28 @@ export default function LandingPage() {
 								What you pay vs. what you get
 							</h2>
 							<p className="text-muted-foreground">
-								Every plan includes the full 200+ model catalog. The only thing
-								that changes is the size of your monthly usage allowance.
+								Every plan includes the full {MARKETING_STATS.models} model
+								catalog. The only thing that changes is the size of your monthly
+								usage allowance.
 							</p>
 						</div>
 						<PricingPlans credits={credits} />
+						<div className="mx-auto mt-10 max-w-3xl rounded-2xl border bg-card p-6 text-center">
+							<p className="text-sm leading-relaxed text-muted-foreground">
+								For comparison: Cursor Pro is $20/mo with about $20 of included
+								model usage. DevPass Lite turns $29 into {`$${credits.lite}`} at
+								provider rates — roughly 3× the usage value of a Cursor plan, in
+								whatever editor you already use.
+							</p>
+							<CodeCTATracker cta="compare_cursor" location="pricing">
+								<Button size="sm" variant="ghost" asChild className="mt-3">
+									<Link href="/compare/cursor">
+										See the full DevPass vs Cursor comparison
+										<ArrowRight className="h-3.5 w-3.5" />
+									</Link>
+								</Button>
+							</CodeCTATracker>
+						</div>
 						<div className="mt-8 text-center">
 							<Link
 								href="/pricing"
@@ -231,7 +269,7 @@ export default function LandingPage() {
 									step: "03",
 									title: "Switch models freely",
 									description:
-										"Claude Opus 4.7 for architecture, GPT-5.5 for review, Gemini 3.1 Pro for fresh eyes — same key, no extra cost.",
+										"Claude Opus 4.8 for architecture, GPT-5.5 for review, Gemini 3.1 Pro for fresh eyes — same key, no extra cost.",
 								},
 							].map((item) => (
 								<div key={item.step} className="flex gap-5">
@@ -261,7 +299,7 @@ export default function LandingPage() {
 								Every plan ships with the newest models
 							</h2>
 							<p className="text-muted-foreground">
-								Claude Opus 4.7, Gemini 3.1 Pro, GPT-5.5 Pro, plus the strongest
+								Claude Opus 4.8, Gemini 3.1 Pro, GPT-5.5, plus the strongest
 								open-weight Chinese coders — included on every tier.
 							</p>
 						</div>

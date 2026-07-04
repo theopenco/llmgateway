@@ -72,7 +72,7 @@ const snippets: Record<
 		],
 		command: "autohand",
 		comment: "# works with any model — switch freely",
-		modelLine: { key: "OPENAI_MODEL=", value: "claude-opus-4-6" },
+		modelLine: { key: "OPENAI_MODEL=", value: "claude-opus-4-8" },
 	},
 	opencode: {
 		lines: [],

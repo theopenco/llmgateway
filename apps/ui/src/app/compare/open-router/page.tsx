@@ -24,7 +24,7 @@ const openRouterFaqs: CompareFaqItem[] = [
 	{
 		question: "Which models and providers are supported?",
 		answer:
-			"280+ models across 35+ providers — including GPT, Claude, Gemini, Llama, and Mistral — with new releases typically added within 48 hours of launch.",
+			"200+ models across 40+ providers — including GPT, Claude, Gemini, Llama, and Mistral — with new releases typically added within 48 hours of launch.",
 	},
 	{
 		question: "Can I switch from OpenRouter easily?",

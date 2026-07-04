@@ -4,6 +4,27 @@ import Link from "next/link";
 import { Button } from "@/lib/components/button";
 import { Card } from "@/lib/components/card";
 
+const pilotMilestones = [
+	{
+		phase: "Week 1",
+		title: "Traffic live",
+		description:
+			"We migrate your keys, routing rules, and first production traffic with you — hands-on, in a shared channel.",
+	},
+	{
+		phase: "Week 2",
+		title: "Controls on",
+		description:
+			"SSO, audit logs, and guardrails configured for your organization and verified by your security team.",
+	},
+	{
+		phase: "Day 30",
+		title: "Decision gate",
+		description:
+			"If we missed the milestones, walk away — no long-term contract before the gate.",
+	},
+];
+
 const plans = [
 	{
 		name: "Self-Hosted",
@@ -26,7 +47,7 @@ const plans = [
 		description: "Fully managed with custom scaling and pricing",
 		features: [
 			"Everything in Self-Hosted",
-			"30-day trial to start",
+			"30-Day Production Pilot to start",
 			"Fully managed infrastructure",
 			"Custom rate limits",
 			"Volume-based pricing",
@@ -46,7 +67,7 @@ export function PricingEnterprise() {
 				<div className="mx-auto max-w-2xl text-center mb-16">
 					<span className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-mono uppercase tracking-wider text-blue-500">
 						<span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-						30-day trial included
+						30-Day Production Pilot included
 					</span>
 					<h2 className="mb-4 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl text-balance">
 						Enterprise pricing that scales with you
@@ -54,8 +75,28 @@ export function PricingEnterprise() {
 					<p className="text-lg text-muted-foreground text-balance leading-relaxed">
 						Choose between self-hosted control or fully managed convenience.
 						Both options include all enterprise features, and every plan starts
-						with a 30-day trial.
+						with the 30-Day Production Pilot.
 					</p>
+				</div>
+				<div className="mx-auto mb-16 max-w-5xl">
+					<div className="grid gap-4 sm:grid-cols-3">
+						{pilotMilestones.map((milestone) => (
+							<div
+								key={milestone.phase}
+								className="rounded-xl border border-border bg-card p-6"
+							>
+								<span className="text-xs font-mono uppercase tracking-wider text-blue-500">
+									{milestone.phase}
+								</span>
+								<h3 className="mt-2 mb-1.5 text-base font-semibold">
+									{milestone.title}
+								</h3>
+								<p className="text-sm leading-relaxed text-muted-foreground">
+									{milestone.description}
+								</p>
+							</div>
+						))}
+					</div>
 				</div>
 				<div className="mx-auto max-w-5xl grid gap-8 lg:grid-cols-2">
 					{plans.map((plan) => (
@@ -91,8 +132,8 @@ export function PricingEnterprise() {
 					))}
 				</div>
 				<p className="mt-8 text-center text-sm text-muted-foreground">
-					Every plan starts with a 30-day trial. Contact us for custom plans and
-					enterprise agreements.
+					Every plan starts with the 30-Day Production Pilot. Contact us for
+					custom plans and enterprise agreements.
 				</p>
 			</div>
 		</section>

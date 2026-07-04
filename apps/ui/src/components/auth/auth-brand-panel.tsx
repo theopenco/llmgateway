@@ -74,9 +74,9 @@ export async function AuthBrandPanel({
 						<div className="rounded-lg border border-zinc-200 bg-white/50 dark:border-zinc-700/50 dark:bg-zinc-800/50 p-4">
 							<Zap className="mb-2 h-5 w-5 text-primary" />
 							<p className="text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">
-								50M+
+								100B+
 							</p>
-							<p className="text-xs text-zinc-500">API calls routed</p>
+							<p className="text-xs text-zinc-500">Tokens routed</p>
 						</div>
 						<div className="rounded-lg border border-zinc-200 bg-white/50 dark:border-zinc-700/50 dark:bg-zinc-800/50 p-4">
 							<Shield className="mb-2 h-5 w-5 text-primary" />

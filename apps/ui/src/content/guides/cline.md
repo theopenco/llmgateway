@@ -2,7 +2,7 @@
 id: cline
 slug: cline
 title: Cline Integration
-description: Run Cline, the autonomous VS Code coding agent, on any of 280+ models through LLM Gateway. One OpenAI-compatible endpoint, unified billing, full cost tracking.
+description: Run Cline, the autonomous VS Code coding agent, on any of 200+ models through LLM Gateway. One OpenAI-compatible endpoint, unified billing, full cost tracking.
 date: 2026-07-03
 ---
 

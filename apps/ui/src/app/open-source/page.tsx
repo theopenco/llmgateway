@@ -62,7 +62,7 @@ const openSourceFaqs: CompareFaqItem[] = [
 	{
 		question: "Which models does the open-source gateway support?",
 		answer:
-			"280+ models across 35+ providers — OpenAI, Anthropic, Google, Mistral, Llama and more — through one OpenAI-compatible endpoint, whether you self-host or use the managed service.",
+			"200+ models across 40+ providers — OpenAI, Anthropic, Google, Mistral, Llama and more — through one OpenAI-compatible endpoint, whether you self-host or use the managed service.",
 	},
 ];
 
@@ -88,7 +88,7 @@ export default function OpenSourcePage() {
 			priceCurrency: "USD",
 		},
 		description:
-			"Open source LLM API gateway. Route 280+ models across 35+ providers through one OpenAI-compatible endpoint. AGPLv3, self-hostable in one Docker command.",
+			"Open source LLM API gateway. Route 200+ models across 40+ providers through one OpenAI-compatible endpoint. AGPLv3, self-hostable in one Docker command.",
 		url: "https://llmgateway.io/open-source",
 		license: "https://www.gnu.org/licenses/agpl-3.0.html",
 	};
@@ -107,7 +107,7 @@ export default function OpenSourcePage() {
 							The Open Source LLM Gateway
 						</h1>
 						<p className="mx-auto mt-6 max-w-2xl text-base md:text-lg text-muted-foreground">
-							Route 280+ models across 35+ providers through one
+							Route 200+ models across 40+ providers through one
 							OpenAI-compatible API — and run the entire platform on your own
 							infrastructure. Open source, self-hostable, no lock-in.
 						</p>
@@ -264,7 +264,7 @@ export default function OpenSourcePage() {
 export async function generateMetadata() {
 	const title = "Open Source LLM Gateway — Self-Hostable AI API Gateway";
 	const description =
-		"LLM Gateway is an open source, self-hostable LLM API gateway. Route 280+ models across 35+ providers through one OpenAI-compatible endpoint under AGPLv3 — or use the managed service.";
+		"LLM Gateway is an open source, self-hostable LLM API gateway. Route 200+ models across 40+ providers through one OpenAI-compatible endpoint under AGPLv3 — or use the managed service.";
 	return {
 		title,
 		description,

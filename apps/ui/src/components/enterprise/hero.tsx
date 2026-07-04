@@ -98,7 +98,8 @@ export function HeroEnterprise({
 						</Button>
 					</div>
 					<p className="mt-5 text-sm text-muted-foreground">
-						Every enterprise plan starts with a 30-day trial.
+						Every enterprise plan starts with the 30-Day Production Pilot — live
+						traffic in week one, a decision gate at day 30.
 					</p>
 
 					<div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">

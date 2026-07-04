@@ -9,18 +9,18 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "LLM API Pricing — Per-Token, No Markup",
 	description:
-		"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across OpenAI, Anthropic, Google, and 35+ providers.",
+		"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across OpenAI, Anthropic, Google, and 40+ providers.",
 	openGraph: {
 		title: "LLM API Pricing — Per-Token, No Markup",
 		description:
-			"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across OpenAI, Anthropic, Google, and 35+ providers.",
+			"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across OpenAI, Anthropic, Google, and 40+ providers.",
 		type: "website",
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: "LLM API Pricing — Per-Token, No Markup",
 		description:
-			"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across 35+ LLM providers.",
+			"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across 40+ LLM providers.",
 	},
 };
 
@@ -29,7 +29,7 @@ const pricingSchema = {
 	"@type": "Product",
 	name: "LLM Gateway API",
 	description:
-		"Unified API for 280+ LLM models across 35+ providers. Pay per-token at provider rates with no markup, bring your own keys for free, or self-host under AGPLv3.",
+		"Unified API for 200+ LLM models across 40+ providers. Pay per-token at provider rates with no markup, bring your own keys for free, or self-host under AGPLv3.",
 	brand: {
 		"@type": "Brand",
 		name: "LLM Gateway",
@@ -47,7 +47,7 @@ const pricingSchema = {
 				price: "0",
 				priceCurrency: "USD",
 				description:
-					"Access all 280+ models with a 5% platform fee on credit usage, or bring your own provider keys for free.",
+					"Access all 200+ models with a 5% platform fee on credit usage, or bring your own provider keys for free.",
 				url: "https://llmgateway.io/pricing",
 			},
 			{

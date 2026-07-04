@@ -9,6 +9,8 @@ import {
 	AccordionItem,
 } from "@/lib/components/accordion";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 const faqData = [
 	{
 		question: "What makes LLM Gateway different from OpenRouter?",
@@ -17,8 +19,7 @@ const faqData = [
 	},
 	{
 		question: "What models do you support?",
-		answer:
-			"We support 280+ models across 35+ providers—including GPT-4o, Claude, Gemini, Llama, Mistral, and more. We add new releases within 48 hours of launch.",
+		answer: `We support ${MARKETING_STATS.models} models across ${MARKETING_STATS.providers} providers—including GPT-4o, Claude, Gemini, Llama, Mistral, and more. We add new releases within 48 hours of launch.`,
 	},
 	{
 		question: "What is your uptime guarantee?",
@@ -140,8 +141,9 @@ export function Faq() {
 								</AccordionPrimitive.Header>
 								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
 									<div className="border-l-2 border-foreground/10 pl-4">
-										We support 280+ models across 35+ providers—including
-										GPT-4o, Claude, Gemini, Llama, Mistral, and more. Check the{" "}
+										We support {MARKETING_STATS.models} models across{" "}
+										{MARKETING_STATS.providers} providers—including GPT-4o,
+										Claude, Gemini, Llama, Mistral, and more. Check the{" "}
 										<Link href="/models" className="underline">
 											models page
 										</Link>{" "}

@@ -24,7 +24,7 @@ const portkeyFaqs: CompareFaqItem[] = [
 	{
 		question: "Can I migrate from Portkey without changing my code?",
 		answer:
-			"Yes. LLM Gateway exposes an OpenAI-compatible API, so you switch by changing the base URL and API key. You get 280+ models across 35+ providers behind that single endpoint.",
+			"Yes. LLM Gateway exposes an OpenAI-compatible API, so you switch by changing the base URL and API key. You get 200+ models across 40+ providers behind that single endpoint.",
 	},
 	{
 		question: "Does LLM Gateway support image and video generation?",
