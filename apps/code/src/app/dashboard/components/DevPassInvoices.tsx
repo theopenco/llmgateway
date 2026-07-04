@@ -40,8 +40,9 @@ const PAGE_SIZE = 10;
 type Invoice =
 	paths["/dev-plans/invoices"]["get"]["responses"]["200"]["content"]["application/json"]["invoices"][number];
 
-// A DevPass invoice is downloadable when it is a completed, positive charge
-// (mirrors isInvoiceableTransaction on the API).
+// A DevPass invoice has a downloadable document when it is completed with a
+// positive amount (mirrors isInvoiceableTransaction on the API): a charge
+// yields an invoice, a refund yields a credit note.
 function isInvoiceable(invoice: Invoice): boolean {
 	return (
 		invoice.status === "completed" &&
@@ -70,6 +71,8 @@ function ActionButtonPlaceholder({ children }: { children: ReactNode }) {
 function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 	const fetchClient = useFetchClient();
 	const [loading, setLoading] = useState(false);
+	const isRefund = invoice.type === "credit_refund";
+	const documentLabel = isRefund ? "Credit note" : "Invoice";
 
 	async function handleDownload() {
 		setLoading(true);
@@ -89,7 +92,7 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 			const url = URL.createObjectURL(data as unknown as Blob);
 			const link = document.createElement("a");
 			link.href = url;
-			link.download = `invoice-${invoice.id}.pdf`;
+			link.download = `${isRefund ? "credit-note" : "invoice"}-${invoice.id}.pdf`;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
@@ -113,7 +116,7 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 			) : (
 				<Download className="h-4 w-4" />
 			)}
-			<span className="sr-only sm:not-sr-only">Invoice</span>
+			<span className="sr-only sm:not-sr-only">{documentLabel}</span>
 		</Button>
 	);
 }
@@ -285,6 +288,7 @@ const TYPE_LABELS: Record<Invoice["type"], string> = {
 	dev_plan_upgrade: "Upgrade",
 	dev_plan_reset_pass: "Reset Pass",
 	credit_topup: "Credits top-up",
+	credit_refund: "Refund",
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -292,14 +296,21 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 });
 
-function formatAmount(amount: string | null, currency: string): string {
+function formatAmount(
+	amount: string | null,
+	currency: string,
+	isRefund = false,
+): string {
 	if (amount === null) {
 		return "—";
 	}
-	const value = Number(amount);
-	if (!Number.isFinite(value)) {
+	const parsed = Number(amount);
+	if (!Number.isFinite(parsed)) {
 		return "—";
 	}
+	// Refund amounts are stored as positive dollars; show money returned as a
+	// negative so the history reads as a credit rather than another charge.
+	const value = isRefund ? -Math.abs(parsed) : parsed;
 	if (currency === "USD") {
 		return currencyFormatter.format(value);
 	}
@@ -335,8 +346,8 @@ export default function DevPassInvoices() {
 		<div>
 			<h2 className="mb-1 font-semibold">Invoices</h2>
 			<p className="mb-4 text-sm text-muted-foreground">
-				A record of every DevPass charge, including the amount debited and the
-				usage credits granted for that billing period.
+				A record of every DevPass charge and refund, including the amount
+				debited and the usage credits granted for that billing period.
 			</p>
 
 			<div className="overflow-hidden rounded-xl border sm:grid sm:grid-cols-[1fr_1fr_auto_auto_auto]">
@@ -373,7 +384,11 @@ export default function DevPassInvoices() {
 							<span className="text-xs text-muted-foreground sm:hidden">
 								Amount{" "}
 							</span>
-							{formatAmount(invoice.amount, invoice.currency)}
+							{formatAmount(
+								invoice.amount,
+								invoice.currency,
+								invoice.type === "credit_refund",
+							)}
 						</div>
 						<div className="text-right text-sm tabular-nums text-muted-foreground sm:text-right">
 							<span className="text-xs sm:hidden">Credits </span>

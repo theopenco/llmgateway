@@ -71,7 +71,11 @@ function formatTransactionType(type: string) {
 function getTransactionTypeBadgeVariant(
 	type: string,
 ): "default" | "secondary" | "outline" | "destructive" {
-	if (type.includes("cancel") || type.includes("end")) {
+	if (
+		type.includes("cancel") ||
+		type.includes("end") ||
+		type.includes("refund")
+	) {
 		return "destructive";
 	}
 	if (
@@ -524,7 +528,10 @@ export default async function DevpassDetailPage({
 											</TableCell>
 											<TableCell className="tabular-nums">
 												{t.amount
-													? currencyFormatter.format(parseFloat(t.amount))
+													? currencyFormatter.format(
+															(t.type === "credit_refund" ? -1 : 1) *
+																parseFloat(t.amount),
+														)
 													: "—"}
 											</TableCell>
 											<TableCell className="tabular-nums">

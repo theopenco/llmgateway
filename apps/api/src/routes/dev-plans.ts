@@ -2408,6 +2408,7 @@ const getInvoices = createRoute({
 									"dev_plan_reset_pass",
 									// PAYG overflow credits purchases (manual and auto-reload).
 									"credit_topup",
+									"credit_refund",
 								]),
 								date: z.string(),
 								amount: z.string().nullable(),
@@ -2483,7 +2484,10 @@ devPlans.openapi(getInvoices, async (c) => {
 				// billing event the user should see.
 				(t.type === "credit_topup" &&
 					t.amount !== null &&
-					parseFloat(t.amount) > 0),
+					parseFloat(t.amount) > 0) ||
+				// Refunds against DevPass payments — shown as a line item so the
+				// history matches the net revenue reported in the KPIs/detail.
+				t.type === "credit_refund",
 		)
 		.map((t) => ({
 			id: t.id,
@@ -2492,7 +2496,8 @@ devPlans.openapi(getInvoices, async (c) => {
 				| "dev_plan_renewal"
 				| "dev_plan_upgrade"
 				| "dev_plan_reset_pass"
-				| "credit_topup",
+				| "credit_topup"
+				| "credit_refund",
 			date: t.createdAt.toISOString(),
 			amount: t.amount,
 			creditAmount: t.creditAmount,
