@@ -184,7 +184,7 @@ async function main() {
 	console.log("\nState after refund:");
 	await printState(session.walletId, organizationId);
 	console.log(
-		"\nExpected: wallet $0, org credits restored, one reversal row for the paid+bonus total, and the end_user_bonus grant (-) + claw-back (+) netting to zero.\n",
+		"\nExpected: wallet $0, org credits restored, one reversal row for the paid+bonus total, the end_user_topup revenue booked then reversed (nets to zero), and the end_user_bonus grant (-) + claw-back (+) netting to zero. In the admin dashboard the top-up counts as revenue while live, and nets back out after the refund.\n",
 	);
 }
 

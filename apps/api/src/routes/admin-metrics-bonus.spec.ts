@@ -55,6 +55,15 @@ describe("admin /metrics — end-user bonus accounting", () => {
 				creditAmount: "2",
 				status: "completed",
 			},
+			// End-user wallet top-up: the real payment — DOES count as revenue,
+			// just like an org credit purchase.
+			{
+				organizationId: ORG_ID,
+				type: "end_user_topup",
+				amount: "11",
+				creditAmount: "10",
+				status: "completed",
+			},
 			// Gifted credits: already excluded from revenue, tracked separately.
 			{
 				organizationId: ORG_ID,
@@ -70,19 +79,21 @@ describe("admin /metrics — end-user bonus accounting", () => {
 		await deleteAll();
 	});
 
-	test("excludes SDK end-user rows from revenue and reports bonus separately", async () => {
+	test("counts top-ups as revenue, excludes bonus/margin, reports bonus separately", async () => {
 		const res = await app.request("/admin/metrics", {
 			headers: { Cookie: cookie },
 		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as AdminMetricsResponse;
 
-		// Only the credit_topup counts as revenue — gift, bonus, and margin rows
-		// are all excluded (previously the -5 bonus would have deflated this to 15).
-		expect(body.totalRevenue).toBe(20);
-		// Processed excludes the same rows (gross Stripe on credit purchases only).
-		expect(body.totalProcessed).toBe(21);
-		// Topped up = purchases + gifts (23), with bonus/margin excluded.
+		// Revenue = org credit purchase ($20) + end-user top-up ($10). The gift,
+		// bonus (-5), and developer margin are all excluded (previously the -5
+		// bonus would have deflated this).
+		expect(body.totalRevenue).toBe(30);
+		// Processed = gross of both real payments ($21 + $11); bonus/margin/gift out.
+		expect(body.totalProcessed).toBe(32);
+		// Topped up (org credit economy) = purchases + gifts (23); all end-user
+		// wallet rows, including the top-up, are excluded here.
 		expect(body.totalToppedUp).toBe(23);
 		// Bonus credits granted, reported as a positive figure.
 		expect(body.totalBonusCredits).toBe(5);

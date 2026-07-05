@@ -2053,6 +2053,23 @@ export async function handleEndUserTopUpSucceeded(
 				description: "End-user credit top-up",
 			});
 
+			// Record the end-user top-up as LLM Gateway revenue, mirroring an org
+			// credit purchase: `amount` = gross Stripe charge, `creditAmount` = net
+			// credit value (Stripe fees excluded; the developer's markup margin is
+			// tracked separately as a liability, not revenue). Live wallets only —
+			// sandbox top-ups are not real money. Reversed on refund below.
+			if (wallet.mode !== "test") {
+				await tx.insert(tables.transaction).values({
+					organizationId: wallet.organizationId,
+					type: "end_user_topup",
+					amount: String(grossPaid),
+					creditAmount: String(netCredited),
+					status: "completed",
+					stripePaymentIntentId: paymentIntent.id,
+					description: `End-user credit top-up (wallet ${walletId})`,
+				});
+			}
+
 			// Accrue the developer's margin to their org (settled out-of-band / via
 			// Stripe Connect) and record it in the org's transaction history.
 			if (accruedMargin > 0) {
@@ -2251,6 +2268,27 @@ export async function handleEndUserTopUpRefunded(
 						? "End-user top-up refund (incl. bonus claw-back)"
 						: "End-user top-up refund",
 			});
+
+			// Reverse the top-up revenue booked at top-up time. The Stripe refund
+			// returns the whole payment, so reverse the full net/gross (independent
+			// of how much of the wallet balance was already spent). Live wallets
+			// only, matching the `end_user_topup` grant above.
+			const revenueReversed = Number(topUp.netCredited ?? "0");
+			const grossReversed = Number(topUp.grossPaid ?? "0");
+			if (
+				wallet.mode !== "test" &&
+				(revenueReversed > 0 || grossReversed > 0)
+			) {
+				await tx.insert(tables.transaction).values({
+					organizationId: topUp.organizationId,
+					type: "end_user_topup",
+					amount: String(-grossReversed),
+					creditAmount: String(-revenueReversed),
+					status: "completed",
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description: `End-user top-up refund reversal (wallet ${topUp.walletId})`,
+				});
+			}
 
 			if (developerMargin > 0) {
 				await tx

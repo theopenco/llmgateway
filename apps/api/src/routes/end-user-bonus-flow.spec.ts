@@ -112,7 +112,7 @@ describe.skipIf(!hasStripeTestKey)(
 			return Number(wallet?.balance ?? "0");
 		}
 
-		test("purchase gets +50% bonus; refund reverses it; revenue stays put", async () => {
+		test("purchase gets +50% bonus; top-up is revenue; refund reverses both", async () => {
 			// Baseline: one real org purchase → $20 revenue, no bonus yet.
 			const baseline = await getMetrics();
 			expect(baseline.totalRevenue).toBe(20);
@@ -178,9 +178,11 @@ describe.skipIf(!hasStripeTestKey)(
 			});
 			expect(Number(grantTxn?.creditAmount)).toBe(-5);
 
-			// Admin dashboard: revenue untouched by the SDK flow; bonus tracked at $5.
+			// Admin dashboard: the $10 end-user top-up counts as revenue ($20 base +
+			// $10 = $30); the $5 bonus does NOT (it's a cost) and is tracked
+			// separately. Topped-up (org credit economy) stays $20.
 			const afterTopUp = await getMetrics();
-			expect(afterTopUp.totalRevenue).toBe(20);
+			expect(afterTopUp.totalRevenue).toBe(30);
 			expect(afterTopUp.totalToppedUp).toBe(20);
 			expect(afterTopUp.totalBonusCredits).toBe(5);
 
@@ -217,8 +219,9 @@ describe.skipIf(!hasStripeTestKey)(
 			);
 			expect(bonusNet).toBe(0);
 
-			// Admin dashboard after the full round trip: revenue still $20 (the SDK
-			// top-up/bonus/refund never touched it), bonus credits back to $0.
+			// Admin dashboard after the full round trip: the top-up revenue is
+			// reversed, so net revenue is back to the $20 baseline, and bonus credits
+			// are back to $0.
 			const afterRefund = await getMetrics();
 			expect(afterRefund.totalRevenue).toBe(20);
 			expect(afterRefund.totalToppedUp).toBe(20);

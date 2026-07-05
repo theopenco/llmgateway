@@ -10,6 +10,7 @@ import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import {
 	notDevpassFilter,
+	notEndUserNonRevenueFilter,
 	notEndUserWalletFilter,
 } from "@/utils/devpass-filter.js";
 import {
@@ -603,8 +604,10 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed credit-purchase transactions, excluding gifts
-	// and all DevPass subscription rows, using creditAmount to exclude Stripe fees)
+	// Total revenue: completed credit-purchase rows — org credit top-ups AND
+	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
+	// creditAmount to exclude Stripe fees. Excludes gifts, DevPass subscription
+	// rows, and the non-revenue end-user rows (developer margin + funded bonus).
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -618,7 +621,7 @@ admin.openapi(getMetrics, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
-				notEndUserWalletFilter,
+				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
 		);
@@ -637,7 +640,10 @@ admin.openapi(getMetrics, async (c) => {
 
 	// Total topped up (credits from completed credit-purchase transactions).
 	// Excludes DevPass virtual credits — those are granted per cycle and reset,
-	// so they would inflate the topped-up / unused-credits numbers.
+	// so they would inflate the topped-up / unused-credits numbers — and all
+	// end-user wallet rows, which live in their own balance economy (their spend
+	// is not in `totalSpent`, so counting their top-ups would inflate unused
+	// credits).
 	const [toppedUpRow] = await db
 		.select({
 			value:
@@ -708,7 +714,7 @@ admin.openapi(getMetrics, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
-				notEndUserWalletFilter,
+				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
 		);
@@ -885,7 +891,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
-				notEndUserWalletFilter,
+				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -908,7 +914,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
-				notEndUserWalletFilter,
+				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -951,7 +957,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
-				notEndUserWalletFilter,
+				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -970,7 +976,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
-				notEndUserWalletFilter,
+				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);

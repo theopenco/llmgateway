@@ -20,13 +20,10 @@ export const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.joi
 	sql`, `,
 )})`;
 
-// LLM SDK end-user wallet bookkeeping. These transaction rows are NOT an org
-// buying credits from LLM Gateway — they record end-user wallet economics
-// (developer margin accrual/payout, refunds) and developer-funded bonus grants
-// (a transfer of the developer org's prepaid credits into an end-user wallet).
-// They must be excluded from org credit-purchase revenue/processed/topped-up
-// metrics; the bonus in particular carries a negative creditAmount that would
-// otherwise deflate reported revenue. Tracked separately where relevant.
+// All LLM SDK end-user wallet transaction types. These belong to the separate
+// end-user wallet economy (their own balances, not organization.credits), so
+// they are excluded from the org credit-purchase "topped up / unused credits"
+// derivation (which nets topped-up against org usage only).
 export const endUserWalletTypes = [
 	"end_user_topup",
 	"end_user_margin_accrual",
@@ -37,5 +34,23 @@ export const endUserWalletTypes = [
 
 export const notEndUserWalletFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
 	endUserWalletTypes.map((t) => sql`${t}`),
+	sql`, `,
+)})`;
+
+// The subset of end-user wallet rows that are NOT LLM Gateway revenue:
+// developer-margin bookkeeping (accrual/payout + the margin claw-back on
+// refund) and developer-funded bonus grants/claw-backs. `end_user_topup` (the
+// real payment the end-user makes, reversed by a negative `end_user_topup` on
+// refund) is deliberately excluded from this list so it DOES count toward
+// revenue/processed, just like a normal credit purchase.
+export const endUserNonRevenueTypes = [
+	"end_user_margin_accrual",
+	"end_user_refund",
+	"end_user_margin_payout",
+	"end_user_bonus",
+] as const;
+
+export const notEndUserNonRevenueFilter = sql`${tables.transaction.type} NOT IN (${sql.join(
+	endUserNonRevenueTypes.map((t) => sql`${t}`),
 	sql`, `,
 )})`;
