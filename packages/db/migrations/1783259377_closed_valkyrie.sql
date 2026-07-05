@@ -35,6 +35,7 @@ CREATE TABLE "chat_project_file_chunk" (
 );
 --> statement-breakpoint
 ALTER TABLE "chat" ADD COLUMN "project_id" text;--> statement-breakpoint
+CREATE INDEX "chat_project_id_idx" ON "chat" ("project_id");--> statement-breakpoint
 CREATE INDEX "chat_project_user_id_idx" ON "chat_project" ("user_id");--> statement-breakpoint
 CREATE INDEX "chat_project_file_project_id_idx" ON "chat_project_file" ("project_id");--> statement-breakpoint
 CREATE INDEX "chat_project_file_chunk_file_id_idx" ON "chat_project_file_chunk" ("file_id");--> statement-breakpoint

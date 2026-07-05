@@ -1,1 +1,0 @@
-CREATE INDEX "chat_project_id_idx" ON "chat" ("project_id");
