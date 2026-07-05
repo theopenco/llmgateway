@@ -405,6 +405,44 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.chat.id,
 			to: r.chatShare.chatId,
 		}),
+		project: r.one.chatProject({
+			from: r.chat.projectId,
+			to: r.chatProject.id,
+		}),
+	},
+	chatProject: {
+		user: r.one.user({
+			from: r.chatProject.userId,
+			to: r.user.id,
+		}),
+		files: r.many.chatProjectFile({
+			from: r.chatProject.id,
+			to: r.chatProjectFile.projectId,
+		}),
+		chats: r.many.chat({
+			from: r.chatProject.id,
+			to: r.chat.projectId,
+		}),
+	},
+	chatProjectFile: {
+		project: r.one.chatProject({
+			from: r.chatProjectFile.projectId,
+			to: r.chatProject.id,
+		}),
+		chunks: r.many.chatProjectFileChunk({
+			from: r.chatProjectFile.id,
+			to: r.chatProjectFileChunk.fileId,
+		}),
+	},
+	chatProjectFileChunk: {
+		file: r.one.chatProjectFile({
+			from: r.chatProjectFileChunk.fileId,
+			to: r.chatProjectFile.id,
+		}),
+		project: r.one.chatProject({
+			from: r.chatProjectFileChunk.projectId,
+			to: r.chatProject.id,
+		}),
 	},
 	chatShare: {
 		chat: r.one.chat({

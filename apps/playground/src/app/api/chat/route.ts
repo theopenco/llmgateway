@@ -22,6 +22,7 @@ import {
 	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -556,6 +557,21 @@ interface ChatRequestBody {
 	is_image_gen?: boolean;
 	temporary_chat?: boolean;
 	skill_instructions?: string;
+	project_id?: string;
+}
+
+interface ProjectRetrievalResponse {
+	project: {
+		id: string;
+		name: string;
+		instructions: string;
+	};
+	chunks: {
+		content: string;
+		score: number;
+		fileId: string;
+		fileName: string;
+	}[];
 }
 
 interface McpClientWrapper {
@@ -584,6 +600,7 @@ export async function POST(req: Request) {
 		mcp_servers,
 		is_image_gen,
 		skill_instructions,
+		project_id,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -609,6 +626,12 @@ export async function POST(req: Request) {
 			JSON.stringify({ error: "Invalid skill_instructions" }),
 			{ status: 400 },
 		);
+	}
+
+	if (project_id !== undefined && typeof project_id !== "string") {
+		return new Response(JSON.stringify({ error: "Invalid project_id" }), {
+			status: 400,
+		});
 	}
 
 	const headerApiKey = req.headers.get("x-llmgateway-key") ?? undefined;
@@ -855,6 +878,53 @@ export async function POST(req: Request) {
 				JSON.stringify({ error: detailedMessage ?? message }),
 				{ status },
 			);
+		}
+	}
+
+	// Project (knowledge base) context: retrieve the chunks most relevant to
+	// the latest user message plus the project's instructions, and prepend them
+	// to the system prompt. Retrieval failures degrade to a normal chat.
+	let projectContext: string | undefined;
+	if (project_id) {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		const queryText = Array.isArray(lastUserMessage?.parts)
+			? lastUserMessage.parts
+					.filter((p): p is { type: "text"; text: string } => p.type === "text")
+					.map((p) => p.text)
+					.join("\n")
+					.slice(0, 10_000)
+			: "";
+		const retrieval = await fetchServerData<ProjectRetrievalResponse>(
+			"POST",
+			"/chat-projects/{id}/retrieve",
+			{
+				params: { path: { id: project_id } },
+				body: {
+					query: queryText.trim() || "Project knowledge base overview",
+				},
+				// Bill the query embedding to the same gateway key as the chat.
+				headers: { "x-llmgateway-key": finalApiKey },
+			},
+		);
+		if (retrieval) {
+			const sections: string[] = [];
+			if (retrieval.project.instructions.trim()) {
+				sections.push(
+					`Project instructions:\n${retrieval.project.instructions}`,
+				);
+			}
+			if (retrieval.chunks.length) {
+				sections.push(
+					`Relevant excerpts from the project's knowledge base files. Ground your answer in these excerpts and mention the source file when you use one:\n\n${retrieval.chunks
+						.map((chunk) => `[Source: ${chunk.fileName}]\n${chunk.content}`)
+						.join("\n\n---\n\n")}`,
+				);
+			}
+			if (sections.length) {
+				projectContext = `You are answering inside the project "${retrieval.project.name}".\n\n${sections.join("\n\n")}`;
+			}
 		}
 	}
 
@@ -1134,8 +1204,9 @@ export async function POST(req: Request) {
 			)
 			.join("\n\n");
 		const resolvedSystem =
-			[existingSystem, skill_instructions].filter(Boolean).join("\n\n") ||
-			undefined;
+			[existingSystem, skill_instructions, projectContext]
+				.filter(Boolean)
+				.join("\n\n") || undefined;
 		const result = streamText({
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
 			messages: await convertToModelMessages(
