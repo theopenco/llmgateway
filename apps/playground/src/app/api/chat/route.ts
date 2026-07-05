@@ -524,6 +524,21 @@ function isImageFilePart(value: unknown): value is ImageFilePart {
 	);
 }
 
+// Joined text parts of the latest user message, e.g. for image prompts and
+// knowledge base retrieval queries.
+function getLastUserText(messages: UIMessage[]): string {
+	const lastUserMessage = [...messages]
+		.reverse()
+		.find((m) => m.role === "user");
+	if (!Array.isArray(lastUserMessage?.parts)) {
+		return "";
+	}
+	return lastUserMessage.parts
+		.filter((p): p is { type: "text"; text: string } => p.type === "text")
+		.map((p) => p.text)
+		.join("\n");
+}
+
 interface ChatRequestBody {
 	messages: UIMessage[];
 	model?: string;
@@ -748,12 +763,7 @@ export async function POST(req: Request) {
 			const fileParts: { url: string; mediaType: string }[] = [];
 			if (lastUserMessage) {
 				if (Array.isArray(lastUserMessage.parts)) {
-					prompt = lastUserMessage.parts
-						.filter(
-							(p): p is { type: "text"; text: string } => p.type === "text",
-						)
-						.map((p) => p.text)
-						.join("\n");
+					prompt = getLastUserText(messages);
 					for (const p of lastUserMessage.parts) {
 						if (fileParts.length >= maxInputImages) {
 							break;
@@ -890,16 +900,7 @@ export async function POST(req: Request) {
 	// Kept for memory extraction after the stream finishes.
 	let projectQueryText = "";
 	if (project_id) {
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		projectQueryText = Array.isArray(lastUserMessage?.parts)
-			? lastUserMessage.parts
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n")
-					.slice(0, 10_000)
-			: "";
+		projectQueryText = getLastUserText(messages).slice(0, 10_000);
 		const retrieval = await fetchServerData<ProjectRetrievalResponse>(
 			"POST",
 			"/chat-projects/{id}/retrieve",

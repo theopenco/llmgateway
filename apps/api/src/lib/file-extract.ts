@@ -1,6 +1,10 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import * as XLSX from "xlsx";
 
+// Defensive cap mirroring the upload route's base64 limit, so the extractor
+// stays safe even if called from a new code path without an upstream guard.
+const MAX_EXTRACT_BYTES = 10_000_000;
+
 function isPdf(name: string, mimeType: string) {
 	return mimeType === "application/pdf" || name.toLowerCase().endsWith(".pdf");
 }
@@ -24,6 +28,10 @@ export async function extractFileText(
 	mimeType: string,
 	buffer: Buffer,
 ): Promise<string> {
+	if (buffer.length > MAX_EXTRACT_BYTES) {
+		throw new Error(`${name} is too large to extract`);
+	}
+
 	if (isPdf(name, mimeType)) {
 		const pdf = await getDocumentProxy(new Uint8Array(buffer));
 		const { text } = await extractText(pdf, { mergePages: true });

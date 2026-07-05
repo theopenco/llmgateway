@@ -736,13 +736,18 @@ function MemoriesSection({ projectId }: MemoriesSectionProps) {
 										value={editContent}
 										onChange={(e) => setEditContent(e.target.value)}
 										rows={2}
+										maxLength={PROJECT_MEMORY_MAX}
 										className="text-sm"
 									/>
 									<div className="flex items-center gap-2">
 										<Button
 											size="sm"
 											onClick={() => void handleSaveEdit(memory.id)}
-											disabled={!editContent.trim() || updateMemory.isPending}
+											disabled={
+												!editContent.trim() ||
+												editContent.length > PROJECT_MEMORY_MAX ||
+												updateMemory.isPending
+											}
 										>
 											{updateMemory.isPending ? "Saving..." : "Save"}
 										</Button>

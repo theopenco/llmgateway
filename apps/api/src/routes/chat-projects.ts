@@ -1048,12 +1048,22 @@ chatProjects.openapi(extractMemories, async (c) => {
 	}
 
 	const room = MAX_MEMORIES_PER_PROJECT - existing.length;
-	const existingContents = new Set(
+	// Dedupe against saved memories AND within the extraction batch itself.
+	const seenContents = new Set(
 		existing.map((m) => m.content.trim().toLowerCase()),
 	);
-	const fresh = parsed.data.memories
-		.filter((m) => !existingContents.has(m.trim().toLowerCase()))
-		.slice(0, room);
+	const fresh: string[] = [];
+	for (const memory of parsed.data.memories) {
+		const normalized = memory.trim().toLowerCase();
+		if (seenContents.has(normalized)) {
+			continue;
+		}
+		seenContents.add(normalized);
+		fresh.push(memory);
+		if (fresh.length >= room) {
+			break;
+		}
+	}
 	if (!fresh.length) {
 		return c.json({ memories: [] });
 	}

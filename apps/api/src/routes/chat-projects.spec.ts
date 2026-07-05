@@ -1,9 +1,35 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+
+import type * as AiModule from "ai";
+
+// The memory extraction endpoint calls generateText through the gateway;
+// stub it so tests are deterministic and offline. Everything else from "ai"
+// stays real.
+vi.mock("ai", async (importOriginal) => {
+	const actual = await importOriginal<typeof AiModule>();
+	return {
+		...actual,
+		generateText: vi.fn(async () => ({
+			toolCalls: [
+				{
+					toolName: "save_memories",
+					input: {
+						memories: [
+							"Hiring for the Stockholm team",
+							"Hiring for the Stockholm team",
+							"Prefers concise answers",
+						],
+					},
+				},
+			],
+		})),
+	};
+});
 
 async function createProject(
 	token: string,
@@ -203,6 +229,70 @@ describe("chat-projects", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.memories).toEqual(["Ismail is based in Lund, Sweden"]);
+	});
+
+	test("POST /{id}/memories/extract saves deduped memories from the exchange", async () => {
+		const project = await createProject(token);
+		// Already-saved memory matching one of the extractor's outputs.
+		await app.request(`/chat-projects/${project.id}/memories`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ content: "Prefers concise answers" }),
+		});
+
+		const res = await app.request(
+			`/chat-projects/${project.id}/memories/extract`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					userMessage: "We're hiring for Stockholm. Keep answers short.",
+					assistantMessage: "Noted — short answers about the Stockholm role.",
+				}),
+			},
+		);
+		expect(res.status).toBe(200);
+		const { memories } = await res.json();
+		// The mocked extractor returns a duplicated batch entry plus one that
+		// already exists; only the single new fact survives.
+		expect(memories).toHaveLength(1);
+		expect(memories[0].content).toBe("Hiring for the Stockholm team");
+		expect(memories[0].source).toBe("auto");
+
+		const list = await app.request(`/chat-projects/${project.id}/memories`, {
+			headers: { Cookie: token },
+		});
+		expect((await list.json()).memories).toHaveLength(2);
+	});
+
+	test("POST /{id}/memories/extract short-circuits at the memory cap", async () => {
+		const project = await createProject(token);
+		await db.insert(tables.chatProjectMemory).values(
+			Array.from({ length: 50 }, (_, i) => ({
+				projectId: project.id,
+				content: `Existing fact ${i}`,
+				source: "manual" as const,
+			})),
+		);
+
+		const { generateText } = await import("ai");
+		const callsBefore = vi.mocked(generateText).mock.calls.length;
+
+		const res = await app.request(
+			`/chat-projects/${project.id}/memories/extract`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					userMessage: "anything",
+					assistantMessage: "anything at all",
+				}),
+			},
+		);
+		expect(res.status).toBe(200);
+		expect((await res.json()).memories).toEqual([]);
+		// The cap check returns before any model call.
+		expect(vi.mocked(generateText).mock.calls.length).toBe(callsBefore);
 	});
 
 	test("POST /{id}/files rejects invalid binary uploads", async () => {
