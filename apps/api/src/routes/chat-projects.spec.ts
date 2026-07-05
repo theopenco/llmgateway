@@ -145,6 +145,80 @@ describe("chat-projects", () => {
 		expect(json.project.instructions).toBe("Ground answers in the files.");
 	});
 
+	test("memories support create, list, update, and delete", async () => {
+		const project = await createProject(token);
+
+		const created = await app.request(`/chat-projects/${project.id}/memories`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ content: "Prefers concise answers" }),
+		});
+		expect(created.status).toBe(201);
+		const { memory } = await created.json();
+		expect(memory.content).toBe("Prefers concise answers");
+		expect(memory.source).toBe("manual");
+
+		const updated = await app.request(
+			`/chat-projects/${project.id}/memories/${memory.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ content: "Prefers detailed answers" }),
+			},
+		);
+		expect(updated.status).toBe(200);
+
+		const list = await app.request(`/chat-projects/${project.id}/memories`, {
+			headers: { Cookie: token },
+		});
+		const { memories } = await list.json();
+		expect(memories).toHaveLength(1);
+		expect(memories[0].content).toBe("Prefers detailed answers");
+
+		const deleted = await app.request(
+			`/chat-projects/${project.id}/memories/${memory.id}`,
+			{ method: "DELETE", headers: { Cookie: token } },
+		);
+		expect(deleted.status).toBe(200);
+
+		const empty = await app.request(`/chat-projects/${project.id}/memories`, {
+			headers: { Cookie: token },
+		});
+		expect((await empty.json()).memories).toHaveLength(0);
+	});
+
+	test("POST /{id}/retrieve includes project memories", async () => {
+		const project = await createProject(token);
+		await app.request(`/chat-projects/${project.id}/memories`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ content: "Ismail is based in Lund, Sweden" }),
+		});
+
+		const res = await app.request(`/chat-projects/${project.id}/retrieve`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ query: "anything" }),
+		});
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.memories).toEqual(["Ismail is based in Lund, Sweden"]);
+	});
+
+	test("POST /{id}/files rejects invalid binary uploads", async () => {
+		const project = await createProject(token);
+		const res = await app.request(`/chat-projects/${project.id}/files`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({
+				name: "broken.pdf",
+				mimeType: "application/pdf",
+				contentBase64: Buffer.from("not a pdf").toString("base64"),
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
 	test("POST /chats accepts a valid projectId and rejects an invalid one", async () => {
 		const project = await createProject(token);
 

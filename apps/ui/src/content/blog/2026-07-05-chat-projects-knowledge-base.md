@@ -18,9 +18,10 @@ Today we're adding **Projects** to [LLM Gateway Chat](https://chat.llmgateway.io
 
 ## What's in a project
 
-A project is three things:
+A project is four things:
 
-- **A knowledge base.** Upload text, markdown, code, CSV, JSON, or YAML files. Each file is indexed automatically and marked when it's ready.
+- **A knowledge base.** Upload PDF, Excel, text, markdown, code, CSV, JSON, or YAML files. Each file is indexed automatically and marked when it's ready.
+- **Memory.** Durable facts the assistant picks up as you chat — preferences, names, constraints — saved to the project automatically and editable on the project page. You can add memories by hand too.
 - **Instructions.** Per-project guidance that applies to every chat in it — "answer from the knowledge base and cite the file", "respond in French", "assume the reader is on the enterprise plan".
 - **Its chats.** Chats started in a project stay grouped there, so the research for one client, one codebase, or one launch doesn't scatter across your history.
 
@@ -47,7 +48,7 @@ Retrieval runs on every message, so follow-up questions pull fresh passages inst
 
 Indexing and retrieval run through the same gateway and the same balance as the chat itself. Embedding a 500 KB file costs fractions of a cent with `text-embedding-3-small`; there's no vector-database add-on, no per-seat knowledge fee, and no plan gate. Projects are available to every LLM Gateway Chat user today — on the Chat plan context or under a dashboard organization.
 
-Current limits: 20 files per project, up to 500 KB of text per file. PDFs aren't supported yet — export to text or markdown first.
+Current limits: 20 files per project, up to 500 KB of extracted text per file (binary uploads up to 10 MB). PDF and Excel files are converted to text automatically on upload.
 
 ## Get started in three steps
 
@@ -67,7 +68,7 @@ All of them. Retrieval happens before the model is called, so the grounded conte
 
 ### What file types can I upload?
 
-Text-based formats: plain text, markdown, source code, CSV, JSON, YAML, XML, HTML, and logs. PDFs and other binary formats aren't supported yet.
+PDF and Excel (.xlsx/.xls) files, plus any text-based format: plain text, markdown, source code, CSV, JSON, YAML, XML, HTML, and logs. PDF text is extracted on upload; spreadsheets are converted sheet-by-sheet to CSV. Scanned image-only PDFs aren't supported yet.
 
 ### Does RAG cost extra?
 

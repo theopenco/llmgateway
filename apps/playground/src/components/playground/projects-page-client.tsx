@@ -1,11 +1,13 @@
 "use client";
 
 import {
+	BrainIcon,
 	FileTextIcon,
 	FolderIcon,
 	Loader2Icon,
 	MessageSquarePlusIcon,
 	MessageSquareIcon,
+	PlusIcon,
 	TrashIcon,
 	UploadIcon,
 	AlertCircleIcon,
@@ -35,27 +37,55 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
 import {
+	PROJECT_BINARY_FILE_MAX_BYTES,
 	PROJECT_DESCRIPTION_MAX,
 	PROJECT_FILE_MAX_BYTES,
+	PROJECT_MEMORY_MAX,
 	PROJECT_NAME_MAX,
 	useChatProject,
 	useChatProjects,
+	useCreateProjectMemory,
 	useDeleteChatProject,
 	useDeleteProjectFile,
+	useDeleteProjectMemory,
 	useProjectChats,
+	useProjectMemories,
 	useUpdateChatProject,
+	useUpdateProjectMemory,
 	useUploadProjectFile,
 } from "@/hooks/useChatProjects";
 import { useOrganization } from "@/hooks/useOrganization";
 import { cn } from "@/lib/utils";
 
-import type { ChatProject, ChatProjectFile } from "@/hooks/useChatProjects";
+import type {
+	ChatProject,
+	ChatProjectFile,
+	ChatProjectMemory,
+} from "@/hooks/useChatProjects";
 import type { Organization } from "@/lib/types";
 
-// Text-based formats we can read client-side; PDFs and other binary formats
-// are not supported as knowledge files yet.
+// Text-based formats are read client-side; PDF and Excel files are sent as
+// base64 and their text is extracted server-side.
 const ACCEPTED_FILE_EXTENSIONS =
-	".txt,.md,.markdown,.mdx,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.log,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.css";
+	".txt,.md,.markdown,.mdx,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.log,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.css,.pdf,.xlsx,.xls";
+
+const BINARY_FILE_EXTENSIONS = [".pdf", ".xlsx", ".xls"];
+
+function isBinaryKnowledgeFile(name: string) {
+	const lower = name.toLowerCase();
+	return BINARY_FILE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function toBase64(bytes: Uint8Array) {
+	let binary = "";
+	const chunkSize = 0x8000;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		binary += String.fromCharCode(
+			...Array.from(bytes.subarray(i, i + chunkSize)),
+		);
+	}
+	return btoa(binary);
+}
 
 function formatBytes(bytes: number) {
 	if (bytes < 1024) {
@@ -285,32 +315,57 @@ function ProjectPanel({ project, onDelete, withOrg }: ProjectPanelProps) {
 			return;
 		}
 		for (const file of Array.from(fileList)) {
-			if (file.size > PROJECT_FILE_MAX_BYTES) {
-				toast.error(
-					`${file.name} is larger than ${formatBytes(PROJECT_FILE_MAX_BYTES)}`,
-				);
+			const isBinary = isBinaryKnowledgeFile(file.name);
+			const maxBytes = isBinary
+				? PROJECT_BINARY_FILE_MAX_BYTES
+				: PROJECT_FILE_MAX_BYTES;
+			if (file.size > maxBytes) {
+				toast.error(`${file.name} is larger than ${formatBytes(maxBytes)}`);
 				continue;
 			}
-			let content: string;
-			try {
-				content = await file.text();
-			} catch {
-				toast.error(`Could not read ${file.name} as text`);
-				continue;
+
+			let body: {
+				name: string;
+				mimeType: string;
+				content?: string;
+				contentBase64?: string;
+			};
+			if (isBinary) {
+				try {
+					const bytes = new Uint8Array(await file.arrayBuffer());
+					body = {
+						name: file.name,
+						mimeType: file.type || "application/octet-stream",
+						contentBase64: toBase64(bytes),
+					};
+				} catch {
+					toast.error(`Could not read ${file.name}`);
+					continue;
+				}
+			} else {
+				let content: string;
+				try {
+					content = await file.text();
+				} catch {
+					toast.error(`Could not read ${file.name} as text`);
+					continue;
+				}
+				if (!content.trim()) {
+					toast.error(`${file.name} has no text content`);
+					continue;
+				}
+				body = {
+					name: file.name,
+					mimeType: file.type || "text/plain",
+					content,
+				};
 			}
-			if (!content.trim()) {
-				toast.error(`${file.name} has no text content`);
-				continue;
-			}
+
 			setUploadingNames((prev) => [...prev, file.name]);
 			try {
 				await uploadFile.mutateAsync({
 					params: { path: { id: project.id } },
-					body: {
-						name: file.name,
-						mimeType: file.type || "text/plain",
-						content,
-					},
+					body,
 				});
 				toast(`${file.name} added to the knowledge base`);
 			} catch {
@@ -487,7 +542,8 @@ function ProjectPanel({ project, onDelete, withOrg }: ProjectPanelProps) {
 						>
 							<FileTextIcon className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
 							<p className="text-sm text-muted-foreground">
-								Upload text or markdown files to build the knowledge base
+								Upload PDF, spreadsheet, text, or markdown files to build the
+								knowledge base
 							</p>
 						</button>
 					) : (
@@ -554,6 +610,9 @@ function ProjectPanel({ project, onDelete, withOrg }: ProjectPanelProps) {
 					)}
 				</section>
 
+				{/* Memory */}
+				<MemoriesSection projectId={project.id} />
+
 				{/* Instructions */}
 				{project.instructions && (
 					<section>
@@ -602,5 +661,169 @@ function ProjectPanel({ project, onDelete, withOrg }: ProjectPanelProps) {
 				</section>
 			</div>
 		</div>
+	);
+}
+
+interface MemoriesSectionProps {
+	projectId: string;
+}
+
+function MemoriesSection({ projectId }: MemoriesSectionProps) {
+	const { data } = useProjectMemories(projectId);
+	const memories = (data?.memories as ChatProjectMemory[] | undefined) ?? [];
+
+	const createMemory = useCreateProjectMemory();
+	const updateMemory = useUpdateProjectMemory();
+	const deleteMemory = useDeleteProjectMemory();
+
+	const [newMemory, setNewMemory] = useState("");
+	const [editingId, setEditingId] = useState<string | null>(null);
+	const [editContent, setEditContent] = useState("");
+
+	const handleAdd = async () => {
+		const content = newMemory.trim();
+		if (!content || content.length > PROJECT_MEMORY_MAX) {
+			return;
+		}
+		try {
+			await createMemory.mutateAsync({
+				params: { path: { id: projectId } },
+				body: { content },
+			});
+			setNewMemory("");
+		} catch {
+			// error toast handled by useCreateProjectMemory
+		}
+	};
+
+	const handleSaveEdit = async (memoryId: string) => {
+		const content = editContent.trim();
+		if (!content || content.length > PROJECT_MEMORY_MAX) {
+			return;
+		}
+		try {
+			await updateMemory.mutateAsync({
+				params: { path: { id: projectId, memoryId } },
+				body: { content },
+			});
+			setEditingId(null);
+		} catch {
+			// error toast handled by useUpdateProjectMemory
+		}
+	};
+
+	return (
+		<section>
+			<div className="mb-3">
+				<h3 className="text-sm font-semibold">Memory</h3>
+				<p className="text-xs text-muted-foreground">
+					Facts the assistant remembers across chats in this project — saved
+					automatically as you chat, or added here
+				</p>
+			</div>
+
+			{memories.length > 0 && (
+				<ul className="mb-3 space-y-2">
+					{memories.map((memory) => (
+						<li
+							key={memory.id}
+							className="flex items-start gap-3 rounded-lg border p-3"
+						>
+							<BrainIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+							{editingId === memory.id ? (
+								<div className="min-w-0 flex-1 space-y-2">
+									<Textarea
+										value={editContent}
+										onChange={(e) => setEditContent(e.target.value)}
+										rows={2}
+										className="text-sm"
+									/>
+									<div className="flex items-center gap-2">
+										<Button
+											size="sm"
+											onClick={() => void handleSaveEdit(memory.id)}
+											disabled={!editContent.trim() || updateMemory.isPending}
+										>
+											{updateMemory.isPending ? "Saving..." : "Save"}
+										</Button>
+										<Button
+											size="sm"
+											variant="ghost"
+											onClick={() => setEditingId(null)}
+										>
+											Cancel
+										</Button>
+									</div>
+								</div>
+							) : (
+								<>
+									<span className="min-w-0 flex-1 text-sm">
+										{memory.content}
+									</span>
+									{memory.source === "auto" && (
+										<Badge variant="secondary" className="shrink-0">
+											Auto
+										</Badge>
+									)}
+									<Button
+										variant="ghost"
+										size="sm"
+										className="h-7 shrink-0 px-2 text-muted-foreground"
+										onClick={() => {
+											setEditingId(memory.id);
+											setEditContent(memory.content);
+										}}
+									>
+										Edit
+									</Button>
+									<Button
+										variant="ghost"
+										size="icon"
+										className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+										onClick={() =>
+											deleteMemory.mutate({
+												params: {
+													path: { id: projectId, memoryId: memory.id },
+												},
+											})
+										}
+										aria-label="Delete memory"
+									>
+										<TrashIcon className="h-4 w-4" />
+									</Button>
+								</>
+							)}
+						</li>
+					))}
+				</ul>
+			)}
+
+			<div className="flex items-center gap-2">
+				<Input
+					value={newMemory}
+					onChange={(e) => setNewMemory(e.target.value)}
+					placeholder="Add something the assistant should remember..."
+					maxLength={PROJECT_MEMORY_MAX}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") {
+							void handleAdd();
+						}
+					}}
+				/>
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={() => void handleAdd()}
+					disabled={!newMemory.trim() || createMemory.isPending}
+				>
+					{createMemory.isPending ? (
+						<Loader2Icon className="h-4 w-4 animate-spin" />
+					) : (
+						<PlusIcon className="mr-1 h-4 w-4" />
+					)}
+					Add
+				</Button>
+			</div>
+		</section>
 	);
 }

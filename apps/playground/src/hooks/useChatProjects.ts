@@ -9,9 +9,11 @@ import { getErrorMessage } from "@/lib/utils";
 export const PROJECT_NAME_MAX = 100;
 export const PROJECT_DESCRIPTION_MAX = 2000;
 export const PROJECT_INSTRUCTIONS_MAX = 20000;
-// Matches the API's per-file text limit (500k chars); binary formats are
-// converted to text before upload.
+// Matches the API's per-file text limit (500k chars) for text uploads.
 export const PROJECT_FILE_MAX_BYTES = 500_000;
+// Binary uploads (PDF, Excel) are sent as base64 and extracted server-side.
+export const PROJECT_BINARY_FILE_MAX_BYTES = 10_000_000;
+export const PROJECT_MEMORY_MAX = 1000;
 
 export interface ChatProject {
 	id: string;
@@ -140,6 +142,87 @@ export function useDeleteProjectFile() {
 		onSuccess: (_data, variables) => {
 			invalidate(variables.params?.path?.id);
 			toast("File removed");
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export interface ChatProjectMemory {
+	id: string;
+	content: string;
+	source: "manual" | "auto";
+	createdAt: string;
+	updatedAt: string;
+}
+
+export function useProjectMemories(projectId: string | null) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/chat-projects/{id}/memories",
+		{
+			params: { path: { id: projectId ?? "" } },
+		},
+		{
+			enabled: !!projectId,
+		},
+	);
+}
+
+function useInvalidateMemories() {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	return (projectId: string | undefined) => {
+		if (!projectId) {
+			return;
+		}
+		const key = api.queryOptions("get", "/chat-projects/{id}/memories", {
+			params: { path: { id: projectId } },
+		}).queryKey;
+		void queryClient.invalidateQueries({ queryKey: key });
+	};
+}
+
+export function useCreateProjectMemory() {
+	const api = useApi();
+	const invalidate = useInvalidateMemories();
+
+	return api.useMutation("post", "/chat-projects/{id}/memories", {
+		onSuccess: (_data, variables) => {
+			invalidate(variables.params?.path?.id);
+			toast("Memory added");
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useUpdateProjectMemory() {
+	const api = useApi();
+	const invalidate = useInvalidateMemories();
+
+	return api.useMutation("patch", "/chat-projects/{id}/memories/{memoryId}", {
+		onSuccess: (_data, variables) => {
+			invalidate(variables.params?.path?.id);
+		},
+		onError: (error) => {
+			toast.error(getErrorMessage(error));
+		},
+	});
+}
+
+export function useDeleteProjectMemory() {
+	const api = useApi();
+	const invalidate = useInvalidateMemories();
+
+	return api.useMutation("delete", "/chat-projects/{id}/memories/{memoryId}", {
+		onSuccess: (_data, variables) => {
+			invalidate(variables.params?.path?.id);
+			toast("Memory removed");
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));

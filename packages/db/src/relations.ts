@@ -423,6 +423,16 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.chatProject.id,
 			to: r.chat.projectId,
 		}),
+		memories: r.many.chatProjectMemory({
+			from: r.chatProject.id,
+			to: r.chatProjectMemory.projectId,
+		}),
+	},
+	chatProjectMemory: {
+		project: r.one.chatProject({
+			from: r.chatProjectMemory.projectId,
+			to: r.chatProject.id,
+		}),
 	},
 	chatProjectFile: {
 		project: r.one.chatProject({

@@ -1,11 +1,17 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { generateText, tool } from "ai";
 import { HTTPException } from "hono/http-exception";
 
+import { extractFileText } from "@/lib/file-extract.js";
 import { chunkText, cosineSimilarity, embedTexts } from "@/lib/rag.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
-import { resolvePlaygroundToken } from "@/utils/playground-key.js";
+import {
+	getGatewayUrl,
+	resolvePlaygroundToken,
+} from "@/utils/playground-key.js";
 
-import { db, tables, eq, and, count, desc } from "@llmgateway/db";
+import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { db, tables, eq, and, count, desc, asc } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -13,11 +19,20 @@ export const chatProjects = new OpenAPIHono<ServerTypes>();
 
 const MAX_FILES_PER_PROJECT = 20;
 const MAX_FILE_CONTENT_CHARS = 500_000;
+// Base64 payload cap for binary uploads (~10 MB of file data).
+const MAX_UPLOAD_BASE64_CHARS = 14_000_000;
 const DEFAULT_TOP_K = 6;
 const MAX_TOP_K = 20;
 // Chunks scoring below this cosine similarity are never returned; unrelated
 // text pairs typically land well under this with text-embedding-3-small.
 const MIN_RETRIEVAL_SCORE = 0.1;
+
+const MAX_MEMORIES_PER_PROJECT = 50;
+const MAX_MEMORY_CHARS = 1000;
+// Model used to extract durable memories from chat exchanges; must support
+// tool calling.
+const MEMORY_EXTRACTION_MODEL = "openai/gpt-5-mini";
+const MEMORY_EXTRACTION_TIMEOUT_MS = 60_000;
 
 const chatProjectSchema = z.object({
 	id: z.string(),
@@ -55,12 +70,37 @@ const updateProjectSchema = z.object({
 	instructions: z.string().max(20_000).optional(),
 });
 
-const uploadFileSchema = z.object({
-	name: z.string().trim().min(1).max(255),
-	mimeType: z.string().trim().min(1).max(255),
-	// Plain extracted text of the file. Binary formats (e.g. PDF) are converted
-	// to text client-side before upload.
-	content: z.string().min(1).max(MAX_FILE_CONTENT_CHARS),
+const uploadFileSchema = z
+	.object({
+		name: z.string().trim().min(1).max(255),
+		mimeType: z.string().trim().min(1).max(255),
+		// Plain text content, for text-based files read client-side.
+		content: z.string().min(1).max(MAX_FILE_CONTENT_CHARS).optional(),
+		// Raw file bytes for binary formats (PDF, Excel); text is extracted
+		// server-side.
+		contentBase64: z.string().min(1).max(MAX_UPLOAD_BASE64_CHARS).optional(),
+	})
+	.refine(
+		(data) =>
+			(data.content !== undefined) !== (data.contentBase64 !== undefined),
+		{ message: "Provide exactly one of content or contentBase64" },
+	);
+
+const memorySchema = z.object({
+	id: z.string(),
+	content: z.string(),
+	source: z.enum(["manual", "auto"]),
+	createdAt: z.string().datetime(),
+	updatedAt: z.string().datetime(),
+});
+
+const createMemorySchema = z.object({
+	content: z.string().trim().min(1).max(MAX_MEMORY_CHARS),
+});
+
+const extractMemoriesSchema = z.object({
+	userMessage: z.string().trim().min(1).max(8000),
+	assistantMessage: z.string().trim().min(1).max(8000),
 });
 
 const retrieveSchema = z.object({
@@ -475,7 +515,29 @@ chatProjects.openapi(uploadFile, async (c) => {
 		});
 	}
 
-	const chunks = chunkText(body.content);
+	let textContent: string;
+	let fileSize: number;
+	if (body.contentBase64 !== undefined) {
+		const buffer = Buffer.from(body.contentBase64, "base64");
+		fileSize = buffer.length;
+		try {
+			textContent = await extractFileText(body.name, body.mimeType, buffer);
+		} catch {
+			throw new HTTPException(400, {
+				message: `Could not extract text from ${body.name}`,
+			});
+		}
+		if (textContent.length > MAX_FILE_CONTENT_CHARS) {
+			throw new HTTPException(400, {
+				message: `${body.name} has too much text to index (max ${MAX_FILE_CONTENT_CHARS} characters)`,
+			});
+		}
+	} else {
+		textContent = body.content!;
+		fileSize = Buffer.byteLength(textContent, "utf8");
+	}
+
+	const chunks = chunkText(textContent);
 	if (!chunks.length) {
 		throw new HTTPException(400, {
 			message: "The file has no extractable text content",
@@ -488,8 +550,8 @@ chatProjects.openapi(uploadFile, async (c) => {
 			projectId: id,
 			name: body.name,
 			mimeType: body.mimeType,
-			size: Buffer.byteLength(body.content, "utf8"),
-			content: body.content,
+			size: fileSize,
+			content: textContent,
 			status: "processing",
 		})
 		.returning();
@@ -605,6 +667,7 @@ const retrieve = createRoute({
 								fileName: z.string(),
 							}),
 						),
+						memories: z.array(z.string()),
 					}),
 				},
 			},
@@ -629,27 +692,35 @@ chatProjects.openapi(retrieve, async (c) => {
 		instructions: project.instructions,
 	};
 
-	const chunks = await db
-		.select({
-			content: tables.chatProjectFileChunk.content,
-			embedding: tables.chatProjectFileChunk.embedding,
-			fileId: tables.chatProjectFileChunk.fileId,
-			fileName: tables.chatProjectFile.name,
-		})
-		.from(tables.chatProjectFileChunk)
-		.innerJoin(
-			tables.chatProjectFile,
-			eq(tables.chatProjectFileChunk.fileId, tables.chatProjectFile.id),
-		)
-		.where(
-			and(
-				eq(tables.chatProjectFileChunk.projectId, id),
-				eq(tables.chatProjectFile.status, "ready"),
+	const [chunks, memoryRows] = await Promise.all([
+		db
+			.select({
+				content: tables.chatProjectFileChunk.content,
+				embedding: tables.chatProjectFileChunk.embedding,
+				fileId: tables.chatProjectFileChunk.fileId,
+				fileName: tables.chatProjectFile.name,
+			})
+			.from(tables.chatProjectFileChunk)
+			.innerJoin(
+				tables.chatProjectFile,
+				eq(tables.chatProjectFileChunk.fileId, tables.chatProjectFile.id),
+			)
+			.where(
+				and(
+					eq(tables.chatProjectFileChunk.projectId, id),
+					eq(tables.chatProjectFile.status, "ready"),
+				),
 			),
-		);
+		db
+			.select({ content: tables.chatProjectMemory.content })
+			.from(tables.chatProjectMemory)
+			.where(eq(tables.chatProjectMemory.projectId, id))
+			.orderBy(asc(tables.chatProjectMemory.createdAt)),
+	]);
+	const memories = memoryRows.map((row) => row.content);
 
 	if (!chunks.length) {
-		return c.json({ project: projectInfo, chunks: [] });
+		return c.json({ project: projectInfo, chunks: [], memories });
 	}
 
 	// Server-to-server callers (the playground chat route) pass the same
@@ -669,5 +740,334 @@ chatProjects.openapi(retrieve, async (c) => {
 		.sort((a, b) => b.score - a.score)
 		.slice(0, topK ?? DEFAULT_TOP_K);
 
-	return c.json({ project: projectInfo, chunks: scored });
+	return c.json({ project: projectInfo, chunks: scored, memories });
+});
+
+function formatMemory(memory: {
+	id: string;
+	content: string;
+	source: string;
+	createdAt: Date;
+	updatedAt: Date;
+}) {
+	return {
+		id: memory.id,
+		content: memory.content,
+		source: memory.source as "manual" | "auto",
+		createdAt: memory.createdAt.toISOString(),
+		updatedAt: memory.updatedAt.toISOString(),
+	};
+}
+
+// List a project's memories
+const listMemories = createRoute({
+	method: "get",
+	path: "/{id}/memories",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ memories: z.array(memorySchema) }),
+				},
+			},
+			description: "Project memories, oldest first",
+		},
+	},
+});
+
+chatProjects.openapi(listMemories, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	await getOwnedProject(id, user.id);
+
+	const rows = await db.query.chatProjectMemory.findMany({
+		where: { projectId: { eq: id } },
+		orderBy: (t, { asc: sortAsc }) => [sortAsc(t.createdAt)],
+	});
+
+	return c.json({ memories: rows.map(formatMemory) });
+});
+
+// Add a memory manually
+const createMemory = createRoute({
+	method: "post",
+	path: "/{id}/memories",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createMemorySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ memory: memorySchema }),
+				},
+			},
+			description: "Created memory",
+		},
+	},
+});
+
+chatProjects.openapi(createMemory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const body = c.req.valid("json");
+	await getOwnedProject(id, user.id);
+
+	const [existing] = await db
+		.select({ count: count() })
+		.from(tables.chatProjectMemory)
+		.where(eq(tables.chatProjectMemory.projectId, id));
+	if (existing.count >= MAX_MEMORIES_PER_PROJECT) {
+		throw new HTTPException(400, {
+			message: `Projects can hold at most ${MAX_MEMORIES_PER_PROJECT} memories`,
+		});
+	}
+
+	const [created] = await db
+		.insert(tables.chatProjectMemory)
+		.values({
+			projectId: id,
+			content: body.content,
+			source: "manual",
+		})
+		.returning();
+
+	return c.json({ memory: formatMemory(created) }, 201);
+});
+
+// Edit a memory
+const updateMemory = createRoute({
+	method: "patch",
+	path: "/{id}/memories/{memoryId}",
+	request: {
+		params: z.object({ id: z.string(), memoryId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createMemorySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ memory: memorySchema }),
+				},
+			},
+			description: "Updated memory",
+		},
+	},
+});
+
+chatProjects.openapi(updateMemory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id, memoryId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	await getOwnedProject(id, user.id);
+
+	const [updated] = await db
+		.update(tables.chatProjectMemory)
+		.set({ content: body.content })
+		.where(
+			and(
+				eq(tables.chatProjectMemory.id, memoryId),
+				eq(tables.chatProjectMemory.projectId, id),
+			),
+		)
+		.returning();
+
+	if (!updated) {
+		throw new HTTPException(404, { message: "Memory not found" });
+	}
+
+	return c.json({ memory: formatMemory(updated) });
+});
+
+// Delete a memory
+const deleteMemory = createRoute({
+	method: "delete",
+	path: "/{id}/memories/{memoryId}",
+	request: {
+		params: z.object({ id: z.string(), memoryId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }),
+				},
+			},
+			description: "Memory deleted",
+		},
+	},
+});
+
+chatProjects.openapi(deleteMemory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id, memoryId } = c.req.valid("param");
+	await getOwnedProject(id, user.id);
+
+	const deleted = await db
+		.delete(tables.chatProjectMemory)
+		.where(
+			and(
+				eq(tables.chatProjectMemory.id, memoryId),
+				eq(tables.chatProjectMemory.projectId, id),
+			),
+		)
+		.returning();
+
+	if (!deleted.length) {
+		throw new HTTPException(404, { message: "Memory not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+const extractedMemoriesSchema = z.object({
+	memories: z
+		.array(z.string().trim().min(1).max(MAX_MEMORY_CHARS))
+		.max(3)
+		.describe(
+			"Zero to three short, self-contained facts worth remembering across future chats in this project. Pass an empty array when the exchange contains nothing durable.",
+		),
+});
+
+const MEMORY_EXTRACTOR_SYSTEM = `You maintain the long-term memory of a chat project. Given one user/assistant exchange and the list of facts already remembered, extract only NEW durable facts worth carrying into future conversations: stable user preferences ("prefers concise answers"), lasting facts about people, projects, or constraints. Do NOT save one-off questions, information already covered by an existing memory, anything taken from the project's knowledge base files, or transient conversation details. Each memory must be one short self-contained sentence.
+
+Always call save_memories exactly once — with an empty array if nothing qualifies.`;
+
+// Extract durable memories from a chat exchange. Called fire-and-forget by
+// the playground chat route after an assistant response in a project chat.
+const extractMemories = createRoute({
+	method: "post",
+	path: "/{id}/memories/extract",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: extractMemoriesSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ memories: z.array(memorySchema) }),
+				},
+			},
+			description: "Newly saved memories (may be empty)",
+		},
+	},
+});
+
+chatProjects.openapi(extractMemories, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const body = c.req.valid("json");
+	await getOwnedProject(id, user.id);
+
+	const existing = await db.query.chatProjectMemory.findMany({
+		where: { projectId: { eq: id } },
+		orderBy: (t, { asc: sortAsc }) => [sortAsc(t.createdAt)],
+	});
+	if (existing.length >= MAX_MEMORIES_PER_PROJECT) {
+		return c.json({ memories: [] });
+	}
+
+	const headerKey = c.req.header("x-llmgateway-key");
+	const token = headerKey ?? (await resolvePlaygroundToken(c, user));
+
+	const llmgateway = createLLMGateway({
+		apiKey: token,
+		baseURL: getGatewayUrl(),
+		headers: {
+			"x-source": "chat.llmgateway.io",
+		},
+	});
+
+	const existingList = existing.length
+		? existing.map((m) => `- ${m.content}`).join("\n")
+		: "(none)";
+
+	const result = await generateText({
+		model: llmgateway.chat(MEMORY_EXTRACTION_MODEL),
+		system: MEMORY_EXTRACTOR_SYSTEM,
+		prompt: `Existing memories:\n${existingList}\n\nUser message:\n${body.userMessage}\n\nAssistant response:\n${body.assistantMessage}`,
+		tools: {
+			save_memories: tool({
+				description: "Save the new durable memories from this exchange.",
+				inputSchema: extractedMemoriesSchema,
+			}),
+		},
+		toolChoice: "required",
+		abortSignal: AbortSignal.timeout(MEMORY_EXTRACTION_TIMEOUT_MS),
+	});
+
+	const saveCall = result.toolCalls.find(
+		(call) => call.toolName === "save_memories",
+	);
+	const parsed = extractedMemoriesSchema.safeParse(saveCall?.input);
+	if (!parsed.success || !parsed.data.memories.length) {
+		return c.json({ memories: [] });
+	}
+
+	const room = MAX_MEMORIES_PER_PROJECT - existing.length;
+	const existingContents = new Set(
+		existing.map((m) => m.content.trim().toLowerCase()),
+	);
+	const fresh = parsed.data.memories
+		.filter((m) => !existingContents.has(m.trim().toLowerCase()))
+		.slice(0, room);
+	if (!fresh.length) {
+		return c.json({ memories: [] });
+	}
+
+	const created = await db
+		.insert(tables.chatProjectMemory)
+		.values(
+			fresh.map((content) => ({
+				projectId: id,
+				content,
+				source: "auto" as const,
+			})),
+		)
+		.returning();
+
+	return c.json({ memories: created.map(formatMemory) });
 });

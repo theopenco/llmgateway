@@ -1795,6 +1795,30 @@ export const chatProjectFileChunk = pgTable(
 	],
 );
 
+export const chatProjectMemory = pgTable(
+	"chat_project_memory",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text()
+			.notNull()
+			.references(() => chatProject.id, { onDelete: "cascade" }),
+		content: text().notNull(),
+		// "manual" = added by the user on the project page; "auto" = extracted
+		// from a chat exchange by the memory extraction model.
+		source: text({
+			enum: ["manual", "auto"],
+		})
+			.notNull()
+			.default("manual"),
+	},
+	(table) => [index("chat_project_memory_project_id_idx").on(table.projectId)],
+);
+
 export const chat = pgTable(
 	"chat",
 	{
