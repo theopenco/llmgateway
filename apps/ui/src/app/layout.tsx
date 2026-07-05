@@ -36,7 +36,7 @@ export const metadata: Metadata = {
 		template: "%s | LLM Gateway",
 	},
 	description:
-		"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface. Access OpenAI, Anthropic, Google, and 35+ providers through one API.",
+		"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface. Access OpenAI, Anthropic, Google, and 40+ providers through one API.",
 	authors: [{ name: "LLM Gateway" }],
 	creator: "LLM Gateway",
 	publisher: "LLM Gateway",
@@ -63,8 +63,8 @@ export const metadata: Metadata = {
 	openGraph: {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
-			"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface. Access OpenAI, Anthropic, Google, and 35+ providers through one API.",
-		images: ["/opengraph.png?v=1"],
+			"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface. Access OpenAI, Anthropic, Google, and 40+ providers through one API.",
+		images: ["/opengraph.png?v=2"],
 		type: "website",
 		url: "https://llmgateway.io",
 		siteName: "LLM Gateway",
@@ -75,7 +75,7 @@ export const metadata: Metadata = {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
 			"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
-		images: ["/opengraph.png?v=1"],
+		images: ["/opengraph.png?v=2"],
 		creator: "@llmgateway",
 	},
 	robots: {

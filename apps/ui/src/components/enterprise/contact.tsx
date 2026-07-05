@@ -55,6 +55,7 @@ export function ContactFormEnterprise() {
 	const submitContact = api.useMutation("post", "/public/contact/enterprise");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
+	const [directBooking, setDirectBooking] = useState(false);
 	const [scheduled, setScheduled] = useState<{ name: string; email: string }>({
 		name: "",
 		email: "",
@@ -134,7 +135,30 @@ export function ContactFormEnterprise() {
 					</div>
 
 					<div className="rounded-2xl border border-border bg-card/50 backdrop-blur-sm p-8 sm:p-10 shadow-lg">
-						{isSuccess ? (
+						{!isSuccess && (
+							<div className="mb-8 flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-4 text-center sm:flex-row sm:justify-between sm:text-left">
+								<p className="text-sm text-muted-foreground">
+									{directBooking
+										? "Prefer to write instead? Switch back to the form."
+										: "In a hurry? Skip the form and book a 20-min walkthrough directly."}
+								</p>
+								<Button
+									type="button"
+									variant="outline"
+									onClick={() => {
+										if (!directBooking) {
+											posthog.capture("enterprise_calendly_direct_opened");
+										}
+										setDirectBooking(!directBooking);
+									}}
+								>
+									{directBooking ? "Back to the form" : "Book a walkthrough"}
+								</Button>
+							</div>
+						)}
+						{!isSuccess && directBooking ? (
+							<CalendlyInline url={CALENDLY_ENTERPRISE_URL} />
+						) : isSuccess ? (
 							<div className="py-4">
 								<div className="text-center">
 									<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">

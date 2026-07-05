@@ -50,6 +50,8 @@
 		"posthog-node": "5.10.4",
 		"resend": "6.8.0",
 		"stripe": "18.1.1",
+		"unpdf": "1.6.2",
+		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
 		"zod": "3.25.75",
 		"zod-openapi": "^5.4.3"
 	}

@@ -6,6 +6,7 @@ import { HeroEnterprise } from "@/components/enterprise/hero";
 import { InfrastructureAsCodeEnterprise } from "@/components/enterprise/iac";
 import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
 import { PricingEnterprise } from "@/components/enterprise/pricing";
+import { ProcurementEnterprise } from "@/components/enterprise/procurement";
 import { ProductShowcase } from "@/components/enterprise/product-showcase";
 import { SecurityEnterprise } from "@/components/enterprise/security";
 import { SupportEnterprise } from "@/components/enterprise/support";
@@ -69,6 +70,7 @@ export default async function EnterprisePage() {
 			<PricingEnterprise />
 			<InfrastructureAsCodeEnterprise />
 			<OpenSourceEnterprise />
+			<ProcurementEnterprise />
 			<ContactFormEnterprise />
 			<Footer />
 		</div>

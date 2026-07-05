@@ -6,6 +6,7 @@ import {
 	handleChargeRefunded,
 	handleInvoicePaymentSucceeded,
 	handlePaymentIntentFailed,
+	handleSubscriptionDeleted,
 	handleSubscriptionUpdated,
 } from "./stripe.js";
 import { deleteAll } from "./testing.js";
@@ -632,6 +633,102 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		// The stale event must not touch the active subscription's expiry/cancel
 		// flags either.
 		expect(org?.devPlanCancelled).toBe(false);
+	});
+});
+
+function makeDeletedEvent(overrides?: {
+	subscriptionId?: string;
+	metadata?: Record<string, string>;
+}): Stripe.CustomerSubscriptionDeletedEvent {
+	return {
+		id: "evt_test_deleted",
+		type: "customer.subscription.deleted",
+		data: {
+			object: {
+				id: overrides?.subscriptionId ?? SUB_ID,
+				customer: "cus_test_feedback",
+				status: "canceled",
+				metadata: overrides?.metadata ?? {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+				},
+				items: { data: [] },
+			},
+		},
+	} as unknown as Stripe.CustomerSubscriptionDeletedEvent;
+}
+
+describe("handleSubscriptionDeleted — superseded subscription", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("ignores deletion of a superseded dev-plan subscription", async () => {
+		// Repro of the production incident: the customer cancelled their old plan
+		// at period end, then started a NEW Lite plan before the old period
+		// elapsed. Stripe's deletion event for the old subscription arrived hours
+		// after the new checkout and wiped the fresh plan back to `none`.
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "lite",
+			devPlanCreditsLimit: "87",
+			devPlanCreditsUsed: "0",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleSubscriptionDeleted(
+			makeDeletedEvent({ subscriptionId: "sub_old_cancelled_plan" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+		expect(org?.devPlanStripeSubscriptionId).toBe(SUB_ID);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	test("still ends the dev plan when the active subscription is deleted", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "lite",
+			devPlanCreditsLimit: "87",
+			devPlanCreditsUsed: "10",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: true,
+		});
+
+		await handleSubscriptionDeleted(makeDeletedEvent());
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("none");
+		expect(org?.devPlanStripeSubscriptionId).toBeNull();
+		expect(org?.devPlanCreditsLimit).toBe("0");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_end");
 	});
 });
 

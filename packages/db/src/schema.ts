@@ -1732,6 +1732,112 @@ export const lock = pgTable("lock", {
 	key: text().notNull().unique(),
 });
 
+export const chatProject = pgTable(
+	"chat_project",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text().notNull(),
+		description: text().notNull().default(""),
+		// Custom instructions prepended to the system prompt of chats in this
+		// project, like Claude's project instructions.
+		instructions: text().notNull().default(""),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Same semantics as chat.organizationId: null means the default
+		// "Chat plan" context.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+	},
+	(table) => [index("chat_project_user_id_idx").on(table.userId)],
+);
+
+export const chatProjectFile = pgTable(
+	"chat_project_file",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text()
+			.notNull()
+			.references(() => chatProject.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		mimeType: text().notNull(),
+		size: integer().notNull(),
+		// Full extracted text content of the file, kept for viewing and
+		// re-indexing. Chunked copies live in chat_project_file_chunk.
+		content: text().notNull(),
+		status: text({
+			enum: ["processing", "ready", "error"],
+		})
+			.notNull()
+			.default("processing"),
+		error: text(),
+		chunkCount: integer().notNull().default(0),
+	},
+	(table) => [index("chat_project_file_project_id_idx").on(table.projectId)],
+);
+
+export const chatProjectFileChunk = pgTable(
+	"chat_project_file_chunk",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		fileId: text()
+			.notNull()
+			.references(() => chatProjectFile.id, { onDelete: "cascade" }),
+		// Denormalized so retrieval can load all of a project's chunks without
+		// joining through chat_project_file.
+		projectId: text()
+			.notNull()
+			.references(() => chatProject.id, { onDelete: "cascade" }),
+		chunkIndex: integer().notNull(),
+		content: text().notNull(),
+		embedding: jsonb().$type<number[]>().notNull(),
+	},
+	(table) => [
+		index("chat_project_file_chunk_file_id_idx").on(table.fileId),
+		index("chat_project_file_chunk_project_id_idx").on(table.projectId),
+	],
+);
+
+export const chatProjectMemory = pgTable(
+	"chat_project_memory",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text()
+			.notNull()
+			.references(() => chatProject.id, { onDelete: "cascade" }),
+		content: text().notNull(),
+		// "manual" = added by the user on the project page; "auto" = extracted
+		// from a chat exchange by the memory extraction model.
+		source: text({
+			enum: ["manual", "auto"],
+		})
+			.notNull()
+			.default("manual"),
+	},
+	(table) => [index("chat_project_memory_project_id_idx").on(table.projectId)],
+);
+
 export const chat = pgTable(
 	"chat",
 	{
@@ -1762,8 +1868,15 @@ export const chat = pgTable(
 		parentChatId: text().references((): AnyPgColumn => chat.id, {
 			onDelete: "cascade",
 		}),
+		// Chat project (knowledge base) this chat belongs to, if any.
+		projectId: text().references(() => chatProject.id, {
+			onDelete: "set null",
+		}),
 	},
-	(table) => [index("chat_user_id_idx").on(table.userId)],
+	(table) => [
+		index("chat_user_id_idx").on(table.userId),
+		index("chat_project_id_idx").on(table.projectId),
+	],
 );
 
 export const chatShare = pgTable(

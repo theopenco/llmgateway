@@ -345,3 +345,9 @@ registerMcpOAuthRoutes(app);
 app.doc("/json", config);
 
 app.get("/docs", swaggerUI({ url: "/json" }));
+
+// The gateway is an API, not a website: keep search engines from crawling and
+// indexing its endpoints (GSC keeps reporting api.llmgateway.io URLs).
+app.get("/robots.txt", (c) => {
+	return c.text("User-agent: *\nDisallow: /\n");
+});

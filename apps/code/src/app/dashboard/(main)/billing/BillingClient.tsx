@@ -168,7 +168,18 @@ export default function BillingClient({
 	const handleResume = async (): Promise<void> => {
 		setIsResuming(true);
 		try {
-			await resumeMutation.mutateAsync({});
+			const result = await resumeMutation.mutateAsync({});
+			// The subscription had already fully ended, so it can't be resumed — the
+			// server reset the plan to "none". Refresh status so the dashboard swaps
+			// to the plan chooser and the user can subscribe again.
+			if (result.ended) {
+				await invalidateStatus();
+				toast.info("Your subscription has ended", {
+					description: "Choose a plan to subscribe again.",
+				});
+				return;
+			}
+			await invalidateStatus();
 			if (posthogKey) {
 				posthog.capture("dev_plan_resumed");
 			}

@@ -15,6 +15,7 @@ import {
 	Users,
 	ChevronDown,
 	ChevronUp,
+	Folder,
 	LogOut,
 	ExternalLink,
 	PenTool,
@@ -832,6 +833,18 @@ export const ChatSidebar = function ChatSidebar({
 							<Link href={withOrg("/")} prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Projects"
+							isActive={pathname === "/projects"}
+						>
+							<Link href={withOrg("/projects")} prefetch={true}>
+								<Folder className="h-4 w-4" />
+								<span>Projects</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

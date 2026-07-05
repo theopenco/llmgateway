@@ -597,6 +597,62 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
 	});
 
+	it("self-heals an ended subscription on resume instead of failing", async () => {
+		// The org still references a subscription Stripe has fully canceled (the
+		// `customer.subscription.deleted` webhook was delayed or missed). Resuming
+		// by clearing `cancel_at_period_end` would be rejected with
+		// `invalid_canceled_subscription_fields`, so the handler must instead reset
+		// the org to "none" and signal `ended` so the UI prompts a fresh subscribe.
+		await db
+			.update(tables.organization)
+			.set({ devPlanCancelled: true })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "canceled",
+			cancel_at_period_end: false,
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "lite",
+				devPlanCycle: "monthly",
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_start: nowSeconds - 500,
+						current_period_end: nowSeconds + 500,
+						price: { id: "price_lite" },
+					},
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/resume", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ success: false, ended: true });
+		// Never attempt the update Stripe would reject.
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("none");
+		expect(org?.devPlanCancelled).toBe(false);
+		expect(org?.devPlanStripeSubscriptionId).toBeNull();
+	});
+
 	it("schedules a downgrade for renewal instead of applying it immediately", async () => {
 		// Start on pro so switching to lite is a downgrade. The lower tier must not
 		// take effect until renewal: devPlan stays pro, the current cycle's credits

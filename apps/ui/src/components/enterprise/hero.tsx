@@ -98,7 +98,8 @@ export function HeroEnterprise({
 						</Button>
 					</div>
 					<p className="mt-5 text-sm text-muted-foreground">
-						Every enterprise plan starts with a 30-day trial.
+						Every enterprise plan starts with the 30-Day Production Pilot — live
+						traffic in week one, a decision gate at day 30.
 					</p>
 
 					<div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">
@@ -115,7 +116,7 @@ export function HeroEnterprise({
 						/>
 						<StatCard value={200} suffix="M" label="Daily Tokens" delay={0.2} />
 						<StatCard
-							value={60}
+							value={80}
 							suffix="K"
 							prefix="$"
 							label="Customer Savings"

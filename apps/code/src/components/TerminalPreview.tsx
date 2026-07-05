@@ -6,11 +6,18 @@ import {
 	AnthropicIcon,
 	AutohandIcon,
 	ClineIcon,
+	DevPassCodeIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
 
-type Tool = "claude-code" | "soulforge" | "autohand" | "opencode" | "cline";
+type Tool =
+	| "devpass-code"
+	| "claude-code"
+	| "soulforge"
+	| "autohand"
+	| "opencode"
+	| "cline";
 
 const tools: {
 	id: Tool;
@@ -18,6 +25,12 @@ const tools: {
 	icon: typeof AnthropicIcon;
 	highlight?: string;
 }[] = [
+	{
+		id: "devpass-code",
+		name: "DevPass Code",
+		icon: DevPassCodeIcon,
+		highlight: "First-party",
+	},
 	{ id: "claude-code", name: "Claude Code", icon: AnthropicIcon },
 	{ id: "opencode", name: "OpenCode", icon: OpenCodeIcon },
 	{
@@ -38,6 +51,11 @@ const snippets: Record<
 		modelLine?: { key: string; value: string };
 	}
 > = {
+	"devpass-code": {
+		lines: [],
+		command: "devpass-code auth login",
+		comment: "# opens your browser — no keys to copy, models built in",
+	},
 	"claude-code": {
 		lines: [
 			{
@@ -72,7 +90,7 @@ const snippets: Record<
 		],
 		command: "autohand",
 		comment: "# works with any model — switch freely",
-		modelLine: { key: "OPENAI_MODEL=", value: "claude-opus-4-6" },
+		modelLine: { key: "OPENAI_MODEL=", value: "claude-opus-4-8" },
 	},
 	opencode: {
 		lines: [],
@@ -97,86 +115,82 @@ const snippets: Record<
 };
 
 export function TerminalPreview() {
-	const [activeTool, setActiveTool] = useState<Tool>("claude-code");
+	const [activeTool, setActiveTool] = useState<Tool>("devpass-code");
 	const snippet = snippets[activeTool];
 
 	return (
-		<>
-			{/* Terminal preview */}
-			<div className="mx-auto mt-16 max-w-2xl px-4 sm:px-0">
-				<div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-lg">
-					<div className="flex items-center gap-2 border-b border-border/40 px-4 py-3">
+		<div className="w-full">
+			<div className="mb-3 flex flex-wrap items-center gap-1.5">
+				{tools.map((tool) => (
+					<button
+						key={tool.id}
+						type="button"
+						onClick={() => setActiveTool(tool.id)}
+						className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-xs transition-colors ${
+							activeTool === tool.id
+								? "border-emerald-500/50 bg-emerald-500/10 text-foreground"
+								: "border-border/60 text-muted-foreground hover:border-border hover:text-foreground"
+						}`}
+					>
+						<tool.icon className="h-3.5 w-3.5" />
+						{tool.name}
+						{tool.highlight && (
+							<span className="rounded-full bg-emerald-500/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+								{tool.highlight}
+							</span>
+						)}
+					</button>
+				))}
+			</div>
+
+			<div className="relative">
+				<div
+					aria-hidden
+					className="absolute -inset-4 -z-10 rounded-3xl bg-emerald-500/10 blur-2xl"
+				/>
+				<div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl shadow-black/40">
+					<div className="flex items-center gap-2 border-b border-zinc-800/80 px-4 py-3">
 						<div className="flex gap-1.5">
-							<div className="h-3 w-3 rounded-full bg-muted-foreground/20" />
-							<div className="h-3 w-3 rounded-full bg-muted-foreground/20" />
-							<div className="h-3 w-3 rounded-full bg-muted-foreground/20" />
+							<div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+							<div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+							<div className="h-2.5 w-2.5 rounded-full bg-emerald-500/70" />
 						</div>
-						<span className="ml-2 text-xs text-muted-foreground font-mono">
-							terminal
+						<span className="ml-2 font-mono text-xs text-zinc-500">
+							~ devpass
+						</span>
+						<span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+							bash
 						</span>
 					</div>
-					<div className="p-4 sm:p-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
+					<div className="min-h-[190px] overflow-x-auto p-4 font-mono text-xs leading-relaxed sm:p-5 sm:text-sm">
 						{snippet.lines.map((line) => (
 							<div
 								key={line.key}
-								className="mt-1 first:mt-0 text-muted-foreground whitespace-nowrap"
+								className="mt-1 whitespace-nowrap text-zinc-500 first:mt-0"
 							>
-								<span className="text-foreground/70">$</span> export {line.key}
-								<span className="text-foreground">{line.value}</span>
+								<span className="text-emerald-400">$</span> export {line.key}
+								<span className="text-zinc-100">{line.value}</span>
 							</div>
 						))}
-						<div className="mt-1 text-muted-foreground">
-							<span className="text-foreground/70">$</span> {snippet.command}
+						<div className="mt-1 text-zinc-500 first:mt-0">
+							<span className="text-emerald-400">$</span>{" "}
+							<span className="text-zinc-100">{snippet.command}</span>
 						</div>
-						<div className="mt-3 text-muted-foreground/60">
-							{snippet.comment}
-						</div>
+						<div className="mt-3 text-zinc-600">{snippet.comment}</div>
 						{snippet.modelLine && (
-							<div className="mt-1 text-muted-foreground whitespace-nowrap">
-								<span className="text-foreground/70">$</span> export{" "}
+							<div className="mt-1 whitespace-nowrap text-zinc-500">
+								<span className="text-emerald-400">$</span> export{" "}
 								{snippet.modelLine.key}
-								<span className="text-foreground">
-									{snippet.modelLine.value}
-								</span>
+								<span className="text-zinc-100">{snippet.modelLine.value}</span>
 							</div>
 						)}
-					</div>
-				</div>
-			</div>
-
-			{/* Compatible tools */}
-			<div className="mt-16 border-y border-border/40 bg-muted/30 py-10">
-				<div className="container mx-auto px-4">
-					<div className="flex flex-col items-center gap-6">
-						<span className="text-sm text-muted-foreground">Works with</span>
-						<div className="flex flex-wrap items-center justify-center gap-6 sm:gap-10">
-							{tools.map((tool) => (
-								<button
-									key={tool.id}
-									type="button"
-									onClick={() => setActiveTool(tool.id)}
-									className={`flex items-center gap-2.5 transition-colors cursor-pointer ${
-										activeTool === tool.id
-											? "text-foreground"
-											: "text-muted-foreground hover:text-foreground/70"
-									}`}
-								>
-									<tool.icon className="h-5 w-5" />
-									<span className="text-sm font-medium">{tool.name}</span>
-									{tool.highlight && (
-										<span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
-											{tool.highlight}
-										</span>
-									)}
-								</button>
-							))}
+						<div className="mt-3 text-zinc-500">
+							<span className="text-emerald-400">$</span>{" "}
+							<span className="inline-block h-3.5 w-2 translate-y-0.5 animate-pulse bg-emerald-400/80" />
 						</div>
-						<span className="text-xs text-muted-foreground">
-							+ any OpenAI-compatible tool
-						</span>
 					</div>
 				</div>
 			</div>
-		</>
+		</div>
 	);
 }

@@ -9,6 +9,7 @@ import {
 	CodexIcon,
 	ContinueIcon,
 	CursorIcon,
+	DevPassCodeIcon,
 	HermesIcon,
 	KiloCodeIcon,
 	KimiIcon,
@@ -34,6 +35,14 @@ export interface IntegrationGuide {
 }
 
 export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
+	{
+		name: "DevPass Code",
+		description:
+			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
+		href: "/guides/devpass-code",
+		icon: DevPassCodeIcon,
+		comingSoon: false,
+	},
 	{
 		name: "Autohand Code",
 		description:
