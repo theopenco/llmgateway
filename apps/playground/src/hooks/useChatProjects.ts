@@ -108,8 +108,8 @@ export function useDeleteChatProject() {
 	const invalidate = useInvalidateProjects();
 
 	return api.useMutation("delete", "/chat-projects/{id}", {
-		onSuccess: () => {
-			invalidate();
+		onSuccess: (_data, variables) => {
+			invalidate(variables.params?.path?.id);
 			toast("Project deleted");
 		},
 		onError: (error) => {

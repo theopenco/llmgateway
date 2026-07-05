@@ -2,6 +2,7 @@
 
 import { FolderIcon } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 import { useChatProject } from "@/hooks/useChatProjects";
 
@@ -14,6 +15,10 @@ interface ProjectContextBannerProps {
 export function ProjectContextBanner({ projectId }: ProjectContextBannerProps) {
 	const { data } = useChatProject(projectId);
 	const project = data?.project;
+	// Preserve the selected organization so the link opens the same projects
+	// context the chat is running under.
+	const searchParams = useSearchParams();
+	const orgIdParam = searchParams.get("orgId");
 
 	if (!project) {
 		return null;
@@ -22,7 +27,7 @@ export function ProjectContextBanner({ projectId }: ProjectContextBannerProps) {
 	return (
 		<div className="shrink-0 border-b bg-muted/40 px-4 py-1.5">
 			<Link
-				href={`/projects?id=${project.id}`}
+				href={`/projects?id=${project.id}${orgIdParam ? `&orgId=${orgIdParam}` : ""}`}
 				className="inline-flex max-w-full items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
 			>
 				<FolderIcon className="h-3.5 w-3.5 shrink-0" />

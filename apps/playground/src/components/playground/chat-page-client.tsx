@@ -920,6 +920,11 @@ export default function ChatPageClient({
 		if (currentChatId) {
 			if (currentChatData?.chat?.id === currentChatId) {
 				setActiveProjectId(currentChatData.chat.projectId ?? null);
+			} else if (!pendingNewChatRef.current) {
+				// Navigating to a different chat whose data hasn't loaded yet —
+				// don't keep showing the previous chat's project context. A chat
+				// just created here (pendingNewChatRef) keeps the ?project= value.
+				setActiveProjectId(null);
 			}
 		} else {
 			setActiveProjectId(projectIdFromUrl);

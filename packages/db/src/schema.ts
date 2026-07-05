@@ -1830,7 +1830,10 @@ export const chat = pgTable(
 			onDelete: "set null",
 		}),
 	},
-	(table) => [index("chat_user_id_idx").on(table.userId)],
+	(table) => [
+		index("chat_user_id_idx").on(table.userId),
+		index("chat_project_id_idx").on(table.projectId),
+	],
 );
 
 export const chatShare = pgTable(

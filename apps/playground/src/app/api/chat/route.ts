@@ -906,6 +906,9 @@ export async function POST(req: Request) {
 				},
 				// Bill the query embedding to the same gateway key as the chat.
 				headers: { "x-llmgateway-key": finalApiKey },
+				// Don't let a slow retrieval stall the chat; on timeout the
+				// request proceeds without project context.
+				signal: AbortSignal.timeout(15_000),
 			},
 		);
 		if (retrieval) {
