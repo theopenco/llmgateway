@@ -15,6 +15,56 @@ import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+// Ask AI is public, anonymous and spends LLM credits on every call, so it
+// gets per-IP limits plus a global circuit breaker (per-IP buckets alone are
+// defeated by rotating addresses). The docs app has no Redis and the
+// standalone Next server runs as a single instance, so an in-memory sliding
+// window is sufficient.
+const BURST_LIMIT_MAX = 3;
+const BURST_LIMIT_WINDOW_MS = 20_000;
+const HOURLY_LIMIT_MAX = 30;
+const HOURLY_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const GLOBAL_HOURLY_LIMIT_MAX = 300;
+const MAX_MESSAGES = 50;
+
+const rateLimitHits = new Map<string, number[]>();
+
+function isAllowed(key: string, max: number, windowMs: number): boolean {
+	const now = Date.now();
+	pruneRateLimitHits(now);
+	const hits = (rateLimitHits.get(key) ?? []).filter((t) => now - t < windowMs);
+	if (hits.length >= max) {
+		rateLimitHits.set(key, hits);
+		return false;
+	}
+	hits.push(now);
+	rateLimitHits.set(key, hits);
+	return true;
+}
+
+// Bounds memory when an attacker rotates IPs: once the map grows past the
+// threshold, drop every entry whose hits have all aged out of the widest
+// window.
+function pruneRateLimitHits(now: number): void {
+	if (rateLimitHits.size < 10_000) {
+		return;
+	}
+	for (const [key, hits] of rateLimitHits) {
+		if (hits.every((t) => now - t >= HOURLY_LIMIT_WINDOW_MS)) {
+			rateLimitHits.delete(key);
+		}
+	}
+}
+
+function extractClientIP(req: Request): string {
+	return (
+		req.headers.get("cf-connecting-ip") ??
+		req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+		req.headers.get("x-real-ip") ??
+		"unknown"
+	);
+}
+
 interface CustomDocument extends DocumentData {
 	url: string;
 	title: string;
@@ -111,6 +161,34 @@ export async function POST(req: Request) {
 		);
 	}
 
+	// Narrower windows first so a blocked request doesn't consume the wider
+	// quotas; the global bucket last so per-IP rejections don't eat into it.
+	const ip = extractClientIP(req);
+	if (!isAllowed(`burst:${ip}`, BURST_LIMIT_MAX, BURST_LIMIT_WINDOW_MS)) {
+		return Response.json(
+			{
+				error:
+					"You're sending messages too quickly. Please wait a few seconds and try again.",
+			},
+			{ status: 429 },
+		);
+	}
+	if (!isAllowed(`hour:${ip}`, HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
+		return Response.json(
+			{ error: "Too many messages. Please try again later." },
+			{ status: 429 },
+		);
+	}
+	if (!isAllowed("global", GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
+		return Response.json(
+			{
+				error:
+					"Ask AI is experiencing unusually high volume. Please try again later.",
+			},
+			{ status: 429 },
+		);
+	}
+
 	const llmgateway = createLLMGateway({
 		apiKey,
 		baseURL: process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1",
@@ -120,6 +198,12 @@ export async function POST(req: Request) {
 	});
 
 	const reqJson = (await req.json()) as { messages?: ChatUIMessage[] };
+	if ((reqJson.messages ?? []).length > MAX_MESSAGES) {
+		return Response.json(
+			{ error: "Too many messages in conversation" },
+			{ status: 400 },
+		);
+	}
 
 	const result = streamText({
 		model: llmgateway.chat("auto"),
