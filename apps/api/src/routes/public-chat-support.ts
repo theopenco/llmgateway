@@ -406,11 +406,6 @@ publicChatSupport.post("/", async (c) => {
 		return c.json({ error: "Missing or invalid clientId" }, 400);
 	}
 
-	const rateLimit = await checkMessageRateLimit(ipAddress, clientId);
-	if (!rateLimit.ok) {
-		return c.json({ error: rateLimit.message }, 429);
-	}
-
 	if (!messages || !Array.isArray(messages) || messages.length === 0) {
 		return c.json({ error: "Missing messages" }, 400);
 	}
@@ -420,6 +415,14 @@ publicChatSupport.post("/", async (c) => {
 	if (messages.length > 100) {
 		return c.json({ error: "Too many messages in conversation" }, 400);
 	}
+
+	// Checked only after validation so malformed requests can't consume the
+	// per-identifier buckets — or worse, trip the global breaker for free.
+	const rateLimit = await checkMessageRateLimit(ipAddress, clientId);
+	if (!rateLimit.ok) {
+		return c.json({ error: rateLimit.message }, 429);
+	}
+
 	const contextMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
 
 	const userAgent = c.req.header("User-Agent");
@@ -746,21 +749,8 @@ publicChatSupport.post("/escalate", async (c) => {
 			ESCALATE_DAILY_LIMIT_MAX,
 			DAILY_LIMIT_WINDOW_SECONDS,
 		));
-	const globalOk =
-		dayOk &&
-		(await checkRateLimit(
-			"all",
-			"escalate_global_day",
-			ESCALATE_GLOBAL_DAILY_LIMIT_MAX,
-			DAILY_LIMIT_WINDOW_SECONDS,
-		));
 
-	if (!globalOk) {
-		if (dayOk) {
-			logger.warn("Chat support global escalation limit reached", {
-				ipAddress,
-			});
-		}
+	if (!dayOk) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -793,6 +783,22 @@ publicChatSupport.post("/escalate", async (c) => {
 
 	if (existing[0]?.escalatedAt) {
 		return c.json({ success: true, message: "Already escalated." });
+	}
+
+	// Checked only once we know a new escalation will actually be sent, so
+	// malformed requests and already-escalated retries don't spend the global
+	// cap. Each escalation past this point costs an email and a Discord ping.
+	const globalOk = await checkRateLimit(
+		"all",
+		"escalate_global_day",
+		ESCALATE_GLOBAL_DAILY_LIMIT_MAX,
+		DAILY_LIMIT_WINDOW_SECONDS,
+	);
+	if (!globalOk) {
+		logger.warn("Chat support global escalation limit reached", {
+			ipAddress,
+		});
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
 	await db

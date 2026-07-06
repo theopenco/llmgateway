@@ -27,33 +27,48 @@ const HOURLY_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const GLOBAL_HOURLY_LIMIT_MAX = 300;
 const MAX_MESSAGES = 50;
 
+// Hard cap on tracked buckets so an attacker rotating IPs can't grow the map
+// with the attack rate: the least-recently-used bucket is evicted as soon as
+// the cap is exceeded (an evicted bucket simply starts fresh). Each check
+// re-inserts its key, so insertion order doubles as recency order.
+const MAX_TRACKED_KEYS = 10_000;
 const rateLimitHits = new Map<string, number[]>();
 
 function isAllowed(key: string, max: number, windowMs: number): boolean {
 	const now = Date.now();
-	pruneRateLimitHits(now);
 	const hits = (rateLimitHits.get(key) ?? []).filter((t) => now - t < windowMs);
+	rateLimitHits.delete(key);
+	rateLimitHits.set(key, hits);
 	if (hits.length >= max) {
-		rateLimitHits.set(key, hits);
 		return false;
 	}
 	hits.push(now);
-	rateLimitHits.set(key, hits);
+	while (rateLimitHits.size > MAX_TRACKED_KEYS) {
+		const oldest = rateLimitHits.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		rateLimitHits.delete(oldest);
+	}
 	return true;
 }
 
-// Bounds memory when an attacker rotates IPs: once the map grows past the
-// threshold, drop every entry whose hits have all aged out of the widest
-// window.
-function pruneRateLimitHits(now: number): void {
-	if (rateLimitHits.size < 10_000) {
-		return;
+// The global bucket lives outside the evictable map so key churn can never
+// push it out. Timestamps are appended in order, so expiry trims the front.
+const globalHits: number[] = [];
+
+function isGlobalAllowed(max: number, windowMs: number): boolean {
+	const now = Date.now();
+	let first = globalHits[0];
+	while (first !== undefined && now - first >= windowMs) {
+		globalHits.shift();
+		first = globalHits[0];
 	}
-	for (const [key, hits] of rateLimitHits) {
-		if (hits.every((t) => now - t >= HOURLY_LIMIT_WINDOW_MS)) {
-			rateLimitHits.delete(key);
-		}
+	if (globalHits.length >= max) {
+		return false;
 	}
+	globalHits.push(now);
+	return true;
 }
 
 function extractClientIP(req: Request): string {
@@ -179,7 +194,7 @@ export async function POST(req: Request) {
 			{ status: 429 },
 		);
 	}
-	if (!isAllowed("global", GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
+	if (!isGlobalAllowed(GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
 		return Response.json(
 			{
 				error:
