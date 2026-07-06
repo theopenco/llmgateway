@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
+import {
+	getSupportedServiceTiers,
+	isStealthProvider,
+	supportsServiceTier,
+} from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { models } from "./models.js";
 import {
@@ -187,6 +191,33 @@ describe("model service tier support", () => {
 				"flex",
 			),
 		).toBe(false);
+	});
+});
+
+describe("isStealthProvider", () => {
+	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
+		for (const id of ["glacier", "granite", "quartz", "avalanche", "tundra"]) {
+			expect(isStealthProvider(id)).toBe(true);
+		}
+	});
+
+	it("does not flag providers with a default base URL", () => {
+		for (const id of [
+			"openai",
+			"anthropic",
+			"google-ai-studio",
+			"llmgateway",
+		]) {
+			expect(isStealthProvider(id)).toBe(false);
+		}
+	});
+
+	it("keeps stealth providers out of the definitions used for BYOK config", () => {
+		const stealth = providers.filter((provider) => isStealthProvider(provider));
+		expect(stealth.length).toBeGreaterThan(0);
+		for (const provider of stealth) {
+			expect(provider.env.required.baseUrl).toBeTruthy();
+		}
 	});
 });
 
