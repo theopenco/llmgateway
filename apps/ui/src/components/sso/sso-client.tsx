@@ -298,8 +298,9 @@ export function SsoClient() {
 			<div>
 				<h2 className="text-3xl font-bold tracking-tight">SSO &amp; SCIM</h2>
 				<p className="text-muted-foreground">
-					Connect your Okta (or any SAML 2.0 identity provider) so members sign
-					in with SSO, and enable SCIM so users are provisioned automatically.
+					Connect Okta, Microsoft Entra ID, or any SAML 2.0 identity provider so
+					members sign in with SSO, and enable SCIM so users are provisioned
+					automatically.
 				</p>
 			</div>
 
@@ -337,11 +338,11 @@ export function SsoClient() {
 										</Button>
 									</div>
 									<ReadOnlyField
-										label="Audience URI / SP Entity ID (Okta)"
+										label="SP Entity ID / Audience URI (Entra: Identifier)"
 										value={provider.metadataUrl}
 									/>
 									<ReadOnlyField
-										label="Single sign-on URL / ACS (Okta)"
+										label="ACS URL (Okta: Single sign-on URL · Entra: Reply URL)"
 										value={provider.acsUrl}
 									/>
 									<div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2">
@@ -442,8 +443,9 @@ export function SsoClient() {
 				<CardHeader>
 					<CardTitle>Directory sync (SCIM)</CardTitle>
 					<CardDescription>
-						Generate a SCIM token and configure it in Okta to provision and
-						deprovision members of this organization automatically.
+						Generate a SCIM token and configure it in your identity provider
+						(Okta or Microsoft Entra ID) to provision and deprovision members of
+						this organization automatically.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
@@ -469,7 +471,7 @@ export function SsoClient() {
 						<p className="text-sm text-muted-foreground">
 							A SCIM token is active for this organization
 							{scim.maskedToken ? ` (${scim.maskedToken})` : ""}. Rotating
-							replaces it — update Okta with the new token.
+							replaces it — update your identity provider with the new token.
 						</p>
 					)}
 				</CardContent>
@@ -562,8 +564,8 @@ export function SsoClient() {
 					<DialogHeader>
 						<DialogTitle>SCIM token created</DialogTitle>
 						<DialogDescription>
-							Copy this token into Okta now — for security, you won&apos;t be
-							able to see it again.
+							Copy this token into your identity provider now — for security,
+							you won&apos;t be able to see it again.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="flex items-center gap-2">

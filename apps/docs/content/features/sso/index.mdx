@@ -1,0 +1,74 @@
+---
+title: SSO & SCIM
+description: Per-organization SAML single sign-on and SCIM directory provisioning for enterprise teams (Enterprise only).
+icon: ShieldCheck
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# SSO & SCIM
+
+LLM Gateway supports per-organization **SAML 2.0 single sign-on (SSO)** and **SCIM 2.0 directory provisioning**, so an enterprise team can let members sign in with their corporate identity provider and keep membership in sync automatically.
+
+<Callout type="info">
+	SSO & SCIM are available on the **Enterprise** plan only, and can be
+	configured by an organization **owner** or **admin**. Until the organization
+	is on the Enterprise plan, the **SSO & SCIM** page shows a contact-sales card.
+	Contact us at contact@llmgateway.io to enable it.
+</Callout>
+
+## What each part does
+
+- **SSO (authentication)** — lets your members sign in with your identity provider (Microsoft Entra ID, Okta, or any SAML 2.0 IdP). Sign-in is routed by **email domain**: a user clicks **Sign in with SSO**, enters their work email, and is redirected to the correct provider. SSO only _authenticates_ existing members — it does not create the organization.
+- **SCIM (provisioning)** — pushes user and group create / update / deactivate / delete from your directory into the organization, so people are added and removed automatically. Provisioned members default to the **developer** role.
+- **Group → role mapping** _(optional)_ — map directory groups to organization roles (`admin` / `developer`). On any membership change, a member receives the **highest** mapped role among their groups. Owners are never auto-demoted.
+
+## Prerequisites
+
+1. **Members exist first.** SSO authenticates existing members. People join the organization either through normal signup/invite or by being pushed via SCIM.
+2. **The organization is on the Enterprise plan.** An admin flips the org to `enterprise` to unlock the feature.
+3. **`SSO_ENABLED=true` on the deployment.** This global env flag controls whether the **Sign in with SSO** button appears on the login page. The admin config page works without it, but end users can't log in via SSO until it's on.
+
+## The URLs LLM Gateway gives your IdP
+
+Everything your identity provider needs is derived from the **management API base URL** and a **Connection ID** you choose. On the hosted service the base URL defaults to `https://internal.llmgateway.io` (overridable via `API_URL`); self-hosted deployments use whatever `API_URL` is set to.
+
+<Callout type="warn">
+	The management API base URL is **not** `api.llmgateway.io` — that host serves
+	the `/v1` chat-completions gateway. SSO/SAML and SCIM live on the management
+	API. You don't need to construct these URLs by hand: the exact,
+	fully-qualified values are shown with copy buttons on the **SSO & SCIM** page
+	and on each connection card.
+</Callout>
+
+With `API_URL = https://internal.llmgateway.io` and a Connection ID of `acme-entra`:
+
+| Value                             | URL                                                                               |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| Identifier (Entity ID) / Audience | `https://internal.llmgateway.io/auth/sso/saml2/sp/metadata?providerId=acme-entra` |
+| Reply URL (ACS)                   | `https://internal.llmgateway.io/auth/sso/saml2/sp/acs/acme-entra`                 |
+| SCIM Tenant URL                   | `https://internal.llmgateway.io/scim/v2`                                          |
+
+## Provider guides
+
+- [Microsoft Entra ID](/features/sso/entra) — set up SAML SSO and SCIM provisioning with Entra ID (formerly Azure AD).
+
+Okta and any other SAML 2.0 IdP follow the same flow; pick the matching **Identity provider** type when you create the connection so the correct claim mapping is applied.
+
+## End-user sign-in flow
+
+1. On the login page the user clicks **Sign in with SSO** (visible when `SSO_ENABLED=true`).
+2. They enter their work email, e.g. `jane@acme.com`.
+3. LLM Gateway resolves the domain `acme.com` → finds the org's SSO connection → redirects to the org's IdP.
+4. The user authenticates at their IdP (usually instant if already signed in).
+5. They return signed in, landing in the enterprise organization.
+
+## Enforcing SSO (optional, do this last)
+
+Each connection has a **Require SSO** toggle. When on, anyone whose email domain matches the connection can _only_ sign in via SSO — password, social, and passkey sign-in are all rejected for that domain.
+
+<Callout type="warn">
+	Only turn on **Require SSO** after you've confirmed SSO login works
+	end-to-end. Enforcing before the IdP works can lock out the whole domain —
+	including the admin setting it up if their own email is on that domain.
+</Callout>

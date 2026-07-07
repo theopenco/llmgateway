@@ -1,0 +1,196 @@
+---
+title: Microsoft Entra ID
+description: Set up SAML single sign-on and SCIM provisioning for your organization with Microsoft Entra ID (formerly Azure AD).
+icon: ShieldCheck
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Microsoft Entra ID
+
+This guide walks an organization admin through connecting **Microsoft Entra ID** (formerly Azure Active Directory) to LLM Gateway for SAML single sign-on and SCIM provisioning.
+
+<Callout type="info">
+	SSO & SCIM require the **Enterprise** plan and an organization **owner** or
+	**admin**. See the [SSO & SCIM overview](/features/sso) for prerequisites and
+	how the URLs are derived.
+</Callout>
+
+## Finding "Enterprise applications" in Entra
+
+An **Enterprise application** is a registered instance of an app that your tenant trusts for sign-in. You'll create one to represent LLM Gateway; its **Single sign-on (SAML)** page is where you exchange URLs and download the certificate.
+
+<Callout type="warn">
+	This is **not** the same as **App registrations** (that section is for apps
+	you are developing). Use **Enterprise applications**. They are siblings under
+	**Applications** and easy to confuse.
+</Callout>
+
+<Steps>
+<Step>
+### Open the Entra admin center
+
+Go to [entra.microsoft.com](https://entra.microsoft.com) and sign in with an account that has at least the **Cloud Application Administrator** or **Application Administrator** role (Global Administrator also works). A regular member account won't see these options.
+
+</Step>
+
+<Step>
+### Navigate to Enterprise applications
+
+In the left-hand navigation, click **Entra ID** (older tenants label this group **Identity**), then expand **Applications** and click **Enterprise applications** (older label: **Enterprise apps**).
+
+You're now on the **All applications** list.
+
+<Callout type="info">
+	Prefer the classic Azure portal? Go to
+	[portal.azure.com](https://portal.azure.com) → search **Microsoft Entra ID** →
+	open it → left menu **Enterprise applications**. Both portals reach the same
+	app.
+</Callout>
+</Step>
+
+<Step>
+### Create the application
+
+Click **+ New application** → **+ Create your own application**. Name it (e.g. `LLM Gateway`), choose **"Integrate any other application you don't find in the gallery (Non-gallery)"**, then **Create**. Wait a few seconds for it to provision.
+
+</Step>
+
+<Step>
+### Open the SAML SSO page
+
+On the app's **Overview**, use the app's own left menu → **Single sign-on** → choose **SAML**.
+
+This opens the 5-section SAML page referenced throughout the rest of this guide.
+
+</Step>
+</Steps>
+
+## Configure SAML SSO
+
+Because Entra needs LLM Gateway's URLs and LLM Gateway needs Entra's Login URL and certificate, the two systems exchange values. Follow this order.
+
+<Steps>
+<Step>
+### Choose a Connection ID
+
+In LLM Gateway (**Organization → SSO & SCIM → Add a connection**), pick a **Connection ID** — a slug you invent (lowercase letters, numbers, hyphens; `^[a-z0-9-]+$`, up to 64 chars), e.g. `acme-entra`. Keep it stable: your SP URLs are built from it.
+
+Your two SP URLs (with the hosted default `https://internal.llmgateway.io`) are:
+
+- **Identifier (Entity ID):** `https://internal.llmgateway.io/auth/sso/saml2/sp/metadata?providerId=acme-entra`
+- **Reply URL (ACS):** `https://internal.llmgateway.io/auth/sso/saml2/sp/acs/acme-entra`
+
+You'll paste these into Entra next.
+
+</Step>
+
+<Step>
+### Set Basic SAML Configuration in Entra
+
+On the Entra **Single sign-on (SAML)** page, **Section 1 – Basic SAML Configuration** → **Edit**:
+
+- **Identifier (Entity ID)** = your metadata URL from the previous step
+- **Reply URL (Assertion Consumer Service URL)** = your ACS URL
+
+Save.
+
+</Step>
+
+<Step>
+### Confirm the claims
+
+**Section 2 – Attributes & Claims**: the Entra defaults are fine. In **Microsoft Entra ID** mode, LLM Gateway reads email/name from the standard claim URIs Entra sends by default (`.../emailaddress`, `.../givenname`, `.../surname`, `.../name`), so you don't need to force the Name ID to be the email — just make sure users have a real `mail`/UPN.
+
+</Step>
+
+<Step>
+### Grab the certificate and Login URL
+
+- **Section 3 – SAML Certificates** → next to **Certificate (Base64)**, click **Download**. The `.cer` file's contents are a PEM block (`-----BEGIN CERTIFICATE----- … -----END CERTIFICATE-----`). Use **Certificate (Base64)**, not Raw or the Federation Metadata XML.
+- **Section 4 – Set up \<app name\>** → copy the **Login URL** (looks like `https://login.microsoftonline.com/<tenant-id>/saml2`).
+
+Keep both values handy for the next step.
+
+</Step>
+
+<Step>
+### Create the connection in LLM Gateway
+
+Back on the **SSO & SCIM → Add a connection** form:
+
+- **Identity provider:** **Microsoft Entra ID** — important, this switches on the Entra claim mapping and relaxes the NameID format
+- **Connection ID:** `acme-entra` (must match what you used in the Entra URLs)
+- **Email domain:** your corporate domain, e.g. `acme.com` (comma-separate for several)
+- **Identity Provider Single Sign-On URL:** the Entra **Login URL**
+- **X.509 signing certificate:** paste the PEM block
+
+Save. The connection card then shows the exact SP metadata + ACS URLs — confirm they match what you entered in Entra **Section 1**.
+
+</Step>
+</Steps>
+
+## Configure SCIM provisioning
+
+SSO only signs people in. SCIM is what actually adds members to the organization. Set it up on the **same** Enterprise App.
+
+<Steps>
+<Step>
+### Generate a SCIM token
+
+In LLM Gateway, on **Organization → SSO & SCIM → Directory sync (SCIM)**, click **Generate SCIM token** and copy it (shown once). The SCIM base URL is shown in the same card — it's `https://internal.llmgateway.io/scim/v2` on the hosted default.
+
+</Step>
+
+<Step>
+### Add admin credentials in Entra
+
+In Entra, on your Enterprise App → **Provisioning → Automatic → Admin Credentials**:
+
+- **Tenant URL:** the SCIM base URL, e.g. `https://internal.llmgateway.io/scim/v2`
+- **Secret Token:** the token from the previous step
+- Click **Test Connection** (Entra calls `/ServiceProviderConfig`), then **Save**.
+
+A green check confirms the credentials are valid.
+
+</Step>
+
+<Step>
+### Assign users and start provisioning
+
+- **Mappings:** the Entra SCIM defaults are fine (`userPrincipalName → userName`, `mail → emails[work]`, `givenName/surname → name.*`, `accountEnabled → active`, group provisioning on).
+- **Settings → Scope:** "Sync only assigned users and groups".
+- Under **Users and groups**, assign the people/groups who should get access.
+- Set **Provisioning Status = On** and Save. Use **Provision on demand** to test a single user instantly.
+
+Entra then begins syncing assigned users on its provisioning cycle.
+
+</Step>
+</Steps>
+
+Assigned users are created in LLM Gateway and added to the organization (default role **developer**). Deactivating or unassigning a user in Entra removes their membership.
+
+## Group → role mapping (optional)
+
+On the **SSO & SCIM** page, add mappings such as `Acme Admins → admin`. When Entra pushes group membership over SCIM, each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
+
+## Test the login
+
+Log out → login page → **Sign in with SSO** → enter a work email (`someone@acme.com`). LLM Gateway resolves the connection by email domain, redirects to Entra, and on return the (SCIM-provisioned) user is signed in and lands in the enterprise organization.
+
+## Enforce SSO (optional, do this last)
+
+Flip **Require SSO** on the connection to require SSO for that email domain — password, social, and passkey sign-in are then rejected for it.
+
+<Callout type="warn">
+	Only enable **Require SSO** after the test above passes, and remember it also
+	applies to the admin setting it up if their email is on that domain — verify
+	your own SSO login works first.
+</Callout>
+
+## Troubleshooting: can't find "Enterprise applications"
+
+- **Insufficient role** — you need Application Administrator, Cloud Application Administrator, or Global Administrator. Ask whoever administers your Microsoft 365 / Entra tenant.
+- **Wrong menu** — you're in **App registrations** (for developers) instead of **Enterprise applications**.
+- **Wrong tenant** — if you belong to multiple tenants, use **Settings (gear) → Directories + subscriptions** (top-right) to switch to the tenant you administer.

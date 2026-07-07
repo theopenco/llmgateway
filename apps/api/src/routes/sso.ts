@@ -104,7 +104,7 @@ const ENTRA_SAML_MAPPING: SamlMapping = {
 	lastName: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname",
 };
 
-/** The SP metadata / ACS URLs the admin pastes into Okta. */
+/** The SP metadata / ACS URLs the admin pastes into their IdP. */
 function samlEndpoints(providerId: string) {
 	return {
 		metadataUrl: `${apiUrl}/auth/sso/saml2/sp/metadata?providerId=${providerId}`,
@@ -681,8 +681,8 @@ sso.openapi(generateScim, async (c) => {
 
 	await assertEnterpriseOrgAccess(user.id, organizationId);
 
-	// One active token per org: rotating replaces the previous one so Okta only
-	// ever needs the latest secret.
+	// One active token per org: rotating replaces the previous one so the IdP
+	// only ever needs the latest secret.
 	await db
 		.update(tables.scimToken)
 		.set({ status: "deleted" })

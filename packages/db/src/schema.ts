@@ -625,10 +625,18 @@ export const userOrganization = pgTable(
 		periodUsageDurationUnit: text({
 			enum: ["hour", "day", "week", "month"],
 		}),
+		// External identifier from the IdP for SCIM-provisioned members (Entra
+		// `externalId` / Okta `id`). Lets SCIM reconcile users that match on
+		// externalId rather than userName. null for non-SCIM memberships.
+		scimExternalId: text(),
 	},
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
 		index("user_organization_organization_id_idx").on(table.organizationId),
+		index("user_organization_scim_external_id_idx").on(
+			table.organizationId,
+			table.scimExternalId,
+		),
 	],
 );
 

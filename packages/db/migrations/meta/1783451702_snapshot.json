@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f55072b6-561c-4f87-ae7a-8add2b193278",
+  "id": "5dd99354-7259-4999-99b0-8818b07b0b6c",
   "prevId": "111b3059-32f2-4bd1-9eea-afc4e9eba6cb",
   "ddl": [
     {
@@ -17858,6 +17858,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scim_external_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -22858,6 +22871,34 @@
       "method": "btree",
       "concurrently": false,
       "name": "user_organization_organization_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "user_organization"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "scim_external_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "user_organization_scim_external_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "user_organization"

@@ -50,6 +50,7 @@ CREATE TABLE "sso_role_mapping" (
 	"role" text NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "user_organization" ADD COLUMN "scim_external_id" text;--> statement-breakpoint
 CREATE INDEX "scim_group_organization_id_idx" ON "scim_group" ("organization_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "scim_group_org_display_name_unique" ON "scim_group" ("organization_id","display_name");--> statement-breakpoint
 CREATE UNIQUE INDEX "scim_group_member_group_user_unique" ON "scim_group_member" ("scim_group_id","user_id");--> statement-breakpoint
@@ -59,6 +60,7 @@ CREATE INDEX "scim_token_token_hash_idx" ON "scim_token" ("token_hash");--> stat
 CREATE INDEX "sso_provider_organization_id_idx" ON "sso_provider" ("organization_id");--> statement-breakpoint
 CREATE INDEX "sso_provider_domain_idx" ON "sso_provider" ("domain");--> statement-breakpoint
 CREATE UNIQUE INDEX "sso_role_mapping_org_group_unique" ON "sso_role_mapping" ("organization_id","group_name");--> statement-breakpoint
+CREATE INDEX "user_organization_scim_external_id_idx" ON "user_organization" ("organization_id","scim_external_id");--> statement-breakpoint
 ALTER TABLE "scim_group" ADD CONSTRAINT "scim_group_organization_id_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "scim_group_member" ADD CONSTRAINT "scim_group_member_scim_group_id_scim_group_id_fkey" FOREIGN KEY ("scim_group_id") REFERENCES "scim_group"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "scim_group_member" ADD CONSTRAINT "scim_group_member_user_id_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint

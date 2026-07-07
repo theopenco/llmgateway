@@ -12,9 +12,10 @@ import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
  * Better Auth's `@better-auth/scim` plugin can't be used here: it is hard-wired
  * to Better Auth's organization plugin (`member`/`organization` models), while
  * this app uses a custom `userOrganization` model. So we implement the minimal
- * SCIM surface Okta needs directly over `user`/`account`/`userOrganization`.
+ * SCIM 2.0 surface an IdP (Okta, Microsoft Entra ID, …) needs directly over
+ * `user`/`account`/`userOrganization`.
  *
- * Auth: Okta presents `Authorization: Bearer <token>`; we hash it and match the
+ * Auth: the IdP presents `Authorization: Bearer <token>`; we hash it and match the
  * `scimToken` table, which resolves the `organizationId` that scopes every
  * operation. Provisioning creates/links the global user and toggles that org's
  * membership — it never flips the user's global status (users may belong to
@@ -96,11 +97,16 @@ interface ScimUserRow {
 	name: string | null;
 }
 
-function toScimUser(user: ScimUserRow, active: boolean) {
+function toScimUser(
+	user: ScimUserRow,
+	active: boolean,
+	externalId?: string | null,
+) {
 	const [givenName, ...rest] = (user.name ?? "").split(" ");
 	return {
 		schemas: [SCHEMA_USER],
 		id: user.id,
+		...(externalId ? { externalId } : {}),
 		userName: user.email,
 		name: {
 			formatted: user.name ?? user.email,
@@ -116,15 +122,18 @@ function toScimUser(user: ScimUserRow, active: boolean) {
 	};
 }
 
-async function isMember(userId: string, organizationId: string) {
-	const membership = await db.query.userOrganization.findFirst({
+async function getMembership(userId: string, organizationId: string) {
+	return await db.query.userOrganization.findFirst({
 		where: {
 			userId: { eq: userId },
 			organizationId: { eq: organizationId },
 		},
-		columns: { id: true },
+		columns: { id: true, scimExternalId: true },
 	});
-	return !!membership;
+}
+
+async function isMember(userId: string, organizationId: string) {
+	return !!(await getMembership(userId, organizationId));
 }
 
 // --- Discovery documents ---------------------------------------------------
@@ -203,11 +212,19 @@ scim.get("/Schemas", () =>
 
 // --- Users -----------------------------------------------------------------
 
-function parseUserNameFilter(filter: string | undefined): string | null {
+// Parse a `<attribute> eq "value"` SCIM filter. IdPs check whether a user
+// already exists before creating it; Entra matches on userName by default but
+// can be configured to match on externalId, so we support both.
+function parseEqFilter(
+	filter: string | undefined,
+	attribute: string,
+): string | null {
 	if (!filter) {
 		return null;
 	}
-	const match = filter.match(/userName\s+eq\s+"([^"]+)"/i);
+	const match = filter.match(
+		new RegExp(`${attribute}\\s+eq\\s+"([^"]+)"`, "i"),
+	);
 	return match ? match[1] : null;
 }
 
@@ -215,33 +232,40 @@ scim.get("/Users", async (c) => {
 	const orgId = c.get("scimOrgId");
 	const startIndex = Math.max(1, Number(c.req.query("startIndex")) || 1);
 	const count = Math.min(200, Math.max(0, Number(c.req.query("count")) || 100));
-	const emailFilter = parseUserNameFilter(c.req.query("filter"));
+	const filter = c.req.query("filter");
+	const emailFilter = parseEqFilter(filter, "userName");
+	const externalIdFilter = parseEqFilter(filter, "externalId");
 
 	const memberships = await db.query.userOrganization.findMany({
 		where: { organizationId: { eq: orgId } },
-		columns: { id: true },
+		columns: { id: true, scimExternalId: true },
 		with: {
 			user: { columns: { id: true, email: true, name: true } },
 		},
 	});
 
-	let users = memberships
-		.map((m) => m.user)
-		.filter((u): u is ScimUserRow => !!u);
+	let rows = memberships
+		.filter((m) => m.user)
+		.map((m) => ({
+			user: m.user as ScimUserRow,
+			externalId: m.scimExternalId,
+		}));
 
 	if (emailFilter) {
 		const needle = emailFilter.toLowerCase();
-		users = users.filter((u) => u.email.toLowerCase() === needle);
+		rows = rows.filter((r) => r.user.email.toLowerCase() === needle);
+	} else if (externalIdFilter) {
+		rows = rows.filter((r) => r.externalId === externalIdFilter);
 	}
 
-	const page = users.slice(startIndex - 1, startIndex - 1 + count);
+	const page = rows.slice(startIndex - 1, startIndex - 1 + count);
 
 	return scimJson({
 		schemas: [SCHEMA_LIST],
-		totalResults: users.length,
+		totalResults: rows.length,
 		startIndex,
 		itemsPerPage: page.length,
-		Resources: page.map((u) => toScimUser(u, true)),
+		Resources: page.map((r) => toScimUser(r.user, true, r.externalId)),
 	});
 });
 
@@ -258,7 +282,8 @@ scim.get("/Users/:id", async (c) => {
 		return scimError(404, "User not found");
 	}
 
-	return scimJson(toScimUser(user, await isMember(user.id, orgId)));
+	const membership = await getMembership(user.id, orgId);
+	return scimJson(toScimUser(user, !!membership, membership?.scimExternalId));
 });
 
 interface ScimUserPayload {
@@ -348,12 +373,13 @@ scim.post("/Users", async (c) => {
 		userId: user.id,
 		organizationId: orgId,
 		role: "developer",
+		scimExternalId: payload.externalId ?? null,
 	});
 
 	// Apply any role mapping in case the user is already referenced by a group.
 	await recomputeUserRole(user.id, orgId);
 
-	return scimJson(toScimUser(user, true), 201);
+	return scimJson(toScimUser(user, true, payload.externalId), 201);
 });
 
 async function removeMembership(userId: string, organizationId: string) {
@@ -367,13 +393,27 @@ async function removeMembership(userId: string, organizationId: string) {
 		);
 }
 
-async function ensureMembership(userId: string, organizationId: string) {
-	if (!(await isMember(userId, organizationId))) {
+async function ensureMembership(
+	userId: string,
+	organizationId: string,
+	externalId?: string,
+) {
+	const existing = await getMembership(userId, organizationId);
+	if (!existing) {
 		await db.insert(tables.userOrganization).values({
 			userId,
 			organizationId,
 			role: "developer",
+			scimExternalId: externalId ?? null,
 		});
+	} else if (
+		externalId !== undefined &&
+		existing.scimExternalId !== externalId
+	) {
+		await db
+			.update(tables.userOrganization)
+			.set({ scimExternalId: externalId })
+			.where(eq(tables.userOrganization.id, existing.id));
 	}
 }
 
@@ -474,12 +514,13 @@ scim.put("/Users/:id", async (c) => {
 	const active =
 		payload.active === undefined ? true : parseScimBoolean(payload.active);
 	if (active) {
-		await ensureMembership(user.id, orgId);
+		await ensureMembership(user.id, orgId, payload.externalId);
 	} else {
 		await removeMembership(user.id, orgId);
 	}
 
-	return scimJson(toScimUser(user, active));
+	const membership = active ? await getMembership(user.id, orgId) : null;
+	return scimJson(toScimUser(user, active, membership?.scimExternalId));
 });
 
 interface ScimPatchOp {
@@ -539,7 +580,8 @@ scim.patch("/Users/:id", async (c) => {
 		await removeMembership(user.id, orgId);
 	}
 
-	return scimJson(toScimUser(user, active));
+	const membership = active ? await getMembership(user.id, orgId) : null;
+	return scimJson(toScimUser(user, active, membership?.scimExternalId));
 });
 
 scim.delete("/Users/:id", async (c) => {
@@ -560,7 +602,7 @@ scim.delete("/Users/:id", async (c) => {
 });
 
 // --- Groups ----------------------------------------------------------------
-// Okta pushes groups + membership here. Membership drives each user's org role
+// The IdP pushes groups + membership here. Membership drives each user's org role
 // through the admin-defined `ssoRoleMapping` (see recomputeUserRole).
 
 interface ScimGroupRow {
