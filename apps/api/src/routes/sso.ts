@@ -115,6 +115,7 @@ function samlEndpoints(providerId: string) {
 const providerSchema = z.object({
 	id: z.string(),
 	providerId: z.string(),
+	providerType: z.enum(["okta", "entra", "generic"]),
 	issuer: z.string(),
 	domain: z.string(),
 	enforced: z.boolean(),
@@ -242,11 +243,12 @@ sso.openapi(register, async (c) => {
 
 	const [provider] = await db
 		.update(tables.ssoProvider)
-		.set({ organizationId })
+		.set({ organizationId, providerType })
 		.where(eq(tables.ssoProvider.providerId, providerId))
 		.returning({
 			id: tables.ssoProvider.id,
 			providerId: tables.ssoProvider.providerId,
+			providerType: tables.ssoProvider.providerType,
 			issuer: tables.ssoProvider.issuer,
 			domain: tables.ssoProvider.domain,
 			enforced: tables.ssoProvider.enforced,
@@ -296,6 +298,7 @@ sso.openapi(list, async (c) => {
 		columns: {
 			id: true,
 			providerId: true,
+			providerType: true,
 			issuer: true,
 			domain: true,
 			enforced: true,
@@ -433,6 +436,7 @@ sso.openapi(updateProvider, async (c) => {
 		.returning({
 			id: tables.ssoProvider.id,
 			providerId: tables.ssoProvider.providerId,
+			providerType: tables.ssoProvider.providerType,
 			issuer: tables.ssoProvider.issuer,
 			domain: tables.ssoProvider.domain,
 			enforced: tables.ssoProvider.enforced,

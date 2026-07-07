@@ -1689,6 +1689,11 @@ export const ssoProvider = pgTable(
 		samlConfig: text(),
 		userId: text().references(() => user.id, { onDelete: "set null" }),
 		providerId: text().notNull().unique(),
+		// IdP vendor; drives the SAML attribute mapping and the vendor-specific
+		// field-name hints shown next to the SP URLs in the dashboard.
+		providerType: text({ enum: ["okta", "entra", "generic"] })
+			.notNull()
+			.default("generic"),
 		organizationId: text().references(() => organization.id, {
 			onDelete: "cascade",
 		}),

@@ -69,6 +69,28 @@ function samlEndpoints(apiUrl: string, providerId: string) {
 	};
 }
 
+// Field labels for the two SP URLs, annotated with only the selected IdP's own
+// naming so admins aren't shown terms for a vendor they aren't using.
+function endpointLabels(providerType: "okta" | "entra" | "generic") {
+	switch (providerType) {
+		case "okta":
+			return {
+				entityId: "SP Entity ID / Audience URI (Okta: Audience URI)",
+				acs: "ACS URL (Okta: Single sign-on URL)",
+			};
+		case "entra":
+			return {
+				entityId: "SP Entity ID / Audience URI (Entra: Identifier)",
+				acs: "ACS URL (Entra: Reply URL)",
+			};
+		default:
+			return {
+				entityId: "SP Entity ID / Audience URI",
+				acs: "ACS URL",
+			};
+	}
+}
+
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="space-y-1">
@@ -384,11 +406,11 @@ export function SsoClient() {
 										</Button>
 									</div>
 									<ReadOnlyField
-										label="SP Entity ID / Audience URI (Entra: Identifier)"
+										label={endpointLabels(provider.providerType).entityId}
 										value={provider.metadataUrl}
 									/>
 									<ReadOnlyField
-										label="ACS URL (Okta: Single sign-on URL · Entra: Reply URL)"
+										label={endpointLabels(provider.providerType).acs}
 										value={provider.acsUrl}
 									/>
 									<div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2">
@@ -501,11 +523,11 @@ export function SsoClient() {
 										</p>
 									</div>
 									<ReadOnlyField
-										label="SP Entity ID / Audience URI (Entra: Identifier)"
+										label={endpointLabels(providerType).entityId}
 										value={preview.metadataUrl}
 									/>
 									<ReadOnlyField
-										label="ACS URL (Okta: Single sign-on URL · Entra: Reply URL)"
+										label={endpointLabels(providerType).acs}
 										value={preview.acsUrl}
 									/>
 								</div>
