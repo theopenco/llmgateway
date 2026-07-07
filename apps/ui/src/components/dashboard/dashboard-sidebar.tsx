@@ -30,6 +30,7 @@ import {
 	AnimatedBadgeCheck,
 	AnimatedBarChart3,
 	AnimatedBotMessageSquare,
+	AnimatedBuilding2,
 	AnimatedChartArea,
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
@@ -522,6 +523,15 @@ function OrganizationSection({
 						label="Master Keys"
 						icon={AnimatedKeySquare}
 						isActive={isActive("org/master-keys")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/sso")}
+						label="SSO & SCIM"
+						icon={AnimatedBuilding2}
+						isActive={isActive("org/sso")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
 						showEnterpriseBadge={showEnterpriseBadge}

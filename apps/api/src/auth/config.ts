@@ -1,10 +1,12 @@
 import { passkey } from "@better-auth/passkey";
+import { sso } from "@better-auth/sso";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
+import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
@@ -16,7 +18,7 @@ import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 
-const apiUrl = process.env.API_URL ?? "http://localhost:4002";
+const apiUrl = getApiBaseUrl();
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
@@ -24,6 +26,41 @@ const originUrls =
 	process.env.ORIGIN_URLS ??
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
 const isHosted = process.env.HOSTED === "true";
+
+// SSO-only enforcement: returns true when the email's domain has an SSO
+// connection marked `enforced`, meaning non-SSO sign-in must be rejected.
+async function isSSOEnforcedForEmail(
+	email: string | null | undefined,
+): Promise<boolean> {
+	const domain = email?.trim().toLowerCase().split("@")[1];
+	if (!domain) {
+		return false;
+	}
+	const providers = await db.query.ssoProvider.findMany({
+		where: { enforced: { eq: true } },
+		columns: { domain: true },
+	});
+	return providers.some((provider) =>
+		provider.domain
+			.split(",")
+			.map((d) => d.trim().toLowerCase())
+			.includes(domain),
+	);
+}
+
+function ssoRequiredResponse(): Response {
+	return new Response(
+		JSON.stringify({
+			error: "sso_required",
+			message:
+				"Your organization requires signing in with SSO. Use the “Sign in with SSO” option.",
+		}),
+		{
+			status: 403,
+			headers: { "Content-Type": "application/json" },
+		},
+	);
+}
 
 function isCodeAppOrigin(url: string | null | undefined): boolean {
 	if (!url) {
@@ -592,6 +629,15 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					// DevPass (code) app, which share the same registrable rpID.
 					origin: [uiUrl, codeUrl],
 				}),
+				sso({
+					// This app uses a custom organization model (userOrganization),
+					// not Better Auth's organization plugin, so SSO login must not
+					// auto-provision orgs. With provisioning disabled and no
+					// organization plugin registered, the plugin only touches the
+					// ssoProvider/user/account models. Org membership is provisioned
+					// out-of-band via SCIM (see routes/scim.ts).
+					organizationProvisioning: { disabled: true },
+				}),
 			],
 			emailAndPassword: {
 				enabled: true,
@@ -656,6 +702,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 					account: tables.account,
 					verification: tables.verification,
 					passkey: tables.passkey,
+					ssoProvider: tables.ssoProvider,
 				},
 			}),
 			socialProviders: {
@@ -775,6 +822,16 @@ The LLM Gateway Team`.trim();
 									},
 								);
 							}
+						}
+					}
+
+					// SSO-only enforcement for password sign-in/sign-up. Social and
+					// passkey flows don't expose the email here; they are caught in the
+					// `after` hook once the session (and user email) exist.
+					if (ctx.path === "/sign-in/email" || ctx.path === "/sign-up/email") {
+						const body = ctx.body as { email?: string } | undefined;
+						if (await isSSOEnforcedForEmail(body?.email)) {
+							return ssoRequiredResponse();
 						}
 					}
 
@@ -919,6 +976,21 @@ The LLM Gateway Team`.trim();
 								headers: { "Content-Type": "application/json" },
 							},
 						);
+					}
+
+					// SSO-only enforcement catch-all: reject any session created through
+					// a non-SSO flow (password, social, passkey) for an enforced domain.
+					// SSO logins arrive on the plugin's `/sso/...` callback paths, which
+					// are allowed. Runs before org auto-creation so blocked sign-ins
+					// don't leave orphaned orgs.
+					if (
+						!ctx.path.startsWith("/sso/") &&
+						(await isSSOEnforcedForEmail(dbUser?.email))
+					) {
+						await db
+							.delete(tables.session)
+							.where(eq(tables.session.userId, userId));
+						return ssoRequiredResponse();
 					}
 
 					// Check if the user already has any active organizations

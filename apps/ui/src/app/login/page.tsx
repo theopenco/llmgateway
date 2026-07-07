@@ -4,7 +4,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Loader2, KeySquare, Eye, EyeOff, ArrowRight } from "lucide-react";
+import {
+	Loader2,
+	KeySquare,
+	Eye,
+	EyeOff,
+	ArrowRight,
+	Building2,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -27,6 +34,7 @@ import {
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
 import { toast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 
 import type { Route } from "next";
 
@@ -46,6 +54,7 @@ export default function Login() {
 	const [isLoading, setIsLoading] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
 	const { signIn } = useAuth();
+	const { ssoEnabled } = useAppConfig();
 
 	// Support a post-login `?redirect=` target (e.g. the CLI connect flow). Only
 	// same-origin relative paths are honored to avoid open-redirects.
@@ -191,6 +200,40 @@ export default function Login() {
 		}
 	}
 
+	async function handleSsoSignIn() {
+		const email = form.getValues("email");
+		const parsed = z.string().email().safeParse(email);
+		if (!parsed.success) {
+			form.setError("email", {
+				message: "Enter your work email to sign in with SSO",
+			});
+			form.setFocus("email");
+			return;
+		}
+
+		setIsLoading(true);
+		// Abort the pending conditional (autofill) passkey ceremony so it can't pop a
+		// native passkey/biometric prompt after the SSO redirect.
+		WebAuthnAbortService.cancelCeremony();
+		try {
+			const res = await signIn.sso({
+				email: parsed.data,
+				callbackURL: location.protocol + "//" + location.host + "/dashboard",
+				errorCallbackURL: location.protocol + "//" + location.host + "/login",
+			});
+			if (res?.error) {
+				toast({
+					title:
+						res.error.message ??
+						"No SSO connection found for this email domain",
+					variant: "destructive",
+				});
+			}
+		} finally {
+			setIsLoading(false);
+		}
+	}
+
 	return (
 		<motion.div
 			initial={{ opacity: 0, y: 12 }}
@@ -329,6 +372,22 @@ export default function Login() {
 					)}
 					Sign in with passkey
 				</Button>
+
+				{ssoEnabled && (
+					<Button
+						onClick={handleSsoSignIn}
+						variant="outline"
+						className="w-full"
+						disabled={isLoading}
+					>
+						{isLoading ? (
+							<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+						) : (
+							<Building2 className="mr-2 h-4 w-4" />
+						)}
+						Sign in with SSO
+					</Button>
+				)}
 			</div>
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">

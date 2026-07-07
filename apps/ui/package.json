@@ -18,6 +18,7 @@
 	"dependencies": {
 		"@ai-sdk/react": "3.0.29",
 		"@better-auth/passkey": "1.6.18",
+		"@better-auth/sso": "1.6.18",
 		"@content-collections/core": "0.15.0",
 		"@content-collections/next": "0.2.11",
 		"@hookform/resolvers": "5.2.2",
