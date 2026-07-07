@@ -82,7 +82,7 @@ Because Entra needs LLM Gateway's URLs and LLM Gateway needs Entra's Login URL a
 <Step>
 ### Choose a connection slug
 
-In LLM Gateway (**Organization → SSO & SCIM → Add a connection**), pick a **connection slug** (lowercase letters, numbers, hyphens; `^[a-z0-9-]+$`, up to 64 chars), e.g. `acme-entra`. The form suggests one from your organization name — accept it or edit it. It must be unique across all LLM Gateway organizations, and each organization has exactly one SSO connection. Keep it stable: your SP URLs are built from it.
+In LLM Gateway (**Organization → SSO & SCIM → Add a connection**), set **Identity provider** to **Microsoft Entra ID**, then pick a **connection slug** (lowercase letters, numbers, hyphens; `^[a-z0-9-]+$`, up to 64 chars). We recommend the format `<your-org-slug>-<provider>`, e.g. `acme-entra` — the form pre-fills this from your organization name and the selected provider, so you can accept it or edit it. It must be unique across all LLM Gateway organizations, and each organization has exactly one SSO connection. Keep it stable: your SP URLs are built from it.
 
 As soon as the slug is set, the form shows your two SP URLs (with the hosted default `https://internal.llmgateway.io`) — copy them from there:
 
