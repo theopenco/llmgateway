@@ -1700,6 +1700,13 @@ export const ssoProvider = pgTable(
 		// When true, users whose email domain matches this connection may only
 		// sign in via SSO; password/social/passkey sessions are rejected.
 		enforced: boolean().notNull().default(false),
+		// Better Auth's SSO domain-verification flag. The SAML callback only
+		// implicitly links an SSO login to an existing user (e.g. one
+		// pre-provisioned via SCIM) when the provider's domain is verified and
+		// the asserted email is on that domain; otherwise such logins fail with
+		// `account_not_linked`. We stamp it true at registration instead of
+		// running the plugin's DNS-TXT verification flow.
+		domainVerified: boolean().notNull().default(false),
 	},
 	(table) => [
 		index("sso_provider_organization_id_idx").on(table.organizationId),

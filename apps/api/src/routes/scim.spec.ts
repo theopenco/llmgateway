@@ -80,6 +80,34 @@ describe("scim audit logging", () => {
 		expect(logs[0]?.metadata?.targetUserEmail).toBe("jane@example.com");
 	});
 
+	test("POST /Users creates the user without an account row", async () => {
+		const created = await app.request("/scim/v2/Users", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: "eve@example.com",
+				externalId: "ext-eve",
+				emails: [{ value: "eve@example.com", primary: true }],
+				active: true,
+			}),
+		});
+		const { id } = (await created.json()) as { id: string };
+
+		const user = await db.query.user.findFirst({
+			where: { id: { eq: id } },
+		});
+		expect(user?.emailVerified).toBe(true);
+
+		// The account link is created by Better Auth on the user's first SAML
+		// sign-in (implicit linking via the verified provider domain), not by
+		// SCIM provisioning — a pre-created row could never match the id the
+		// IdP asserts at login.
+		const accounts = await db.query.account.findMany({
+			where: { userId: { eq: id } },
+		});
+		expect(accounts).toHaveLength(0);
+	});
+
 	test("DELETE /Users logs scim.user.deprovision", async () => {
 		const created = await app.request("/scim/v2/Users", {
 			method: "POST",

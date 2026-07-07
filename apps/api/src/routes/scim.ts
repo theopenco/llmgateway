@@ -25,13 +25,14 @@ import type { Context } from "hono";
  * to Better Auth's organization plugin (`member`/`organization` models), while
  * this app uses a custom `userOrganization` model. So we implement the minimal
  * SCIM 2.0 surface an IdP (Okta, Microsoft Entra ID, …) needs directly over
- * `user`/`account`/`userOrganization`.
+ * `user`/`userOrganization`.
  *
  * Auth: the IdP presents `Authorization: Bearer <token>`; we hash it and match the
  * `scimToken` table, which resolves the `organizationId` that scopes every
- * operation. Provisioning creates/links the global user and toggles that org's
+ * operation. Provisioning creates the global user and toggles that org's
  * membership — it never flips the user's global status (users may belong to
- * multiple orgs). SSO login (via @better-auth/sso) authenticates these users.
+ * multiple orgs). SSO login (via @better-auth/sso) authenticates these users
+ * and links their `account` row on first SAML sign-in.
  */
 const SCHEMA_USER = "urn:ietf:params:scim:schemas:core:2.0:User";
 const SCHEMA_GROUP = "urn:ietf:params:scim:schemas:core:2.0:Group";
@@ -45,7 +46,6 @@ const apiUrl = getApiBaseUrl();
 interface ScimVars {
 	Variables: {
 		scimOrgId: string;
-		scimProviderId: string | null;
 		// The admin who issued the SCIM token; used as the audit-log actor for
 		// IdP-initiated syncs. Nullable (the token's `createdBy` is `set null` on
 		// user deletion), so audit helpers fall back to the affected member.
@@ -125,7 +125,6 @@ scim.use("/*", async (c, next) => {
 		columns: {
 			id: true,
 			organizationId: true,
-			ssoProviderId: true,
 			createdBy: true,
 		},
 	});
@@ -135,7 +134,6 @@ scim.use("/*", async (c, next) => {
 	}
 
 	c.set("scimOrgId", row.organizationId);
-	c.set("scimProviderId", row.ssoProviderId);
 	c.set("scimActorUserId", row.createdBy);
 
 	// Best-effort last-used tracking; never block the request on it.
@@ -384,7 +382,6 @@ function resolveName(payload: ScimUserPayload): string | null {
 
 scim.post("/Users", async (c) => {
 	const orgId = c.get("scimOrgId");
-	const providerId = c.get("scimProviderId");
 	const payload = await c.req.json<ScimUserPayload>().catch(() => null);
 
 	if (!payload) {
@@ -420,13 +417,12 @@ scim.post("/Users", async (c) => {
 			});
 		user = created;
 
-		// Link an account for the SSO provider so the user can later sign in via
-		// SAML and land on the same account.
-		await db.insert(tables.account).values({
-			accountId: payload.externalId ?? email,
-			providerId: providerId ?? "sso",
-			userId: user.id,
-		});
+		// No `account` row is created here: SCIM has no way to know the id the
+		// IdP will assert at SAML login (e.g. Entra's objectidentifier claim vs
+		// SCIM's externalId), so a pre-created link can never match. The SSO
+		// provider's domain is verified (see routes/sso.ts), which lets Better
+		// Auth implicitly link the correct account on the user's first SAML
+		// sign-in instead.
 	}
 
 	const [membership] = await db

@@ -638,6 +638,15 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					// ssoProvider/user/account models. Org membership is provisioned
 					// out-of-band via SCIM (see routes/scim.ts).
 					organizationProvisioning: { disabled: true },
+					// Adds `domainVerified` to the plugin's ssoProvider model. The SAML
+					// callback treats a provider as trusted for implicit account linking
+					// only when `domainVerified` is true and the asserted email is on
+					// the connection's domain — without this, SCIM-provisioned users can
+					// never complete their first SAML login (`account_not_linked`). It
+					// also makes SAML sign-in reject unverified providers outright, so
+					// registration stamps `domainVerified: true` (see routes/sso.ts)
+					// instead of using the plugin's DNS-TXT verification flow.
+					domainVerification: { enabled: true },
 				}),
 			],
 			emailAndPassword: {

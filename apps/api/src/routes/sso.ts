@@ -294,7 +294,12 @@ sso.openapi(register, async (c) => {
 
 	const [provider] = await db
 		.update(tables.ssoProvider)
-		.set({ organizationId, providerType, enforced })
+		// `domainVerified: true`: the plugin refuses SAML sign-in for unverified
+		// providers and only implicitly links logins to existing (e.g. SCIM-
+		// provisioned) users on verified domains. Registration is restricted to
+		// org admins wiring up their own IdP, so treat that as verification
+		// rather than running the plugin's DNS-TXT flow.
+		.set({ organizationId, providerType, enforced, domainVerified: true })
 		.where(eq(tables.ssoProvider.providerId, providerId))
 		.returning({
 			id: tables.ssoProvider.id,
