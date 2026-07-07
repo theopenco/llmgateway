@@ -115,9 +115,12 @@ export function SsoClient() {
 		"developer",
 	);
 
-	// Slug the admin pastes into the IdP (part of the SP URLs). Suggested from the
-	// org name until the admin overrides it; must stay a-z0-9 and globally unique.
-	const suggestedSlug = slugify(selectedOrganization?.name ?? "");
+	// Slug the admin pastes into the IdP (part of the SP URLs). Suggested as the
+	// recommended `<org-slug>-<provider>` format until the admin overrides it; must
+	// stay a-z0-9 and globally unique.
+	const orgSlug = slugify(selectedOrganization?.name ?? "");
+	const providerSuffix = providerType === "generic" ? "saml" : providerType;
+	const suggestedSlug = orgSlug ? `${orgSlug}-${providerSuffix}` : "";
 	const effectiveSlug = (providerIdEdited ? providerId : suggestedSlug).trim();
 	const preview = samlEndpoints(apiUrl, effectiveSlug);
 	const providerLabel =
@@ -453,8 +456,9 @@ export function SsoClient() {
 														all LLM Gateway organizations. It becomes part of
 														the SP Entity ID and ACS URLs you paste into your
 														IdP, so keep it stable and don&apos;t change it
-														after setup. We suggest one from your organization
-														name. Example: <code>acme</code> or{" "}
+														after setup. We recommend the format{" "}
+														<code>&lt;your-org-slug&gt;-&lt;provider&gt;</code>,
+														e.g. <code>acme-okta</code> or{" "}
 														<code>acme-entra</code>.
 													</p>
 												</PopoverContent>
@@ -462,7 +466,7 @@ export function SsoClient() {
 										</div>
 										<Input
 											id="sso-provider-id"
-											placeholder="acme"
+											placeholder="acme-entra"
 											value={providerIdEdited ? providerId : suggestedSlug}
 											onChange={(e) => {
 												setProviderId(e.target.value);
