@@ -67,9 +67,9 @@ Click **+ New application** → **+ Create your own application**. Name it (e.g.
 <Step>
 ### Open the SAML SSO page
 
-On the app's **Overview**, use the app's own left menu → **Single sign-on** → choose **SAML**.
+On the app's **Overview**, use the app's own left menu → **Single sign-on**. On the **Select a single sign-on method** screen, choose **SAML**.
 
-This opens the 5-section SAML page referenced throughout the rest of this guide.
+This opens the 5-section **Set up Single Sign-On with SAML** page referenced throughout the rest of this guide.
 
 </Step>
 </Steps>
@@ -98,10 +98,17 @@ You'll paste these into Entra next.
 
 On the Entra **Single sign-on (SAML)** page, **Section 1 – Basic SAML Configuration** → **Edit**:
 
-- **Identifier (Entity ID)** = your metadata URL from the previous step
-- **Reply URL (Assertion Consumer Service URL)** = your ACS URL
+- Under **Identifier (Entity ID)**, click **Add identifier** and paste your metadata URL from the previous step.
+- Under **Reply URL (Assertion Consumer Service URL)**, click **Add reply URL** and paste your ACS URL.
+- Leave **Sign on URL**, **Relay State**, and **Logout Url** blank.
 
-Save.
+Click **Save** (the button enables once both required fields are filled), then close the panel.
+
+<Callout type="warn">
+	The Reply URL row has a small numeric **Index** column next to the URL field.
+	Paste the ACS URL into the **Enter a reply URL** box only — if it lands in the
+	Index box you'll see _"The value must be a valid number."_ Leave Index blank.
+</Callout>
 
 </Step>
 
@@ -120,6 +127,13 @@ Save.
 
 Keep both values handy for the next step.
 
+<Callout type="info">
+	The certificate **Download** links stay greyed out until Section 1's required
+	fields are filled and saved — so complete the previous step first. The
+	auto-generated signing certificate is valid for three years; its thumbprint
+	and expiry are shown in Section 3.
+</Callout>
+
 </Step>
 
 <Step>
@@ -137,6 +151,18 @@ Save. The connection card then shows the exact SP metadata + ACS URLs — confir
 
 </Step>
 </Steps>
+
+## Assign users to the app
+
+Configuring SAML isn't enough on its own — Entra only issues a SAML assertion for users who are **assigned** to the application. On the Enterprise App → **Users and groups → + Add user/group**, add the people (or groups) who should be able to sign in, then **Assign**.
+
+<Callout type="warn">
+	If you skip this, sign-in fails at Entra with _"…is not assigned to a role for
+	the application"_ (error `AADSTS50105`) — even though the SAML config is
+	correct. Assign at least your own account before testing.
+</Callout>
+
+If you also set up SCIM below, assigning users there covers this same requirement; but for SSO **without** SCIM this assignment step is mandatory.
 
 ## Configure SCIM provisioning
 
