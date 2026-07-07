@@ -23,7 +23,6 @@ import {
 // import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import {
 	useCallback,
@@ -509,7 +508,6 @@ export const ChatSidebar = function ChatSidebar({
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
-	const { theme, setTheme, systemTheme } = useTheme();
 
 	// Resolve the org context for chat history: the selected org, or the
 	// dedicated Chat org (backing the "Chat plan" context) when none is selected.
@@ -547,10 +545,6 @@ export const ChatSidebar = function ChatSidebar({
 	}, []);
 
 	const chats = useMemo(() => chatsData?.chats ?? [], [chatsData?.chats]);
-	const currentTheme = theme === "system" ? systemTheme : theme;
-	const toggleTheme = useCallback(() => {
-		setTheme(currentTheme === "dark" ? "light" : "dark");
-	}, [currentTheme, setTheme]);
 
 	const logout = async () => {
 		posthog.reset();
@@ -1090,10 +1084,7 @@ export const ChatSidebar = function ChatSidebar({
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
 									className="justify-between gap-3"
-									onSelect={(event) => {
-										event.preventDefault();
-										toggleTheme();
-									}}
+									onSelect={(event) => event.preventDefault()}
 								>
 									<span>Theme</span>
 									<div

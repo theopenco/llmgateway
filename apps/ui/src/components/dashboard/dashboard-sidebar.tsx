@@ -758,6 +758,9 @@ function ThemeSelect() {
 					<div className="flex items-center">
 						<ComputerIcon className="mr-2 h-4 w-4" />
 						System
+						<span className="ml-2 text-xs text-muted-foreground">
+							(Default)
+						</span>
 					</div>
 				</SelectItem>
 			</SelectContent>
