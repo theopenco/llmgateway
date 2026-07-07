@@ -103,6 +103,12 @@ export { MARKETING_STATS } from "./marketing.js";
 export { isContentFilterErrorText } from "./content-filter.js";
 
 export {
+	validateApiKeyLimitsWithinMemberBudget,
+	type ApiKeyLimitConstraints,
+	type ApiKeyPeriodDurationUnitValue,
+} from "./member-budget-limits.js";
+
+export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
 	type TokenEstimateFallback,

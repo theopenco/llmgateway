@@ -417,6 +417,79 @@ describe("keys route", () => {
 		expect(apiKey?.periodUsageDurationUnit).toBe("day");
 	});
 
+	test("POST /keys/api rejects a limit above the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Over-budget key",
+				projectId: "test-project-id",
+				usageLimit: "50",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toMatch(/organization limit of \$10\.00/);
+
+		const apiKey = await db.query.apiKey.findFirst({
+			where: { description: { eq: "Over-budget key" } },
+		});
+		expect(apiKey).toBeUndefined();
+	});
+
+	test("POST /keys/api allows a limit at or below the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Within-budget key",
+				projectId: "test-project-id",
+				usageLimit: "10",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.apiKey.usageLimit).toBe("10");
+	});
+
+	test("PATCH /keys/api/limit/{id} rejects a limit above the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api/limit/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ usageLimit: "50" }),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toMatch(/organization limit of \$10\.00/);
+	});
+
 	test("PATCH /keys/api/limit/{id} updates and resets period usage", async () => {
 		await db
 			.update(tables.apiKey)

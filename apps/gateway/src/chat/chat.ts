@@ -1856,8 +1856,6 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	assertApiKeyWithinUsageLimits(apiKey);
-
 	// LLM SDK: ephemeral end-user session tokens are bound to one wallet.
 	// Validate expiry + load the wallet now; below we present an "effective"
 	// project (forced credits mode) and organization (credits mirror the wallet
@@ -1888,9 +1886,11 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Enforce the per-member budget set on the Teams page (fails open on read
-	// errors). Uses the key creator + resolved org.
+	// User-level limits take priority: enforce the per-member budget (set on the
+	// Teams page; fails open on read errors) before the per-key usage limits, so a
+	// member who is over budget is denied even if the key itself is within limits.
 	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	// End-user sessions always bill via wallet credits through llmgateway's own
 	// provider keys — never the developer's BYO keys.
