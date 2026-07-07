@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, Copy, Trash2 } from "lucide-react";
+import { Building2, Copy, HelpCircle, Trash2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
@@ -25,6 +25,11 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/lib/components/popover";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -41,6 +46,18 @@ import type React from "react";
 function copy(value: string, label: string) {
 	void navigator.clipboard.writeText(value);
 	toast({ title: `${label} copied to clipboard` });
+}
+
+// Suggested Connection ID per provider — a short, stable slug used to build the
+// SP/SCIM URLs. Admins can override it.
+function defaultConnectionId(
+	providerType: "okta" | "entra" | "generic",
+): string {
+	return providerType === "entra"
+		? "entra"
+		: providerType === "generic"
+			? "saml"
+			: "okta";
 }
 
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
@@ -72,10 +89,13 @@ export function SsoClient() {
 
 	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
-	const [providerId, setProviderId] = useState("");
 	const [providerType, setProviderType] = useState<
 		"okta" | "entra" | "generic"
 	>("okta");
+	const [providerId, setProviderId] = useState(defaultConnectionId("okta"));
+	// Track whether the admin has hand-edited the Connection ID so switching the
+	// provider dropdown keeps the suggested id in sync until they override it.
+	const [providerIdEdited, setProviderIdEdited] = useState(false);
 	const [domain, setDomain] = useState("");
 	const [entryPoint, setEntryPoint] = useState("");
 	const [cert, setCert] = useState("");
@@ -209,8 +229,9 @@ export function SsoClient() {
 				},
 			});
 			toast({ title: "SSO connection created" });
-			setProviderId("");
 			setProviderType("okta");
+			setProviderId(defaultConnectionId("okta"));
+			setProviderIdEdited(false);
 			setDomain("");
 			setEntryPoint("");
 			setCert("");
@@ -372,9 +393,13 @@ export function SsoClient() {
 							<Label htmlFor="sso-type">Identity provider</Label>
 							<Select
 								value={providerType}
-								onValueChange={(value) =>
-									setProviderType(value as "okta" | "entra" | "generic")
-								}
+								onValueChange={(value) => {
+									const next = value as "okta" | "entra" | "generic";
+									setProviderType(next);
+									if (!providerIdEdited) {
+										setProviderId(defaultConnectionId(next));
+									}
+								}}
 							>
 								<SelectTrigger id="sso-type">
 									<SelectValue />
@@ -388,12 +413,39 @@ export function SsoClient() {
 						</div>
 						<div className="grid gap-4 md:grid-cols-2">
 							<div className="space-y-2">
-								<Label htmlFor="sso-provider-id">Connection ID</Label>
+								<div className="flex items-center gap-1.5">
+									<Label htmlFor="sso-provider-id">Connection name</Label>
+									<Popover>
+										<PopoverTrigger asChild>
+											<button
+												type="button"
+												className="text-muted-foreground hover:text-foreground"
+												aria-label="What is the connection name?"
+											>
+												<HelpCircle className="h-3.5 w-3.5" />
+											</button>
+										</PopoverTrigger>
+										<PopoverContent side="top" className="w-80 text-sm">
+											<p className="font-medium">Connection name (ID)</p>
+											<p className="mt-1 text-muted-foreground">
+												A short internal identifier for this SSO connection —
+												lowercase letters, numbers, and hyphens only. It becomes
+												part of the SP Entity ID and ACS URLs you paste into
+												your IdP, so keep it stable and don&apos;t change it
+												after setup. Example: <code>okta</code> or{" "}
+												<code>acme-entra</code>.
+											</p>
+										</PopoverContent>
+									</Popover>
+								</div>
 								<Input
 									id="sso-provider-id"
-									placeholder="acme-okta"
+									placeholder="e.g. okta or acme-entra"
 									value={providerId}
-									onChange={(e) => setProviderId(e.target.value)}
+									onChange={(e) => {
+										setProviderId(e.target.value);
+										setProviderIdEdited(true);
+									}}
 									required
 								/>
 							</div>
