@@ -182,6 +182,32 @@ sso.openapi(register, async (c) => {
 
 	await assertEnterpriseOrgAccess(user.id, organizationId);
 
+	// One SSO connection per organization: reject a second registration so the
+	// slug stays a stable, single identifier for the org's IdP.
+	const existingForOrg = await db.query.ssoProvider.findFirst({
+		where: { organizationId: { eq: organizationId } },
+		columns: { id: true },
+	});
+	if (existingForOrg) {
+		throw new HTTPException(409, {
+			message:
+				"This organization already has an SSO connection. Delete it before adding a new one.",
+		});
+	}
+
+	// The slug is part of the globally reachable SP URLs and is `.unique()` across
+	// all organizations. Pre-check for a friendly error instead of surfacing the
+	// opaque unique-constraint failure from Better Auth.
+	const slugTaken = await db.query.ssoProvider.findFirst({
+		where: { providerId: { eq: providerId } },
+		columns: { id: true },
+	});
+	if (slugTaken) {
+		throw new HTTPException(409, {
+			message: "That SSO slug is already in use. Choose a different one.",
+		});
+	}
+
 	const { metadataUrl, acsUrl } = samlEndpoints(providerId);
 
 	const isEntra = providerType === "entra";

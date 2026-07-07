@@ -39,6 +39,7 @@ import {
 import { Switch } from "@/lib/components/switch";
 import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import type React from "react";
@@ -48,16 +49,24 @@ function copy(value: string, label: string) {
 	toast({ title: `${label} copied to clipboard` });
 }
 
-// Suggested Connection ID per provider — a short, stable slug used to build the
-// SP/SCIM URLs. Admins can override it.
-function defaultConnectionId(
-	providerType: "okta" | "entra" | "generic",
-): string {
-	return providerType === "entra"
-		? "entra"
-		: providerType === "generic"
-			? "saml"
-			: "okta";
+// Turn an org name into a URL-safe a-z0-9 slug used as the SSO connection id.
+// Mirrors the backend `^[a-z0-9-]+$` constraint so the value is safe to embed in
+// the SP Entity ID / ACS URLs and works with case-insensitive IdPs.
+function slugify(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
+}
+
+// The SP metadata / ACS URLs the admin pastes into their IdP. Kept in sync with
+// `samlEndpoints` in apps/api/src/routes/sso.ts so the live preview matches what
+// the backend registers.
+function samlEndpoints(apiUrl: string, providerId: string) {
+	return {
+		metadataUrl: `${apiUrl}/auth/sso/saml2/sp/metadata?providerId=${providerId}`,
+		acsUrl: `${apiUrl}/auth/sso/saml2/sp/acs/${providerId}`,
+	};
 }
 
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
@@ -86,15 +95,16 @@ export function SsoClient() {
 	const { selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const { apiUrl } = useAppConfig();
 
 	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
 	const [providerType, setProviderType] = useState<
 		"okta" | "entra" | "generic"
 	>("okta");
-	const [providerId, setProviderId] = useState(defaultConnectionId("okta"));
-	// Track whether the admin has hand-edited the Connection ID so switching the
-	// provider dropdown keeps the suggested id in sync until they override it.
+	const [providerId, setProviderId] = useState("");
+	// Track whether the admin has hand-edited the slug so we keep suggesting one
+	// derived from the org name until they type their own.
 	const [providerIdEdited, setProviderIdEdited] = useState(false);
 	const [domain, setDomain] = useState("");
 	const [entryPoint, setEntryPoint] = useState("");
@@ -104,6 +114,18 @@ export function SsoClient() {
 	const [role, setRole] = useState<"owner" | "admin" | "developer">(
 		"developer",
 	);
+
+	// Slug the admin pastes into the IdP (part of the SP URLs). Suggested from the
+	// org name until the admin overrides it; must stay a-z0-9 and globally unique.
+	const suggestedSlug = slugify(selectedOrganization?.name ?? "");
+	const effectiveSlug = (providerIdEdited ? providerId : suggestedSlug).trim();
+	const preview = samlEndpoints(apiUrl, effectiveSlug);
+	const providerLabel =
+		providerType === "entra"
+			? "Microsoft Entra ID"
+			: providerType === "okta"
+				? "Okta"
+				: "your identity provider";
 
 	const providersQuery = api.useQuery(
 		"get",
@@ -221,7 +243,7 @@ export function SsoClient() {
 			await registerMutation.mutateAsync({
 				body: {
 					organizationId,
-					providerId: providerId.trim(),
+					providerId: effectiveSlug,
 					providerType,
 					domain: domain.trim(),
 					entryPoint: entryPoint.trim(),
@@ -230,7 +252,7 @@ export function SsoClient() {
 			});
 			toast({ title: "SSO connection created" });
 			setProviderType("okta");
-			setProviderId(defaultConnectionId("okta"));
+			setProviderId("");
 			setProviderIdEdited(false);
 			setDomain("");
 			setEntryPoint("");
@@ -387,107 +409,140 @@ export function SsoClient() {
 						</div>
 					)}
 
-					<form onSubmit={handleRegister} className="space-y-4 border-t pt-6">
-						<p className="text-sm font-medium">Add a connection</p>
-						<div className="space-y-2">
-							<Label htmlFor="sso-type">Identity provider</Label>
-							<Select
-								value={providerType}
-								onValueChange={(value) => {
-									const next = value as "okta" | "entra" | "generic";
-									setProviderType(next);
-									if (!providerIdEdited) {
-										setProviderId(defaultConnectionId(next));
-									}
-								}}
-							>
-								<SelectTrigger id="sso-type">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="okta">Okta</SelectItem>
-									<SelectItem value="entra">Microsoft Entra ID</SelectItem>
-									<SelectItem value="generic">Other (SAML 2.0)</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="grid gap-4 md:grid-cols-2">
-							<div className="space-y-2">
-								<div className="flex items-center gap-1.5">
-									<Label htmlFor="sso-provider-id">Connection name</Label>
-									<Popover>
-										<PopoverTrigger asChild>
-											<button
-												type="button"
-												className="text-muted-foreground hover:text-foreground"
-												aria-label="What is the connection name?"
-											>
-												<HelpCircle className="h-3.5 w-3.5" />
-											</button>
-										</PopoverTrigger>
-										<PopoverContent side="top" className="w-80 text-sm">
-											<p className="font-medium">Connection name (ID)</p>
-											<p className="mt-1 text-muted-foreground">
-												A short internal identifier for this SSO connection —
-												lowercase letters, numbers, and hyphens only. It becomes
-												part of the SP Entity ID and ACS URLs you paste into
-												your IdP, so keep it stable and don&apos;t change it
-												after setup. Example: <code>okta</code> or{" "}
-												<code>acme-entra</code>.
-											</p>
-										</PopoverContent>
-									</Popover>
+					{providers.length === 0 && (
+						<form onSubmit={handleRegister} className="space-y-6 border-t pt-6">
+							<div className="space-y-4">
+								<p className="text-sm font-medium">Add a connection</p>
+								<div className="space-y-2">
+									<Label htmlFor="sso-type">Identity provider</Label>
+									<Select
+										value={providerType}
+										onValueChange={(value) =>
+											setProviderType(value as "okta" | "entra" | "generic")
+										}
+									>
+										<SelectTrigger id="sso-type">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="okta">Okta</SelectItem>
+											<SelectItem value="entra">Microsoft Entra ID</SelectItem>
+											<SelectItem value="generic">Other (SAML 2.0)</SelectItem>
+										</SelectContent>
+									</Select>
 								</div>
-								<Input
-									id="sso-provider-id"
-									placeholder="e.g. okta or acme-entra"
-									value={providerId}
-									onChange={(e) => {
-										setProviderId(e.target.value);
-										setProviderIdEdited(true);
-									}}
-									required
-								/>
+								<div className="grid gap-4 md:grid-cols-2">
+									<div className="space-y-2">
+										<div className="flex items-center gap-1.5">
+											<Label htmlFor="sso-provider-id">Connection slug</Label>
+											<Popover>
+												<PopoverTrigger asChild>
+													<button
+														type="button"
+														className="text-muted-foreground hover:text-foreground"
+														aria-label="What is the connection slug?"
+													>
+														<HelpCircle className="h-3.5 w-3.5" />
+													</button>
+												</PopoverTrigger>
+												<PopoverContent side="top" className="w-80 text-sm">
+													<p className="font-medium">Connection slug</p>
+													<p className="mt-1 text-muted-foreground">
+														A short identifier for this connection — lowercase
+														letters, numbers, and hyphens only, unique across
+														all LLM Gateway organizations. It becomes part of
+														the SP Entity ID and ACS URLs you paste into your
+														IdP, so keep it stable and don&apos;t change it
+														after setup. We suggest one from your organization
+														name. Example: <code>acme</code> or{" "}
+														<code>acme-entra</code>.
+													</p>
+												</PopoverContent>
+											</Popover>
+										</div>
+										<Input
+											id="sso-provider-id"
+											placeholder="acme"
+											value={providerIdEdited ? providerId : suggestedSlug}
+											onChange={(e) => {
+												setProviderId(e.target.value);
+												setProviderIdEdited(true);
+											}}
+											required
+										/>
+									</div>
+									<div className="space-y-2">
+										<Label htmlFor="sso-domain">Email domain</Label>
+										<Input
+											id="sso-domain"
+											placeholder="acme.com"
+											value={domain}
+											onChange={(e) => setDomain(e.target.value)}
+											required
+										/>
+									</div>
+								</div>
 							</div>
-							<div className="space-y-2">
-								<Label htmlFor="sso-domain">Email domain</Label>
-								<Input
-									id="sso-domain"
-									placeholder="acme.com"
-									value={domain}
-									onChange={(e) => setDomain(e.target.value)}
-									required
-								/>
+
+							{effectiveSlug && (
+								<div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+									<div>
+										<p className="text-sm font-medium">
+											1. Configure these in {providerLabel}
+										</p>
+										<p className="text-xs text-muted-foreground">
+											Create the SAML application in your IdP using these two
+											URLs. They&apos;re derived from your connection slug — no
+											need to type them anywhere but your IdP.
+										</p>
+									</div>
+									<ReadOnlyField
+										label="SP Entity ID / Audience URI (Entra: Identifier)"
+										value={preview.metadataUrl}
+									/>
+									<ReadOnlyField
+										label="ACS URL (Okta: Single sign-on URL · Entra: Reply URL)"
+										value={preview.acsUrl}
+									/>
+								</div>
+							)}
+
+							<div className="space-y-4">
+								<p className="text-sm font-medium">
+									2. Paste back what {providerLabel} gives you
+								</p>
+								<div className="space-y-2">
+									<Label htmlFor="sso-entrypoint">
+										Identity Provider Single Sign-On URL
+									</Label>
+									<Input
+										id="sso-entrypoint"
+										placeholder="https://acme.okta.com/app/.../sso/saml"
+										value={entryPoint}
+										onChange={(e) => setEntryPoint(e.target.value)}
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="sso-cert">X.509 signing certificate</Label>
+									<Textarea
+										id="sso-cert"
+										placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+										value={cert}
+										onChange={(e) => setCert(e.target.value)}
+										className="font-mono text-xs"
+										rows={5}
+										required
+									/>
+								</div>
+								<Button type="submit" disabled={registerMutation.isPending}>
+									{registerMutation.isPending
+										? "Creating..."
+										: "Create connection"}
+								</Button>
 							</div>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="sso-entrypoint">
-								Identity Provider Single Sign-On URL
-							</Label>
-							<Input
-								id="sso-entrypoint"
-								placeholder="https://acme.okta.com/app/.../sso/saml"
-								value={entryPoint}
-								onChange={(e) => setEntryPoint(e.target.value)}
-								required
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="sso-cert">X.509 signing certificate</Label>
-							<Textarea
-								id="sso-cert"
-								placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-								value={cert}
-								onChange={(e) => setCert(e.target.value)}
-								className="font-mono text-xs"
-								rows={5}
-								required
-							/>
-						</div>
-						<Button type="submit" disabled={registerMutation.isPending}>
-							{registerMutation.isPending ? "Creating..." : "Create connection"}
-						</Button>
-					</form>
+						</form>
+					)}
 				</CardContent>
 			</Card>
 
