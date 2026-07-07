@@ -16,8 +16,8 @@
 		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
-		"@better-auth/passkey": "1.6.18",
-		"@better-auth/sso": "1.6.18",
+		"@better-auth/passkey": "1.6.23",
+		"@better-auth/sso": "1.6.23",
 		"@hono/node-server": "^1.19.13",
 		"@hono/swagger-ui": "^0.5.2",
 		"@hono/zod-openapi": "^0.19.6",
@@ -37,7 +37,7 @@
 		"@opentelemetry/sdk-node": "0.218.0",
 		"ai": "6.0.27",
 		"bcrypt-ts": "8.0.0",
-		"better-auth": "1.6.18",
+		"better-auth": "1.6.23",
 		"disposable-email-domains-js": "1.20.0",
 		"dotenv": "17.4.2",
 		"drizzle-zod": "0.8.3",
