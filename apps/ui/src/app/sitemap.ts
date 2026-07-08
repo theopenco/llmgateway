@@ -1,5 +1,6 @@
 import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
+import { slugify } from "@/lib/slugify";
 
 import {
 	models as modelDefinitions,
@@ -7,13 +8,6 @@ import {
 } from "@llmgateway/models";
 
 import type { MetadataRoute } from "next";
-
-function slugify(label: string) {
-	return label
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/(^-|-$)/g, "");
-}
 
 // Stable per-deploy timestamp. Using a single build-time date (instead of a
 // fresh `new Date()` per URL/request) keeps `lastModified` from reporting

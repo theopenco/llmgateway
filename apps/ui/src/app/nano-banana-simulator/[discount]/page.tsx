@@ -28,8 +28,11 @@ export async function generateMetadata({
 	return {
 		title: "Nano Banana Pro Cost Simulator",
 		description: `See how much you save on Gemini 3 Pro image generation with LLM Gateway. ${discount}% savings vs Google AI Studio pricing.`,
+		// All discount variants (1-99) render near-identical content, so they
+		// consolidate onto the default /20 page (the one the sitemap submits)
+		// instead of each declaring itself canonical.
 		alternates: {
-			canonical: `/nano-banana-simulator/${discount}`,
+			canonical: "/nano-banana-simulator/20",
 		},
 		openGraph: {
 			title: "Nano Banana Pro Cost Simulator",

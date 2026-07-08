@@ -1,16 +1,11 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { slugify } from "@/lib/slugify";
+
+import { allBlogs } from "content-collections";
 
 import type { Metadata } from "next";
-
-function slugify(label: string) {
-	return label
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/(^-|-$)/g, "");
-}
 
 export const metadata: Metadata = {
 	title: "Blog Categories",
@@ -23,12 +18,11 @@ export const metadata: Metadata = {
 			"Browse LLM Gateway blog posts by category — product updates, tutorials, deep-dives, and more.",
 		url: "https://llmgateway.io/blog/category",
 		type: "website",
+		images: ["/opengraph.png?v=2"],
 	},
 };
 
-export default async function BlogCategoryIndexPage() {
-	const { allBlogs } = await import("content-collections");
-
+export default function BlogCategoryIndexPage() {
 	const categories = new Map<string, string>();
 	for (const post of allBlogs) {
 		if (post.draft) {
@@ -45,10 +39,6 @@ export default async function BlogCategoryIndexPage() {
 	const sorted = Array.from(categories.entries()).sort((a, b) =>
 		a[1].localeCompare(b[1]),
 	);
-
-	if (sorted.length === 1) {
-		redirect(`/blog/category/${encodeURIComponent(sorted[0][0])}`);
-	}
 
 	return (
 		<>

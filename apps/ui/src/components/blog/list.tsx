@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import Footer from "@/components/landing/footer";
+import { slugify } from "@/lib/slugify";
 
 interface BlogItemImage {
 	src: string;
@@ -18,13 +19,6 @@ interface BlogItem {
 	summary: string;
 	categories?: string[];
 	image?: BlogItemImage;
-}
-
-function slugify(label: string) {
-	return label
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/(^-|-$)/g, "");
 }
 
 interface BlogListProps {

@@ -12,6 +12,7 @@ import posthog from "posthog-js";
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { EnterpriseCTA } from "@/components/enterprise-cta";
 import { Feedback } from "@/components/feedback";
+import { docsBaseUrl } from "@/lib/base-url";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
@@ -30,7 +31,6 @@ export async function generateMetadata({
 		notFound();
 	}
 
-	const docsBaseUrl = process.env.DOCS_URL ?? "https://docs.llmgateway.io";
 	const path = page.url === "/" ? "" : page.url;
 	const canonicalUrl = `${docsBaseUrl}${path}`;
 	const image = ["/docs-og", ...slug, "image.png"].join("/");

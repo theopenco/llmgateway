@@ -4,6 +4,7 @@ import "./global.css";
 import { RootProvider } from "fumadocs-ui/provider/next";
 import { Geist_Mono, Inter } from "next/font/google";
 
+import { docsBaseUrl } from "@/lib/base-url";
 import { ConfigProvider } from "@/lib/context";
 import { PostHogProvider } from "@/lib/providers";
 
@@ -20,8 +21,6 @@ const mono = Geist_Mono({
 });
 
 export const dynamic = "force-dynamic";
-
-const docsBaseUrl = process.env.DOCS_URL ?? "https://docs.llmgateway.io";
 
 export const metadata: Metadata = {
 	metadataBase: new URL(docsBaseUrl),
