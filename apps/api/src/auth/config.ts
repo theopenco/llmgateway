@@ -14,6 +14,7 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
@@ -637,6 +638,15 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					// ssoProvider/user/account models. Org membership is provisioned
 					// out-of-band via SCIM (see routes/scim.ts).
 					organizationProvisioning: { disabled: true },
+					// Adds `domainVerified` to the plugin's ssoProvider model. The SAML
+					// callback treats a provider as trusted for implicit account linking
+					// only when `domainVerified` is true and the asserted email is on
+					// the connection's domain — without this, SCIM-provisioned users can
+					// never complete their first SAML login (`account_not_linked`). It
+					// also makes SAML sign-in reject unverified providers outright, so
+					// registration stamps `domainVerified: true` (see routes/sso.ts)
+					// instead of using the plugin's DNS-TXT verification flow.
+					domainVerification: { enabled: true },
 				}),
 			],
 			emailAndPassword: {
@@ -937,6 +947,32 @@ The LLM Gateway Team`.trim();
 					return;
 				}),
 				after: createAuthMiddleware(async (ctx) => {
+					// Prefill the username on the IdP sign-in page for SP-initiated SAML.
+					// The SSO plugin only forwards `loginHint` on its OIDC path; for SAML
+					// it returns the redirect URL untouched. Microsoft Entra ID (and other
+					// IdPs that support it) honor a `login_hint` query param on the SAML2
+					// SSO URL, so append the email the user already typed. Scoped to the
+					// SAML redirect binding via the `SAMLRequest` param; a stray
+					// `login_hint` is ignored by IdPs that don't support it.
+					if (ctx.path === "/sign-in/sso") {
+						const returned = ctx.context.returned;
+						const email = (ctx.body as { email?: string } | undefined)?.email
+							?.trim()
+							.toLowerCase();
+						if (
+							email &&
+							returned &&
+							typeof returned === "object" &&
+							"url" in returned &&
+							typeof returned.url === "string" &&
+							returned.url.includes("SAMLRequest")
+						) {
+							const url = new URL(returned.url);
+							url.searchParams.set("login_hint", email);
+							ctx.context.returned = { ...returned, url: url.toString() };
+						}
+					}
+
 					// Create default org/project for first-time sessions (email signup or first social sign-in)
 					const newSession = ctx.context.newSession;
 					if (!newSession?.user) {
@@ -976,6 +1012,43 @@ The LLM Gateway Team`.trim();
 								headers: { "Content-Type": "application/json" },
 							},
 						);
+					}
+
+					// Audit enterprise SSO sign-ins. These arrive on the plugin's
+					// `/sso/...` callback paths; resolve the org from the SSO provider
+					// whose slug matches one of the user's linked accounts (the same
+					// derivation used for `isSsoUser`). Logged before the org
+					// auto-creation early-returns below so every SSO login is recorded.
+					if (ctx.path.startsWith("/sso/")) {
+						const linkedAccounts = await db.query.account.findMany({
+							where: { userId: { eq: userId } },
+							columns: { providerId: true },
+						});
+						const providerIds = linkedAccounts.map((a) => a.providerId);
+						const provider = providerIds.length
+							? await db.query.ssoProvider.findFirst({
+									where: { providerId: { in: providerIds } },
+									columns: {
+										id: true,
+										providerId: true,
+										organizationId: true,
+									},
+								})
+							: null;
+						if (provider?.organizationId) {
+							await logAuditEvent({
+								organizationId: provider.organizationId,
+								userId,
+								action: "sso.sign_in",
+								resourceType: "sso_session",
+								resourceId: provider.id,
+								metadata: {
+									resourceName: provider.providerId,
+									targetUserId: userId,
+									targetUserEmail: newSession.user.email,
+								},
+							});
+						}
 					}
 
 					// SSO-only enforcement catch-all: reject any session created through

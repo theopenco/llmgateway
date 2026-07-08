@@ -5,6 +5,7 @@ import { Building2, Copy, HelpCircle, Trash2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
+import { ProjectMultiSelect } from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -14,7 +15,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -247,15 +247,6 @@ export function SsoClient() {
 				: [];
 	const selectedProjectIds = projectDraft ?? initialProjectIds;
 	const projectSelectionDirty = projectDraft !== null;
-
-	function toggleDefaultProject(projectId: string, checked: boolean) {
-		const base = projectDraft ?? initialProjectIds;
-		setProjectDraft(
-			checked
-				? Array.from(new Set([...base, projectId]))
-				: base.filter((id) => id !== projectId),
-		);
-	}
 
 	async function handleSaveDefaultProjects() {
 		try {
@@ -794,22 +785,11 @@ export function SsoClient() {
 						</p>
 					) : (
 						<>
-							<div className="divide-y rounded-lg border">
-								{(defaultProjectsData?.projects ?? []).map((project) => (
-									<label
-										key={project.id}
-										className="flex cursor-pointer items-center gap-3 p-3 text-sm"
-									>
-										<Checkbox
-											checked={selectedProjectIds.includes(project.id)}
-											onCheckedChange={(checked) =>
-												toggleDefaultProject(project.id, checked === true)
-											}
-										/>
-										<span className="font-medium">{project.name}</span>
-									</label>
-								))}
-							</div>
+							<ProjectMultiSelect
+								orgProjects={defaultProjectsData?.projects ?? []}
+								selected={selectedProjectIds}
+								onChange={setProjectDraft}
+							/>
 							{selectedProjectIds.length === 0 && (
 								<p className="text-sm text-muted-foreground">
 									With no projects selected, newly provisioned SSO members

@@ -1700,6 +1700,13 @@ export const ssoProvider = pgTable(
 		// When true, users whose email domain matches this connection may only
 		// sign in via SSO; password/social/passkey sessions are rejected.
 		enforced: boolean().notNull().default(false),
+		// Better Auth's SSO domain-verification flag. The SAML callback only
+		// implicitly links an SSO login to an existing user (e.g. one
+		// pre-provisioned via SCIM) when the provider's domain is verified and
+		// the asserted email is on that domain; otherwise such logins fail with
+		// `account_not_linked`. We stamp it true at registration instead of
+		// running the plugin's DNS-TXT verification flow.
+		domainVerified: boolean().notNull().default(false),
 	},
 	(table) => [
 		index("sso_provider_organization_id_idx").on(table.organizationId),
@@ -2677,9 +2684,20 @@ export const auditLogActions = [
 	"sso_role_mapping.create",
 	"sso_role_mapping.delete",
 	"sso_default_projects.update",
+	"sso.sign_in",
 	// SCIM
 	"scim_token.create",
 	"scim_token.revoke",
+	// SCIM directory sync (IdP-initiated)
+	"scim.user.provision",
+	"scim.user.update",
+	"scim.user.activate",
+	"scim.user.deactivate",
+	"scim.user.deprovision",
+	"scim.user.role_change",
+	"scim.group.create",
+	"scim.group.update",
+	"scim.group.delete",
 ] as const;
 
 export const auditLogResourceTypes = [
@@ -2699,7 +2717,10 @@ export const auditLogResourceTypes = [
 	"sso_provider",
 	"sso_role_mapping",
 	"sso_default_project",
+	"sso_session",
 	"scim_token",
+	"scim_user",
+	"scim_group",
 ] as const;
 
 export type AuditLogAction = (typeof auditLogActions)[number];

@@ -51,6 +51,7 @@ async function getUserAuthInfo(userId: string) {
 	const ssoAccount =
 		providerIds.length > 0
 			? await db.query.ssoProvider.findFirst({
+					columns: { id: true },
 					where: { providerId: { in: providerIds } },
 				})
 			: null;

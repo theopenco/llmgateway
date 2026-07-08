@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
+
 import { logAuditEvent } from "@llmgateway/audit";
 import {
 	addApiKeyPeriodDuration,
@@ -1416,6 +1418,10 @@ team.openapi(removeMember, async (c) => {
 	await db
 		.delete(tables.userOrganization)
 		.where(eq(tables.userOrganization.id, memberId));
+
+	// Revoke the removed member's API keys so their access actually stops; the
+	// gateway does not re-check org membership on each request.
+	await revokeMemberApiKeys(targetMember.userId, organizationId);
 
 	await logAuditEvent({
 		organizationId,
