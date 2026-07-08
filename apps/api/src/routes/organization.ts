@@ -59,6 +59,8 @@ const organizationSchema = z.object({
 	planExpiresAt: z.date().nullable(),
 	// Manual seat-limit override; null = use the plan default.
 	seats: z.number().nullable(),
+	// Manual API-key-limit override; null = use the plan default.
+	apiKeyLimit: z.number().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),

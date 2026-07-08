@@ -792,6 +792,18 @@ export const createIamRuleSchema = z.object({
 	status: iamRuleStatusEnum.default("active"),
 });
 
+// Org-wide cap on active developer API keys. An explicit `organization.apiKeyLimit`
+// override (set by admins) always takes precedence over these plan defaults.
+export function resolveApiKeyLimit(
+	plan: string | null | undefined,
+	apiKeyLimit: number | null | undefined,
+): number {
+	if (apiKeyLimit !== null && apiKeyLimit !== undefined) {
+		return apiKeyLimit;
+	}
+	return plan === "enterprise" ? 500 : plan === "pro" ? 20 : 5;
+}
+
 // Create a new API key
 const create = createRoute({
 	method: "post",
@@ -955,26 +967,37 @@ export async function createApiKeyForProject(
 		});
 	}
 
-	const existingApiKeys = await db.query.apiKey.findMany({
+	const orgProjects = await db.query.project.findMany({
+		where: { organizationId: { eq: project.organization.id } },
+		columns: { id: true },
+	});
+	const orgProjectIds = orgProjects.map((p) => p.id);
+
+	// Org-wide cap on active developer API keys across all of the org's projects.
+	// Platform and hidden LLM SDK aggregate keys are excluded (keyType: "user").
+	const orgActiveApiKeys = await db.query.apiKey.findMany({
 		where: {
-			projectId: { eq: projectId },
-			status: { ne: "deleted" },
-			// Only count developer keys toward the per-project cap; platform and
-			// hidden LLM SDK aggregate keys are excluded.
+			projectId: { in: orgProjectIds },
+			status: { eq: "active" },
 			keyType: { eq: "user" },
 		},
+		columns: { id: true },
 	});
 
-	const maxApiKeys = project.organization.plan === "enterprise" ? 500 : 20;
+	const maxApiKeys = resolveApiKeyLimit(
+		project.organization.plan,
+		project.organization.apiKeyLimit,
+	);
 
-	if (existingApiKeys.length >= maxApiKeys) {
+	if (orgActiveApiKeys.length >= maxApiKeys) {
 		throw new HTTPException(400, {
-			message: `API key limit reached. Maximum ${maxApiKeys} API keys per project. Contact us at contact@llmgateway.io to unlock more.`,
+			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Contact us at contact@llmgateway.io to unlock more.`,
 		});
 	}
 
-	// Enforce the active-key cap. The creator's own per-member cap wins; for
-	// developers with no explicit cap the org-wide default developer cap applies.
+	// Enforce the per-member active-key cap. The creator's own per-member cap
+	// wins; for developers with no explicit cap the org-wide default developer
+	// cap applies.
 	const creatorMembership = await db.query.userOrganization.findFirst({
 		where: {
 			userId: { eq: userId },
@@ -1013,12 +1036,6 @@ export async function createApiKeyForProject(
 			: null);
 
 	if (typeof effectiveMaxApiKeys === "number") {
-		const orgProjects = await db.query.project.findMany({
-			where: { organizationId: { eq: project.organization.id } },
-			columns: { id: true },
-		});
-		const orgProjectIds = orgProjects.map((p) => p.id);
-
 		const memberActiveKeys = await db.query.apiKey.findMany({
 			where: {
 				createdBy: { eq: userId },
@@ -1234,7 +1251,9 @@ keysApi.openapi(list, async (c) => {
 		},
 	});
 
-	// Get organization plan info if projectId is specified
+	// Get organization plan info if projectId is specified. The cap is org-wide,
+	// so currentCount counts active developer keys across ALL of the org's
+	// projects, not just the selected one.
 	let currentCount = 0;
 	let maxKeys = 0;
 	let plan: "free" | "pro" | "enterprise" = "free";
@@ -1253,8 +1272,21 @@ keysApi.openapi(list, async (c) => {
 
 		if (project?.organization) {
 			plan = project.organization.plan as "free" | "pro" | "enterprise";
-			maxKeys = plan === "enterprise" ? 500 : plan === "pro" ? 20 : 5;
-			currentCount = apiKeys.filter((key) => key.status !== "deleted").length;
+			maxKeys = resolveApiKeyLimit(plan, project.organization.apiKeyLimit);
+
+			const orgProjects = await db.query.project.findMany({
+				where: { organizationId: { eq: project.organization.id } },
+				columns: { id: true },
+			});
+			const orgActiveKeys = await db.query.apiKey.findMany({
+				where: {
+					projectId: { in: orgProjects.map((p) => p.id) },
+					status: { eq: "active" },
+					keyType: { eq: "user" },
+				},
+				columns: { id: true },
+			});
+			currentCount = orgActiveKeys.length;
 		}
 	}
 

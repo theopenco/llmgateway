@@ -132,7 +132,7 @@ export function SsoClient() {
 	const [domain, setDomain] = useState("");
 	const [entryPoint, setEntryPoint] = useState("");
 	const [cert, setCert] = useState("");
-	const [enforced, setEnforced] = useState(true);
+	const [enforced, setEnforced] = useState(false);
 	const [generatedToken, setGeneratedToken] = useState<string | null>(null);
 	const [groupName, setGroupName] = useState("");
 	const [role, setRole] = useState<"owner" | "admin" | "developer">(

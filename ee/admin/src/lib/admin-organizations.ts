@@ -97,7 +97,11 @@ export async function updateReferralBonus(
 
 export async function manageOrganization(
 	orgId: string,
-	body: { plan: "free" | "pro" | "enterprise"; seats: number | null },
+	body: {
+		plan: "free" | "pro" | "enterprise";
+		seats: number | null;
+		apiKeyLimit: number | null;
+	},
 ): Promise<{ success: boolean; error?: string }> {
 	const $api = await createServerApiClient();
 	const { data, error } = await $api.PATCH(

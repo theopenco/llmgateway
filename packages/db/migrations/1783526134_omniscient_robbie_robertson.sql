@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "api_key_limit" integer;

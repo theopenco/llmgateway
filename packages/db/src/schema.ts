@@ -203,6 +203,11 @@ export const organization = pgTable(
 		// (free/pro = 5, enterprise = 100). When set, this takes precedence for
 		// both display and enforcement of the team-member cap.
 		seats: integer(),
+		// Manual API-key-limit override set by admins. Null = use the plan default
+		// (free = 5, pro = 20, enterprise = 500). When set, this takes precedence
+		// for both display and enforcement of the org-wide API-key cap (total
+		// active developer keys across all of the org's projects).
+		apiKeyLimit: integer(),
 		subscriptionCancelled: boolean().notNull().default(false),
 		trialStartDate: timestamp(),
 		trialEndDate: timestamp(),

@@ -251,6 +251,9 @@ export default async function OrganizationPage({
 						{org.seats !== null && org.seats !== undefined && (
 							<Badge variant="outline">Seats: {org.seats}</Badge>
 						)}
+						{org.apiKeyLimit !== null && org.apiKeyLimit !== undefined && (
+							<Badge variant="outline">API keys: {org.apiKeyLimit}</Badge>
+						)}
 						<span className="text-sm font-medium">
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
@@ -261,6 +264,7 @@ export default async function OrganizationPage({
 						orgName={org.name}
 						plan={org.plan}
 						seats={org.seats ?? null}
+						apiKeyLimit={org.apiKeyLimit ?? null}
 						onSave={async (data) => {
 							"use server";
 							return await manageOrganization(orgId, data);

@@ -142,6 +142,8 @@ const organizationSchema = z.object({
 	devPlan: z.string(),
 	// Manual seat-limit override; null = use the plan default.
 	seats: z.number().int().nullable().optional(),
+	// Manual API-key-limit override; null = use the plan default.
+	apiKeyLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
@@ -2023,6 +2025,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			plan: org.plan,
 			devPlan: org.devPlan,
 			seats: org.seats,
+			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -2104,6 +2107,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			plan: org.plan,
 			devPlan: org.devPlan,
 			seats: org.seats,
+			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -5334,7 +5338,7 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 	});
 });
 
-// Manage an organization's plan tier and seat-limit override
+// Manage an organization's plan tier, seat-limit and API-key-limit overrides
 const manageOrganizationRoute = createRoute({
 	method: "patch",
 	path: "/organizations/{orgId}/manage",
@@ -5349,6 +5353,8 @@ const manageOrganizationRoute = createRoute({
 						plan: z.enum(["free", "pro", "enterprise"]),
 						// Null clears the override and reverts to the plan default.
 						seats: z.number().int().min(0).max(100000).nullable(),
+						// Null clears the override and reverts to the plan default.
+						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
 					}),
 				},
 			},
@@ -5362,6 +5368,7 @@ const manageOrganizationRoute = createRoute({
 						message: z.string(),
 						plan: z.string(),
 						seats: z.number().int().nullable(),
+						apiKeyLimit: z.number().int().nullable(),
 					}),
 				},
 			},
@@ -5383,7 +5390,7 @@ const manageOrganizationRoute = createRoute({
 admin.openapi(manageOrganizationRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
-	const { plan, seats } = c.req.valid("json");
+	const { plan, seats, apiKeyLimit } = c.req.valid("json");
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -5402,6 +5409,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		.set({
 			plan,
 			seats,
+			apiKeyLimit,
 		})
 		.where(eq(tables.organization.id, orgId));
 
@@ -5416,6 +5424,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			newPlan: plan,
 			previousSeats: org.seats,
 			newSeats: seats,
+			previousApiKeyLimit: org.apiKeyLimit,
+			newApiKeyLimit: apiKeyLimit,
 		},
 	});
 
@@ -5423,6 +5433,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		message: "Organization updated successfully",
 		plan,
 		seats,
+		apiKeyLimit,
 	});
 });
 

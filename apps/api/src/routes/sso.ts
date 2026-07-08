@@ -256,7 +256,7 @@ const registerBodySchema = z.object({
 	cert: z.string().trim().min(1).openapi({
 		description: "IdP X.509 signing certificate (PEM or base64 body)",
 	}),
-	enforced: z.boolean().default(true).openapi({
+	enforced: z.boolean().default(false).openapi({
 		description:
 			"When true, users whose email domain matches may only sign in via SSO",
 	}),

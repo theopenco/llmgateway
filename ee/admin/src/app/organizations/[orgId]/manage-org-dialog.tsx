@@ -30,9 +30,11 @@ interface ManageOrgDialogProps {
 	orgName: string;
 	plan: string;
 	seats: number | null;
+	apiKeyLimit: number | null;
 	onSave: (data: {
 		plan: Plan;
 		seats: number | null;
+		apiKeyLimit: number | null;
 	}) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -42,10 +44,17 @@ const PLAN_DEFAULT_SEATS: Record<Plan, number> = {
 	enterprise: 100,
 };
 
+const PLAN_DEFAULT_API_KEYS: Record<Plan, number> = {
+	free: 5,
+	pro: 20,
+	enterprise: 500,
+};
+
 export function ManageOrgDialog({
 	orgName,
 	plan,
 	seats,
+	apiKeyLimit,
 	onSave,
 }: ManageOrgDialogProps) {
 	const router = useRouter();
@@ -57,6 +66,9 @@ export function ManageOrgDialog({
 	);
 	const [seatsValue, setSeatsValue] = useState(
 		seats === null ? "" : String(seats),
+	);
+	const [apiKeyLimitValue, setApiKeyLimitValue] = useState(
+		apiKeyLimit === null ? "" : String(apiKeyLimit),
 	);
 
 	const handleSubmit = async () => {
@@ -71,10 +83,25 @@ export function ManageOrgDialog({
 			seatsToSave = parsed;
 		}
 
+		let apiKeyLimitToSave: number | null = null;
+		const trimmedApiKeyLimit = apiKeyLimitValue.trim();
+		if (trimmedApiKeyLimit !== "") {
+			const parsed = Number(trimmedApiKeyLimit);
+			if (!Number.isInteger(parsed) || parsed < 0) {
+				setError("API key limit must be a non-negative whole number");
+				return;
+			}
+			apiKeyLimitToSave = parsed;
+		}
+
 		setLoading(true);
 		setError(null);
 
-		const result = await onSave({ plan: planValue, seats: seatsToSave });
+		const result = await onSave({
+			plan: planValue,
+			seats: seatsToSave,
+			apiKeyLimit: apiKeyLimitToSave,
+		});
 
 		setLoading(false);
 
@@ -98,7 +125,8 @@ export function ManageOrgDialog({
 				<DialogHeader>
 					<DialogTitle>Manage {orgName}</DialogTitle>
 					<DialogDescription>
-						Change the plan tier and override the team-member seat limit.
+						Change the plan tier and override the team-member seat limit and
+						API-key limit.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -135,6 +163,25 @@ export function ManageOrgDialog({
 							Leave empty to use the plan default (
 							{PLAN_DEFAULT_SEATS[planValue]} seats). When set, this value takes
 							precedence for both display and enforcement.
+						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="manageApiKeyLimit">API key limit override</Label>
+						<Input
+							id="manageApiKeyLimit"
+							type="number"
+							min="0"
+							step="1"
+							value={apiKeyLimitValue}
+							onChange={(e) => setApiKeyLimitValue(e.target.value)}
+							placeholder={`Default (${PLAN_DEFAULT_API_KEYS[planValue]})`}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Leave empty to use the plan default (
+							{PLAN_DEFAULT_API_KEYS[planValue]} active API keys per
+							organization). When set, this value takes precedence for both
+							display and enforcement.
 						</p>
 					</div>
 
