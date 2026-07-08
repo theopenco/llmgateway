@@ -33,19 +33,44 @@ const isHosted = process.env.HOSTED === "true";
 async function isSSOEnforcedForEmail(
 	email: string | null | undefined,
 ): Promise<boolean> {
+	// Keep enforcement tied to the same flag that surfaces the SSO sign-in entry
+	// point: with SSO_ENABLED off there's no way to sign in via SSO, so blocking
+	// password/social/passkey would just lock the domain out entirely.
+	if (process.env.SSO_ENABLED !== "true") {
+		return false;
+	}
+
 	const domain = email?.trim().toLowerCase().split("@")[1];
 	if (!domain) {
 		return false;
 	}
 	const providers = await db.query.ssoProvider.findMany({
 		where: { enforced: { eq: true } },
-		columns: { domain: true },
+		columns: { domain: true, organizationId: true },
 	});
-	return providers.some((provider) =>
-		provider.domain
-			.split(",")
-			.map((d) => d.trim().toLowerCase())
-			.includes(domain),
+	const matching = providers.filter(
+		(provider) =>
+			provider.organizationId &&
+			provider.domain
+				.split(",")
+				.map((d) => d.trim().toLowerCase())
+				.includes(domain),
+	);
+	if (!matching.length) {
+		return false;
+	}
+
+	// Only an active, enterprise org can enforce SSO. A soft-deleted org can no
+	// longer be managed to turn enforcement off, so a stale enforced row must not
+	// keep blocking a domain's users forever.
+	const orgs = await db.query.organization.findMany({
+		where: {
+			id: { in: [...new Set(matching.map((p) => p.organizationId as string))] },
+		},
+		columns: { status: true, plan: true },
+	});
+	return orgs.some(
+		(org) => org.status !== "deleted" && org.plan === "enterprise",
 	);
 }
 
@@ -1060,9 +1085,12 @@ The LLM Gateway Team`.trim();
 						!ctx.path.startsWith("/sso/") &&
 						(await isSSOEnforcedForEmail(dbUser?.email))
 					) {
+						// Delete only the session this blocked attempt just created — not
+						// every session for the user — so a rejected social/passkey login
+						// doesn't also sign them out of valid SSO sessions elsewhere.
 						await db
 							.delete(tables.session)
-							.where(eq(tables.session.userId, userId));
+							.where(eq(tables.session.id, newSession.session.id));
 						return ssoRequiredResponse();
 					}
 

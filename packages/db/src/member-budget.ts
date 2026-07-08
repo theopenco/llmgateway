@@ -1,5 +1,10 @@
 import type { ApiKeyPeriodDurationUnit } from "./api-key-period-limit.js";
 
+export {
+	validateApiKeyLimitsWithinMemberBudget,
+	type ApiKeyLimitConstraints,
+} from "@llmgateway/shared";
+
 /**
  * The per-member budget fields (config columns on user_organization), and the
  * shape the gateway/UI reason about after resolving org defaults.

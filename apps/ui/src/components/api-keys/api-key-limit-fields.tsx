@@ -11,7 +11,18 @@ import {
 } from "@/lib/components/select";
 import { Switch } from "@/lib/components/switch";
 
+import { validateApiKeyLimitsWithinMemberBudget } from "@llmgateway/shared";
+
 import type { ApiKey } from "@/lib/types";
+import type { ApiKeyLimitConstraints } from "@llmgateway/shared";
+
+export type MemberBudgetConstraint = ApiKeyLimitConstraints;
+
+function hasMemberBudgetCaps(budget: MemberBudgetConstraint | null): boolean {
+	return (
+		!!budget && (budget.usageLimit !== null || budget.periodUsageLimit !== null)
+	);
+}
 
 export const apiKeyPeriodDurationUnits = [
 	"hour",
@@ -142,6 +153,21 @@ export function buildApiKeyLimitPayload(value: ApiKeyLimitFormValue): {
 	};
 }
 
+/**
+ * Validate a built limit payload against the key owner's effective member
+ * budget. Returns an error string (surfaced as a toast) or null when within the
+ * budget. No-op when the member has no caps configured.
+ */
+export function validateApiKeyLimitPayloadWithinMemberBudget(
+	payload: ApiKeyLimitPayload,
+	memberBudget: MemberBudgetConstraint | null | undefined,
+): string | null {
+	if (!memberBudget || !hasMemberBudgetCaps(memberBudget)) {
+		return null;
+	}
+	return validateApiKeyLimitsWithinMemberBudget(payload, memberBudget);
+}
+
 export function formatCurrencyAmount(value: string): string {
 	return `$${Number(value).toFixed(2)}`;
 }
@@ -225,12 +251,45 @@ interface ApiKeyLimitFieldsProps {
 	idPrefix: string;
 	onChange: (value: ApiKeyLimitFormValue) => void;
 	value: ApiKeyLimitFormValue;
+	memberBudget?: MemberBudgetConstraint | null;
+}
+
+function MemberBudgetNotice({ budget }: { budget: MemberBudgetConstraint }) {
+	const parts: string[] = [];
+	if (budget.usageLimit !== null) {
+		parts.push(`${formatCurrencyAmount(budget.usageLimit)} total`);
+	}
+	if (
+		budget.periodUsageLimit !== null &&
+		budget.periodUsageDurationValue !== null &&
+		budget.periodUsageDurationUnit !== null
+	) {
+		parts.push(
+			`${formatCurrencyAmount(budget.periodUsageLimit)} per ${formatPeriodWindowLabel(
+				budget.periodUsageDurationValue,
+				budget.periodUsageDurationUnit,
+			)}`,
+		);
+	}
+
+	if (parts.length === 0) {
+		return null;
+	}
+
+	return (
+		<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+			Your organization limits you to{" "}
+			<span className="font-medium">{parts.join(" and ")}</span>. This
+			key&apos;s limits must be at or below that.
+		</div>
+	);
 }
 
 export function ApiKeyLimitFields({
 	idPrefix,
 	onChange,
 	value,
+	memberBudget,
 }: ApiKeyLimitFieldsProps) {
 	const updateValue = <K extends keyof ApiKeyLimitFormValue>(
 		key: K,
@@ -244,6 +303,9 @@ export function ApiKeyLimitFields({
 
 	return (
 		<div className="space-y-4">
+			{memberBudget && hasMemberBudgetCaps(memberBudget) && (
+				<MemberBudgetNotice budget={memberBudget} />
+			)}
 			<div className="rounded-md border p-4 space-y-3">
 				<div className="flex items-center gap-2">
 					<Switch

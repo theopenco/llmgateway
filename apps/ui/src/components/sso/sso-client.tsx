@@ -1,12 +1,22 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, Copy, HelpCircle, Trash2 } from "lucide-react";
+import { Building2, Copy, HelpCircle, Loader2, Trash2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { ProjectMultiSelect } from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/lib/components/alert-dialog";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -45,9 +55,19 @@ import { useApi } from "@/lib/fetch-client";
 
 import type React from "react";
 
-function copy(value: string, label: string) {
-	void navigator.clipboard.writeText(value);
-	toast({ title: `${label} copied to clipboard` });
+async function copy(value: string, label: string) {
+	try {
+		await navigator.clipboard.writeText(value);
+		toast({ title: `${label} copied to clipboard` });
+	} catch {
+		// Clipboard writes reject in insecure contexts or when permission is denied
+		// — don't claim success the user can't see.
+		toast({
+			title: `Failed to copy ${label}`,
+			description: "Copy it manually instead.",
+			variant: "destructive",
+		});
+	}
 }
 
 // Turn an org name into a URL-safe a-z0-9 slug used as the SSO connection id.
@@ -102,7 +122,7 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 					type="button"
 					variant="outline"
 					size="icon"
-					onClick={() => copy(value, label)}
+					onClick={() => void copy(value, label)}
 				>
 					<Copy className="h-4 w-4" />
 					<span className="sr-only">Copy {label}</span>
@@ -142,6 +162,15 @@ export function SsoClient() {
 	// the displayed selection derives from the server value (or the fallback
 	// project). Reset to `null` after a successful save to re-sync with the server.
 	const [projectDraft, setProjectDraft] = useState<string[] | null>(null);
+	// Confirmation for destructive actions (delete connection, revoke/rotate SCIM
+	// token) — each has organization-wide blast radius, so a single misclick
+	// shouldn't fire immediately.
+	const [confirmAction, setConfirmAction] = useState<{
+		title: string;
+		description: string;
+		actionLabel: string;
+		run: () => void | Promise<void>;
+	} | null>(null);
 
 	// Slug the admin pastes into the IdP (part of the SP URLs). Suggested as the
 	// recommended `<org-slug>-<provider>` format until the admin overrides it; must
@@ -392,7 +421,18 @@ export function SsoClient() {
 		}
 	}
 
-	if (selectedOrganization && !isEnterprise) {
+	// Wait for the org (and thus its plan) to load before deciding what to show,
+	// otherwise the full management UI briefly flashes for non-enterprise orgs
+	// before the upsell card replaces it.
+	if (!selectedOrganization) {
+		return (
+			<div className="flex items-center justify-center p-8">
+				<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+			</div>
+		);
+	}
+
+	if (!isEnterprise) {
 		return (
 			<div className="flex flex-col space-y-4 p-4 pt-6 md:p-8">
 				<Card>
@@ -459,7 +499,14 @@ export function SsoClient() {
 										<Button
 											variant="outline"
 											size="icon"
-											onClick={() => handleDelete(provider.providerId)}
+											onClick={() =>
+												setConfirmAction({
+													title: "Delete SSO connection?",
+													description: `This removes the SAML connection for ${provider.domain}. If Require SSO is on, users on that domain won't be able to sign in until you add a new connection.`,
+													actionLabel: "Delete connection",
+													run: () => handleDelete(provider.providerId),
+												})
+											}
 											disabled={deleteMutation.isPending}
 										>
 											<Trash2 className="h-4 w-4" />
@@ -667,7 +714,19 @@ export function SsoClient() {
 					{scim && <ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />}
 					<div className="flex items-center gap-3">
 						<Button
-							onClick={handleGenerateScim}
+							onClick={() => {
+								if (scim?.configured) {
+									setConfirmAction({
+										title: "Rotate SCIM token?",
+										description:
+											"The current token stops working immediately. Directory provisioning will fail until you update your identity provider with the new token.",
+										actionLabel: "Rotate token",
+										run: handleGenerateScim,
+									});
+								} else {
+									void handleGenerateScim();
+								}
+							}}
 							disabled={generateScim.isPending}
 						>
 							{scim?.configured ? "Rotate SCIM token" : "Generate SCIM token"}
@@ -675,7 +734,15 @@ export function SsoClient() {
 						{scim?.configured && (
 							<Button
 								variant="outline"
-								onClick={handleRevokeScim}
+								onClick={() =>
+									setConfirmAction({
+										title: "Revoke SCIM token?",
+										description:
+											"Directory provisioning stops working immediately. You'll need to generate a new token and update your identity provider to resume it.",
+										actionLabel: "Revoke token",
+										run: handleRevokeScim,
+									})
+								}
 								disabled={revokeScim.isPending}
 							>
 								Revoke
@@ -835,9 +902,11 @@ export function SsoClient() {
 						<Button
 							variant="outline"
 							size="icon"
-							onClick={() =>
-								generatedToken && copy(generatedToken, "SCIM token")
-							}
+							onClick={() => {
+								if (generatedToken) {
+									void copy(generatedToken, "SCIM token");
+								}
+							}}
 						>
 							<Copy className="h-4 w-4" />
 							<span className="sr-only">Copy SCIM token</span>
@@ -848,6 +917,35 @@ export function SsoClient() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
+			<AlertDialog
+				open={!!confirmAction}
+				onOpenChange={(open) => {
+					if (!open) {
+						setConfirmAction(null);
+					}
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>{confirmAction?.title}</AlertDialogTitle>
+						<AlertDialogDescription>
+							{confirmAction?.description}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								void confirmAction?.run();
+								setConfirmAction(null);
+							}}
+						>
+							{confirmAction?.actionLabel}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }
