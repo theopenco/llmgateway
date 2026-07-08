@@ -291,6 +291,12 @@ export interface ProviderModelMapping {
 	 */
 	maxOutput?: number;
 	/**
+	 * Weight quantization the provider serves this model at (e.g. "fp8").
+	 * Only set when the provider explicitly documents the serving precision;
+	 * when absent, the quantization is unknown or undisclosed.
+	 */
+	quantization?: Quantization;
+	/**
 	 * Whether this specific model supports streaming for this provider.
 	 * - true: supports both streaming and non-streaming
 	 * - false: does not support streaming
@@ -535,6 +541,16 @@ export interface ProviderModelMapping {
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
+
+export type Quantization =
+	| "int4"
+	| "int8"
+	| "fp4"
+	| "fp6"
+	| "fp8"
+	| "fp16"
+	| "bf16"
+	| "fp32";
 
 export interface ModelDefinition {
 	/**
