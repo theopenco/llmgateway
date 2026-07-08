@@ -5748,6 +5748,16 @@ chat.openapi(completions, async (c) => {
 					content: cachedContent ?? null,
 					reasoningContent: cachedReasoningContent ?? null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason ?? null,
+					// Non-streaming responses are cached in OpenAI format, so the
+					// stored finish_reason is already normalized (e.g. "stop"). Map it
+					// with the OpenAI (default) branch by passing a null provider —
+					// mapping it against the upstream provider's native format (e.g.
+					// "anthropic", which never emits "stop") would resolve to UNKNOWN
+					// and log a spurious "Unknown finish reason encountered" error.
+					unifiedFinishReason: getUnifiedFinishReason(
+						cachedResponse.choices?.[0]?.finish_reason ?? null,
+						null,
+					),
 					promptTokens:
 						(
 							cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens
