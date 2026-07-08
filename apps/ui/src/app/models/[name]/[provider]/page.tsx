@@ -220,10 +220,16 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			"@type": "Brand",
 			name: providerInfo?.name ?? decodedProvider,
 		},
+		// AggregateOffer (not a single Offer) keeps this page a product
+		// snippet instead of a merchant-listing candidate, so Google does not
+		// require shippingDetails/hasMerchantReturnPolicy — fields that don't
+		// apply to a digital API product.
 		offers: {
-			"@type": "Offer",
+			"@type": "AggregateOffer",
 			priceCurrency: "USD",
-			price: providerMapping.inputPrice ?? 0,
+			lowPrice: providerMapping.inputPrice ?? 0,
+			highPrice: providerMapping.inputPrice ?? 0,
+			offerCount: 1,
 			priceSpecification: {
 				"@type": "UnitPriceSpecification",
 				price: providerMapping.inputPrice ?? 0,
