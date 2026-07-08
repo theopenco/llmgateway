@@ -184,4 +184,6 @@ LiteLLM gives you a proxy and a library. LLM Gateway gives you the proxy, plus t
 
 If you enjoy owning infrastructure, LiteLLM is excellent at being what it is. If you'd rather ship features than babysit a proxy, LLM Gateway takes that operational work and makes it a checkbox.
 
+Still shopping around? We compared the [8 best LiteLLM alternatives](/blog/litellm-alternatives) — including the managed routers and self-hosted proxies teams switch to.
+
 **[Try LLM Gateway free](/signup)** | **[Migration guide](https://docs.llmgateway.io/migrations/litellm)** | **[Compare all features](/compare/litellm)**

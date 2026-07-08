@@ -131,7 +131,7 @@ LiteLLM is an open-source Python proxy that translates OpenAI-compatible request
 
 **Pricing:** Free and open source. You pay for your own infrastructure.
 
-**Best for:** Python teams comfortable with self-hosting and managing their own infrastructure.
+**Best for:** Python teams comfortable with self-hosting and managing their own infrastructure. Outgrowing it? See the [best LiteLLM alternatives](/blog/litellm-alternatives).
 
 ---
 
