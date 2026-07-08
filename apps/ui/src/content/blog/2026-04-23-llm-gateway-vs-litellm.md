@@ -18,23 +18,23 @@ We built LLM Gateway, so we're biased — but we'll tell you where LiteLLM is th
 
 ## The Quick Version
 
-| Feature               | LLM Gateway                                           | LiteLLM                             |
-| --------------------- | ----------------------------------------------------- | ----------------------------------- |
-| Models                | 200+ models, 40+ providers                            | 100+ providers via SDK              |
-| API compatibility     | OpenAI-compatible                                     | OpenAI-compatible                   |
-| Deployment            | Managed cloud or self-hosted (Docker)                 | Self-hosted (Python proxy)          |
-| Infrastructure to run | None (managed) or 1 Docker command (self-host)        | Yes — you run and scale the proxy   |
-| Bring Your Own Keys   | Yes (zero gateway markup)                             | Yes                                 |
-| Smart routing         | Weighted scoring (uptime, throughput, price, latency) | Manual fallback lists               |
-| Auto retry & failover | Yes (up to 2 retries, transparent)                    | Yes (configured per model)          |
-| Response caching      | Built-in (Redis, 10s to 1 year TTL)                   | Built-in, needs config              |
-| Guardrails            | Yes (prompt injection, PII, jailbreak, secrets)       | Via external integrations           |
-| Analytics dashboard   | Per-request detail, cost, latency, cache hit rate     | Built-in dashboard + spend logs     |
-| Audit logs            | Yes (90-day retention)                                | Spend logs; audit logs (Enterprise) |
-| Team management       | Roles, permissions, projects                          | Virtual keys + budgets              |
-| Image & video gen     | Yes (gpt-image, Gemini, Veo 3.1, Seedream, Qwen)      | Image yes, video limited            |
-| AI SDK provider       | Yes (`@llmgateway/ai-sdk-provider`)                   | Community SDK                       |
-| Pricing model         | Free (self-host) or 5% platform fee / BYOK (0% fee)   | Free (self-host); infra costs apply |
+| Feature               | LLM Gateway                                            | LiteLLM                             |
+| --------------------- | ------------------------------------------------------ | ----------------------------------- |
+| Models                | 200+ models, 40+ providers                             | 100+ providers via SDK              |
+| API compatibility     | OpenAI-compatible                                      | OpenAI-compatible                   |
+| Deployment            | Managed cloud or self-hosted (Docker)                  | Self-hosted (Python proxy)          |
+| Infrastructure to run | None (managed) or 1 Docker command (self-host)         | Yes — you run and scale the proxy   |
+| Bring Your Own Keys   | Yes (zero gateway markup)                              | Yes                                 |
+| Smart routing         | Weighted scoring (uptime, throughput, price, latency)  | Manual fallback lists               |
+| Auto retry & failover | Yes (up to 2 retries, transparent)                     | Yes (configured per model)          |
+| Response caching      | Built-in (Redis, 10s to 1 year TTL)                    | Built-in, needs config              |
+| Guardrails            | Enterprise (prompt injection, PII, jailbreak, secrets) | Via external integrations           |
+| Analytics dashboard   | Per-request detail, cost, latency, cache hit rate      | Built-in dashboard + spend logs     |
+| Audit logs            | Yes (90-day retention)                                 | Spend logs; audit logs (Enterprise) |
+| Team management       | Roles, permissions, projects                           | Virtual keys + budgets              |
+| Image & video gen     | Yes (gpt-image, Gemini, Veo 3.1, Seedream, Qwen)       | Image yes, video limited            |
+| AI SDK provider       | Yes (`@llmgateway/ai-sdk-provider`)                    | Community SDK                       |
+| Pricing model         | Free (self-host) or 5% platform fee / BYOK (0% fee)    | Free (self-host); infra costs apply |
 
 ## Where LLM Gateway Wins
 
@@ -101,7 +101,7 @@ In LLM Gateway, caching is a project-level switch. TTL from 10 seconds to 1 year
 
 ### Enterprise Features Out of the Box
 
-- **Guardrails** — prompt injection, jailbreak, PII, and secrets detection with block/redact/warn rules
+- **Guardrails (Enterprise plan)** — prompt injection, jailbreak, PII, and secrets detection with block/redact/warn rules
 - **Audit logs** — every org action tracked with who, what, when, which resource (90-day retention)
 - **Team management** — roles and permissions across organizations and projects
 - **Data retention controls** — full payload retention, metadata-only, or zero retention per project

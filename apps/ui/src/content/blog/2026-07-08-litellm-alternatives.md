@@ -48,7 +48,7 @@ Four questions separate the options fast:
 | **BYOK (no markup)**  | Yes                | After 1M   | Yes     | Yes     | Yes          | Yes        | Yes         | No               |
 | **OpenAI-compatible** | Yes                | Yes        | Yes     | Yes     | Yes          | Yes        | Yes         | Yes              |
 | **Smart routing**     | Yes (weighted)     | Yes        | Basic   | Yes     | Yes          | Plugins    | Yes         | No               |
-| **Guardrails**        | Yes                | Enterprise | Basic   | Yes     | No           | Plugins    | Yes         | No               |
+| **Guardrails**        | Enterprise         | Enterprise | Basic   | Yes     | No           | Plugins    | Yes         | No               |
 | **Ops you own**       | None (or 1 Docker) | None       | Full    | Little  | None         | Full       | Your K8s    | None             |
 
 ## 1. LLM Gateway
@@ -62,8 +62,8 @@ Four questions separate the options fast:
 - **Both deployment models** — use the managed cloud and run zero infrastructure, or self-host the same AGPLv3 codebase on your own machines
 - **Zero markup on BYOK** — bring your own provider keys and pay nothing on top of provider costs
 - **Smart routing, not fallback lists** — providers are scored on uptime, throughput, price, and latency; failed requests retry and fail over transparently
-- **Guardrails included** — prompt-injection, PII, jailbreak, and secret detection without an external integration
-- **Governance without an enterprise tier** — audit logs, roles, projects, and per-key limits are part of the product
+- **Guardrails on the Enterprise plan** — prompt-injection, PII, jailbreak, and secret detection built into the gateway, no external integration to wire up
+- **Team management built in** — roles, projects, audit logs, and per-key limits are part of the product
 - **Built-in caching and analytics** — Redis-backed response caching plus per-request cost, latency, and cache-hit dashboards
 
 Because both sides speak the OpenAI API, [migrating from LiteLLM](https://docs.llmgateway.io/migrations/litellm) is a two-line change:
