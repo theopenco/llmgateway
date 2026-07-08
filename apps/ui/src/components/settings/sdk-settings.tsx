@@ -101,6 +101,9 @@ export function SdkSettings({
 	const [markupPercent, setMarkupPercent] = useState(
 		Number(initialProject.endUserMarkupPercent ?? "0"),
 	);
+	const [bonusPercent, setBonusPercent] = useState(
+		Number(initialProject.endUserTopUpBonusPercent ?? "0"),
+	);
 	const [allowedOriginsText, setAllowedOriginsText] = useState(
 		(initialProject.allowedOrigins ?? []).join("\n"),
 	);
@@ -165,6 +168,7 @@ export function SdkSettings({
 				body: {
 					endUserEnabled,
 					endUserMarkupPercent: markupPercent,
+					endUserTopUpBonusPercent: bonusPercent,
 					allowedOrigins,
 				},
 			});
@@ -309,6 +313,24 @@ export function SdkSettings({
 							disabled={isPreview}
 							onChange={(event) => setMarkupPercent(Number(event.target.value))}
 						/>
+					</div>
+					<div className="grid gap-2 sm:max-w-56">
+						<Label htmlFor="bonusPercent">Top-up bonus percent</Label>
+						<Input
+							id="bonusPercent"
+							type="number"
+							min={0}
+							max={1000}
+							step={0.01}
+							value={bonusPercent}
+							disabled={isPreview}
+							onChange={(event) => setBonusPercent(Number(event.target.value))}
+						/>
+						<p className="text-muted-foreground text-sm">
+							End-users get this much extra credit on top-ups (e.g. 50% turns a
+							$10 top-up into $15). The bonus is funded from your organization's
+							credit balance; set to 0 to disable.
+						</p>
 					</div>
 					<div className="grid gap-2">
 						<Label htmlFor="allowedOrigins">Allowed origins</Label>

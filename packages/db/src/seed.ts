@@ -1367,6 +1367,47 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
+	// Embeddable Payments SDK POC: a project with the SDK enabled and a 50%
+	// end-user top-up bonus, plus a live platform secret key, so the end-user
+	// wallet + bonus flow can be exercised end-to-end locally (mint a session with
+	// the platform secret, top up as an end-user, get +50% credit). The bonus is
+	// funded from this org's credit balance, so it is seeded with credits.
+	await upsert(tables.organization, {
+		id: "sdk-poc-org-id",
+		name: "Payments SDK POC",
+		billingEmail: "admin@example.com",
+		credits: 100,
+		retentionLevel: "retain",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "sdk-poc-user-org-id",
+		userId: "test-user-id",
+		organizationId: "sdk-poc-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "sdk-poc-project-id",
+		name: "Payments SDK POC",
+		organizationId: "sdk-poc-org-id",
+		mode: "credits",
+		paymentsSdkEnabled: true,
+		endUserEnabled: true,
+		endUserTopUpBonusPercent: "50",
+	});
+
+	// Live-mode platform secret (token does not start with `sk_test_`), so minted
+	// sessions/wallets are live and eligible for the developer-funded bonus.
+	await upsert(tables.apiKey, {
+		id: "sdk-poc-platform-secret-id",
+		token: "sk_pocbonus_live_secret",
+		projectId: "sdk-poc-project-id",
+		description: "Payments SDK POC platform secret",
+		keyType: "platform_secret",
+		createdBy: "test-user-id",
+	});
+
 	// Personal org for the test admin so DevPass Pro is available locally
 	await upsert(tables.organization, {
 		id: "test-personal-org-id",

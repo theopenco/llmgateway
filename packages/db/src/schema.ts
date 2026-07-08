@@ -397,6 +397,9 @@ export const transaction = pgTable(
 				"end_user_margin_accrual",
 				"end_user_refund",
 				"end_user_margin_payout",
+				// Developer-funded bonus credited to an end-user wallet on top-up,
+				// debited from the developer org's credit balance.
+				"end_user_bonus",
 			],
 		}).notNull(),
 		amount: decimal(),
@@ -718,6 +721,12 @@ export const project = pgTable(
 		// Baked into credited spend power at top-up time so the usage/debit path
 		// stays raw-cost. Overridable per-wallet via wallet.markupPercentOverride.
 		endUserMarkupPercent: decimal().notNull().default("0"),
+		// Bonus credit multiplier applied to end-user top-ups (e.g. "50" = +50%, so
+		// a $10 top-up credits $15). The extra credits are funded by debiting the
+		// developer org's `credits` balance at top-up time (capped at the available
+		// balance). Set to "0" to disable. Overridable per-wallet via
+		// wallet.bonusPercentOverride.
+		endUserTopUpBonusPercent: decimal().notNull().default("0"),
 		// Browser origins allowed to call the gateway with this project's
 		// ephemeral end-user session tokens (CORS allowlist).
 		allowedOrigins: json().$type<string[]>(),
@@ -807,6 +816,9 @@ export const wallet = pgTable(
 		currency: text().notNull().default("USD"),
 		// Optional per-wallet markup override; falls back to project.endUserMarkupPercent.
 		markupPercentOverride: decimal(),
+		// Optional per-wallet top-up bonus override; falls back to
+		// project.endUserTopUpBonusPercent.
+		bonusPercentOverride: decimal(),
 		// Optional safety ceiling on a single session's spend.
 		spendCapPerSession: decimal(),
 		status: text({
@@ -893,7 +905,14 @@ export const walletLedger = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 		type: text({
-			enum: ["topup", "usage_debit", "refund", "adjustment", "reversal"],
+			enum: [
+				"topup",
+				"bonus",
+				"usage_debit",
+				"refund",
+				"adjustment",
+				"reversal",
+			],
 		}).notNull(),
 		// Signed amount in wallet currency (post-markup): +topup, -usage_debit.
 		amount: decimal().notNull(),

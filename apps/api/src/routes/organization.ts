@@ -117,6 +117,7 @@ const projectSchema = z.object({
 	paymentsSdkEnabled: z.boolean(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
+	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
 });
 
@@ -179,6 +180,7 @@ const transactionSchema = z.object({
 		"end_user_margin_accrual",
 		"end_user_refund",
 		"end_user_margin_payout",
+		"end_user_bonus",
 	]),
 	amount: z.string().nullable(),
 	creditAmount: z.string().nullable(),
