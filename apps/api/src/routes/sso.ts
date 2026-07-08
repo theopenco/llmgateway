@@ -10,6 +10,7 @@ import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, shortid, tables } from "@llmgateway/db";
+import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
@@ -50,6 +51,75 @@ async function assertEnterpriseOrgAccess(
 	}
 
 	return { role: userOrg.role };
+}
+
+// Seed a sensible default per-developer spend cap ($500/month) onto the org's
+// default developer budget when an SSO team is first connected, so provisioned
+// developers are bounded out of the box. Only applied when the org has no
+// default developer budget configured yet — owners/admins can override it on the
+// Team page. Written as its own audit-logged organization.update event.
+async function seedSsoTeamDefaultDeveloperBudget(
+	organizationId: string,
+	userId: string,
+): Promise<void> {
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: {
+			defaultDeveloperMaxApiKeys: true,
+			defaultDeveloperUsageLimit: true,
+			defaultDeveloperPeriodUsageLimit: true,
+			defaultDeveloperPeriodUsageDurationValue: true,
+			defaultDeveloperPeriodUsageDurationUnit: true,
+		},
+	});
+
+	const alreadyConfigured =
+		!org ||
+		org.defaultDeveloperMaxApiKeys !== null ||
+		org.defaultDeveloperUsageLimit !== null ||
+		org.defaultDeveloperPeriodUsageLimit !== null ||
+		org.defaultDeveloperPeriodUsageDurationValue !== null ||
+		org.defaultDeveloperPeriodUsageDurationUnit !== null;
+	if (alreadyConfigured) {
+		return;
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			defaultDeveloperMaxApiKeys: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.maxApiKeys,
+			defaultDeveloperUsageLimit: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.usageLimit,
+			defaultDeveloperPeriodUsageLimit:
+				SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit,
+			defaultDeveloperPeriodUsageDurationValue:
+				SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationValue,
+			defaultDeveloperPeriodUsageDurationUnit:
+				SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit,
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	await logAuditEvent({
+		organizationId,
+		userId,
+		action: "organization.update",
+		resourceType: "organization",
+		resourceId: organizationId,
+		metadata: {
+			resourceName: "Default developer budget",
+			changes: {
+				defaultDeveloperBudget: {
+					old: {
+						maxApiKeys: null,
+						usageLimit: null,
+						periodUsageLimit: null,
+						periodUsageDurationValue: null,
+						periodUsageDurationUnit: null,
+					},
+					new: { ...SSO_TEAM_DEFAULT_DEVELOPER_BUDGET },
+				},
+			},
+		},
+	});
 }
 
 // Better Auth's `auth.api.*` methods throw its own `APIError` (with a string
@@ -314,6 +384,9 @@ sso.openapi(register, async (c) => {
 		resourceId: provider.id,
 		metadata: { resourceName: providerId },
 	});
+
+	// New SSO teams start with a $500/month default per-developer spend cap.
+	await seedSsoTeamDefaultDeveloperBudget(organizationId, user.id);
 
 	return c.json({ provider: { ...provider, metadataUrl, acsUrl } }, 201);
 });

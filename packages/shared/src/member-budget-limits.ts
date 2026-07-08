@@ -14,6 +14,25 @@ export interface ApiKeyLimitConstraints {
 	periodUsageDurationUnit: ApiKeyPeriodDurationUnitValue | null;
 }
 
+/** The full member/default-developer budget shape (adds the key-count cap). */
+export interface MemberBudgetShape extends ApiKeyLimitConstraints {
+	maxApiKeys: number | null;
+}
+
+/**
+ * The default per-developer spend cap seeded onto an org's default developer
+ * budget when an SSO team is first connected ($500/month). Owners/admins can
+ * override it afterwards on the Team page. Kept here so the API (which writes it
+ * on SSO provisioning) and the UI (which explains it) share one source of truth.
+ */
+export const SSO_TEAM_DEFAULT_DEVELOPER_BUDGET = {
+	maxApiKeys: null,
+	usageLimit: null,
+	periodUsageLimit: "500",
+	periodUsageDurationValue: 1,
+	periodUsageDurationUnit: "month",
+} as const satisfies MemberBudgetShape;
+
 const PERIOD_UNIT_HOURS: Record<ApiKeyPeriodDurationUnitValue, number> = {
 	hour: 1,
 	day: 24,

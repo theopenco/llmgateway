@@ -94,6 +94,8 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
 
+import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
+
 import type { Route } from "next";
 
 function ApiKeyAnalyticsCallout({ href }: { href: Route }) {
@@ -469,7 +471,12 @@ function DefaultDeveloperLimitsDialog({
 					<DialogDescription>
 						Applied to every developer in the org. A developer's own limits (set
 						via “Manage budget”) override these. Leave a field blank for
-						unlimited.
+						unlimited. New SSO teams start at{" "}
+						{currencyFormatter.format(
+							Number(SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit),
+						)}
+						/{SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit} per
+						developer.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4 py-4">
