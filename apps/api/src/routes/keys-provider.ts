@@ -10,7 +10,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { invalidateSwrByTables } from "@llmgateway/cache";
 import { db, eq, getTableName, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { providers } from "@llmgateway/models";
+import { isStealthProvider, providers } from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -232,6 +232,15 @@ keysProvider.openapi(create, async (c) => {
 	if (provider === "custom" && (!name || !baseUrl)) {
 		throw new HTTPException(400, {
 			message: "Custom providers require both a name and base URL",
+		});
+	}
+
+	// Stealth providers have no default base URL and an undisclosed platform, so
+	// users can't self-configure a working key for them. They are hidden from the
+	// UI selector; reject here too as defense in depth against direct API calls.
+	if (provider !== "custom" && isStealthProvider(provider as ProviderId)) {
+		throw new HTTPException(400, {
+			message: `Provider ${provider} cannot be configured with a provider key`,
 		});
 	}
 

@@ -1,5 +1,10 @@
 import { models, type ProviderModelMapping } from "./models.js";
-import { providers, type ServiceTier } from "./providers.js";
+import {
+	providers,
+	type ProviderDefinition,
+	type ProviderId,
+	type ServiceTier,
+} from "./providers.js";
 import { expandAllProviderRegions } from "./region-helpers.js";
 
 /**
@@ -178,4 +183,21 @@ const OPENAI_EXTENDED_PROMPT_CACHE_MODELS = new Set<string>([
 
 export function supportsOpenAIExtendedPromptCache(modelName: string): boolean {
 	return OPENAI_EXTENDED_PROMPT_CACHE_MODELS.has(modelName);
+}
+
+/**
+ * Whether a provider is a "stealth" provider — one that has no default base URL
+ * and instead requires the base URL to be supplied via a `baseUrl` env var
+ * (`env.required.baseUrl`). Because the platform behind such a provider is
+ * undisclosed, users cannot self-configure a provider key for it (they can't
+ * know the endpoint), so these are hidden from the UI provider selector.
+ */
+export function isStealthProvider(
+	provider: ProviderId | ProviderDefinition,
+): boolean {
+	const def =
+		typeof provider === "string"
+			? providers.find((p) => p.id === provider)
+			: provider;
+	return Boolean(def?.env.required.baseUrl);
 }

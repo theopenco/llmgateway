@@ -199,6 +199,10 @@ export const organization = pgTable(
 			.notNull()
 			.default("free"),
 		planExpiresAt: timestamp(),
+		// Manual seat-limit override set by admins. Null = use the plan default
+		// (free/pro = 5, enterprise = 100). When set, this takes precedence for
+		// both display and enforcement of the team-member cap.
+		seats: integer(),
 		subscriptionCancelled: boolean().notNull().default(false),
 		trialStartDate: timestamp(),
 		trialEndDate: timestamp(),
@@ -628,10 +632,18 @@ export const userOrganization = pgTable(
 		periodUsageDurationUnit: text({
 			enum: ["hour", "day", "week", "month"],
 		}),
+		// External identifier from the IdP for SCIM-provisioned members (Entra
+		// `externalId` / Okta `id`). Lets SCIM reconcile users that match on
+		// externalId rather than userName. null for non-SCIM memberships.
+		scimExternalId: text(),
 	},
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
 		index("user_organization_organization_id_idx").on(table.organizationId),
+		index("user_organization_scim_external_id_idx").on(
+			table.organizationId,
+			table.scimExternalId,
+		),
 	],
 );
 
@@ -1681,6 +1693,191 @@ export const passkey = pgTable(
 	(table) => [index("passkey_user_id_idx").on(table.userId)],
 );
 
+// SSO provider connections managed by the Better Auth `sso` plugin. The plugin
+// reads/writes this table via the drizzle adapter (registered as model
+// `ssoProvider`). `organizationId` links a connection to one of our
+// organizations; the app enforces org-scoped access to it.
+export const ssoProvider = pgTable(
+	"sso_provider",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		issuer: text().notNull(),
+		domain: text().notNull(),
+		oidcConfig: text(),
+		samlConfig: text(),
+		userId: text().references(() => user.id, { onDelete: "set null" }),
+		providerId: text().notNull().unique(),
+		// IdP vendor; drives the SAML attribute mapping and the vendor-specific
+		// field-name hints shown next to the SP URLs in the dashboard.
+		providerType: text({ enum: ["okta", "entra", "generic"] })
+			.notNull()
+			.default("generic"),
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		// When true, users whose email domain matches this connection may only
+		// sign in via SSO; password/social/passkey sessions are rejected.
+		enforced: boolean().notNull().default(false),
+		// Better Auth's SSO domain-verification flag. The SAML callback only
+		// implicitly links an SSO login to an existing user (e.g. one
+		// pre-provisioned via SCIM) when the provider's domain is verified and
+		// the asserted email is on that domain; otherwise such logins fail with
+		// `account_not_linked`. We stamp it true at registration instead of
+		// running the plugin's DNS-TXT verification flow.
+		domainVerified: boolean().notNull().default(false),
+	},
+	(table) => [
+		index("sso_provider_organization_id_idx").on(table.organizationId),
+		index("sso_provider_domain_idx").on(table.domain),
+	],
+);
+
+// SCIM bearer tokens for directory provisioning. This is our own table (NOT a
+// Better Auth plugin table): the custom SCIM 2.0 router authenticates Okta by
+// hashing the incoming bearer and matching `tokenHash`, which resolves the
+// `organizationId` that scopes every provisioning operation.
+export const scimToken = pgTable(
+	"scim_token",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		tokenHash: text().notNull().unique(),
+		maskedToken: text().notNull(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// The linked SSO connection's `providerId`; SCIM-provisioned users get an
+		// `account` row for this provider so they can subsequently sign in via SSO.
+		ssoProviderId: text(),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+		lastUsedAt: timestamp(),
+		status: text({
+			enum: ["active", "deleted"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("scim_token_organization_id_idx").on(table.organizationId),
+		index("scim_token_token_hash_idx").on(table.tokenHash),
+	],
+);
+
+// SCIM groups pushed by the IdP (Okta). Membership drives role assignment via
+// `ssoRoleMapping`. Scoped to one organization by the SCIM token used.
+export const scimGroup = pgTable(
+	"scim_group",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		externalId: text(),
+		displayName: text().notNull(),
+	},
+	(table) => [
+		index("scim_group_organization_id_idx").on(table.organizationId),
+		uniqueIndex("scim_group_org_display_name_unique").on(
+			table.organizationId,
+			table.displayName,
+		),
+	],
+);
+
+export const scimGroupMember = pgTable(
+	"scim_group_member",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		scimGroupId: text()
+			.notNull()
+			.references(() => scimGroup.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("scim_group_member_group_user_unique").on(
+			table.scimGroupId,
+			table.userId,
+		),
+		index("scim_group_member_user_id_idx").on(table.userId),
+	],
+);
+
+// Admin-defined mapping from a SCIM/IdP group name to an organization role.
+// Users get the highest-precedence mapped role among their groups; owners are
+// never auto-demoted (see routes/scim.ts).
+export const ssoRoleMapping = pgTable(
+	"sso_role_mapping",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		groupName: text().notNull(),
+		role: text({
+			enum: ["owner", "admin", "developer"],
+		}).notNull(),
+	},
+	(table) => [
+		uniqueIndex("sso_role_mapping_org_group_unique").on(
+			table.organizationId,
+			table.groupName,
+		),
+	],
+);
+
+// Default project grants for `developer` members provisioned via SSO/SCIM.
+// Owners/admins already have implicit access to every project, so this only
+// affects developer provisioning: when a new SSO/SCIM member is created they
+// receive a `userProject` grant for each project listed here. When an org has
+// no rows, provisioning falls back to the org's first (default) project so SSO
+// members can see something out of the box.
+export const ssoDefaultProject = pgTable(
+	"sso_default_project",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("sso_default_project_org_project_unique").on(
+			table.organizationId,
+			table.projectId,
+		),
+		index("sso_default_project_organization_id_idx").on(table.organizationId),
+	],
+);
+
 export const paymentMethod = pgTable(
 	"payment_method",
 	{
@@ -2442,6 +2639,7 @@ export const auditLogActions = [
 	"organization.update",
 	"organization.delete",
 	"organization.block",
+	"organization.manage",
 	// Project
 	"project.create",
 	"project.update",
@@ -2503,6 +2701,27 @@ export const auditLogActions = [
 	"chat_plan.cancel",
 	"chat_plan.resume",
 	"chat_plan.change_tier",
+	// SSO
+	"sso_provider.create",
+	"sso_provider.update",
+	"sso_provider.delete",
+	"sso_role_mapping.create",
+	"sso_role_mapping.delete",
+	"sso_default_projects.update",
+	"sso.sign_in",
+	// SCIM
+	"scim_token.create",
+	"scim_token.revoke",
+	// SCIM directory sync (IdP-initiated)
+	"scim.user.provision",
+	"scim.user.update",
+	"scim.user.activate",
+	"scim.user.deactivate",
+	"scim.user.deprovision",
+	"scim.user.role_change",
+	"scim.group.create",
+	"scim.group.update",
+	"scim.group.delete",
 ] as const;
 
 export const auditLogResourceTypes = [
@@ -2519,6 +2738,13 @@ export const auditLogResourceTypes = [
 	"payment",
 	"dev_plan",
 	"chat_plan",
+	"sso_provider",
+	"sso_role_mapping",
+	"sso_default_project",
+	"sso_session",
+	"scim_token",
+	"scim_user",
+	"scim_group",
 ] as const;
 
 export type AuditLogAction = (typeof auditLogActions)[number];

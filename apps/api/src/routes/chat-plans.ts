@@ -477,12 +477,19 @@ chatPlans.openapi(changeTier, async (c) => {
 			})
 			.where(eq(tables.organization.id, personalOrg.id));
 
-		await db.insert(tables.transaction).values({
-			organizationId: personalOrg.id,
-			type: isUpgrade ? "chat_plan_upgrade" : "chat_plan_downgrade",
-			description: `Changed from ${personalOrg.chatPlan} to ${newTier} plan`,
-			status: "completed",
-		});
+		// Upgrades charge a prorated amount (`always_invoice`); the resulting
+		// `subscription_update` invoice is recorded and emailed by the webhook
+		// (handleInvoicePaymentSucceeded), keyed on its unique stripeInvoiceId, so
+		// we must not insert a duplicate upgrade transaction here. Downgrades issue
+		// no charge/invoice, so record the tier change now.
+		if (!isUpgrade) {
+			await db.insert(tables.transaction).values({
+				organizationId: personalOrg.id,
+				type: "chat_plan_downgrade",
+				description: `Changed from ${personalOrg.chatPlan} to ${newTier} plan`,
+				status: "completed",
+			});
+		}
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,

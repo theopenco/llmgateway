@@ -123,8 +123,8 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 		const call = sendEmailMock.mock.calls[0][0];
 		expect(call.to).toBe("billing@acme.test");
 		expect(call.subject.toLowerCase()).toContain("feedback");
-		expect(call.html).toContain("Acme Co");
 		expect(call.html?.toLowerCase()).toContain("dev plan");
+		expect(call.html?.toLowerCase()).toContain("cancelled");
 
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },

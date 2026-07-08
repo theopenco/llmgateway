@@ -3,13 +3,11 @@
 import { format, subDays } from "date-fns";
 import {
 	BarChart3Icon,
-	ChevronsUpDown,
 	Info,
 	KeyRound,
 	Mail,
 	MoreHorizontal,
 	TrendingUp,
-	X,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -17,6 +15,10 @@ import { useEffect, useState } from "react";
 
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { DateRangePicker } from "@/components/date-range-picker";
+import {
+	ProjectMultiSelect,
+	type OrgProject,
+} from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	useTeamMembers,
@@ -38,14 +40,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "@/lib/components/command";
 import {
 	Dialog,
 	DialogContent,
@@ -70,11 +64,6 @@ import {
 } from "@/lib/components/hover-card";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/lib/components/popover";
 import {
 	Select,
 	SelectContent,
@@ -554,102 +543,6 @@ function DefaultDeveloperLimitsDialog({
 }
 
 type MemberRole = "owner" | "admin" | "developer";
-interface OrgProject {
-	id: string;
-	name: string;
-}
-
-function ProjectMultiSelect({
-	orgProjects,
-	selected,
-	onChange,
-}: {
-	orgProjects: OrgProject[];
-	selected: string[];
-	onChange: (projectIds: string[]) => void;
-}) {
-	const [open, setOpen] = useState(false);
-
-	if (orgProjects.length === 0) {
-		return (
-			<p className="text-muted-foreground text-sm">
-				This organization has no projects yet. Create a project first.
-			</p>
-		);
-	}
-
-	const selectedProjects = selected
-		.map((id) => orgProjects.find((p) => p.id === id))
-		.filter((p): p is OrgProject => Boolean(p));
-	const available = orgProjects.filter((p) => !selected.includes(p.id));
-
-	return (
-		<div className="space-y-2">
-			{selectedProjects.length > 0 && (
-				<div className="flex flex-wrap gap-1.5">
-					{selectedProjects.map((project) => (
-						<Badge key={project.id} variant="secondary" className="gap-1 pr-1">
-							{project.name}
-							<button
-								type="button"
-								aria-label={`Remove ${project.name}`}
-								className="hover:bg-muted-foreground/20 rounded-sm p-0.5"
-								onClick={() =>
-									onChange(selected.filter((id) => id !== project.id))
-								}
-							>
-								<X className="h-3 w-3" />
-							</button>
-						</Badge>
-					))}
-				</div>
-			)}
-
-			<Popover open={open} onOpenChange={setOpen}>
-				<PopoverTrigger asChild>
-					<Button
-						type="button"
-						variant="outline"
-						role="combobox"
-						aria-expanded={open}
-						disabled={available.length === 0}
-						className="w-full justify-between font-normal"
-					>
-						<span className="text-muted-foreground">
-							{available.length === 0 ? "All projects added" : "Add a project…"}
-						</span>
-						<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-					</Button>
-				</PopoverTrigger>
-				<PopoverContent
-					className="w-[--radix-popover-trigger-width] p-0"
-					align="start"
-				>
-					<Command>
-						<CommandInput placeholder="Search projects…" />
-						<CommandList>
-							<CommandEmpty>No projects found.</CommandEmpty>
-							<CommandGroup>
-								{available.map((project) => (
-									<CommandItem
-										key={project.id}
-										value={project.name}
-										onSelect={() => {
-											onChange([...selected, project.id]);
-											setOpen(false);
-										}}
-									>
-										{project.name}
-									</CommandItem>
-								))}
-							</CommandGroup>
-						</CommandList>
-					</Command>
-				</PopoverContent>
-			</Popover>
-		</div>
-	);
-}
 
 // Project-scoped developer access is an Enterprise feature: the option is
 // disabled (with a badge) off-plan.
@@ -1035,8 +928,8 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 										<Alert>
 											<AlertDescription>
 												<p>
-													Organizations can have up to 5 team members. Contact
-													us at{" "}
+													Organizations can have up to {data?.seatLimit ?? 5}{" "}
+													team members. Contact us at{" "}
 													<a
 														href="mailto:contact@llmgateway.io"
 														className="underline"
@@ -1123,7 +1016,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							<CardTitle>Team Members</CardTitle>
 							<CardDescription>
 								Manage your organization's team members and their roles (
-								{data?.members.length ?? 0}/5 seats used)
+								{data?.members.length ?? 0}/{data?.seatLimit ?? 5} seats used)
 								{showUsage
 									? ". Cost is attributed to the member who created each API key."
 									: ""}
