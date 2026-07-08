@@ -82,18 +82,20 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs LiteLLM — Feature Comparison",
 		description:
-			"Compare LLM Gateway's managed infrastructure, advanced analytics, and enterprise features against LiteLLM's self-hosted proxy solution. See why teams choose our production-ready API gateway.",
+			"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy. See why teams pick a production-ready gateway.",
+		alternates: { canonical: "/compare/litellm" },
 		openGraph: {
-			title: "LLM Gateway vs LiteLLM - Feature Comparison",
+			title: "LLM Gateway vs LiteLLM — Feature Comparison",
 			description:
-				"Compare LLM Gateway's managed infrastructure, advanced analytics, and enterprise features against LiteLLM's self-hosted proxy solution. See why teams choose our production-ready API gateway.",
+				"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy.",
 			type: "website",
+			url: "https://llmgateway.io/compare/litellm",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs LiteLLM - Feature Comparison",
+			title: "LLM Gateway vs LiteLLM — Feature Comparison",
 			description:
-				"Compare LLM Gateway's managed infrastructure, advanced analytics, and enterprise features against LiteLLM's self-hosted proxy solution.",
+				"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy.",
 		},
 	};
 }

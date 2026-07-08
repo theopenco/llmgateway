@@ -68,6 +68,15 @@ export async function generateMetadata({
 	const decoded = decodeURIComponent(category);
 	return {
 		title: `Blog: ${decoded}`,
-		description: `Articles in the ${decoded} category at LLM Gateway`,
+		description: `Articles in the ${decoded} category at LLM Gateway — news, tutorials, and product updates.`,
+		alternates: {
+			canonical: `/blog/category/${encodeURIComponent(decoded)}`,
+		},
+		openGraph: {
+			title: `Blog: ${decoded}`,
+			description: `Articles in the ${decoded} category at LLM Gateway — news, tutorials, and product updates.`,
+			url: `https://llmgateway.io/blog/category/${encodeURIComponent(decoded)}`,
+			type: "website",
+		},
 	};
 }

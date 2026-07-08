@@ -7,6 +7,7 @@ export const metadata: Metadata = {
 	title: "Sign in with SSO",
 	description:
 		"Sign in to your LLM Gateway account with your organization's single sign-on provider.",
+	robots: { index: false, follow: false },
 };
 
 export default function SsoLayout({ children }: { children: ReactNode }) {

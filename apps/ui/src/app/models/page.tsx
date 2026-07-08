@@ -11,12 +11,13 @@ export const metadata = {
 	},
 	title: "AI Models Directory — Compare 200+ LLM Models",
 	description:
-		"Browse and compare 200+ AI models from leading providers like OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size. Find the perfect LLM for your application.",
+		"Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size.",
 	openGraph: {
 		title: "AI Models Directory — Compare 200+ LLM Models",
 		description:
-			"Browse and compare 200+ AI models from leading providers like OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size.",
+			"Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size.",
 		type: "website",
+		url: "https://llmgateway.io/models",
 	},
 	twitter: {
 		card: "summary_large_image",

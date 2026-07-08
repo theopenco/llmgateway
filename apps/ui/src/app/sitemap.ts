@@ -381,19 +381,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		});
 
-		// Model uptime page
-		modelPages.push({
-			url: `${baseUrl}/models/${encodeURIComponent(model.id)}/uptime`,
-			lastModified: buildDate,
-			changeFrequency: "daily",
-			priority: 0.5,
-		});
-
-		// Model + provider sub-pages (/models/{id}/{provider}) are intentionally
-		// excluded from the sitemap: they canonicalize to the base model page
-		// (/models/{id}), so listing them here only inflates Search Console's
-		// "Alternate page with proper canonical tag" report without adding any
-		// indexable URLs. Google still discovers them via internal links.
+		// Model uptime pages and model+provider sub-pages are intentionally
+		// excluded from the sitemap: uptime pages are thin templates that
+		// inflate crawl budget (~300 URLs), and provider sub-pages canonicalize
+		// to the base model page. Google still discovers both via internal links.
 	}
 
 	// Provider pages

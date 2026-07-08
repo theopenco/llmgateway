@@ -25,11 +25,7 @@ import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import {
-	buildRatingSchema,
-	digitalOfferFields,
-	type ModelRatingsData,
-} from "@/lib/rating-schema";
+import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -235,11 +231,11 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				unitText: "per 1M input tokens",
 			},
 			availability: "https://schema.org/InStock",
+			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`,
 			seller: {
 				"@type": "Organization",
 				name: "LLM Gateway",
 			},
-			...digitalOfferFields,
 		},
 		category: "AI/ML API Service",
 		...buildRatingSchema(ratingsData),

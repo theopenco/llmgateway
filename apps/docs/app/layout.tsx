@@ -21,16 +21,30 @@ const mono = Geist_Mono({
 
 export const dynamic = "force-dynamic";
 
+const docsBaseUrl = process.env.DOCS_URL ?? "https://docs.llmgateway.io";
+
 export const metadata: Metadata = {
-	metadataBase: new URL("https://llmgateway.io"),
-	title: "LLM Gateway Documentation",
+	metadataBase: new URL(docsBaseUrl),
+	title: {
+		default: "LLM Gateway Documentation",
+		template: "%s | LLM Gateway Docs",
+	},
 	description:
-		"LLM Gateway Documentation - Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
+		"Route, manage, and analyze LLM requests across multiple providers with a unified API. Guides, API reference, and self-hosting docs.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
 	alternates: {
 		canonical: "./",
+	},
+	openGraph: {
+		siteName: "LLM Gateway Docs",
+		type: "website",
+		locale: "en_US",
+	},
+	robots: {
+		index: true,
+		follow: true,
 	},
 };
 

@@ -9,18 +9,20 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "LLM API Pricing — Per-Token, No Markup",
 	description:
-		"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across OpenAI, Anthropic, Google, and 40+ providers.",
+		"Pay per-token at provider rates with no markup. Free tier, volume discounts, and one bill across OpenAI, Anthropic, Google, and 40+ providers.",
+	alternates: { canonical: "/pricing" },
 	openGraph: {
 		title: "LLM API Pricing — Per-Token, No Markup",
 		description:
-			"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across OpenAI, Anthropic, Google, and 40+ providers.",
+			"Pay per-token at provider rates with no markup. Free tier, volume discounts, and one bill across 40+ LLM providers.",
 		type: "website",
+		url: "https://llmgateway.io/pricing",
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: "LLM API Pricing — Per-Token, No Markup",
 		description:
-			"Pay per-token at provider rates with no markup. Free tier included, volume discounts on paid plans, and one bill across 40+ LLM providers.",
+			"Pay per-token at provider rates with no markup. Free tier, volume discounts, and one bill across 40+ LLM providers.",
 	},
 };
 
