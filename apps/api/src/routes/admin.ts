@@ -135,6 +135,8 @@ const organizationSchema = z.object({
 	kind: z.enum(["default", "chat", "devpass"]),
 	plan: z.string(),
 	devPlan: z.string(),
+	// Manual seat-limit override; null = use the plan default.
+	seats: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
@@ -1978,6 +1980,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			seats: org.seats,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -2058,6 +2061,7 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			seats: org.seats,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -5285,6 +5289,98 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 		message: "Referral bonus updated successfully",
 		referralBonusEnabled: enabled,
 		referralBonusPercent: percent,
+	});
+});
+
+// Manage an organization's plan tier and seat-limit override
+const manageOrganizationRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/manage",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						plan: z.enum(["free", "pro", "enterprise"]),
+						// Null clears the override and reverts to the plan default.
+						seats: z.number().int().min(0).max(100000).nullable(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						plan: z.string(),
+						seats: z.number().int().nullable(),
+					}),
+				},
+			},
+			description: "Organization updated successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(manageOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { plan, seats } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			plan,
+			seats,
+		})
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "organization.manage",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			previousPlan: org.plan,
+			newPlan: plan,
+			previousSeats: org.seats,
+			newSeats: seats,
+		},
+	});
+
+	return c.json({
+		message: "Organization updated successfully",
+		plan,
+		seats,
 	});
 });
 

@@ -199,6 +199,10 @@ export const organization = pgTable(
 			.notNull()
 			.default("free"),
 		planExpiresAt: timestamp(),
+		// Manual seat-limit override set by admins. Null = use the plan default
+		// (free/pro = 5, enterprise = 100). When set, this takes precedence for
+		// both display and enforcement of the team-member cap.
+		seats: integer(),
 		subscriptionCancelled: boolean().notNull().default(false),
 		trialStartDate: timestamp(),
 		trialEndDate: timestamp(),
@@ -2616,6 +2620,7 @@ export const auditLogActions = [
 	"organization.update",
 	"organization.delete",
 	"organization.block",
+	"organization.manage",
 	// Project
 	"project.create",
 	"project.update",

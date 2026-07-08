@@ -4,7 +4,6 @@ import { z } from "zod";
 
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
-import { resolveDevPassBillingDetails } from "@/utils/devpass-billing.js";
 import {
 	buildInvoiceDataForTransaction,
 	generateAndEmailInvoice,
@@ -13,6 +12,7 @@ import {
 	isRefundTransaction,
 } from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
+import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {

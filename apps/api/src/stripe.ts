@@ -26,7 +26,6 @@ import {
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
-import { resolveDevPassBillingDetails } from "./utils/devpass-billing.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
@@ -44,6 +43,10 @@ import {
 	sendTransactionalEmail,
 } from "./utils/email.js";
 import { generateAndEmailInvoice } from "./utils/invoice.js";
+import {
+	resolveChatPlanBillingDetails,
+	resolveDevPassBillingDetails,
+} from "./utils/plan-billing.js";
 
 import type { ServerTypes } from "./vars.js";
 import type Stripe from "stripe";
@@ -1301,16 +1304,14 @@ async function handleCheckoutSessionCompleted(
 					.returning();
 
 				try {
+					const billingDetails =
+						await resolveChatPlanBillingDetails(organization);
 					await generateAndEmailInvoice({
 						organizationId: organization.id,
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
-						billingEmail: organization.billingEmail,
-						billingCompany: organization.billingCompany,
-						billingAddress: organization.billingAddress,
-						billingTaxId: organization.billingTaxId,
-						billingNotes: organization.billingNotes,
+						...billingDetails,
 						lineItems: [
 							{
 								description: `Chat Plan ${chatPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
@@ -3063,6 +3064,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 	// true cycle renewal, not on mid-cycle tier-change proration invoices.
 	const isChatPlanRenewal =
 		isChatPlanSubscription && invoice.billing_reason === "subscription_cycle";
+	// Mid-cycle chat plan tier change: the change-tier endpoint charges the
+	// prorated upgrade with `always_invoice`, which Stripe bills as a
+	// `subscription_update` invoice.
+	const isChatPlanUpgradeInvoice =
+		isChatPlanSubscription && invoice.billing_reason === "subscription_update";
 
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}, isChatPlanRenewal: ${isChatPlanRenewal}`,
@@ -3188,17 +3194,20 @@ export async function handleInvoicePaymentSucceeded(event: {
 			organization.chatPlan as ChatPlanTier,
 		);
 
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "chat_plan_renewal",
-			amount: (invoice.amount_paid / 100).toString(),
-			creditAmount: creditsLimit.toString(),
-			currency: invoice.currency.toUpperCase(),
-			status: "completed",
-			stripePaymentIntentId: (invoice as any).payment_intent,
-			stripeInvoiceId: invoice.id,
-			description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewed`,
-		});
+		const [renewalTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "chat_plan_renewal",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewed`,
+			})
+			.returning();
 
 		await db
 			.update(tables.organization)
@@ -3212,6 +3221,29 @@ export async function handleInvoicePaymentSucceeded(event: {
 		logger.info(
 			`Chat plan ${organization.chatPlan} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
 		);
+
+		try {
+			const billingDetails = await resolveChatPlanBillingDetails(organization);
+			await generateAndEmailInvoice({
+				organizationId: organization.id,
+				invoiceNumber: renewalTransaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				...billingDetails,
+				lineItems: [
+					{
+						description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (chat plan renewal invoice); suppressing failure",
+				e as Error,
+			);
+		}
 
 		posthog.capture({
 			distinctId: "organization",
@@ -3455,6 +3487,71 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// the org to the Pro plan.
 		logger.info(
 			`Skipping non-renewal dev plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
+		);
+	} else if (isChatPlanUpgradeInvoice) {
+		// Invoice from a mid-cycle chat plan upgrade. The change-tier endpoint
+		// already applied the new tier/limit synchronously; this webhook records
+		// the charge and emails the invoice. onConflictDoNothing on the unique
+		// stripeInvoiceId index keeps it idempotent against Stripe retries, so the
+		// row and email are produced at most once. Credits are left untouched — an
+		// upgrade must not reset the cycle's usage.
+		const creditsLimit = getChatPlanCreditsLimit(
+			organization.chatPlan as ChatPlanTier,
+		);
+		const [upgradeTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "chat_plan_upgrade",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} upgrade`,
+			})
+			.onConflictDoNothing()
+			.returning();
+
+		if (upgradeTransaction) {
+			try {
+				const billingDetails =
+					await resolveChatPlanBillingDetails(organization);
+				await generateAndEmailInvoice({
+					organizationId: organization.id,
+					invoiceNumber: upgradeTransaction.id,
+					invoiceDate: new Date(),
+					organizationName: organization.name,
+					...billingDetails,
+					lineItems: [
+						{
+							description: `Chat Plan ${organization.chatPlan?.toUpperCase()} upgrade`,
+							amount: invoice.amount_paid / 100,
+						},
+					],
+					currency: invoice.currency.toUpperCase(),
+				});
+			} catch (e) {
+				logger.error(
+					"Invoice email failed (chat plan upgrade invoice); suppressing failure",
+					e as Error,
+				);
+			}
+			logger.info(
+				`Recorded chat plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
+			);
+		} else {
+			logger.info(
+				`Chat plan upgrade transaction already exists for invoice ${invoice.id}; skipping duplicate insert/email`,
+			);
+		}
+	} else if (isChatPlanSubscription) {
+		// Any other chat-plan invoice (e.g. `manual`). Do not fall through to the
+		// Pro-subscription handler, which would wrongly flip the org to the Pro
+		// plan and email a Pro invoice.
+		logger.info(
+			`Skipping non-renewal chat plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
 		);
 	} else {
 		// Handle regular pro subscription

@@ -9,7 +9,7 @@ import { maskToken } from "@/lib/maskToken.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { and, db, eq, shortid, tables } from "@llmgateway/db";
+import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
@@ -55,9 +55,11 @@ async function assertEnterpriseOrgAccess(
 
 // Seed a sensible default per-developer spend cap ($500/month) onto the org's
 // default developer budget when an SSO team is first connected, so provisioned
-// developers are bounded out of the box. Only applied when the org has no
-// default developer budget configured yet — owners/admins can override it on the
-// Team page. Written as its own audit-logged organization.update event.
+// developers are bounded out of the box. Independent of the default API-key cap
+// seeded above: this only reads/writes the spend-limit fields and only when the
+// org has no spend cap (total or period) configured yet, so seeding the key cap
+// never suppresses the spend cap (and vice versa). Owners/admins can override it
+// on the Team page. Written as its own audit-logged organization.update event.
 async function seedSsoTeamDefaultDeveloperBudget(
 	organizationId: string,
 	userId: string,
@@ -65,7 +67,6 @@ async function seedSsoTeamDefaultDeveloperBudget(
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: organizationId } },
 		columns: {
-			defaultDeveloperMaxApiKeys: true,
 			defaultDeveloperUsageLimit: true,
 			defaultDeveloperPeriodUsageLimit: true,
 			defaultDeveloperPeriodUsageDurationValue: true,
@@ -73,21 +74,19 @@ async function seedSsoTeamDefaultDeveloperBudget(
 		},
 	});
 
-	const alreadyConfigured =
+	const spendCapConfigured =
 		!org ||
-		org.defaultDeveloperMaxApiKeys !== null ||
 		org.defaultDeveloperUsageLimit !== null ||
 		org.defaultDeveloperPeriodUsageLimit !== null ||
 		org.defaultDeveloperPeriodUsageDurationValue !== null ||
 		org.defaultDeveloperPeriodUsageDurationUnit !== null;
-	if (alreadyConfigured) {
+	if (spendCapConfigured) {
 		return;
 	}
 
 	await db
 		.update(tables.organization)
 		.set({
-			defaultDeveloperMaxApiKeys: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.maxApiKeys,
 			defaultDeveloperUsageLimit: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.usageLimit,
 			defaultDeveloperPeriodUsageLimit:
 				SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit,
@@ -109,13 +108,20 @@ async function seedSsoTeamDefaultDeveloperBudget(
 			changes: {
 				defaultDeveloperBudget: {
 					old: {
-						maxApiKeys: null,
 						usageLimit: null,
 						periodUsageLimit: null,
 						periodUsageDurationValue: null,
 						periodUsageDurationUnit: null,
 					},
-					new: { ...SSO_TEAM_DEFAULT_DEVELOPER_BUDGET },
+					new: {
+						usageLimit: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.usageLimit,
+						periodUsageLimit:
+							SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit,
+						periodUsageDurationValue:
+							SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationValue,
+						periodUsageDurationUnit:
+							SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit,
+					},
 				},
 			},
 		},
@@ -380,6 +386,21 @@ sso.openapi(register, async (c) => {
 			enforced: tables.ssoProvider.enforced,
 			createdAt: tables.ssoProvider.createdAt,
 		});
+
+	// Seed a reasonable default per-developer API key cap for the org. Only set
+	// it when the org hasn't already configured its own default developer budget,
+	// so we never clobber an explicit admin choice.
+	await db
+		.update(tables.organization)
+		.set({
+			defaultDeveloperMaxApiKeys: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.maxApiKeys,
+		})
+		.where(
+			and(
+				eq(tables.organization.id, organizationId),
+				isNull(tables.organization.defaultDeveloperMaxApiKeys),
+			),
+		);
 
 	await logAuditEvent({
 		organizationId,

@@ -20,13 +20,14 @@ export interface MemberBudgetShape extends ApiKeyLimitConstraints {
 }
 
 /**
- * The default per-developer spend cap seeded onto an org's default developer
- * budget when an SSO team is first connected ($500/month). Owners/admins can
- * override it afterwards on the Team page. Kept here so the API (which writes it
- * on SSO provisioning) and the UI (which explains it) share one source of truth.
+ * The default per-developer budget seeded onto an org's default developer budget
+ * when an SSO team is first connected: a $500/month spend cap and a 3 active-key
+ * cap. Owners/admins can override it afterwards on the Team page. Kept here so
+ * the API (which writes it on SSO provisioning) and the UI (which explains it)
+ * share one source of truth.
  */
 export const SSO_TEAM_DEFAULT_DEVELOPER_BUDGET = {
-	maxApiKeys: null,
+	maxApiKeys: 3,
 	usageLimit: null,
 	periodUsageLimit: "500",
 	periodUsageDurationValue: 1,
