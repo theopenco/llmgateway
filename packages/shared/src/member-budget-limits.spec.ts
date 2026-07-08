@@ -103,6 +103,29 @@ describe("validateApiKeyLimitsWithinMemberBudget", () => {
 		).toBeNull();
 	});
 
+	it("allows equal rates across different windows despite float division", () => {
+		// $30/month (720h) and $1/day (24h) are the same $/hour rate, but
+		// 30/720 and 1/24 differ in binary floating point. Exact cross-
+		// multiplication (1*720 === 30*24) treats them as equal → allowed.
+		const member: ApiKeyLimitConstraints = {
+			usageLimit: null,
+			periodUsageLimit: "30",
+			periodUsageDurationValue: 1,
+			periodUsageDurationUnit: "month",
+		};
+		expect(
+			validateApiKeyLimitsWithinMemberBudget(
+				{
+					usageLimit: null,
+					periodUsageLimit: "1",
+					periodUsageDurationValue: 1,
+					periodUsageDurationUnit: "day",
+				},
+				member,
+			),
+		).toBeNull();
+	});
+
 	it("requires a recurring key limit when the member has one", () => {
 		expect(
 			validateApiKeyLimitsWithinMemberBudget(NO_LIMITS, {

@@ -4,6 +4,8 @@
  * pulling in the database driver.
  */
 
+import { Decimal } from "decimal.js";
+
 export type ApiKeyPeriodDurationUnitValue = "hour" | "day" | "week" | "month";
 
 /** The subset of limit fields shared by an API key and a member budget. */
@@ -52,13 +54,12 @@ function periodWindowLabel(
 	return `${value} ${unit}${value === 1 ? "" : "s"}`;
 }
 
-/** Spend rate normalized to $/hour, so windows of different length compare fairly. */
-function periodHourlyRate(
-	limit: string | number,
+/** Length of a period window in hours, so windows of different length compare fairly. */
+function periodWindowHours(
 	value: number,
 	unit: ApiKeyPeriodDurationUnitValue,
 ): number {
-	return Number(limit) / (value * PERIOD_UNIT_HOURS[unit]);
+	return value * PERIOD_UNIT_HOURS[unit];
 }
 
 /**
@@ -101,18 +102,25 @@ export function validateApiKeyLimitsWithinMemberBudget(
 		) {
 			return `Set a recurring usage limit at or below your organization limit of ${formatBudgetUsd(memberBudget.periodUsageLimit)} per ${memberWindow}.`;
 		}
-		const memberRate = periodHourlyRate(
-			memberBudget.periodUsageLimit,
+		const memberWindowHours = periodWindowHours(
 			memberBudget.periodUsageDurationValue,
 			memberBudget.periodUsageDurationUnit,
 		);
-		const keyRate = periodHourlyRate(
-			keyLimits.periodUsageLimit,
+		const keyWindowHours = periodWindowHours(
 			keyLimits.periodUsageDurationValue,
 			keyLimits.periodUsageDurationUnit,
 		);
-		// Tolerate float-division noise so identical rates aren't rejected.
-		if (keyRate > memberRate * (1 + 1e-9)) {
+		// Compare hourly spend rates via exact cross-multiplication (both windows
+		// are positive), so equal rates stay equal without float-division noise:
+		//   keyLimit / keyWindow > memberLimit / memberWindow
+		//   ⟺ keyLimit * memberWindow > memberLimit * keyWindow
+		const keyScaled = new Decimal(keyLimits.periodUsageLimit).times(
+			memberWindowHours,
+		);
+		const memberScaled = new Decimal(memberBudget.periodUsageLimit).times(
+			keyWindowHours,
+		);
+		if (keyScaled.greaterThan(memberScaled)) {
 			return `Recurring usage limit can't exceed your organization limit of ${formatBudgetUsd(memberBudget.periodUsageLimit)} per ${memberWindow}.`;
 		}
 	}
