@@ -27,6 +27,7 @@ import {
 	useUpdateMemberBudget,
 	useUpdateDefaultDeveloperBudget,
 	useRemoveTeamMember,
+	useRevokeTeamInvite,
 	type TeamMembersData,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -690,6 +691,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { data, isLoading } = useTeamMembers(organizationId, initialData);
 	const addMemberMutation = useAddTeamMember(organizationId);
 	const removeMemberMutation = useRemoveTeamMember(organizationId);
+	const revokeInviteMutation = useRevokeTeamInvite(organizationId);
 
 	const currentUserRole = data?.members.find(
 		(member) => member.userId === user?.id,
@@ -706,6 +708,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const [accessMember, setAccessMember] = useState<TeamMember | null>(null);
 	const [defaultLimitsOpen, setDefaultLimitsOpen] = useState(false);
 	const defaultDeveloperBudget = data?.defaultDeveloperBudget ?? null;
+	const pendingInvites = data?.invites ?? [];
+	const seatLimit = data?.seatLimit ?? 5;
+	const seatsUsed = (data?.members.length ?? 0) + pendingInvites.length;
 
 	const { data: orgProjectsData } = api.useQuery(
 		"get",
@@ -793,7 +798,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			return;
 		}
 
-		await addMemberMutation.mutateAsync({
+		const result = await addMemberMutation.mutateAsync({
 			params: {
 				path: {
 					organizationId,
@@ -807,12 +812,37 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		});
 		toast({
 			title: "Success",
-			description: "Team member added successfully",
+			description: result.invite
+				? "Invitation sent — they'll join automatically once they sign up with this email."
+				: "Team member added successfully",
 		});
 		setEmail("");
 		setRole("developer");
 		setNewMemberProjectIds([]);
 		setIsAddDialogOpen(false);
+	};
+
+	const handleRevokeInvite = async (inviteId: string, inviteEmail: string) => {
+		const confirmed = window.confirm(
+			`Are you sure you want to revoke the invitation for ${inviteEmail}?`,
+		);
+
+		if (!confirmed) {
+			return;
+		}
+
+		await revokeInviteMutation.mutateAsync({
+			params: {
+				path: {
+					organizationId,
+					inviteId,
+				},
+			},
+		});
+		toast({
+			title: "Success",
+			description: "Invitation revoked",
+		});
 	};
 
 	const handleRemoveMember = async (memberId: string, memberName: string) => {
@@ -866,16 +896,16 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 								}}
 							>
 								<DialogTrigger asChild>
-									<Button disabled={(data?.members.length ?? 0) >= 5}>
-										Add Member
-									</Button>
+									<Button disabled={seatsUsed >= seatLimit}>Add Member</Button>
 								</DialogTrigger>
 								<DialogContent>
 									<DialogHeader>
 										<DialogTitle>Add Team Member</DialogTitle>
 										<DialogDescription>
 											Add a new member to your organization by entering their
-											email address.
+											email address. If they don't have an account yet, we'll
+											email them an invitation and they'll join automatically
+											when they sign up (including via SSO).
 										</DialogDescription>
 									</DialogHeader>
 									<div className="space-y-4 py-4">
@@ -1016,7 +1046,13 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							<CardTitle>Team Members</CardTitle>
 							<CardDescription>
 								Manage your organization's team members and their roles (
-								{data?.members.length ?? 0}/{data?.seatLimit ?? 5} seats used)
+								{seatsUsed}/{seatLimit} seats used
+								{pendingInvites.length > 0
+									? `, including ${pendingInvites.length} pending ${
+											pendingInvites.length === 1 ? "invitation" : "invitations"
+										}`
+									: ""}
+								)
 								{showUsage
 									? ". Cost is attributed to the member who created each API key."
 									: ""}
@@ -1212,6 +1248,91 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							)}
 						</CardContent>
 					</Card>
+
+					{pendingInvites.length > 0 && (
+						<Card>
+							<CardHeader>
+								<CardTitle>Pending Invitations</CardTitle>
+								<CardDescription>
+									People invited by email who haven't created an account yet.
+									They'll join automatically when they sign up — via email, SSO,
+									or SCIM provisioning.
+								</CardDescription>
+							</CardHeader>
+							<CardContent>
+								<Table>
+									<TableHeader>
+										<TableRow>
+											<TableHead>Email</TableHead>
+											<TableHead>Role</TableHead>
+											<TableHead>Projects</TableHead>
+											<TableHead>Invited</TableHead>
+											<TableHead>Expires</TableHead>
+											{isAdmin && (
+												<TableHead className="text-right">Actions</TableHead>
+											)}
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{pendingInvites.map((invite) => (
+											<TableRow key={invite.id}>
+												<TableCell>{invite.email}</TableCell>
+												<TableCell>
+													<Badge variant="secondary" className="capitalize">
+														{invite.role}
+													</Badge>
+												</TableCell>
+												<TableCell>
+													{invite.projects === null ? (
+														<span className="text-muted-foreground text-sm">
+															All projects
+														</span>
+													) : invite.projects.length === 0 ? (
+														<span className="text-muted-foreground text-sm">
+															No projects
+														</span>
+													) : (
+														<div className="flex flex-wrap gap-1">
+															{invite.projects.map((project) => (
+																<Badge
+																	key={project.id}
+																	variant="outline"
+																	className="font-normal"
+																>
+																	{project.name}
+																</Badge>
+															))}
+														</div>
+													)}
+												</TableCell>
+												<TableCell>
+													{format(new Date(invite.createdAt), "MMM d, yyyy")}
+												</TableCell>
+												<TableCell>
+													{format(new Date(invite.expiresAt), "MMM d, yyyy")}
+												</TableCell>
+												{isAdmin && (
+													<TableCell className="text-right">
+														<Button
+															variant="ghost"
+															size="sm"
+															className="text-destructive hover:text-destructive"
+															disabled={revokeInviteMutation.isPending}
+															onClick={() =>
+																handleRevokeInvite(invite.id, invite.email)
+															}
+														>
+															Revoke
+														</Button>
+													</TableCell>
+												)}
+											</TableRow>
+										))}
+									</TableBody>
+								</Table>
+							</CardContent>
+						</Card>
+					)}
 				</div>
 			</div>
 			{accessMember && (

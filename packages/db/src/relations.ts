@@ -145,6 +145,16 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.project.id,
 		}),
 	},
+	organizationInvite: {
+		organization: r.one.organization({
+			from: r.organizationInvite.organizationId,
+			to: r.organization.id,
+		}),
+		inviter: r.one.user({
+			from: r.organizationInvite.invitedBy,
+			to: r.user.id,
+		}),
+	},
 	ssoDefaultProject: {
 		organization: r.one.organization({
 			from: r.ssoDefaultProject.organizationId,

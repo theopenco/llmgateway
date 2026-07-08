@@ -652,6 +652,55 @@ export const userOrganization = pgTable(
 	],
 );
 
+// Email invitations to an organization for people who may not have an account
+// yet. When a user with a matching email later signs up (email/password,
+// social, SSO) or is provisioned via SCIM, pending invites are auto-accepted
+// and turned into userOrganization memberships (see apps/api
+// lib/team-invites.ts). Invites for existing users are never created — those
+// are added as members directly.
+export const organizationInvite = pgTable(
+	"organization_invite",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// Stored lowercased; matched case-insensitively against the signup email.
+		email: text().notNull(),
+		role: text({
+			enum: ["owner", "admin", "developer"],
+		})
+			.notNull()
+			.default("developer"),
+		// Project grants applied at acceptance for "developer" invites. Projects
+		// deleted before acceptance are skipped.
+		projectIds: jsonb().$type<string[]>(),
+		invitedBy: text().references(() => user.id, { onDelete: "set null" }),
+		status: text({
+			enum: ["pending", "accepted", "revoked"],
+		})
+			.notNull()
+			.default("pending"),
+		expiresAt: timestamp().notNull(),
+		acceptedAt: timestamp(),
+		acceptedByUserId: text().references(() => user.id, {
+			onDelete: "set null",
+		}),
+	},
+	(table) => [
+		index("organization_invite_email_idx").on(table.email, table.status),
+		index("organization_invite_organization_id_idx").on(
+			table.organizationId,
+			table.status,
+		),
+	],
+);
+
 // Project-level access grants for project-scoped members. Owners/admins have
 // implicit access to every project in their org (no rows here); "developer"
 // members are limited to the projects granted via this table. Keyed on the
@@ -2654,6 +2703,9 @@ export const auditLogActions = [
 	"team_member.update",
 	"team_member.budget_update",
 	"team_member.remove",
+	"team_member.invite",
+	"team_member.invite_accept",
+	"team_member.invite_revoke",
 	// API Key
 	"api_key.create",
 	"api_key.roll",
@@ -2733,6 +2785,7 @@ export const auditLogResourceTypes = [
 	"organization",
 	"project",
 	"team_member",
+	"team_invite",
 	"api_key",
 	"master_key",
 	"iam_rule",

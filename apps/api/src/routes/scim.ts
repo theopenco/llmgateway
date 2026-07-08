@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -403,6 +404,8 @@ scim.post("/Users", async (c) => {
 		return scimError(409, "User already provisioned in this organization");
 	}
 
+	const isNewUser = !user;
+
 	if (!user) {
 		const [created] = await db
 			.insert(tables.user)
@@ -448,6 +451,13 @@ scim.post("/Users", async (c) => {
 
 	// Apply any role mapping in case the user is already referenced by a group.
 	await recomputeUserRole(c, user.id, orgId);
+
+	// A SCIM-created user may never go through a signup flow, so honor any
+	// pending team invites (typically to other organizations) right away. The
+	// email is IdP-asserted, so it's trustworthy.
+	if (isNewUser) {
+		await acceptPendingInvitesForUser(user);
+	}
 
 	return scimJson(toScimUser(user, true, payload.externalId), 201);
 });
