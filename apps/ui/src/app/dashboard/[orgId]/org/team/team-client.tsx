@@ -928,8 +928,8 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 										<Alert>
 											<AlertDescription>
 												<p>
-													Organizations can have up to 5 team members. Contact
-													us at{" "}
+													Organizations can have up to {data?.seatLimit ?? 5}{" "}
+													team members. Contact us at{" "}
 													<a
 														href="mailto:contact@llmgateway.io"
 														className="underline"
@@ -1016,7 +1016,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							<CardTitle>Team Members</CardTitle>
 							<CardDescription>
 								Manage your organization's team members and their roles (
-								{data?.members.length ?? 0}/5 seats used)
+								{data?.members.length ?? 0}/{data?.seatLimit ?? 5} seats used)
 								{showUsage
 									? ". Cost is attributed to the member who created each API key."
 									: ""}

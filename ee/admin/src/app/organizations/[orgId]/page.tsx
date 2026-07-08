@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	blockOrganization,
 	giftCreditsToOrganization,
+	manageOrganization,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
@@ -34,6 +35,7 @@ import { createServerApiClient } from "@/lib/server-api";
 
 import { ApiKeysTable } from "./api-keys-table";
 import { GiftCreditsDialog } from "./gift-credits-dialog";
+import { ManageOrgDialog } from "./manage-org-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
@@ -246,12 +248,24 @@ export default async function OrganizationPage({
 						<Badge variant={org.status === "active" ? "secondary" : "outline"}>
 							{org.status ?? "active"}
 						</Badge>
+						{org.seats !== null && org.seats !== undefined && (
+							<Badge variant="outline">Seats: {org.seats}</Badge>
+						)}
 						<span className="text-sm font-medium">
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					<ManageOrgDialog
+						orgName={org.name}
+						plan={org.plan}
+						seats={org.seats ?? null}
+						onSave={async (data) => {
+							"use server";
+							return await manageOrganization(orgId, data);
+						}}
+					/>
 					<GiftCreditsDialog
 						orgId={orgId}
 						orgName={org.name}

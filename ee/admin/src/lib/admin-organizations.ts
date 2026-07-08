@@ -95,6 +95,29 @@ export async function updateReferralBonus(
 	return { success: true };
 }
 
+export async function manageOrganization(
+	orgId: string,
+	body: { plan: "free" | "pro" | "enterprise"; seats: number | null },
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/manage",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update organization";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
 export async function setOrganizationStatus(
 	orgId: string,
 	status: "active" | "deleted",
