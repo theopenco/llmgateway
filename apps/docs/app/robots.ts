@@ -2,6 +2,11 @@ import { docsBaseUrl } from "@/lib/base-url";
 
 import type { MetadataRoute } from "next";
 
+// Metadata routes don't inherit the root layout's force-dynamic; without it
+// this route is prerendered at build time with the build-time DOCS_URL
+// (usually the fallback) baked in instead of the runtime value.
+export const dynamic = "force-dynamic";
+
 export default function robots(): MetadataRoute.Robots {
 	return {
 		rules: [
