@@ -20,7 +20,6 @@ import {
 	db,
 	tables,
 	eq,
-	sql,
 	and,
 	or,
 	lt,
@@ -30,7 +29,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	DEV_PLAN_PRICES,
-	getProratedCreditDelta,
+	getDevPlanCreditsLimit,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -142,174 +141,38 @@ function getRemainingBillingPeriodFraction(
 	return Math.min(1, Math.max(0, (periodEnd - nowSeconds) / periodSeconds));
 }
 
-function getDevPlanUpgradeAmountCents(
-	currentTier: DevPlanTier,
-	newTier: DevPlanTier,
-	remainingFraction: number,
-) {
-	const fullDeltaCents =
-		(DEV_PLAN_PRICES[newTier] - DEV_PLAN_PRICES[currentTier]) * 100;
-	return Math.max(0, Math.round(fullDeltaCents * remainingFraction));
+// The full price of a tier charged on an upgrade. Reads the Stripe price's
+// unit amount so it stays correct for both monthly and legacy annual cadences
+// (DEV_PLAN_PRICES only tracks the monthly dollar figure).
+async function getDevPlanFullPriceCents(priceId: string): Promise<number> {
+	const price = await getStripe().prices.retrieve(priceId);
+	return price.unit_amount ?? 0;
 }
 
-function getDevPlanTierChangeCreditPreview(
-	currentTier: DevPlanTier,
-	newTier: DevPlanTier,
-	remainingFraction: number,
-	currentCreditsLimit: number,
-) {
-	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
-	const proratedCreditDelta = isUpgrade
-		? getProratedCreditDelta(currentTier, newTier, remainingFraction)
-		: 0;
-
-	return {
-		currentCreditsLimit,
-		proratedCreditDelta,
-		newCreditsLimit: currentCreditsLimit + proratedCreditDelta,
-	};
-}
-
-async function cleanupFailedUpgradeInvoice(params: {
-	invoiceId: string | null;
-	invoiceItemId: string | null;
-	finalized: boolean;
-}) {
-	const stripe = getStripe();
-	try {
-		if (params.invoiceId) {
-			if (params.finalized) {
-				await stripe.invoices.voidInvoice(params.invoiceId);
-			} else {
-				await stripe.invoices.del(params.invoiceId);
-			}
-			return;
+function getDevPlanChangeInvoiceId(subscription: Stripe.Subscription) {
+	const latestInvoice = (
+		subscription as Stripe.Subscription & {
+			latest_invoice?: string | Stripe.Invoice | null;
 		}
-
-		if (params.invoiceItemId) {
-			await stripe.invoiceItems.del(params.invoiceItemId);
-		}
-	} catch (cleanupError) {
-		logger.warn("Failed to clean up failed dev plan upgrade invoice", {
-			error:
-				cleanupError instanceof Error
-					? cleanupError.message
-					: String(cleanupError),
-			invoiceId: params.invoiceId,
-			invoiceItemId: params.invoiceItemId,
-		});
+	).latest_invoice;
+	if (!latestInvoice) {
+		return { invoiceId: null, paymentIntentId: null, amountPaid: null };
 	}
-}
-
-async function collectDevPlanUpgradeCharge(params: {
-	subscription: Stripe.Subscription;
-	organizationId: string;
-	currentTier: DevPlanTier;
-	newTier: DevPlanTier;
-	remainingFraction: number;
-}) {
-	const stripe = getStripe();
-	const customerId = getStripeId(params.subscription.customer);
-
-	if (!customerId) {
-		throw new HTTPException(500, {
-			message: "Subscription customer not found",
-		});
-	}
-
-	const amountCents = getDevPlanUpgradeAmountCents(
-		params.currentTier,
-		params.newTier,
-		params.remainingFraction,
-	);
-
-	if (amountCents <= 0) {
-		return null;
-	}
-
-	const metadata = {
-		organizationId: params.organizationId,
-		subscriptionType: "dev_plan",
-		devPlanChange: "upgrade",
-		fromTier: params.currentTier,
-		toTier: params.newTier,
-		remainingFraction: params.remainingFraction.toString(),
-	};
-
-	let invoiceItemId: string | null = null;
-	let invoiceId: string | null = null;
-	let finalized = false;
-
-	try {
-		const invoiceItem = await stripe.invoiceItems.create({
-			customer: customerId,
-			subscription: params.subscription.id,
-			amount: amountCents,
-			currency: "usd",
-			description: `Dev Plan upgrade from ${params.currentTier.toUpperCase()} to ${params.newTier.toUpperCase()}`,
-			metadata,
-		});
-		invoiceItemId = invoiceItem.id ?? null;
-
-		const invoice = await stripe.invoices.create({
-			customer: customerId,
-			subscription: params.subscription.id,
-			collection_method: "charge_automatically",
-			auto_advance: false,
-			metadata,
-			expand: ["payment_intent"],
-		});
-		if (!invoice.id) {
-			throw new HTTPException(500, {
-				message: "Upgrade invoice was not created",
-			});
-		}
-		invoiceId = invoice.id;
-
-		const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id, {
-			auto_advance: false,
-			expand: ["payment_intent"],
-		});
-		if (!finalizedInvoice.id) {
-			throw new HTTPException(500, {
-				message: "Upgrade invoice was not finalized",
-			});
-		}
-		finalized = true;
-
-		const paidInvoice = await stripe.invoices.pay(finalizedInvoice.id, {
-			off_session: true,
-			expand: ["payment_intent"],
-		});
-
-		if (paidInvoice.status !== "paid") {
-			throw new HTTPException(402, {
-				message:
-					"Upgrade payment could not be collected. Update your payment method and try again.",
-			});
-		}
-
+	if (typeof latestInvoice === "string") {
 		return {
-			amount: amountCents / 100,
-			invoiceId: paidInvoice.id ?? invoiceId,
-			paymentIntentId: getInvoicePaymentIntentId(paidInvoice),
+			invoiceId: latestInvoice,
+			paymentIntentId: null,
+			amountPaid: null,
 		};
-	} catch (error) {
-		await cleanupFailedUpgradeInvoice({
-			invoiceId,
-			invoiceItemId,
-			finalized,
-		});
-
-		if (error instanceof HTTPException) {
-			throw error;
-		}
-
-		throw new HTTPException(402, {
-			message:
-				"Upgrade payment could not be collected. Update your payment method and try again.",
-		});
 	}
+	return {
+		invoiceId: latestInvoice.id ?? null,
+		paymentIntentId: getInvoicePaymentIntentId(latestInvoice),
+		amountPaid:
+			typeof latestInvoice.amount_paid === "number"
+				? latestInvoice.amount_paid
+				: null,
+	};
 }
 
 // Get or create personal organization for user
@@ -990,6 +853,7 @@ devPlans.openapi(changeTierPreview, async (c) => {
 
 	const currentTier: DevPlanTier = personalOrg.devPlan;
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
+	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
 	const subscription = await getStripe().subscriptions.retrieve(
 		personalOrg.devPlanStripeSubscriptionId,
 	);
@@ -1002,15 +866,25 @@ devPlans.openapi(changeTierPreview, async (c) => {
 	}
 
 	const remainingFraction = getRemainingBillingPeriodFraction(subscriptionItem);
-	const amountDueCents = isUpgrade
-		? getDevPlanUpgradeAmountCents(currentTier, newTier, remainingFraction)
-		: 0;
-	const creditPreview = getDevPlanTierChangeCreditPreview(
-		currentTier,
-		newTier,
-		remainingFraction,
-		parseFloat(personalOrg.devPlanCreditsLimit),
-	);
+
+	// Upgrades charge the full new-tier price today and start a fresh billing
+	// cycle (no proration); downgrades stay deferred to renewal, so nothing is
+	// due today. Credits reset to the new tier's full allowance on an upgrade.
+	const currentCreditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
+	let amountDueCents = 0;
+	let newCreditsLimit = currentCreditsLimit;
+	if (isUpgrade) {
+		const newPriceId = getDevPlanPriceId(newTier, existingCycle);
+		if (!newPriceId) {
+			const envSuffix =
+				existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
+			throw new HTTPException(500, {
+				message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}${envSuffix} environment variable is not set`,
+			});
+		}
+		amountDueCents = await getDevPlanFullPriceCents(newPriceId);
+		newCreditsLimit = getDevPlanCreditsLimit(newTier);
+	}
 
 	return c.json({
 		currentTier,
@@ -1019,9 +893,9 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		amountDueCents,
 		currency: "USD" as const,
 		remainingFraction,
-		currentCreditsLimit: creditPreview.currentCreditsLimit,
-		proratedCreditDelta: creditPreview.proratedCreditDelta,
-		newCreditsLimit: creditPreview.newCreditsLimit,
+		currentCreditsLimit,
+		proratedCreditDelta: newCreditsLimit - currentCreditsLimit,
+		newCreditsLimit,
 		billingPeriodStart: new Date(
 			subscriptionItem.current_period_start * 1000,
 		).toISOString(),
@@ -1175,9 +1049,7 @@ devPlans.openapi(changeTier, async (c) => {
 		// upgrade, which supersedes and clears the pending downgrade (the upgrade
 		// branch below sets devPlanPendingTier back to null). Only block scheduling
 		// *another* downgrade while one is already pending — to revert to the
-		// current tier the user uses the dedicated cancel-downgrade action. This
-		// still closes the credit-refresh abuse: an upgrade re-grants prorated
-		// credits only via the once-per-cycle-limited path below.
+		// current tier the user uses the dedicated cancel-downgrade action.
 		const cycleStart = new Date(subscriptionItem.current_period_start * 1000);
 		if (personalOrg.devPlanPendingTier && !isUpgrade) {
 			throw new HTTPException(409, {
@@ -1186,18 +1058,17 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Rate-limit UPGRADES to one per billing cycle. Repeatedly upgrading would
-		// re-charge and re-grant prorated credits (and a double-submit would double
-		// charge), so claim the cycle atomically *before* any Stripe call: a single
-		// conditional UPDATE advances the marker to this cycle's Stripe period start
-		// only if it hasn't been claimed yet (NULL or an earlier cycle). Anchoring
-		// to the Stripe period (stable across the mid-cycle price swap, since
-		// proration is suppressed) — rather than a transaction row's createdAt —
-		// both avoids a read-then-write race between concurrent requests and
-		// prevents misattributing a change near a renewal boundary to the wrong
-		// cycle. Downgrades are exempt: they only schedule the lower tier for
-		// renewal (no charge, no credit grant), so an earlier upgrade must not block
-		// a later downgrade.
+		// Guard UPGRADES against a double charge. An upgrade resets the billing
+		// cycle and charges the full new-tier price, so two racing requests (e.g. a
+		// double-clicked confirm) would each start a fresh cycle and charge again.
+		// Claim the current Stripe period atomically *before* any Stripe call: a
+		// single conditional UPDATE advances the marker to this cycle's period start
+		// only if it hasn't been claimed yet (NULL or an earlier cycle). Both racing
+		// requests read the same pre-reset period start, so only one wins the claim;
+		// the other gets 409. After the anchor reset a legitimate next upgrade sees a
+		// newer period start and is allowed. Downgrades are exempt: they only
+		// schedule the lower tier for renewal (no charge), so an earlier upgrade must
+		// not block a later downgrade.
 		if (isUpgrade) {
 			const claimed = await db
 				.update(tables.organization)
@@ -1218,25 +1089,21 @@ devPlans.openapi(changeTier, async (c) => {
 			if (claimed.length === 0) {
 				throw new HTTPException(409, {
 					message:
-						"You can only upgrade once per billing cycle. Your next upgrade takes effect at renewal.",
+						"An upgrade is already being processed. Please try again in a moment.",
 				});
 			}
 			claimedCycleThisCall = true;
 		}
 
-		const remainingFraction =
-			getRemainingBillingPeriodFraction(subscriptionItem);
+		// Upgrades charge the full new-tier price today; downgrades are deferred to
+		// renewal and cost nothing now.
 		const amountDueCents = isUpgrade
-			? getDevPlanUpgradeAmountCents(currentTier, newTier, remainingFraction)
+			? await getDevPlanFullPriceCents(newPriceId)
 			: 0;
 
-		// Guard against charging the user more than the preview they confirmed.
-		// Only reject an *increase*: `remainingFraction` decays with wall-clock
-		// time (it is derived from `Date.now()`), so the amount recomputed here is
-		// almost always slightly lower than the previewed value once any time has
-		// passed between opening the dialog and confirming. A strict `!==` check
-		// treated that benign downward drift as a mismatch and blocked legitimate
-		// upgrades; charging the smaller recomputed amount is always fine.
+		// Guard against charging the user more than the preview they confirmed. The
+		// full price is deterministic per tier, so this only trips if the Stripe
+		// price changed between the preview and the confirmation.
 		if (
 			typeof expectedAmountDueCents === "number" &&
 			amountDueCents > expectedAmountDueCents
@@ -1247,177 +1114,146 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Tier changes suppress Stripe's default proration invoice so we can
-		// charge the prorated upgrade amount with DevPass-specific metadata and
-		// grant the matching prorated credit delta. Downgrades issue no refund.
-		const updated = await getStripe().subscriptions.update(subscriptionId, {
-			items: [
-				{
-					id: subscriptionItemId,
-					price: newPriceId,
-				},
-			],
-			proration_behavior: "none",
-			payment_behavior: "allow_incomplete",
-			metadata: {
-				...subscription.metadata,
-				devPlan: newTier,
-				devPlanCycle: existingCycle,
-			},
-		});
-
-		if (
-			isUpgrade &&
-			updated.status !== "active" &&
-			updated.status !== "trialing"
-		) {
-			throw new HTTPException(402, {
-				message:
-					"Upgrade payment could not be collected. Update your payment method and try again.",
-			});
-		}
-
-		const paidUpgrade = isUpgrade
-			? await collectDevPlanUpgradeCharge({
-					subscription: updated,
-					organizationId: personalOrg.id,
-					currentTier,
-					newTier,
-					remainingFraction,
-				}).catch(async (error: unknown) => {
-					try {
-						await getStripe().subscriptions.update(subscriptionId, {
-							items: [
-								{
-									id: subscriptionItemId,
-									price: currentPriceId,
-								},
-							],
-							proration_behavior: "none",
-							payment_behavior: "allow_incomplete",
-							metadata: {
-								...subscription.metadata,
-								devPlan: currentTier,
-								devPlanCycle: existingCycle,
-							},
-						});
-					} catch (rollbackError) {
-						logger.error(
-							"Failed to roll back dev plan tier after upgrade payment failure",
-							rollbackError instanceof Error
-								? rollbackError
-								: new Error(String(rollbackError)),
-						);
-					}
-
-					throw error;
-				})
-			: null;
-
 		if (isUpgrade) {
-			const creditPreview = getDevPlanTierChangeCreditPreview(
-				currentTier,
-				newTier,
-				remainingFraction,
-				parseFloat(personalOrg.devPlanCreditsLimit),
-			);
-
-			// Reflect the new tier immediately, and persist Stripe's actual period
-			// end as the renewal date (a mid-cycle upgrade preserves the billing
-			// anchor, so the UI shouldn't project a fresh cycle from the upgrade
-			// date). The credit grant is applied separately below, gated on winning
-			// the transaction insert.
-			await db
-				.update(tables.organization)
-				.set({
+			// Swap to the new price, reset the billing cycle to now
+			// (`billing_cycle_anchor: "now"`) so Stripe immediately invoices the full
+			// new-tier price and starts a fresh period, and suppress proration
+			// (`proration_behavior: "none"`) so no partial credit or debit is applied.
+			// `error_if_incomplete` makes the update atomic: if the charge can't be
+			// collected Stripe throws and leaves the subscription on the old tier, so
+			// there's no half-applied upgrade to roll back.
+			const updated = await getStripe().subscriptions.update(subscriptionId, {
+				items: [
+					{
+						id: subscriptionItemId,
+						price: newPriceId,
+					},
+				],
+				proration_behavior: "none",
+				billing_cycle_anchor: "now",
+				payment_behavior: "error_if_incomplete",
+				expand: ["latest_invoice.payment_intent"],
+				metadata: {
+					...subscription.metadata,
 					devPlan: newTier,
-					devPlanExpiresAt: new Date(
-						subscriptionItem.current_period_end * 1000,
-					),
-					// An immediate upgrade supersedes any scheduled downgrade.
-					devPlanPendingTier: null,
-				})
-				.where(eq(tables.organization.id, personalOrg.id));
+					devPlanCycle: existingCycle,
+				},
+			});
 
-			if (paidUpgrade) {
-				// Insert the unique-stripeInvoiceId marker and apply the credit grant
-				// in one transaction so they commit together. onConflictDoNothing makes
-				// this idempotent against the webhook fallback: only the path that wins
-				// the insert grants the credits and emails the invoice, so a concurrent
-				// `invoice.payment_succeeded` webhook can't double-apply the credit
-				// delta, produce a second transaction row, or send a duplicate email.
-				// Atomicity matters because both paths short-circuit on the existing
-				// marker — a crash between insert and grant would otherwise leave the
-				// invoice recorded with the credit never applied.
-				const upgradeTransaction = await db.transaction(async (tx) => {
-					const [created] = await tx
-						.insert(tables.transaction)
-						.values({
-							organizationId: personalOrg.id,
-							type: "dev_plan_upgrade",
-							amount: paidUpgrade.amount.toString(),
-							creditAmount: creditPreview.proratedCreditDelta.toString(),
-							currency: "USD",
-							status: "completed",
-							stripePaymentIntentId: paidUpgrade.paymentIntentId,
-							stripeInvoiceId: paidUpgrade.invoiceId,
-							description: `Changed from ${currentTier} to ${newTier} plan`,
-						})
-						.onConflictDoNothing()
-						.returning();
-
-					if (created) {
-						// Add the prorated credit delta on top of the existing allowance.
-						// Never recompute the limit from the tier's base allotment: that
-						// discards credits carried into this period by earlier mid-cycle
-						// changes (e.g. a downgrade then re-upgrade), which would shrink the
-						// allowance below the user's accumulated usage and hide the granted
-						// credit.
-						await tx
-							.update(tables.organization)
-							.set({
-								devPlanCreditsLimit: sql`${tables.organization.devPlanCreditsLimit} + ${creditPreview.proratedCreditDelta}`,
-							})
-							.where(eq(tables.organization.id, personalOrg.id));
-					}
-
-					return created;
+			if (updated.status !== "active" && updated.status !== "trialing") {
+				throw new HTTPException(402, {
+					message:
+						"Upgrade payment could not be collected. Update your payment method and try again.",
 				});
+			}
 
-				if (upgradeTransaction) {
-					try {
-						const billingDetails =
-							await resolveDevPassBillingDetails(personalOrg);
-						await generateAndEmailInvoice({
-							invoiceNumber: upgradeTransaction.id,
-							invoiceDate: new Date(),
-							organizationName: personalOrg.name,
-							organizationId: personalOrg.id,
-							...billingDetails,
-							lineItems: [
-								{
-									description: `Dev Plan upgrade from ${currentTier.toUpperCase()} to ${newTier.toUpperCase()} ($${creditPreview.proratedCreditDelta} credits included)`,
-									amount: paidUpgrade.amount,
-								},
-							],
-							currency: "USD",
-						});
-					} catch (e) {
-						logger.error(
-							"Invoice email failed (DevPass upgrade invoice); suppressing failure",
-							e as Error,
-						);
-					}
+			const newExpiresAt = new Date(
+				updated.items.data[0].current_period_end * 1000,
+			);
+			const { invoiceId, paymentIntentId, amountPaid } =
+				getDevPlanChangeInvoiceId(updated);
+			const chargedAmount =
+				amountPaid !== null ? amountPaid / 100 : amountDueCents / 100;
+			const newCreditsLimit = getDevPlanCreditsLimit(newTier);
+
+			// Insert the unique-stripeInvoiceId marker and reset the org to the new
+			// tier's full allowance in one transaction so they commit together.
+			// onConflictDoNothing keeps this idempotent against the
+			// `invoice.payment_succeeded` webhook fallback: only the path that wins
+			// the insert resets org state and emails the invoice, so a concurrent
+			// webhook can't double-apply the reset, produce a second transaction row,
+			// or send a duplicate email.
+			const upgradeTransaction = await db.transaction(async (tx) => {
+				const [created] = await tx
+					.insert(tables.transaction)
+					.values({
+						organizationId: personalOrg.id,
+						type: "dev_plan_upgrade",
+						amount: chargedAmount.toString(),
+						creditAmount: newCreditsLimit.toString(),
+						currency: "USD",
+						status: "completed",
+						stripePaymentIntentId: paymentIntentId,
+						stripeInvoiceId: invoiceId,
+						description: `Changed from ${currentTier} to ${newTier} plan`,
+					})
+					.onConflictDoNothing()
+					.returning();
+
+				if (created) {
+					// Fresh billing cycle: reset the limit to the new tier's full
+					// allowance, zero out usage (including the premium weekly window),
+					// advance the cycle start, clear any pending downgrade and dunning
+					// freeze state, and persist the new period end as the renewal date.
+					await tx
+						.update(tables.organization)
+						.set({
+							devPlan: newTier,
+							devPlanCreditsLimit: newCreditsLimit.toString(),
+							devPlanCreditsUsed: "0",
+							devPlanPremiumCreditsUsed: "0",
+							devPlanPremiumWeekStart: new Date(),
+							devPlanCreditsFrozen: false,
+							devPlanCreditsLimitBeforeFreeze: null,
+							devPlanBillingCycleStart: new Date(),
+							devPlanExpiresAt: newExpiresAt,
+							devPlanPendingTier: null,
+						})
+						.where(eq(tables.organization.id, personalOrg.id));
+				}
+
+				return created;
+			});
+
+			if (upgradeTransaction) {
+				try {
+					const billingDetails =
+						await resolveDevPassBillingDetails(personalOrg);
+					await generateAndEmailInvoice({
+						invoiceNumber: upgradeTransaction.id,
+						invoiceDate: new Date(),
+						organizationName: personalOrg.name,
+						organizationId: personalOrg.id,
+						...billingDetails,
+						lineItems: [
+							{
+								description: `Dev Plan upgrade to ${newTier.toUpperCase()} ($${newCreditsLimit} credits included)`,
+								amount: chargedAmount,
+							},
+						],
+						currency: "USD",
+					});
+				} catch (e) {
+					logger.error(
+						"Invoice email failed (DevPass upgrade invoice); suppressing failure",
+						e as Error,
+					);
 				}
 			}
 		} else {
-			// Downgrade: the lower tier only takes effect at the next renewal, so
-			// keep `devPlan` (and the current cycle's credits, limit and used) on the
-			// current higher tier and record the target tier as pending. The Stripe
-			// price was already swapped above, so the renewal invoice bills the lower
-			// price; the renewal webhook then flips `devPlan` to the pending tier and
-			// resets credits to its allotment. No proration invoice is generated, so
-			// record the tier-change transaction here.
+			// Downgrade: unchanged. The lower tier takes effect at the next renewal,
+			// so keep `devPlan` (and the current cycle's credits) on the current
+			// higher tier and record the target tier as pending. Swap the Stripe
+			// price with no proration and no cycle reset, so the renewal invoice bills
+			// the lower price; the renewal webhook then flips `devPlan` to the pending
+			// tier and resets credits to its allotment. No invoice is generated now,
+			// so record the tier-change transaction here.
+			await getStripe().subscriptions.update(subscriptionId, {
+				items: [
+					{
+						id: subscriptionItemId,
+						price: newPriceId,
+					},
+				],
+				proration_behavior: "none",
+				payment_behavior: "allow_incomplete",
+				metadata: {
+					...subscription.metadata,
+					devPlan: newTier,
+					devPlanCycle: existingCycle,
+				},
+			});
+
 			await db
 				.update(tables.organization)
 				.set({

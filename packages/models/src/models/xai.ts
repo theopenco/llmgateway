@@ -894,6 +894,34 @@ export const xaiModels = [
 		],
 	},
 	{
+		id: "grok-4-5",
+		name: "Grok 4.5",
+		description:
+			"xAI's flagship reasoning model with a 500K context window, vision, and tool support.",
+		aliases: ["grok-4.5-latest", "grok-build-latest"],
+		family: "xai",
+		releasedAt: new Date("2026-07-08"),
+		providers: [
+			{
+				providerId: "xai",
+				contentFilterPrice: 0.05,
+				externalId: "grok-4.5",
+				inputPrice: "2.0e-6",
+				cachedInputPrice: "0.5e-6",
+				outputPrice: "6.0e-6",
+				requestPrice: "0",
+				contextSize: 500_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
+		],
+	},
+	{
 		id: "grok-build-0-1",
 		name: "Grok Build 0.1",
 		description:

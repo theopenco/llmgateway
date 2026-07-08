@@ -16,8 +16,10 @@ import {
 	eq,
 	getApiKeyCurrentPeriodState,
 	isValidApiKeyPeriodDuration,
+	resolveEffectiveMemberBudget,
 	shortid,
 	tables,
+	validateApiKeyLimitsWithinMemberBudget,
 	type ApiKeyPeriodDurationUnit,
 	type InferSelectModel,
 } from "@llmgateway/db";
@@ -843,6 +845,76 @@ export interface CreateApiKeyInput {
 	expiresAt?: Date | string | null;
 }
 
+interface MemberBudgetColumns {
+	role: "owner" | "admin" | "developer";
+	maxApiKeys: number | null;
+	usageLimit: string | null;
+	periodUsageLimit: string | null;
+	periodUsageDurationValue: number | null;
+	periodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+}
+
+interface OrgDeveloperDefaultColumns {
+	defaultDeveloperMaxApiKeys: number | null;
+	defaultDeveloperUsageLimit: string | null;
+	defaultDeveloperPeriodUsageLimit: string | null;
+	defaultDeveloperPeriodUsageDurationValue: number | null;
+	defaultDeveloperPeriodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+}
+
+/**
+ * Reject a proposed API-key limit that would exceed the key owner's effective
+ * member budget (their own caps, or the org-wide default developer caps that
+ * SSO-provisioned members inherit). The gateway enforces the member budget
+ * first at request time regardless, but keeping a key's own limit at or below
+ * the member limit keeps the configured numbers honest. No-op when the member
+ * has no budget.
+ */
+function assertApiKeyLimitsWithinMemberBudget(
+	membership: MemberBudgetColumns | null | undefined,
+	organization: OrgDeveloperDefaultColumns,
+	keyLimits: ApiKeyLimitConfig,
+): void {
+	if (!membership) {
+		return;
+	}
+
+	const budget = resolveEffectiveMemberBudget(
+		membership.role,
+		{
+			maxApiKeys: membership.maxApiKeys,
+			usageLimit: membership.usageLimit,
+			periodUsageLimit: membership.periodUsageLimit,
+			periodUsageDurationValue: membership.periodUsageDurationValue,
+			periodUsageDurationUnit: membership.periodUsageDurationUnit,
+		},
+		{
+			defaultDeveloperMaxApiKeys: organization.defaultDeveloperMaxApiKeys,
+			defaultDeveloperUsageLimit: organization.defaultDeveloperUsageLimit,
+			defaultDeveloperPeriodUsageLimit:
+				organization.defaultDeveloperPeriodUsageLimit,
+			defaultDeveloperPeriodUsageDurationValue:
+				organization.defaultDeveloperPeriodUsageDurationValue,
+			defaultDeveloperPeriodUsageDurationUnit:
+				organization.defaultDeveloperPeriodUsageDurationUnit,
+		},
+	);
+
+	const error = validateApiKeyLimitsWithinMemberBudget(
+		{
+			usageLimit: keyLimits.usageLimit,
+			periodUsageLimit: keyLimits.periodUsageLimit,
+			periodUsageDurationValue: keyLimits.periodUsageDurationValue,
+			periodUsageDurationUnit: keyLimits.periodUsageDurationUnit,
+		},
+		budget,
+	);
+
+	if (error) {
+		throw new HTTPException(400, { message: error });
+	}
+}
+
 export async function createApiKeyForProject(
 	projectId: string,
 	userId: string,
@@ -931,8 +1003,31 @@ export async function createApiKeyForProject(
 			userId: { eq: userId },
 			organizationId: { eq: project.organization.id },
 		},
-		columns: { role: true, maxApiKeys: true },
+		columns: {
+			role: true,
+			maxApiKeys: true,
+			usageLimit: true,
+			periodUsageLimit: true,
+			periodUsageDurationValue: true,
+			periodUsageDurationUnit: true,
+		},
 	});
+
+	// A key's limits must stay at or below the creator's effective member budget.
+	// Skipped for programmatic (master-key) creation, which has no interactive
+	// member context; the gateway still enforces the member budget at request time.
+	if (!options.skipAccessCheck) {
+		assertApiKeyLimitsWithinMemberBudget(
+			creatorMembership,
+			project.organization,
+			{
+				usageLimit: usageLimit ?? null,
+				periodUsageLimit: periodUsageLimit ?? null,
+				periodUsageDurationValue: periodUsageDurationValue ?? null,
+				periodUsageDurationUnit: periodUsageDurationUnit ?? null,
+			},
+		);
+	}
 
 	const effectiveMaxApiKeys =
 		creatorMembership?.maxApiKeys ??
@@ -1865,6 +1960,40 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 
 	const nextLimitConfig = mergeApiKeyLimitConfig(apiKey, limitUpdate);
 	parseApiKeyPeriodConfig(nextLimitConfig);
+
+	// The key's limits must stay at or below the key owner's effective member
+	// budget (their own caps, or the org-wide default developer caps).
+	const ownerMembership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: apiKey.createdBy },
+			organizationId: { eq: projectOrgId },
+		},
+		columns: {
+			role: true,
+			maxApiKeys: true,
+			usageLimit: true,
+			periodUsageLimit: true,
+			periodUsageDurationValue: true,
+			periodUsageDurationUnit: true,
+		},
+	});
+	const ownerOrg = await db.query.organization.findFirst({
+		where: { id: { eq: projectOrgId } },
+		columns: {
+			defaultDeveloperMaxApiKeys: true,
+			defaultDeveloperUsageLimit: true,
+			defaultDeveloperPeriodUsageLimit: true,
+			defaultDeveloperPeriodUsageDurationValue: true,
+			defaultDeveloperPeriodUsageDurationUnit: true,
+		},
+	});
+	if (ownerOrg) {
+		assertApiKeyLimitsWithinMemberBudget(
+			ownerMembership,
+			ownerOrg,
+			nextLimitConfig,
+		);
+	}
 
 	const periodConfigChanged = hasPeriodConfigChanged(apiKey, nextLimitConfig);
 

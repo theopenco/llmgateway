@@ -41,7 +41,9 @@ interface AdminMetrics {
 describe.skipIf(!hasStripeTestKey)(
 	"end-user bonus full flow (real Stripe)",
 	() => {
-		const stripe = new Stripe(stripeKey!);
+		const stripe = hasStripeTestKey
+			? new Stripe(stripeKey!)
+			: (undefined as unknown as Stripe);
 		let adminCookie: string;
 
 		beforeEach(async () => {

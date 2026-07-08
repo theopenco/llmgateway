@@ -767,8 +767,6 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	assertApiKeyWithinUsageLimits(apiKey);
-
 	const baseProject = await findProjectById(apiKey.projectId);
 	if (!baseProject) {
 		throw new HTTPException(500, {
@@ -782,9 +780,11 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	// Enforce the per-member budget set on the Teams page (fails open on read
-	// errors). Uses the key creator + resolved org.
+	// User-level limits take priority: enforce the per-member budget (set on the
+	// Teams page; fails open on read errors) before the per-key usage limits, so a
+	// member who is over budget is denied even if the key itself is within limits.
 	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	const baseOrganization = await findOrganizationById(
 		baseProject.organizationId,

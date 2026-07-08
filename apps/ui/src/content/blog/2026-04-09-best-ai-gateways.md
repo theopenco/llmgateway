@@ -31,7 +31,7 @@ We evaluated eight AI gateways on what actually matters: provider coverage, pric
 - **Built-in caching** — Redis-powered response caching cuts repeat request costs to zero
 - **Real-time analytics** — cost tracking, latency monitoring, and usage breakdowns per model, project, and API key
 - **Automatic failover** — requests reroute to backup providers when the primary goes down
-- **Guardrails** — content safety rules with configurable filters
+- **Guardrails (Enterprise)** — content safety rules with configurable filters
 - **AI SDK provider** — first-class Vercel AI SDK integration via `@llmgateway/ai-sdk-provider`
 - **Playground** — test and compare models side-by-side with chat, group chat, and image generation
 
@@ -131,7 +131,7 @@ LiteLLM is an open-source Python proxy that translates OpenAI-compatible request
 
 **Pricing:** Free and open source. You pay for your own infrastructure.
 
-**Best for:** Python teams comfortable with self-hosting and managing their own infrastructure.
+**Best for:** Python teams comfortable with self-hosting and managing their own infrastructure. Outgrowing it? See the [best LiteLLM alternatives](/blog/litellm-alternatives).
 
 ---
 
@@ -252,7 +252,7 @@ AWS Bedrock provides access to foundation models through AWS infrastructure. It'
 | **Built-in Caching**    | Yes         | Beta       | Yes     | Built-in | No       | Yes          | Yes              | No          |
 | **Analytics Dashboard** | Yes         | Yes        | Yes     | Built-in | Yes      | Yes          | Basic            | CloudWatch  |
 | **Automatic Failover**  | Yes         | Yes        | Yes     | Config   | Limited  | Yes          | No               | No          |
-| **Guardrails**          | Yes         | Enterprise | Yes     | No       | No       | No           | No               | Yes         |
+| **Guardrails**          | Enterprise  | Enterprise | Yes     | No       | No       | No           | No               | Yes         |
 | **Models**              | 300+        | 400+       | 1,600+  | 100+     | N/A      | Hundreds     | ~20              | ~30         |
 | **Playground**          | Yes         | Yes        | No      | No       | No       | Yes          | No               | Yes         |
 
