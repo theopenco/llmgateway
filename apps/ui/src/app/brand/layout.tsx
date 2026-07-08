@@ -9,7 +9,9 @@ export const metadata: Metadata = {
 		"Download official LLM Gateway logos and brand assets. Get our logo in PNG or SVG format, with or without the name, in black and white variants.",
 	alternates: { canonical: "/brand" },
 	openGraph: {
-		title: "Brand Assets",
+		// og/twitter titles don't get the root title template, so the brand
+		// must be spelled out here.
+		title: "Brand Assets | LLM Gateway",
 		description:
 			"Download official LLM Gateway logos and brand assets in PNG or SVG, light and dark variants.",
 		url: "https://llmgateway.io/brand",

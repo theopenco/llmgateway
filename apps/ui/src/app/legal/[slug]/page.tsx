@@ -82,14 +82,14 @@ export async function generateMetadata({
 		description: entry.description ?? "LLM Gateway legal post",
 		alternates: { canonical: `/legal/${entry.slug}` },
 		openGraph: {
-			title: entry.title,
+			title: `${entry.title} | LLM Gateway`,
 			description: entry.description ?? "LLM Gateway legal post",
 			type: "website",
 			url: `https://llmgateway.io/legal/${entry.slug}`,
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: entry.title,
+			title: `${entry.title} | LLM Gateway`,
 			description: entry.description ?? "LLM Gateway legal post",
 		},
 	};

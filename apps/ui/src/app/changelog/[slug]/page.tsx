@@ -193,7 +193,7 @@ export async function generateMetadata({
 		description: entry.summary ?? "LLM Gateway changelog entry",
 		alternates: { canonical: `/changelog/${entry.slug}` },
 		openGraph: {
-			title: `${entry.title} - Changelog`,
+			title: `${entry.title} - Changelog | LLM Gateway`,
 			description: entry.summary ?? "LLM Gateway changelog entry",
 			type: "article",
 			url: `https://llmgateway.io/changelog/${entry.slug}`,
@@ -210,7 +210,7 @@ export async function generateMetadata({
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${entry.title} - Changelog`,
+			title: `${entry.title} - Changelog | LLM Gateway`,
 			description: entry.summary ?? "LLM Gateway changelog entry",
 		},
 	};

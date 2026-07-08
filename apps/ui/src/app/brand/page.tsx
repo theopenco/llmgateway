@@ -10,7 +10,8 @@ export const metadata: Metadata = {
 	description:
 		"Download official LLM Gateway logos, marks, and brand assets. SVG files in light and dark variants, plus usage guidelines for partners.",
 	openGraph: {
-		title: "Brand Assets — Logos & Guidelines",
+		title: "Brand Assets — Logos & Guidelines | LLM Gateway",
+		images: ["/opengraph.png?v=2"],
 		description:
 			"Download official LLM Gateway logos, marks, and brand assets. SVG files in light and dark variants.",
 		type: "website",
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "Brand Assets — Logos & Guidelines",
+		title: "Brand Assets — Logos & Guidelines | LLM Gateway",
 		description:
 			"Download official LLM Gateway logos, marks, and brand assets.",
 	},

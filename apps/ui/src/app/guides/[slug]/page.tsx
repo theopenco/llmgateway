@@ -183,14 +183,14 @@ export async function generateMetadata({
 		description: guide.description ?? "LLM Gateway integration guide",
 		alternates: { canonical: `/guides/${guide.slug}` },
 		openGraph: {
-			title: `${guide.title} - Guides`,
+			title: `${guide.title} - Guides | LLM Gateway`,
 			description: guide.description ?? "LLM Gateway integration guide",
 			type: "article",
 			url: `https://llmgateway.io/guides/${guide.slug}`,
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${guide.title} - Guides`,
+			title: `${guide.title} - Guides | LLM Gateway`,
 			description: guide.description ?? "LLM Gateway integration guide",
 		},
 	};

@@ -268,14 +268,14 @@ export async function generateMetadata({
 		description: `Learn about ${provider.name} integration with LLM Gateway. Access ${provider.name} models through our unified API.`,
 		alternates: { canonical: `/providers/${provider.id}` },
 		openGraph: {
-			title: provider.name,
+			title: `${provider.name} | LLM Gateway`,
 			description: `Learn about ${provider.name} integration with LLM Gateway. Access ${provider.name} models through our unified API.`,
 			type: "website",
 			url: `https://llmgateway.io/providers/${provider.id}`,
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: provider.name,
+			title: `${provider.name} | LLM Gateway`,
 			description: `Learn about ${provider.name} integration with LLM Gateway.`,
 		},
 	};

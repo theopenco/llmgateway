@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 		"Browse 40+ LLM providers on LLM Gateway — OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, xAI, and more. One API for all of them.",
 	alternates: { canonical: "/providers" },
 	openGraph: {
-		title: "LLM Providers",
+		title: "LLM Providers | LLM Gateway",
 		description:
 			"Browse 40+ LLM providers on LLM Gateway — OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, xAI, and more.",
 		url: "https://llmgateway.io/providers",

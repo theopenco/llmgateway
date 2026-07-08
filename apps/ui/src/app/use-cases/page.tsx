@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 		"Coding agents, AI support, RAG, and cost optimization — build on one API for 200+ models with fallback, caching, and analytics.",
 	alternates: { canonical: "/use-cases" },
 	openGraph: {
-		title: "Use Cases — What You Can Build",
+		title: "Use Cases — What You Can Build with LLM Gateway",
 		description:
 			"Coding agents, AI support, RAG, and cost optimization on one API for 200+ models with fallback, caching, and analytics.",
 		type: "website",

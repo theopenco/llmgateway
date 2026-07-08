@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 		"Browse LLM Gateway blog posts by category — product updates, tutorials, deep-dives, and more.",
 	alternates: { canonical: "/blog/category" },
 	openGraph: {
-		title: "Blog Categories",
+		title: "Blog Categories | LLM Gateway",
 		description:
 			"Browse LLM Gateway blog posts by category — product updates, tutorials, deep-dives, and more.",
 		url: "https://llmgateway.io/blog/category",

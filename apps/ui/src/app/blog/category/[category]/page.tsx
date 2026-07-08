@@ -95,7 +95,7 @@ export async function generateMetadata({
 			canonical: `/blog/category/${slug}`,
 		},
 		openGraph: {
-			title,
+			title: `${title} | LLM Gateway`,
 			description,
 			url: `https://llmgateway.io/blog/category/${slug}`,
 			type: "website",
