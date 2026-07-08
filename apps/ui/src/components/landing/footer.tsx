@@ -445,6 +445,24 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/compare/aws-bedrock"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										AWS Bedrock
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/compare/azure-ai-foundry"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Azure AI Foundry
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/migration"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
