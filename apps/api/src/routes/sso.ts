@@ -9,7 +9,7 @@ import { maskToken } from "@/lib/maskToken.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { and, db, eq, shortid, tables } from "@llmgateway/db";
+import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
@@ -18,6 +18,12 @@ import type { SSOOptions, SSOPlugin } from "@better-auth/sso";
 export const sso = new OpenAPIHono<ServerTypes>();
 
 const apiUrl = getApiBaseUrl();
+
+// Default per-developer active API key cap seeded when an org first wires up
+// SSO. Developers are provisioned in bulk via SCIM/SSO, so give them a sane
+// baseline that admins can still override org-wide (default developer budget)
+// or per member.
+const DEFAULT_SSO_DEVELOPER_MAX_API_KEYS = 3;
 
 async function assertEnterpriseOrgAccess(
 	userId: string,
@@ -310,6 +316,19 @@ sso.openapi(register, async (c) => {
 			enforced: tables.ssoProvider.enforced,
 			createdAt: tables.ssoProvider.createdAt,
 		});
+
+	// Seed a reasonable default per-developer API key cap for the org. Only set
+	// it when the org hasn't already configured its own default developer budget,
+	// so we never clobber an explicit admin choice.
+	await db
+		.update(tables.organization)
+		.set({ defaultDeveloperMaxApiKeys: DEFAULT_SSO_DEVELOPER_MAX_API_KEYS })
+		.where(
+			and(
+				eq(tables.organization.id, organizationId),
+				isNull(tables.organization.defaultDeveloperMaxApiKeys),
+			),
+		);
 
 	await logAuditEvent({
 		organizationId,
