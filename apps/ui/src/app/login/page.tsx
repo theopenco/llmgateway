@@ -218,12 +218,19 @@ export default function Login() {
 		WebAuthnAbortService.cancelCeremony();
 		try {
 			const origin = location.protocol + "//" + location.host;
+			// Carry the validated `?redirect=` target through the error path too, so a
+			// failed SSO attempt returns to /login with the intended destination and a
+			// retry still lands the user there.
+			const errorUrl = new URL("/login", origin);
+			if (redirectTarget !== "/dashboard") {
+				errorUrl.searchParams.set("redirect", redirectTarget);
+			}
 			const res = await signIn.sso({
 				email: parsed.data,
 				// Honor the same validated `?redirect=` target as the other sign-in
 				// methods so SSO users also land on their intended post-login route.
 				callbackURL: origin + redirectTarget,
-				errorCallbackURL: origin + "/login",
+				errorCallbackURL: errorUrl.toString(),
 			});
 			if (res?.error) {
 				toast({

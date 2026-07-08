@@ -303,27 +303,40 @@ scim.get("/Users", async (c) => {
 	// IdPs poll with an `eq` filter to check whether a specific user already
 	// exists; resolve that with a single targeted lookup instead of scanning the
 	// whole directory.
-	if (emailFilter || externalIdFilter) {
+	if (emailFilter) {
+		// Resolve the user by email (provisioned emails are stored lowercased),
+		// then confirm they belong to this org — filtering must key off the email,
+		// not an arbitrary member row.
+		const user = await db.query.user.findFirst({
+			where: { email: { eq: emailFilter.toLowerCase() } },
+			columns: { id: true, email: true, name: true },
+		});
+		const membership = user ? await getMembership(user.id, orgId) : null;
+		const resources =
+			user && membership
+				? [toScimUser(user, true, membership.scimExternalId)]
+				: [];
+		return scimJson({
+			schemas: [SCHEMA_LIST],
+			totalResults: resources.length,
+			startIndex,
+			itemsPerPage: resources.length,
+			Resources: resources,
+		});
+	}
+
+	if (externalIdFilter) {
 		const membership = await db.query.userOrganization.findFirst({
 			where: {
 				organizationId: { eq: orgId },
-				...(externalIdFilter
-					? { scimExternalId: { eq: externalIdFilter } }
-					: {}),
+				scimExternalId: { eq: externalIdFilter },
 			},
 			columns: { scimExternalId: true },
 			with: { user: { columns: { id: true, email: true, name: true } } },
 		});
-		const match =
-			membership?.user &&
-			(!emailFilter ||
-				membership.user.email.toLowerCase() === emailFilter.toLowerCase())
-				? membership
-				: null;
-		const resources =
-			match && match.user
-				? [toScimUser(match.user, true, match.scimExternalId)]
-				: [];
+		const resources = membership?.user
+			? [toScimUser(membership.user, true, membership.scimExternalId)]
+			: [];
 		return scimJson({
 			schemas: [SCHEMA_LIST],
 			totalResults: resources.length,
