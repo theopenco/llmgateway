@@ -265,4 +265,30 @@ export const bytedanceModels = [
 			},
 		],
 	},
+	{
+		id: "seedream-5-0-pro",
+		name: "Seedream 5.0 Pro",
+		description:
+			"ByteDance Seedream 5.0 Pro flagship text-to-image generation model with precise layout control, multilingual text rendering, and up to 4K output",
+		family: "bytedance",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-06-28"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "bytedance",
+				externalId: "dola-seedream-5-0-pro-260628",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.06",
+				contextSize: 2000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
