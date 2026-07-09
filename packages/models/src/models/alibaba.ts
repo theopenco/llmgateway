@@ -1309,6 +1309,7 @@ export const alibabaModels = [
 				cacheWriteInputPrice: "3.125e-6",
 				regions: [
 					{ id: "singapore" },
+					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
 						inputPrice: "1.7232e-6",
@@ -1438,7 +1439,11 @@ export const alibabaModels = [
 						cacheWriteInputPrice: "1.5e-6",
 					},
 				],
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 65536,
@@ -2729,6 +2734,48 @@ export const alibabaModels = [
 				reasoning: true,
 				streaming: true,
 				vision: true,
+				tools: true,
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
+			},
+		],
+	},
+	{
+		id: "qwen3.6-flash",
+		name: "Qwen3.6 Flash",
+		description:
+			"Fast, cost-effective Qwen3.6 model with hybrid reasoning, tool calling, and a 262K context window for high-volume tasks.",
+		family: "alibaba",
+		releasedAt: new Date("2026-04-29"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "qwen3.6-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.9e-6",
+				cachedInputPrice: "0.015e-6",
+				regions: [
+					{ id: "singapore" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 65536,
+				reasoning: true,
+				streaming: true,
+				vision: false,
 				tools: true,
 				jsonOutput: true,
 				// Qwen thinking models reject tool_choice "required" or object

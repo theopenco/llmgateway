@@ -281,6 +281,7 @@ export const deepseekModels = [
 				outputPrice: "4.8e-6",
 				regions: [
 					{ id: "singapore" },
+					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
 						inputPrice: "1.65e-6",
@@ -371,6 +372,7 @@ export const deepseekModels = [
 				outputPrice: "0.4e-6",
 				regions: [
 					{ id: "singapore" },
+					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
 						inputPrice: "0.138e-6",
