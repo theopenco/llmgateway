@@ -238,21 +238,35 @@ describe("shouldRetrySameKey", () => {
 		).toBe(false);
 	});
 
-	it("does not retry deterministic upstream failures (402/404)", () => {
+	it("does not retry any 4xx (deterministic for the identical request/key)", () => {
+		for (const statusCode of [400, 402, 404, 408, 422, 499]) {
+			expect(
+				shouldRetrySameKey({
+					...defaultOpts,
+					errorType: "upstream_error",
+					statusCode,
+				}),
+			).toBe(false);
+		}
+	});
+
+	it("retries 5xx and network failures (statusCode 0)", () => {
+		for (const statusCode of [500, 502, 503, 529]) {
+			expect(
+				shouldRetrySameKey({
+					...defaultOpts,
+					errorType: "upstream_error",
+					statusCode,
+				}),
+			).toBe(true);
+		}
 		expect(
 			shouldRetrySameKey({
 				...defaultOpts,
-				errorType: "gateway_error",
-				statusCode: 402,
+				errorType: "network_error",
+				statusCode: 0,
 			}),
-		).toBe(false);
-		expect(
-			shouldRetrySameKey({
-				...defaultOpts,
-				errorType: "upstream_error",
-				statusCode: 404,
-			}),
-		).toBe(false);
+		).toBe(true);
 	});
 
 	it("does not retry gateway_error even without an auth status code (invalid key payloads)", () => {

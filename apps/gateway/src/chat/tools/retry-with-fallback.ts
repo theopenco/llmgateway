@@ -92,10 +92,10 @@ export function sameKeyRetryDelay(): Promise<void> {
  * provider (bad credentials, unknown model, out of funds) can legitimately
  * succeed on another — retrying the *same* key against the *same* provider
  * only helps for transient faults. Deterministic failures are excluded:
- * gateway_error (auth/config/payment), 402/404 (out of funds / unknown
- * model), and 429 (immediately re-firing a rate-limited key would amplify
- * the rate-limit pressure). BYOK/custom providers (envVarName unset) are
- * also excluded.
+ * gateway_error (auth/config/payment) and all 4xx responses — the identical
+ * request on the identical key will almost certainly fail the same way
+ * (and re-firing a 429 would amplify rate-limit pressure). BYOK/custom
+ * providers (envVarName unset) are also excluded.
  */
 export function shouldRetrySameKey(opts: {
 	usedProvider: string;
@@ -129,12 +129,12 @@ export function shouldRetrySameKey(opts: {
 	if (opts.errorType === "gateway_error") {
 		return false;
 	}
+	// Any 4xx is deterministic for the identical request on the identical
+	// key — it will almost certainly fail the same way on a retry.
 	if (
-		opts.statusCode === 401 ||
-		opts.statusCode === 402 ||
-		opts.statusCode === 403 ||
-		opts.statusCode === 404 ||
-		opts.statusCode === 429
+		opts.statusCode !== undefined &&
+		opts.statusCode >= 400 &&
+		opts.statusCode < 500
 	) {
 		return false;
 	}
