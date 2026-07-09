@@ -1598,6 +1598,27 @@ async function handleGoogleGenerateContent(c: Context) {
 			},
 		});
 	}
+	// First call with TRIGGER_FAIL_ONCE fails with 500, subsequent calls
+	// succeed. Uses the shared failOnceCounter (reset via resetFailOnceCounter)
+	// so retry behavior can be exercised on the Gemini-format endpoint too.
+	const failOnce = body.contents?.some?.((content: any) =>
+		content.parts?.some?.((part: any) =>
+			part.text?.includes?.("TRIGGER_FAIL_ONCE"),
+		),
+	);
+	if (failOnce) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json({
+				error: {
+					code: 500,
+					message: "Internal server error (fail once)",
+					status: "INTERNAL",
+				},
+			});
+		}
+	}
 	// Speech generation: when the caller requests AUDIO output, return an
 	// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
 	const responseModalities: string[] =
