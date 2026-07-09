@@ -3089,19 +3089,7 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					if (usedProvider === "xai") {
-						// xAI's Grok reasoning models only accept low/medium/high.
-						// Collapse minimal onto low and xhigh onto high so the
-						// broader gateway enum still maps to a value xAI accepts.
-						requestBody.reasoning_effort =
-							genericReasoningEffort === "minimal"
-								? "low"
-								: genericReasoningEffort === "xhigh"
-									? "high"
-									: genericReasoningEffort;
-					} else {
-						requestBody.reasoning_effort = genericReasoningEffort;
-					}
+					requestBody.reasoning_effort = genericReasoningEffort;
 				}
 			}
 			if (usedProvider === "minimax" && supportsReasoning) {
