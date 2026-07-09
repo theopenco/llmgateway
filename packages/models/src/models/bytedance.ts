@@ -204,6 +204,50 @@ export const bytedanceModels = [
 		],
 	},
 	{
+		id: "seedance-2-0-mini",
+		name: "Seedance 2.0 Mini",
+		description:
+			"ByteDance Seedance 2.0 Mini - lightweight and highly efficient video generation model designed for rapid iteration",
+		family: "bytedance",
+		output: ["video"],
+		releasedAt: new Date("2026-06-15"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "bytedance",
+				externalId: "dreamina-seedance-2-0-mini-260615",
+				inputPrice: undefined,
+				outputPrice: undefined,
+				requestPrice: undefined,
+				perSecondPrice: {
+					default_audio: "0.0756",
+					default_video: "0.0756",
+					"480p_audio": "0.0378",
+					"480p_video": "0.0378",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: [
+					"1280x720",
+					"720x1280",
+					"848x480",
+					"854x480",
+					"480x854",
+				],
+				supportedVideoDurationsSeconds: [
+					4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+				],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: true,
+			},
+		],
+	},
+	{
 		id: "seedance-1-5-pro",
 		name: "Seedance 1.5 Pro",
 		description:

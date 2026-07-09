@@ -14,6 +14,7 @@ Currently available models:
 
 - **Veo 3.1** through `avalanche` (1080p, 4k) and `google-vertex` (720p, 1080p, 4k)
 - **Seedance 2.0** and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p), **Seedance 2.0 Fast** through `bytedance` (720p only)
+- **Seedance 2.0 Mini** through `bytedance` (480p, 720p)
 - **KLING v3.0** and **KLING v3.0 Turbo** through `atlascloud` (720p, 1080p; KLING v3.0 also 4k)
 
 You can find the current list of video-capable models on our [models page with the video filter enabled](https://llmgateway.io/models?filters=1&videoGeneration=true) or programmatically through the [/v1/models endpoint](/v1_models).
@@ -55,6 +56,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Veo 3.1           | `avalanche`     | `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                         | `8`                 |
 | Seedance 2.0      | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `4`–`15`            |
 | Seedance 2.0 Fast | `bytedance`     | `1280x720`, `720x1280`                                                     | `4`–`15`            |
+| Seedance 2.0 Mini | `bytedance`     | `1280x720`, `720x1280`, `848x480`, `854x480`, `480x854`                    | `4`–`15`            |
 | Seedance 1.5 Pro  | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
 | KLING v3.0        | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `5`, `10`           |
 | KLING v3.0 Turbo  | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
@@ -74,7 +76,7 @@ Frame inputs interpolate a video between a starting frame and an optional ending
 
 #### Rules and limits
 
-- **Seedance scope.** Frame inputs are supported on **Seedance 2.0** and **Seedance 2.0 Fast** (`seedance-2-0`, `seedance-2-0-fast`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
+- **Seedance scope.** Frame inputs are supported on **Seedance 2.0**, **Seedance 2.0 Fast**, and **Seedance 2.0 Mini** (`seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
 - **KLING scope.** Frame inputs are supported on **KLING v3.0** and **KLING v3.0 Turbo** (`kling-v3-0`, `kling-v3-0-turbo`). The gateway uploads base64 frames to AtlasCloud's media endpoint automatically, so both HTTPS URLs and base64 data URLs are accepted.
 - **`last_frame` requires `image`.** Providing `last_frame` without `image` returns a `400`.
 - **Not combinable with references.** First/last frame inputs (`image`, `last_frame`) cannot be combined with reference inputs (`reference_images`, `input_reference`, `reference_videos`, `reference_audios`).
@@ -112,7 +114,7 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 ### Reference-guided generation (Seedance 2.0)
 
-Seedance 2.0 (`seedance-2-0`, `seedance-2-0-fast`) can generate a video that is guided by reference **images**, **videos**, and **audio** — sometimes called omni-reference. You attach references as top-level fields in the same `POST /v1/videos` payload; the gateway forwards each one to the provider tagged with the correct role, so you don't set roles yourself.
+Seedance 2.0 (`seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`) can generate a video that is guided by reference **images**, **videos**, and **audio** — sometimes called omni-reference. You attach references as top-level fields in the same `POST /v1/videos` payload; the gateway forwards each one to the provider tagged with the correct role, so you don't set roles yourself.
 
 | Reference type | Payload field                                | Count | Accepted input                   | Available on                                         |
 | -------------- | -------------------------------------------- | ----- | -------------------------------- | ---------------------------------------------------- |
@@ -226,6 +228,8 @@ Seedance (ByteDance):
 | `seedance-2-0`      | `bytedance` | 720p       | `$0.1512 / second`  | `$0.1512 / second`  |
 | `seedance-2-0`      | `bytedance` | 1080p      | `$0.3402 / second`  | `$0.3402 / second`  |
 | `seedance-2-0-fast` | `bytedance` | 720p       | `$0.121 / second`   | `$0.121 / second`   |
+| `seedance-2-0-mini` | `bytedance` | 480p       | `$0.0378 / second`  | `$0.0378 / second`  |
+| `seedance-2-0-mini` | `bytedance` | 720p       | `$0.0756 / second`  | `$0.0756 / second`  |
 | `seedance-1-5-pro`  | `bytedance` | 720p       | `$0.05184 / second` | `$0.02592 / second` |
 | `seedance-1-5-pro`  | `bytedance` | 1080p      | `$0.1166 / second`  | `$0.05832 / second` |
 

@@ -917,7 +917,8 @@ function isSoraVideoModelName(externalId: string): boolean {
 function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
-		externalId === "dreamina-seedance-2-0-fast-260128"
+		externalId === "dreamina-seedance-2-0-fast-260128" ||
+		externalId === "dreamina-seedance-2-0-mini-260615"
 	);
 }
 
@@ -1008,7 +1009,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
@@ -1066,7 +1067,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
 				);
 			}
 
@@ -3560,7 +3561,11 @@ async function createBytedanceVideoJob(
 
 	if (isDreaminaModel) {
 		upstreamRequest.resolution =
-			videoSize.resolution === "1080p" ? "1080p" : "720p";
+			videoSize.resolution === "1080p"
+				? "1080p"
+				: videoSize.resolution === "480p"
+					? "480p"
+					: "720p";
 	}
 
 	const upstreamUrl = joinUrl(
