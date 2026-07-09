@@ -7,6 +7,7 @@ import { apiAuth } from "@/auth/config.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { maskToken } from "@/lib/maskToken.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
+import { normalizeSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -186,6 +187,27 @@ function samlEndpoints(providerId: string) {
 	};
 }
 
+// Normalize the admin-typed domain list ("Swone.HU, softwareone.com" ->
+// "swone.hu,softwareone.com") and reject entries that aren't real domains. The
+// stored value must cover every domain the IdP may assert as a user's email:
+// the SAML callback only trusts (and thus implicitly links) logins whose
+// asserted email domain is on this list, so a missing domain surfaces as
+// `account_not_linked` bounces even though the IdP authenticated the user.
+function parseDomainsOrThrow(input: string): string {
+	const { domains, invalid } = normalizeSsoDomains(input);
+	if (invalid.length > 0) {
+		throw new HTTPException(400, {
+			message: `Invalid email domain(s): ${invalid.join(", ")}`,
+		});
+	}
+	if (domains.length === 0) {
+		throw new HTTPException(400, {
+			message: "At least one email domain is required",
+		});
+	}
+	return domains.join(",");
+}
+
 const GUID_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -249,7 +271,8 @@ const registerBodySchema = z.object({
 		.default("generic")
 		.openapi({ description: "IdP vendor; controls SAML attribute mapping" }),
 	domain: z.string().trim().min(1).openapi({
-		description: "Email domain(s), comma-separated for multi-domain",
+		description:
+			"Email domain(s), comma-separated for multi-domain. Must cover every domain the IdP may assert as the user's email (e.g. both the UPN and mail domains on Entra).",
 	}),
 	entryPoint: z.string().trim().url().openapi({
 		description: "IdP Single Sign-On URL (Okta SSO URL / Entra Login URL)",
@@ -303,6 +326,8 @@ sso.openapi(register, async (c) => {
 
 	await assertEnterpriseOrgAccess(user.id, organizationId);
 
+	const normalizedDomain = parseDomainsOrThrow(domain);
+
 	// One SSO connection per organization: reject a second registration so the
 	// slug stays a stable, single identifier for the org's IdP.
 	const existingForOrg = await db.query.ssoProvider.findFirst({
@@ -342,7 +367,7 @@ sso.openapi(register, async (c) => {
 			body: {
 				providerId,
 				issuer: metadataUrl,
-				domain,
+				domain: normalizedDomain,
 				samlConfig: {
 					entryPoint,
 					cert,
@@ -555,7 +580,11 @@ const updateProvider = createRoute({
 				"application/json": {
 					schema: z.object({
 						organizationId: z.string().trim().min(1),
-						enforced: z.boolean(),
+						enforced: z.boolean().optional(),
+						domain: z.string().trim().min(1).optional().openapi({
+							description:
+								"Email domain(s), comma-separated for multi-domain. Must cover every domain the IdP may assert as the user's email (e.g. both the UPN and mail domains on Entra).",
+						}),
 					}),
 				},
 			},
@@ -578,16 +607,25 @@ sso.openapi(updateProvider, async (c) => {
 	}
 
 	const { providerId } = c.req.valid("param");
-	const { organizationId, enforced } = c.req.valid("json");
+	const { organizationId, enforced, domain } = c.req.valid("json");
 
 	await assertEnterpriseOrgAccess(user.id, organizationId);
+
+	if (enforced === undefined && domain === undefined) {
+		throw new HTTPException(400, {
+			message: "Provide at least one field to update",
+		});
+	}
+
+	const normalizedDomain =
+		domain === undefined ? undefined : parseDomainsOrThrow(domain);
 
 	const current = await db.query.ssoProvider.findFirst({
 		where: {
 			providerId: { eq: providerId },
 			organizationId: { eq: organizationId },
 		},
-		columns: { enforced: true },
+		columns: { enforced: true, domain: true },
 	});
 	if (!current) {
 		throw new HTTPException(404, { message: "SSO provider not found" });
@@ -595,7 +633,10 @@ sso.openapi(updateProvider, async (c) => {
 
 	const [provider] = await db
 		.update(tables.ssoProvider)
-		.set({ enforced })
+		.set({
+			...(enforced === undefined ? {} : { enforced }),
+			...(normalizedDomain === undefined ? {} : { domain: normalizedDomain }),
+		})
 		.where(
 			and(
 				eq(tables.ssoProvider.providerId, providerId),
@@ -620,7 +661,14 @@ sso.openapi(updateProvider, async (c) => {
 		resourceId: provider.id,
 		metadata: {
 			resourceName: providerId,
-			changes: { enforced: { old: current.enforced, new: enforced } },
+			changes: {
+				...(enforced === undefined
+					? {}
+					: { enforced: { old: current.enforced, new: enforced } }),
+				...(normalizedDomain === undefined
+					? {}
+					: { domain: { old: current.domain, new: normalizedDomain } }),
+			},
 		},
 	});
 

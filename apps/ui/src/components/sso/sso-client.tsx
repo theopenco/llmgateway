@@ -1,7 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, Copy, HelpCircle, Loader2, Trash2 } from "lucide-react";
+import {
+	Building2,
+	Copy,
+	HelpCircle,
+	Loader2,
+	Pencil,
+	Trash2,
+} from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
@@ -17,6 +24,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/lib/components/alert-dialog";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -112,6 +120,19 @@ function endpointLabels(providerType: "" | "okta" | "entra" | "generic") {
 	}
 }
 
+// The `domain` column is a comma-separated list of email domains; split it for
+// display (badges, human-readable sentences).
+function splitDomains(domain: string): string[] {
+	return domain
+		.split(",")
+		.map((d) => d.trim())
+		.filter(Boolean);
+}
+
+function formatDomains(domain: string): string {
+	return splitDomains(domain).join(", ");
+}
+
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="space-y-1">
@@ -154,6 +175,13 @@ export function SsoClient() {
 	const [cert, setCert] = useState("");
 	const [enforced, setEnforced] = useState(false);
 	const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+	// Edit buffer for an existing connection's email domains. `null` = dialog
+	// closed; otherwise holds the connection slug plus the comma-separated list
+	// being edited.
+	const [domainEdit, setDomainEdit] = useState<{
+		providerId: string;
+		value: string;
+	} | null>(null);
 	const [groupName, setGroupName] = useState("");
 	const [role, setRole] = useState<"owner" | "admin" | "developer">(
 		"developer",
@@ -311,6 +339,28 @@ export function SsoClient() {
 		} catch {
 			toast({
 				title: "Failed to update enforcement",
+				variant: "destructive",
+			});
+		}
+	}
+
+	async function handleSaveDomains(e: React.FormEvent) {
+		e.preventDefault();
+		if (!domainEdit) {
+			return;
+		}
+		try {
+			await updateProvider.mutateAsync({
+				params: { path: { providerId: domainEdit.providerId } },
+				body: { organizationId, domain: domainEdit.value.trim() },
+			});
+			toast({ title: "Email domains updated" });
+			setDomainEdit(null);
+			invalidateProviders();
+		} catch (error) {
+			toast({
+				title:
+					error instanceof Error ? error.message : "Failed to update domains",
 				variant: "destructive",
 			});
 		}
@@ -490,11 +540,32 @@ export function SsoClient() {
 									className="space-y-3 rounded-lg border p-4"
 								>
 									<div className="flex items-start justify-between gap-4">
-										<div>
+										<div className="space-y-1.5">
 											<p className="font-medium">{provider.providerId}</p>
-											<p className="text-sm text-muted-foreground">
-												Domain: {provider.domain}
-											</p>
+											<div className="flex flex-wrap items-center gap-1.5">
+												<span className="text-sm text-muted-foreground">
+													Email domains:
+												</span>
+												{splitDomains(provider.domain).map((d) => (
+													<Badge key={d} variant="secondary">
+														{d}
+													</Badge>
+												))}
+												<Button
+													variant="ghost"
+													size="icon"
+													className="h-6 w-6"
+													onClick={() =>
+														setDomainEdit({
+															providerId: provider.providerId,
+															value: formatDomains(provider.domain),
+														})
+													}
+												>
+													<Pencil className="h-3.5 w-3.5" />
+													<span className="sr-only">Edit email domains</span>
+												</Button>
+											</div>
 										</div>
 										<Button
 											variant="outline"
@@ -502,7 +573,7 @@ export function SsoClient() {
 											onClick={() =>
 												setConfirmAction({
 													title: "Delete SSO connection?",
-													description: `This removes the SAML connection for ${provider.domain}. If Require SSO is on, users on that domain won't be able to sign in until you add a new connection.`,
+													description: `This removes the SAML connection for ${formatDomains(provider.domain)}. If Require SSO is on, users on those domains won't be able to sign in until you add a new connection.`,
 													actionLabel: "Delete connection",
 													run: () => handleDelete(provider.providerId),
 												})
@@ -526,8 +597,8 @@ export function SsoClient() {
 											<p className="text-sm font-medium">Require SSO</p>
 											<p className="text-xs text-muted-foreground">
 												{provider.enforced
-													? `Password, social and passkey sign-in are blocked for ${provider.domain}.`
-													: `Password, social and passkey sign-in are allowed for ${provider.domain}.`}
+													? `Password, social and passkey sign-in are blocked for ${formatDomains(provider.domain)}.`
+													: `Password, social and passkey sign-in are allowed for ${formatDomains(provider.domain)}.`}
 											</p>
 										</div>
 										<Switch
@@ -610,10 +681,40 @@ export function SsoClient() {
 											/>
 										</div>
 										<div className="space-y-2">
-											<Label htmlFor="sso-domain">Email domain</Label>
+											<div className="flex items-center gap-1.5">
+												<Label htmlFor="sso-domain">Email domains</Label>
+												<Popover>
+													<PopoverTrigger asChild>
+														<button
+															type="button"
+															className="text-muted-foreground hover:text-foreground"
+															aria-label="Which email domains should I list?"
+														>
+															<HelpCircle className="h-3.5 w-3.5" />
+														</button>
+													</PopoverTrigger>
+													<PopoverContent side="top" className="w-80 text-sm">
+														<p className="font-medium">Email domains</p>
+														<p className="mt-1 text-muted-foreground">
+															Comma-separated list of domains that route to this
+															connection. It must include{" "}
+															<strong>
+																every domain your IdP may send as the
+																user&apos;s email
+															</strong>{" "}
+															— on Entra that&apos;s the <code>mail</code>{" "}
+															attribute&apos;s domain, which can differ from the
+															sign-in (UPN) domain. If they differ, list both,
+															e.g. <code>acme.com, acme-corp.com</code>;
+															otherwise logins bounce with an &quot;account not
+															linked&quot; error.
+														</p>
+													</PopoverContent>
+												</Popover>
+											</div>
 											<Input
 												id="sso-domain"
-												placeholder="acme.com"
+												placeholder="acme.com, acme-corp.com"
 												value={domain}
 												onChange={(e) => setDomain(e.target.value)}
 												required
@@ -876,6 +977,56 @@ export function SsoClient() {
 					)}
 				</CardContent>
 			</Card>
+
+			<Dialog
+				open={!!domainEdit}
+				onOpenChange={(open) => {
+					if (!open) {
+						setDomainEdit(null);
+					}
+				}}
+			>
+				<DialogContent className="sm:max-w-[500px]">
+					<form onSubmit={handleSaveDomains} className="space-y-4">
+						<DialogHeader>
+							<DialogTitle>Edit email domains</DialogTitle>
+							<DialogDescription>
+								Comma-separated list of email domains for this connection. It
+								must include every domain your identity provider may send as a
+								user&apos;s email — e.g. on Entra both the sign-in (UPN) domain
+								and the <code>mail</code> attribute&apos;s domain if they
+								differ. Existing sign-ins are unaffected.
+							</DialogDescription>
+						</DialogHeader>
+						<div className="space-y-2">
+							<Label htmlFor="sso-edit-domains">Email domains</Label>
+							<Input
+								id="sso-edit-domains"
+								placeholder="acme.com, acme-corp.com"
+								value={domainEdit?.value ?? ""}
+								onChange={(e) =>
+									setDomainEdit((prev) =>
+										prev ? { ...prev, value: e.target.value } : prev,
+									)
+								}
+								required
+							/>
+						</div>
+						<DialogFooter>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => setDomainEdit(null)}
+							>
+								Cancel
+							</Button>
+							<Button type="submit" disabled={updateProvider.isPending}>
+								{updateProvider.isPending ? "Saving..." : "Save"}
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
 
 			<Dialog
 				open={!!generatedToken}

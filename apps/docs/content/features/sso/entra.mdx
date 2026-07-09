@@ -143,11 +143,21 @@ Back on the **SSO → Add a connection** form:
 
 - **Identity provider:** **Microsoft Entra ID** — important, this switches on the Entra claim mapping and relaxes the NameID format
 - **Connection slug:** `acme-entra` (must match the slug whose URLs you pasted into Entra)
-- **Email domain:** your corporate domain, e.g. `acme.com` (comma-separate for several)
+- **Email domains:** your corporate domain(s), e.g. `acme.com` (comma-separate for several)
 - **Identity Provider Single Sign-On URL:** the Entra **Login URL**
 - **X.509 signing certificate:** paste the PEM block
 
-Save. The connection card then shows the exact SP metadata + ACS URLs — confirm they match what you entered in Entra **Section 1**.
+Save. The connection card then shows the exact SP metadata + ACS URLs — confirm they match what you entered in Entra **Section 1**. You can edit the email domain list on the connection card later without re-creating the connection.
+
+<Callout type="warn">
+	The domain list must include **every domain Entra may send as a user's
+	email**. LLM Gateway signs a user in from the `emailaddress` claim, which
+	Entra fills from the **`mail`** attribute — and that domain can differ from
+	the sign-in (userPrincipalName) domain, e.g. UPN `jane@acme.local` with mail
+	`jane@acme.com`. If they differ, list **both** (`acme.local, acme.com`);
+	otherwise sign-in bounces back to the login page with an `account_not_linked`
+	error even though Entra authenticated the user.
+</Callout>
 
 </Step>
 </Steps>
@@ -239,6 +249,13 @@ Flip **Require SSO** on the connection to require SSO for that email domain — 
 	applies to the admin setting it up if their email is on that domain — verify
 	your own SSO login works first.
 </Callout>
+
+## Troubleshooting: login bounces back to the login page
+
+If the Entra sign-in itself succeeds but the user lands back on the LLM Gateway login page (with a 401 in the browser console), the SAML response was received but LLM Gateway refused to attach it to the provisioned user — almost always an `account_not_linked` domain mismatch:
+
+- **The asserted email's domain isn't in the connection's Email domains list.** Entra sends the user's `mail` attribute as the email; if its domain differs from the one you registered (e.g. you registered the UPN domain), edit the connection's **Email domains** on the SSO page to include both.
+- **Wrong Identity provider type.** If the connection was created as **Other (SAML 2.0)** instead of **Microsoft Entra ID**, the Entra claim mapping isn't applied and the email falls back to the NameID (usually the UPN), which may again be off-list — and creates duplicate users instead of matching the SCIM-provisioned ones.
 
 ## Troubleshooting: can't find "Enterprise applications"
 
