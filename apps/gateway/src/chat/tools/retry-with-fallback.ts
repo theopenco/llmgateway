@@ -60,6 +60,21 @@ export function shouldRetryAlternateKey(
 }
 
 /**
+ * Fixed delay before a same-key retry. Cross-provider fallback switches to a
+ * different upstream and retries immediately, but a same-key retry re-hits
+ * the upstream that just failed — a short pause gives transient faults a
+ * moment to clear instead of immediately adding pressure. The added latency
+ * is acceptable since the upstream is already slow or erroring.
+ */
+export const SAME_KEY_RETRY_DELAY_MS = 1000;
+
+export function sameKeyRetryDelay(): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, SAME_KEY_RETRY_DELAY_MS);
+	});
+}
+
+/**
  * Determines whether a failed request should be retried against the same
  * env-var key. This fires only when there is nowhere else to go: the model
  * resolves to a single provider (`hasOtherProvider` is false) and that

@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
 	isRetryableErrorType,
+	sameKeyRetryDelay,
+	SAME_KEY_RETRY_DELAY_MS,
 	shouldRetryAlternateKey,
 	shouldRetrySameKey,
 	shouldRetryRequest,
@@ -298,6 +300,27 @@ describe("shouldRetrySameKey", () => {
 
 	it("does not retry when env var is unset (envKeyCount=0)", () => {
 		expect(shouldRetrySameKey({ ...defaultOpts, envKeyCount: 0 })).toBe(false);
+	});
+});
+
+describe("sameKeyRetryDelay", () => {
+	it("resolves after the fixed delay", async () => {
+		vi.useFakeTimers();
+		try {
+			let resolved = false;
+			const pending = sameKeyRetryDelay().then(() => {
+				resolved = true;
+			});
+
+			await vi.advanceTimersByTimeAsync(SAME_KEY_RETRY_DELAY_MS - 1);
+			expect(resolved).toBe(false);
+
+			await vi.advanceTimersByTimeAsync(1);
+			await pending;
+			expect(resolved).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

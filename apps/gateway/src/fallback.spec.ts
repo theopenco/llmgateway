@@ -13,6 +13,7 @@ import { db, eq, tables, type Log } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
 
 import { app } from "./app.js";
+import { SAME_KEY_RETRY_DELAY_MS } from "./chat/tools/retry-with-fallback.js";
 import { getApiKeyFingerprint } from "./lib/api-key-fingerprint.js";
 import {
 	isTrackedKeyHealthy,
@@ -2581,6 +2582,7 @@ describe("fallback and error status code handling", () => {
 					createdBy: "user-id",
 				});
 
+				const startedAt = Date.now();
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -2594,6 +2596,10 @@ describe("fallback and error status code handling", () => {
 				});
 
 				expect(res.status).toBe(200);
+				// One same-key retry → one fixed delay before the second attempt.
+				expect(Date.now() - startedAt).toBeGreaterThanOrEqual(
+					SAME_KEY_RETRY_DELAY_MS,
+				);
 				const json = await res.json();
 				expect(json.metadata.used_provider).toBe("google-ai-studio");
 				expect(json.metadata.routing).toHaveLength(2);
@@ -2655,6 +2661,7 @@ describe("fallback and error status code handling", () => {
 				// TRIGGER_ERROR fails on every call: initial attempt + 2 same-key
 				// retries (default retry.maxRetries = 2), then the error is
 				// returned to the client.
+				const startedAt = Date.now();
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -2668,6 +2675,10 @@ describe("fallback and error status code handling", () => {
 				});
 
 				expect(res.status).toBe(500);
+				// Two same-key retries → two fixed delays before giving up.
+				expect(Date.now() - startedAt).toBeGreaterThanOrEqual(
+					2 * SAME_KEY_RETRY_DELAY_MS,
+				);
 				const json = await res.json();
 				expect(json).toHaveProperty("error");
 

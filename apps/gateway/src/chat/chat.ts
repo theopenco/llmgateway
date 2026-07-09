@@ -234,6 +234,7 @@ import {
 	getErrorType,
 	isRetryableErrorType,
 	providerRetryKey,
+	sameKeyRetryDelay,
 	selectNextProvider,
 	shouldRetryAlternateKey,
 	shouldRetrySameKey,
@@ -6898,6 +6899,7 @@ chat.openapi(completions, async (c) => {
 								// failed attempt) so a client disconnect during the
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
+								await sameKeyRetryDelay();
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
@@ -7294,6 +7296,7 @@ chat.openapi(completions, async (c) => {
 								// failed attempt) so a client disconnect during the
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
+								await sameKeyRetryDelay();
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
@@ -7617,6 +7620,7 @@ chat.openapi(completions, async (c) => {
 							// failed attempt) so a client disconnect during the
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
+							await sameKeyRetryDelay();
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
@@ -7938,6 +7942,7 @@ chat.openapi(completions, async (c) => {
 							// failed attempt) so a client disconnect during the
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
+							await sameKeyRetryDelay();
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
@@ -11199,6 +11204,7 @@ chat.openapi(completions, async (c) => {
 				// a client disconnect during the retried upstream call still
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
+				await sameKeyRetryDelay();
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
@@ -11679,6 +11685,7 @@ chat.openapi(completions, async (c) => {
 				// a client disconnect during the retried upstream call still
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
+				await sameKeyRetryDelay();
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
