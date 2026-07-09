@@ -8,7 +8,7 @@ import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
 
 import {
-	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
+	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -174,9 +174,10 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 									No hidden throttling:
 								</span>{" "}
 								premium frontier models (Opus, GPT Pro/reasoning, Gemini Pro,
-								Grok) have a ${DEV_PLAN_PREMIUM_WEEKLY_LIMITS[plan.tier]}/week
-								fair-use allowance. Every other model draws on your full monthly
-								allowance.
+								Grok) have a weekly fair-use allowance of{" "}
+								{Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT[plan.tier] * 100)}%
+								of your monthly credits. Every other model draws on your full
+								monthly allowance.
 							</div>
 
 							<ul className="mb-7 flex-1 space-y-2.5">
