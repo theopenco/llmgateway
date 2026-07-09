@@ -698,7 +698,10 @@ keysApi.openapi(deletePlatformKey, async (c) => {
 		platformKey.projectId,
 	);
 
-	await db
+	// Delete through the cached client so onMutate busts the gateway's cached
+	// token lookups; otherwise the deleted key keeps authenticating until the
+	// cache expires.
+	await cdb
 		.update(tables.apiKey)
 		.set({
 			status: "deleted",
@@ -1431,7 +1434,10 @@ keysApi.openapi(deleteKey, async (c) => {
 		});
 	}
 
-	await db
+	// Delete through the cached client so onMutate busts the gateway's cached
+	// token lookups; otherwise the deleted key keeps authenticating until the
+	// cache expires.
+	await cdb
 		.update(tables.apiKey)
 		.set({
 			status: "deleted",
@@ -1615,7 +1621,11 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	// Update the API key status
-	const [updatedApiKey] = await db
+	// Update through the cached client so its onMutate invalidates the gateway's
+	// cached token lookups (Drizzle cache + SWR mirror) for the api_key table.
+	// Otherwise a deactivated key keeps authenticating (and a reactivated one
+	// stays rejected) until the cache expires, so the change is not instant.
+	const [updatedApiKey] = await cdb
 		.update(tables.apiKey)
 		.set({
 			status,
@@ -1997,8 +2007,9 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 
 	const periodConfigChanged = hasPeriodConfigChanged(apiKey, nextLimitConfig);
 
-	// Update the API key usage limit
-	const [updatedApiKey] = await db
+	// Update the API key usage limit through the cached client so onMutate busts
+	// the gateway's cached token lookup and the new limits take effect instantly.
+	const [updatedApiKey] = await cdb
 		.update(tables.apiKey)
 		.set({
 			usageLimit: nextLimitConfig.usageLimit,
