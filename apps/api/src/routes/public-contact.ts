@@ -203,6 +203,20 @@ async function updateSubmissionStatus(
 		.where(eq(tables.enterpriseContactSubmission.id, submissionId));
 }
 
+async function updateProviderRequestStatus(
+	requestId: string,
+	status: "rejected" | "delivered" | "delivery_failed",
+	rejectionReason?: string,
+) {
+	await db
+		.update(tables.providerListingRequest)
+		.set({
+			spamFilterStatus: status,
+			rejectionReason: rejectionReason ?? null,
+		})
+		.where(eq(tables.providerListingRequest.id, requestId));
+}
+
 publicContact.openapi(submitEnterpriseContact, async (c) => {
 	const validatedData = c.req.valid("json");
 	const ipAddress = extractClientIP(c);
@@ -527,13 +541,12 @@ publicContact.openapi(submitProviderContact, async (c) => {
 	let submission: { id: string };
 	try {
 		const [inserted] = await db
-			.insert(tables.enterpriseContactSubmission)
+			.insert(tables.providerListingRequest)
 			.values({
-				kind: "provider",
-				name: validatedData.providerName,
+				providerName: validatedData.providerName,
 				email: validatedData.email,
+				url: validatedData.url,
 				country: validatedData.country,
-				providerUrl: validatedData.url,
 				complianceSoc2Type2: validatedData.complianceSoc2Type2,
 				complianceIso27001: validatedData.complianceIso27001,
 				complianceGdpr: validatedData.complianceGdpr,
@@ -544,14 +557,14 @@ publicContact.openapi(submitProviderContact, async (c) => {
 				ipAddress,
 				userAgent,
 			})
-			.returning({ id: tables.enterpriseContactSubmission.id });
+			.returning({ id: tables.providerListingRequest.id });
 
 		if (!inserted) {
 			throw new Error("No row returned from insert");
 		}
 		submission = inserted;
 	} catch (error) {
-		logger.error("Failed to persist provider listing submission", {
+		logger.error("Failed to persist provider listing request", {
 			error,
 		});
 		return c.json(
@@ -564,14 +577,14 @@ publicContact.openapi(submitProviderContact, async (c) => {
 	}
 
 	if (validatedData.honeypot && validatedData.honeypot.trim() !== "") {
-		await updateSubmissionStatus(submission.id, "rejected", "honeypot");
+		await updateProviderRequestStatus(submission.id, "rejected", "honeypot");
 		return c.json({ success: false, message: "Invalid submission" }, 400);
 	}
 
 	if (validatedData.timestamp) {
 		const timeTaken = Date.now() - validatedData.timestamp;
 		if (timeTaken < 3000) {
-			await updateSubmissionStatus(
+			await updateProviderRequestStatus(
 				submission.id,
 				"rejected",
 				"submitted_too_fast",
@@ -589,7 +602,11 @@ publicContact.openapi(submitProviderContact, async (c) => {
 	const rateLimitKey = ipAddress ?? `email:${validatedData.email}`;
 	const canSubmit = await checkRateLimit(rateLimitKey);
 	if (!canSubmit) {
-		await updateSubmissionStatus(submission.id, "rejected", "rate_limited");
+		await updateProviderRequestStatus(
+			submission.id,
+			"rejected",
+			"rate_limited",
+		);
 		return c.json(
 			{
 				success: false,
@@ -601,7 +618,11 @@ publicContact.openapi(submitProviderContact, async (c) => {
 	}
 
 	if (isDisposableEmail(validatedData.email)) {
-		await updateSubmissionStatus(submission.id, "rejected", "disposable_email");
+		await updateProviderRequestStatus(
+			submission.id,
+			"rejected",
+			"disposable_email",
+		);
 		return c.json(
 			{
 				success: false,
@@ -613,7 +634,11 @@ publicContact.openapi(submitProviderContact, async (c) => {
 
 	const contentToCheck = `${validatedData.providerName} ${validatedData.url}`;
 	if (checkForSpam(contentToCheck)) {
-		await updateSubmissionStatus(submission.id, "rejected", "keyword_spam");
+		await updateProviderRequestStatus(
+			submission.id,
+			"rejected",
+			"keyword_spam",
+		);
 		return c.json(
 			{
 				success: false,
@@ -629,6 +654,12 @@ publicContact.openapi(submitProviderContact, async (c) => {
 	// payment link is returned to the client even if the confirmation email can't
 	// be sent. The fee is refunded in full if we don't end up listing the provider.
 	let checkoutUrl: string | null = null;
+	// Distinguishes a completed submission (payment ready) from one where the
+	// listing-fee payment could not be set up, so the client never shows a plain
+	// success when there is nothing to pay with.
+	let message = "Request sent successfully";
+	const paymentUnavailableMessage =
+		"We received your request, but couldn't set up the listing-fee payment right now. Our team will follow up to arrange it.";
 	const providerListingPriceId = process.env.STRIPE_PROVIDER_LISTING_PRICE_ID;
 	if (providerListingPriceId) {
 		try {
@@ -657,11 +688,13 @@ publicContact.openapi(submitProviderContact, async (c) => {
 				"Failed to create provider listing checkout session",
 				err instanceof Error ? err : new Error(String(err)),
 			);
+			message = paymentUnavailableMessage;
 		}
 	} else {
 		logger.warn(
 			"STRIPE_PROVIDER_LISTING_PRICE_ID not configured; skipping provider checkout",
 		);
+		message = paymentUnavailableMessage;
 	}
 
 	const resend = getResendClient();
@@ -737,17 +770,17 @@ publicContact.openapi(submitProviderContact, async (c) => {
 				"Failed to send provider listing email",
 				new Error(error.message),
 			);
-			await updateSubmissionStatus(
+			await updateProviderRequestStatus(
 				submission.id,
 				"delivery_failed",
 				"resend_send_failed",
 			);
 		} else {
 			try {
-				await updateSubmissionStatus(submission.id, "delivered");
+				await updateProviderRequestStatus(submission.id, "delivered");
 			} catch (err) {
-				logger.error("Failed to update submission status after delivery", {
-					submissionId: submission.id,
+				logger.error("Failed to update request status after delivery", {
+					requestId: submission.id,
 					error: err,
 				});
 			}
@@ -774,8 +807,5 @@ publicContact.openapi(submitProviderContact, async (c) => {
 		);
 	});
 
-	return c.json(
-		{ success: true, message: "Request sent successfully", checkoutUrl },
-		200,
-	);
+	return c.json({ success: true, message, checkoutUrl }, 200);
 });

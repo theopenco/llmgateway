@@ -8213,21 +8213,12 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 const contactSubmissionSchema = z.object({
 	id: z.string(),
 	createdAt: z.string(),
-	kind: z.enum(["enterprise", "provider"]),
 	name: z.string(),
 	email: z.string(),
 	country: z.string(),
-	size: z.string().nullable(),
+	size: z.string(),
 	deployment: z.enum(["self_host", "cloud", "not_sure"]).nullable(),
-	message: z.string().nullable(),
-	providerUrl: z.string().nullable(),
-	complianceSoc2Type2: z.boolean(),
-	complianceIso27001: z.boolean(),
-	complianceGdpr: z.boolean(),
-	dataRetentionDays: z.number().nullable(),
-	trainsOnData: z.boolean().nullable(),
-	paymentStatus: z.enum(["unpaid", "paid", "refunded"]),
-	paidAt: z.string().nullable(),
+	message: z.string(),
 	ipAddress: z.string().nullable(),
 	userAgent: z.string().nullable(),
 	spamFilterStatus: z.string(),
@@ -8323,21 +8314,12 @@ admin.openapi(getContactSubmissions, async (c) => {
 			.select({
 				id: t.id,
 				createdAt: t.createdAt,
-				kind: t.kind,
 				name: t.name,
 				email: t.email,
 				country: t.country,
 				size: t.size,
 				deployment: t.deployment,
 				message: t.message,
-				providerUrl: t.providerUrl,
-				complianceSoc2Type2: t.complianceSoc2Type2,
-				complianceIso27001: t.complianceIso27001,
-				complianceGdpr: t.complianceGdpr,
-				dataRetentionDays: t.dataRetentionDays,
-				trainsOnData: t.trainsOnData,
-				paymentStatus: t.paymentStatus,
-				paidAt: t.paidAt,
 				ipAddress: t.ipAddress,
 				userAgent: t.userAgent,
 				spamFilterStatus: t.spamFilterStatus,
@@ -8360,7 +8342,6 @@ admin.openapi(getContactSubmissions, async (c) => {
 			...s,
 			createdAt: s.createdAt.toISOString(),
 			archivedAt: s.archivedAt?.toISOString() ?? null,
-			paidAt: s.paidAt?.toISOString() ?? null,
 		})),
 		total: Number(countResult[0]?.count ?? 0),
 	});
@@ -8394,21 +8375,12 @@ admin.openapi(getContactSubmission, async (c) => {
 		.select({
 			id: t.id,
 			createdAt: t.createdAt,
-			kind: t.kind,
 			name: t.name,
 			email: t.email,
 			country: t.country,
 			size: t.size,
 			deployment: t.deployment,
 			message: t.message,
-			providerUrl: t.providerUrl,
-			complianceSoc2Type2: t.complianceSoc2Type2,
-			complianceIso27001: t.complianceIso27001,
-			complianceGdpr: t.complianceGdpr,
-			dataRetentionDays: t.dataRetentionDays,
-			trainsOnData: t.trainsOnData,
-			paymentStatus: t.paymentStatus,
-			paidAt: t.paidAt,
 			ipAddress: t.ipAddress,
 			userAgent: t.userAgent,
 			spamFilterStatus: t.spamFilterStatus,
@@ -8428,7 +8400,6 @@ admin.openapi(getContactSubmission, async (c) => {
 		...submission,
 		createdAt: submission.createdAt.toISOString(),
 		archivedAt: submission.archivedAt?.toISOString() ?? null,
-		paidAt: submission.paidAt?.toISOString() ?? null,
 	});
 });
 
@@ -9282,6 +9253,303 @@ admin.openapi(archiveContactSubmission, async (c) => {
 
 	if (rows.length === 0) {
 		throw new HTTPException(404, { message: "Submission not found" });
+	}
+
+	return c.json({ success: true });
+});
+
+// ── Provider Listing Requests ─────────────────────────────────────────────────
+
+const providerListingRequestSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	providerName: z.string(),
+	email: z.string(),
+	url: z.string(),
+	country: z.string(),
+	complianceSoc2Type2: z.boolean(),
+	complianceIso27001: z.boolean(),
+	complianceGdpr: z.boolean(),
+	dataRetentionDays: z.number().nullable(),
+	trainsOnData: z.boolean().nullable(),
+	paymentStatus: z.enum(["unpaid", "paid", "refunded"]),
+	paidAt: z.string().nullable(),
+	ipAddress: z.string().nullable(),
+	userAgent: z.string().nullable(),
+	spamFilterStatus: z.string(),
+	rejectionReason: z.string().nullable(),
+	archivedAt: z.string().nullable(),
+});
+
+const providerListingRequestsListSchema = z.object({
+	requests: z.array(providerListingRequestSchema),
+	total: z.number(),
+});
+
+const providerListingRequestsSortBySchema = z.enum([
+	"createdAt",
+	"providerName",
+	"email",
+	"spamFilterStatus",
+]);
+
+const getProviderListingRequests = createRoute({
+	method: "get",
+	path: "/provider-listing-requests",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			search: z.string().optional(),
+			status: z
+				.enum(["pending", "rejected", "delivered", "delivery_failed"])
+				.optional(),
+			sortBy: providerListingRequestsSortBySchema
+				.default("createdAt")
+				.optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+			archived: z
+				.enum(["true", "false"])
+				.default("false")
+				.transform((v) => v === "true")
+				.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerListingRequestsListSchema.openapi({}),
+				},
+			},
+			description: "List of provider listing requests.",
+		},
+	},
+});
+
+admin.openapi(getProviderListingRequests, async (c) => {
+	const {
+		limit = 50,
+		offset = 0,
+		search,
+		status,
+		sortBy = "createdAt",
+		sortOrder = "desc",
+		archived = false,
+	} = c.req.valid("query");
+
+	const t = tables.providerListingRequest;
+
+	const conditions = [];
+	if (search) {
+		conditions.push(
+			or(
+				sql`${t.providerName} ILIKE ${"%" + search + "%"}`,
+				sql`${t.email} ILIKE ${"%" + search + "%"}`,
+				sql`${t.url} ILIKE ${"%" + search + "%"}`,
+				sql`${t.country} ILIKE ${"%" + search + "%"}`,
+			),
+		);
+	}
+	if (status) {
+		conditions.push(eq(t.spamFilterStatus, status));
+	}
+	conditions.push(archived ? isNotNull(t.archivedAt) : isNull(t.archivedAt));
+
+	const where = and(...conditions);
+
+	const sortColumn = {
+		createdAt: t.createdAt,
+		providerName: t.providerName,
+		email: t.email,
+		spamFilterStatus: t.spamFilterStatus,
+	}[sortBy];
+
+	const orderFn = sortOrder === "asc" ? asc : desc;
+
+	const [requests, countResult] = await Promise.all([
+		db
+			.select({
+				id: t.id,
+				createdAt: t.createdAt,
+				providerName: t.providerName,
+				email: t.email,
+				url: t.url,
+				country: t.country,
+				complianceSoc2Type2: t.complianceSoc2Type2,
+				complianceIso27001: t.complianceIso27001,
+				complianceGdpr: t.complianceGdpr,
+				dataRetentionDays: t.dataRetentionDays,
+				trainsOnData: t.trainsOnData,
+				paymentStatus: t.paymentStatus,
+				paidAt: t.paidAt,
+				ipAddress: t.ipAddress,
+				userAgent: t.userAgent,
+				spamFilterStatus: t.spamFilterStatus,
+				rejectionReason: t.rejectionReason,
+				archivedAt: t.archivedAt,
+			})
+			.from(t)
+			.where(where)
+			.orderBy(orderFn(sortColumn))
+			.limit(limit)
+			.offset(offset),
+		db
+			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(where),
+	]);
+
+	return c.json({
+		requests: requests.map((r) => ({
+			...r,
+			createdAt: r.createdAt.toISOString(),
+			paidAt: r.paidAt?.toISOString() ?? null,
+			archivedAt: r.archivedAt?.toISOString() ?? null,
+		})),
+		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
+const getProviderListingRequest = createRoute({
+	method: "get",
+	path: "/provider-listing-requests/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerListingRequestSchema.openapi({}),
+				},
+			},
+			description: "Single provider listing request.",
+		},
+	},
+});
+
+admin.openapi(getProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+	const t = tables.providerListingRequest;
+
+	const rows = await db
+		.select({
+			id: t.id,
+			createdAt: t.createdAt,
+			providerName: t.providerName,
+			email: t.email,
+			url: t.url,
+			country: t.country,
+			complianceSoc2Type2: t.complianceSoc2Type2,
+			complianceIso27001: t.complianceIso27001,
+			complianceGdpr: t.complianceGdpr,
+			dataRetentionDays: t.dataRetentionDays,
+			trainsOnData: t.trainsOnData,
+			paymentStatus: t.paymentStatus,
+			paidAt: t.paidAt,
+			ipAddress: t.ipAddress,
+			userAgent: t.userAgent,
+			spamFilterStatus: t.spamFilterStatus,
+			rejectionReason: t.rejectionReason,
+			archivedAt: t.archivedAt,
+		})
+		.from(t)
+		.where(eq(t.id, id))
+		.limit(1);
+
+	const request = rows[0];
+	if (!request) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	return c.json({
+		...request,
+		createdAt: request.createdAt.toISOString(),
+		paidAt: request.paidAt?.toISOString() ?? null,
+		archivedAt: request.archivedAt?.toISOString() ?? null,
+	});
+});
+
+const deleteProviderListingRequest = createRoute({
+	method: "delete",
+	path: "/provider-listing-requests/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Request deleted.",
+		},
+		404: {
+			description: "Request not found.",
+		},
+	},
+});
+
+admin.openapi(deleteProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const existing = await db.query.providerListingRequest.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (!existing) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	await db
+		.delete(tables.providerListingRequest)
+		.where(eq(tables.providerListingRequest.id, id));
+
+	return c.json({ success: true });
+});
+
+const archiveProviderListingRequest = createRoute({
+	method: "patch",
+	path: "/provider-listing-requests/{id}/archive",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ archived: z.boolean() }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Request archived/unarchived.",
+		},
+		404: {
+			description: "Request not found.",
+		},
+	},
+});
+
+admin.openapi(archiveProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+	const { archived } = c.req.valid("json");
+
+	const rows = await db
+		.update(tables.providerListingRequest)
+		.set({ archivedAt: archived ? new Date() : null })
+		.where(eq(tables.providerListingRequest.id, id))
+		.returning();
+
+	if (rows.length === 0) {
+		throw new HTTPException(404, { message: "Request not found" });
 	}
 
 	return c.json({ success: true });

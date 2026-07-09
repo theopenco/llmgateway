@@ -124,10 +124,10 @@ export function AddProviderForm({
 					window.location.href = result.checkoutUrl;
 					return;
 				}
+				// No checkout URL means the listing-fee payment couldn't be set up;
+				// surface the server's message rather than a generic success.
 				setIsSuccess(true);
-				toast.success("Request sent successfully!", {
-					description: "Our team will review your provider and follow up.",
-				});
+				toast.success(result.message ?? "Request sent successfully!");
 			} else {
 				toast.error("Failed to send request", {
 					description: result.message ?? "Please try again later.",

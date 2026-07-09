@@ -574,20 +574,52 @@ export const enterpriseContactSubmission = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		kind: text({
-			enum: ["enterprise", "provider"],
-		})
-			.notNull()
-			.default("enterprise"),
 		name: text().notNull(),
 		email: text().notNull(),
 		country: text().notNull(),
-		size: text(),
+		size: text().notNull(),
 		deployment: text({
 			enum: ["self_host", "cloud", "not_sure"],
 		}),
-		message: text(),
-		providerUrl: text(),
+		message: text().notNull(),
+		honeypot: text(),
+		clientTimestampMs: text(),
+		ipAddress: text(),
+		userAgent: text(),
+		spamFilterStatus: text({
+			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+		})
+			.notNull()
+			.default("pending"),
+		rejectionReason: text(),
+		archivedAt: timestamp(),
+	},
+	(table) => [
+		index("enterprise_contact_submission_created_at_idx").on(table.createdAt),
+		index("enterprise_contact_submission_email_idx").on(table.email),
+		index("enterprise_contact_submission_status_idx").on(
+			table.spamFilterStatus,
+		),
+		check(
+			"enterprise_contact_submission_deployment_check",
+			sql`${table.deployment} IS NULL OR ${table.deployment} IN ('self_host', 'cloud', 'not_sure')`,
+		),
+	],
+);
+
+export const providerListingRequest = pgTable(
+	"provider_listing_request",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerName: text().notNull(),
+		email: text().notNull(),
+		url: text().notNull(),
+		country: text().notNull(),
 		complianceSoc2Type2: boolean().notNull().default(false),
 		complianceIso27001: boolean().notNull().default(false),
 		complianceGdpr: boolean().notNull().default(false),
@@ -613,22 +645,12 @@ export const enterpriseContactSubmission = pgTable(
 		archivedAt: timestamp(),
 	},
 	(table) => [
-		index("enterprise_contact_submission_created_at_idx").on(table.createdAt),
-		index("enterprise_contact_submission_email_idx").on(table.email),
-		index("enterprise_contact_submission_status_idx").on(
-			table.spamFilterStatus,
-		),
+		index("provider_listing_request_created_at_idx").on(table.createdAt),
+		index("provider_listing_request_email_idx").on(table.email),
+		index("provider_listing_request_status_idx").on(table.spamFilterStatus),
 		check(
-			"enterprise_contact_submission_kind_check",
-			sql`${table.kind} IN ('enterprise', 'provider')`,
-		),
-		check(
-			"enterprise_contact_submission_payment_status_check",
+			"provider_listing_request_payment_status_check",
 			sql`${table.paymentStatus} IN ('unpaid', 'paid', 'refunded')`,
-		),
-		check(
-			"enterprise_contact_submission_deployment_check",
-			sql`${table.deployment} IS NULL OR ${table.deployment} IN ('self_host', 'cloud', 'not_sure')`,
 		),
 	],
 );

@@ -100,9 +100,6 @@ export default async function ContactSubmissionDetailPage({
 			<header className="flex flex-col gap-2">
 				<div className="flex items-center gap-3">
 					<h1 className="text-3xl font-semibold tracking-tight">{data.name}</h1>
-					<Badge variant="outline">
-						{data.kind === "provider" ? "Provider" : "Enterprise"}
-					</Badge>
 					<Badge variant={getStatusBadgeVariant(data.spamFilterStatus)}>
 						{getStatusLabel(data.spamFilterStatus)}
 					</Badge>
@@ -129,14 +126,12 @@ export default async function ContactSubmissionDetailPage({
 							</dt>
 							<dd className="mt-1">{data.country}</dd>
 						</div>
-						{data.size && (
-							<div>
-								<dt className="text-sm font-medium text-muted-foreground">
-									Company Size
-								</dt>
-								<dd className="mt-1">{data.size}</dd>
-							</div>
-						)}
+						<div>
+							<dt className="text-sm font-medium text-muted-foreground">
+								Company Size
+							</dt>
+							<dd className="mt-1">{data.size}</dd>
+						</div>
 						{deploymentLabel(data.deployment) && (
 							<div>
 								<dt className="text-sm font-medium text-muted-foreground">
@@ -145,70 +140,12 @@ export default async function ContactSubmissionDetailPage({
 								<dd className="mt-1">{deploymentLabel(data.deployment)}</dd>
 							</div>
 						)}
-						{data.kind === "provider" && (
-							<>
-								{data.providerUrl && (
-									<div>
-										<dt className="text-sm font-medium text-muted-foreground">
-											Provider URL
-										</dt>
-										<dd className="mt-1">
-											<a
-												href={data.providerUrl}
-												target="_blank"
-												rel="noopener noreferrer"
-												className="text-primary hover:underline"
-											>
-												{data.providerUrl}
-											</a>
-										</dd>
-									</div>
-								)}
-								<div>
-									<dt className="text-sm font-medium text-muted-foreground">
-										Compliance
-									</dt>
-									<dd className="mt-1">
-										{[
-											data.complianceSoc2Type2 && "SOC 2 Type II",
-											data.complianceIso27001 && "ISO 27001",
-											data.complianceGdpr && "GDPR",
-										]
-											.filter(Boolean)
-											.join(", ") || "None declared"}
-									</dd>
-								</div>
-								<div>
-									<dt className="text-sm font-medium text-muted-foreground">
-										Data Retention
-									</dt>
-									<dd className="mt-1">{data.dataRetentionDays ?? 0} days</dd>
-								</div>
-								<div>
-									<dt className="text-sm font-medium text-muted-foreground">
-										Trains on Data
-									</dt>
-									<dd className="mt-1">{data.trainsOnData ? "Yes" : "No"}</dd>
-								</div>
-								<div>
-									<dt className="text-sm font-medium text-muted-foreground">
-										Listing Fee
-									</dt>
-									<dd className="mt-1 capitalize">
-										{data.paymentStatus}
-										{data.paidAt ? ` · ${formatDate(data.paidAt)}` : ""}
-									</dd>
-								</div>
-							</>
-						)}
-						{data.message && (
-							<div>
-								<dt className="text-sm font-medium text-muted-foreground">
-									Message
-								</dt>
-								<dd className="mt-1 whitespace-pre-wrap">{data.message}</dd>
-							</div>
-						)}
+						<div>
+							<dt className="text-sm font-medium text-muted-foreground">
+								Message
+							</dt>
+							<dd className="mt-1 whitespace-pre-wrap">{data.message}</dd>
+						</div>
 						{data.rejectionReason && (
 							<div>
 								<dt className="text-sm font-medium text-muted-foreground">

@@ -23,7 +23,7 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
-type SortBy = "createdAt" | "name" | "email" | "spamFilterStatus";
+type SortBy = "createdAt" | "providerName" | "email" | "spamFilterStatus";
 type SortOrder = "asc" | "desc";
 type Status = "pending" | "rejected" | "delivered" | "delivery_failed";
 
@@ -50,7 +50,7 @@ function SortableHeader({
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
 	const archivedParam = archived ? "&archived=true" : "";
-	const href = `/contact-submissions?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${statusParam}${archivedParam}`;
+	const href = `/provider-listing-requests?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${statusParam}${archivedParam}`;
 
 	return (
 		<Link
@@ -89,7 +89,6 @@ function getStatusBadgeVariant(status: string) {
 		case "delivered":
 			return "default";
 		case "rejected":
-			return "destructive";
 		case "delivery_failed":
 			return "destructive";
 		case "pending":
@@ -108,17 +107,15 @@ function getStatusLabel(status: string) {
 	}
 }
 
-const deploymentLabels: Record<string, string> = {
-	self_host: "Self-hosted",
-	cloud: "Cloud (managed)",
-	not_sure: "Not sure yet",
-};
-
-function deploymentLabel(value: string | null | undefined) {
-	if (!value) {
-		return "—";
+function getPaymentBadgeVariant(status: string) {
+	switch (status) {
+		case "paid":
+			return "default";
+		case "refunded":
+			return "secondary";
+		default:
+			return "outline";
 	}
-	return deploymentLabels[value] ?? value;
 }
 
 const statusOptions: { value: Status | ""; label: string }[] = [
@@ -129,7 +126,7 @@ const statusOptions: { value: Status | ""; label: string }[] = [
 	{ value: "delivery_failed", label: "Failed" },
 ];
 
-export default async function ContactSubmissionsPage({
+export default async function ProviderListingRequestsPage({
 	searchParams,
 }: {
 	searchParams?: Promise<{
@@ -154,7 +151,7 @@ export default async function ContactSubmissionsPage({
 	const offset = (page - 1) * limit;
 
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/contact-submissions", {
+	const { data } = await $api.GET("/admin/provider-listing-requests", {
 		params: {
 			query: {
 				limit,
@@ -204,7 +201,7 @@ export default async function ContactSubmissionsPage({
 		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
 		const archivedParam = archivedValue === "true" ? "&archived=true" : "";
 		redirect(
-			`/contact-submissions?page=1${searchParam}${statusParam}${sortParam}${archivedParam}`,
+			`/provider-listing-requests?page=1${searchParam}${statusParam}${sortParam}${archivedParam}`,
 		);
 	}
 
@@ -213,10 +210,10 @@ export default async function ContactSubmissionsPage({
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
 				<div>
 					<h1 className="text-3xl font-semibold tracking-tight">
-						Contact Submissions
+						Provider Requests
 					</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						{data.total} submissions found
+						{data.total} requests found
 					</p>
 				</div>
 				<form
@@ -246,7 +243,7 @@ export default async function ContactSubmissionsPage({
 						<input
 							type="text"
 							name="search"
-							placeholder="Search by name, email, or message..."
+							placeholder="Search by provider, email, URL, or country..."
 							defaultValue={search}
 							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
 						/>
@@ -256,7 +253,7 @@ export default async function ContactSubmissionsPage({
 					</Button>
 					<Button variant={archived ? "default" : "outline"} size="sm" asChild>
 						<Link
-							href={`/contact-submissions?page=1${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "" : "&archived=true"}`}
+							href={`/provider-listing-requests?page=1${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "" : "&archived=true"}`}
 						>
 							Archived
 						</Link>
@@ -281,8 +278,8 @@ export default async function ContactSubmissionsPage({
 							</TableHead>
 							<TableHead>
 								<SortableHeader
-									label="Name"
-									sortKey="name"
+									label="Provider"
+									sortKey="providerName"
 									currentSortBy={sortBy}
 									currentSortOrder={sortOrder}
 									search={search}
@@ -302,9 +299,9 @@ export default async function ContactSubmissionsPage({
 								/>
 							</TableHead>
 							<TableHead>Country</TableHead>
-							<TableHead>Size</TableHead>
-							<TableHead>Deployment</TableHead>
-							<TableHead>Message</TableHead>
+							<TableHead>Retention</TableHead>
+							<TableHead>Trains</TableHead>
+							<TableHead>Fee</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Status"
@@ -316,69 +313,64 @@ export default async function ContactSubmissionsPage({
 									archived={archived}
 								/>
 							</TableHead>
-							<TableHead>Reason</TableHead>
 							<TableHead>IP</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{data.submissions.length === 0 ? (
+						{data.requests.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={9}
 									className="h-24 text-center text-muted-foreground"
 								>
-									No submissions found
+									No requests found
 								</TableCell>
 							</TableRow>
 						) : (
-							data.submissions.map((submission) => (
+							data.requests.map((request) => (
 								<TableRow
-									key={submission.id}
+									key={request.id}
 									className="cursor-pointer hover:bg-muted/50"
 								>
 									<TableCell className="text-muted-foreground">
-										{formatDate(submission.createdAt)}
+										{formatDate(request.createdAt)}
 									</TableCell>
 									<TableCell className="font-medium">
 										<Link
-											href={`/contact-submissions/${submission.id}`}
+											href={`/provider-listing-requests/${request.id}`}
 											className="block hover:underline"
 										>
-											{submission.name}
+											{request.providerName}
 										</Link>
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{submission.email}
+										{request.email}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{submission.country}
+										{request.country}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{submission.size}
+										{request.dataRetentionDays ?? 0}d
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{deploymentLabel(submission.deployment)}
-									</TableCell>
-									<TableCell
-										className="max-w-xs truncate text-muted-foreground"
-										title={submission.message}
-									>
-										{submission.message}
+										{request.trainsOnData ? "Yes" : "No"}
 									</TableCell>
 									<TableCell>
 										<Badge
-											variant={getStatusBadgeVariant(
-												submission.spamFilterStatus,
-											)}
+											variant={getPaymentBadgeVariant(request.paymentStatus)}
 										>
-											{getStatusLabel(submission.spamFilterStatus)}
+											{request.paymentStatus}
+										</Badge>
+									</TableCell>
+									<TableCell>
+										<Badge
+											variant={getStatusBadgeVariant(request.spamFilterStatus)}
+										>
+											{getStatusLabel(request.spamFilterStatus)}
 										</Badge>
 									</TableCell>
 									<TableCell className="text-xs text-muted-foreground">
-										{submission.rejectionReason ?? "—"}
-									</TableCell>
-									<TableCell className="text-xs text-muted-foreground">
-										{submission.ipAddress ?? "—"}
+										{request.ipAddress ?? "—"}
 									</TableCell>
 								</TableRow>
 							))
@@ -396,7 +388,7 @@ export default async function ContactSubmissionsPage({
 					<div className="flex items-center gap-2">
 						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
 							<Link
-								href={`/contact-submissions?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
+								href={`/provider-listing-requests?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
 								<ChevronLeft className="h-4 w-4" />
@@ -413,7 +405,7 @@ export default async function ContactSubmissionsPage({
 							disabled={page >= totalPages}
 						>
 							<Link
-								href={`/contact-submissions?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
+								href={`/provider-listing-requests?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
 								}

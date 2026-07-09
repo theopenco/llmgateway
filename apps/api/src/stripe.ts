@@ -1827,22 +1827,22 @@ async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {
 		return;
 	}
 
-	const submissionId = session.metadata?.submissionId;
-	if (!submissionId) {
+	const requestId = session.metadata?.submissionId;
+	if (!requestId) {
 		logger.error("Provider listing checkout session missing submissionId");
 		return;
 	}
 
 	await db
-		.update(tables.enterpriseContactSubmission)
+		.update(tables.providerListingRequest)
 		.set({
 			paymentStatus: "paid",
 			stripeCheckoutSessionId: session.id,
 			paidAt: new Date(),
 		})
-		.where(eq(tables.enterpriseContactSubmission.id, submissionId));
+		.where(eq(tables.providerListingRequest.id, requestId));
 
-	logger.info(`Marked provider listing submission ${submissionId} as paid`);
+	logger.info(`Marked provider listing request ${requestId} as paid`);
 }
 
 async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
