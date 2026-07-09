@@ -1139,6 +1139,32 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "scx-ai",
+		name: "SCX AI",
+		description:
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI- and Anthropic-compatible inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
+		env: {
+			required: {
+				apiKey: "LLM_SCX_AI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a2e",
+		website: "https://scx.ai",
+		statusPageUrl: "https://status.scx.ai",
+		announcement: null,
+		termsUrl: "https://scx.ai/terms",
+		privacyPolicyUrl: "https://scx.ai/privacy",
+		headquarters: "AU",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: null,
+		},
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",

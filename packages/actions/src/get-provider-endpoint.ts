@@ -274,6 +274,9 @@ export function getProviderEndpoint(
 			case "together-ai":
 				url = "https://api.together.ai";
 				break;
+			case "scx-ai":
+				url = "https://api.scx.ai";
+				break;
 			case "mistral":
 				url = "https://api.mistral.ai";
 				break;
@@ -695,6 +698,7 @@ export function getProviderEndpoint(
 		case "xiaomi":
 		case "embercloud":
 		case "tundra":
+		case "scx-ai":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

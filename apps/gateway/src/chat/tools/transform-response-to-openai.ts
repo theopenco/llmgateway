@@ -564,6 +564,7 @@ export function transformResponseToOpenai(
 		}
 		case "inference.net":
 		case "together-ai":
+		case "scx-ai":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {
