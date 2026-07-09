@@ -1,5 +1,5 @@
+import ExcelJS from "exceljs";
 import { extractText, getDocumentProxy } from "unpdf";
-import * as XLSX from "xlsx";
 
 // Defensive cap mirroring the upload route's base64 limit, so the extractor
 // stays safe even if called from a new code path without an upstream guard.
@@ -18,6 +18,28 @@ function isSpreadsheet(name: string, mimeType: string) {
 		mimeType ===
 			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	);
+}
+
+// Quote a CSV field when it contains a delimiter, quote, or newline, doubling
+// any embedded quotes — matching standard CSV escaping.
+function csvEscape(value: string) {
+	if (/[",\n\r]/.test(value)) {
+		return `"${value.replace(/"/g, '""')}"`;
+	}
+	return value;
+}
+
+function sheetToCsv(worksheet: ExcelJS.Worksheet) {
+	const columnCount = worksheet.columnCount;
+	const lines: string[] = [];
+	worksheet.eachRow({ includeEmpty: true }, (row) => {
+		const cells: string[] = [];
+		for (let col = 1; col <= columnCount; col++) {
+			cells.push(csvEscape(row.getCell(col).text ?? ""));
+		}
+		lines.push(cells.join(","));
+	});
+	return lines.join("\n");
 }
 
 // Extract plain text from an uploaded knowledge base file. PDFs are parsed
@@ -39,11 +61,14 @@ export async function extractFileText(
 	}
 
 	if (isSpreadsheet(name, mimeType)) {
-		const workbook = XLSX.read(buffer, { type: "buffer" });
-		return workbook.SheetNames.map((sheetName) => {
-			const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
-			return `# ${sheetName}\n${csv}`;
-		}).join("\n\n");
+		const workbook = new ExcelJS.Workbook();
+		// exceljs's bundled types declare `Buffer extends ArrayBuffer`, which is
+		// incompatible with Node's Buffer type; the loader accepts a Node Buffer
+		// at runtime, so cast for the type checker only.
+		await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+		return workbook.worksheets
+			.map((worksheet) => `# ${worksheet.name}\n${sheetToCsv(worksheet)}`)
+			.join("\n\n");
 	}
 
 	return buffer.toString("utf8");

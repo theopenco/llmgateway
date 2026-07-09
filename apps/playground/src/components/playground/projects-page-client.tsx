@@ -67,9 +67,9 @@ import type { Organization } from "@/lib/types";
 // Text-based formats are read client-side; PDF and Excel files are sent as
 // base64 and their text is extracted server-side.
 const ACCEPTED_FILE_EXTENSIONS =
-	".txt,.md,.markdown,.mdx,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.log,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.css,.pdf,.xlsx,.xls";
+	".txt,.md,.markdown,.mdx,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.log,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.css,.pdf,.xlsx";
 
-const BINARY_FILE_EXTENSIONS = [".pdf", ".xlsx", ".xls"];
+const BINARY_FILE_EXTENSIONS = [".pdf", ".xlsx"];
 
 function isBinaryKnowledgeFile(name: string) {
 	const lower = name.toLowerCase();

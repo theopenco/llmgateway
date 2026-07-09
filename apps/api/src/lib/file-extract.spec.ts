@@ -1,7 +1,17 @@
+import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
 
 import { extractFileText } from "./file-extract.js";
+
+async function buildXlsx(
+	sheetName: string,
+	rows: (string | number)[][],
+): Promise<Buffer> {
+	const workbook = new ExcelJS.Workbook();
+	const sheet = workbook.addWorksheet(sheetName);
+	sheet.addRows(rows);
+	return Buffer.from(await workbook.xlsx.writeBuffer());
+}
 
 describe("extractFileText", () => {
 	it("passes plain text through as UTF-8", async () => {
@@ -14,16 +24,10 @@ describe("extractFileText", () => {
 	});
 
 	it("converts spreadsheet sheets to CSV with sheet headers", async () => {
-		const workbook = XLSX.utils.book_new();
-		const sheet = XLSX.utils.aoa_to_sheet([
+		const buffer = await buildXlsx("Team", [
 			["name", "role"],
 			["Ada", "engineer"],
 		]);
-		XLSX.utils.book_append_sheet(workbook, sheet, "Team");
-		const buffer = XLSX.write(workbook, {
-			type: "buffer",
-			bookType: "xlsx",
-		}) as Buffer;
 
 		const text = await extractFileText(
 			"team.xlsx",
@@ -35,25 +39,28 @@ describe("extractFileText", () => {
 		expect(text).toContain("Ada,engineer");
 	});
 
-	it("converts legacy .xls workbooks to CSV", async () => {
-		const workbook = XLSX.utils.book_new();
-		const sheet = XLSX.utils.aoa_to_sheet([
+	it("quotes CSV fields containing commas", async () => {
+		const buffer = await buildXlsx("Places", [
 			["city", "country"],
-			["Lund", "Sweden"],
+			["Lund, Skåne", "Sweden"],
 		]);
-		XLSX.utils.book_append_sheet(workbook, sheet, "Places");
-		const buffer = XLSX.write(workbook, {
-			type: "buffer",
-			bookType: "xls",
-		}) as Buffer;
 
 		const text = await extractFileText(
-			"places.xls",
-			"application/vnd.ms-excel",
+			"places.xlsx",
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 			buffer,
 		);
-		expect(text).toContain("# Places");
-		expect(text).toContain("Lund,Sweden");
+		expect(text).toContain('"Lund, Skåne",Sweden');
+	});
+
+	it("rejects unreadable spreadsheet data", async () => {
+		await expect(
+			extractFileText(
+				"legacy.xls",
+				"application/vnd.ms-excel",
+				Buffer.from("not a real spreadsheet"),
+			),
+		).rejects.toThrow();
 	});
 
 	it("rejects buffers over the extraction size cap", async () => {
