@@ -316,7 +316,8 @@ function TierChangePreviewCopy({
 				and your billing period restarts now, then ${plan.price}/mo going
 				forward. Your allowance resets to{" "}
 				{formatUsageAmount(preview.newCreditsLimit)} in usage for the new
-				period.
+				period, and any unspent credits from your current period aren&apos;t
+				rolled over.
 			</span>
 		);
 	}
