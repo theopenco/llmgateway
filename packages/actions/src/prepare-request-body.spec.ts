@@ -694,6 +694,59 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	});
 });
 
+describe("prepareRequestBody - xAI reasoning_effort", () => {
+	async function prepare(
+		effort: "low" | "medium" | "high" | "minimal" | "xhigh",
+	) {
+		return (await prepareRequestBody(
+			"xai",
+			"grok-4-5",
+			null,
+			"grok-4.5",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			effort, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+		)) as any;
+	}
+
+	test("forwards low to xAI", async () => {
+		const requestBody = await prepare("low");
+		expect(requestBody.reasoning_effort).toBe("low");
+	});
+
+	test("forwards high to xAI", async () => {
+		const requestBody = await prepare("high");
+		expect(requestBody.reasoning_effort).toBe("high");
+	});
+
+	test("forwards medium to xAI", async () => {
+		const requestBody = await prepare("medium");
+		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+
+	test("collapses minimal onto low (xAI has no minimal tier)", async () => {
+		const requestBody = await prepare("minimal");
+		expect(requestBody.reasoning_effort).toBe("low");
+	});
+
+	test("collapses xhigh onto high (xAI caps at high)", async () => {
+		const requestBody = await prepare("xhigh");
+		expect(requestBody.reasoning_effort).toBe("high");
+	});
+});
+
 describe("prepareRequestBody - Google AI Studio", () => {
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
