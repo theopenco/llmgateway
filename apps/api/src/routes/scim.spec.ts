@@ -328,4 +328,52 @@ describe("scim audit logging", () => {
 		});
 		expect(membership?.role).toBe("admin");
 	});
+
+	test("POST /Users auto-accepts pending team invites for the new user", async () => {
+		// A second org invited this email before the account existed.
+		await db.insert(tables.organization).values({
+			id: "invite-org",
+			name: "Inviting Org",
+			billingEmail: "inviting@example.com",
+			autoTopUpEnabled: false,
+			autoTopUpThreshold: "10",
+			autoTopUpAmount: "10",
+		});
+		await db.insert(tables.organizationInvite).values({
+			id: "scim-invite-id",
+			organizationId: "invite-org",
+			email: "carol@example.com",
+			role: "admin",
+			expiresAt: new Date(Date.now() + 86_400_000),
+		});
+
+		const response = await app.request("/scim/v2/Users", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				userName: "carol@example.com",
+				emails: [{ value: "carol@example.com", primary: true }],
+				active: true,
+			}),
+		});
+
+		expect(response.status).toBe(201);
+		const { id } = (await response.json()) as { id: string };
+
+		// Provisioned in the SCIM org AND auto-joined the inviting org.
+		const memberships = await db.query.userOrganization.findMany({
+			where: { userId: { eq: id } },
+		});
+		expect(memberships).toHaveLength(2);
+		const invitedMembership = memberships.find(
+			(m) => m.organizationId === "invite-org",
+		);
+		expect(invitedMembership?.role).toBe("admin");
+
+		const invite = await db.query.organizationInvite.findFirst({
+			where: { id: { eq: "scim-invite-id" } },
+		});
+		expect(invite?.status).toBe("accepted");
+		expect(invite?.acceptedByUserId).toBe(id);
+	});
 });

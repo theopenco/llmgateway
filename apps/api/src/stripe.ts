@@ -2872,12 +2872,18 @@ export async function handleChargeRefunded(
 		| "dev_plan_start"
 		| "dev_plan_renewal"
 		| "dev_plan_upgrade"
+		| "chat_plan_start"
+		| "chat_plan_renewal"
+		| "chat_plan_upgrade"
 		| "subscription_start"
 	)[] = [
 		"credit_topup",
 		"dev_plan_start",
 		"dev_plan_renewal",
 		"dev_plan_upgrade",
+		"chat_plan_start",
+		"chat_plan_renewal",
+		"chat_plan_upgrade",
 		"subscription_start",
 	];
 
@@ -2964,9 +2970,10 @@ export async function handleChargeRefunded(
 	);
 
 	// Only credit_topup purchases add to organization.credits, so only those
-	// refunds should deduct credits back. Dev plan and subscription refunds
-	// are recorded for revenue reporting only — the subscription cancel/end
-	// webhooks handle the plan state changes separately.
+	// refunds should deduct credits back. Dev plan, chat plan, and subscription
+	// refunds are recorded for revenue reporting only — those plans use virtual
+	// plan credits, and the subscription cancel/end webhooks handle the plan
+	// state changes separately.
 	const isCreditTopup = originalTransaction.type === "credit_topup";
 
 	// Calculate proportional credit refund

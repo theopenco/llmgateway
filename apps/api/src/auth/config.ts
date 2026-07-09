@@ -7,6 +7,7 @@ import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
@@ -775,6 +776,13 @@ If you didn't request this, you can safely ignore this email. Your password won'
 								},
 							});
 
+							// The email is now proven to belong to this user, so honor any
+							// team invitations that were waiting on the address.
+							await acceptPendingInvitesForUser({
+								id: user.id,
+								email: user.email,
+							});
+
 							// Add verified email to Resend contacts with onboarding status
 							await createResendContact(user.email, user.name ?? undefined, {
 								onboarding_completed: dbUser?.onboardingCompleted ?? false,
@@ -1092,6 +1100,22 @@ The LLM Gateway Team`.trim();
 							.delete(tables.session)
 							.where(eq(tables.session.id, newSession.session.id));
 						return ssoRequiredResponse();
+					}
+
+					// Auto-accept pending team invites once the email is trustworthy:
+					// verified (email/social flows), asserted by the IdP (SSO callback
+					// paths), or self-hosted (emails are auto-verified below). Runs
+					// before the default-org logic so invited users join their team's
+					// org instead of getting a personal default org.
+					if (
+						newSession.user.emailVerified ||
+						ctx.path.startsWith("/sso/") ||
+						!isHosted
+					) {
+						await acceptPendingInvitesForUser({
+							id: userId,
+							email: newSession.user.email,
+						});
 					}
 
 					// Check if the user already has any active organizations

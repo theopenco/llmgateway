@@ -3,6 +3,8 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
+import { resolveSeatLimit } from "@/lib/seat-limit.js";
+import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -26,17 +28,8 @@ export const team = new OpenAPIHono<ServerTypes>();
 
 const roleSchema = z.enum(["owner", "admin", "developer"]);
 
-// Default team-member seat cap per plan tier. An explicit `organization.seats`
-// override (set by admins) always takes precedence over these defaults.
-export function resolveSeatLimit(
-	plan: string | null | undefined,
-	seats: number | null | undefined,
-): number {
-	if (seats !== null && seats !== undefined) {
-		return seats;
-	}
-	return plan === "enterprise" ? 100 : 5;
-}
+const INVITE_EXPIRY_DAYS = 30;
+const INVITE_EXPIRY_MS = INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
 
 const periodDurationUnitSchema = z.enum(apiKeyPeriodDurationUnits);
 
@@ -88,6 +81,85 @@ const addMemberSchema = z.object({
 	// granted access to. Ignored for owner/admin (they get the whole org).
 	projectIds: z.array(z.string()).optional(),
 });
+
+const teamInviteSchema = z.object({
+	id: z.string(),
+	email: z.string(),
+	role: roleSchema,
+	createdAt: z.date(),
+	expiresAt: z.date(),
+	// Projects a "developer" invite will be granted at acceptance; null for
+	// owner/admin invites (whole-org access).
+	projects: z.array(memberProjectSchema).nullable(),
+});
+
+interface PendingInviteRow {
+	id: string;
+	email: string;
+	role: z.infer<typeof roleSchema>;
+	createdAt: Date;
+	expiresAt: Date;
+	projectIds: string[] | null;
+}
+
+// Pending invites that have not expired yet. Expired invites stay in the table
+// for history but no longer count toward seats, block re-invites, or accept.
+async function listActivePendingInvites(
+	organizationId: string,
+): Promise<PendingInviteRow[]> {
+	const invites = await db.query.organizationInvite.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			status: { eq: "pending" },
+		},
+		columns: {
+			id: true,
+			email: true,
+			role: true,
+			createdAt: true,
+			expiresAt: true,
+			projectIds: true,
+		},
+	});
+	const now = new Date();
+	return invites.filter((invite) => invite.expiresAt > now);
+}
+
+// Resolve invite projectIds to {id,name} for display, dropping projects that
+// were deleted since the invite was created.
+async function invitesWithProjects(
+	organizationId: string,
+	invites: PendingInviteRow[],
+): Promise<z.infer<typeof teamInviteSchema>[]> {
+	const allProjectIds = Array.from(
+		new Set(invites.flatMap((invite) => invite.projectIds ?? [])),
+	);
+	const projects = allProjectIds.length
+		? await db.query.project.findMany({
+				where: {
+					organizationId: { eq: organizationId },
+					id: { in: allProjectIds },
+					status: { ne: "deleted" },
+				},
+				columns: { id: true, name: true },
+			})
+		: [];
+	const projectById = new Map(projects.map((p) => [p.id, p]));
+
+	return invites.map((invite) => ({
+		id: invite.id,
+		email: invite.email,
+		role: invite.role,
+		createdAt: invite.createdAt,
+		expiresAt: invite.expiresAt,
+		projects:
+			invite.role === "developer"
+				? (invite.projectIds ?? [])
+						.map((id) => projectById.get(id))
+						.filter((p): p is { id: string; name: string } => !!p)
+				: null,
+	}));
+}
 
 interface MemberBudgetRow {
 	maxApiKeys: number | null;
@@ -329,6 +401,9 @@ const getMembers = createRoute({
 				"application/json": {
 					schema: z.object({
 						members: z.array(teamMemberSchema).openapi({}),
+						// Pending invitations to people without an account yet; they join
+						// automatically when they sign up (or are SCIM-provisioned).
+						invites: z.array(teamInviteSchema),
 						// The org-wide default developer budget (owner/admin only).
 						defaultDeveloperBudget: memberBudgetSchema.nullable(),
 						// Effective team-member seat cap (plan default or admin override).
@@ -416,6 +491,9 @@ team.openapi(getMembers, async (c) => {
 	const orgDefaults = orgDefaultsFrom(isPrivileged ? org : null);
 	const seatLimit = resolveSeatLimit(org?.plan, org?.seats);
 
+	const pendingInvites = await listActivePendingInvites(organizationId);
+	const invites = await invitesWithProjects(organizationId, pendingInvites);
+
 	return c.json({
 		members: members.map((m) => ({
 			id: m.id,
@@ -437,6 +515,7 @@ team.openapi(getMembers, async (c) => {
 							.map((up) => ({ id: up.project!.id, name: up.project!.name }))
 					: null,
 		})),
+		invites,
 		defaultDeveloperBudget: isPrivileged
 			? defaultBudgetFrom(orgDefaults)
 			: null,
@@ -545,11 +624,15 @@ const addMember = createRoute({
 				"application/json": {
 					schema: z.object({
 						message: z.string(),
-						member: teamMemberSchema.openapi({}),
+						// Set when the email already had an account and was added directly.
+						member: teamMemberSchema.nullable(),
+						// Set when the email has no account yet: a pending invitation that
+						// is auto-accepted when they sign up (email, SSO, or SCIM).
+						invite: teamInviteSchema.nullable(),
 					}),
 				},
 			},
-			description: "Member added successfully",
+			description: "Member added or invitation sent",
 		},
 	},
 });
@@ -621,12 +704,15 @@ team.openapi(addMember, async (c) => {
 		},
 	});
 
+	// Pending invites reserve a seat so accepted invites can't blow the cap.
+	const pendingInvites = await listActivePendingInvites(organizationId);
+
 	const memberLimit = resolveSeatLimit(
 		userOrganization.organization?.plan,
 		userOrganization.organization?.seats,
 	);
 
-	if (currentMembers.length >= memberLimit) {
+	if (currentMembers.length + pendingInvites.length >= memberLimit) {
 		throw new HTTPException(403, {
 			message: `Your organization has reached the maximum of ${memberLimit} team members. Contact us at contact@llmgateway.io to unlock more seats.`,
 		});
@@ -644,17 +730,88 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
+	const normalizedEmail = email.trim().toLowerCase();
+
 	const targetUser = await db.query.user.findFirst({
 		where: {
 			email: {
-				eq: email,
+				eq: normalizedEmail,
 			},
 		},
 	});
 
+	// No account with this email yet: create a pending invitation that is
+	// auto-accepted when they sign up (email/social/SSO) or are provisioned via
+	// SCIM, and email them a signup link.
 	if (!targetUser) {
-		throw new HTTPException(404, {
-			message: "User not found. Please ask them to create an account first.",
+		if (pendingInvites.some((invite) => invite.email === normalizedEmail)) {
+			throw new HTTPException(400, {
+				message: "An invitation for this email is already pending",
+			});
+		}
+
+		const [invite] = await db
+			.insert(tables.organizationInvite)
+			.values({
+				organizationId,
+				email: normalizedEmail,
+				role,
+				projectIds:
+					role === "developer" ? grantedProjects.map((p) => p.id) : null,
+				invitedBy: authUser.id,
+				expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
+			})
+			.returning();
+
+		const orgName = userOrganization.organization?.name ?? "an organization";
+		const inviterName = authUser.name?.trim() || authUser.email;
+		const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
+
+		const text = `Hey!
+
+${inviterName} invited you to join the "${orgName}" organization on LLM Gateway as ${role === "admin" ? "an" : "a"} ${role}.
+
+Create an account using this email address (${normalizedEmail}) and you'll be added to the organization automatically:
+
+${uiUrl}/signup
+
+If your organization uses SSO, signing in with SSO using this email works too.
+
+This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting it, you can safely ignore this email.
+
+— The LLM Gateway Team`.trim();
+
+		await sendTransactionalEmail({
+			to: normalizedEmail,
+			subject: `You've been invited to ${orgName} on LLM Gateway`,
+			text,
+			organizationId,
+		});
+
+		await logAuditEvent({
+			organizationId,
+			userId: authUser.id,
+			action: "team_member.invite",
+			resourceType: "team_invite",
+			resourceId: invite.id,
+			metadata: {
+				targetUserEmail: normalizedEmail,
+				role,
+				projectIds: grantedProjects.map((p) => p.id),
+			},
+		});
+
+		return c.json({
+			message: "Invitation sent",
+			member: null,
+			invite: {
+				id: invite.id,
+				email: invite.email,
+				role: invite.role,
+				createdAt: invite.createdAt,
+				expiresAt: invite.expiresAt,
+				projects: role === "developer" ? grantedProjects : null,
+			},
 		});
 	}
 
@@ -722,6 +879,109 @@ team.openapi(addMember, async (c) => {
 			spend: EMPTY_SPEND,
 			projects: role === "developer" ? grantedProjects : null,
 		},
+		invite: null,
+	});
+});
+
+const revokeInvite = createRoute({
+	method: "delete",
+	path: "/{organizationId}/invites/{inviteId}",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			inviteId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Invitation revoked successfully",
+		},
+	},
+});
+
+team.openapi(revokeInvite, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, inviteId } = c.req.param();
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: authUser.id,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (!userOrganization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can revoke invitations",
+		});
+	}
+
+	const invite = await db.query.organizationInvite.findFirst({
+		where: {
+			id: {
+				eq: inviteId,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (!invite || invite.status !== "pending") {
+		throw new HTTPException(404, {
+			message: "Invitation not found",
+		});
+	}
+
+	// Mirror member management: only owners may manage owner-level invites.
+	if (userOrganization.role === "admin" && invite.role === "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can revoke owner invitations",
+		});
+	}
+
+	await db
+		.update(tables.organizationInvite)
+		.set({ status: "revoked" })
+		.where(eq(tables.organizationInvite.id, inviteId));
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.invite_revoke",
+		resourceType: "team_invite",
+		resourceId: inviteId,
+		metadata: {
+			targetUserEmail: invite.email,
+			role: invite.role,
+		},
+	});
+
+	return c.json({
+		message: "Invitation revoked successfully",
 	});
 });
 
