@@ -641,6 +641,7 @@ export function ApiKeysList({
 								<TableCell>
 									<ApiKeyLimitsDialog
 										apiKey={key}
+										organizationId={orgId ?? ""}
 										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
 									>
 										<Button
@@ -875,6 +876,7 @@ export function ApiKeysList({
 							<div>
 								<ApiKeyLimitsDialog
 									apiKey={key}
+									organizationId={orgId ?? ""}
 									onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
 								>
 									<Button

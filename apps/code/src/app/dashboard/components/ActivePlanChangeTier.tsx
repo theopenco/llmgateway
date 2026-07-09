@@ -313,10 +313,10 @@ function TierChangePreviewCopy({
 			<span>
 				You&apos;ll be charged{" "}
 				<strong>{formatCurrencyFromCents(preview.amountDueCents)}</strong> today
-				for the rest of your current billing period, then ${plan.price}/mo going
-				forward. Your current-period allowance increases by{" "}
-				{formatUsageAmount(preview.proratedCreditDelta)} to{" "}
-				{formatUsageAmount(preview.newCreditsLimit)} in usage.
+				and your billing period restarts now, then ${plan.price}/mo going
+				forward. Your allowance resets to{" "}
+				{formatUsageAmount(preview.newCreditsLimit)} in usage for the new
+				period.
 			</span>
 		);
 	}

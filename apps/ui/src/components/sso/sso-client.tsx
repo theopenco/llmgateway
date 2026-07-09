@@ -1,12 +1,30 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, Copy, HelpCircle, Trash2 } from "lucide-react";
+import {
+	Building2,
+	Copy,
+	HelpCircle,
+	Loader2,
+	Pencil,
+	Trash2,
+} from "lucide-react";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { ProjectMultiSelect } from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/lib/components/alert-dialog";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -45,9 +63,19 @@ import { useApi } from "@/lib/fetch-client";
 
 import type React from "react";
 
-function copy(value: string, label: string) {
-	void navigator.clipboard.writeText(value);
-	toast({ title: `${label} copied to clipboard` });
+async function copy(value: string, label: string) {
+	try {
+		await navigator.clipboard.writeText(value);
+		toast({ title: `${label} copied to clipboard` });
+	} catch {
+		// Clipboard writes reject in insecure contexts or when permission is denied
+		// — don't claim success the user can't see.
+		toast({
+			title: `Failed to copy ${label}`,
+			description: "Copy it manually instead.",
+			variant: "destructive",
+		});
+	}
 }
 
 // Turn an org name into a URL-safe a-z0-9 slug used as the SSO connection id.
@@ -92,6 +120,19 @@ function endpointLabels(providerType: "" | "okta" | "entra" | "generic") {
 	}
 }
 
+// The `domain` column is a comma-separated list of email domains; split it for
+// display (badges, human-readable sentences).
+function splitDomains(domain: string): string[] {
+	return domain
+		.split(",")
+		.map((d) => d.trim())
+		.filter(Boolean);
+}
+
+function formatDomains(domain: string): string {
+	return splitDomains(domain).join(", ");
+}
+
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="space-y-1">
@@ -102,7 +143,7 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 					type="button"
 					variant="outline"
 					size="icon"
-					onClick={() => copy(value, label)}
+					onClick={() => void copy(value, label)}
 				>
 					<Copy className="h-4 w-4" />
 					<span className="sr-only">Copy {label}</span>
@@ -134,6 +175,13 @@ export function SsoClient() {
 	const [cert, setCert] = useState("");
 	const [enforced, setEnforced] = useState(false);
 	const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+	// Edit buffer for an existing connection's email domains. `null` = dialog
+	// closed; otherwise holds the connection slug plus the comma-separated list
+	// being edited.
+	const [domainEdit, setDomainEdit] = useState<{
+		providerId: string;
+		value: string;
+	} | null>(null);
 	const [groupName, setGroupName] = useState("");
 	const [role, setRole] = useState<"owner" | "admin" | "developer">(
 		"developer",
@@ -142,6 +190,15 @@ export function SsoClient() {
 	// the displayed selection derives from the server value (or the fallback
 	// project). Reset to `null` after a successful save to re-sync with the server.
 	const [projectDraft, setProjectDraft] = useState<string[] | null>(null);
+	// Confirmation for destructive actions (delete connection, revoke/rotate SCIM
+	// token) — each has organization-wide blast radius, so a single misclick
+	// shouldn't fire immediately.
+	const [confirmAction, setConfirmAction] = useState<{
+		title: string;
+		description: string;
+		actionLabel: string;
+		run: () => void | Promise<void>;
+	} | null>(null);
 
 	// Slug the admin pastes into the IdP (part of the SP URLs). Suggested as the
 	// recommended `<org-slug>-<provider>` format until the admin overrides it; must
@@ -287,6 +344,28 @@ export function SsoClient() {
 		}
 	}
 
+	async function handleSaveDomains(e: React.FormEvent) {
+		e.preventDefault();
+		if (!domainEdit) {
+			return;
+		}
+		try {
+			await updateProvider.mutateAsync({
+				params: { path: { providerId: domainEdit.providerId } },
+				body: { organizationId, domain: domainEdit.value.trim() },
+			});
+			toast({ title: "Email domains updated" });
+			setDomainEdit(null);
+			invalidateProviders();
+		} catch (error) {
+			toast({
+				title:
+					error instanceof Error ? error.message : "Failed to update domains",
+				variant: "destructive",
+			});
+		}
+	}
+
 	async function handleCreateMapping(e: React.FormEvent) {
 		e.preventDefault();
 		try {
@@ -392,7 +471,18 @@ export function SsoClient() {
 		}
 	}
 
-	if (selectedOrganization && !isEnterprise) {
+	// Wait for the org (and thus its plan) to load before deciding what to show,
+	// otherwise the full management UI briefly flashes for non-enterprise orgs
+	// before the upsell card replaces it.
+	if (!selectedOrganization) {
+		return (
+			<div className="flex items-center justify-center p-8">
+				<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+			</div>
+		);
+	}
+
+	if (!isEnterprise) {
 		return (
 			<div className="flex flex-col space-y-4 p-4 pt-6 md:p-8">
 				<Card>
@@ -450,16 +540,44 @@ export function SsoClient() {
 									className="space-y-3 rounded-lg border p-4"
 								>
 									<div className="flex items-start justify-between gap-4">
-										<div>
+										<div className="space-y-1.5">
 											<p className="font-medium">{provider.providerId}</p>
-											<p className="text-sm text-muted-foreground">
-												Domain: {provider.domain}
-											</p>
+											<div className="flex flex-wrap items-center gap-1.5">
+												<span className="text-sm text-muted-foreground">
+													Email domains:
+												</span>
+												{splitDomains(provider.domain).map((d) => (
+													<Badge key={d} variant="secondary">
+														{d}
+													</Badge>
+												))}
+												<Button
+													variant="ghost"
+													size="icon"
+													className="h-6 w-6"
+													onClick={() =>
+														setDomainEdit({
+															providerId: provider.providerId,
+															value: formatDomains(provider.domain),
+														})
+													}
+												>
+													<Pencil className="h-3.5 w-3.5" />
+													<span className="sr-only">Edit email domains</span>
+												</Button>
+											</div>
 										</div>
 										<Button
 											variant="outline"
 											size="icon"
-											onClick={() => handleDelete(provider.providerId)}
+											onClick={() =>
+												setConfirmAction({
+													title: "Delete SSO connection?",
+													description: `This removes the SAML connection for ${formatDomains(provider.domain)}. If Require SSO is on, users on those domains won't be able to sign in until you add a new connection.`,
+													actionLabel: "Delete connection",
+													run: () => handleDelete(provider.providerId),
+												})
+											}
 											disabled={deleteMutation.isPending}
 										>
 											<Trash2 className="h-4 w-4" />
@@ -479,8 +597,8 @@ export function SsoClient() {
 											<p className="text-sm font-medium">Require SSO</p>
 											<p className="text-xs text-muted-foreground">
 												{provider.enforced
-													? `Password, social and passkey sign-in are blocked for ${provider.domain}.`
-													: `Password, social and passkey sign-in are allowed for ${provider.domain}.`}
+													? `Password, social and passkey sign-in are blocked for ${formatDomains(provider.domain)}.`
+													: `Password, social and passkey sign-in are allowed for ${formatDomains(provider.domain)}.`}
 											</p>
 										</div>
 										<Switch
@@ -563,10 +681,40 @@ export function SsoClient() {
 											/>
 										</div>
 										<div className="space-y-2">
-											<Label htmlFor="sso-domain">Email domain</Label>
+											<div className="flex items-center gap-1.5">
+												<Label htmlFor="sso-domain">Email domains</Label>
+												<Popover>
+													<PopoverTrigger asChild>
+														<button
+															type="button"
+															className="text-muted-foreground hover:text-foreground"
+															aria-label="Which email domains should I list?"
+														>
+															<HelpCircle className="h-3.5 w-3.5" />
+														</button>
+													</PopoverTrigger>
+													<PopoverContent side="top" className="w-80 text-sm">
+														<p className="font-medium">Email domains</p>
+														<p className="mt-1 text-muted-foreground">
+															Comma-separated list of domains that route to this
+															connection. It must include{" "}
+															<strong>
+																every domain your IdP may send as the
+																user&apos;s email
+															</strong>{" "}
+															— on Entra that&apos;s the <code>mail</code>{" "}
+															attribute&apos;s domain, which can differ from the
+															sign-in (UPN) domain. If they differ, list both,
+															e.g. <code>acme.com, acme-corp.com</code>;
+															otherwise logins bounce with an &quot;account not
+															linked&quot; error.
+														</p>
+													</PopoverContent>
+												</Popover>
+											</div>
 											<Input
 												id="sso-domain"
-												placeholder="acme.com"
+												placeholder="acme.com, acme-corp.com"
 												value={domain}
 												onChange={(e) => setDomain(e.target.value)}
 												required
@@ -667,7 +815,19 @@ export function SsoClient() {
 					{scim && <ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />}
 					<div className="flex items-center gap-3">
 						<Button
-							onClick={handleGenerateScim}
+							onClick={() => {
+								if (scim?.configured) {
+									setConfirmAction({
+										title: "Rotate SCIM token?",
+										description:
+											"The current token stops working immediately. Directory provisioning will fail until you update your identity provider with the new token.",
+										actionLabel: "Rotate token",
+										run: handleGenerateScim,
+									});
+								} else {
+									void handleGenerateScim();
+								}
+							}}
 							disabled={generateScim.isPending}
 						>
 							{scim?.configured ? "Rotate SCIM token" : "Generate SCIM token"}
@@ -675,7 +835,15 @@ export function SsoClient() {
 						{scim?.configured && (
 							<Button
 								variant="outline"
-								onClick={handleRevokeScim}
+								onClick={() =>
+									setConfirmAction({
+										title: "Revoke SCIM token?",
+										description:
+											"Directory provisioning stops working immediately. You'll need to generate a new token and update your identity provider to resume it.",
+										actionLabel: "Revoke token",
+										run: handleRevokeScim,
+									})
+								}
 								disabled={revokeScim.isPending}
 							>
 								Revoke
@@ -811,6 +979,56 @@ export function SsoClient() {
 			</Card>
 
 			<Dialog
+				open={!!domainEdit}
+				onOpenChange={(open) => {
+					if (!open) {
+						setDomainEdit(null);
+					}
+				}}
+			>
+				<DialogContent className="sm:max-w-[500px]">
+					<form onSubmit={handleSaveDomains} className="space-y-4">
+						<DialogHeader>
+							<DialogTitle>Edit email domains</DialogTitle>
+							<DialogDescription>
+								Comma-separated list of email domains for this connection. It
+								must include every domain your identity provider may send as a
+								user&apos;s email — e.g. on Entra both the sign-in (UPN) domain
+								and the <code>mail</code> attribute&apos;s domain if they
+								differ. Existing sign-ins are unaffected.
+							</DialogDescription>
+						</DialogHeader>
+						<div className="space-y-2">
+							<Label htmlFor="sso-edit-domains">Email domains</Label>
+							<Input
+								id="sso-edit-domains"
+								placeholder="acme.com, acme-corp.com"
+								value={domainEdit?.value ?? ""}
+								onChange={(e) =>
+									setDomainEdit((prev) =>
+										prev ? { ...prev, value: e.target.value } : prev,
+									)
+								}
+								required
+							/>
+						</div>
+						<DialogFooter>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => setDomainEdit(null)}
+							>
+								Cancel
+							</Button>
+							<Button type="submit" disabled={updateProvider.isPending}>
+								{updateProvider.isPending ? "Saving..." : "Save"}
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog
 				open={!!generatedToken}
 				onOpenChange={(open) => {
 					if (!open) {
@@ -835,9 +1053,11 @@ export function SsoClient() {
 						<Button
 							variant="outline"
 							size="icon"
-							onClick={() =>
-								generatedToken && copy(generatedToken, "SCIM token")
-							}
+							onClick={() => {
+								if (generatedToken) {
+									void copy(generatedToken, "SCIM token");
+								}
+							}}
 						>
 							<Copy className="h-4 w-4" />
 							<span className="sr-only">Copy SCIM token</span>
@@ -848,6 +1068,35 @@ export function SsoClient() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
+			<AlertDialog
+				open={!!confirmAction}
+				onOpenChange={(open) => {
+					if (!open) {
+						setConfirmAction(null);
+					}
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>{confirmAction?.title}</AlertDialogTitle>
+						<AlertDialogDescription>
+							{confirmAction?.description}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								void confirmAction?.run();
+								setConfirmAction(null);
+							}}
+						>
+							{confirmAction?.actionLabel}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

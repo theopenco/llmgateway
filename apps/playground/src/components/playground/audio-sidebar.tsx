@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
@@ -390,12 +389,6 @@ export function AudioSidebar({
 			},
 		});
 	};
-
-	const { theme, setTheme, systemTheme } = useTheme();
-	const currentTheme = theme === "system" ? systemTheme : theme;
-	const toggleTheme = useCallback(() => {
-		setTheme(currentTheme === "dark" ? "light" : "dark");
-	}, [currentTheme, setTheme]);
 
 	const renameItem = useRenameAudioHistory();
 	const deleteItem = useDeleteAudioHistory();
@@ -780,10 +773,7 @@ export function AudioSidebar({
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
 									className="justify-between gap-3"
-									onSelect={(event) => {
-										event.preventDefault();
-										toggleTheme();
-									}}
+									onSelect={(event) => event.preventDefault()}
 								>
 									<span>Theme</span>
 									<div

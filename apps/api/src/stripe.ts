@@ -16,7 +16,6 @@ import { logger } from "@llmgateway/logger";
 import {
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
-	getProratedCreditDelta,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 	type DevPlanCycle,
@@ -3220,12 +3219,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 	// gate the credit reset on the billing reason.
 	const isDevPlanRenewal =
 		isDevPlanSubscription && invoice.billing_reason === "subscription_cycle";
+	// A tier upgrade resets the billing cycle (`billing_cycle_anchor: "now"`) and
+	// charges the full new-tier price, so Stripe emits its immediate invoice with
+	// `billing_reason: "subscription_update"`.
 	const isDevPlanUpgradeInvoice =
-		isDevPlanSubscription &&
-		(invoice.billing_reason === "subscription_update" ||
-			(invoice.billing_reason === "manual" &&
-				metadata?.subscriptionType === "dev_plan" &&
-				metadata?.devPlanChange === "upgrade"));
+		isDevPlanSubscription && invoice.billing_reason === "subscription_update";
 
 	// Same billing-reason gate as dev plans: only reset chat plan credits on a
 	// true cycle renewal, not on mid-cycle tier-change proration invoices.
@@ -3550,35 +3548,29 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 	} else if (isDevPlanUpgradeInvoice) {
-		// Invoice from a mid-cycle upgrade. The change-tier endpoint normally
-		// records the transaction (and emails the invoice) synchronously; this
-		// webhook path is the fallback if the process exits after Stripe collects
-		// payment but before the local insert. onConflictDoNothing on the unique
-		// stripeInvoiceId index makes it atomically idempotent with the sync path,
-		// so only the path that wins the insert reconciles org state and emails —
-		// a concurrent sync request can't yield a duplicate row or email. We do
-		// NOT reset `devPlanCreditsUsed`.
-		const fromTier = metadata?.fromTier as DevPlanTier | undefined;
-		const toTier = metadata?.toTier as DevPlanTier | undefined;
-		const remainingFraction = metadata?.remainingFraction
-			? Number(metadata.remainingFraction)
-			: undefined;
-		const proratedCreditDelta =
-			fromTier && toTier && remainingFraction !== undefined
-				? getProratedCreditDelta(fromTier, toTier, remainingFraction)
-				: undefined;
+		// Immediate invoice from a tier upgrade. An upgrade resets the billing
+		// cycle (`billing_cycle_anchor: "now"`) and charges the full new-tier
+		// price, so Stripe emits this with `billing_reason: "subscription_update"`.
+		// The change-tier endpoint normally resets org state, records the
+		// transaction and emails the invoice synchronously (and the early-return
+		// guard above then short-circuits this handler). This path is the fallback
+		// if that process exited after Stripe collected payment but before the
+		// local insert. It reproduces the same fresh-cycle reset, idempotently via
+		// onConflictDoNothing on the unique stripeInvoiceId, reading the target
+		// tier from the subscription metadata the update set.
+		const upgradeSubscription =
+			await getStripe().subscriptions.retrieve(subscriptionId);
+		const toTier = (upgradeSubscription.metadata?.devPlan ??
+			organization.devPlan) as DevPlanTier;
+		const creditsLimit = getDevPlanCreditsLimit(toTier);
 
-		// Insert the unique-stripeInvoiceId marker and reconcile org tier/limit in
-		// one transaction so they commit together. This handles the case where the
-		// sync path died after Stripe collected payment but before it applied the
-		// upgrade. Mirrors the sync path: add the prorated credit delta on top of
-		// the existing allowance rather than recomputing from the tier base (which
-		// would discard credits carried over from earlier mid-cycle changes).
-		// Winning the unique-invoice insert gates the reconcile, so the delta is
-		// applied exactly once across the sync and webhook paths. Atomicity matters
-		// because both paths short-circuit on the existing marker — a crash between
-		// insert and reconcile would otherwise leave the invoice recorded with the
-		// credit never applied.
+		// The invoice lines cover the new period, so the latest line end is the new
+		// current_period_end (= next renewal date).
+		const newPeriodEnd = invoice.lines.data.reduce(
+			(max, line) => Math.max(max, line.period?.end ?? 0),
+			0,
+		);
+
 		const upgradeTransaction = await db.transaction(async (tx) => {
 			const [created] = await tx
 				.insert(tables.transaction)
@@ -3586,25 +3578,36 @@ export async function handleInvoicePaymentSucceeded(event: {
 					organizationId,
 					type: "dev_plan_upgrade",
 					amount: (invoice.amount_paid / 100).toString(),
-					creditAmount: proratedCreditDelta?.toString(),
+					creditAmount: creditsLimit.toString(),
 					currency: invoice.currency.toUpperCase(),
 					status: "completed",
 					stripePaymentIntentId: (invoice as any).payment_intent,
 					stripeInvoiceId: invoice.id,
-					description:
-						fromTier && toTier
-							? `Changed from ${fromTier} to ${toTier} plan`
-							: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+					description: `Dev Plan ${toTier.toUpperCase()} upgrade`,
 				})
 				.onConflictDoNothing()
 				.returning();
 
-			if (created && fromTier && toTier && proratedCreditDelta !== undefined) {
+			if (created) {
+				// Fresh billing cycle: reset the limit to the new tier's full
+				// allowance, zero out usage (including the premium weekly window),
+				// advance the cycle start, clear any pending downgrade and dunning
+				// freeze state, and persist the new period end as the renewal date.
 				await tx
 					.update(tables.organization)
 					.set({
 						devPlan: toTier,
-						devPlanCreditsLimit: sql`${tables.organization.devPlanCreditsLimit} + ${proratedCreditDelta}`,
+						devPlanCreditsLimit: creditsLimit.toString(),
+						devPlanCreditsUsed: "0",
+						devPlanPremiumCreditsUsed: "0",
+						devPlanPremiumWeekStart: new Date(),
+						devPlanCreditsFrozen: false,
+						devPlanCreditsLimitBeforeFreeze: null,
+						devPlanBillingCycleStart: new Date(),
+						devPlanExpiresAt: newPeriodEnd
+							? new Date(newPeriodEnd * 1000)
+							: undefined,
+						devPlanPendingTier: null,
 					})
 					.where(eq(tables.organization.id, organizationId));
 			}
@@ -3623,10 +3626,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 					...billingDetails,
 					lineItems: [
 						{
-							description:
-								fromTier && toTier
-									? `Dev Plan upgrade from ${fromTier.toUpperCase()} to ${toTier.toUpperCase()}`
-									: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+							description: `Dev Plan upgrade to ${toTier.toUpperCase()} ($${creditsLimit} credits included)`,
 							amount: invoice.amount_paid / 100,
 						},
 					],
@@ -3640,7 +3640,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			}
 
 			logger.info(
-				`Recorded dev plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
+				`Recorded dev plan upgrade invoice for organization ${organizationId}; reset to fresh ${toTier} cycle`,
 			);
 		} else {
 			logger.info(

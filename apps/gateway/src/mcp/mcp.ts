@@ -1161,9 +1161,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	try {
-		assertApiKeyWithinUsageLimits(apiKeyRecord);
-		// Enforce the per-member budget set on the Teams page (fails open on read
-		// errors). Resolve the project so the org is known for the creator lookup.
+		// User-level limits take priority: enforce the per-member budget (set on
+		// the Teams page; fails open on read errors) before the per-key usage
+		// limits, so a member who is over budget is denied even if the key itself
+		// is within limits. Resolve the project so the org is known for the lookup.
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
 			await assertMemberWithinBudget(
@@ -1171,6 +1172,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				mcpProject.organizationId,
 			);
 		}
+		assertApiKeyWithinUsageLimits(apiKeyRecord);
 	} catch (error) {
 		// Preserve the thrown status: assertMemberWithinBudget uses 403 for a
 		// budget breach, which must not be flattened into a 401 (invalid key).

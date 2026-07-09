@@ -7,9 +7,12 @@ import { apiAuth } from "@/auth/config.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { maskToken } from "@/lib/maskToken.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
+import { normalizeSsoDomains } from "@/lib/sso-domains.js";
+import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
+import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
@@ -18,12 +21,6 @@ import type { SSOOptions, SSOPlugin } from "@better-auth/sso";
 export const sso = new OpenAPIHono<ServerTypes>();
 
 const apiUrl = getApiBaseUrl();
-
-// Default per-developer active API key cap seeded when an org first wires up
-// SSO. Developers are provisioned in bulk via SCIM/SSO, so give them a sane
-// baseline that admins can still override org-wide (default developer budget)
-// or per member.
-const DEFAULT_SSO_DEVELOPER_MAX_API_KEYS = 3;
 
 async function assertEnterpriseOrgAccess(
 	userId: string,
@@ -56,6 +53,81 @@ async function assertEnterpriseOrgAccess(
 	}
 
 	return { role: userOrg.role };
+}
+
+// Seed a sensible default per-developer spend cap ($500/month) onto the org's
+// default developer budget when an SSO team is first connected, so provisioned
+// developers are bounded out of the box. Independent of the default API-key cap
+// seeded above: this only reads/writes the spend-limit fields and only when the
+// org has no spend cap (total or period) configured yet, so seeding the key cap
+// never suppresses the spend cap (and vice versa). Owners/admins can override it
+// on the Team page. Written as its own audit-logged organization.update event.
+async function seedSsoTeamDefaultDeveloperBudget(
+	organizationId: string,
+	userId: string,
+): Promise<void> {
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: {
+			defaultDeveloperUsageLimit: true,
+			defaultDeveloperPeriodUsageLimit: true,
+			defaultDeveloperPeriodUsageDurationValue: true,
+			defaultDeveloperPeriodUsageDurationUnit: true,
+		},
+	});
+
+	const spendCapConfigured =
+		!org ||
+		org.defaultDeveloperUsageLimit !== null ||
+		org.defaultDeveloperPeriodUsageLimit !== null ||
+		org.defaultDeveloperPeriodUsageDurationValue !== null ||
+		org.defaultDeveloperPeriodUsageDurationUnit !== null;
+	if (spendCapConfigured) {
+		return;
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			defaultDeveloperUsageLimit: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.usageLimit,
+			defaultDeveloperPeriodUsageLimit:
+				SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit,
+			defaultDeveloperPeriodUsageDurationValue:
+				SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationValue,
+			defaultDeveloperPeriodUsageDurationUnit:
+				SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit,
+		})
+		.where(eq(tables.organization.id, organizationId));
+
+	await logAuditEvent({
+		organizationId,
+		userId,
+		action: "organization.update",
+		resourceType: "organization",
+		resourceId: organizationId,
+		metadata: {
+			resourceName: "Default developer budget",
+			changes: {
+				defaultDeveloperBudget: {
+					old: {
+						usageLimit: null,
+						periodUsageLimit: null,
+						periodUsageDurationValue: null,
+						periodUsageDurationUnit: null,
+					},
+					new: {
+						usageLimit: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.usageLimit,
+						periodUsageLimit:
+							SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit,
+						periodUsageDurationValue:
+							SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationValue,
+						periodUsageDurationUnit:
+							SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit,
+					},
+				},
+			},
+		},
+	});
 }
 
 // Better Auth's `auth.api.*` methods throw its own `APIError` (with a string
@@ -113,6 +185,27 @@ function samlEndpoints(providerId: string) {
 		metadataUrl: `${apiUrl}/auth/sso/saml2/sp/metadata?providerId=${providerId}`,
 		acsUrl: `${apiUrl}/auth/sso/saml2/sp/acs/${providerId}`,
 	};
+}
+
+// Normalize the admin-typed domain list ("Swone.HU, softwareone.com" ->
+// "swone.hu,softwareone.com") and reject entries that aren't real domains. The
+// stored value must cover every domain the IdP may assert as a user's email:
+// the SAML callback only trusts (and thus implicitly links) logins whose
+// asserted email domain is on this list, so a missing domain surfaces as
+// `account_not_linked` bounces even though the IdP authenticated the user.
+function parseDomainsOrThrow(input: string): string {
+	const { domains, invalid } = normalizeSsoDomains(input);
+	if (invalid.length > 0) {
+		throw new HTTPException(400, {
+			message: `Invalid email domain(s): ${invalid.join(", ")}`,
+		});
+	}
+	if (domains.length === 0) {
+		throw new HTTPException(400, {
+			message: "At least one email domain is required",
+		});
+	}
+	return domains.join(",");
 }
 
 const GUID_RE =
@@ -178,7 +271,8 @@ const registerBodySchema = z.object({
 		.default("generic")
 		.openapi({ description: "IdP vendor; controls SAML attribute mapping" }),
 	domain: z.string().trim().min(1).openapi({
-		description: "Email domain(s), comma-separated for multi-domain",
+		description:
+			"Email domain(s), comma-separated for multi-domain. Must cover every domain the IdP may assert as the user's email (e.g. both the UPN and mail domains on Entra).",
 	}),
 	entryPoint: z.string().trim().url().openapi({
 		description: "IdP Single Sign-On URL (Okta SSO URL / Entra Login URL)",
@@ -232,6 +326,8 @@ sso.openapi(register, async (c) => {
 
 	await assertEnterpriseOrgAccess(user.id, organizationId);
 
+	const normalizedDomain = parseDomainsOrThrow(domain);
+
 	// One SSO connection per organization: reject a second registration so the
 	// slug stays a stable, single identifier for the org's IdP.
 	const existingForOrg = await db.query.ssoProvider.findFirst({
@@ -271,7 +367,7 @@ sso.openapi(register, async (c) => {
 			body: {
 				providerId,
 				issuer: metadataUrl,
-				domain,
+				domain: normalizedDomain,
 				samlConfig: {
 					entryPoint,
 					cert,
@@ -317,12 +413,32 @@ sso.openapi(register, async (c) => {
 			createdAt: tables.ssoProvider.createdAt,
 		});
 
+	// The org-stamping update matched no row: the plugin didn't persist the
+	// provider as expected. Clean up any orphaned, unassigned row it may have
+	// left (organizationId still null) so a failed registration can't linger,
+	// and fail loudly instead of crashing on `provider.id` below.
+	if (!provider) {
+		await db
+			.delete(tables.ssoProvider)
+			.where(
+				and(
+					eq(tables.ssoProvider.providerId, providerId),
+					isNull(tables.ssoProvider.organizationId),
+				),
+			);
+		throw new HTTPException(500, {
+			message: "Failed to register SSO provider",
+		});
+	}
+
 	// Seed a reasonable default per-developer API key cap for the org. Only set
 	// it when the org hasn't already configured its own default developer budget,
 	// so we never clobber an explicit admin choice.
 	await db
 		.update(tables.organization)
-		.set({ defaultDeveloperMaxApiKeys: DEFAULT_SSO_DEVELOPER_MAX_API_KEYS })
+		.set({
+			defaultDeveloperMaxApiKeys: SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.maxApiKeys,
+		})
 		.where(
 			and(
 				eq(tables.organization.id, organizationId),
@@ -338,6 +454,9 @@ sso.openapi(register, async (c) => {
 		resourceId: provider.id,
 		metadata: { resourceName: providerId },
 	});
+
+	// New SSO teams start with a $500/month default per-developer spend cap.
+	await seedSsoTeamDefaultDeveloperBudget(organizationId, user.id);
 
 	return c.json({ provider: { ...provider, metadataUrl, acsUrl } }, 201);
 });
@@ -461,7 +580,11 @@ const updateProvider = createRoute({
 				"application/json": {
 					schema: z.object({
 						organizationId: z.string().trim().min(1),
-						enforced: z.boolean(),
+						enforced: z.boolean().optional(),
+						domain: z.string().trim().min(1).optional().openapi({
+							description:
+								"Email domain(s), comma-separated for multi-domain. Must cover every domain the IdP may assert as the user's email (e.g. both the UPN and mail domains on Entra).",
+						}),
 					}),
 				},
 			},
@@ -484,16 +607,25 @@ sso.openapi(updateProvider, async (c) => {
 	}
 
 	const { providerId } = c.req.valid("param");
-	const { organizationId, enforced } = c.req.valid("json");
+	const { organizationId, enforced, domain } = c.req.valid("json");
 
 	await assertEnterpriseOrgAccess(user.id, organizationId);
+
+	if (enforced === undefined && domain === undefined) {
+		throw new HTTPException(400, {
+			message: "Provide at least one field to update",
+		});
+	}
+
+	const normalizedDomain =
+		domain === undefined ? undefined : parseDomainsOrThrow(domain);
 
 	const current = await db.query.ssoProvider.findFirst({
 		where: {
 			providerId: { eq: providerId },
 			organizationId: { eq: organizationId },
 		},
-		columns: { enforced: true },
+		columns: { enforced: true, domain: true },
 	});
 	if (!current) {
 		throw new HTTPException(404, { message: "SSO provider not found" });
@@ -501,7 +633,10 @@ sso.openapi(updateProvider, async (c) => {
 
 	const [provider] = await db
 		.update(tables.ssoProvider)
-		.set({ enforced })
+		.set({
+			...(enforced === undefined ? {} : { enforced }),
+			...(normalizedDomain === undefined ? {} : { domain: normalizedDomain }),
+		})
 		.where(
 			and(
 				eq(tables.ssoProvider.providerId, providerId),
@@ -526,7 +661,14 @@ sso.openapi(updateProvider, async (c) => {
 		resourceId: provider.id,
 		metadata: {
 			resourceName: providerId,
-			changes: { enforced: { old: current.enforced, new: enforced } },
+			changes: {
+				...(enforced === undefined
+					? {}
+					: { enforced: { old: current.enforced, new: enforced } }),
+				...(normalizedDomain === undefined
+					? {}
+					: { domain: { old: current.domain, new: normalizedDomain } }),
+			},
 		},
 	});
 
@@ -612,7 +754,19 @@ sso.openapi(createRoleMapping, async (c) => {
 
 	const { organizationId, groupName, role } = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	const { role: callerRole } = await assertEnterpriseOrgAccess(
+		user.id,
+		organizationId,
+	);
+
+	// Mirror the team-role boundary: admins can't grant owner. Since group
+	// mappings drive SCIM role recomputation, an owner mapping would otherwise
+	// let an admin promote members (or themselves) to owner.
+	if (role === "owner" && callerRole !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can create an owner role mapping",
+		});
+	}
 
 	const existing = await db.query.ssoRoleMapping.findFirst({
 		where: {
@@ -635,6 +789,11 @@ sso.openapi(createRoleMapping, async (c) => {
 			groupName: tables.ssoRoleMapping.groupName,
 			role: tables.ssoRoleMapping.role,
 		});
+
+	// If the IdP already pushed this group and its members (the usual onboarding
+	// order), apply the new mapping to them now instead of waiting for a later
+	// SCIM membership event.
+	await recomputeRoleForGroupName(organizationId, groupName);
 
 	await logAuditEvent({
 		organizationId,
@@ -690,6 +849,10 @@ sso.openapi(removeRoleMapping, async (c) => {
 	await db
 		.delete(tables.ssoRoleMapping)
 		.where(eq(tables.ssoRoleMapping.id, id));
+
+	// Members elevated by this mapping keep the role until a later SCIM event
+	// otherwise; recompute them now so removing the mapping revokes the access.
+	await recomputeRoleForGroupName(organizationId, existing.groupName);
 
 	await logAuditEvent({
 		organizationId,
@@ -969,6 +1132,16 @@ sso.openapi(revokeScim, async (c) => {
 
 	await assertEnterpriseOrgAccess(user.id, organizationId);
 
+	// Resolve the active token first so the audit event identifies the revoked
+	// token (id + masked value), consistent with creation, rather than the org.
+	const active = await db.query.scimToken.findFirst({
+		where: {
+			organizationId: { eq: organizationId },
+			status: { eq: "active" },
+		},
+		columns: { id: true, maskedToken: true },
+	});
+
 	await db
 		.update(tables.scimToken)
 		.set({ status: "deleted" })
@@ -984,7 +1157,10 @@ sso.openapi(revokeScim, async (c) => {
 		userId: user.id,
 		action: "scim_token.revoke",
 		resourceType: "scim_token",
-		resourceId: organizationId,
+		resourceId: active?.id ?? organizationId,
+		metadata: active?.maskedToken
+			? { resourceName: active.maskedToken }
+			: undefined,
 	});
 
 	return c.json({ message: "SCIM token revoked successfully" });
