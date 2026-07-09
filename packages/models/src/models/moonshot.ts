@@ -330,6 +330,7 @@ export const moonshotModels = [
 				requestPrice: "0",
 				contextSize: 256000,
 				maxOutput: 131072,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: true,

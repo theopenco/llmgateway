@@ -655,6 +655,7 @@ export const alibabaModels = [
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,
+				quantization: "bf16",
 				streaming: true,
 				reasoning: true,
 				vision: false,
