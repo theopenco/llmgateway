@@ -6793,7 +6793,16 @@ chat.openapi(completions, async (c) => {
 									).some((s) => s.providerId !== usedProvider),
 									retryCount: sameKeyRetryCount,
 									maxRetries: routingCfg.retry.maxRetries,
-								});
+								}) &&
+								// Same-key retries re-hit the provider, so consume a rate-limit
+								// slot like fallback retries do and skip the retry when limited.
+								!(
+									await checkProviderRateLimit(
+										project.organizationId,
+										usedProvider,
+										modelInfo.id,
+									)
+								).rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
 
@@ -7171,7 +7180,16 @@ chat.openapi(completions, async (c) => {
 									).some((s) => s.providerId !== usedProvider),
 									retryCount: sameKeyRetryCount,
 									maxRetries: routingCfg.retry.maxRetries,
-								});
+								}) &&
+								// Same-key retries re-hit the provider, so consume a rate-limit
+								// slot like fallback retries do and skip the retry when limited.
+								!(
+									await checkProviderRateLimit(
+										project.organizationId,
+										usedProvider,
+										modelInfo.id,
+									)
+								).rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
 
@@ -7454,7 +7472,16 @@ chat.openapi(completions, async (c) => {
 								),
 								retryCount: sameKeyRetryCount,
 								maxRetries: routingCfg.retry.maxRetries,
-							});
+							}) &&
+							// Same-key retries re-hit the provider, so consume a rate-limit
+							// slot like fallback retries do and skip the retry when limited.
+							!(
+								await checkProviderRateLimit(
+									project.organizationId,
+									usedProvider,
+									modelInfo.id,
+								)
+							).rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
 
@@ -7814,7 +7841,16 @@ chat.openapi(completions, async (c) => {
 								),
 								retryCount: sameKeyRetryCount,
 								maxRetries: routingCfg.retry.maxRetries,
-							});
+							}) &&
+							// Same-key retries re-hit the provider, so consume a rate-limit
+							// slot like fallback retries do and skip the retry when limited.
+							!(
+								await checkProviderRateLimit(
+									project.organizationId,
+									usedProvider,
+									modelInfo.id,
+								)
+							).rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider ||
 							willRetryStreamingError ||
@@ -11078,7 +11114,16 @@ chat.openapi(completions, async (c) => {
 					),
 					retryCount: sameKeyRetryCount,
 					maxRetries: routingCfg.retry.maxRetries,
-				});
+				}) &&
+				// Same-key retries re-hit the provider, so consume a rate-limit
+				// slot like fallback retries do and skip the retry when limited.
+				!(
+					await checkProviderRateLimit(
+						project.organizationId,
+						usedProvider,
+						modelInfo.id,
+					)
+				).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
 
@@ -11500,7 +11545,16 @@ chat.openapi(completions, async (c) => {
 					),
 					retryCount: sameKeyRetryCount,
 					maxRetries: routingCfg.retry.maxRetries,
-				});
+				}) &&
+				// Same-key retries re-hit the provider, so consume a rate-limit
+				// slot like fallback retries do and skip the retry when limited.
+				!(
+					await checkProviderRateLimit(
+						project.organizationId,
+						usedProvider,
+						modelInfo.id,
+					)
+				).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
 
