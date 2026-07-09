@@ -1,7 +1,14 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowRight, CheckCircle2, Info, Loader2 } from "lucide-react";
+import {
+	ArrowRight,
+	Check,
+	CheckCircle2,
+	ChevronsUpDown,
+	Info,
+	Loader2,
+} from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -10,6 +17,14 @@ import { z } from "zod";
 
 import { Button } from "@/lib/components/button";
 import { Checkbox } from "@/lib/components/checkbox";
+import {
+	Command,
+	CommandEmpty,
+	CommandGroup,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@/lib/components/command";
 import {
 	Form,
 	FormControl,
@@ -21,14 +36,13 @@ import {
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/lib/components/select";
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/lib/components/popover";
 import { countries } from "@/lib/countries";
 import { useApi } from "@/lib/fetch-client";
+import { cn } from "@/lib/utils";
 
 const providerFormSchema = z.object({
 	providerName: z
@@ -67,6 +81,7 @@ export function AddProviderForm({
 	const submitProvider = api.useMutation("post", "/public/contact/provider");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
+	const [countryOpen, setCountryOpen] = useState(false);
 	const [formLoadTime] = useState(() => Date.now());
 
 	const form = useForm<ProviderFormData>({
@@ -300,28 +315,68 @@ export function AddProviderForm({
 											control={form.control}
 											name="country"
 											render={({ field }) => (
-												<FormItem>
+												<FormItem className="flex flex-col">
 													<FormLabel>
 														HQ Country{" "}
 														<span className="text-destructive">*</span>
 													</FormLabel>
-													<Select
-														onValueChange={field.onChange}
-														defaultValue={field.value}
+													<Popover
+														open={countryOpen}
+														onOpenChange={setCountryOpen}
 													>
-														<FormControl>
-															<SelectTrigger className="w-full bg-background h-11">
-																<SelectValue placeholder="Select country" />
-															</SelectTrigger>
-														</FormControl>
-														<SelectContent>
-															{countries.map((country) => (
-																<SelectItem key={country} value={country}>
-																	{country}
-																</SelectItem>
-															))}
-														</SelectContent>
-													</Select>
+														<PopoverTrigger asChild>
+															<FormControl>
+																<Button
+																	type="button"
+																	variant="outline"
+																	role="combobox"
+																	aria-expanded={countryOpen}
+																	className={cn(
+																		"w-full justify-between bg-background h-11 font-normal",
+																		!field.value && "text-muted-foreground",
+																	)}
+																>
+																	{field.value || "Select country"}
+																	<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+																</Button>
+															</FormControl>
+														</PopoverTrigger>
+														<PopoverContent
+															className="w-[--radix-popover-trigger-width] p-0"
+															align="start"
+														>
+															<Command>
+																<CommandInput placeholder="Search country..." />
+																<CommandList>
+																	<CommandEmpty>No country found.</CommandEmpty>
+																	<CommandGroup>
+																		{countries.map((country) => (
+																			<CommandItem
+																				key={country}
+																				value={country}
+																				onSelect={() => {
+																					field.onChange(country);
+																					setCountryOpen(false);
+																				}}
+																			>
+																				<span className="truncate">
+																					{country}
+																				</span>
+																				<Check
+																					className={cn(
+																						"ml-auto h-4 w-4 shrink-0",
+																						field.value === country
+																							? "opacity-100"
+																							: "opacity-0",
+																					)}
+																				/>
+																			</CommandItem>
+																		))}
+																	</CommandGroup>
+																</CommandList>
+															</Command>
+														</PopoverContent>
+													</Popover>
 													<FormMessage />
 												</FormItem>
 											)}
