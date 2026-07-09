@@ -24,9 +24,9 @@ export function getDevPlanCreditsLimit(tier: DevPlanTier): number {
  * exact regardless of DEV_PLAN_CREDITS_MULTIPLIER.
  */
 export const DEV_PLAN_PREMIUM_WEEKLY_PERCENT: Record<DevPlanTier, number> = {
-	lite: 0.1,
+	lite: 0.12,
 	pro: 0.15,
-	max: 0.2,
+	max: 0.18,
 };
 
 export function getDevPlanPremiumWeeklyLimit(tier: DevPlanTier): number {
