@@ -76,11 +76,22 @@ The Google Workspace connection appears as a card in the **Connections** list:
 - **Edit** the domain with the pencil icon — existing members are unaffected; the new domain applies to future sign-ins.
 - **Remove** the connection to stop auto-joining. Existing members stay in the organization.
 
-Auto-joined members get the **developer** role. Promote them on the **Team** page if they need more access.
+Auto-joined members get the **developer** role and receive the organization's **Default project access** selection, exactly like SSO/SCIM-provisioned members. Promote them or adjust project access on the **Team** page if they need more.
+
+## What's not available with Google Workspace
+
+With a Google-only setup, the **Directory sync (SCIM)** and **Group role mapping** cards on the SSO page are disabled:
+
+- **SCIM** — Google Workspace doesn't support SCIM provisioning for custom apps, so there's no directory sync to configure.
+- **Group role mapping** — role mappings apply to groups pushed via SCIM, so they can't take effect either. Auto-joined members always start as **developer**.
+
+**Default project access** works as usual and applies to auto-joined members.
 
 ## Interaction with SAML and Require SSO
 
-A SAML connection's **Require SSO** toggle blocks password, social, **and Google** sign-in for its domains. If your auto-join domain is also covered by an enforced SAML connection, Google sign-in is rejected before auto-join can run — the SSO page warns you about this conflict. Use one or the other per domain:
+An organization has **one connection** for now — either a SAML connection or Google Workspace auto-join. To switch providers, remove the existing connection first.
+
+For context on why they don't mix: a SAML connection's **Require SSO** toggle blocks password, social, **and Google** sign-in for its domains, so Google sign-in would be rejected before auto-join could run. Pick the model that fits:
 
 - **Google Workspace auto-join** — zero IdP setup, members use the Google button, join on first sign-in.
 - **SAML with Require SSO** — stricter control (blocks all non-SSO sign-in), needs a SAML app in your IdP. Google Workspace can also act as a SAML 2.0 IdP via a custom SAML app if you need enforcement; use the **Other (SAML 2.0)** connection type for that.

@@ -1,3 +1,5 @@
+import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -99,11 +101,30 @@ export async function autoJoinByEmailDomain({
 		return null;
 	}
 
-	await db.insert(tables.userOrganization).values({
-		userId,
-		organizationId: organization.id,
-		role: "developer",
-	});
+	const [membership] = await db
+		.insert(tables.userOrganization)
+		.values({
+			userId,
+			organizationId: organization.id,
+			role: "developer",
+		})
+		.returning();
+
+	// Same default project grants as SSO/SCIM provisioning: the org's configured
+	// selection, or the oldest project when unconfigured. Only on membership
+	// creation, so later manual grant edits are never overwritten.
+	const projectIds = await resolveDefaultProjectIds(organization.id);
+	if (projectIds.length > 0) {
+		await db
+			.insert(tables.userProject)
+			.values(
+				projectIds.map((projectId) => ({
+					userOrganizationId: membership.id,
+					projectId,
+				})),
+			)
+			.onConflictDoNothing();
+	}
 
 	await logAuditEvent({
 		organizationId: organization.id,

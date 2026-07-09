@@ -586,11 +586,12 @@ export function SsoClient() {
 	);
 	const googleDomainBlocked =
 		!!googleDomain && enforcedSamlDomains.has(googleDomain.toLowerCase());
-	const typedGoogleDomain = domain.trim().toLowerCase().replace(/^@/, "");
-	const typedGoogleDomainBlocked =
-		providerType === "google" &&
-		!!typedGoogleDomain &&
-		enforcedSamlDomains.has(typedGoogleDomain);
+	// Google Workspace can't SCIM-provision custom apps, and group role mapping
+	// rides on SCIM-pushed groups — with a Google-only setup both are inert, so
+	// their cards render disabled with an explanation instead of dead controls.
+	const googleOnly = !!googleDomain && providers.length === 0;
+	// One connection per organization for now — SAML or Google Workspace.
+	const hasConnection = providers.length > 0 || !!googleDomain;
 
 	return (
 		<div className="flex flex-col space-y-6 p-4 pt-6 md:p-8">
@@ -753,7 +754,14 @@ export function SsoClient() {
 						</div>
 					)}
 
-					{(providers.length === 0 || !googleDomain) && (
+					{hasConnection && (
+						<p className="text-sm text-muted-foreground">
+							One connection per organization for now — remove the existing
+							connection to switch providers.
+						</p>
+					)}
+
+					{!hasConnection && (
 						<form onSubmit={handleRegister} className="space-y-6 border-t pt-6">
 							<div className="space-y-4">
 								<p className="text-sm font-medium">Add a connection</p>
@@ -771,20 +779,10 @@ export function SsoClient() {
 											<SelectValue placeholder="Select an identity provider" />
 										</SelectTrigger>
 										<SelectContent>
-											{providers.length === 0 && (
-												<>
-													<SelectItem value="okta">Okta</SelectItem>
-													<SelectItem value="entra">
-														Microsoft Entra ID
-													</SelectItem>
-													<SelectItem value="generic">
-														Other (SAML 2.0)
-													</SelectItem>
-												</>
-											)}
-											{!googleDomain && (
-												<SelectItem value="google">Google Workspace</SelectItem>
-											)}
+											<SelectItem value="okta">Okta</SelectItem>
+											<SelectItem value="entra">Microsoft Entra ID</SelectItem>
+											<SelectItem value="generic">Other (SAML 2.0)</SelectItem>
+											<SelectItem value="google">Google Workspace</SelectItem>
 										</SelectContent>
 									</Select>
 									{providerType === "google" && (
@@ -903,23 +901,11 @@ export function SsoClient() {
 							</div>
 
 							{providerType === "google" && (
-								<div className="space-y-4">
-									{typedGoogleDomainBlocked && (
-										<Alert variant="destructive">
-											<AlertDescription>
-												A SAML connection with <strong>Require SSO</strong>{" "}
-												covers <strong>{typedGoogleDomain}</strong>, which
-												blocks Google sign-in for that domain — auto-join would
-												never trigger. Disable Require SSO first.
-											</AlertDescription>
-										</Alert>
-									)}
-									<Button type="submit" disabled={updateOrganization.isPending}>
-										{updateOrganization.isPending
-											? "Enabling..."
-											: "Enable auto-join"}
-									</Button>
-								</div>
+								<Button type="submit" disabled={updateOrganization.isPending}>
+									{updateOrganization.isPending
+										? "Enabling..."
+										: "Enable auto-join"}
+								</Button>
 							)}
 
 							{isSamlType && effectiveSlug && (
@@ -1000,147 +986,154 @@ export function SsoClient() {
 				</CardContent>
 			</Card>
 
-			<Card>
+			<Card className={googleOnly ? "opacity-60" : undefined}>
 				<CardHeader>
 					<CardTitle>Directory sync (SCIM)</CardTitle>
 					<CardDescription>
-						Generate a SCIM token and configure it in your identity provider
-						(Okta or Microsoft Entra ID) to provision and deprovision members of
-						this organization automatically.
+						{googleOnly
+							? "Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
+							: "Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."}
 					</CardDescription>
 				</CardHeader>
-				<CardContent className="space-y-4">
-					{scim && <ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />}
-					<div className="flex items-center gap-3">
-						<Button
-							onClick={() => {
-								if (scim?.configured) {
-									setConfirmAction({
-										title: "Rotate SCIM token?",
-										description:
-											"The current token stops working immediately. Directory provisioning will fail until you update your identity provider with the new token.",
-										actionLabel: "Rotate token",
-										run: handleGenerateScim,
-									});
-								} else {
-									void handleGenerateScim();
-								}
-							}}
-							disabled={generateScim.isPending}
-						>
-							{scim?.configured ? "Rotate SCIM token" : "Generate SCIM token"}
-						</Button>
-						{scim?.configured && (
-							<Button
-								variant="outline"
-								onClick={() =>
-									setConfirmAction({
-										title: "Revoke SCIM token?",
-										description:
-											"Directory provisioning stops working immediately. You'll need to generate a new token and update your identity provider to resume it.",
-										actionLabel: "Revoke token",
-										run: handleRevokeScim,
-									})
-								}
-								disabled={revokeScim.isPending}
-							>
-								Revoke
-							</Button>
+				{!googleOnly && (
+					<CardContent className="space-y-4">
+						{scim && (
+							<ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />
 						)}
-					</div>
-					{scim?.configured && (
-						<p className="text-sm text-muted-foreground">
-							A SCIM token is active for this organization
-							{scim.maskedToken ? ` (${scim.maskedToken})` : ""}. Rotating
-							replaces it — update your identity provider with the new token.
-						</p>
-					)}
-				</CardContent>
+						<div className="flex items-center gap-3">
+							<Button
+								onClick={() => {
+									if (scim?.configured) {
+										setConfirmAction({
+											title: "Rotate SCIM token?",
+											description:
+												"The current token stops working immediately. Directory provisioning will fail until you update your identity provider with the new token.",
+											actionLabel: "Rotate token",
+											run: handleGenerateScim,
+										});
+									} else {
+										void handleGenerateScim();
+									}
+								}}
+								disabled={generateScim.isPending}
+							>
+								{scim?.configured ? "Rotate SCIM token" : "Generate SCIM token"}
+							</Button>
+							{scim?.configured && (
+								<Button
+									variant="outline"
+									onClick={() =>
+										setConfirmAction({
+											title: "Revoke SCIM token?",
+											description:
+												"Directory provisioning stops working immediately. You'll need to generate a new token and update your identity provider to resume it.",
+											actionLabel: "Revoke token",
+											run: handleRevokeScim,
+										})
+									}
+									disabled={revokeScim.isPending}
+								>
+									Revoke
+								</Button>
+							)}
+						</div>
+						{scim?.configured && (
+							<p className="text-sm text-muted-foreground">
+								A SCIM token is active for this organization
+								{scim.maskedToken ? ` (${scim.maskedToken})` : ""}. Rotating
+								replaces it — update your identity provider with the new token.
+							</p>
+						)}
+					</CardContent>
+				)}
 			</Card>
 
-			<Card>
+			<Card className={googleOnly ? "opacity-60" : undefined}>
 				<CardHeader>
 					<CardTitle>Group role mapping</CardTitle>
 					<CardDescription>
-						Map an IdP group (pushed via SCIM) to an organization role. Members
-						receive the highest-ranked role among their groups; unmapped members
-						default to Developer. Owners are never automatically demoted.
+						{googleOnly
+							? "Not available for the Google Workspace connection — role mappings rely on groups pushed via SCIM. Auto-joined members get the developer role; change roles on the Team page."
+							: "Map an IdP group (pushed via SCIM) to an organization role. Members receive the highest-ranked role among their groups; unmapped members default to Developer. Owners are never automatically demoted."}
 					</CardDescription>
 				</CardHeader>
-				<CardContent className="space-y-6">
-					{mappings.length > 0 && (
-						<div className="divide-y rounded-lg border">
-							{mappings.map((mapping) => (
-								<div
-									key={mapping.id}
-									className="flex items-center justify-between gap-4 p-3"
-								>
-									<div className="text-sm">
-										<span className="font-medium">{mapping.groupName}</span>
-										<span className="text-muted-foreground"> → </span>
-										<span className="capitalize">{mapping.role}</span>
-									</div>
-									<Button
-										variant="outline"
-										size="icon"
-										onClick={() => handleDeleteMapping(mapping.id)}
-										disabled={deleteMapping.isPending}
+				{!googleOnly && (
+					<CardContent className="space-y-6">
+						{mappings.length > 0 && (
+							<div className="divide-y rounded-lg border">
+								{mappings.map((mapping) => (
+									<div
+										key={mapping.id}
+										className="flex items-center justify-between gap-4 p-3"
 									>
-										<Trash2 className="h-4 w-4" />
-										<span className="sr-only">Delete mapping</span>
-									</Button>
-								</div>
-							))}
-						</div>
-					)}
+										<div className="text-sm">
+											<span className="font-medium">{mapping.groupName}</span>
+											<span className="text-muted-foreground"> → </span>
+											<span className="capitalize">{mapping.role}</span>
+										</div>
+										<Button
+											variant="outline"
+											size="icon"
+											onClick={() => handleDeleteMapping(mapping.id)}
+											disabled={deleteMapping.isPending}
+										>
+											<Trash2 className="h-4 w-4" />
+											<span className="sr-only">Delete mapping</span>
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
 
-					<form
-						onSubmit={handleCreateMapping}
-						className="flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-end"
-					>
-						<div className="flex-1 space-y-2">
-							<Label htmlFor="mapping-group">IdP group name</Label>
-							<Input
-								id="mapping-group"
-								placeholder="Engineering Admins"
-								value={groupName}
-								onChange={(e) => setGroupName(e.target.value)}
-								required
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="mapping-role">Role</Label>
-							<Select
-								value={role}
-								onValueChange={(value) =>
-									setRole(value as "owner" | "admin" | "developer")
-								}
-							>
-								<SelectTrigger id="mapping-role" className="sm:w-40">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="developer">Developer</SelectItem>
-									<SelectItem value="admin">Admin</SelectItem>
-									<SelectItem value="owner">Owner</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-						<Button type="submit" disabled={createMapping.isPending}>
-							Add mapping
-						</Button>
-					</form>
-				</CardContent>
+						<form
+							onSubmit={handleCreateMapping}
+							className="flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-end"
+						>
+							<div className="flex-1 space-y-2">
+								<Label htmlFor="mapping-group">IdP group name</Label>
+								<Input
+									id="mapping-group"
+									placeholder="Engineering Admins"
+									value={groupName}
+									onChange={(e) => setGroupName(e.target.value)}
+									required
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="mapping-role">Role</Label>
+								<Select
+									value={role}
+									onValueChange={(value) =>
+										setRole(value as "owner" | "admin" | "developer")
+									}
+								>
+									<SelectTrigger id="mapping-role" className="sm:w-40">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="developer">Developer</SelectItem>
+										<SelectItem value="admin">Admin</SelectItem>
+										<SelectItem value="owner">Owner</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<Button type="submit" disabled={createMapping.isPending}>
+								Add mapping
+							</Button>
+						</form>
+					</CardContent>
+				)}
 			</Card>
 
 			<Card>
 				<CardHeader>
 					<CardTitle>Default project access</CardTitle>
 					<CardDescription>
-						Projects that members provisioned via SSO/SCIM get access to when
-						they first sign in. Only affects the <strong>developer</strong> role
-						— owners and admins can always access every project. Existing
-						members are unchanged; this applies to newly provisioned users.
+						Projects that members provisioned via SSO/SCIM/Google auto-join get
+						access to when they first sign in. Only affects the{" "}
+						<strong>developer</strong> role — owners and admins can always
+						access every project. Existing members are unchanged; this applies
+						to newly provisioned users.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
