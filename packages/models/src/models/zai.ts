@@ -27,6 +27,23 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "canopywave",
+				test: "skip", // over-reasons heavily and streams slowly (~1 tok/s), so the 60s streaming timeout is flaky
+				externalId: "zai/glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 200000,
+				maxOutput: 32768,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "embercloud",
 				externalId: "glm-5.2",
 				inputPrice: "1.26e-6",
