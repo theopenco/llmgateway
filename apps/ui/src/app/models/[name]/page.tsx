@@ -33,11 +33,7 @@ import {
 	perMillion,
 } from "@/lib/discount";
 import { fetchModelDiscounts } from "@/lib/fetch-models";
-import {
-	buildRatingSchema,
-	digitalOfferFields,
-	type ModelRatingsData,
-} from "@/lib/rating-schema";
+import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -174,7 +170,7 @@ export default async function ModelPage({ params }: PageProps) {
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: modelProviders.length,
 			availability: "https://schema.org/InStock",
-			...digitalOfferFields,
+			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 		},
 		category: "AI/ML API Service",
 		...buildRatingSchema(ratingsData),

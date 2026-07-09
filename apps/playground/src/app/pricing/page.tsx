@@ -55,11 +55,8 @@ export default async function PricingPage() {
 				<ul className="space-y-2">
 					<li>
 						<strong>Fresh allowance every cycle.</strong> Your full credit
-						allowance refills at the start of each billing cycle.
-					</li>
-					<li>
-						<strong>Your pay-as-you-go balance stays.</strong> Top-ups never
-						expire and act as a fallback once monthly credits are spent.
+						allowance refills at the start of each billing cycle, and any
+						unspent credits don&apos;t roll over.
 					</li>
 					<li>
 						<strong>7-day money-back guarantee.</strong> If you&apos;ve barely

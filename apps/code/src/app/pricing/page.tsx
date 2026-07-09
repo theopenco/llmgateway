@@ -23,12 +23,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Pricing — DevPass",
 	description:
-		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 280+ models metered at provider rates.",
+		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models metered at provider rates.",
 	alternates: { canonical: "/pricing" },
 	openGraph: {
 		title: "Pricing — DevPass",
 		description:
-			"Flat-rate AI coding plans. Every plan includes 280+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
+			"Flat-rate AI coding plans. Every plan includes 200+ models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
 	},
 };
 
@@ -55,7 +55,7 @@ const productSchema = {
 	"@type": "Product",
 	name: "DevPass by LLM Gateway",
 	description:
-		"Flat-rate AI coding plans with access to 280+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
+		"Flat-rate AI coding plans with access to 200+ models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
 	brand: {
 		"@type": "Brand",
 		name: "LLM Gateway",
@@ -149,7 +149,7 @@ const usageRows: UsageRow[] = [
 		max: "200+",
 	},
 	{
-		label: "Latest flagships (Opus 4.7, GPT-5.5, Gemini 3.1 Pro)",
+		label: "Latest flagships (Opus 4.8, GPT-5.5, Gemini 3.1 Pro)",
 		lite: true,
 		pro: true,
 		max: true,
@@ -303,7 +303,7 @@ export default function PricingPage() {
 							Premium-tier frontier models (Anthropic Opus, OpenAI
 							Pro/reasoning, Gemini Pro, Grok 4) are subject to a weekly
 							fair-use allowance ($10 / $50 / $140 for Lite / Pro / Max) in
-							addition to the monthly credit allowance. All other 280+ models
+							addition to the monthly credit allowance. All other 200+ models
 							use the full monthly allowance with the 3x multiplier.
 						</p>
 					</div>
@@ -319,8 +319,9 @@ export default function PricingPage() {
 								What&apos;s in each plan
 							</h2>
 							<p className="mt-3 text-muted-foreground">
-								Every tier ships with the full model catalog. The only thing
-								that changes is how much usage you have to play with each month.
+								Every tier ships with the full model catalog. What changes is
+								your monthly usage allowance and the weekly fair-use cap on
+								premium models.
 							</p>
 						</div>
 

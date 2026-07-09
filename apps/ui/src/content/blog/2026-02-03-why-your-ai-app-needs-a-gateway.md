@@ -126,11 +126,11 @@ const client = new OpenAI({
   baseURL: "https://api.llmgateway.io/v1",
 });
 
-// Use any of 280+ models from 35+ providers
+// Use any of 200+ models from 40+ providers
 const response = await client.chat.completions.create({
   model: "gemini-2.5-flash",
   messages: [{ role: "user", content: "Hello!" }],
 });
 ```
 
-**[Create a free account](/signup)** | **[Browse 280+ models](/models)** | **[Read the docs](https://docs.llmgateway.io)**
+**[Create a free account](/signup)** | **[Browse 200+ models](/models)** | **[Read the docs](https://docs.llmgateway.io)**

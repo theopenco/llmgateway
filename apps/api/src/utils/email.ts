@@ -367,10 +367,7 @@ export function generateDevPlanDuplicateCardEmailHtml(
 	`.trim();
 }
 
-export function generateDevPlanCancellationFeedbackEmailHtml(
-	organizationName: string,
-): string {
-	const escapedOrgName = escapeHtml(organizationName);
+export function generateDevPlanCancellationFeedbackEmailHtml(): string {
 	const codeUrl = process.env.CODE_URL ?? "https://code.llmgateway.io";
 	const feedbackUrl = `${codeUrl}/dashboard/feedback/dev-plan-cancellation`;
 
@@ -399,7 +396,7 @@ export function generateDevPlanCancellationFeedbackEmailHtml(
 									</p>
 
 									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
-										We noticed <strong>${escapedOrgName}</strong> just cancelled the LLMGateway Dev Plan. You'll keep access until the end of your current billing period &mdash; nothing changes today.
+										We noticed you just cancelled the LLMGateway Dev Plan. You'll keep access until the end of your current billing period &mdash; nothing changes today.
 									</p>
 
 									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">

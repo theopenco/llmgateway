@@ -768,8 +768,6 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	assertApiKeyWithinUsageLimits(apiKey);
-
 	const baseProject = await findProjectById(apiKey.projectId);
 	if (!baseProject) {
 		throw new HTTPException(500, {
@@ -783,9 +781,11 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	// Enforce the per-member budget set on the Teams page (fails open on read
-	// errors). Uses the key creator + resolved org.
+	// User-level limits take priority: enforce the per-member budget (set on the
+	// Teams page; fails open on read errors) before the per-key usage limits, so a
+	// member who is over budget is denied even if the key itself is within limits.
 	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	const baseOrganization = await findOrganizationById(
 		baseProject.organizationId,
@@ -918,7 +918,8 @@ function isSoraVideoModelName(externalId: string): boolean {
 function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
-		externalId === "dreamina-seedance-2-0-fast-260128"
+		externalId === "dreamina-seedance-2-0-fast-260128" ||
+		externalId === "dreamina-seedance-2-0-mini-260615"
 	);
 }
 
@@ -1009,7 +1010,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
@@ -1067,7 +1068,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
 				);
 			}
 
@@ -3561,7 +3562,11 @@ async function createBytedanceVideoJob(
 
 	if (isDreaminaModel) {
 		upstreamRequest.resolution =
-			videoSize.resolution === "1080p" ? "1080p" : "720p";
+			videoSize.resolution === "1080p"
+				? "1080p"
+				: videoSize.resolution === "480p"
+					? "480p"
+					: "720p";
 	}
 
 	const upstreamUrl = joinUrl(

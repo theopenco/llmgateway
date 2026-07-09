@@ -288,16 +288,20 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${feature.title} – LLM Gateway`;
+	const title = feature.title;
 	const description = feature.description;
 
 	return {
 		title,
 		description,
+		alternates: {
+			canonical: `/features/${feature.slug}`,
+		},
 		openGraph: {
 			title,
 			description,
 			type: "website",
+			url: `https://llmgateway.io/features/${feature.slug}`,
 		},
 		twitter: {
 			card: "summary_large_image",

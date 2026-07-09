@@ -124,6 +124,27 @@ export function useUpdateDefaultDeveloperBudget(organizationId: string) {
 	);
 }
 
+export function useRevokeTeamInvite(organizationId: string) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	return api.useMutation(
+		"delete",
+		"/team/{organizationId}/invites/{inviteId}",
+		{
+			onSuccess: () => {
+				void queryClient.invalidateQueries({
+					queryKey: [
+						"get",
+						"/team/{organizationId}/members",
+						{ params: { path: { organizationId } } },
+					],
+				});
+			},
+		},
+	);
+}
+
 export function useRemoveTeamMember(organizationId: string) {
 	const api = useApi();
 	const queryClient = useQueryClient();

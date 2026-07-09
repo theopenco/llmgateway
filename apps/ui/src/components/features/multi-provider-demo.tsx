@@ -11,6 +11,8 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 const providers = [
 	{
 		name: "OpenAI",
@@ -63,7 +65,7 @@ export function MultiProviderDemo() {
 				<CardHeader>
 					<CardTitle>Connected Providers</CardTitle>
 					<CardDescription>
-						Access 280+ models from 35+ providers through a single API
+						Access 200+ models from 40+ providers through a single API
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -115,7 +117,7 @@ export function MultiProviderDemo() {
 				<Card>
 					<CardHeader>
 						<CardTitle className="text-4xl font-bold text-center">
-							19+
+							{MARKETING_STATS.providers}
 						</CardTitle>
 						<CardDescription className="text-center">
 							Provider Integrations
@@ -125,7 +127,7 @@ export function MultiProviderDemo() {
 				<Card>
 					<CardHeader>
 						<CardTitle className="text-4xl font-bold text-center">
-							100+
+							{MARKETING_STATS.models}
 						</CardTitle>
 						<CardDescription className="text-center">
 							Available Models

@@ -31,11 +31,11 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Models",
-		description: "280+ unique models across 35+ providers",
+		description: "200+ unique models across 40+ providers",
 		learnMoreLink: "/models",
 		learnMoreText: "Browse all models →",
-		free: "All 280+ models",
-		enterprise: "All 280+ models",
+		free: "All 200+ models",
+		enterprise: "All 200+ models",
 	},
 	{
 		name: "Provider Choice",

@@ -8,7 +8,11 @@ import { maskToken } from "@/lib/maskToken.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
-import { notDevpassFilter } from "@/utils/devpass-filter.js";
+import {
+	notDevpassFilter,
+	notEndUserNonRevenueFilter,
+	notEndUserWalletFilter,
+} from "@/utils/devpass-filter.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
 	floorToHourStart,
@@ -89,6 +93,7 @@ const adminMetricsSchema = z.object({
 	unusedCredits: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
+	totalBonusCredits: z.number(),
 	totalRefunds: z.number(),
 });
 
@@ -135,6 +140,10 @@ const organizationSchema = z.object({
 	kind: z.enum(["default", "chat", "devpass"]),
 	plan: z.string(),
 	devPlan: z.string(),
+	// Manual seat-limit override; null = use the plan default.
+	seats: z.number().int().nullable().optional(),
+	// Manual API-key-limit override; null = use the plan default.
+	apiKeyLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
@@ -599,8 +608,10 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed credit-purchase transactions, excluding gifts
-	// and all DevPass subscription rows, using creditAmount to exclude Stripe fees)
+	// Total revenue: completed credit-purchase rows — org credit top-ups AND
+	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
+	// creditAmount to exclude Stripe fees. Excludes gifts, DevPass subscription
+	// rows, and the non-revenue end-user rows (developer margin + funded bonus).
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -614,6 +625,7 @@ admin.openapi(getMetrics, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
 		);
@@ -632,7 +644,10 @@ admin.openapi(getMetrics, async (c) => {
 
 	// Total topped up (credits from completed credit-purchase transactions).
 	// Excludes DevPass virtual credits — those are granted per cycle and reset,
-	// so they would inflate the topped-up / unused-credits numbers.
+	// so they would inflate the topped-up / unused-credits numbers — and all
+	// end-user wallet rows, which live in their own balance economy (their spend
+	// is not in `totalSpent`, so counting their top-ups would inflate unused
+	// credits).
 	const [toppedUpRow] = await db
 		.select({
 			value:
@@ -645,6 +660,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				notDevpassFilter,
+				notEndUserWalletFilter,
 				transactionDateFilter,
 			),
 		);
@@ -702,6 +718,7 @@ admin.openapi(getMetrics, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
 		);
@@ -726,6 +743,30 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalGiftedCredits = Number(giftedRow?.value ?? 0);
+
+	// Total developer-funded end-user top-up bonus credits granted (net of
+	// refund claw-backs). end_user_bonus rows store creditAmount as the change to
+	// the developer org's credit balance — negative when a bonus is granted,
+	// positive when clawed back on refund — so negate the sum to report the net
+	// credits actually gifted into end-user wallets. Excluded from revenue above
+	// and surfaced here so it can be subtracted/considered in stats separately.
+	const [bonusRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "end_user_bonus"),
+				transactionDateFilter,
+			),
+		);
+
+	const totalBonusCredits = -Number(bonusRow?.value ?? 0);
 
 	// Total refunds (positive `amount` on credit_refund rows — Stripe-side refunds).
 	const [refundsRow] = await db
@@ -762,6 +803,7 @@ admin.openapi(getMetrics, async (c) => {
 		unusedCredits,
 		overage,
 		totalGiftedCredits,
+		totalBonusCredits,
 		totalRefunds,
 	});
 });
@@ -853,6 +895,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -875,6 +918,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -917,6 +961,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -935,6 +980,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -1493,7 +1539,7 @@ admin.openapi(getGlobalStats, async (c) => {
 				row as (typeof timeseriesBreakdownRows)[number] & { source: string }
 			).source;
 		}
-		const mapKey = `${row.date} ${key}`;
+		const mapKey = `${row.date}:${key}`;
 		const existing = timeseriesBreakdownMap.get(mapKey);
 		if (existing) {
 			existing.requestCount += Number(row.requestCount);
@@ -1978,6 +2024,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			seats: org.seats,
+			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -2058,6 +2106,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			seats: org.seats,
+			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -5286,6 +5336,105 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 		message: "Referral bonus updated successfully",
 		referralBonusEnabled: enabled,
 		referralBonusPercent: percent,
+	});
+});
+
+// Manage an organization's plan tier, seat-limit and API-key-limit overrides
+const manageOrganizationRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/manage",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						plan: z.enum(["free", "pro", "enterprise"]),
+						// Null clears the override and reverts to the plan default.
+						seats: z.number().int().min(0).max(100000).nullable(),
+						// Null clears the override and reverts to the plan default.
+						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						plan: z.string(),
+						seats: z.number().int().nullable(),
+						apiKeyLimit: z.number().int().nullable(),
+					}),
+				},
+			},
+			description: "Organization updated successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(manageOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { plan, seats, apiKeyLimit } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			plan,
+			seats,
+			apiKeyLimit,
+		})
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "organization.manage",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			previousPlan: org.plan,
+			newPlan: plan,
+			previousSeats: org.seats,
+			newSeats: seats,
+			previousApiKeyLimit: org.apiKeyLimit,
+			newApiKeyLimit: apiKeyLimit,
+		},
+	});
+
+	return c.json({
+		message: "Organization updated successfully",
+		plan,
+		seats,
+		apiKeyLimit,
 	});
 });
 

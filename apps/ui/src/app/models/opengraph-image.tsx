@@ -9,6 +9,6 @@ export default function Image() {
 		eyebrow: "Models",
 		title: "The AI Model Directory",
 		subtitle:
-			"Compare 280+ models from OpenAI, Anthropic, Google, and 35+ providers — by price, speed, and capability.",
+			"Compare 200+ models from OpenAI, Anthropic, Google, and 40+ providers — by price, speed, and capability.",
 	});
 }

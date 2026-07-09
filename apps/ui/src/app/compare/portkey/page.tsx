@@ -24,7 +24,7 @@ const portkeyFaqs: CompareFaqItem[] = [
 	{
 		question: "Can I migrate from Portkey without changing my code?",
 		answer:
-			"Yes. LLM Gateway exposes an OpenAI-compatible API, so you switch by changing the base URL and API key. You get 280+ models across 35+ providers behind that single endpoint.",
+			"Yes. LLM Gateway exposes an OpenAI-compatible API, so you switch by changing the base URL and API key. You get 200+ models across 40+ providers behind that single endpoint.",
 	},
 	{
 		question: "Does LLM Gateway support image and video generation?",
@@ -77,18 +77,20 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs Portkey — The Open Portkey Alternative",
 		description:
-			"Compare LLM Gateway's fully open-source platform, automatic provider routing, image and video generation, and transparent pricing against Portkey's gateway and LLMOps suite. See why teams pick LLM Gateway as their Portkey alternative.",
+			"Compare open-source routing, image and video generation, and transparent pricing vs Portkey's gateway and LLMOps suite.",
+		alternates: { canonical: "/compare/portkey" },
 		openGraph: {
-			title: "LLM Gateway vs Portkey - Feature Comparison",
+			title: "LLM Gateway vs Portkey — Feature Comparison",
 			description:
-				"Compare LLM Gateway's fully open-source platform, automatic provider routing, and transparent pricing against Portkey's gateway and LLMOps suite.",
+				"Open-source routing and transparent pricing vs Portkey's gateway and LLMOps suite.",
 			type: "website",
+			url: "https://llmgateway.io/compare/portkey",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs Portkey - Feature Comparison",
+			title: "LLM Gateway vs Portkey — Feature Comparison",
 			description:
-				"Compare LLM Gateway's fully open-source platform, automatic provider routing, and transparent pricing against Portkey's gateway and LLMOps suite.",
+				"Open-source routing and transparent pricing vs Portkey's gateway and LLMOps suite.",
 		},
 	};
 }

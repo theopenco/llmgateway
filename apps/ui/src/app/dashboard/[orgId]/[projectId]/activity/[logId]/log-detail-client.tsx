@@ -469,8 +469,8 @@ export function LogDetailClient({
 		Number(log.dataStorageCost) > 0;
 
 	const throughput =
-		log.duration && log.totalTokens
-			? (Number(log.totalTokens) / (log.duration / 1000)).toFixed(1)
+		log.duration && log.completionTokens
+			? (Number(log.completionTokens) / (log.duration / 1000)).toFixed(1)
 			: null;
 
 	return (

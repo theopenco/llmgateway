@@ -6,18 +6,20 @@ import Logo from "@/lib/icons/Logo";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Brand Assets — LLM Gateway Logos & Guidelines",
+	title: "Brand Assets — Logos & Guidelines",
 	description:
-		"Download official LLM Gateway logos, marks, and brand assets. SVG files in light and dark variants, plus usage guidelines for partners and integrators.",
+		"Download official LLM Gateway logos, marks, and brand assets. SVG files in light and dark variants, plus usage guidelines for partners.",
 	openGraph: {
-		title: "Brand Assets — LLM Gateway Logos & Guidelines",
+		title: "Brand Assets — Logos & Guidelines | LLM Gateway",
+		images: ["/opengraph.png?v=2"],
 		description:
-			"Download official LLM Gateway logos, marks, and brand assets. SVG files in light and dark variants, plus usage guidelines.",
+			"Download official LLM Gateway logos, marks, and brand assets. SVG files in light and dark variants.",
 		type: "website",
+		url: "https://llmgateway.io/brand",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "Brand Assets — LLM Gateway Logos & Guidelines",
+		title: "Brand Assets — Logos & Guidelines | LLM Gateway",
 		description:
 			"Download official LLM Gateway logos, marks, and brand assets.",
 	},

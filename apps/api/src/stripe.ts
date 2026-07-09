@@ -16,7 +16,6 @@ import { logger } from "@llmgateway/logger";
 import {
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
-	getProratedCreditDelta,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 	type DevPlanCycle,
@@ -26,7 +25,6 @@ import {
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
-import { resolveDevPassBillingDetails } from "./utils/devpass-billing.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
@@ -44,6 +42,10 @@ import {
 	sendTransactionalEmail,
 } from "./utils/email.js";
 import { generateAndEmailInvoice } from "./utils/invoice.js";
+import {
+	resolveChatPlanBillingDetails,
+	resolveDevPassBillingDetails,
+} from "./utils/plan-billing.js";
 
 import type { ServerTypes } from "./vars.js";
 import type Stripe from "stripe";
@@ -1301,16 +1303,14 @@ async function handleCheckoutSessionCompleted(
 					.returning();
 
 				try {
+					const billingDetails =
+						await resolveChatPlanBillingDetails(organization);
 					await generateAndEmailInvoice({
 						organizationId: organization.id,
 						invoiceNumber: transaction.id,
 						invoiceDate: new Date(),
 						organizationName: organization.name,
-						billingEmail: organization.billingEmail,
-						billingCompany: organization.billingCompany,
-						billingAddress: organization.billingAddress,
-						billingTaxId: organization.billingTaxId,
-						billingNotes: organization.billingNotes,
+						...billingDetails,
 						lineItems: [
 							{
 								description: `Chat Plan ${chatPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
@@ -1926,7 +1926,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
  * org), and the platform fee — all carried in the PaymentIntent metadata that
  * /v1/wallet/top-up set.
  */
-async function handleEndUserTopUpSucceeded(
+export async function handleEndUserTopUpSucceeded(
 	paymentIntent: Stripe.PaymentIntent,
 ) {
 	const md = paymentIntent.metadata;
@@ -1934,6 +1934,7 @@ async function handleEndUserTopUpSucceeded(
 	const netCredited = Number(md.netCredited);
 	const developerMargin = Number(md.developerMargin ?? "0");
 	const platformFee = Number(md.platformFee ?? "0");
+	const bonusCredited = Number(md.bonusCredited ?? "0");
 	const grossPaid = paymentIntent.amount / 100;
 
 	if (!walletId || !Number.isFinite(netCredited) || netCredited <= 0) {
@@ -1979,11 +1980,58 @@ async function handleEndUserTopUpSucceeded(
 	// atomically. The ledger insert hits the unique index first, so a concurrent
 	// duplicate delivery rolls the whole transaction back instead of double-
 	// crediting.
-	let newBalance: string;
+	let txResult: { balance: string; bonusApplied: number };
 	try {
-		newBalance = await db.transaction(async (tx) => {
-			// Lock + credit the wallet first; a concurrent duplicate delivery blocks
-			// on this row, then fails the ledger insert below on the unique index.
+		txResult = await db.transaction(async (tx) => {
+			// Developer-funded bonus: resolve and reserve it FIRST, locking the org
+			// row (SELECT … FOR UPDATE) and debiting its credits before we touch the
+			// wallet. The worker debits org credits before wallet balance
+			// (worker.ts), so acquiring the org lock ahead of the wallet here keeps a
+			// consistent org→wallet lock order and avoids deadlocking a concurrent
+			// usage-debit batch. Live wallets only (test-mode top-ups are Stripe
+			// sandbox and must never spend real org credits), and capped with
+			// `Math.floor` at the org's available credits so `credits` can never go
+			// negative.
+			let bonusApplied = 0;
+			if (bonusCredited > 0 && wallet.mode !== "test") {
+				const [org] = await tx
+					.select({ credits: tables.organization.credits })
+					.from(tables.organization)
+					.where(eq(tables.organization.id, wallet.organizationId))
+					.for("update")
+					.limit(1);
+
+				const availableCredits = Math.max(0, Number(org?.credits ?? "0"));
+				bonusApplied =
+					Math.floor(Math.min(bonusCredited, availableCredits) * 1e6) / 1e6;
+
+				if (bonusApplied > 0) {
+					await tx
+						.update(tables.organization)
+						.set({
+							credits: sql`${tables.organization.credits} - ${bonusApplied}`,
+						})
+						.where(eq(tables.organization.id, wallet.organizationId));
+
+					await tx.insert(tables.transaction).values({
+						organizationId: wallet.organizationId,
+						type: "end_user_bonus",
+						amount: String(bonusApplied),
+						creditAmount: String(-bonusApplied),
+						status: "completed",
+						stripePaymentIntentId: paymentIntent.id,
+						description: `End-user top-up bonus (wallet ${walletId})`,
+					});
+				} else {
+					logger.warn(
+						`Skipping end-user top-up bonus for wallet ${walletId}: developer org ${wallet.organizationId} has insufficient credits (${availableCredits} available, ${bonusCredited} needed)`,
+					);
+				}
+			}
+
+			// Credit the paid amount + write the topup ledger row. The ledger insert
+			// hits the unique index, so a concurrent duplicate delivery blocks on the
+			// wallet row above, then rolls the whole transaction back here.
 			const [updated] = await tx
 				.update(tables.wallet)
 				.set({ balance: sql`${tables.wallet.balance} + ${netCredited}` })
@@ -2004,6 +2052,23 @@ async function handleEndUserTopUpSucceeded(
 				stripePaymentIntentId: paymentIntent.id,
 				description: "End-user credit top-up",
 			});
+
+			// Record the end-user top-up as LLM Gateway revenue, mirroring an org
+			// credit purchase: `amount` = gross Stripe charge, `creditAmount` = net
+			// credit value (Stripe fees excluded; the developer's markup margin is
+			// tracked separately as a liability, not revenue). Live wallets only —
+			// sandbox top-ups are not real money. Reversed on refund below.
+			if (wallet.mode !== "test") {
+				await tx.insert(tables.transaction).values({
+					organizationId: wallet.organizationId,
+					type: "end_user_topup",
+					amount: String(grossPaid),
+					creditAmount: String(netCredited),
+					status: "completed",
+					stripePaymentIntentId: paymentIntent.id,
+					description: `End-user credit top-up (wallet ${walletId})`,
+				});
+			}
 
 			// Accrue the developer's margin to their org (settled out-of-band / via
 			// Stripe Connect) and record it in the org's transaction history.
@@ -2026,7 +2091,30 @@ async function handleEndUserTopUpSucceeded(
 				});
 			}
 
-			return updated.balance;
+			// Credit the reserved bonus on top of the paid amount, in its own ledger
+			// row so the economic split stays legible.
+			let finalBalance = updated.balance;
+			if (bonusApplied > 0) {
+				const [bonusUpdated] = await tx
+					.update(tables.wallet)
+					.set({ balance: sql`${tables.wallet.balance} + ${bonusApplied}` })
+					.where(eq(tables.wallet.id, walletId))
+					.returning();
+				finalBalance = bonusUpdated.balance;
+
+				await tx.insert(tables.walletLedger).values({
+					walletId,
+					endCustomerId: wallet.endCustomerId,
+					organizationId: wallet.organizationId,
+					type: "bonus",
+					amount: String(bonusApplied),
+					balanceAfter: bonusUpdated.balance,
+					stripePaymentIntentId: paymentIntent.id,
+					description: "End-user top-up bonus",
+				});
+			}
+
+			return { balance: finalBalance, bonusApplied };
 		});
 	} catch (err) {
 		const code =
@@ -2041,10 +2129,10 @@ async function handleEndUserTopUpSucceeded(
 		throw err;
 	}
 
-	const updated = { balance: newBalance };
+	const { balance: newBalance, bonusApplied } = txResult;
 
 	logger.info(
-		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee})`,
+		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee}, bonus ${bonusApplied}, balance now ${newBalance})`,
 	);
 
 	// Notify the developer's webhook endpoints (best-effort). Skip for test-mode
@@ -2060,8 +2148,13 @@ async function handleEndUserTopUpSucceeded(
 					walletId,
 					endCustomerId: wallet.endCustomerId,
 					netCredited,
+					// Developer-funded bonus actually applied (post-cap), and the total
+					// spend power added, so consumers don't have to infer it from the
+					// balance delta.
+					bonusCredited: bonusApplied,
+					totalCredited: netCredited + bonusApplied,
 					grossPaid,
-					balance: updated.balance,
+					balance: newBalance,
 					currency: wallet.currency,
 				},
 			});
@@ -2080,7 +2173,7 @@ async function handleEndUserTopUpSucceeded(
  * end-user may have already spent some), and the developer's accrued margin is
  * clawed back (clamped at zero).
  */
-async function handleEndUserTopUpRefunded(
+export async function handleEndUserTopUpRefunded(
 	topUp: typeof tables.walletLedger.$inferSelect,
 ) {
 	if (!topUp.stripePaymentIntentId) {
@@ -2103,6 +2196,17 @@ async function handleEndUserTopUpRefunded(
 	const credited = Number(topUp.netCredited ?? "0");
 	const developerMargin = Number(topUp.developerMargin ?? "0");
 
+	// The developer-funded bonus (if any) shares this PaymentIntent. Reverse it
+	// too so a refunded top-up can't leave gifted, developer-funded spend power in
+	// the wallet (top up → get bonus → refund → keep bonus).
+	const bonusRow = await db.query.walletLedger.findFirst({
+		where: {
+			stripePaymentIntentId: { eq: topUp.stripePaymentIntentId },
+			type: { eq: "bonus" },
+		},
+	});
+	const bonusOriginal = Number(bonusRow?.amount ?? "0");
+
 	// Debit the wallet, write the reversal ledger row, and claw back the margin
 	// atomically. The ledger insert hits the unique partial index
 	// (wallet_ledger_reversal_payment_intent_unique), so a concurrent / re-
@@ -2112,6 +2216,18 @@ async function handleEndUserTopUpRefunded(
 	let reversal: number;
 	try {
 		reversal = await db.transaction(async (tx) => {
+			// When restoring org credits for a bonus claw-back, lock the org row
+			// before the wallet to match the worker's org→wallet lock order and the
+			// top-up path above, avoiding a deadlock with a concurrent usage-debit.
+			if (bonusOriginal > 0) {
+				await tx
+					.select({ id: tables.organization.id })
+					.from(tables.organization)
+					.where(eq(tables.organization.id, topUp.organizationId))
+					.for("update")
+					.limit(1);
+			}
+
 			const [wallet] = await tx
 				.select()
 				.from(tables.wallet)
@@ -2123,8 +2239,15 @@ async function handleEndUserTopUpRefunded(
 				return 0;
 			}
 
-			const currentBalance = Number(wallet.balance ?? "0");
-			const amount = Math.min(credited, Math.max(currentBalance, 0));
+			// Reverse the paid top-up first, then the bonus, each clamped to the
+			// balance still in the wallet (the end-user may have already spent some).
+			const currentBalance = Math.max(Number(wallet.balance ?? "0"), 0);
+			const topupReversed = Math.min(credited, currentBalance);
+			const bonusReversed =
+				Math.floor(
+					Math.min(bonusOriginal, currentBalance - topupReversed) * 1e6,
+				) / 1e6;
+			const amount = Math.round((topupReversed + bonusReversed) * 1e6) / 1e6;
 
 			const [updated] = await tx
 				.update(tables.wallet)
@@ -2140,8 +2263,32 @@ async function handleEndUserTopUpRefunded(
 				amount: String(-amount),
 				balanceAfter: updated.balance,
 				stripePaymentIntentId: topUp.stripePaymentIntentId,
-				description: "End-user top-up refund",
+				description:
+					bonusReversed > 0
+						? "End-user top-up refund (incl. bonus claw-back)"
+						: "End-user top-up refund",
 			});
+
+			// Reverse the top-up revenue booked at top-up time. The Stripe refund
+			// returns the whole payment, so reverse the full net/gross (independent
+			// of how much of the wallet balance was already spent). Live wallets
+			// only, matching the `end_user_topup` grant above.
+			const revenueReversed = Number(topUp.netCredited ?? "0");
+			const grossReversed = Number(topUp.grossPaid ?? "0");
+			if (
+				wallet.mode !== "test" &&
+				(revenueReversed > 0 || grossReversed > 0)
+			) {
+				await tx.insert(tables.transaction).values({
+					organizationId: topUp.organizationId,
+					type: "end_user_topup",
+					amount: String(-grossReversed),
+					creditAmount: String(-revenueReversed),
+					status: "completed",
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description: `End-user top-up refund reversal (wallet ${topUp.walletId})`,
+				});
+			}
 
 			if (developerMargin > 0) {
 				await tx
@@ -2159,6 +2306,26 @@ async function handleEndUserTopUpRefunded(
 					status: "completed",
 					stripePaymentIntentId: topUp.stripePaymentIntentId,
 					description: `End-user top-up refund margin claw-back (wallet ${topUp.walletId})`,
+				});
+			}
+
+			// Return the clawed-back bonus to the developer org's credit balance.
+			if (bonusReversed > 0) {
+				await tx
+					.update(tables.organization)
+					.set({
+						credits: sql`${tables.organization.credits} + ${bonusReversed}`,
+					})
+					.where(eq(tables.organization.id, topUp.organizationId));
+
+				await tx.insert(tables.transaction).values({
+					organizationId: topUp.organizationId,
+					type: "end_user_bonus",
+					amount: String(bonusReversed),
+					creditAmount: String(bonusReversed),
+					status: "completed",
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description: `End-user top-up bonus claw-back on refund (wallet ${topUp.walletId})`,
 				});
 			}
 
@@ -2674,12 +2841,18 @@ export async function handleChargeRefunded(
 		| "dev_plan_start"
 		| "dev_plan_renewal"
 		| "dev_plan_upgrade"
+		| "chat_plan_start"
+		| "chat_plan_renewal"
+		| "chat_plan_upgrade"
 		| "subscription_start"
 	)[] = [
 		"credit_topup",
 		"dev_plan_start",
 		"dev_plan_renewal",
 		"dev_plan_upgrade",
+		"chat_plan_start",
+		"chat_plan_renewal",
+		"chat_plan_upgrade",
 		"subscription_start",
 	];
 
@@ -2766,9 +2939,10 @@ export async function handleChargeRefunded(
 	);
 
 	// Only credit_topup purchases add to organization.credits, so only those
-	// refunds should deduct credits back. Dev plan and subscription refunds
-	// are recorded for revenue reporting only — the subscription cancel/end
-	// webhooks handle the plan state changes separately.
+	// refunds should deduct credits back. Dev plan, chat plan, and subscription
+	// refunds are recorded for revenue reporting only — those plans use virtual
+	// plan credits, and the subscription cancel/end webhooks handle the plan
+	// state changes separately.
 	const isCreditTopup = originalTransaction.type === "credit_topup";
 
 	// Calculate proportional credit refund
@@ -3052,17 +3226,21 @@ export async function handleInvoicePaymentSucceeded(event: {
 	// gate the credit reset on the billing reason.
 	const isDevPlanRenewal =
 		isDevPlanSubscription && invoice.billing_reason === "subscription_cycle";
+	// A tier upgrade resets the billing cycle (`billing_cycle_anchor: "now"`) and
+	// charges the full new-tier price, so Stripe emits its immediate invoice with
+	// `billing_reason: "subscription_update"`.
 	const isDevPlanUpgradeInvoice =
-		isDevPlanSubscription &&
-		(invoice.billing_reason === "subscription_update" ||
-			(invoice.billing_reason === "manual" &&
-				metadata?.subscriptionType === "dev_plan" &&
-				metadata?.devPlanChange === "upgrade"));
+		isDevPlanSubscription && invoice.billing_reason === "subscription_update";
 
 	// Same billing-reason gate as dev plans: only reset chat plan credits on a
 	// true cycle renewal, not on mid-cycle tier-change proration invoices.
 	const isChatPlanRenewal =
 		isChatPlanSubscription && invoice.billing_reason === "subscription_cycle";
+	// Mid-cycle chat plan tier change: the change-tier endpoint charges the
+	// prorated upgrade with `always_invoice`, which Stripe bills as a
+	// `subscription_update` invoice.
+	const isChatPlanUpgradeInvoice =
+		isChatPlanSubscription && invoice.billing_reason === "subscription_update";
 
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}, isChatPlanRenewal: ${isChatPlanRenewal}`,
@@ -3188,17 +3366,20 @@ export async function handleInvoicePaymentSucceeded(event: {
 			organization.chatPlan as ChatPlanTier,
 		);
 
-		await db.insert(tables.transaction).values({
-			organizationId,
-			type: "chat_plan_renewal",
-			amount: (invoice.amount_paid / 100).toString(),
-			creditAmount: creditsLimit.toString(),
-			currency: invoice.currency.toUpperCase(),
-			status: "completed",
-			stripePaymentIntentId: (invoice as any).payment_intent,
-			stripeInvoiceId: invoice.id,
-			description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewed`,
-		});
+		const [renewalTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "chat_plan_renewal",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewed`,
+			})
+			.returning();
 
 		await db
 			.update(tables.organization)
@@ -3212,6 +3393,29 @@ export async function handleInvoicePaymentSucceeded(event: {
 		logger.info(
 			`Chat plan ${organization.chatPlan} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
 		);
+
+		try {
+			const billingDetails = await resolveChatPlanBillingDetails(organization);
+			await generateAndEmailInvoice({
+				organizationId: organization.id,
+				invoiceNumber: renewalTransaction.id,
+				invoiceDate: new Date(),
+				organizationName: organization.name,
+				...billingDetails,
+				lineItems: [
+					{
+						description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						amount: invoice.amount_paid / 100,
+					},
+				],
+				currency: invoice.currency.toUpperCase(),
+			});
+		} catch (e) {
+			logger.error(
+				"Invoice email failed (chat plan renewal invoice); suppressing failure",
+				e as Error,
+			);
+		}
 
 		posthog.capture({
 			distinctId: "organization",
@@ -3351,35 +3555,29 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 	} else if (isDevPlanUpgradeInvoice) {
-		// Invoice from a mid-cycle upgrade. The change-tier endpoint normally
-		// records the transaction (and emails the invoice) synchronously; this
-		// webhook path is the fallback if the process exits after Stripe collects
-		// payment but before the local insert. onConflictDoNothing on the unique
-		// stripeInvoiceId index makes it atomically idempotent with the sync path,
-		// so only the path that wins the insert reconciles org state and emails —
-		// a concurrent sync request can't yield a duplicate row or email. We do
-		// NOT reset `devPlanCreditsUsed`.
-		const fromTier = metadata?.fromTier as DevPlanTier | undefined;
-		const toTier = metadata?.toTier as DevPlanTier | undefined;
-		const remainingFraction = metadata?.remainingFraction
-			? Number(metadata.remainingFraction)
-			: undefined;
-		const proratedCreditDelta =
-			fromTier && toTier && remainingFraction !== undefined
-				? getProratedCreditDelta(fromTier, toTier, remainingFraction)
-				: undefined;
+		// Immediate invoice from a tier upgrade. An upgrade resets the billing
+		// cycle (`billing_cycle_anchor: "now"`) and charges the full new-tier
+		// price, so Stripe emits this with `billing_reason: "subscription_update"`.
+		// The change-tier endpoint normally resets org state, records the
+		// transaction and emails the invoice synchronously (and the early-return
+		// guard above then short-circuits this handler). This path is the fallback
+		// if that process exited after Stripe collected payment but before the
+		// local insert. It reproduces the same fresh-cycle reset, idempotently via
+		// onConflictDoNothing on the unique stripeInvoiceId, reading the target
+		// tier from the subscription metadata the update set.
+		const upgradeSubscription =
+			await getStripe().subscriptions.retrieve(subscriptionId);
+		const toTier = (upgradeSubscription.metadata?.devPlan ??
+			organization.devPlan) as DevPlanTier;
+		const creditsLimit = getDevPlanCreditsLimit(toTier);
 
-		// Insert the unique-stripeInvoiceId marker and reconcile org tier/limit in
-		// one transaction so they commit together. This handles the case where the
-		// sync path died after Stripe collected payment but before it applied the
-		// upgrade. Mirrors the sync path: add the prorated credit delta on top of
-		// the existing allowance rather than recomputing from the tier base (which
-		// would discard credits carried over from earlier mid-cycle changes).
-		// Winning the unique-invoice insert gates the reconcile, so the delta is
-		// applied exactly once across the sync and webhook paths. Atomicity matters
-		// because both paths short-circuit on the existing marker — a crash between
-		// insert and reconcile would otherwise leave the invoice recorded with the
-		// credit never applied.
+		// The invoice lines cover the new period, so the latest line end is the new
+		// current_period_end (= next renewal date).
+		const newPeriodEnd = invoice.lines.data.reduce(
+			(max, line) => Math.max(max, line.period?.end ?? 0),
+			0,
+		);
+
 		const upgradeTransaction = await db.transaction(async (tx) => {
 			const [created] = await tx
 				.insert(tables.transaction)
@@ -3387,25 +3585,36 @@ export async function handleInvoicePaymentSucceeded(event: {
 					organizationId,
 					type: "dev_plan_upgrade",
 					amount: (invoice.amount_paid / 100).toString(),
-					creditAmount: proratedCreditDelta?.toString(),
+					creditAmount: creditsLimit.toString(),
 					currency: invoice.currency.toUpperCase(),
 					status: "completed",
 					stripePaymentIntentId: (invoice as any).payment_intent,
 					stripeInvoiceId: invoice.id,
-					description:
-						fromTier && toTier
-							? `Changed from ${fromTier} to ${toTier} plan`
-							: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+					description: `Dev Plan ${toTier.toUpperCase()} upgrade`,
 				})
 				.onConflictDoNothing()
 				.returning();
 
-			if (created && fromTier && toTier && proratedCreditDelta !== undefined) {
+			if (created) {
+				// Fresh billing cycle: reset the limit to the new tier's full
+				// allowance, zero out usage (including the premium weekly window),
+				// advance the cycle start, clear any pending downgrade and dunning
+				// freeze state, and persist the new period end as the renewal date.
 				await tx
 					.update(tables.organization)
 					.set({
 						devPlan: toTier,
-						devPlanCreditsLimit: sql`${tables.organization.devPlanCreditsLimit} + ${proratedCreditDelta}`,
+						devPlanCreditsLimit: creditsLimit.toString(),
+						devPlanCreditsUsed: "0",
+						devPlanPremiumCreditsUsed: "0",
+						devPlanPremiumWeekStart: new Date(),
+						devPlanCreditsFrozen: false,
+						devPlanCreditsLimitBeforeFreeze: null,
+						devPlanBillingCycleStart: new Date(),
+						devPlanExpiresAt: newPeriodEnd
+							? new Date(newPeriodEnd * 1000)
+							: undefined,
+						devPlanPendingTier: null,
 					})
 					.where(eq(tables.organization.id, organizationId));
 			}
@@ -3424,10 +3633,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 					...billingDetails,
 					lineItems: [
 						{
-							description:
-								fromTier && toTier
-									? `Dev Plan upgrade from ${fromTier.toUpperCase()} to ${toTier.toUpperCase()}`
-									: `Dev Plan ${organization.devPlan?.toUpperCase()} upgrade`,
+							description: `Dev Plan upgrade to ${toTier.toUpperCase()} ($${creditsLimit} credits included)`,
 							amount: invoice.amount_paid / 100,
 						},
 					],
@@ -3441,7 +3647,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			}
 
 			logger.info(
-				`Recorded dev plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
+				`Recorded dev plan upgrade invoice for organization ${organizationId}; reset to fresh ${toTier} cycle`,
 			);
 		} else {
 			logger.info(
@@ -3455,6 +3661,71 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// the org to the Pro plan.
 		logger.info(
 			`Skipping non-renewal dev plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
+		);
+	} else if (isChatPlanUpgradeInvoice) {
+		// Invoice from a mid-cycle chat plan upgrade. The change-tier endpoint
+		// already applied the new tier/limit synchronously; this webhook records
+		// the charge and emails the invoice. onConflictDoNothing on the unique
+		// stripeInvoiceId index keeps it idempotent against Stripe retries, so the
+		// row and email are produced at most once. Credits are left untouched — an
+		// upgrade must not reset the cycle's usage.
+		const creditsLimit = getChatPlanCreditsLimit(
+			organization.chatPlan as ChatPlanTier,
+		);
+		const [upgradeTransaction] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "chat_plan_upgrade",
+				amount: (invoice.amount_paid / 100).toString(),
+				creditAmount: creditsLimit.toString(),
+				currency: invoice.currency.toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId: (invoice as any).payment_intent,
+				stripeInvoiceId: invoice.id,
+				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} upgrade`,
+			})
+			.onConflictDoNothing()
+			.returning();
+
+		if (upgradeTransaction) {
+			try {
+				const billingDetails =
+					await resolveChatPlanBillingDetails(organization);
+				await generateAndEmailInvoice({
+					organizationId: organization.id,
+					invoiceNumber: upgradeTransaction.id,
+					invoiceDate: new Date(),
+					organizationName: organization.name,
+					...billingDetails,
+					lineItems: [
+						{
+							description: `Chat Plan ${organization.chatPlan?.toUpperCase()} upgrade`,
+							amount: invoice.amount_paid / 100,
+						},
+					],
+					currency: invoice.currency.toUpperCase(),
+				});
+			} catch (e) {
+				logger.error(
+					"Invoice email failed (chat plan upgrade invoice); suppressing failure",
+					e as Error,
+				);
+			}
+			logger.info(
+				`Recorded chat plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
+			);
+		} else {
+			logger.info(
+				`Chat plan upgrade transaction already exists for invoice ${invoice.id}; skipping duplicate insert/email`,
+			);
+		}
+	} else if (isChatPlanSubscription) {
+		// Any other chat-plan invoice (e.g. `manual`). Do not fall through to the
+		// Pro-subscription handler, which would wrongly flip the org to the Pro
+		// plan and email a Pro invoice.
+		logger.info(
+			`Skipping non-renewal chat plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
 		);
 	} else {
 		// Handle regular pro subscription
@@ -3946,7 +4217,7 @@ export async function handleSubscriptionUpdated(
 					to: organization.billingEmail,
 					organizationId: organization.id,
 					subject: "Before you go — could we get your feedback?",
-					html: generateDevPlanCancellationFeedbackEmailHtml(organization.name),
+					html: generateDevPlanCancellationFeedbackEmailHtml(),
 				});
 
 				logger.info(
@@ -4083,7 +4354,7 @@ export async function handleSubscriptionUpdated(
 	}
 }
 
-async function handleSubscriptionDeleted(
+export async function handleSubscriptionDeleted(
 	event: Stripe.CustomerSubscriptionDeletedEvent,
 ) {
 	const subscription = event.data.object;
@@ -4110,6 +4381,46 @@ async function handleSubscriptionDeleted(
 	const isDevPlan =
 		metadata?.subscriptionType === "dev_plan" ||
 		organization.devPlanStripeSubscriptionId === subscription.id;
+
+	// A deletion event can target a *superseded* subscription — e.g. the user
+	// cancelled at period end, then started a NEW plan before the old one's
+	// period actually elapsed. The old subscription's metadata still carries
+	// `subscriptionType: dev_plan`/`chat_plan`, so the metadata-based detection
+	// above would let its deletion wipe the org's fresh plan (tier, credits,
+	// subscription id) hours after the new checkout completed. Once the org has
+	// activated a different subscription, its deletion events must be ignored.
+	// (handleSubscriptionUpdated applies the same guard.)
+	if (
+		isDevPlan &&
+		organization.devPlanStripeSubscriptionId &&
+		organization.devPlanStripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale dev-plan subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.devPlanStripeSubscriptionId})`,
+		);
+		return;
+	}
+	if (
+		isChatPlan &&
+		organization.chatPlanStripeSubscriptionId &&
+		organization.chatPlanStripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale chat-plan subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.chatPlanStripeSubscriptionId})`,
+		);
+		return;
+	}
+	if (
+		!isDevPlan &&
+		!isChatPlan &&
+		organization.stripeSubscriptionId &&
+		organization.stripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale subscription.deleted ${subscription.id} for org ${organizationId} (active sub: ${organization.stripeSubscriptionId})`,
+		);
+		return;
+	}
 
 	if (isChatPlan) {
 		const previousChatPlan = organization.chatPlan;

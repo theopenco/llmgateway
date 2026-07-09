@@ -571,12 +571,22 @@ export async function processAutoTopUp(): Promise<void> {
 							.where(eq(tables.transaction.id, pendingTransaction.id));
 					}
 				} catch (stripeError) {
-					logger.error(
-						`Stripe error for organization ${org.id}`,
+					const errObj =
 						stripeError instanceof Error
 							? stripeError
-							: new Error(String(stripeError)),
-					);
+							: new Error(String(stripeError));
+					// Card declines (insufficient funds, generic_decline, expired
+					// cards, etc.) are an expected outcome of an off-session auto
+					// top-up, not a server error, so log them at warn level to avoid
+					// noisy error alerts.
+					if (stripeError instanceof Stripe.errors.StripeCardError) {
+						logger.warn(
+							`Auto top-up card declined for organization ${org.id}`,
+							errObj,
+						);
+					} else {
+						logger.error(`Stripe error for organization ${org.id}`, errObj);
+					}
 					// Mark transaction as failed
 					await db
 						.update(tables.transaction)

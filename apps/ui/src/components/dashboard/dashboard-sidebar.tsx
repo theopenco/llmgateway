@@ -30,6 +30,7 @@ import {
 	AnimatedBadgeCheck,
 	AnimatedBarChart3,
 	AnimatedBotMessageSquare,
+	AnimatedBuilding2,
 	AnimatedChartArea,
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
@@ -526,6 +527,15 @@ function OrganizationSection({
 						toggleSidebar={toggleSidebar}
 						showEnterpriseBadge={showEnterpriseBadge}
 					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/sso")}
+						label="SSO"
+						icon={AnimatedBuilding2}
+						isActive={isActive("org/sso")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
 					<SidebarMenuItem
 						onMouseEnter={() => setSettingsHovered(true)}
 						onMouseLeave={() => setSettingsHovered(false)}
@@ -748,6 +758,9 @@ function ThemeSelect() {
 					<div className="flex items-center">
 						<ComputerIcon className="mr-2 h-4 w-4" />
 						System
+						<span className="ml-2 text-xs text-muted-foreground">
+							(Default)
+						</span>
 					</div>
 				</SelectItem>
 			</SelectContent>

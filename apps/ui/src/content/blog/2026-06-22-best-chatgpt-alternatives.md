@@ -22,7 +22,7 @@ The pattern is clear: most "alternatives" just swap one walled garden for anothe
 
 **Best overall. Every model, one app, from $9/mo.**
 
-[LLM Gateway Chat](https://chat.llmgateway.io) is a ChatGPT-style chat app with one difference that changes everything: it runs **280+ models** — GPT-5, Claude Opus, Gemini, Grok and the open-weight field — and lets you switch between them in the same conversation.
+[LLM Gateway Chat](https://chat.llmgateway.io) is a ChatGPT-style chat app with one difference that changes everything: it runs **200+ models** — GPT-5, Claude Opus, Gemini, Grok and the open-weight field — and lets you switch between them in the same conversation.
 
 **What sets it apart:**
 
@@ -265,7 +265,7 @@ HuggingChat from Hugging Face is a free interface to open-source models, ideal f
 
 | App                  | Multiple model vendors | Switch model mid-chat | Image generation | Entry price |
 | -------------------- | ---------------------- | --------------------- | ---------------- | ----------- |
-| **LLM Gateway Chat** | **Yes (280+)**         | **Yes**               | **Yes**          | **$9/mo**   |
+| **LLM Gateway Chat** | **Yes (200+)**         | **Yes**               | **Yes**          | **$9/mo**   |
 | Claude               | No (Anthropic)         | No                    | No               | $20/mo      |
 | Gemini               | No (Google)            | No                    | Images + video   | $19.99/mo   |
 | Perplexity           | Limited                | No                    | No               | $20/mo      |
@@ -292,7 +292,7 @@ HuggingChat from Hugging Face is a free interface to open-source models, ideal f
 
 ### What is the best ChatGPT alternative in 2026?
 
-For most people it's LLM Gateway Chat, because it's the only option that gives you every frontier model — GPT-5, Claude Opus, Gemini, Grok and 280+ more — in one familiar chat app with image generation built in, starting at $9/mo. Single-vendor apps like Claude or Gemini are excellent if you're sure you'll only ever want that one company's models.
+For most people it's LLM Gateway Chat, because it's the only option that gives you every frontier model — GPT-5, Claude Opus, Gemini, Grok and 200+ more — in one familiar chat app with image generation built in, starting at $9/mo. Single-vendor apps like Claude or Gemini are excellent if you're sure you'll only ever want that one company's models.
 
 ### Is there a ChatGPT alternative that includes Claude and Gemini?
 

@@ -70,6 +70,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
+import { applyCategoryFilter } from "@/lib/model-category-filters";
 import { cn, formatDeprecationDate } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -81,6 +82,7 @@ import type {
 	ApiModelProviderMapping,
 	ApiProvider,
 } from "@/lib/fetch-models";
+import type { ModelCategoryFilter } from "@/lib/model-category-filters";
 import type { StabilityLevel } from "@llmgateway/models";
 
 interface ModelWithProviders extends ApiModel {
@@ -96,17 +98,8 @@ interface AllModelsProps {
 	providers: ApiProvider[];
 	title?: string;
 	description?: string;
-	categoryFilter?:
-		| "text"
-		| "text-to-image"
-		| "image-to-image"
-		| "video"
-		| "embedding"
-		| "web-search"
-		| "vision"
-		| "reasoning"
-		| "tools"
-		| "discounted";
+	categoryFilter?: ModelCategoryFilter;
+	seoContent?: React.ReactNode;
 }
 
 type SortField =
@@ -548,46 +541,6 @@ const ModelTableRow = React.memo(
 
 const MODELS_PER_PAGE = 50;
 
-function applyCategoryFilter(
-	categoryFilter: AllModelsProps["categoryFilter"],
-	model: ApiModel,
-	providerDetails: ModelWithProviders["providerDetails"],
-): boolean {
-	switch (categoryFilter) {
-		case "text":
-			return (
-				!model.output?.includes("image") &&
-				!model.output?.includes("video") &&
-				!model.output?.includes("embedding")
-			);
-		case "text-to-image":
-			return model.output?.includes("image") === true;
-		case "image-to-image":
-			return (
-				model.output?.includes("image") === true &&
-				providerDetails.some((p) => p.provider.vision)
-			);
-		case "video":
-			return model.output?.includes("video") === true;
-		case "embedding":
-			return model.output?.includes("embedding") === true;
-		case "web-search":
-			return providerDetails.some((p) => p.provider.webSearch);
-		case "vision":
-			return providerDetails.some((p) => p.provider.vision);
-		case "reasoning":
-			return providerDetails.some((p) => p.provider.reasoning);
-		case "tools":
-			return providerDetails.some((p) => p.provider.tools);
-		case "discounted":
-			return providerDetails.some(
-				(p) => p.provider.discount && parseFloat(p.provider.discount) > 0,
-			);
-		default:
-			return true;
-	}
-}
-
 export function AllModels({
 	children,
 	models,
@@ -595,6 +548,7 @@ export function AllModels({
 	title,
 	description,
 	categoryFilter,
+	seoContent,
 }: AllModelsProps) {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -723,7 +677,11 @@ export function AllModels({
 		// Apply category pre-filter if provided
 		const preFilteredModels = categoryFilter
 			? baseModels.filter((model) =>
-					applyCategoryFilter(categoryFilter, model, model.providerDetails),
+					applyCategoryFilter(
+						categoryFilter,
+						model,
+						model.providerDetails.map((p) => p.provider),
+					),
 				)
 			: baseModels;
 
@@ -2235,6 +2193,7 @@ export function AllModels({
 						</div>
 					</TooltipProvider>
 				</div>
+				{seoContent}
 			</main>
 			<Footer />
 		</div>

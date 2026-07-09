@@ -120,7 +120,7 @@ export function EnterpriseCTA() {
 						<span className="h-3 w-px bg-border" />
 						<span>Priority support</span>
 						<span className="h-3 w-px bg-border" />
-						<span>SOC 2 in-progress</span>
+						<span>SOC 2 Type II certified</span>
 						<span className="h-3 w-px bg-border hidden sm:block" />
 						<span className="hidden sm:inline">On-boarding assistance</span>
 					</AnimatedGroup>

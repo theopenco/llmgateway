@@ -169,6 +169,7 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 	);
 
 	const ONE_HOUR_BEDROCK_PREFIXES = [
+		"anthropic.claude-fable-5",
 		"anthropic.claude-opus-4-5",
 		"anthropic.claude-opus-4-6",
 		"anthropic.claude-opus-4-7",
