@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
 	isRetryableErrorType,
 	shouldRetryAlternateKey,
+	shouldRetrySameKey,
 	shouldRetryRequest,
 	selectNextProvider,
 	getErrorType,
@@ -150,6 +151,113 @@ describe("shouldRetryAlternateKey", () => {
 	it("does not retry alternate keys for non-retryable failure types", () => {
 		expect(shouldRetryAlternateKey("client_error", 400)).toBe(false);
 		expect(shouldRetryAlternateKey("content_filter", 403)).toBe(false);
+	});
+});
+
+describe("shouldRetrySameKey", () => {
+	const defaultOpts = {
+		usedProvider: "openai",
+		errorType: "upstream_error",
+		statusCode: 500,
+		envVarName: "OPENAI_API_KEY",
+		envKeyCount: 1,
+		hasOtherProvider: false,
+		retryCount: 0,
+		maxRetries: 2,
+	};
+
+	it("retries with single env key on upstream error", () => {
+		expect(shouldRetrySameKey(defaultOpts)).toBe(true);
+	});
+
+	it("does not retry when another provider is available to fall back to", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, hasOtherProvider: true })).toBe(
+			false,
+		);
+	});
+
+	it("retries on upstream timeouts", () => {
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, errorType: "upstream_timeout" }),
+		).toBe(true);
+	});
+
+	it("retries on network errors", () => {
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "network_error",
+				statusCode: 0,
+			}),
+		).toBe(true);
+	});
+
+	it("retries regardless of whether a specific provider was requested", () => {
+		// The "no other provider" gate lives at the call site (the
+		// provider-fallback check), so this helper no longer keys off
+		// requestedProvider — it fires for both direct and auto-routed requests.
+		expect(shouldRetrySameKey(defaultOpts)).toBe(true);
+	});
+
+	it("does not retry when env var has multiple keys (alternate-key path covers it)", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, envKeyCount: 2 })).toBe(false);
+	});
+
+	it("does not retry when no env var was used (BYOK)", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, envVarName: undefined })).toBe(
+			false,
+		);
+	});
+
+	it("does not retry on auth failures (same key will fail again)", () => {
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "gateway_error",
+				statusCode: 401,
+			}),
+		).toBe(false);
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "gateway_error",
+				statusCode: 403,
+			}),
+		).toBe(false);
+	});
+
+	it("does not retry on non-retryable error types", () => {
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, errorType: "client_error" }),
+		).toBe(false);
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, errorType: "content_filter" }),
+		).toBe(false);
+	});
+
+	it("retries up to maxRetries times then stops", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, retryCount: 1 })).toBe(true);
+		expect(shouldRetrySameKey({ ...defaultOpts, retryCount: 2 })).toBe(false);
+		expect(shouldRetrySameKey({ ...defaultOpts, retryCount: 3 })).toBe(false);
+	});
+
+	it("does not retry at all when maxRetries is 0", () => {
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, retryCount: 0, maxRetries: 0 }),
+		).toBe(false);
+	});
+
+	it("does not retry for custom or llmgateway providers", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, usedProvider: "custom" })).toBe(
+			false,
+		);
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, usedProvider: "llmgateway" }),
+		).toBe(false);
+	});
+
+	it("does not retry when env var is unset (envKeyCount=0)", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, envKeyCount: 0 })).toBe(false);
 	});
 });
 
