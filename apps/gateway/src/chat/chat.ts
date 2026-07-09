@@ -4066,23 +4066,20 @@ chat.openapi(completions, async (c) => {
 			contentFilterRoutingExcludedProviders =
 				contentFilterRoutingDecision.excludedProviders;
 			contentFilterRoutingApplied = contentFilterRoutingDecision.rerouted;
-			const preferredRoutingProviders = preferProvidersWithKeys(
-				project.mode,
-				contentFilterPreferredProviders,
-				providersWithKeys,
-			);
-
-			// Filter out rate-limited providers during routing
+			// Filter out rate-limited providers during routing. Rate limits must be
+			// peeked across the full candidate list (not just keyed providers) so
+			// hybrid mode can overflow to credits-backed providers when every keyed
+			// candidate is rate limited.
 			const rateLimitedProviderIds = await filterRateLimitedProviders(
 				project.organizationId,
-				preferredRoutingProviders.map((p) => ({
+				contentFilterPreferredProviders.map((p) => ({
 					providerId: p.providerId,
 					model: (modelInfo as ModelDefinition).id,
 				})),
 			);
 			const routingCandidates = getRoutingCandidatesForProjectMode(
 				project.mode,
-				preferredRoutingProviders,
+				contentFilterPreferredProviders,
 				rateLimitedProviderIds,
 				providersWithKeys,
 			);
