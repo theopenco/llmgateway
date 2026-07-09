@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e2e69242-e6ce-4cbe-a17c-98c8488405b6",
+  "id": "ce840438-4dee-4660-a79b-54f909ff8021",
   "prevId": "f2501aeb-7eac-4b32-a4b1-d76eca04dba7",
   "ddl": [
     {
@@ -343,12 +343,6 @@
     {
       "isRlsEnabled": false,
       "name": "provider_key",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "provider_listing_request",
       "entityType": "tables",
       "schema": "public"
     },
@@ -11740,6 +11734,19 @@
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "sso_auto_join_domain",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
       "default": {
         "value": "'active'",
         "type": "unknown"
@@ -16324,313 +16331,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "provider_name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "email",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "url",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "country",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "compliance_soc2_type2",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "compliance_iso27001",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "compliance_gdpr",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "data_retention_days",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "trains_on_data",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'unpaid'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "payment_status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "stripe_checkout_session_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "paid_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "honeypot",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "client_timestamp_ms",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "ip_address",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_agent",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'pending'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "spam_filter_status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "rejection_reason",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "archived_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_listing_request"
     },
     {
       "type": "text",
@@ -22473,6 +22173,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "sso_auto_join_domain",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "organization_sso_auto_join_domain_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -23035,69 +22756,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "provider_key"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_listing_request_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "email",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_listing_request_email_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_listing_request"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "spam_filter_status",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_listing_request_status_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_listing_request"
     },
     {
       "nameExplicit": true,
@@ -26445,16 +26103,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "provider_listing_request_pkey",
-      "schema": "public",
-      "table": "provider_listing_request",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "rate_limit_pkey",
       "schema": "public",
       "table": "rate_limit",
@@ -27116,13 +26764,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "model_rating"
-    },
-    {
-      "value": "\"payment_status\" IN ('unpaid', 'paid', 'refunded')",
-      "name": "provider_listing_request_payment_status_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "provider_listing_request"
     }
   ],
   "renames": []
