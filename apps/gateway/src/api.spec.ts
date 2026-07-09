@@ -4026,6 +4026,87 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/chat/completions hybrid escapes to credits provider when keyed provider fails", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setRoutingMetrics(
+			"gemini-2.5-flash-lite",
+			"google-ai-studio",
+			{
+				uptime: 100,
+				latency: 100,
+				throughput: 100,
+			},
+		);
+		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+			uptime: 100,
+			latency: 100,
+			throughput: 100,
+		});
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Keyed provider whose upstream is unreachable: routing prefers it, the
+		// request fails with a network error, and the retry loop must escape to
+		// the credits-backed provider via its demoted score entry.
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "studio-db-key",
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: "http://127.0.0.1:9",
+		});
+
+		const previousVertexKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		const previousGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const previousVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+
+		try {
+			process.env.LLM_GOOGLE_VERTEX_API_KEY = "vertex-test-token";
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash-lite",
+					messages: [
+						{ role: "user", content: "Hybrid dead key escape request" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("google-vertex");
+		} finally {
+			if (previousVertexKey === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = previousVertexKey;
+			}
+			if (previousGoogleCloudProject === undefined) {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			} else {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = previousGoogleCloudProject;
+			}
+			if (previousVertexBaseUrl === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_BASE_URL = previousVertexBaseUrl;
+			}
+		}
+	});
+
 	test("/v1/chat/completions hybrid overflows to credits provider when keyed provider is rate limited", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(

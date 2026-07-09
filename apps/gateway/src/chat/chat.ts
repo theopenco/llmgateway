@@ -1907,6 +1907,48 @@ chat.openapi(completions, async (c) => {
 		project.organizationId,
 	);
 
+	// Candidates demoted by hybrid keyed-provider preference stay in the scores
+	// as last-resort retry targets: their worst-rank score keeps them behind
+	// every keyed candidate, but the retry loop can still escape to them when a
+	// BYOK key fails and the provider has no env credential to fall back to.
+	const appendHybridDemotedProviderScores = async (
+		metadata: RoutingMetadata,
+		demotedCandidates: ProviderModelMapping[],
+		modelId: string,
+	) => {
+		const seenProviderIds = new Set(
+			metadata.providerScores.map((score) => score.providerId),
+		);
+		const maxScore = Math.max(
+			0,
+			...metadata.providerScores.map((score) => score.score),
+		);
+		let offset = 0;
+		for (const candidate of demotedCandidates) {
+			if (seenProviderIds.has(candidate.providerId)) {
+				continue;
+			}
+			seenProviderIds.add(candidate.providerId);
+			const { price, discount } = await getDiscountedProviderSelectionPrice(
+				candidate,
+				modelId,
+				{
+					organizationId: project.organizationId,
+					providerDiscountResolver,
+				},
+			);
+			metadata.providerScores.push({
+				providerId: candidate.providerId,
+				region: candidate.region,
+				score: maxScore + 1000 + offset,
+				price: price.toNumber(),
+				discount: discount.toNumber(),
+				hybrid_demoted: true,
+			});
+			offset++;
+		}
+	};
+
 	const buildFinalResponseMetadata = (discount?: number | null) =>
 		toResponseMetadataExtras({
 			logId: finalLogId,
@@ -3722,6 +3764,16 @@ chat.openapi(completions, async (c) => {
 									xNoFallbackHeaderSet,
 								),
 							};
+							const preferredCandidateSet = new Set(
+								preferredCandidatesForRouting,
+							);
+							await appendHybridDemotedProviderScores(
+								routingMetadata,
+								candidatesForRouting.filter(
+									(candidate) => !preferredCandidateSet.has(candidate),
+								),
+								modelWithPricing.id,
+							);
 						}
 					}
 				}
@@ -3947,6 +3999,16 @@ chat.openapi(completions, async (c) => {
 										xNoFallbackHeaderSet,
 									),
 								};
+								const preferredBetterUptimeSet = new Set(
+									preferredBetterUptimeProviders,
+								);
+								await appendHybridDemotedProviderScores(
+									routingMetadata,
+									betterUptimeProviders.filter(
+										(candidate) => !preferredBetterUptimeSet.has(candidate),
+									),
+									modelWithPricing.id,
+								);
 							}
 						}
 					}
@@ -4239,6 +4301,18 @@ chat.openapi(completions, async (c) => {
 								});
 							}
 						}
+					}
+					{
+						const routingCandidateSet = new Set(routingCandidates);
+						await appendHybridDemotedProviderScores(
+							routingMetadata,
+							contentFilterPreferredProviders.filter(
+								(candidate) =>
+									!routingCandidateSet.has(candidate) &&
+									!rateLimitedProviderIds.has(candidate.providerId),
+							),
+							modelWithPricing.id,
+						);
 					}
 				} else {
 					usedProvider = routingCandidates[0].providerId;
@@ -4596,7 +4670,24 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 			)
 		) {
-			usedRegion ??= resolveRegionFromProviderKey(providerKey);
+			const keyConfiguredRegion = resolveRegionFromProviderKey(providerKey);
+			usedRegion ??= keyConfiguredRegion;
+			// The BYOK key is always used for the requested region (no silent env
+			// fallback), so a mismatch surfaces as an upstream auth error; log it
+			// for support diagnosis.
+			if (
+				usedRegion &&
+				keyConfiguredRegion &&
+				keyConfiguredRegion !== usedRegion
+			) {
+				logger.warn("BYOK provider key region differs from request region", {
+					organizationId: project.organizationId,
+					provider: usedProvider,
+					providerKeyId: providerKey.id,
+					keyRegion: keyConfiguredRegion,
+					requestedRegion: usedRegion,
+				});
+			}
 		}
 	} else if (project.mode === "credits") {
 		// Check regular credits, dev plan credits, and chat plan credits.
@@ -4710,7 +4801,24 @@ chat.openapi(completions, async (c) => {
 					usedProvider,
 				)
 			) {
-				usedRegion ??= resolveRegionFromProviderKey(providerKey);
+				const keyConfiguredRegion = resolveRegionFromProviderKey(providerKey);
+				usedRegion ??= keyConfiguredRegion;
+				// The BYOK key is always used for the requested region (no silent env
+				// fallback), so a mismatch surfaces as an upstream auth error; log it
+				// for support diagnosis.
+				if (
+					usedRegion &&
+					keyConfiguredRegion &&
+					keyConfiguredRegion !== usedRegion
+				) {
+					logger.warn("BYOK provider key region differs from request region", {
+						organizationId: project.organizationId,
+						provider: usedProvider,
+						providerKeyId: providerKey.id,
+						keyRegion: keyConfiguredRegion,
+						requestedRegion: usedRegion,
+					});
+				}
 			}
 		} else {
 			// No API key available, fall back to credits
