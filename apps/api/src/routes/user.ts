@@ -31,6 +31,7 @@ const publicUserSchema = z.object({
 		}),
 	),
 	hasPasskeys: z.boolean(),
+	isSsoUser: z.boolean(),
 });
 
 async function getUserAuthInfo(userId: string) {
@@ -42,16 +43,33 @@ async function getUserAuthInfo(userId: string) {
 			where: { userId },
 		}),
 	]);
+	// A user authenticated via enterprise SSO/SCIM has an `account` whose
+	// providerId matches a registered `ssoProvider` connection slug. Resolving
+	// it here lets the frontend treat these users specially without shipping the
+	// list of connection slugs to the client.
+	const providerIds = accounts.map((a) => a.providerId);
+	const ssoAccount =
+		providerIds.length > 0
+			? await db.query.ssoProvider.findFirst({
+					columns: { id: true },
+					where: { providerId: { in: providerIds } },
+				})
+			: null;
 	return {
 		accounts: accounts.map((a) => ({ providerId: a.providerId })),
 		hasPasskeys: passkeys.length > 0,
 		hasCredentialAccount: accounts.some((a) => a.providerId === "credential"),
+		isSsoUser: !!ssoAccount,
 	};
 }
 
 function toPublicUser(
 	userRecord: typeof tables.user.$inferSelect,
-	authInfo: { accounts: { providerId: string }[]; hasPasskeys: boolean },
+	authInfo: {
+		accounts: { providerId: string }[];
+		hasPasskeys: boolean;
+		isSsoUser: boolean;
+	},
 	isAdmin: boolean,
 ): z.infer<typeof publicUserSchema> {
 	return {
@@ -68,6 +86,7 @@ function toPublicUser(
 		xUsername: userRecord.xUsername,
 		accounts: authInfo.accounts,
 		hasPasskeys: authInfo.hasPasskeys,
+		isSsoUser: authInfo.isSsoUser,
 	};
 }
 

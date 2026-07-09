@@ -150,6 +150,95 @@ Response (200):
 { "message": "Project deleted successfully" }
 ```
 
+### List gateway API keys
+
+`GET /v1/master/keys`
+
+Returns the developer-created gateway API keys in the master key's organization, each with its configured limits, the usage consumed so far, and — when a windowed limit is set — the time the current period resets. Pass an optional `projectId` query parameter to scope the list to a single project.
+
+```bash
+curl "https://internal.llmgateway.io/v1/master/keys?projectId=proj_..." \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{
+	"apiKeys": [
+		{
+			"id": "ak_...",
+			"description": "Customer ACME — production key",
+			"status": "active",
+			"projectId": "proj_...",
+			"createdBy": "usr_...",
+			"maskedToken": "llmgtwy_...abcd",
+			"usageLimit": "100.00",
+			"usage": "42.13",
+			"periodUsageLimit": "10.00",
+			"periodUsageDurationValue": 1,
+			"periodUsageDurationUnit": "day",
+			"currentPeriodUsage": "3.50",
+			"currentPeriodStartedAt": "2025-01-15T00:00:00.000Z",
+			"currentPeriodResetAt": "2025-01-16T00:00:00.000Z",
+			"createdAt": "...",
+			"updatedAt": "..."
+		}
+	]
+}
+```
+
+Limit and usage fields:
+
+| Field                      | Description                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------- |
+| `usageLimit`               | Lifetime spend cap (`null` when uncapped)                                          |
+| `usage`                    | Total spend accrued against `usageLimit` over the key's lifetime                   |
+| `periodUsageLimit`         | Recurring per-window spend cap (`null` when no windowed limit is configured)       |
+| `periodUsageDurationValue` | Length of the window, paired with `periodUsageDurationUnit`                        |
+| `periodUsageDurationUnit`  | `"hour" \| "day" \| "week" \| "month"`                                             |
+| `currentPeriodUsage`       | Spend accrued in the current window (`"0"` when unconfigured or the window lapsed) |
+| `currentPeriodStartedAt`   | When the current window began (`null` when unconfigured or lapsed)                 |
+| `currentPeriodResetAt`     | When the windowed limit resets (`null` when unconfigured or lapsed)                |
+
+The plain token is never returned by this endpoint — only a masked form for identification.
+
+### Get a gateway API key
+
+`GET /v1/master/keys/{id}`
+
+Returns a single gateway API key in the master key's organization, with the same limit, usage, and reset-time fields as the list endpoint.
+
+```bash
+curl https://internal.llmgateway.io/v1/master/keys/ak_... \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{
+	"apiKey": {
+		"id": "ak_...",
+		"description": "Customer ACME — production key",
+		"status": "active",
+		"projectId": "proj_...",
+		"createdBy": "usr_...",
+		"maskedToken": "llmgtwy_...abcd",
+		"usageLimit": "100.00",
+		"usage": "42.13",
+		"periodUsageLimit": "10.00",
+		"periodUsageDurationValue": 1,
+		"periodUsageDurationUnit": "day",
+		"currentPeriodUsage": "3.50",
+		"currentPeriodStartedAt": "2025-01-15T00:00:00.000Z",
+		"currentPeriodResetAt": "2025-01-16T00:00:00.000Z",
+		"createdAt": "...",
+		"updatedAt": "..."
+	}
+}
+```
+
 ### Create a gateway API key
 
 `POST /v1/master/keys`
@@ -224,7 +313,7 @@ Body parameters (all optional, at least one required):
 | `periodUsageDurationValue` | number \| null                         | Required if `periodUsageLimit` is set  |
 | `periodUsageDurationUnit`  | `"hour" \| "day" \| "week" \| "month"` | Required if `periodUsageLimit` is set  |
 
-Response (200): the updated API key (the plain token is **not** included — it is only returned at creation).
+Response (200): the updated API key, including its configured limits, consumed `usage` / `currentPeriodUsage`, and the `currentPeriodResetAt` window-reset time (same fields as the [list endpoint](#list-gateway-api-keys)). The plain token is **not** included — it is only returned at creation.
 
 ### Delete a gateway API key
 

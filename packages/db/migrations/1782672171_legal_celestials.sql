@@ -1,0 +1,5 @@
+ALTER TABLE "video_job" ADD COLUMN "log_id" text;--> statement-breakpoint
+UPDATE "video_job" SET "log_id" = "log"."id" FROM "log" WHERE "log"."request_id" = "video_job"."request_id" AND "log"."raw_response"->>'id' = "video_job"."id";--> statement-breakpoint
+UPDATE "video_job" SET "log_id" = "log"."id" FROM "log" WHERE "video_job"."log_id" IS NULL AND "log"."request_id" = "video_job"."request_id" AND "log"."project_id" = "video_job"."project_id" AND "log"."organization_id" = "video_job"."organization_id" AND "log"."video_output_cost" IS NOT NULL AND (SELECT count(*) FROM "log" "l2" WHERE "l2"."request_id" = "video_job"."request_id" AND "l2"."project_id" = "video_job"."project_id" AND "l2"."organization_id" = "video_job"."organization_id" AND "l2"."video_output_cost" IS NOT NULL) = 1;--> statement-breakpoint
+CREATE INDEX "video_job_log_id_idx" ON "video_job" ("log_id");--> statement-breakpoint
+ALTER TABLE "video_job" ADD CONSTRAINT "video_job_log_id_log_id_fkey" FOREIGN KEY ("log_id") REFERENCES "log"("id") ON DELETE SET NULL;

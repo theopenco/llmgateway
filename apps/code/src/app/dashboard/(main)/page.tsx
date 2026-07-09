@@ -85,6 +85,7 @@ export default function UsagePage() {
 				planName={currentPlanName}
 				planPrice={currentPlanData?.price}
 				billingCycleStart={devPlanStatus.devPlanBillingCycleStart ?? null}
+				currentPeriodEnd={devPlanStatus.devPlanExpiresAt ?? null}
 				cancelledAtPeriodEnd={devPlanStatus.devPlanCancelled ?? false}
 				cycle={devPlanStatus.devPlanCycle ?? "monthly"}
 			/>

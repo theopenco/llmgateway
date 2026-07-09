@@ -33,6 +33,9 @@ export function ProjectSwitcher({
 }: ProjectSwitcherProps) {
 	const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
 
+	// Project-scoped "developer" members can't create projects.
+	const canCreateProjects = currentOrganization?.role !== "developer";
+
 	return (
 		<>
 			<DropdownMenu>
@@ -77,6 +80,7 @@ export function ProjectSwitcher({
 					</DropdownMenuGroup>
 					<DropdownMenuSeparator className="bg-border" />
 					<DropdownMenuItem
+						disabled={!canCreateProjects}
 						onSelect={() => setIsNewProjectDialogOpen(true)}
 						className="cursor-pointer px-2 py-1.5 text-sm hover:bg-accent focus:bg-accent data-[highlighted]:bg-accent"
 					>

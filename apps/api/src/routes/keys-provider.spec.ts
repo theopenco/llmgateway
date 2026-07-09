@@ -161,6 +161,34 @@ describe("provider keys route", () => {
 		expect(res.status).toBe(400);
 	});
 
+	test("POST /keys/provider rejects stealth providers", async () => {
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				provider: "granite",
+				token: "granite-test-token",
+				organizationId: "test-org-id",
+			}),
+		});
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toContain("cannot be configured with a provider key");
+
+		// Verify no key was created
+		const providerKey = await db.query.providerKey.findFirst({
+			where: {
+				provider: {
+					eq: "granite",
+				},
+			},
+		});
+		expect(providerKey).toBeUndefined();
+	});
+
 	test("POST /keys/provider with duplicate provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",

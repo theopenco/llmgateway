@@ -4,9 +4,14 @@ import { Check } from "lucide-react";
 import Link from "next/link";
 
 import { CodePlanTracker } from "@/components/LandingTracker";
+import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
 
-import { DEV_PLAN_PRICES, type DevPlanTier } from "@llmgateway/shared";
+import {
+	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
+	DEV_PLAN_PRICES,
+	type DevPlanTier,
+} from "@llmgateway/shared";
 
 export type DevPlanCredits = Record<DevPlanTier, number>;
 
@@ -26,7 +31,7 @@ const plans: PlanContent[] = [
 		description: "For occasional AI-assisted coding",
 		tagline: "Casual hobby work",
 		features: [
-			"All 280+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
+			"All 200+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
 			"Works with Claude Code, OpenCode, SoulForge & every OpenAI-compatible tool",
 			"Real-time usage dashboard with per-request cost",
 			"Switch tiers any time — prorated",
@@ -87,11 +92,19 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 							}`}
 						>
 							{plan.popular && (
-								<div className="absolute -top-3 left-6">
-									<span className="rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background">
-										Most popular
-									</span>
-								</div>
+								<>
+									<BorderBeam
+										size={110}
+										duration={9}
+										colorFrom="#10b981"
+										colorTo="#34d399"
+									/>
+									<div className="absolute -top-3 left-6">
+										<span className="rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background">
+											Most popular
+										</span>
+									</div>
+								</>
 							)}
 
 							<div className="mb-5">
@@ -156,6 +169,16 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 								</div>
 							</div>
 
+							<div className="mb-5 rounded-lg bg-muted/40 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+								<span className="font-semibold text-foreground/80">
+									No hidden throttling:
+								</span>{" "}
+								premium frontier models (Opus, GPT Pro/reasoning, Gemini Pro,
+								Grok) have a ${DEV_PLAN_PREMIUM_WEEKLY_LIMITS[plan.tier]}/week
+								fair-use allowance. Every other model draws on your full monthly
+								allowance.
+							</div>
+
 							<ul className="mb-7 flex-1 space-y-2.5">
 								{plan.features.map((feature) => (
 									<li key={feature} className="flex items-start gap-2.5">
@@ -182,6 +205,21 @@ export function PricingPlans({ credits }: PricingPlansProps) {
 						</div>
 					);
 				})}
+			</div>
+			<div className="mx-auto mt-8 max-w-2xl rounded-xl border border-border bg-muted/30 p-5 text-center">
+				<p className="text-sm font-semibold">First-month guarantee</p>
+				<p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+					Try DevPass for a week. If it&apos;s not for you, cancel within 7 days
+					of your first purchase and we&apos;ll refund your first month minus
+					the usage you consumed at provider rates. Email{" "}
+					<a
+						href="mailto:contact@llmgateway.io"
+						className="font-medium text-foreground underline underline-offset-4"
+					>
+						contact@llmgateway.io
+					</a>
+					.
+				</p>
 			</div>
 			<InvoiceInfoLabel />
 			<p className="mt-3 text-center text-xs text-muted-foreground">

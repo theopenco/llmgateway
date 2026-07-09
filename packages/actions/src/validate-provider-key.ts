@@ -164,7 +164,10 @@ export async function validateProviderKey(
 		};
 		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
-		const headers = getProviderHeaders(provider, token);
+		const headers = getProviderHeaders(provider, token, {
+			providerKeyOptions,
+			skipEnvVars: true, // provider key validation is always BYOK context
+		});
 		headers["Content-Type"] = "application/json";
 
 		// Look up the model definition by canonical id.

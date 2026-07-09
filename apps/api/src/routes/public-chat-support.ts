@@ -1,6 +1,7 @@
 import {
 	streamText,
 	convertToModelMessages,
+	createUIMessageStream,
 	JsonToSseTransformStream,
 	tool,
 	stepCountIs,
@@ -37,6 +38,29 @@ function escapeHtml(text: string): string {
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
+// A short burst window on top of the hourly cap so a single visitor can't
+// fire dozens of messages in a couple of seconds (the hourly cap alone allows
+// the entire quota to be spent instantly).
+const BURST_LIMIT_MAX = 5;
+const BURST_LIMIT_WINDOW_SECONDS = 20;
+// Daily cap on top of the hourly one — 20/hour alone still allows 480 LLM
+// calls per day from a single address grinding the window all day.
+const DAILY_LIMIT_MAX = 60;
+const DAILY_LIMIT_WINDOW_SECONDS = 24 * 60 * 60;
+// Global circuit breakers across all visitors. Per-identifier limits are
+// defeated by rotating IPs (or spoofed forwarding headers on direct API
+// hits), so these bound the total LLM spend no matter how the per-IP and
+// per-client buckets are evaded.
+const GLOBAL_HOURLY_LIMIT_MAX = 300;
+const GLOBAL_DAILY_LIMIT_MAX = 1500;
+// Escalations send an email and a Discord ping each, so they get their own
+// daily per-IP cap plus a global cap to keep a flood from burying the inbox.
+const ESCALATE_DAILY_LIMIT_MAX = 10;
+const ESCALATE_GLOBAL_DAILY_LIMIT_MAX = 50;
+// Shared per-IP budget for the cheap DB-backed endpoints (conversation
+// restore, reactions, ratings) — generous for humans, stops hammering.
+const META_BURST_LIMIT_MAX = 30;
+const META_HOURLY_LIMIT_MAX = 300;
 const CONVERSATION_TTL_SECONDS = 60 * 60; // 1 hour
 const MAX_CONTEXT_MESSAGES = 30;
 
@@ -90,18 +114,127 @@ function extractClientIP(c: {
 	return c.req.header("X-Real-IP") ?? null;
 }
 
-async function checkRateLimit(identifier: string): Promise<boolean> {
-	const key = `chat_support_rate_limit:${identifier}`;
+async function checkRateLimit(
+	identifier: string,
+	bucket: string,
+	max: number,
+	windowSeconds: number,
+): Promise<boolean> {
+	const key = `chat_support_rate_limit:${bucket}:${identifier}`;
 	try {
 		const count = await redisClient.incr(key);
 		if (count === 1) {
-			await redisClient.expire(key, RATE_LIMIT_WINDOW_SECONDS);
+			await redisClient.expire(key, windowSeconds);
 		}
-		return count <= RATE_LIMIT_MAX;
+		return count <= max;
 	} catch (error) {
 		logger.error("Chat support rate limit check failed", toError(error));
 		return true;
 	}
+}
+
+// Enforces the burst, hourly and daily windows per IP and per clientId, then
+// the global circuit breakers. Narrower windows run first so a request they
+// block doesn't consume the wider quotas, and the global buckets run last so
+// per-identifier rejections don't eat into everyone else's budget. The
+// clientId is client-chosen, so it can't be the only key — but it catches
+// bots that rotate IPs while reusing a client identity, and the global caps
+// bound whatever rotates both.
+async function checkMessageRateLimit(
+	ipAddress: string,
+	clientId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+	const identifiers = [`ip:${ipAddress}`, `client:${clientId}`];
+
+	for (const identifier of identifiers) {
+		const burstOk = await checkRateLimit(
+			identifier,
+			"burst",
+			BURST_LIMIT_MAX,
+			BURST_LIMIT_WINDOW_SECONDS,
+		);
+		if (!burstOk) {
+			return {
+				ok: false,
+				message:
+					"You're sending messages too quickly. Please wait a few seconds and try again.",
+			};
+		}
+	}
+	for (const identifier of identifiers) {
+		const hourOk = await checkRateLimit(
+			identifier,
+			"hour",
+			RATE_LIMIT_MAX,
+			RATE_LIMIT_WINDOW_SECONDS,
+		);
+		if (!hourOk) {
+			return {
+				ok: false,
+				message: "Too many messages. Please try again later (max 20 per hour).",
+			};
+		}
+	}
+	for (const identifier of identifiers) {
+		const dayOk = await checkRateLimit(
+			identifier,
+			"day",
+			DAILY_LIMIT_MAX,
+			DAILY_LIMIT_WINDOW_SECONDS,
+		);
+		if (!dayOk) {
+			return {
+				ok: false,
+				message:
+					"Daily message limit reached. Please try again tomorrow or email contact@llmgateway.io.",
+			};
+		}
+	}
+
+	const globalHourOk = await checkRateLimit(
+		"all",
+		"global_hour",
+		GLOBAL_HOURLY_LIMIT_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
+	const globalDayOk =
+		globalHourOk &&
+		(await checkRateLimit(
+			"all",
+			"global_day",
+			GLOBAL_DAILY_LIMIT_MAX,
+			DAILY_LIMIT_WINDOW_SECONDS,
+		));
+	if (!globalDayOk) {
+		logger.warn("Chat support global rate limit reached", { ipAddress });
+		return {
+			ok: false,
+			message:
+				"Chat support is experiencing unusually high volume. Please try again later or email contact@llmgateway.io.",
+		};
+	}
+
+	return { ok: true };
+}
+
+// Shared limiter for the cheap DB-backed endpoints. One bucket across all of
+// them: none is expensive on its own, the goal is just to stop hammering.
+async function checkMetaRateLimit(ipAddress: string): Promise<boolean> {
+	const burstOk = await checkRateLimit(
+		`ip:${ipAddress}`,
+		"meta_burst",
+		META_BURST_LIMIT_MAX,
+		BURST_LIMIT_WINDOW_SECONDS,
+	);
+	if (!burstOk) {
+		return false;
+	}
+	return await checkRateLimit(
+		`ip:${ipAddress}`,
+		"meta_hour",
+		META_HOURLY_LIMIT_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
 }
 
 function getTextFromUIMessage(message: UIMessage): string {
@@ -260,16 +393,6 @@ export const publicChatSupport = new Hono<ServerTypes>();
 
 publicChatSupport.post("/", async (c) => {
 	const ipAddress = extractClientIP(c) ?? "unknown";
-	const canSubmit = await checkRateLimit(ipAddress);
-
-	if (!canSubmit) {
-		return c.json(
-			{
-				error: "Too many messages. Please try again later (max 20 per hour).",
-			},
-			429,
-		);
-	}
 
 	const body = await c.req.json<{
 		messages: UIMessage[];
@@ -292,15 +415,15 @@ publicChatSupport.post("/", async (c) => {
 	if (messages.length > 100) {
 		return c.json({ error: "Too many messages in conversation" }, 400);
 	}
-	const contextMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
 
-	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1";
-
-	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
-	if (!supportApiKey) {
-		logger.error("SUPPORT_CHAT_API_KEY not configured");
-		return c.json({ error: "Chat support is not configured" }, 503);
+	// Checked only after validation so malformed requests can't consume the
+	// per-identifier buckets — or worse, trip the global breaker for free.
+	const rateLimit = await checkMessageRateLimit(ipAddress, clientId);
+	if (!rateLimit.ok) {
+		return c.json({ error: rateLimit.message }, 429);
 	}
+
+	const contextMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
 
 	const userAgent = c.req.header("User-Agent");
 	const conversationId = await getOrCreateConversation(
@@ -310,14 +433,6 @@ publicChatSupport.post("/", async (c) => {
 		name,
 		email,
 	);
-
-	const llmgateway = createLLMGateway({
-		apiKey: supportApiKey,
-		baseURL: gatewayUrl,
-		headers: {
-			"x-source": "support-chat",
-		},
-	});
 
 	// Persist the visitor's message up front so it is never lost if the assistant
 	// errors or a human has taken the conversation over.
@@ -329,6 +444,52 @@ publicChatSupport.post("/", async (c) => {
 			getTextFromUIMessage(newUserMessage),
 		);
 	}
+
+	// Once a visitor escalates to a human, the AI stays silent — only admins
+	// reply from here on. We still persist the visitor's message above so the
+	// support team sees it, then return an empty stream so the widget settles
+	// without producing an assistant turn.
+	const ct = tables.chatSupportConversation;
+	const [escalationRow] = await db
+		.select({ escalatedAt: ct.escalatedAt })
+		.from(ct)
+		.where(eq(ct.id, conversationId))
+		.limit(1);
+	if (escalationRow?.escalatedAt) {
+		const noopStream = createUIMessageStream<UIMessage>({
+			execute: () => {
+				// Intentionally empty — escalated conversations get no AI reply.
+			},
+		});
+		return new Response(
+			noopStream.pipeThrough(new JsonToSseTransformStream()),
+			{
+				headers: {
+					"content-type": "text/event-stream",
+					"cache-control": "no-cache, no-transform",
+					connection: "keep-alive",
+					"x-vercel-ai-ui-message-stream": "v1",
+					"x-accel-buffering": "no",
+				},
+			},
+		);
+	}
+
+	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1";
+
+	const supportApiKey = process.env.SUPPORT_CHAT_API_KEY;
+	if (!supportApiKey) {
+		logger.error("SUPPORT_CHAT_API_KEY not configured");
+		return c.json({ error: "Chat support is not configured" }, 503);
+	}
+
+	const llmgateway = createLLMGateway({
+		apiKey: supportApiKey,
+		baseURL: gatewayUrl,
+		headers: {
+			"x-source": "support-chat",
+		},
+	});
 
 	const system = await buildSystemPrompt();
 
@@ -419,6 +580,10 @@ publicChatSupport.post("/", async (c) => {
 // can restore history across reloads and surface admin replies. Archived
 // conversations resolve to an empty result — they are hidden from the visitor.
 publicChatSupport.get("/conversation", async (c) => {
+	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
+
 	const clientId = c.req.query("clientId");
 	if (!clientId || clientId.length > 64) {
 		return c.json({ error: "Missing or invalid clientId" }, 400);
@@ -482,6 +647,10 @@ publicChatSupport.get("/conversation", async (c) => {
 
 // Records a thumbs up/down on a specific assistant message.
 publicChatSupport.post("/reaction", async (c) => {
+	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
+
 	const body = await c.req.json<{
 		clientId?: string;
 		sequence?: number;
@@ -526,6 +695,10 @@ publicChatSupport.post("/reaction", async (c) => {
 
 // Lets the visitor resolve their conversation and rate it from 0 to 5 stars.
 publicChatSupport.post("/resolve", async (c) => {
+	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
+
 	const body = await c.req.json<{
 		clientId?: string;
 		rating?: number;
@@ -560,9 +733,24 @@ publicChatSupport.post("/resolve", async (c) => {
 
 publicChatSupport.post("/escalate", async (c) => {
 	const ipAddress = extractClientIP(c) ?? "unknown";
-	const canSubmit = await checkRateLimit(ipAddress);
+	// Throttle escalation on its own buckets — never the message buckets — so a
+	// visitor who has used up their hourly message quota can still reach a human.
+	const hourOk = await checkRateLimit(
+		`ip:${ipAddress}`,
+		"escalate",
+		RATE_LIMIT_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
+	const dayOk =
+		hourOk &&
+		(await checkRateLimit(
+			`ip:${ipAddress}`,
+			"escalate_day",
+			ESCALATE_DAILY_LIMIT_MAX,
+			DAILY_LIMIT_WINDOW_SECONDS,
+		));
 
-	if (!canSubmit) {
+	if (!dayOk) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -597,6 +785,22 @@ publicChatSupport.post("/escalate", async (c) => {
 		return c.json({ success: true, message: "Already escalated." });
 	}
 
+	// Checked only once we know a new escalation will actually be sent, so
+	// malformed requests and already-escalated retries don't spend the global
+	// cap. Each escalation past this point costs an email and a Discord ping.
+	const globalOk = await checkRateLimit(
+		"all",
+		"escalate_global_day",
+		ESCALATE_GLOBAL_DAILY_LIMIT_MAX,
+		DAILY_LIMIT_WINDOW_SECONDS,
+	);
+	if (!globalOk) {
+		logger.warn("Chat support global escalation limit reached", {
+			ipAddress,
+		});
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
+
 	await db
 		.update(t)
 		.set({ escalatedAt: new Date() })
@@ -605,6 +809,9 @@ publicChatSupport.post("/escalate", async (c) => {
 	const escapedName = escapeHtml(name ?? "Not provided");
 	const escapedEmail = escapeHtml(email ?? "Not provided");
 	const escapedConversationId = escapeHtml(conversationId);
+	const adminBaseUrl = process.env.ADMIN_URL ?? "https://admin.llmgateway.io";
+	const adminConversationUrl = `${adminBaseUrl}/chat-support-logs?chat=${encodeURIComponent(conversationId)}`;
+	const escapedAdminConversationUrl = escapeHtml(adminConversationUrl);
 	const escapedTranscript = (messages ?? [])
 		.map(
 			(m) =>
@@ -627,6 +834,7 @@ publicChatSupport.post("/escalate", async (c) => {
 <p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Name:</strong> ${escapedName}</p>
 <p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Email:</strong> ${escapedEmail}</p>
 <p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Conversation ID:</strong> ${escapedConversationId}</p>
+<p style="margin:0 0 15px;font-size:16px;color:#333;"><strong>Admin dashboard:</strong> <a href="${escapedAdminConversationUrl}" style="color:#0066cc;">View conversation</a></p>
 <hr style="border:none;border-top:1px solid #e9ecef;margin:20px 0;">
 <h2 style="margin:0 0 15px;font-size:16px;color:#333;">Conversation History</h2>
 <div style="background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:15px;font-size:14px;line-height:1.6;color:#333;white-space:pre-wrap;">${escapedTranscript}</div>

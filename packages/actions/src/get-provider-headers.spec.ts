@@ -1,6 +1,99 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { getProviderHeaders } from "./get-provider-headers.js";
+
+const originalVertexTokenType = process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
+
+afterEach(() => {
+	if (originalVertexTokenType === undefined) {
+		delete process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
+	} else {
+		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = originalVertexTokenType;
+	}
+});
+
+describe("getProviderHeaders", () => {
+	describe("google-vertex", () => {
+		it("returns no auth header by default (api-key mode)", () => {
+			expect(
+				getProviderHeaders("google-vertex", "AIzaSyExampleApiKey"),
+			).toEqual({});
+		});
+
+		it("uses Bearer when the provider key is configured for oauth", () => {
+			expect(
+				getProviderHeaders("google-vertex", "ya29.example", {
+					providerKeyOptions: { google_vertex_token_type: "oauth" },
+				}),
+			).toEqual({ Authorization: "Bearer ya29.example" });
+		});
+
+		it("omits the Authorization header when the provider key uses api-key", () => {
+			expect(
+				getProviderHeaders("google-vertex", "AIzaSyExample", {
+					providerKeyOptions: { google_vertex_token_type: "api-key" },
+				}),
+			).toEqual({});
+		});
+
+		it("honors LLM_GOOGLE_VERTEX_TOKEN_TYPE env var when no key option is set", () => {
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			expect(getProviderHeaders("google-vertex", "ya29.example")).toEqual({
+				Authorization: "Bearer ya29.example",
+			});
+		});
+
+		it("ignores the env var when skipEnvVars is true (BYOK), matching the endpoint", () => {
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			expect(
+				getProviderHeaders("google-vertex", "AIzaSyExample", {
+					providerKeyOptions: { google_vertex_project_id: "project-a" },
+					skipEnvVars: true,
+				}),
+			).toEqual({});
+		});
+
+		it("still honors an explicit oauth key option when skipEnvVars is true", () => {
+			expect(
+				getProviderHeaders("google-vertex", "ya29.example", {
+					providerKeyOptions: { google_vertex_token_type: "oauth" },
+					skipEnvVars: true,
+				}),
+			).toEqual({ Authorization: "Bearer ya29.example" });
+		});
+
+		it("uses a pre-resolved tokenType over options and env var", () => {
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "api-key";
+
+			expect(
+				getProviderHeaders("google-vertex", "ya29.example", {
+					providerKeyOptions: { google_vertex_token_type: "api-key" },
+					tokenType: "oauth",
+				}),
+			).toEqual({ Authorization: "Bearer ya29.example" });
+		});
+
+		it("uses a pre-resolved api-key tokenType to suppress the Bearer header", () => {
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			expect(
+				getProviderHeaders("google-vertex", "AIzaSyExample", {
+					providerKeyOptions: { google_vertex_token_type: "oauth" },
+					tokenType: "api-key",
+				}),
+			).toEqual({});
+		});
+	});
+
+	describe("quartz", () => {
+		it("never sends an Authorization header (api-key only, no OAuth)", () => {
+			expect(getProviderHeaders("quartz", "quartz-api-key")).toEqual({});
+			expect(getProviderHeaders("quartz", "ya29.looks-like-oauth")).toEqual({});
+		});
+	});
+});
 
 const VERTEX_TIER_HEADER = "X-Vertex-AI-LLM-Shared-Request-Type";
 const VERTEX_REQUEST_TYPE_HEADER = "X-Vertex-AI-LLM-Request-Type";

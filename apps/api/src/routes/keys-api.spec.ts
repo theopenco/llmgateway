@@ -37,11 +37,12 @@ describe("keys route", () => {
 			organizationId: "test-org-id",
 		});
 
-		// Create test project
+		// Create test project (Payments SDK preview opted in)
 		await db.insert(tables.project).values({
 			id: "test-project-id",
 			name: "Test Project",
 			organizationId: "test-org-id",
+			paymentsSdkEnabled: true,
 		});
 
 		// Create test API key
@@ -133,6 +134,35 @@ describe("keys route", () => {
 		});
 		expect(platformKey?.keyType).toBe("platform_secret");
 		expect(platformKey?.token).toBe(json.platformKey.token);
+	});
+
+	test("POST /keys/platform rejects projects without Payments SDK preview", async () => {
+		await db
+			.update(tables.project)
+			.set({ paymentsSdkEnabled: false })
+			.where(eq(tables.project.id, "test-project-id"));
+
+		const res = await app.request("/keys/platform", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				projectId: "test-project-id",
+				description: "LLM SDK test secret",
+			}),
+		});
+
+		expect(res.status).toBe(403);
+
+		const platformKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { eq: "test-project-id" },
+				keyType: { eq: "platform_secret" },
+			},
+		});
+		expect(platformKeys).toHaveLength(0);
 	});
 
 	test("GET /keys/platform lists masked SDK platform secrets", async () => {
@@ -385,6 +415,79 @@ describe("keys route", () => {
 		expect(apiKey?.periodUsageLimit).toBe("5");
 		expect(apiKey?.periodUsageDurationValue).toBe(2);
 		expect(apiKey?.periodUsageDurationUnit).toBe("day");
+	});
+
+	test("POST /keys/api rejects a limit above the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Over-budget key",
+				projectId: "test-project-id",
+				usageLimit: "50",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toMatch(/organization limit of \$10\.00/);
+
+		const apiKey = await db.query.apiKey.findFirst({
+			where: { description: { eq: "Over-budget key" } },
+		});
+		expect(apiKey).toBeUndefined();
+	});
+
+	test("POST /keys/api allows a limit at or below the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Within-budget key",
+				projectId: "test-project-id",
+				usageLimit: "10",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.apiKey.usageLimit).toBe("10");
+	});
+
+	test("PATCH /keys/api/limit/{id} rejects a limit above the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api/limit/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ usageLimit: "50" }),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toMatch(/organization limit of \$10\.00/);
 	});
 
 	test("PATCH /keys/api/limit/{id} updates and resets period usage", async () => {
@@ -726,9 +829,10 @@ describe("keys route", () => {
 		expect(reactivated?.expiresAt?.toISOString()).toBe(newExpiry);
 	});
 
-	test("POST /keys/api should enforce API key limit of 20", async () => {
-		// Create 19 more API keys to reach the limit of 20
-		for (let i = 2; i <= 20; i++) {
+	test("POST /keys/api enforces the org-wide free-plan limit of 5", async () => {
+		// beforeEach already created 1 active key; add 4 more to reach the free
+		// org-wide cap of 5 active keys.
+		for (let i = 2; i <= 5; i++) {
 			await db.insert(tables.apiKey).values({
 				id: `test-api-key-id-${i}`,
 				token: `test-token-${i}`,
@@ -739,7 +843,7 @@ describe("keys route", () => {
 			});
 		}
 
-		// Try to create the 21st API key, should fail
+		// Try to create the 6th API key, should fail
 		const res = await app.request("/keys/api", {
 			method: "POST",
 			headers: {
@@ -747,7 +851,7 @@ describe("keys route", () => {
 				Cookie: token,
 			},
 			body: JSON.stringify({
-				description: "Twenty-first API Key",
+				description: "Sixth API Key",
 				projectId: "test-project-id",
 				usageLimit: null,
 			}),
@@ -756,6 +860,44 @@ describe("keys route", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.message).toContain("API key limit reached");
-		expect(json.message).toContain("Maximum 20 API keys per project");
+		expect(json.message).toContain(
+			"Maximum 5 active API keys per organization",
+		);
+	});
+
+	test("POST /keys/api respects the admin apiKeyLimit override", async () => {
+		await db
+			.update(tables.organization)
+			.set({ apiKeyLimit: 2 })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		// beforeEach created 1 active key; add 1 more to reach the override of 2.
+		await db.insert(tables.apiKey).values({
+			id: "test-api-key-id-2",
+			token: "test-token-2",
+			projectId: "test-project-id",
+			description: "Test API Key 2",
+			status: "active",
+			createdBy: "test-user-id",
+		});
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Third API Key",
+				projectId: "test-project-id",
+				usageLimit: null,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toContain(
+			"Maximum 2 active API keys per organization",
+		);
 	});
 });

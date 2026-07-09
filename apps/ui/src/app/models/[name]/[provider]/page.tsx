@@ -9,7 +9,7 @@ import {
 	Braces,
 } from "lucide-react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
@@ -25,11 +25,7 @@ import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import {
-	buildRatingSchema,
-	digitalOfferFields,
-	type ModelRatingsData,
-} from "@/lib/rating-schema";
+import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -66,7 +62,9 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	);
 
 	if (providerMappings.length === 0) {
-		notFound();
+		// The model exists but this provider mapping was removed; send crawlers
+		// and old links to the model page instead of a 404.
+		permanentRedirect(`/models/${encodeURIComponent(decodedName)}`);
 	}
 
 	const staticProviderMapping = providerMappings[0];
@@ -222,10 +220,16 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			"@type": "Brand",
 			name: providerInfo?.name ?? decodedProvider,
 		},
+		// AggregateOffer (not a single Offer) keeps this page a product
+		// snippet instead of a merchant-listing candidate, so Google does not
+		// require shippingDetails/hasMerchantReturnPolicy — fields that don't
+		// apply to a digital API product.
 		offers: {
-			"@type": "Offer",
+			"@type": "AggregateOffer",
 			priceCurrency: "USD",
-			price: providerMapping.inputPrice ?? 0,
+			lowPrice: providerMapping.inputPrice ?? 0,
+			highPrice: providerMapping.inputPrice ?? 0,
+			offerCount: 1,
 			priceSpecification: {
 				"@type": "UnitPriceSpecification",
 				price: providerMapping.inputPrice ?? 0,
@@ -233,11 +237,11 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				unitText: "per 1M input tokens",
 			},
 			availability: "https://schema.org/InStock",
+			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`,
 			seller: {
 				"@type": "Organization",
 				name: "LLM Gateway",
 			},
-			...digitalOfferFields,
 		},
 		category: "AI/ML API Service",
 		...buildRatingSchema(ratingsData),

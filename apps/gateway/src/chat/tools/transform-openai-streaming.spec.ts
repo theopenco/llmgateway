@@ -235,6 +235,42 @@ describe("transformOpenaiStreaming", () => {
 		expect(result.usage).toBeNull();
 	});
 
+	test("drops partial usage chunk missing core token counts (deepseek-v3.2-maas)", () => {
+		// SGLang-served deepseek-v3.2-maas on Vertex AI emits an intermediate
+		// chunk whose `usage` only carries prompt_tokens_details. Forwarding it
+		// verbatim produced `usage.prompt_tokens: undefined`, which failed the
+		// AI SDK's strict streaming schema. The usage object must be dropped.
+		const input = {
+			id: "DuhDavqEI4em1dkP7s3T0As",
+			object: "chat.completion.chunk",
+			created: 1782835214,
+			model: "deepseek-ai/deepseek-v3.2-maas",
+			choices: [
+				{
+					delta: {
+						content: "",
+						reasoning_content: null,
+						role: "assistant",
+						tool_calls: null,
+					},
+					finish_reason: null,
+					index: 0,
+					logprobs: null,
+					matched_stop: null,
+				},
+			],
+			usage: {
+				prompt_tokens_details: {
+					cached_tokens: 0,
+				},
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "deepseek-v3.2");
+
+		expect(result.usage).toBeNull();
+	});
+
 	test("should normalize MiniMax reasoning_details to reasoning", () => {
 		const input = {
 			id: "test-id",

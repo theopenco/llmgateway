@@ -12,6 +12,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -82,6 +83,9 @@ export function ApiKeysList({
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const pathname = usePathname();
+	const { selectedOrganization } = useDashboardNavigation();
+	// Developers only ever see their own keys, so the All/Mine selector is hidden.
+	const isDeveloper = selectedOrganization?.role === "developer";
 	const { orgId, projectId } = useMemo(
 		() => extractOrgAndProjectFromPath(pathname),
 		[pathname],
@@ -458,7 +462,7 @@ export function ApiKeysList({
 					}
 					disabledMessage={
 						planLimits
-							? `${planLimits.plan === "enterprise" ? "Enterprise" : planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+							? `${planLimits.plan === "enterprise" ? "Enterprise" : planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per organization`
 							: undefined
 					}
 				>
@@ -481,16 +485,18 @@ export function ApiKeysList({
 		<>
 			{/* Filter Tabs */}
 			<div className="mb-6 flex flex-col gap-4">
-				{/* Creator Filter */}
-				<Tabs
-					value={creatorFilter}
-					onValueChange={(value) => setCreatorFilter(value as CreatorFilter)}
-				>
-					<TabsList className="flex space-x-2 w-full md:w-fit">
-						<TabsTrigger value="all">All Keys</TabsTrigger>
-						<TabsTrigger value="mine">My Keys</TabsTrigger>
-					</TabsList>
-				</Tabs>
+				{/* Creator Filter — hidden for developers (own keys only) */}
+				{!isDeveloper && (
+					<Tabs
+						value={creatorFilter}
+						onValueChange={(value) => setCreatorFilter(value as CreatorFilter)}
+					>
+						<TabsList className="flex space-x-2 w-full md:w-fit">
+							<TabsTrigger value="all">All Keys</TabsTrigger>
+							<TabsTrigger value="mine">My Keys</TabsTrigger>
+						</TabsList>
+					</Tabs>
+				)}
 
 				{/* Status Filter Tabs */}
 				<Tabs
@@ -635,6 +641,7 @@ export function ApiKeysList({
 								<TableCell>
 									<ApiKeyLimitsDialog
 										apiKey={key}
+										organizationId={orgId ?? ""}
 										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
 									>
 										<Button
@@ -869,6 +876,7 @@ export function ApiKeysList({
 							<div>
 								<ApiKeyLimitsDialog
 									apiKey={key}
+									organizationId={orgId ?? ""}
 									onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
 								>
 									<Button

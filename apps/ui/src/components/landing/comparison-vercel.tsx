@@ -100,7 +100,7 @@ const comparisonData = [
 			{
 				title: "Model coverage",
 				description: "Models and providers available through one API",
-				llmgateway: "280+ models, 35+ providers",
+				llmgateway: "200+ models, 40+ providers",
 				vercel: "Hundreds, 45+ providers",
 			},
 			{

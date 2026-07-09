@@ -26,6 +26,7 @@ import {
 	type LogInsertData,
 	lt,
 	organization,
+	resolveVerifiedOrgRecipient,
 	shortid,
 	sql,
 	tables,
@@ -43,7 +44,6 @@ import {
 
 import { posthog } from "./posthog.js";
 import {
-	getOrgRecipientEmail,
 	runFollowUpEmailsLoop,
 	sendLowBalanceEmail,
 } from "./services/follow-up-emails.js";
@@ -571,12 +571,22 @@ export async function processAutoTopUp(): Promise<void> {
 							.where(eq(tables.transaction.id, pendingTransaction.id));
 					}
 				} catch (stripeError) {
-					logger.error(
-						`Stripe error for organization ${org.id}`,
+					const errObj =
 						stripeError instanceof Error
 							? stripeError
-							: new Error(String(stripeError)),
-					);
+							: new Error(String(stripeError));
+					// Card declines (insufficient funds, generic_decline, expired
+					// cards, etc.) are an expected outcome of an off-session auto
+					// top-up, not a server error, so log them at warn level to avoid
+					// noisy error alerts.
+					if (stripeError instanceof Stripe.errors.StripeCardError) {
+						logger.warn(
+							`Auto top-up card declined for organization ${org.id}`,
+							errObj,
+						);
+					} else {
+						logger.error(`Stripe error for organization ${org.id}`, errObj);
+					}
 					// Mark transaction as failed
 					await db
 						.update(tables.transaction)
@@ -1540,7 +1550,7 @@ async function enqueueLowBalanceEmail(
 	emailType: "low_balance_20" | "low_balance_5",
 	currentBalance: number,
 ): Promise<void> {
-	const email = await getOrgRecipientEmail(organizationId);
+	const email = await resolveVerifiedOrgRecipient(organizationId);
 	if (!email) {
 		return;
 	}

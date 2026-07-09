@@ -53,6 +53,63 @@ export function getChatPlanCreditsLimit(tier: ChatPlanTier): number {
 }
 
 /**
+ * Illustrative token shape of a typical chat exchange (one user turn plus the
+ * model's reply, with some accumulated context), used ONLY to translate a
+ * plan's credit allowance into an approximate message count on the pricing
+ * page. This is marketing context, not a billing rate — real usage is metered
+ * per request at live provider rates.
+ */
+const CHAT_PLAN_ESTIMATE_TOKENS = { input: 1500, output: 750 } as const;
+
+/**
+ * Representative per-token rates ($/token) for two model classes, used only for
+ * the "≈ N messages" estimate. Anchored to the most expensive model in each
+ * class (Claude Sonnet for frontier, Claude Haiku for fast) so the estimate is
+ * a conservative floor — cheaper frontier models (GPT-5, Gemini Pro) and fast
+ * models (GPT-5-mini, Gemini Flash) yield more messages, not fewer. Kept
+ * deliberately separate from the live catalogue in @llmgateway/models: these
+ * are illustrative copy inputs, not pricing.
+ */
+const CHAT_PLAN_ESTIMATE_RATES = {
+	frontier: { input: 3.0e-6, output: 15.0e-6 },
+	fast: { input: 1.0e-6, output: 5.0e-6 },
+} as const;
+
+export interface ChatPlanMessageEstimate {
+	/** Approx. messages on frontier models (Claude Sonnet / GPT-5 class). */
+	frontier: number;
+	/** Approx. messages on fast models (Claude Haiku / Gemini Flash class). */
+	fast: number;
+}
+
+function estimateMessages(
+	creditsUsd: number,
+	rate: { input: number; output: number },
+): number {
+	if (creditsUsd <= 0) {
+		return 0;
+	}
+	const inputCost = CHAT_PLAN_ESTIMATE_TOKENS.input * rate.input;
+	const outputCost = CHAT_PLAN_ESTIMATE_TOKENS.output * rate.output;
+	const perMessage = inputCost + outputCost;
+	return perMessage > 0 ? Math.floor(creditsUsd / perMessage) : 0;
+}
+
+/**
+ * Translate a plan's monthly credit value (in USD) into an approximate number
+ * of messages on frontier and fast models. Used on the pricing page and
+ * paywall to make the credit allowance legible.
+ */
+export function estimateChatPlanMessages(
+	creditsUsd: number,
+): ChatPlanMessageEstimate {
+	return {
+		frontier: estimateMessages(creditsUsd, CHAT_PLAN_ESTIMATE_RATES.frontier),
+		fast: estimateMessages(creditsUsd, CHAT_PLAN_ESTIMATE_RATES.fast),
+	};
+}
+
+/**
  * Premium models that are gated on the Starter tier. Plus and Pro tiers
  * have access to everything. Matched by substring against the requested
  * model id, so this covers all variants (e.g. "claude-opus-4-7" matches

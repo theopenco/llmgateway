@@ -105,24 +105,14 @@ video.openapi(getVideoStatus, async (c) => {
 	let content:
 		| { type: "video"; url: string; mime_type?: string | null }[]
 		| undefined;
-	if (job.status === "completed") {
-		const log = await db.query.log.findFirst({
-			where: {
-				requestId: { eq: job.requestId },
+	if (job.status === "completed" && job.logId) {
+		content = [
+			{
+				type: "video" as const,
+				url: buildSignedGatewayVideoLogContentUrl(job.logId),
+				mime_type: job.contentType ?? null,
 			},
-			columns: {
-				id: true,
-			},
-		});
-		if (log) {
-			content = [
-				{
-					type: "video" as const,
-					url: buildSignedGatewayVideoLogContentUrl(log.id),
-					mime_type: job.contentType ?? null,
-				},
-			];
-		}
+		];
 	}
 
 	return c.json(

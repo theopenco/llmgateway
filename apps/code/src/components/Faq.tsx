@@ -36,9 +36,19 @@ const faqData = [
 			"Anything that speaks the OpenAI or Anthropic API — Claude Code, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
 	},
 	{
-		question: "Are all 280+ models included on every plan?",
+		question: "Are all 200+ models included on every plan?",
 		answer:
-			"Yes. Every plan includes the full catalog — Claude, GPT-5, Gemini, Llama, Qwen, and the rest. Plans differ only in the size of your monthly usage allowance.",
+			"Yes. Every plan includes the full catalog — Claude, GPT-5, Gemini, Llama, Qwen, and the rest. Plans differ in the size of your monthly usage allowance and the weekly fair-use allowance on premium frontier models.",
+	},
+	{
+		question: "Are there limits on premium models?",
+		answer:
+			"Premium frontier models — Anthropic Opus, OpenAI Pro/reasoning, Gemini Pro, and Grok 4 — are subject to a weekly fair-use allowance in addition to your monthly allowance: $10/week on Lite, $50/week on Pro, and $140/week on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.",
+	},
+	{
+		question: "Can I get a refund?",
+		answer:
+			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. Plan changes are prorated, and there's no cancellation fee.",
 	},
 ];
 
@@ -230,7 +240,7 @@ export function Faq() {
 							<AccordionItem value="item-6" className="py-5 border-border/50">
 								<AccordionPrimitive.Header className="flex">
 									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										Are all 280+ models included on every plan?
+										Are all 200+ models included on every plan?
 										<PlusIcon
 											size={18}
 											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
@@ -241,8 +251,79 @@ export function Faq() {
 								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
 									<div className="border-l-2 border-foreground/10 pl-4">
 										Yes. Every plan includes the full catalog — Claude, GPT-5,
-										Gemini, Llama, Qwen, and the rest. Plans differ only in the
-										size of your monthly usage allowance.
+										Gemini, Llama, Qwen, and the rest. Plans differ in the size
+										of your monthly usage allowance and the weekly fair-use
+										allowance on premium frontier models.
+									</div>
+								</AccordionContent>
+							</AccordionItem>
+
+							{/* Item 7 — premium fair-use limits */}
+							<AccordionItem value="item-7" className="py-5 border-border/50">
+								<AccordionPrimitive.Header className="flex">
+									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
+										Are there limits on premium models?
+										<PlusIcon
+											size={18}
+											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
+											aria-hidden="true"
+										/>
+									</AccordionPrimitive.Trigger>
+								</AccordionPrimitive.Header>
+								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
+									<div className="border-l-2 border-foreground/10 pl-4">
+										<p>
+											Premium frontier models — Anthropic Opus, OpenAI
+											Pro/reasoning, Gemini Pro, and Grok 4 — are subject to a
+											weekly fair-use allowance in addition to your monthly
+											allowance:
+										</p>
+										<ul className="list-disc pl-6 mt-2 space-y-1">
+											<li>
+												<strong>Lite:</strong> $10/week
+											</li>
+											<li>
+												<strong>Pro:</strong> $50/week
+											</li>
+											<li>
+												<strong>Max:</strong> $140/week
+											</li>
+										</ul>
+										<p className="mt-3">
+											Every other model draws on your full monthly allowance.
+											The exact numbers are published on the plan cards — no
+											hidden throttling.
+										</p>
+									</div>
+								</AccordionContent>
+							</AccordionItem>
+
+							{/* Item 8 — refunds */}
+							<AccordionItem value="item-8" className="py-5 border-border/50">
+								<AccordionPrimitive.Header className="flex">
+									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
+										Can I get a refund?
+										<PlusIcon
+											size={18}
+											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
+											aria-hidden="true"
+										/>
+									</AccordionPrimitive.Trigger>
+								</AccordionPrimitive.Header>
+								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
+									<div className="border-l-2 border-foreground/10 pl-4">
+										Yes — DevPass comes with a{" "}
+										<strong>first-month guarantee</strong>. Cancel within 7 days
+										of your first purchase and email{" "}
+										<Link
+											href="mailto:contact@llmgateway.io"
+											className="underline"
+										>
+											contact@llmgateway.io
+										</Link>
+										: we&apos;ll refund your first month minus the usage you
+										consumed at provider rates. Plan changes are prorated, and
+										there&apos;s no cancellation fee.
 									</div>
 								</AccordionContent>
 							</AccordionItem>

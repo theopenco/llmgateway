@@ -423,6 +423,76 @@ describe("fallback and error status code handling", () => {
 			expect(log.requestedModel).toBe("llmgateway/custom");
 		});
 
+		test("upstream socket close while reading the response body is classified as upstream_error (502), not an unhandled 500", async () => {
+			await setupCustomKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "TRIGGER_BODY_ABORT" }],
+				}),
+			});
+
+			expect(res.status).toBe(502);
+			const json = await res.json();
+			expect(json).toHaveProperty("error");
+			expect(json.error.type).toBe("upstream_error");
+			expect(json.error.code).toBe("fetch_failed");
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+
+			const log = logs[0];
+			expect(log.finishReason).toBe("upstream_error");
+			expect(log.hasError).toBe(true);
+			expect(log.errorDetails).toBeTruthy();
+			expect(log.usedProvider).toBe("llmgateway");
+			expect(log.requestedModel).toBe("llmgateway/custom");
+		});
+
+		test("mid-body failure marks the routed provider attempt as failed, not a succeeded routing attempt", async () => {
+			await setupMultiProviderKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					// Auto-routed (no provider prefix) so routingMetadata is populated.
+					model: "glm-4.7",
+					messages: [{ role: "user", content: "TRIGGER_BODY_ABORT" }],
+				}),
+			});
+
+			expect(res.status).toBe(502);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			const log = logs[0];
+			expect(log.hasError).toBe(true);
+			expect(log.finishReason).toBe("upstream_error");
+
+			// The headers arrived (2xx) but the body read failed, so the provider
+			// must not be recorded as a succeeded (green) routing attempt.
+			const routing = log.routingMetadata?.routing ?? [];
+			expect(routing.length).toBeGreaterThanOrEqual(1);
+			expect(routing.every((a) => a.succeeded === false)).toBe(true);
+			expect(routing.some((a) => a.error_type === "upstream_error")).toBe(true);
+
+			// The used provider's score is flagged as failed.
+			const usedScore = log.routingMetadata?.providerScores?.find(
+				(s) => s.providerId === log.usedProvider,
+			);
+			expect(usedScore?.failed).toBe(true);
+		});
+
 		test("429 rate limit is classified as upstream_error with correct error details in DB log", async () => {
 			await setupCustomKeys();
 
@@ -1077,9 +1147,9 @@ describe("fallback and error status code handling", () => {
 			await db
 				.insert(tables.model)
 				.values({
-					id: "glm-4.6",
-					name: "GLM-4.6",
-					family: "glm",
+					id: "glm-5",
+					name: "GLM-5",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();
@@ -1088,51 +1158,51 @@ describe("fallback and error status code handling", () => {
 				.insert(tables.modelProviderMapping)
 				.values([
 					{
-						id: "glm-4-6-zai-root",
-						modelId: "glm-4.6",
+						id: "glm-5-zai-root",
+						modelId: "glm-5",
 						providerId: "zai",
-						externalId: "glm-4.6",
+						externalId: "glm-5",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-alibaba-root",
-						modelId: "glm-4.6",
+						id: "glm-5-alibaba-root",
+						modelId: "glm-5",
 						providerId: "alibaba",
-						externalId: "glm-4.6",
+						externalId: "glm-5",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-alibaba-cn-beijing",
-						modelId: "glm-4.6",
+						id: "glm-5-alibaba-cn-beijing",
+						modelId: "glm-5",
 						providerId: "alibaba",
-						externalId: "glm-4.6",
+						externalId: "glm-5",
 						region: "cn-beijing",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-novita-root",
-						modelId: "glm-4.6",
+						id: "glm-5-novita-root",
+						modelId: "glm-5",
 						providerId: "novita",
-						externalId: "zai-org/glm-4.6",
+						externalId: "zai-org/glm-5",
 						streaming: true,
 					},
 				])
 				.onConflictDoNothing();
 
-			await setRoutingMetrics("glm-4.6", "zai", 55, {
+			await setRoutingMetrics("glm-5", "zai", 55, {
 				routingLatency: 238,
 				routingThroughput: 65,
 			});
-			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+			await setRoutingMetrics("glm-5", "alibaba", 100, {
 				routingLatency: 10,
 				routingThroughput: 1000,
 			});
-			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+			await setRoutingMetrics("glm-5", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 400,
 				routingThroughput: 80,
 			});
-			await setRoutingMetrics("glm-4.6", "novita", 100, {
+			await setRoutingMetrics("glm-5", "novita", 100, {
 				routingLatency: 1200,
 				routingThroughput: 30,
 			});
@@ -1144,7 +1214,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "zai/glm-4.6",
+					model: "zai/glm-5",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1154,7 +1224,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("alibaba");
-			expect(logs[0].usedModel).toBe("alibaba/glm-4.6:cn-beijing");
+			expect(logs[0].usedModel).toBe("alibaba/glm-5:cn-beijing");
 			expect(logs[0].routingMetadata?.selectedProvider).toBe("alibaba");
 			expect(logs[0].routingMetadata?.selectionReason).toBe(
 				"low-uptime-fallback",
@@ -1216,9 +1286,9 @@ describe("fallback and error status code handling", () => {
 			await db
 				.insert(tables.model)
 				.values({
-					id: "glm-4.6",
-					name: "GLM-4.6",
-					family: "glm",
+					id: "glm-5",
+					name: "GLM-5",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();
@@ -1227,51 +1297,51 @@ describe("fallback and error status code handling", () => {
 				.insert(tables.modelProviderMapping)
 				.values([
 					{
-						id: "glm-4-6-zai-auto-root",
-						modelId: "glm-4.6",
+						id: "glm-5-zai-auto-root",
+						modelId: "glm-5",
 						providerId: "zai",
-						externalId: "glm-4.6",
+						externalId: "glm-5",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-alibaba-auto-root",
-						modelId: "glm-4.6",
+						id: "glm-5-alibaba-auto-root",
+						modelId: "glm-5",
 						providerId: "alibaba",
-						externalId: "glm-4.6",
+						externalId: "glm-5",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-alibaba-auto-cn-beijing",
-						modelId: "glm-4.6",
+						id: "glm-5-alibaba-auto-cn-beijing",
+						modelId: "glm-5",
 						providerId: "alibaba",
-						externalId: "glm-4.6",
+						externalId: "glm-5",
 						region: "cn-beijing",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-novita-auto-root",
-						modelId: "glm-4.6",
+						id: "glm-5-novita-auto-root",
+						modelId: "glm-5",
 						providerId: "novita",
-						externalId: "zai-org/glm-4.6",
+						externalId: "zai-org/glm-5",
 						streaming: true,
 					},
 				])
 				.onConflictDoNothing();
 
-			await setRoutingMetrics("glm-4.6", "zai", 100, {
+			await setRoutingMetrics("glm-5", "zai", 100, {
 				routingLatency: 250,
 				routingThroughput: 90,
 			});
-			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+			await setRoutingMetrics("glm-5", "alibaba", 100, {
 				routingLatency: 1,
 				routingThroughput: 1000,
 			});
-			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+			await setRoutingMetrics("glm-5", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 20,
 				routingThroughput: 400,
 			});
-			await setRoutingMetrics("glm-4.6", "novita", 100, {
+			await setRoutingMetrics("glm-5", "novita", 100, {
 				routingLatency: 1200,
 				routingThroughput: 30,
 			});
@@ -1283,7 +1353,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "glm-4.6",
+					model: "glm-5",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1292,10 +1362,10 @@ describe("fallback and error status code handling", () => {
 
 			const logs = await waitForLogs(1);
 			const log =
-				logs.find((entry) => entry.requestedModel === "glm-4.6") ?? logs.at(-1);
+				logs.find((entry) => entry.requestedModel === "glm-5") ?? logs.at(-1);
 			expect(log).toBeTruthy();
 			expect(log?.usedProvider).toBe("alibaba");
-			expect(log?.usedModel).toBe("alibaba/glm-4.6:cn-beijing");
+			expect(log?.usedModel).toBe("alibaba/glm-5:cn-beijing");
 			expect(
 				log?.routingMetadata?.providerScores?.some(
 					(score) => score.providerId === "alibaba" && !score.region,
@@ -1341,7 +1411,7 @@ describe("fallback and error status code handling", () => {
 				.values({
 					id: "glm-4.6",
 					name: "GLM-4.6",
-					family: "glm",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();
@@ -1425,15 +1495,15 @@ describe("fallback and error status code handling", () => {
 		test("direct provider selection picks the best available region", async () => {
 			await setupKeys("alibaba");
 
-			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "singapore");
-			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "cn-beijing");
+			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "singapore");
+			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "cn-beijing");
 
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -1446,7 +1516,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v3.2",
+					model: "alibaba/deepseek-v4-flash",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1463,7 +1533,7 @@ describe("fallback and error status code handling", () => {
 					score.providerId === "alibaba" && score.region === "cn-beijing",
 			);
 
-			expect(logs[0].usedModel).toBe("alibaba/deepseek-v3.2:cn-beijing");
+			expect(logs[0].usedModel).toBe("alibaba/deepseek-v4-flash:cn-beijing");
 			expect(logs[0].routingMetadata?.selectionReason).toBe(
 				"direct-provider-specified",
 			);
@@ -1474,7 +1544,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v3.2",
+					model: "deepseek-v4-flash",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -1493,12 +1563,12 @@ describe("fallback and error status code handling", () => {
 				})
 				.where(eq(tables.providerKey.id, "provider-key-id"));
 
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 866,
 				routingThroughput: 1,
 			});
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 1767,
 				routingThroughput: 0.5,
@@ -1511,7 +1581,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v3.2",
+					model: "alibaba/deepseek-v4-flash",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1540,7 +1610,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v3.2",
+					model: "deepseek-v4-flash",
 					region: "singapore",
 					status_code: 200,
 					succeeded: true,
@@ -1557,26 +1627,26 @@ describe("fallback and error status code handling", () => {
 
 		test("direct provider selection follows the scoped key region after failover", async () => {
 			await setupSingleProviderWithRegionalKeys("alibaba");
-			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "singapore");
-			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "cn-beijing");
+			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "singapore");
+			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "cn-beijing");
 
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v3.2",
+				"deepseek-v4-flash",
 			);
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v3.2",
+				"deepseek-v4-flash",
 			);
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v3.2",
+				"deepseek-v4-flash",
 			);
 
 			const res = await app.request("/v1/chat/completions", {
@@ -1586,7 +1656,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v3.2",
+					model: "alibaba/deepseek-v4-flash",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1594,11 +1664,11 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(200);
 
 			const logs = await waitForLogs(1);
-			expect(logs[0].usedModel).toBe("alibaba/deepseek-v3.2:cn-beijing");
+			expect(logs[0].usedModel).toBe("alibaba/deepseek-v4-flash:cn-beijing");
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v3.2",
+					model: "deepseek-v4-flash",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -1609,16 +1679,16 @@ describe("fallback and error status code handling", () => {
 		test("provider-agnostic routing keeps regional mappings aggregated", async () => {
 			await setupKeys("alibaba");
 
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 99, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 99, {
 				routingLatency: 950,
 				routingThroughput: 15,
 			});
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -1631,7 +1701,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v3.2",
+					model: "deepseek-v4-flash",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});

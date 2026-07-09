@@ -22,7 +22,7 @@ We evaluated eight AI gateways on what actually matters: provider coverage, pric
 
 **Best overall. Open source. Self-hostable.**
 
-[LLM Gateway](https://llmgateway.io) is an open-source API gateway that routes requests to 280+ models across 35+ providers through a single OpenAI-compatible endpoint. Change your base URL, keep your existing code.
+[LLM Gateway](https://llmgateway.io) is an open-source API gateway that routes requests to 200+ models across 40+ providers through a single OpenAI-compatible endpoint. Change your base URL, keep your existing code.
 
 **What sets it apart:**
 
@@ -31,7 +31,7 @@ We evaluated eight AI gateways on what actually matters: provider coverage, pric
 - **Built-in caching** — Redis-powered response caching cuts repeat request costs to zero
 - **Real-time analytics** — cost tracking, latency monitoring, and usage breakdowns per model, project, and API key
 - **Automatic failover** — requests reroute to backup providers when the primary goes down
-- **Guardrails** — content safety rules with configurable filters
+- **Guardrails (Enterprise)** — content safety rules with configurable filters
 - **AI SDK provider** — first-class Vercel AI SDK integration via `@llmgateway/ai-sdk-provider`
 - **Playground** — test and compare models side-by-side with chat, group chat, and image generation
 
@@ -47,7 +47,7 @@ const client = new OpenAI({
   baseURL: "https://api.llmgateway.io/v1",
 });
 
-// Works with any of 280+ models
+// Works with any of 200+ models
 const response = await client.chat.completions.create({
   model: "claude-sonnet-4-5",
   messages: [{ role: "user", content: "Hello!" }],
@@ -131,7 +131,7 @@ LiteLLM is an open-source Python proxy that translates OpenAI-compatible request
 
 **Pricing:** Free and open source. You pay for your own infrastructure.
 
-**Best for:** Python teams comfortable with self-hosting and managing their own infrastructure.
+**Best for:** Python teams comfortable with self-hosting and managing their own infrastructure. Outgrowing it? See the [best LiteLLM alternatives](/blog/litellm-alternatives).
 
 ---
 
@@ -252,7 +252,7 @@ AWS Bedrock provides access to foundation models through AWS infrastructure. It'
 | **Built-in Caching**    | Yes         | Beta       | Yes     | Built-in | No       | Yes          | Yes              | No          |
 | **Analytics Dashboard** | Yes         | Yes        | Yes     | Built-in | Yes      | Yes          | Basic            | CloudWatch  |
 | **Automatic Failover**  | Yes         | Yes        | Yes     | Config   | Limited  | Yes          | No               | No          |
-| **Guardrails**          | Yes         | Enterprise | Yes     | No       | No       | No           | No               | Yes         |
+| **Guardrails**          | Enterprise  | Enterprise | Yes     | No       | No       | No           | No               | Yes         |
 | **Models**              | 300+        | 400+       | 1,600+  | 100+     | N/A      | Hundreds     | ~20              | ~30         |
 | **Playground**          | Yes         | Yes        | No      | No       | No       | Yes          | No               | Yes         |
 
@@ -260,7 +260,7 @@ AWS Bedrock provides access to foundation models through AWS infrastructure. It'
 
 **You want full control and no lock-in:** LLM Gateway is the only option that's open source, self-hostable, and charges zero markup on your own keys. You get enterprise features without enterprise pricing.
 
-**You want the widest model selection:** LLM Gateway and OpenRouter both offer extensive catalogs. LLM Gateway covers 280+ models with the added benefit of self-hosting and BYOK.
+**You want the widest model selection:** LLM Gateway and OpenRouter both offer extensive catalogs. LLM Gateway covers 200+ models with the added benefit of self-hosting and BYOK.
 
 **You want observability above all:** Helicone is purpose-built for logging and analytics, though LLM Gateway and Portkey offer comparable dashboards with full gateway capabilities included.
 
@@ -282,4 +282,4 @@ If you want to try the top pick, you can be running in under two minutes:
 
 That's it. Your existing code works. Every request gets logged, cached, and tracked automatically.
 
-**[Create a free account](https://llmgateway.io/signup)** | **[Browse 280+ models](https://llmgateway.io/models)** | **[Read the docs](https://docs.llmgateway.io)**
+**[Create a free account](https://llmgateway.io/signup)** | **[Browse 200+ models](https://llmgateway.io/models)** | **[Read the docs](https://docs.llmgateway.io)**

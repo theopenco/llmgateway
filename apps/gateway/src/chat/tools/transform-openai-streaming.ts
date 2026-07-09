@@ -10,10 +10,29 @@ function normalizeUsage(usage: any): any {
 		return usage;
 	}
 
+	// Some upstreams (e.g. SGLang-served deepseek-v3.2-maas on Vertex AI) emit an
+	// intermediate streaming chunk carrying a partial `usage` object that only has
+	// `prompt_tokens_details` and omits the core token counts. Forwarding it would
+	// produce `usage.prompt_tokens: undefined`, which fails strict client schemas
+	// (e.g. the AI SDK). Treat a usage object without the required token counts as
+	// "no usage" for this chunk rather than emitting an invalid one.
+	const promptTokens = usage.prompt_tokens;
+	const completionTokens = usage.completion_tokens;
+	if (
+		typeof promptTokens !== "number" ||
+		typeof completionTokens !== "number"
+	) {
+		return null;
+	}
+	const totalTokens =
+		typeof usage.total_tokens === "number"
+			? usage.total_tokens
+			: promptTokens + completionTokens;
+
 	const normalizedUsage: any = {
-		prompt_tokens: usage.prompt_tokens,
-		completion_tokens: usage.completion_tokens,
-		total_tokens: usage.total_tokens,
+		prompt_tokens: promptTokens,
+		completion_tokens: completionTokens,
+		total_tokens: totalTokens,
 	};
 
 	// Extract reasoning_tokens from completion_tokens_details if present
@@ -70,6 +89,17 @@ export function transformOpenaiStreaming(
 			...delta,
 			role: delta.role ?? "assistant",
 		};
+
+		// Some upstreams (e.g. the Tundra endpoint) emit an empty
+		// `tool_calls: []` array in the leading delta chunk. OpenAI never sends an
+		// empty tool_calls array, and downstream consumers treat any present
+		// tool_calls field as an actual tool-call delta, so drop it when empty.
+		if (
+			Array.isArray(newDelta.tool_calls) &&
+			newDelta.tool_calls.length === 0
+		) {
+			delete newDelta.tool_calls;
+		}
 
 		const normalizedReasoning =
 			newDelta.reasoning ??

@@ -4,6 +4,7 @@ import {
 	ClineIcon,
 	CodexIcon,
 	CursorIcon,
+	DevPassCodeIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -27,6 +28,13 @@ export interface AgentDefinition {
 }
 
 export const AGENTS: AgentDefinition[] = [
+	{
+		id: "devpass-code",
+		label: "DevPass Code",
+		icon: DevPassCodeIcon,
+		sources: ["devpass-code"],
+		guideUrl: "/guides/devpass-code",
+	},
 	{
 		id: "claude-code",
 		label: "Claude Code",

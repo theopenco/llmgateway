@@ -1,5 +1,5 @@
 ---
-id: "56"
+id: "62"
 slug: "claude-fable-5-access-suspended"
 date: "2026-06-13"
 title: "Claude Fable 5 Access Suspended"

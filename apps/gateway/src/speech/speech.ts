@@ -19,7 +19,10 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
-import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findOrganizationById,
@@ -266,7 +269,7 @@ function findSpeechMapping(modelId: string): {
 			if (requestedProvider && candidate.providerId !== requestedProvider) {
 				continue;
 			}
-			if (model.id === modelKey || candidate.externalId === modelKey) {
+			if (model.id === modelKey) {
 				return {
 					mapping: candidate,
 					modelDef: model,
@@ -570,8 +573,6 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	assertApiKeyWithinUsageLimits(apiKey);
-
 	const project = await findProjectById(apiKey.projectId);
 	if (!project) {
 		throw new HTTPException(500, { message: "Could not find project" });
@@ -581,6 +582,12 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
+
+	// User-level limits take priority: enforce the per-member budget (set on the
+	// Teams page; fails open on read errors) before the per-key usage limits, so a
+	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	const organization = await findOrganizationById(project.organizationId);
 	if (!organization) {

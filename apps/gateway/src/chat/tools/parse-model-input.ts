@@ -72,15 +72,8 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 					m.providers.some((p) => p.providerId === requestedProvider),
 			);
 
-			// Fall back to matching by model name only
+			// Fall back to matching by catalog id only
 			modelDef ??= models.find((m) => m.id === modelName);
-
-			modelDef ??= models.find((m) =>
-				m.providers.some(
-					(p) =>
-						p.externalId === modelName && p.providerId === requestedProvider,
-				),
-			);
 
 			if (!modelDef) {
 				throw new HTTPException(400, {
@@ -94,24 +87,15 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 				});
 			}
 
-			const providerMapping = modelDef.providers.find(
-				(p) => p.providerId === requestedProvider,
-			);
-			requestedModel = (providerMapping?.externalId ?? modelName) as Model;
+			// Use the canonical catalog id, never the upstream externalId: two
+			// catalog entries (e.g. a free and a paid sibling) can share the same
+			// externalId, so collapsing to externalId here would let downstream
+			// resolution pick the wrong entry. The upstream externalId is derived
+			// separately from the selected provider mapping at request time.
+			requestedModel = modelDef.id as Model;
 		}
 	} else if (models.find((m) => m.id === modelInput)) {
 		requestedModel = modelInput as Model;
-	} else if (
-		models.find((m) => m.providers.find((p) => p.externalId === modelInput))
-	) {
-		const model = models.find((m) =>
-			m.providers.find((p) => p.externalId === modelInput),
-		);
-		const provider = model?.providers.find((p) => p.externalId === modelInput);
-
-		throw new HTTPException(400, {
-			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.id}`,
-		});
 	} else {
 		throw new HTTPException(400, {
 			message: `Requested model ${modelInput} not supported`,

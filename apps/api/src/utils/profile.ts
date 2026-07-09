@@ -61,6 +61,7 @@ export const profileSchema = z.object({
 // Coding-agent x-source values that count toward a profile's agent stats.
 // Mirrors the AGENTS definitions used by the DevPass dashboard UI.
 export const CODING_AGENT_SOURCES = [
+	"devpass-code",
 	"claude.com/claude-code",
 	"opencode",
 	"open-code",

@@ -74,16 +74,21 @@ export default async function BlogPage() {
 export async function generateMetadata() {
 	return {
 		title: "Blog — News, Tutorials, and Deep-Dives",
-		description: "News, tutorials, and deep-dives from the LLM Gateway team.",
+		description:
+			"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, routing, costs, and building with LLMs.",
+		alternates: { canonical: "/blog" },
 		openGraph: {
 			title: "Blog — News, Tutorials, and Deep-Dives",
-			description: "News, tutorials, and deep-dives from the LLM Gateway team.",
+			description:
+				"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, routing, costs, and building with LLMs.",
 			type: "website",
+			url: "https://llmgateway.io/blog",
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: "Blog — News, Tutorials, and Deep-Dives",
-			description: "News, tutorials, and deep-dives from the LLM Gateway team.",
+			description:
+				"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, routing, and building with LLMs.",
 		},
 	};
 }

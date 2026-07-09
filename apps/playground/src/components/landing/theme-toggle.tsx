@@ -1,6 +1,6 @@
 "use client";
 
-import { Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
@@ -11,129 +11,59 @@ interface ThemeToggleProps {
 	size?: "default" | "compact";
 }
 
+const THEME_OPTIONS = [
+	{ value: "light", label: "Light", Icon: Sun },
+	{ value: "dark", label: "Dark", Icon: Moon },
+	{ value: "system", label: "System (default)", Icon: Monitor },
+] as const;
+
 export function ThemeToggle({ className, size = "default" }: ThemeToggleProps) {
-	const { theme, setTheme, systemTheme } = useTheme();
+	const { theme, setTheme } = useTheme();
 	const [mounted, setMounted] = useState(false);
-	const currentTheme = theme === "system" ? systemTheme : theme;
-	const isDark = currentTheme === "dark";
-	const sizeClasses =
-		size === "compact"
-			? {
-					root: "h-7 w-14",
-					knob: "size-5",
-					icon: "size-3.5",
-					translate: "translate-x-7",
-					negativeTranslate: "-translate-x-7",
-				}
-			: {
-					root: "h-8 w-16",
-					knob: "size-6",
-					icon: "size-4",
-					translate: "translate-x-8",
-					negativeTranslate: "-translate-x-8",
-				};
 
 	useEffect(() => setMounted(true), []);
 
-	if (!mounted) {
-		return (
-			<div
-				aria-hidden="true"
-				className={cn(
-					"flex p-1 rounded-full cursor-pointer transition-all duration-300",
-					sizeClasses.root,
-					"bg-white border border-zinc-200",
-					className,
-				)}
-			>
-				<div className="flex justify-between items-center w-full">
-					<div
-						className={cn(
-							"flex justify-center items-center rounded-full transition-transform duration-300 transform bg-gray-200",
-							sizeClasses.knob,
-							sizeClasses.translate,
-						)}
-					>
-						<Sun
-							className={cn(sizeClasses.icon, "text-gray-700")}
-							strokeWidth={1.5}
-						/>
-					</div>
-					<div
-						className={cn(
-							"flex justify-center items-center rounded-full transition-transform duration-300 transform",
-							sizeClasses.knob,
-							sizeClasses.negativeTranslate,
-						)}
-					>
-						<Moon
-							className={cn(sizeClasses.icon, "text-black")}
-							strokeWidth={1.5}
-						/>
-					</div>
-				</div>
-			</div>
-		);
-	}
+	const sizeClasses =
+		size === "compact"
+			? { root: "h-7 gap-0.5 p-0.5", button: "size-6", icon: "size-3.5" }
+			: { root: "h-8 gap-1 p-1", button: "size-6", icon: "size-4" };
+
+	// Default to "system" until mounted to keep SSR markup stable.
+	const active = mounted ? (theme ?? "system") : "system";
 
 	return (
-		<button
-			aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+		<div
+			aria-label="Theme"
 			className={cn(
-				"flex p-1 rounded-full cursor-pointer transition-all duration-300",
+				"inline-flex items-center rounded-full border border-zinc-200 bg-white transition-colors dark:border-zinc-800 dark:bg-zinc-950",
 				sizeClasses.root,
-				isDark
-					? "bg-zinc-950 border border-zinc-800"
-					: "bg-white border border-zinc-200",
 				className,
 			)}
-			onClick={() => setTheme(isDark ? "light" : "dark")}
-			type="button"
+			role="radiogroup"
 		>
-			<div className="flex justify-between items-center w-full">
-				<div
-					className={cn(
-						"flex justify-center items-center rounded-full transition-transform duration-300",
-						sizeClasses.knob,
-						isDark
-							? "transform translate-x-0 bg-zinc-800"
-							: `transform ${sizeClasses.translate} bg-gray-200`,
-					)}
-				>
-					{isDark ? (
-						<Moon
-							className={cn(sizeClasses.icon, "text-white")}
-							strokeWidth={1.5}
-						/>
-					) : (
-						<Sun
-							className={cn(sizeClasses.icon, "text-gray-700")}
-							strokeWidth={1.5}
-						/>
-					)}
-				</div>
-				<div
-					className={cn(
-						"flex justify-center items-center rounded-full transition-transform duration-300",
-						sizeClasses.knob,
-						isDark
-							? "bg-transparent"
-							: `transform ${sizeClasses.negativeTranslate}`,
-					)}
-				>
-					{isDark ? (
-						<Sun
-							className={cn(sizeClasses.icon, "text-gray-500")}
-							strokeWidth={1.5}
-						/>
-					) : (
-						<Moon
-							className={cn(sizeClasses.icon, "text-black")}
-							strokeWidth={1.5}
-						/>
-					)}
-				</div>
-			</div>
-		</button>
+			{THEME_OPTIONS.map(({ value, label, Icon }) => {
+				const isActive = mounted && active === value;
+				return (
+					<button
+						aria-checked={isActive}
+						aria-label={label}
+						className={cn(
+							"flex items-center justify-center rounded-full transition-colors",
+							sizeClasses.button,
+							isActive
+								? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-white"
+								: "text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200",
+						)}
+						key={value}
+						onClick={() => setTheme(value)}
+						role="radio"
+						title={label}
+						type="button"
+					>
+						<Icon className={sizeClasses.icon} strokeWidth={1.5} />
+					</button>
+				);
+			})}
+		</div>
 	);
 }

@@ -4,7 +4,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Loader2, KeySquare, Eye, EyeOff, ArrowRight } from "lucide-react";
+import {
+	Loader2,
+	KeySquare,
+	Eye,
+	EyeOff,
+	ArrowRight,
+	Building2,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -27,6 +34,9 @@ import {
 } from "@/lib/components/form";
 import { Input } from "@/lib/components/input";
 import { toast } from "@/lib/components/use-toast";
+import { useAppConfig } from "@/lib/config";
+
+import type { Route } from "next";
 
 const formSchema = z.object({
 	email: z.string().email({
@@ -44,9 +54,22 @@ export default function Login() {
 	const [isLoading, setIsLoading] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
 	const { signIn } = useAuth();
+	const { ssoEnabled } = useAppConfig();
+
+	// Support a post-login `?redirect=` target (e.g. the CLI connect flow). Only
+	// same-origin relative paths are honored to avoid open-redirects.
+	const [redirectTarget] = useState(() => {
+		if (typeof window === "undefined") {
+			return "/dashboard";
+		}
+		const target = new URLSearchParams(window.location.search).get("redirect");
+		return target && target.startsWith("/") && !target.startsWith("//")
+			? target
+			: "/dashboard";
+	});
 
 	useUser({
-		redirectTo: "/dashboard",
+		redirectTo: redirectTarget,
 		redirectWhen: "authenticated",
 		checkOnboarding: true,
 	});
@@ -93,7 +116,7 @@ export default function Login() {
 			if (res?.data) {
 				queryClient.clear();
 				posthog.capture("user_logged_in", { method: "passkey" });
-				router.push("/dashboard");
+				router.push(redirectTarget as Route);
 			} else if (res?.error) {
 				if (res.error.message?.toLowerCase().includes("cancelled")) {
 					return;
@@ -129,7 +152,7 @@ export default function Login() {
 						email: values.email,
 					});
 					toast({ title: "Login successful" });
-					router.push("/dashboard");
+					router.push(redirectTarget as Route);
 				},
 				onError: (ctx) => {
 					toast({
@@ -166,10 +189,60 @@ export default function Login() {
 			}
 			posthog.capture("user_logged_in", { method: "passkey" });
 			toast({ title: "Login successful" });
-			router.push("/dashboard");
+			router.push(redirectTarget as Route);
 		} catch (error: unknown) {
 			toast({
 				title: (error as Error)?.message || "Failed to sign in with passkey",
+				variant: "destructive",
+			});
+		} finally {
+			setIsLoading(false);
+		}
+	}
+
+	async function handleSsoSignIn() {
+		const email = form.getValues("email");
+		const parsed = z.string().email().safeParse(email);
+		if (!parsed.success) {
+			// Send the user to the dedicated SSO page, which asks only for a work
+			// email — clearer than the full email+password form when SSO only needs
+			// the email. Carry over whatever they've already typed.
+			const query = email ? `?email=${encodeURIComponent(email)}` : "";
+			router.push(`/sso${query}` as Route);
+			return;
+		}
+
+		setIsLoading(true);
+		// Abort the pending conditional (autofill) passkey ceremony so it can't pop a
+		// native passkey/biometric prompt after the SSO redirect.
+		WebAuthnAbortService.cancelCeremony();
+		try {
+			const origin = location.protocol + "//" + location.host;
+			// Carry the validated `?redirect=` target through the error path too, so a
+			// failed SSO attempt returns to /login with the intended destination and a
+			// retry still lands the user there.
+			const errorUrl = new URL("/login", origin);
+			if (redirectTarget !== "/dashboard") {
+				errorUrl.searchParams.set("redirect", redirectTarget);
+			}
+			const res = await signIn.sso({
+				email: parsed.data,
+				// Honor the same validated `?redirect=` target as the other sign-in
+				// methods so SSO users also land on their intended post-login route.
+				callbackURL: origin + redirectTarget,
+				errorCallbackURL: errorUrl.toString(),
+			});
+			if (res?.error) {
+				toast({
+					title:
+						res.error.message ??
+						"No SSO connection found for this email domain",
+					variant: "destructive",
+				});
+			}
+		} catch (error: unknown) {
+			toast({
+				title: (error as Error)?.message || "Failed to sign in with SSO",
 				variant: "destructive",
 			});
 		} finally {
@@ -298,7 +371,7 @@ export default function Login() {
 				<SocialAuthButtons
 					isLoading={isLoading}
 					setIsLoading={setIsLoading}
-					callbackPath="/dashboard"
+					callbackPath={redirectTarget}
 					errorCallbackPath="/login"
 				/>
 
@@ -315,6 +388,22 @@ export default function Login() {
 					)}
 					Sign in with passkey
 				</Button>
+
+				{ssoEnabled && (
+					<Button
+						onClick={handleSsoSignIn}
+						variant="outline"
+						className="w-full"
+						disabled={isLoading}
+					>
+						{isLoading ? (
+							<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+						) : (
+							<Building2 className="mr-2 h-4 w-4" />
+						)}
+						Sign in with SSO
+					</Button>
+				)}
 			</div>
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">

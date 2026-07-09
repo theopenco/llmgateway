@@ -1,5 +1,6 @@
 import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
+import { slugify } from "@/lib/slugify";
 
 import {
 	models as modelDefinitions,
@@ -8,17 +9,50 @@ import {
 
 import type { MetadataRoute } from "next";
 
-function slugify(label: string) {
-	return label
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/(^-|-$)/g, "");
-}
-
 // Stable per-deploy timestamp. Using a single build-time date (instead of a
 // fresh `new Date()` per URL/request) keeps `lastModified` from reporting
 // "changed just now" on every crawl, which trains search engines to ignore it.
 const buildDate = new Date();
+
+// Most recent provider release date across the catalog. Used as the timeline
+// page's `lastModified` so it reflects real content freshness (a new model)
+// rather than the deploy time.
+const latestModelReleaseDate = (() => {
+	let latest = new Date(0);
+	for (const model of modelDefinitions) {
+		if ("releasedAt" in model && model.releasedAt) {
+			const date = new Date(model.releasedAt);
+			if (!Number.isNaN(date.getTime()) && date.getTime() > latest.getTime()) {
+				latest = date;
+			}
+		}
+	}
+	return latest.getTime() === 0 ? buildDate : latest;
+})();
+
+// Distinct release years across the catalog plus the latest release date within
+// each year, used to emit /timeline/{year} hub children. Using the per-year
+// latest release as `lastModified` keeps historical year pages from reporting a
+// change on every deploy.
+const timelineYears = (() => {
+	const latestByYear = new Map<number, Date>();
+	for (const model of modelDefinitions) {
+		if ("releasedAt" in model && model.releasedAt) {
+			const date = new Date(model.releasedAt);
+			if (Number.isNaN(date.getTime())) {
+				continue;
+			}
+			const year = date.getUTCFullYear();
+			const current = latestByYear.get(year);
+			if (!current || date.getTime() > current.getTime()) {
+				latestByYear.set(year, date);
+			}
+		}
+	}
+	return Array.from(latestByYear.entries())
+		.map(([year, lastModified]) => ({ year, lastModified }))
+		.sort((a, b) => b.year - a.year);
+})();
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
@@ -102,9 +136,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/timeline`,
-			lastModified: buildDate,
-			changeFrequency: "monthly",
-			priority: 0.5,
+			lastModified: latestModelReleaseDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/brand`,
@@ -215,6 +249,54 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/models/roleplay`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/coding`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/creative-writing`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/translation`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/math`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/long-context`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/cheapest`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/open-source`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/mcp`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",
@@ -237,6 +319,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/compare/aws-bedrock`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/azure-ai-foundry`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/compare/litellm`,
@@ -281,19 +375,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		});
 
-		// Model uptime page
-		modelPages.push({
-			url: `${baseUrl}/models/${encodeURIComponent(model.id)}/uptime`,
-			lastModified: buildDate,
-			changeFrequency: "daily",
-			priority: 0.5,
-		});
-
-		// Model + provider sub-pages (/models/{id}/{provider}) are intentionally
-		// excluded from the sitemap: they canonicalize to the base model page
-		// (/models/{id}), so listing them here only inflates Search Console's
-		// "Alternate page with proper canonical tag" report without adding any
-		// indexable URLs. Google still discovers them via internal links.
+		// Model uptime pages and model+provider sub-pages are intentionally
+		// excluded from the sitemap: uptime pages are thin templates that
+		// inflate crawl budget (~300 URLs), and provider sub-pages canonicalize
+		// to the base model page. Google still discovers both via internal links.
 	}
 
 	// Provider pages
@@ -399,8 +484,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.7,
 		}));
 
+	// Per-year timeline hub children (/timeline/{year})
+	const currentYear = buildDate.getFullYear();
+	const timelineYearPages: MetadataRoute.Sitemap = timelineYears.map(
+		({ year, lastModified }) => ({
+			url: `${baseUrl}/timeline/${year}`,
+			lastModified,
+			changeFrequency: year === currentYear ? "weekly" : "monthly",
+			priority: year === currentYear ? 0.7 : 0.6,
+		}),
+	);
+
 	return [
 		...staticPages,
+		...timelineYearPages,
 		...modelPages,
 		...providerPages,
 		...featurePages,

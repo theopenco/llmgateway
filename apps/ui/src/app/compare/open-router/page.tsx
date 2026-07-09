@@ -24,7 +24,7 @@ const openRouterFaqs: CompareFaqItem[] = [
 	{
 		question: "Which models and providers are supported?",
 		answer:
-			"280+ models across 35+ providers — including GPT, Claude, Gemini, Llama, and Mistral — with new releases typically added within 48 hours of launch.",
+			"200+ models across 40+ providers — including GPT, Claude, Gemini, Llama, and Mistral — with new releases typically added within 48 hours of launch.",
 	},
 	{
 		question: "Can I switch from OpenRouter easily?",
@@ -54,18 +54,20 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs OpenRouter — Feature Comparison",
 		description:
-			"Compare LLM Gateway's advanced routing, analytics, and cost optimization features against OpenRouter's basic proxy service. See why developers choose our unified API gateway for production LLM applications.",
+			"Compare routing, analytics, and cost optimization vs OpenRouter. See why teams choose a unified API gateway for production LLMs.",
+		alternates: { canonical: "/compare/open-router" },
 		openGraph: {
-			title: "LLM Gateway vs OpenRouter - Feature Comparison",
+			title: "LLM Gateway vs OpenRouter — Feature Comparison",
 			description:
-				"Compare LLM Gateway's advanced routing, analytics, and cost optimization features against OpenRouter's basic proxy service. See why developers choose our unified API gateway for production LLM applications.",
+				"Compare routing, analytics, and cost optimization vs OpenRouter. See why teams choose a unified API gateway for production LLMs.",
 			type: "website",
+			url: "https://llmgateway.io/compare/open-router",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs OpenRouter - Feature Comparison",
+			title: "LLM Gateway vs OpenRouter — Feature Comparison",
 			description:
-				"Compare LLM Gateway's advanced routing, analytics, and cost optimization features against OpenRouter's basic proxy service.",
+				"Compare routing, analytics, and cost optimization vs OpenRouter for production LLMs.",
 		},
 	};
 }

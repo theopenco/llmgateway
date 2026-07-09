@@ -26,8 +26,8 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { Textarea } from "@/lib/components/textarea";
-import { useAppConfig } from "@/lib/config";
 import { countries } from "@/lib/countries";
+import { useApi } from "@/lib/fetch-client";
 
 import { CalendlyInline } from "./calendly-inline";
 
@@ -39,6 +39,9 @@ const contactFormSchema = z.object({
 	email: z.string().email("Invalid email address"),
 	country: z.string().min(1, "Please select a country"),
 	size: z.string().min(1, "Please select company size"),
+	deployment: z.enum(["self_host", "cloud", "not_sure"], {
+		message: "Please select a deployment preference",
+	}),
 	message: z.string().min(10, "Message must be at least 10 characters"),
 	honeypot: z.string().optional(),
 	timestamp: z.number().optional(),
@@ -47,10 +50,12 @@ const contactFormSchema = z.object({
 type ContactFormData = z.infer<typeof contactFormSchema>;
 
 export function ContactFormEnterprise() {
-	const config = useAppConfig();
+	const api = useApi();
 	const posthog = usePostHog();
+	const submitContact = api.useMutation("post", "/public/contact/enterprise");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
+	const [directBooking, setDirectBooking] = useState(false);
 	const [scheduled, setScheduled] = useState<{ name: string; email: string }>({
 		name: "",
 		email: "",
@@ -64,6 +69,7 @@ export function ContactFormEnterprise() {
 			email: "",
 			country: "",
 			size: "",
+			deployment: undefined,
 			message: "",
 			honeypot: "",
 			timestamp: formLoadTime,
@@ -79,28 +85,17 @@ export function ContactFormEnterprise() {
 		posthog.capture("enterprise_contact_submitted", {
 			country: data.country,
 			companySize: data.size,
+			deployment: data.deployment,
 		});
 		setIsSubmitting(true);
 		try {
-			const response = await fetch(
-				`${config.apiUrl}/public/contact/enterprise`,
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify(data),
-				},
-			);
-			const result = (await response.json()) as {
-				success: boolean;
-				message?: string;
-			};
+			const result = await submitContact.mutateAsync({ body: data });
 
-			if (response.ok && result.success) {
+			if (result.success) {
 				posthog.capture("enterprise_contact_success", {
 					country: data.country,
 					companySize: data.size,
+					deployment: data.deployment,
 				});
 				setScheduled({ name: data.name, email: data.email });
 				setIsSuccess(true);
@@ -113,10 +108,13 @@ export function ContactFormEnterprise() {
 					description: result.message ?? "Please try again later.",
 				});
 			}
-		} catch {
-			toast.error("Something went wrong", {
-				description: "Please try again later or contact us directly.",
-			});
+		} catch (error) {
+			// Spam/rate-limit responses come back as typed error bodies with a
+			// message; fall back to a generic note for transport failures.
+			const description =
+				(error as { message?: string } | undefined)?.message ??
+				"Please try again later or contact us directly.";
+			toast.error("Failed to send message", { description });
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -137,7 +135,30 @@ export function ContactFormEnterprise() {
 					</div>
 
 					<div className="rounded-2xl border border-border bg-card/50 backdrop-blur-sm p-8 sm:p-10 shadow-lg">
-						{isSuccess ? (
+						{!isSuccess && (
+							<div className="mb-8 flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-4 text-center sm:flex-row sm:justify-between sm:text-left">
+								<p className="text-sm text-muted-foreground">
+									{directBooking
+										? "Prefer to write instead? Switch back to the form."
+										: "In a hurry? Skip the form and book a 20-min walkthrough directly."}
+								</p>
+								<Button
+									type="button"
+									variant="outline"
+									onClick={() => {
+										if (!directBooking) {
+											posthog.capture("enterprise_calendly_direct_opened");
+										}
+										setDirectBooking(!directBooking);
+									}}
+								>
+									{directBooking ? "Back to the form" : "Book a walkthrough"}
+								</Button>
+							</div>
+						)}
+						{!isSuccess && directBooking ? (
+							<CalendlyInline url={CALENDLY_ENTERPRISE_URL} />
+						) : isSuccess ? (
 							<div className="py-4">
 								<div className="text-center">
 									<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">
@@ -315,6 +336,41 @@ export function ContactFormEnterprise() {
 											)}
 										/>
 									</div>
+
+									<FormField
+										control={form.control}
+										name="deployment"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>
+													How do you plan to run LLMGateway?{" "}
+													<span className="text-destructive">*</span>
+												</FormLabel>
+												<Select
+													onValueChange={field.onChange}
+													defaultValue={field.value}
+												>
+													<FormControl>
+														<SelectTrigger className="w-full bg-background h-11">
+															<SelectValue placeholder="Select deployment preference" />
+														</SelectTrigger>
+													</FormControl>
+													<SelectContent>
+														<SelectItem value="cloud">
+															Cloud (managed)
+														</SelectItem>
+														<SelectItem value="self_host">
+															Self-hosted
+														</SelectItem>
+														<SelectItem value="not_sure">
+															Not sure yet
+														</SelectItem>
+													</SelectContent>
+												</Select>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
 
 									<FormField
 										control={form.control}

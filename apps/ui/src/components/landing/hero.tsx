@@ -9,6 +9,7 @@ import { Button } from "@/lib/components/button";
 import { ShimmerButton } from "@/lib/components/shimmer-button";
 import { useAppConfig } from "@/lib/config";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
 import { providerLogoUrls } from "@llmgateway/shared/components";
 
 import { AnimatedGroup } from "./animated-group";
@@ -197,13 +198,14 @@ export function Hero({
 								<div className="text-center max-w-4xl mx-auto">
 									<AnimatedGroup variants={transitionVariants}>
 										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
-											LLM Gateway — One API for OpenAI, Anthropic, Google, and
-											35+ providers
+											LLM Gateway — One API for {MARKETING_STATS.providers}{" "}
+											providers, including OpenAI, Anthropic, and Google
 										</h1>
 										<p className="mt-4 md:mt-6 max-w-2xl mx-auto text-balance text-base md:text-lg text-muted-foreground">
 											Stop juggling API keys and provider dashboards. Route
-											requests across 280+ models, track costs in real-time, and
-											switch providers without changing your code.
+											requests across {MARKETING_STATS.models} models, track
+											costs in real-time, and switch providers without changing
+											your code.
 										</p>
 									</AnimatedGroup>
 
@@ -254,7 +256,7 @@ export function Hero({
 														clipRule="evenodd"
 													/>
 												</svg>
-												Free tier included
+												Bring your own keys — free forever
 											</span>
 											<span className="flex items-center gap-1.5">
 												<svg

@@ -2,7 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
+import {
+	getActiveUserOrganizationIds,
+	getUserProjectIds,
+	userHasProjectAccess,
+} from "@/utils/authorization.js";
 
 import {
 	and,
@@ -453,9 +457,14 @@ logs.openapi(get, async (c) => {
 		});
 	}
 
-	const projectIds = projects.map((project) => project.id);
+	// Intersect with RBAC-aware access so project-scoped "developer" members only
+	// see logs for the projects granted to them.
+	const accessibleProjectIds = new Set(await getUserProjectIds(user.id));
+	const projectIds = projects
+		.map((project) => project.id)
+		.filter((id) => accessibleProjectIds.has(id));
 
-	// If projectId is provided but not found in user's projects, deny access
+	// If projectId is provided but not found in user's accessible projects, deny
 	if (projectId && !projectIds.includes(projectId)) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
@@ -790,9 +799,14 @@ logs.openapi(uniqueModelsGet, async (c) => {
 		});
 	}
 
-	const projectIds = projects.map((project) => project.id);
+	// Intersect with RBAC-aware access so project-scoped "developer" members only
+	// see logs for the projects granted to them.
+	const accessibleProjectIds = new Set(await getUserProjectIds(user.id));
+	const projectIds = projects
+		.map((project) => project.id)
+		.filter((id) => accessibleProjectIds.has(id));
 
-	// If projectId is provided but not found in user's projects, deny access
+	// If projectId is provided but not found in user's accessible projects, deny
 	if (projectId && !projectIds.includes(projectId)) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
@@ -881,10 +895,9 @@ logs.openapi(getById, async (c) => {
 		throw new HTTPException(404, { message: "Log not found" });
 	}
 
-	// Verify user has access to this log's organization
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
-
-	if (!organizationIds.includes(log.organizationId)) {
+	// Verify the user can access this log's project (RBAC-aware: developers are
+	// limited to their granted projects).
+	if (!(await userHasProjectAccess(user.id, log.projectId))) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this log",
 		});

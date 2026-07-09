@@ -260,12 +260,6 @@ function AmountStep({
 
 	const hasBonus = feeData?.bonusAmount && feeData.bonusAmount > 0;
 
-	useEffect(() => {
-		if (feeData?.bonusType === "second_topup" && feeData.bonusEligible) {
-			posthog.capture("second_topup_bonus_eligible_viewed");
-		}
-	}, [feeData?.bonusType, feeData?.bonusEligible, posthog]);
-
 	const handleStripeCheckout = async () => {
 		posthog.capture("topup_stripe_checkout_started", { amount });
 		setCheckoutLoading(true);
@@ -300,22 +294,6 @@ function AmountStep({
 				</DialogDescription>
 			</DialogHeader>
 			<div className="space-y-5 py-2">
-				{feeData?.bonusType === "second_topup" &&
-					feeData.secondTopupBonusExpiresInDays !== undefined && (
-						<div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950/30">
-							<p className="text-sm font-medium text-green-800 dark:text-green-200">
-								Get +
-								{Math.round(
-									((feeData.bonusAmount ?? 0) / (feeData.baseAmount || 1)) *
-										100,
-								)}
-								% bonus on this top-up — expires in{" "}
-								{feeData.secondTopupBonusExpiresInDays} day
-								{feeData.secondTopupBonusExpiresInDays !== 1 ? "s" : ""}
-							</p>
-						</div>
-					)}
-
 				{/* Hero amount input */}
 				<div className="flex flex-col items-center gap-1.5 pt-1">
 					<Label htmlFor="amount" className="sr-only">
@@ -449,11 +427,9 @@ function AmountStep({
 									<div className="-mx-2 flex justify-between rounded bg-green-50 px-2 py-1 font-semibold text-green-600 dark:bg-green-950/50 dark:text-green-400">
 										<span>
 											🎉{" "}
-											{feeData.bonusType === "second_topup"
-												? "Second top-up bonus"
-												: feeData.bonusType === "referral"
-													? "Referral bonus"
-													: "First-time bonus"}
+											{feeData.bonusType === "referral"
+												? "Referral bonus"
+												: "First-time bonus"}
 										</span>
 										<span className="tabular-nums">
 											+${feeData.bonusAmount.toFixed(2)}
@@ -1185,11 +1161,9 @@ function ConfirmPaymentStep({
 								<div className="flex justify-between text-green-600 font-semibold bg-green-50 dark:bg-green-950/50 -mx-2 px-2 py-1 rounded">
 									<span>
 										🎉{" "}
-										{feeData.bonusType === "second_topup"
-											? "Second top-up bonus"
-											: feeData.bonusType === "referral"
-												? "Referral bonus"
-												: "First-time bonus"}
+										{feeData.bonusType === "referral"
+											? "Referral bonus"
+											: "First-time bonus"}
 									</span>
 									<span>+${feeData.bonusAmount.toFixed(2)}</span>
 								</div>

@@ -35,6 +35,7 @@ export async function deleteAll() {
 
 	await Promise.all([
 		db.delete(tables.userOrganization),
+		db.delete(tables.organizationInvite),
 		db.delete(tables.project),
 	]);
 

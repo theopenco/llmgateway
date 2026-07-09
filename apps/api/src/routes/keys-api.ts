@@ -16,8 +16,10 @@ import {
 	eq,
 	getApiKeyCurrentPeriodState,
 	isValidApiKeyPeriodDuration,
+	resolveEffectiveMemberBudget,
 	shortid,
 	tables,
+	validateApiKeyLimitsWithinMemberBudget,
 	type ApiKeyPeriodDurationUnit,
 	type InferSelectModel,
 } from "@llmgateway/db";
@@ -426,7 +428,13 @@ const createPlatformKeySchema = z.object({
 	test: z.boolean().optional().default(false),
 });
 
-async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
+async function assertPlatformKeyAdminAccess(
+	userId: string,
+	projectId: string,
+	{
+		requirePaymentsSdkPreview = false,
+	}: { requirePaymentsSdkPreview?: boolean } = {},
+) {
 	const project = await db.query.project.findFirst({
 		where: {
 			id: { eq: projectId },
@@ -464,6 +472,17 @@ async function assertPlatformKeyAdminAccess(userId: string, projectId: string) {
 	if (!project.organization) {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+
+	// The Payments SDK is a preview feature that must be opted into directly in
+	// the database. Minting platform secrets is what lets a project actually use
+	// the SDK, so gate it on the same flag rather than relying on the dashboard
+	// button being disabled.
+	if (requirePaymentsSdkPreview && !project.paymentsSdkEnabled) {
+		throw new HTTPException(403, {
+			message:
+				"The Payments SDK is currently in preview and opt-in only. Contact us to enable it for your project.",
 		});
 	}
 
@@ -583,7 +602,9 @@ keysApi.openapi(createPlatformKey, async (c) => {
 	}
 
 	const { projectId, description, test } = c.req.valid("json");
-	const project = await assertPlatformKeyAdminAccess(user.id, projectId);
+	const project = await assertPlatformKeyAdminAccess(user.id, projectId, {
+		requirePaymentsSdkPreview: true,
+	});
 	const token = `sk_${test ? "test" : "live"}_${shortid(40)}`;
 
 	const [platformKey] = await db
@@ -771,6 +792,18 @@ export const createIamRuleSchema = z.object({
 	status: iamRuleStatusEnum.default("active"),
 });
 
+// Org-wide cap on active developer API keys. An explicit `organization.apiKeyLimit`
+// override (set by admins) always takes precedence over these plan defaults.
+export function resolveApiKeyLimit(
+	plan: string | null | undefined,
+	apiKeyLimit: number | null | undefined,
+): number {
+	if (apiKeyLimit !== null && apiKeyLimit !== undefined) {
+		return apiKeyLimit;
+	}
+	return plan === "enterprise" ? 500 : plan === "pro" ? 20 : 5;
+}
+
 // Create a new API key
 const create = createRoute({
 	method: "post",
@@ -810,6 +843,76 @@ export interface CreateApiKeyInput {
 	periodUsageDurationValue?: number | null;
 	periodUsageDurationUnit?: ApiKeyPeriodDurationUnit | null;
 	expiresAt?: Date | string | null;
+}
+
+interface MemberBudgetColumns {
+	role: "owner" | "admin" | "developer";
+	maxApiKeys: number | null;
+	usageLimit: string | null;
+	periodUsageLimit: string | null;
+	periodUsageDurationValue: number | null;
+	periodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+}
+
+interface OrgDeveloperDefaultColumns {
+	defaultDeveloperMaxApiKeys: number | null;
+	defaultDeveloperUsageLimit: string | null;
+	defaultDeveloperPeriodUsageLimit: string | null;
+	defaultDeveloperPeriodUsageDurationValue: number | null;
+	defaultDeveloperPeriodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+}
+
+/**
+ * Reject a proposed API-key limit that would exceed the key owner's effective
+ * member budget (their own caps, or the org-wide default developer caps that
+ * SSO-provisioned members inherit). The gateway enforces the member budget
+ * first at request time regardless, but keeping a key's own limit at or below
+ * the member limit keeps the configured numbers honest. No-op when the member
+ * has no budget.
+ */
+function assertApiKeyLimitsWithinMemberBudget(
+	membership: MemberBudgetColumns | null | undefined,
+	organization: OrgDeveloperDefaultColumns,
+	keyLimits: ApiKeyLimitConfig,
+): void {
+	if (!membership) {
+		return;
+	}
+
+	const budget = resolveEffectiveMemberBudget(
+		membership.role,
+		{
+			maxApiKeys: membership.maxApiKeys,
+			usageLimit: membership.usageLimit,
+			periodUsageLimit: membership.periodUsageLimit,
+			periodUsageDurationValue: membership.periodUsageDurationValue,
+			periodUsageDurationUnit: membership.periodUsageDurationUnit,
+		},
+		{
+			defaultDeveloperMaxApiKeys: organization.defaultDeveloperMaxApiKeys,
+			defaultDeveloperUsageLimit: organization.defaultDeveloperUsageLimit,
+			defaultDeveloperPeriodUsageLimit:
+				organization.defaultDeveloperPeriodUsageLimit,
+			defaultDeveloperPeriodUsageDurationValue:
+				organization.defaultDeveloperPeriodUsageDurationValue,
+			defaultDeveloperPeriodUsageDurationUnit:
+				organization.defaultDeveloperPeriodUsageDurationUnit,
+		},
+	);
+
+	const error = validateApiKeyLimitsWithinMemberBudget(
+		{
+			usageLimit: keyLimits.usageLimit,
+			periodUsageLimit: keyLimits.periodUsageLimit,
+			periodUsageDurationValue: keyLimits.periodUsageDurationValue,
+			periodUsageDurationUnit: keyLimits.periodUsageDurationUnit,
+		},
+		budget,
+	);
+
+	if (error) {
+		throw new HTTPException(400, { message: error });
+	}
 }
 
 export async function createApiKeyForProject(
@@ -864,22 +967,90 @@ export async function createApiKeyForProject(
 		});
 	}
 
-	const existingApiKeys = await db.query.apiKey.findMany({
+	const orgProjects = await db.query.project.findMany({
+		where: { organizationId: { eq: project.organization.id } },
+		columns: { id: true },
+	});
+	const orgProjectIds = orgProjects.map((p) => p.id);
+
+	// Org-wide cap on active developer API keys across all of the org's projects.
+	// Platform and hidden LLM SDK aggregate keys are excluded (keyType: "user").
+	const orgActiveApiKeys = await db.query.apiKey.findMany({
 		where: {
-			projectId: { eq: projectId },
-			status: { ne: "deleted" },
-			// Only count developer keys toward the per-project cap; platform and
-			// hidden LLM SDK aggregate keys are excluded.
+			projectId: { in: orgProjectIds },
+			status: { eq: "active" },
 			keyType: { eq: "user" },
+		},
+		columns: { id: true },
+	});
+
+	const maxApiKeys = resolveApiKeyLimit(
+		project.organization.plan,
+		project.organization.apiKeyLimit,
+	);
+
+	if (orgActiveApiKeys.length >= maxApiKeys) {
+		throw new HTTPException(400, {
+			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Contact us at contact@llmgateway.io to unlock more.`,
+		});
+	}
+
+	// Enforce the per-member active-key cap. The creator's own per-member cap
+	// wins; for developers with no explicit cap the org-wide default developer
+	// cap applies.
+	const creatorMembership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: project.organization.id },
+		},
+		columns: {
+			role: true,
+			maxApiKeys: true,
+			usageLimit: true,
+			periodUsageLimit: true,
+			periodUsageDurationValue: true,
+			periodUsageDurationUnit: true,
 		},
 	});
 
-	const maxApiKeys = project.organization.plan === "enterprise" ? 500 : 20;
+	// A key's limits must stay at or below the creator's effective member budget.
+	// Skipped for programmatic (master-key) creation, which has no interactive
+	// member context; the gateway still enforces the member budget at request time.
+	if (!options.skipAccessCheck) {
+		assertApiKeyLimitsWithinMemberBudget(
+			creatorMembership,
+			project.organization,
+			{
+				usageLimit: usageLimit ?? null,
+				periodUsageLimit: periodUsageLimit ?? null,
+				periodUsageDurationValue: periodUsageDurationValue ?? null,
+				periodUsageDurationUnit: periodUsageDurationUnit ?? null,
+			},
+		);
+	}
 
-	if (existingApiKeys.length >= maxApiKeys) {
-		throw new HTTPException(400, {
-			message: `API key limit reached. Maximum ${maxApiKeys} API keys per project. Contact us at contact@llmgateway.io to unlock more.`,
+	const effectiveMaxApiKeys =
+		creatorMembership?.maxApiKeys ??
+		(creatorMembership?.role === "developer"
+			? project.organization.defaultDeveloperMaxApiKeys
+			: null);
+
+	if (typeof effectiveMaxApiKeys === "number") {
+		const memberActiveKeys = await db.query.apiKey.findMany({
+			where: {
+				createdBy: { eq: userId },
+				status: { eq: "active" },
+				keyType: { eq: "user" },
+				projectId: { in: orgProjectIds },
+			},
+			columns: { id: true },
 		});
+
+		if (memberActiveKeys.length >= effectiveMaxApiKeys) {
+			throw new HTTPException(400, {
+				message: `You have reached your limit of ${effectiveMaxApiKeys} active API keys set by an organization admin.`,
+			});
+		}
 	}
 
 	const prefix =
@@ -1027,6 +1198,8 @@ keysApi.openapi(list, async (c) => {
 
 	// Determine user's role for the relevant organization
 	let userRole: "owner" | "admin" | "developer" = "developer";
+	// Project-scoped "developer" members may only ever see their OWN keys.
+	let developerScoped = false;
 	if (projectId) {
 		const project = await db.query.project.findFirst({
 			where: {
@@ -1042,12 +1215,14 @@ keysApi.openapi(list, async (c) => {
 			);
 			if (userOrg) {
 				userRole = userOrg.role as "owner" | "admin" | "developer";
+				developerScoped = userRole === "developer";
 			}
 		}
 	}
 
-	// All users can see all keys, but can still filter to "mine"
-	const shouldFilterByCreator = filter === "mine";
+	// Owners/admins see all keys (with an optional "mine" filter); developers are
+	// always restricted to the keys they created.
+	const shouldFilterByCreator = filter === "mine" || developerScoped;
 
 	// Get API keys for the specified project or all accessible projects
 	const apiKeys = await db.query.apiKey.findMany({
@@ -1076,7 +1251,9 @@ keysApi.openapi(list, async (c) => {
 		},
 	});
 
-	// Get organization plan info if projectId is specified
+	// Get organization plan info if projectId is specified. The cap is org-wide,
+	// so currentCount counts active developer keys across ALL of the org's
+	// projects, not just the selected one.
 	let currentCount = 0;
 	let maxKeys = 0;
 	let plan: "free" | "pro" | "enterprise" = "free";
@@ -1095,8 +1272,21 @@ keysApi.openapi(list, async (c) => {
 
 		if (project?.organization) {
 			plan = project.organization.plan as "free" | "pro" | "enterprise";
-			maxKeys = plan === "enterprise" ? 500 : plan === "pro" ? 20 : 5;
-			currentCount = apiKeys.filter((key) => key.status !== "deleted").length;
+			maxKeys = resolveApiKeyLimit(plan, project.organization.apiKeyLimit);
+
+			const orgProjects = await db.query.project.findMany({
+				where: { organizationId: { eq: project.organization.id } },
+				columns: { id: true },
+			});
+			const orgActiveKeys = await db.query.apiKey.findMany({
+				where: {
+					projectId: { in: orgProjects.map((p) => p.id) },
+					status: { eq: "active" },
+					keyType: { eq: "user" },
+				},
+				columns: { id: true },
+			});
+			currentCount = orgActiveKeys.length;
 		}
 	}
 
@@ -1770,6 +1960,40 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 
 	const nextLimitConfig = mergeApiKeyLimitConfig(apiKey, limitUpdate);
 	parseApiKeyPeriodConfig(nextLimitConfig);
+
+	// The key's limits must stay at or below the key owner's effective member
+	// budget (their own caps, or the org-wide default developer caps).
+	const ownerMembership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: apiKey.createdBy },
+			organizationId: { eq: projectOrgId },
+		},
+		columns: {
+			role: true,
+			maxApiKeys: true,
+			usageLimit: true,
+			periodUsageLimit: true,
+			periodUsageDurationValue: true,
+			periodUsageDurationUnit: true,
+		},
+	});
+	const ownerOrg = await db.query.organization.findFirst({
+		where: { id: { eq: projectOrgId } },
+		columns: {
+			defaultDeveloperMaxApiKeys: true,
+			defaultDeveloperUsageLimit: true,
+			defaultDeveloperPeriodUsageLimit: true,
+			defaultDeveloperPeriodUsageDurationValue: true,
+			defaultDeveloperPeriodUsageDurationUnit: true,
+		},
+	});
+	if (ownerOrg) {
+		assertApiKeyLimitsWithinMemberBudget(
+			ownerMembership,
+			ownerOrg,
+			nextLimitConfig,
+		);
+	}
 
 	const periodConfigChanged = hasPeriodConfigChanged(apiKey, nextLimitConfig);
 

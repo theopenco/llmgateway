@@ -20,6 +20,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 To build a single app, ALWAYS use a Turbo filter (`turbo run build --filter=<app>`), e.g. `turbo run build --filter=gateway`. NEVER use `pnpm --filter <app> build` for builds: that runs the app's `tsc` directly without rebuilding workspace dependency packages first, so it compiles against stale `dist/` artifacts and produces spurious errors (missing `@llmgateway/*` modules, "value not in type union", etc.). Turbo's `build` depends on `^build`, so a Turbo filter builds the dependency packages in topological order first.
 
+Note: `apps/api` and `apps/gateway` build with plain `tsc` (`tsc && resolve-tspaths`) and run `node dist/serve.js` — there is no bundler. Bundler concepts like "mark a dependency as external" do not apply to these apps; runtime dependencies are ordinary `node_modules` imports. Only the Next.js frontends have a bundler.
+
 ### Code Quality
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
@@ -47,6 +49,13 @@ Do not run test files or suites in parallel unless the repository instructions f
 
 When running curl commands against the local API, you can use `test-token` as authentication.
 
+Every seeded account's password is its own email address (password == email). For example, log into the dashboard as `admin@example.com` with the password `admin@example.com`. This applies to all users created by `packages/db/src/seed.ts`, including:
+
+- `admin@example.com` — default test admin (owns "Test Organization" + a DevPass Pro workspace)
+- `enterprise@example.com` — owner of the enterprise org
+- `developer@example.com` — project-scoped developer in the enterprise org (RBAC testing)
+- the bulk demo users such as `alice.chen@techcorp.io`, `bob@startupinc.com`, etc.
+
 To test a specific provider in isolation (e.g. to reproduce a provider-specific failure without the gateway silently falling back to a healthy provider), pin the provider with the `provider/model` model string and disable fallback with the `x-no-fallback: true` header:
 
 ```bash
@@ -58,6 +67,31 @@ curl -N http://localhost:4001/v1/chat/completions \
 Without `x-no-fallback`, a failing pinned provider falls back to the next healthy provider, masking the error. Also note that the gateway caches responses (including errors) in Redis keyed on the request body, so vary the prompt when re-testing the same failure.
 
 Caveat: if you run multiple git worktrees (e.g. conductor workspaces), only one `pnpm dev` can own port :4001 — confirm which working tree is actually serving it (`lsof -a -p <pid> -d cwd -Fn`) before assuming your local edits are live, or launch your own build on a different `PORT`.
+
+#### Running the dev stack on alternate ports (avoiding worktree conflicts)
+
+When another worktree already owns the default ports, run your stack on an offset range instead of fighting for :4002/:3002/etc. The wiring is driven entirely by env vars — no code changes needed:
+
+- **API port**: `PORT` (default `4002`). The API's own base URL is `API_URL`.
+- **Frontends → API**: every frontend resolves the backend from `API_URL` (default `http://localhost:4002`), read server-side in `apps/*/src/lib/config-server.ts`. Set it to your relocated API for each frontend process.
+- **Auth + CORS**: the API reads `ORIGIN_URLS` (comma-separated CORS/better-auth trusted-origins allowlist; defaults to `localhost:3002..3006,4002`) and `UI_URL`. If you relocate a frontend you MUST add its new origin to `ORIGIN_URLS` or login/API calls fail CORS. Login itself works across ports because the better-auth session cookie is host-only for `localhost` (shared across all ports) — no `COOKIE_DOMAIN` change needed.
+
+Two gotchas:
+
+- The `ui`/`playground`/`code` `dev` scripts hard-code `--port` in `package.json`, so overriding `PORT` alone won't move them — run `next dev --port <n>` directly.
+- The API `dev` script loads `../../.env` via `node --env-file`; Node does NOT override already-exported process env, so vars you `export`/prefix on the command line win over `.env`.
+
+Example: API on :4102, UI on :3102, Playground on :3103 (run from repo root, backgrounded):
+
+```bash
+ORIGINS="http://localhost:3102,http://localhost:3103,http://localhost:4102"
+( cd apps/api && PORT=4102 API_URL=http://localhost:4102 UI_URL=http://localhost:3102 ORIGIN_URLS="$ORIGINS" \
+    node --enable-source-maps --env-file=../../.env dist/serve.js )        # build first: turbo run build --filter=api
+( cd apps/ui         && API_URL=http://localhost:4102 pnpm exec next dev --port 3102 --turbopack )
+( cd apps/playground && API_URL=http://localhost:4102 pnpm exec next dev --port 3103 --turbopack )
+```
+
+Running the built `dist/serve.js` gives no watch (rebuild + restart the API after code changes); swap in the `api` package's `dev` script if you want tsc-watch. All apps share the one Postgres/Redis on the default ports, so the relocated stack sees the same seeded DB.
 
 #### E2E Test Options
 
@@ -178,6 +212,8 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Apply DRY principles for code reuse
 - Do not add explicit caching or memoization around `process.env` reads or parsed env-var values unless there is a measured hot-path need
 - Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK. NEVER add helper functions (e.g. `makeModel(...)`/`makeProvider(...)`) that build model or provider definition objects, even when it means repeating fields across entries — write each model and provider mapping out in full as a plain object literal in the `models` array. Small shared `const` values are fine, but the definition objects themselves must not be constructed by a function.
+- Models and provider mappings in `packages/models` can NEVER be removed, only deactivated. To retire a model or provider mapping, set `deactivatedAt: new Date("YYYY-MM-DD")` (today's date) on the relevant provider mapping(s) instead of deleting the definition. Historical usage records and analytics reference these definitions, so deleting them breaks lookups.
+- In `packages/models`, ALWAYS express per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, and any other per-token price field) using `e-6` notation so the coefficient reads directly as USD per million tokens (e.g. `"1.4e-6"` for $1.40/M — the exact number providers publish). Never use `e-3` or other exponents for per-token prices. This does NOT apply to `requestPrice`, which is a flat USD amount charged per request (e.g. `"0.035"`), nor to `perSecondPrice`.
 - No unnecessary code comments
 - Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
 

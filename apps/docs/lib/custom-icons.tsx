@@ -3,6 +3,20 @@ import type { ComponentType, SVGProps } from "react";
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
 export const customIcons: Record<string, IconComponent> = {
+	Microsoft: (props) => (
+		<svg
+			style={{ flex: "none", lineHeight: "1" }}
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="currentColor"
+			{...props}
+		>
+			<path d="M2 2h9.5v9.5H2z" />
+			<path d="M12.5 2H22v9.5h-9.5z" />
+			<path d="M2 12.5h9.5V22H2z" />
+			<path d="M12.5 12.5H22V22h-9.5z" />
+		</svg>
+	),
 	N8n: (props) => (
 		<svg
 			style={{ flex: "none", lineHeight: "1" }}
@@ -77,6 +91,32 @@ export const customIcons: Record<string, IconComponent> = {
 		>
 			<path d="M180 240H60V120h120z" fill="currentColor" fillOpacity={0.5} />
 			<path d="M180 60H60v180h120zm60 240H0V0h240z" fill="currentColor" />
+		</svg>
+	),
+	DevPassCode: (props) => (
+		<svg
+			style={{ flex: "none", lineHeight: "1" }}
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			{...props}
+		>
+			<rect
+				x="2"
+				y="4"
+				width="20"
+				height="16"
+				rx="2"
+				stroke="currentColor"
+				strokeWidth="2"
+			/>
+			<path
+				d="m6 9 3 3-3 3M12 15h5"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			/>
 		</svg>
 	),
 	OpenClaw: (props) => (

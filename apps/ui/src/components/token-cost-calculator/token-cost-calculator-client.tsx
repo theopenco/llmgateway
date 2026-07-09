@@ -106,7 +106,7 @@ export function TokenCostCalculatorClient() {
 					</h1>
 					<p className="text-lg text-muted-foreground text-balance leading-relaxed max-w-2xl mx-auto">
 						Paste any prompt to get its exact token count, then see what it
-						costs on GPT-5, Claude, Gemini, and 280+ models — priced at each
+						costs on GPT-5, Claude, Gemini, and 200+ models — priced at each
 						provider&apos;s cheapest live rate with zero platform markup.
 					</p>
 					<div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
@@ -116,7 +116,7 @@ export function TokenCostCalculatorClient() {
 						</span>
 						<span className="flex items-center gap-1.5">
 							<Check className="h-4 w-4 text-green-500" />
-							280+ models
+							200+ models
 						</span>
 						<span className="flex items-center gap-1.5">
 							<Check className="h-4 w-4 text-green-500" />

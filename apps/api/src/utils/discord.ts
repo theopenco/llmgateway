@@ -252,10 +252,11 @@ export async function notifyEnterpriseContact(args: {
 	email: string;
 	country: string;
 	size: string;
+	deployment?: string | null;
 	message: string;
 	ipAddress?: string | null;
 }): Promise<void> {
-	const { name, email, country, size, message, ipAddress } = args;
+	const { name, email, country, size, deployment, message, ipAddress } = args;
 	const truncatedMessage =
 		message.length > 1000 ? `${message.slice(0, 1000)}…` : message;
 
@@ -271,6 +272,9 @@ export async function notifyEnterpriseContact(args: {
 						{ name: "Email", value: email, inline: true },
 						{ name: "Country", value: country, inline: true },
 						{ name: "Company Size", value: size, inline: true },
+						...(deployment
+							? [{ name: "Deployment", value: deployment, inline: true }]
+							: []),
 						...(ipAddress
 							? [{ name: "IP Address", value: ipAddress, inline: true }]
 							: []),

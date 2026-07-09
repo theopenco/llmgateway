@@ -63,7 +63,9 @@ export function resolveModelInfo(
 				? requestedModel.slice(0, lastColonIdx)
 				: requestedModel;
 
-		// First try to find by model ID
+		// Resolve strictly by catalog id. externalId is the upstream provider's
+		// model name and must never be used to identify a catalog entry — two
+		// entries (e.g. a free and a paid sibling) can share the same externalId.
 		// When a specific provider is requested, prefer the definition that includes that provider
 		let foundModel = requestedProvider
 			? models.find(
@@ -73,29 +75,6 @@ export function resolveModelInfo(
 				)
 			: undefined;
 		foundModel ??= models.find((m) => m.id === baseRequestedModel);
-
-		// If not found, search by provider external id
-		// If a specific provider is requested, match both externalId and providerId
-		if (!foundModel) {
-			if (requestedProvider) {
-				foundModel = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							(p.externalId === requestedModel ||
-								p.externalId === baseRequestedModel) &&
-							p.providerId === requestedProvider,
-					),
-				);
-			} else {
-				foundModel = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							p.externalId === requestedModel ||
-							p.externalId === baseRequestedModel,
-					),
-				);
-			}
-		}
 
 		if (!foundModel) {
 			throw new HTTPException(400, {

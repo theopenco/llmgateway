@@ -25,7 +25,11 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import { providers, type ProviderDefinition } from "@llmgateway/models";
+import {
+	providers,
+	isStealthProvider,
+	type ProviderDefinition,
+} from "@llmgateway/models";
 
 import { ProviderSelect } from "./provider-select";
 
@@ -62,6 +66,9 @@ export function CreateProviderKeyDialog({
 		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
+	const [vertexTokenType, setVertexTokenType] = useState<"api-key" | "oauth">(
+		"api-key",
+	);
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -77,8 +84,11 @@ export function CreateProviderKeyDialog({
 	const effectiveRegion =
 		(selectedRegion || selectedProviderDef?.regionConfig?.defaultRegion) ?? "";
 
+	// Exclude the gateway itself and stealth providers (no default base URL):
+	// users can't configure a stealth provider key because the platform behind
+	// it is undisclosed, so hide them from the selector entirely.
 	const availableProviders = providers.filter(
-		(provider) => provider.id !== "llmgateway",
+		(provider) => provider.id !== "llmgateway" && !isStealthProvider(provider),
 	);
 
 	// Update selectedProvider when preselectedProvider changes or dialog opens
@@ -208,10 +218,13 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
-		if (selectedProvider === "google-vertex" && googleVertexProjectId) {
+		if (selectedProvider === "google-vertex") {
 			payload.options = {
 				...payload.options,
-				google_vertex_project_id: googleVertexProjectId,
+				...(googleVertexProjectId
+					? { google_vertex_project_id: googleVertexProjectId }
+					: {}),
+				google_vertex_token_type: vertexTokenType,
 			};
 		}
 
@@ -283,6 +296,7 @@ export function CreateProviderKeyDialog({
 			setAzureAiFoundryApiVersion("2024-05-01-preview");
 			setSelectedRegion("");
 			setGoogleVertexProjectId("");
+			setVertexTokenType("api-key");
 		}, 300);
 	};
 
@@ -495,6 +509,32 @@ export function CreateProviderKeyDialog({
 							<p className="text-sm text-muted-foreground">
 								Your Google Cloud project ID, found in the Google Cloud Console.
 								Required for non-lite Vertex AI models.
+							</p>
+						</div>
+					)}
+
+					{selectedProvider === "google-vertex" && (
+						<div className="space-y-2">
+							<Label htmlFor="vertex-token-type">Token Type</Label>
+							<Select
+								value={vertexTokenType}
+								onValueChange={(value) =>
+									setVertexTokenType(value as "api-key" | "oauth")
+								}
+							>
+								<SelectTrigger id="vertex-token-type">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="api-key">API Key</SelectItem>
+									<SelectItem value="oauth">OAuth2 Bearer</SelectItem>
+								</SelectContent>
+							</Select>
+							<p className="text-sm text-muted-foreground">
+								Use <strong>API Key</strong> for Google API keys (sent as{" "}
+								<code>?key=</code>). Use <strong>OAuth2 Bearer</strong> for
+								service account access tokens (sent as{" "}
+								<code>Authorization: Bearer</code>).
 							</p>
 						</div>
 					)}
