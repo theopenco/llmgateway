@@ -1345,6 +1345,13 @@
       "when": 1783624113702,
       "tag": "1783624113_medical_shadow_king",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "8",
+      "when": 1783628504658,
+      "tag": "1783628504_milky_quasar",
+      "breakpoints": true
     }
   ]
 }
