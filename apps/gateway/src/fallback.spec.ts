@@ -2559,6 +2559,139 @@ describe("fallback and error status code handling", () => {
 			);
 		});
 
+		test("non-streaming: retries the same env key when a single-key provider fails transiently", async () => {
+			const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			// Single value → no alternate key to rotate to; the only recovery
+			// path is retrying the same key.
+			process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = "google-env-single-key";
+			process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["google-ai-studio"]);
+				await db
+					.update(tables.project)
+					.set({ mode: "credits" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "google-ai-studio/gemini-2.5-flash",
+						messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.metadata.used_provider).toBe("google-ai-studio");
+				expect(json.metadata.routing).toHaveLength(2);
+
+				// Both attempts used the same provider AND the same key.
+				const envKeyHash = getApiKeyFingerprint("google-env-single-key");
+				expect(json.metadata.routing[0]).toMatchObject({
+					provider: "google-ai-studio",
+					status_code: 500,
+					succeeded: false,
+					apiKeyHash: envKeyHash,
+				});
+				expect(json.metadata.routing[1]).toMatchObject({
+					provider: "google-ai-studio",
+					succeeded: true,
+					apiKeyHash: envKeyHash,
+				});
+
+				const logs = await waitForLogs(2);
+				const failedLog = logs.find((log: Log) => log.hasError);
+				const successLog = logs.find((log: Log) => !log.hasError);
+				expect(failedLog?.retried).toBe(true);
+				expect(failedLog?.retriedByLogId).toBeTruthy();
+				expect(successLog?.routingMetadata?.routing).toHaveLength(2);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+				}
+			}
+		});
+
+		test("non-streaming: same-key retries stop after the retry budget is exhausted", async () => {
+			const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = "google-env-single-key";
+			process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["google-ai-studio"]);
+				await db
+					.update(tables.project)
+					.set({ mode: "credits" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				// TRIGGER_ERROR fails on every call: initial attempt + 2 same-key
+				// retries (default retry.maxRetries = 2), then the error is
+				// returned to the client.
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "google-ai-studio/gemini-2.5-flash",
+						messages: [{ role: "user", content: "TRIGGER_ERROR" }],
+					}),
+				});
+
+				expect(res.status).toBe(500);
+				const json = await res.json();
+				expect(json).toHaveProperty("error");
+
+				const logs = await waitForLogs(3);
+				const errorLogs = logs.filter((log: Log) => log.hasError);
+				expect(errorLogs).toHaveLength(3);
+				// The first two attempts are marked as retried; the final one is
+				// returned to the client unretried.
+				expect(errorLogs.filter((log: Log) => log.retried)).toHaveLength(2);
+				expect(errorLogs.filter((log: Log) => !log.retried)).toHaveLength(1);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+				}
+			}
+		});
+
 		test("streaming: retries on 500 and delivers response on fallback provider", async () => {
 			await setupMultiProviderKeys();
 

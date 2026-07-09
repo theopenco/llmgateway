@@ -71,8 +71,16 @@ export function shouldRetryAlternateKey(
  *
  * Bounded by `maxRetries` (the resolved routing-config retry budget): with the
  * default of 2 this allows up to 2 same-key retries (3 attempts total); 0
- * disables same-key retries. Auth failures (401/403) are excluded because the
- * same key will fail again, as are BYOK/custom providers (envVarName unset).
+ * disables same-key retries.
+ *
+ * Unlike cross-provider fallback — where a deterministic failure on one
+ * provider (bad credentials, unknown model, out of funds) can legitimately
+ * succeed on another — retrying the *same* key against the *same* provider
+ * only helps for transient faults. Deterministic failures are excluded:
+ * gateway_error (auth/config/payment), 402/404 (out of funds / unknown
+ * model), and 429 (immediately re-firing a rate-limited key would amplify
+ * the rate-limit pressure). BYOK/custom providers (envVarName unset) are
+ * also excluded.
  */
 export function shouldRetrySameKey(opts: {
 	usedProvider: string;
@@ -102,7 +110,17 @@ export function shouldRetrySameKey(opts: {
 	if (!isRetryableErrorType(opts.errorType)) {
 		return false;
 	}
-	if (opts.statusCode === 401 || opts.statusCode === 403) {
+	// Deterministic on the same key: auth/config/payment failures.
+	if (opts.errorType === "gateway_error") {
+		return false;
+	}
+	if (
+		opts.statusCode === 401 ||
+		opts.statusCode === 402 ||
+		opts.statusCode === 403 ||
+		opts.statusCode === 404 ||
+		opts.statusCode === 429
+	) {
 		return false;
 	}
 	return true;

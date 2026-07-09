@@ -226,6 +226,46 @@ describe("shouldRetrySameKey", () => {
 		).toBe(false);
 	});
 
+	it("does not retry on rate limits (would hammer the rate-limited key)", () => {
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "upstream_error",
+				statusCode: 429,
+			}),
+		).toBe(false);
+	});
+
+	it("does not retry deterministic upstream failures (402/404)", () => {
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "gateway_error",
+				statusCode: 402,
+			}),
+		).toBe(false);
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "upstream_error",
+				statusCode: 404,
+			}),
+		).toBe(false);
+	});
+
+	it("does not retry gateway_error even without an auth status code (invalid key payloads)", () => {
+		// e.g. providers returning 400 with "API key not valid" — the
+		// alternate-key path rotates keys for these, but the same key would
+		// fail identically.
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "gateway_error",
+				statusCode: 400,
+			}),
+		).toBe(false);
+	});
+
 	it("does not retry on non-retryable error types", () => {
 		expect(
 			shouldRetrySameKey({ ...defaultOpts, errorType: "client_error" }),
