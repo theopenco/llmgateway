@@ -1610,6 +1610,52 @@ describe("videos", () => {
 			bytesBase64Encoded: "d29ybGQ=",
 			mimeType: "image/png",
 		});
+		expect(mockVideo?.ratio).toBe("16:9");
+	});
+
+	test("/v1/videos forwards portrait size as ratio 9:16 to bytedance", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "A vertical clip of a waterfall",
+				size: "1080x1920",
+				seconds: 15,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedProvider).toBe("bytedance");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.ratio).toBe("9:16");
+		expect(mockVideo?.resolution).toBe("1080p");
+		expect(mockVideo?.duration).toBe(15);
 	});
 
 	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {

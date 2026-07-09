@@ -134,14 +134,16 @@ export async function generateMetadata({
 	return {
 		title: `${migration.title} - Migration Guides`,
 		description: migration.description ?? "Migration guide for LLM Gateway",
+		alternates: { canonical: `/migration/${migration.slug}` },
 		openGraph: {
-			title: `${migration.title} - Migration Guides - LLM Gateway`,
+			title: `${migration.title} - Migration Guides | LLM Gateway`,
 			description: migration.description ?? "Migration guide for LLM Gateway",
 			type: "article",
+			url: `https://llmgateway.io/migration/${migration.slug}`,
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${migration.title} - Migration Guides - LLM Gateway`,
+			title: `${migration.title} - Migration Guides | LLM Gateway`,
 			description: migration.description ?? "Migration guide for LLM Gateway",
 		},
 	};

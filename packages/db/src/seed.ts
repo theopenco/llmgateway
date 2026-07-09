@@ -1,4 +1,9 @@
-import { randomInt as cryptoRandomInt, randomUUID } from "crypto";
+import {
+	randomBytes,
+	randomInt as cryptoRandomInt,
+	randomUUID,
+	scrypt,
+} from "crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -79,8 +84,37 @@ function hoursAgo(hours: number) {
 	/* eslint-enable no-mixed-operators */
 }
 
-const PASSWORD_HASH =
-	"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460";
+// Every seeded account uses its own email address as its plaintext password
+// (e.g. log in as admin@example.com with the password "admin@example.com").
+// This replicates better-auth's default scrypt hashing (@better-auth/utils
+// v0.4.1, node impl) so the stored hash verifies against that plaintext at
+// login. Keep these parameters in sync with better-auth if it ever changes.
+const SCRYPT_CONFIG = { N: 16384, r: 16, p: 1, dkLen: 64 } as const;
+
+function hashPassword(password: string): Promise<string> {
+	const salt = randomBytes(16).toString("hex");
+	return new Promise((resolve, reject) => {
+		scrypt(
+			password.normalize("NFKC"),
+			salt,
+			SCRYPT_CONFIG.dkLen,
+			{
+				N: SCRYPT_CONFIG.N,
+				r: SCRYPT_CONFIG.r,
+				p: SCRYPT_CONFIG.p,
+
+				maxmem: 128 * SCRYPT_CONFIG.N * SCRYPT_CONFIG.r * 2,
+			},
+			(err, key) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(`${salt}:${key.toString("hex")}`);
+				}
+			},
+		);
+	});
+}
 
 const MODELS = [
 	{
@@ -187,6 +221,8 @@ function weightedRandomChoice<T extends { weight: number }>(arr: T[]): T {
 	return arr[arr.length - 1]!;
 }
 
+// Each of these users can log in with their email as both username AND password
+// (password == email). See hashPassword() above.
 const EXTRA_USERS = [
 	{ id: "user-alice", name: "Alice Chen", email: "alice.chen@techcorp.io" },
 	{ id: "user-bob", name: "Bob Martinez", email: "bob@startupinc.com" },
@@ -1289,6 +1325,7 @@ async function seed() {
 	await upsert(tables.user, {
 		id: "test-user-id",
 		name: "Test User",
+		// Login: admin@example.com / admin@example.com (password == email)
 		email: "admin@example.com",
 		emailVerified: true,
 	});
@@ -1297,7 +1334,7 @@ async function seed() {
 		id: "test-account-id",
 		providerId: "credential",
 		accountId: "test-account-id",
-		password: PASSWORD_HASH,
+		password: await hashPassword("admin@example.com"),
 		userId: "test-user-id",
 	});
 
@@ -1327,6 +1364,47 @@ async function seed() {
 		token: "test-token",
 		projectId: "test-project-id",
 		description: "Test API Key",
+		createdBy: "test-user-id",
+	});
+
+	// Embeddable Payments SDK POC: a project with the SDK enabled and a 50%
+	// end-user top-up bonus, plus a live platform secret key, so the end-user
+	// wallet + bonus flow can be exercised end-to-end locally (mint a session with
+	// the platform secret, top up as an end-user, get +50% credit). The bonus is
+	// funded from this org's credit balance, so it is seeded with credits.
+	await upsert(tables.organization, {
+		id: "sdk-poc-org-id",
+		name: "Payments SDK POC",
+		billingEmail: "admin@example.com",
+		credits: 100,
+		retentionLevel: "retain",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "sdk-poc-user-org-id",
+		userId: "test-user-id",
+		organizationId: "sdk-poc-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "sdk-poc-project-id",
+		name: "Payments SDK POC",
+		organizationId: "sdk-poc-org-id",
+		mode: "credits",
+		paymentsSdkEnabled: true,
+		endUserEnabled: true,
+		endUserTopUpBonusPercent: "50",
+	});
+
+	// Live-mode platform secret (token does not start with `sk_test_`), so minted
+	// sessions/wallets are live and eligible for the developer-funded bonus.
+	await upsert(tables.apiKey, {
+		id: "sdk-poc-platform-secret-id",
+		token: "sk_pocbonus_live_secret",
+		projectId: "sdk-poc-project-id",
+		description: "Payments SDK POC platform secret",
+		keyType: "platform_secret",
 		createdBy: "test-user-id",
 	});
 
@@ -1854,6 +1932,7 @@ async function seed() {
 	await upsert(tables.user, {
 		id: "enterprise-user-id",
 		name: "Enterprise User",
+		// Login: enterprise@example.com / enterprise@example.com (password == email)
 		email: "enterprise@example.com",
 		emailVerified: true,
 	});
@@ -1862,7 +1941,7 @@ async function seed() {
 		id: "enterprise-account-id",
 		providerId: "credential",
 		accountId: "enterprise-account-id",
-		password: PASSWORD_HASH,
+		password: await hashPassword("enterprise@example.com"),
 		userId: "enterprise-user-id",
 	});
 
@@ -1898,12 +1977,70 @@ async function seed() {
 		mode: "hybrid",
 	});
 
+	// A second project in the enterprise org, so the developer below has a
+	// project they are NOT granted access to (for testing project-scoped RBAC).
+	await upsert(tables.project, {
+		id: "enterprise-project-secondary-id",
+		name: "Restricted Project",
+		organizationId: "enterprise-org-id",
+		mode: "hybrid",
+	});
+
 	await upsert(tables.apiKey, {
 		id: "enterprise-api-key-id",
 		token: "test-enterprise",
 		projectId: "enterprise-project-id",
 		description: "Enterprise API Key",
 		createdBy: "enterprise-user-id",
+	});
+
+	// A project-scoped "developer" member of the enterprise org — limited to the
+	// Enterprise Project only — for testing the RBAC/developer experience. Log in
+	// as developer@example.com with the password developer@example.com (== email).
+	await upsert(tables.user, {
+		id: "enterprise-dev-user-id",
+		name: "Enterprise Developer",
+		email: "developer@example.com",
+		emailVerified: true,
+		onboardingCompleted: true,
+	});
+
+	await upsert(tables.account, {
+		id: "enterprise-dev-account-id",
+		providerId: "credential",
+		accountId: "enterprise-dev-account-id",
+		password: await hashPassword("developer@example.com"),
+		userId: "enterprise-dev-user-id",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "enterprise-dev-user-org-id",
+		userId: "enterprise-dev-user-id",
+		organizationId: "enterprise-org-id",
+		role: "developer",
+		// A sample budget so the developer sees the caps an admin set on them.
+		maxApiKeys: 3,
+		usageLimit: "50",
+		periodUsageLimit: "10",
+		periodUsageDurationValue: 1,
+		periodUsageDurationUnit: "day",
+	});
+
+	// Grant the developer access to the Enterprise Project only (not the
+	// restricted one above).
+	await upsert(tables.userProject, {
+		id: "enterprise-dev-user-project-id",
+		userOrganizationId: "enterprise-dev-user-org-id",
+		projectId: "enterprise-project-id",
+	});
+
+	// A key the developer created, so their own-usage view has something to show.
+	await upsert(tables.apiKey, {
+		id: "enterprise-dev-api-key-id",
+		token: "test-enterprise-dev",
+		projectId: "enterprise-project-id",
+		description: "Enterprise Developer API Key",
+		createdBy: "enterprise-dev-user-id",
 	});
 
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
@@ -1968,7 +2105,8 @@ async function seed() {
 			id: `account-${u.id}`,
 			providerId: "credential",
 			accountId: `account-${u.id}`,
-			password: PASSWORD_HASH,
+			// Password == email, e.g. alice.chen@techcorp.io logs in with that string.
+			password: await hashPassword(u.email),
 			userId: u.id,
 		});
 	}

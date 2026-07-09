@@ -81,10 +81,35 @@ describe("resolveServedServiceTier", () => {
 		).toBeNull();
 	});
 
+	it("maps the AI Studio usageMetadata.serviceTier body field to a tier id", () => {
+		// Streaming AI Studio responses omit the header and carry the served tier
+		// in the body instead.
+		expect(resolveServedServiceTier({ serviceTierBody: "flex" })).toBe("flex");
+		expect(resolveServedServiceTier({ serviceTierBody: "priority" })).toBe(
+			"priority",
+		);
+		expect(
+			resolveServedServiceTier({ serviceTierBody: "standard" }),
+		).toBeNull();
+	});
+
+	it("prefers the header but falls back to the body field", () => {
+		expect(
+			resolveServedServiceTier({
+				serviceTierHeader: null,
+				serviceTierBody: "flex",
+			}),
+		).toBe("flex");
+	});
+
 	it("returns null when no signals are present", () => {
 		expect(resolveServedServiceTier({})).toBeNull();
 		expect(
-			resolveServedServiceTier({ trafficType: null, serviceTierHeader: null }),
+			resolveServedServiceTier({
+				trafficType: null,
+				serviceTierHeader: null,
+				serviceTierBody: null,
+			}),
 		).toBeNull();
 	});
 });

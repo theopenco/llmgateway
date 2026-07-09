@@ -381,6 +381,33 @@ export function AnimatedTerminal({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// Users — second person pops in, both bob on hover
+export function AnimatedUsers({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.g
+				initial={false}
+				animate={isHovered ? { translateY: [0, -1.5, 0] } : { translateY: 0 }}
+				transition={{ duration: 0.3, ease: "easeInOut" }}
+			>
+				<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+				<circle cx="9" cy="7" r="4" />
+			</motion.g>
+			<motion.g
+				initial={false}
+				animate={
+					isHovered ? { scale: [1, 1.15, 1], opacity: [0.6, 1] } : { scale: 1 }
+				}
+				transition={{ duration: 0.3, delay: 0.1, ease: "easeOut" }}
+				style={{ transformOrigin: "20px 12px" }}
+			>
+				<path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+				<path d="M16 3.13a4 4 0 0 1 0 7.75" />
+			</motion.g>
+		</svg>
+	);
+}
+
 // ExternalLink — arrow shoots out diagonally
 export function AnimatedExternalLink({ isHovered }: AnimatedIconProps) {
 	return (
@@ -406,6 +433,27 @@ export function AnimatedExternalLink({ isHovered }: AnimatedIconProps) {
 				transition={{ duration: 0.3, ease: "easeInOut" }}
 			/>
 			<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+		</svg>
+	);
+}
+
+// Building2 (SSO) — subtle lift on hover
+export function AnimatedBuilding2({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.g
+				initial={false}
+				animate={isHovered ? { translateY: [0, -1.5, 0] } : { translateY: 0 }}
+				transition={{ duration: 0.3, ease: "easeInOut" }}
+			>
+				<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+				<path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+				<path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+				<path d="M10 6h4" />
+				<path d="M10 10h4" />
+				<path d="M10 14h4" />
+				<path d="M10 18h4" />
+			</motion.g>
 		</svg>
 	);
 }

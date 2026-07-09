@@ -1,3 +1,4 @@
+import { DeveloperRouteGuard } from "@/components/dashboard/developer-route-guard";
 import { LastUsedProjectTracker } from "@/components/dashboard/last-used-project-tracker";
 import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
 import { fetchServerData } from "@/lib/server-api";
@@ -58,6 +59,7 @@ export default async function ProjectLayout({
 
 	return (
 		<>
+			<DeveloperRouteGuard />
 			<LastUsedProjectTracker orgId={orgId} projectId={projectId} />
 			{children}
 		</>

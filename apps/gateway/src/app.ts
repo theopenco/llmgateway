@@ -18,8 +18,6 @@ import { db } from "@llmgateway/db";
 import {
 	createHonoRequestLogger,
 	createRequestLifecycleMiddleware,
-	getMetrics,
-	getMetricsContentType,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
@@ -177,7 +175,16 @@ app.onError((error, c) => {
 	if (error instanceof HTTPException) {
 		const status = error.status;
 
-		if (status >= 500) {
+		// 502/503/504 are upstream/gateway conditions (e.g. a provider
+		// terminating the connection), not application bugs. They are already
+		// recorded as request logs via insertLog by the chat handler, so log
+		// them at warn level instead of error to avoid alerting noise.
+		if (status === 502 || status === 503 || status === 504) {
+			logger.warn("Upstream gateway error", {
+				status,
+				message: error.message,
+			});
+		} else if (status >= 500) {
 			logger.error("HTTP 500 exception", error);
 		} else {
 			logger.warn("HTTP client error", { status, message: error.message });
@@ -313,32 +320,6 @@ app.openapi(root, async (c) => {
 	return c.json(response, statusCode as 200 | 503);
 });
 
-// Prometheus metrics endpoint
-const metricsRoute = createRoute({
-	summary: "Prometheus metrics",
-	description: "Prometheus metrics endpoint for scraping.",
-	operationId: "metrics",
-	method: "get",
-	path: "/metrics",
-	responses: {
-		200: {
-			content: {
-				"text/plain": {
-					schema: z.string(),
-				},
-			},
-			description: "Prometheus metrics in exposition format.",
-		},
-	},
-});
-
-app.openapi(metricsRoute, async (c) => {
-	const metrics = await getMetrics();
-	return c.text(metrics, 200, {
-		"Content-Type": getMetricsContentType(),
-	});
-});
-
 const v1 = new OpenAPIHono<ServerTypes>();
 
 v1.route("/chat", chat);
@@ -364,3 +345,9 @@ registerMcpOAuthRoutes(app);
 app.doc("/json", config);
 
 app.get("/docs", swaggerUI({ url: "/json" }));
+
+// The gateway is an API, not a website: keep search engines from crawling and
+// indexing its endpoints (GSC keeps reporting api.llmgateway.io URLs).
+app.get("/robots.txt", (c) => {
+	return c.text("User-agent: *\nDisallow: /\n");
+});

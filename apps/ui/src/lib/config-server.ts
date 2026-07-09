@@ -14,6 +14,7 @@ export interface AppConfig {
 	posthogHost?: string;
 	githubAuth: boolean;
 	googleAuth: boolean;
+	ssoEnabled: boolean;
 }
 
 export function getConfig(): AppConfig {
@@ -35,5 +36,6 @@ export function getConfig(): AppConfig {
 		posthogHost: process.env.POSTHOG_HOST,
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,
 		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
+		ssoEnabled: process.env.SSO_ENABLED === "true",
 	};
 }

@@ -6,7 +6,11 @@ import { endUserSessionAuth } from "@/lib/end-user-session-auth.js";
 import { getStripe } from "@/routes/payments.js";
 import { ensureEndCustomerStripeCustomer } from "@/stripe.js";
 
-import { db } from "@llmgateway/db";
+import {
+	apiKeyPeriodDurationUnits,
+	db,
+	getApiKeyCurrentPeriodState,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	calculateFees,
@@ -57,6 +61,7 @@ const createTopUp = createRoute({
 						clientSecret: z.string(),
 						totalAmount: z.number(),
 						netCredited: z.number(),
+						bonusCredited: z.number(),
 						isInternational: z.boolean(),
 					}),
 				},
@@ -88,6 +93,15 @@ platformWallet.openapi(createTopUp, async (c) => {
 	const developerMargin = Math.round((amount - netCredited) * 1e6) / 1e6;
 	const platformFee = feeBreakdown.platformFee + feeBreakdown.internationalFee;
 
+	// Developer-funded bonus: the wallet is credited extra spend power on top of
+	// `netCredited`, paid for out of the developer org's credit balance. Only live
+	// wallets earn it — test-mode top-ups are Stripe-sandbox and must never spend
+	// real org credits. This is an uncapped quote; fulfillment re-caps it against
+	// the org's actual credits at the time the payment succeeds.
+	const bonusFraction =
+		session.mode === "test" ? 0 : session.bonusPercent / 100;
+	const bonusCredited = Math.round(netCredited * bonusFraction * 1e6) / 1e6;
+
 	const stripeCustomerId = await ensureEndCustomerStripeCustomer(
 		session.endCustomerId,
 		session.mode,
@@ -111,6 +125,8 @@ platformWallet.openapi(createTopUp, async (c) => {
 			platformFee: platformFee.toString(),
 			developerMargin: developerMargin.toString(),
 			netCredited: netCredited.toString(),
+			bonusPercent: session.bonusPercent.toString(),
+			bonusCredited: bonusCredited.toString(),
 		},
 	});
 
@@ -119,12 +135,14 @@ platformWallet.openapi(createTopUp, async (c) => {
 		amount,
 		netCredited,
 		developerMargin,
+		bonusCredited,
 	});
 
 	return c.json({
 		clientSecret: paymentIntent.client_secret ?? "",
 		totalAmount: feeBreakdown.totalAmount,
 		netCredited,
+		bonusCredited,
 		isInternational,
 	});
 });
@@ -149,6 +167,21 @@ const getBalance = createRoute({
 								description: z.string().nullable(),
 							}),
 						),
+						// Spend limits enforced on this session, with the values consumed
+						// so far and the reset time of the windowed limit. `null` limit
+						// fields mean that cap is not configured (uncapped).
+						limits: z.object({
+							usageLimit: z.string().nullable(),
+							usage: z.string(),
+							periodUsageLimit: z.string().nullable(),
+							periodUsageDurationValue: z.number().int().nullable(),
+							periodUsageDurationUnit: z
+								.enum(apiKeyPeriodDurationUnits)
+								.nullable(),
+							currentPeriodUsage: z.string(),
+							currentPeriodStartedAt: z.string().nullable(),
+							currentPeriodResetAt: z.string().nullable(),
+						}),
 					}),
 				},
 			},
@@ -170,11 +203,22 @@ platformWallet.openapi(getBalance, async (c) => {
 		throw new HTTPException(404, { message: "Wallet not found" });
 	}
 
+	// Spend limits live on the session token itself (carried forward across
+	// rotations), not on the wallet.
+	const sessionRecord = await db.query.endUserSession.findFirst({
+		where: { id: { eq: session.sessionId } },
+	});
+	if (!sessionRecord) {
+		throw new HTTPException(401, { message: "Invalid session token" });
+	}
+
 	const ledger = await db.query.walletLedger.findMany({
 		where: { walletId: { eq: session.walletId } },
 		orderBy: { createdAt: "desc" },
 		limit: 10,
 	});
+
+	const currentPeriod = getApiKeyCurrentPeriodState(sessionRecord);
 
 	return c.json({
 		balance: wallet.balance,
@@ -187,6 +231,20 @@ platformWallet.openapi(getBalance, async (c) => {
 			createdAt: row.createdAt.toISOString(),
 			description: row.description,
 		})),
+		limits: {
+			usageLimit: sessionRecord.usageLimit,
+			usage: sessionRecord.usage,
+			periodUsageLimit: sessionRecord.periodUsageLimit,
+			periodUsageDurationValue: sessionRecord.periodUsageDurationValue,
+			periodUsageDurationUnit: sessionRecord.periodUsageDurationUnit,
+			currentPeriodUsage: currentPeriod.usage,
+			currentPeriodStartedAt: currentPeriod.startedAt
+				? currentPeriod.startedAt.toISOString()
+				: null,
+			currentPeriodResetAt: currentPeriod.resetAt
+				? currentPeriod.resetAt.toISOString()
+				: null,
+		},
 	});
 });
 

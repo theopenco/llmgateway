@@ -99,7 +99,13 @@ export type WalletLedger = Omit<
 	InferSelectModel<typeof tables.walletLedger>,
 	"type"
 > & {
-	type: "topup" | "usage_debit" | "refund" | "adjustment" | "reversal";
+	type:
+		| "topup"
+		| "bonus"
+		| "usage_debit"
+		| "refund"
+		| "adjustment"
+		| "reversal";
 };
 
 export type WebhookEndpoint = Omit<
@@ -172,9 +178,11 @@ export type SerializedOrganization = Omit<
 	| "devPlanStripeSubscriptionId"
 	| "devPlanCancelled"
 	| "devPlanExpiresAt"
+	| "devPlanPendingTier"
 	| "devPlanCardFingerprint"
 	| "devPlanCreditsFrozen"
 	| "devPlanCreditsLimitBeforeFreeze"
+	| "devPlanLastTierChangeCycleStart"
 	| "chatPlanBillingCycleStart"
 	| "chatPlanStripeSubscriptionId"
 	| "chatPlanCancelled"

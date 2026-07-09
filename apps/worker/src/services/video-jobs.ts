@@ -25,6 +25,8 @@ import {
 	models,
 	type Provider,
 	type ProviderModelMapping,
+	resolveVertexTokenType,
+	type VertexTokenType,
 } from "@llmgateway/models";
 import {
 	buildGatewayVideoLogContentUrl,
@@ -104,6 +106,7 @@ type WebhookDeliveryRecord = InferSelectModel<typeof tables.webhookDeliveryLog>;
 interface ResolvedVideoProviderContext {
 	baseUrl: string;
 	token: string;
+	vertexTokenType?: VertexTokenType;
 }
 
 function isGoogleVertexVideoProvider(providerId: string): boolean {
@@ -282,6 +285,14 @@ async function resolveVideoProviderContext(
 		return {
 			baseUrl,
 			token: providerKey.token,
+			vertexTokenType: isGoogleVertexVideoProvider(providerId)
+				? resolveVertexTokenType(
+						"google-vertex",
+						providerKey.options ?? undefined,
+						undefined,
+						true,
+					)
+				: undefined,
 		};
 	}
 
@@ -299,6 +310,14 @@ async function resolveVideoProviderContext(
 	return {
 		baseUrl,
 		token,
+		vertexTokenType: isGoogleVertexVideoProvider(providerId)
+			? resolveVertexTokenType(
+					"google-vertex",
+					undefined,
+					job.providerConfigIndex ?? undefined,
+					false,
+				)
+			: undefined,
 	};
 }
 
@@ -307,7 +326,11 @@ function getVideoProviderHeaders(
 	providerContext: ResolvedVideoProviderContext,
 ): Record<string, string> {
 	if (isGoogleVertexVideoProvider(job.usedProvider)) {
-		return {};
+		// Vertex API keys go in the `?key=` query param; OAuth2 access tokens
+		// must be sent as a Bearer header instead.
+		return providerContext.vertexTokenType === "oauth"
+			? { Authorization: `Bearer ${providerContext.token}` }
+			: {};
 	}
 
 	return {
@@ -669,21 +692,6 @@ function getInlineGoogleVertexVideo(
 	return null;
 }
 
-async function getVideoLogIdByRequestId(
-	requestId: string,
-): Promise<string | null> {
-	const existingLog = await db
-		.select({
-			id: tables.log.id,
-		})
-		.from(tables.log)
-		.where(eq(tables.log.requestId, requestId))
-		.limit(1)
-		.then((rows) => rows[0]);
-
-	return existingLog?.id ?? null;
-}
-
 async function getPublicVideoContentUrl(
 	job: VideoJobRecord,
 	logId?: string | null,
@@ -692,8 +700,7 @@ async function getPublicVideoContentUrl(
 		return null;
 	}
 
-	const resolvedLogId =
-		logId ?? (await getVideoLogIdByRequestId(job.requestId));
+	const resolvedLogId = logId ?? job.logId;
 	if (
 		resolvedLogId &&
 		(job.contentUrl || job.storageUri || getInlineGoogleVertexVideo(job))
@@ -1496,7 +1503,12 @@ async function fetchGoogleVertexStatus(
 		providerContext.baseUrl,
 		`/v1/projects/${operationMetadata.projectId}/locations/${operationMetadata.region}/publishers/google/models/${operationMetadata.modelName}:fetchPredictOperation`,
 	);
-	const authenticatedUrl = appendQueryParam(url, "key", providerContext.token);
+	// OAuth tokens are sent via the Bearer header (getVideoProviderHeaders);
+	// only API keys go in the `?key=` query param.
+	const authenticatedUrl =
+		providerContext.vertexTokenType === "oauth"
+			? url
+			: appendQueryParam(url, "key", providerContext.token);
 	const { body, response } = await fetchJsonResponse(authenticatedUrl, {
 		method: "POST",
 		headers: {
@@ -1868,7 +1880,12 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				dataStorageCost: "0",
 			});
 
-			return jobToLog;
+			await tx
+				.update(tables.videoJob)
+				.set({ logId })
+				.where(eq(tables.videoJob.id, jobToLog.id));
+
+			return { ...jobToLog, logId };
 		});
 
 		if (claimedJob?.contentUrl) {

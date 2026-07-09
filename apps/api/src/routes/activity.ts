@@ -2,7 +2,16 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getUserOrganizationIds } from "@/utils/authorization.js";
+import {
+	getUserProjectIds,
+	userHasProjectAccess,
+} from "@/utils/authorization.js";
+import {
+	bucketDate,
+	generateTimeSlots,
+	isValidTimeZone,
+	zonedTimeToUtc,
+} from "@/utils/timezone.js";
 
 import {
 	db,
@@ -22,84 +31,8 @@ import {
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
-import type { SQLWrapper } from "@llmgateway/db";
 
 export const activity = new OpenAPIHono<ServerTypes>();
-
-function isValidTimeZone(timeZone: string): boolean {
-	try {
-		Intl.DateTimeFormat("en-US", { timeZone });
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-// Intl.DateTimeFormat construction is expensive and generateTimeSlots calls it
-// in a loop (up to ~8800 iterations for 365d), so reuse one formatter per zone.
-const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>();
-
-function getTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat {
-	let formatter = timeZoneFormatters.get(timeZone);
-	if (!formatter) {
-		formatter = new Intl.DateTimeFormat("en-US", {
-			timeZone,
-			year: "numeric",
-			month: "2-digit",
-			day: "2-digit",
-			hour: "2-digit",
-			minute: "2-digit",
-			second: "2-digit",
-			hourCycle: "h23",
-		});
-		timeZoneFormatters.set(timeZone, formatter);
-	}
-	return formatter;
-}
-
-function getTimeZoneParts(date: Date, timeZone: string) {
-	const parts = getTimeZoneFormatter(timeZone).formatToParts(date);
-	const result: Record<string, string> = {};
-	for (const part of parts) {
-		result[part.type] = part.value;
-	}
-	return result;
-}
-
-function formatInTimeZone(
-	date: Date,
-	timeZone: string,
-	isHourly: boolean,
-): string {
-	const p = getTimeZoneParts(date, timeZone);
-	const day = `${p.year}-${p.month}-${p.day}`;
-	return isHourly ? `${day}T${p.hour}:${p.minute}:${p.second}` : day;
-}
-
-function timeZoneOffsetMs(date: Date, timeZone: string): number {
-	const p = getTimeZoneParts(date, timeZone);
-	const asUtc = Date.UTC(
-		Number(p.year),
-		Number(p.month) - 1,
-		Number(p.day),
-		Number(p.hour),
-		Number(p.minute),
-		Number(p.second),
-	);
-	const wholeSecondsMs = Math.trunc(date.getTime() / 1000) * 1000;
-	return asUtc - wholeSecondsMs;
-}
-
-// Interpret a local wall-clock ISO string (no offset) in the given timezone
-// and return the corresponding UTC instant. Two passes to converge across DST
-// boundaries.
-function zonedTimeToUtc(localIso: string, timeZone: string): Date {
-	const wallClock = new Date(localIso + "Z");
-	const guess = new Date(
-		wallClock.getTime() - timeZoneOffsetMs(wallClock, timeZone),
-	);
-	return new Date(wallClock.getTime() - timeZoneOffsetMs(guess, timeZone));
-}
 
 // Define the response schema for model-specific usage
 const modelUsageSchema = z.object({
@@ -159,28 +92,6 @@ const dailyActivitySchema = z.object({
 });
 
 type ActivityRow = z.infer<typeof dailyActivitySchema>;
-
-// Walk UTC hour boundaries (matching the hourly rollup buckets) and label each
-// in the requested timezone, deduping consecutive labels for daily granularity
-// and DST fall-back overlaps.
-function generateTimeSlots(
-	startDate: Date,
-	endDate: Date,
-	isHourly: boolean,
-	timeZone: string,
-): string[] {
-	const slots: string[] = [];
-	const cur = new Date(startDate);
-	cur.setUTCMinutes(0, 0, 0);
-	while (cur.getTime() <= endDate.getTime()) {
-		const slot = formatInTimeZone(cur, timeZone, isHourly);
-		if (slots[slots.length - 1] !== slot) {
-			slots.push(slot);
-		}
-		cur.setUTCHours(cur.getUTCHours() + 1);
-	}
-	return slots;
-}
 
 function buildEmptyActivityRow(date: string): ActivityRow {
 	return {
@@ -331,48 +242,27 @@ activity.openapi(getActivity, async (c) => {
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
 
-	// Bucket UTC-stored hour timestamps as wall-clock strings in the caller's
-	// timezone, so daily grouping happens at local midnight rather than UTC.
-	// Grouping/ordering use positional references because a repeated bind
-	// parameter would make the GROUP BY expression differ from the SELECT one.
-	const bucketDate = (column: SQLWrapper) =>
-		isHourly
-			? sql<string>`to_char(${column} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD"T"HH24:MI:SS')`
-			: sql<string>`to_char(${column} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')`;
+	// Projects the user can access (RBAC-aware: developers are limited to their
+	// granted projects).
+	const accessibleProjectIds = await getUserProjectIds(user.id);
 
-	// Get all organizations the user is a member of
-	const organizationIds = await getUserOrganizationIds(user.id);
-
-	if (!organizationIds.length) {
+	if (!accessibleProjectIds.length) {
 		return c.json({
 			activity: [],
 		});
 	}
 
-	// Get all projects associated with the user's organizations
-	const projects = await db.query.project.findMany({
-		where: {
-			organizationId: {
-				in: organizationIds,
-			},
-			status: {
-				ne: "deleted",
-			},
-			...(projectId ? { id: projectId } : {}),
-		},
-	});
-
-	if (!projects.length) {
-		return c.json({
-			activity: [],
-		});
-	}
-
-	const projectIds = projects.map((project) => project.id);
-
-	if (projectId && !projectIds.includes(projectId)) {
+	if (projectId && !accessibleProjectIds.includes(projectId)) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
+		});
+	}
+
+	const projectIds = projectId ? [projectId] : accessibleProjectIds;
+
+	if (!projectIds.length) {
+		return c.json({
+			activity: [],
 		});
 	}
 
@@ -381,7 +271,11 @@ activity.openapi(getActivity, async (c) => {
 		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
-				date: bucketDate(apiKeyHourlyStats.hourTimestamp).as("date"),
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				requestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -501,7 +395,11 @@ activity.openapi(getActivity, async (c) => {
 		// Query model breakdown from apiKeyHourlyModelStats table
 		const modelBreakdowns = await db
 			.select({
-				date: bucketDate(apiKeyHourlyModelStats.hourTimestamp).as("date"),
+				date: bucketDate(
+					apiKeyHourlyModelStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				usedModel: apiKeyHourlyModelStats.usedModel,
 				usedProvider: apiKeyHourlyModelStats.usedProvider,
 				requestCount:
@@ -642,7 +540,9 @@ activity.openapi(getActivity, async (c) => {
 	// Query aggregated data from projectHourlyStats table
 	const hourlyAggregates = await db
 		.select({
-			date: bucketDate(projectHourlyStats.hourTimestamp).as("date"),
+			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, isHourly).as(
+				"date",
+			),
 			requestCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 					"requestCount",
@@ -768,7 +668,11 @@ activity.openapi(getActivity, async (c) => {
 	if (!breakdownByApiKey) {
 		const modelBreakdowns = await db
 			.select({
-				date: bucketDate(projectHourlyModelStats.hourTimestamp).as("date"),
+				date: bucketDate(
+					projectHourlyModelStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				usedModel: projectHourlyModelStats.usedModel,
 				usedProvider: projectHourlyModelStats.usedProvider,
 				requestCount:
@@ -828,7 +732,11 @@ activity.openapi(getActivity, async (c) => {
 	if (breakdownByApiKey) {
 		const apiKeyBreakdowns = await db
 			.select({
-				date: bucketDate(apiKeyHourlyStats.hourTimestamp).as("date"),
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				apiKeyId: apiKeyHourlyStats.apiKeyId,
 				description: apiKey.description,
 				requestCount:
@@ -1021,16 +929,15 @@ activity.openapi(getSourceActivity, async (c) => {
 		startDate.setDate(startDate.getDate() - (timeRange === "30d" ? 30 : 7));
 	}
 
-	const organizationIds = await getUserOrganizationIds(user.id);
-
-	if (!organizationIds.length) {
-		return c.json({ sources: [] });
+	if (!(await userHasProjectAccess(user.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
 	}
 
 	const project = await db.query.project.findFirst({
 		where: {
 			id: projectId,
-			organizationId: { in: organizationIds },
 			status: { ne: "deleted" },
 		},
 	});

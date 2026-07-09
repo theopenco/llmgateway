@@ -1068,11 +1068,17 @@ export const ChatUI = ({
 		.toLowerCase()
 		.includes("gemini-3.1-flash-image");
 
+	const isGemini31FlashLiteImage = selectedModel
+		.toLowerCase()
+		.includes("gemini-3.1-flash-lite-image");
+
 	const availableSizes = isSeedream
 		? (["2K", "4K"] as const)
-		: isGemini31FlashImage
-			? (["0.5K", "1K", "2K", "4K"] as const)
-			: (["1K", "2K", "4K"] as const);
+		: isGemini31FlashLiteImage
+			? (["1K"] as const)
+			: isGemini31FlashImage
+				? (["0.5K", "1K", "2K", "4K"] as const)
+				: (["1K", "2K", "4K"] as const);
 
 	const qualityOptions = ["auto", "low", "medium", "high"] as const;
 

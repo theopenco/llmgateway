@@ -357,6 +357,7 @@ interface MockVideoJobState {
 	requestBody?: unknown;
 	size?: string;
 	duration?: number;
+	ratio?: string;
 	resolution?: string;
 	width?: number;
 	height?: number;
@@ -1109,6 +1110,62 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		});
 		return new Response(abortedBody, {
 			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then hangs forever without finishing it. The gateway's res.json()
+	// blocks waiting for the rest, letting a test abort the client mid-read to
+	// exercise the non-streaming body-read cancellation path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	// Simulate an upstream that returns a non-OK status (500) plus a partial
+	// error body, then hangs without finishing it. The gateway's res.text() on
+	// the error path blocks waiting for the rest, letting a test abort the
+	// client mid-read to exercise the non-streaming error-body cancellation
+	// path. The trigger deliberately avoids the "TRIGGER_ERROR" substring so the
+	// generic-error handler above doesn't short-circuit it.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingErrorBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingErrorBody, {
+			status: 500,
 			headers: { "Content-Type": "application/json" },
 		});
 	}
@@ -1962,6 +2019,9 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		firstFrame: parseFrameByRole("first_frame"),
 		lastFrame: parseFrameByRole("last_frame"),
 		duration: typeof body.duration === "number" ? body.duration : undefined,
+		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
+		resolution:
+			typeof body.resolution === "string" ? body.resolution : undefined,
 		created_at: Math.floor(Date.now() / 1000),
 		completed_at: null,
 		expires_at: null,

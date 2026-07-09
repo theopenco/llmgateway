@@ -20,7 +20,7 @@ This is an honest comparison. We built LLM Gateway, so we're biased — but we'l
 
 | Feature               | LLM Gateway                                           | OpenRouter                          |
 | --------------------- | ----------------------------------------------------- | ----------------------------------- |
-| Models                | 280+ models, 35+ providers                            | 400+ models, 70+ providers          |
+| Models                | 200+ models, 40+ providers                            | 400+ models, 70+ providers          |
 | API compatibility     | OpenAI-compatible                                     | OpenAI-compatible                   |
 | Self-hosting          | Yes (AGPLv3, Docker)                                  | No                                  |
 | Bring Your Own Keys   | Yes (zero gateway markup)                             | Yes (1M free, then 5%)              |

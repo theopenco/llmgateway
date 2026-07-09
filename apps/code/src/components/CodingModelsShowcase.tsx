@@ -25,7 +25,7 @@ const RECOMMENDED_MODELS: RecommendedModel[] = [
 	{ id: "qwen3-coder", category: "cheap" },
 	{ id: "deepseek-v4-pro", category: "cheap" },
 	{ id: "claude-opus-4-8", category: "flagship" },
-	{ id: "gpt-5.5", category: "flagship" },
+	{ id: "gpt-5.6-sol", category: "flagship" },
 	{ id: "gemini-3.1-pro-preview", category: "flagship" },
 ];
 

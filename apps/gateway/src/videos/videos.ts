@@ -9,7 +9,10 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
-import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findEffectiveDiscount,
@@ -64,6 +67,8 @@ import {
 	type ModelDefinition,
 	type Provider,
 	type ProviderModelMapping,
+	resolveVertexTokenType,
+	type VertexTokenType,
 } from "@llmgateway/models";
 import {
 	getAvalancheApiBaseUrl,
@@ -586,7 +591,6 @@ const getVideoLogContent = createRoute({
 });
 
 type VideoJobRecord = InferSelectModel<typeof tables.videoJob>;
-type LogRecord = InferSelectModel<typeof tables.log>;
 
 interface RequestContext {
 	apiKey: GatewayApiKey;
@@ -606,7 +610,37 @@ interface ProviderContext {
 	configIndex: number | null;
 	vertexProjectId?: string;
 	vertexRegion?: string;
+	vertexTokenType?: VertexTokenType;
 	uploadBaseUrl?: string;
+}
+
+/**
+ * Resolve the Vertex token type for video requests so the upstream call can
+ * choose between `?key=` (API key) and `Authorization: Bearer` (OAuth2). BYOK
+ * keys resolve from the provider-key option (env skipped); env-backed tokens
+ * resolve from the `LLM_GOOGLE_VERTEX_TOKEN_TYPE` env var.
+ */
+function resolveVideoVertexTokenType(
+	providerId: Provider,
+	providerKey: InferSelectModel<typeof tables.providerKey> | undefined,
+	configIndex: number | null,
+): VertexTokenType | undefined {
+	if (providerId !== "google-vertex") {
+		return undefined;
+	}
+	return providerKey
+		? resolveVertexTokenType(
+				providerId,
+				providerKey.options ?? undefined,
+				undefined,
+				true,
+			)
+		: resolveVertexTokenType(
+				providerId,
+				undefined,
+				configIndex ?? undefined,
+				false,
+			);
 }
 
 interface ResolvedVideoExecution {
@@ -733,8 +767,6 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		});
 	}
 
-	assertApiKeyWithinUsageLimits(apiKey);
-
 	const baseProject = await findProjectById(apiKey.projectId);
 	if (!baseProject) {
 		throw new HTTPException(500, {
@@ -747,6 +779,12 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
+
+	// User-level limits take priority: enforce the per-member budget (set on the
+	// Teams page; fails open on read errors) before the per-key usage limits, so a
+	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	const baseOrganization = await findOrganizationById(
 		baseProject.organizationId,
@@ -879,7 +917,8 @@ function isSoraVideoModelName(externalId: string): boolean {
 function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
-		externalId === "dreamina-seedance-2-0-fast-260128"
+		externalId === "dreamina-seedance-2-0-fast-260128" ||
+		externalId === "dreamina-seedance-2-0-mini-260615"
 	);
 }
 
@@ -970,7 +1009,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
@@ -1028,7 +1067,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
 				);
 			}
 
@@ -1423,6 +1462,11 @@ async function resolveProviderContext(
 			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
+			vertexTokenType: resolveVideoVertexTokenType(
+				providerId,
+				providerKey,
+				null,
+			),
 			uploadBaseUrl:
 				providerId === "avalanche"
 					? getProviderEnvValue(providerId, "fileUploadBaseUrl")
@@ -1473,6 +1517,11 @@ async function resolveProviderContext(
 			configIndex: env.configIndex,
 			vertexProjectId,
 			vertexRegion,
+			vertexTokenType: resolveVideoVertexTokenType(
+				providerId,
+				undefined,
+				env.configIndex,
+			),
 			uploadBaseUrl:
 				providerId === "avalanche"
 					? getProviderEnvValue(
@@ -1519,6 +1568,11 @@ async function resolveProviderContext(
 			configIndex: null,
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
+			vertexTokenType: resolveVideoVertexTokenType(
+				providerId,
+				providerKey,
+				null,
+			),
 			uploadBaseUrl:
 				providerId === "avalanche"
 					? getProviderEnvValue(providerId, "fileUploadBaseUrl")
@@ -2284,21 +2338,6 @@ function getInlineGoogleVertexVideoFromBodies(
 	return null;
 }
 
-async function getVideoLogIdByRequestId(
-	requestId: string,
-): Promise<string | null> {
-	const existingLog = await db
-		.select({
-			id: tables.log.id,
-		})
-		.from(tables.log)
-		.where(eq(tables.log.requestId, requestId))
-		.limit(1)
-		.then((rows) => rows[0]);
-
-	return existingLog?.id ?? null;
-}
-
 async function getPublicVideoContentUrl(
 	job: VideoJobRecord,
 	logId?: string | null,
@@ -2307,8 +2346,7 @@ async function getPublicVideoContentUrl(
 		return null;
 	}
 
-	const resolvedLogId =
-		logId ?? (await getVideoLogIdByRequestId(job.requestId));
+	const resolvedLogId = logId ?? job.logId;
 	if (
 		resolvedLogId &&
 		(job.contentUrl ||
@@ -2406,64 +2444,33 @@ async function requireVideoJobForProject(
 	return job;
 }
 
-async function requireVideoLogById(logId: string): Promise<LogRecord> {
-	const log = await db
-		.select()
-		.from(tables.log)
-		.where(eq(tables.log.id, logId))
-		.limit(1)
-		.then((rows) => rows[0]);
-
-	if (!log) {
-		throw new HTTPException(404, {
-			message: "Video log not found",
-		});
-	}
-
-	return log;
-}
-
-function getDirectVideoContentUrlFromLog(log: LogRecord): string | null {
+function getDirectVideoContentUrlFromJob(job: VideoJobRecord): string | null {
 	const upstreamResponse =
-		log.upstreamResponse && typeof log.upstreamResponse === "object"
-			? (log.upstreamResponse as Record<string, unknown>)
+		job.upstreamStatusResponse && typeof job.upstreamStatusResponse === "object"
+			? (job.upstreamStatusResponse as Record<string, unknown>)
 			: null;
-	if (upstreamResponse) {
-		const upstreamUrl = extractContentUrl(upstreamResponse);
-		if (upstreamUrl) {
-			return upstreamUrl;
-		}
-	}
-
-	if (
-		typeof log.content === "string" &&
-		log.content.startsWith("http") &&
-		!/\/v1\/videos\/logs\/[^/]+\/content(?:\?.*)?$/.test(log.content)
-	) {
-		return log.content;
-	}
-
-	return null;
+	return upstreamResponse ? extractContentUrl(upstreamResponse) : null;
 }
 
-async function getVideoSourceUrlFromCacheOrLog(
-	log: LogRecord,
+async function getVideoSourceUrlFromCacheOrJob(
+	logId: string,
+	job: VideoJobRecord,
 ): Promise<string | null> {
 	try {
-		const cachedUrl = await redisClient.get(getVideoProxyRedisKey(log.id));
+		const cachedUrl = await redisClient.get(getVideoProxyRedisKey(logId));
 		if (cachedUrl) {
 			return cachedUrl;
 		}
 	} catch (error) {
 		logger.warn("Failed to read video proxy source URL from cache", {
-			logId: log.id,
+			logId,
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}
 
-	const sourceUrl = getDirectVideoContentUrlFromLog(log);
+	const sourceUrl = getDirectVideoContentUrlFromJob(job);
 	if (sourceUrl) {
-		await cacheVideoProxySourceUrl(log.id, sourceUrl);
+		await cacheVideoProxySourceUrl(logId, sourceUrl);
 	}
 
 	return sourceUrl;
@@ -3171,11 +3178,10 @@ async function createGoogleVertexVideoJob(
 		providerContext.baseUrl,
 		`/v1/projects/${vertexProjectId}/locations/${providerContext.vertexRegion}/publishers/google/models/${upstreamModelName}:predictLongRunning`,
 	);
-	const authenticatedUpstreamUrl = appendQueryParam(
-		upstreamUrl,
-		"key",
-		providerContext.token,
-	);
+	const useOAuth = providerContext.vertexTokenType === "oauth";
+	const authenticatedUpstreamUrl = useOAuth
+		? upstreamUrl
+		: appendQueryParam(upstreamUrl, "key", providerContext.token);
 	const upstreamRequest = {
 		instances: [
 			{
@@ -3206,6 +3212,7 @@ async function createGoogleVertexVideoJob(
 		headers: {
 			"Content-Type": "application/json",
 			"x-request-id": providerContext.requestId,
+			...(useOAuth ? { Authorization: `Bearer ${providerContext.token}` } : {}),
 		},
 		body: JSON.stringify(upstreamRequest),
 	});
@@ -3543,17 +3550,22 @@ async function createBytedanceVideoJob(
 
 	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
 
+	const videoRatio = getBytedanceVideoAspectRatio(videoSize);
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
 		content,
 		duration: durationSeconds,
-		aspect_ratio: getBytedanceVideoAspectRatio(videoSize),
+		ratio: videoRatio,
 		generate_audio: includeAudio,
 	};
 
 	if (isDreaminaModel) {
 		upstreamRequest.resolution =
-			videoSize.resolution === "1080p" ? "1080p" : "720p";
+			videoSize.resolution === "1080p"
+				? "1080p"
+				: videoSize.resolution === "480p"
+					? "480p"
+					: "720p";
 	}
 
 	const upstreamUrl = joinUrl(
@@ -3576,7 +3588,7 @@ async function createBytedanceVideoJob(
 			...rawResponse,
 			status: rawResponse.status ?? "queued",
 			duration: durationSeconds,
-			aspect_ratio: upstreamRequest.aspect_ratio,
+			aspect_ratio: videoRatio,
 		},
 		videoSize,
 	);
@@ -4790,30 +4802,26 @@ videos.openapi(getVideoLogContent, async (c) => {
 		});
 	}
 
-	const log = await requireVideoLogById(logId);
-
-	const directSourceUrl = await getVideoSourceUrlFromCacheOrLog(log);
-	if (directSourceUrl) {
-		const response = await streamVideoFromUrl(directSourceUrl);
-		await markVideoDownloaded(log.id);
-		return response;
-	}
-
 	const videoJob = await db
 		.select()
 		.from(tables.videoJob)
-		.where(
-			and(
-				eq(tables.videoJob.projectId, log.projectId),
-				eq(tables.videoJob.requestId, log.requestId),
-			),
-		)
+		.where(eq(tables.videoJob.logId, logId))
 		.limit(1)
 		.then((rows) => rows[0]);
 	if (!videoJob) {
 		throw new HTTPException(404, {
 			message: "Video content is not available",
 		});
+	}
+
+	const directSourceUrl = await getVideoSourceUrlFromCacheOrJob(
+		logId,
+		videoJob,
+	);
+	if (directSourceUrl) {
+		const response = await streamVideoFromUrl(directSourceUrl);
+		await markVideoDownloaded(logId);
+		return response;
 	}
 
 	if (videoJob.storageUri) {
@@ -4825,18 +4833,17 @@ videos.openapi(getVideoLogContent, async (c) => {
 		}
 
 		const response = await streamVideoFromUrl(signedUrl, videoJob.contentType);
-		await markVideoDownloaded(log.id);
+		await markVideoDownloaded(logId);
 		return response;
 	}
 
 	if (shouldProxyDirectUpstreamVideoContent(videoJob)) {
 		const response = await streamDirectUpstreamVideoContent(videoJob);
-		await markVideoDownloaded(log.id);
+		await markVideoDownloaded(logId);
 		return response;
 	}
 
 	const inlineVideo = getInlineGoogleVertexVideoFromBodies([
-		log.upstreamResponse,
 		videoJob.upstreamStatusResponse,
 		videoJob.upstreamCreateResponse,
 	]);
@@ -4846,7 +4853,7 @@ videos.openapi(getVideoLogContent, async (c) => {
 		});
 	}
 
-	await markVideoDownloaded(log.id);
+	await markVideoDownloaded(logId);
 	return new Response(
 		Uint8Array.from(Buffer.from(inlineVideo.bytesBase64Encoded, "base64")),
 		{
@@ -4875,7 +4882,7 @@ videos.openapi(getVideoContent, async (c) => {
 
 	if (!job.contentUrl && !job.storageUri) {
 		if (shouldProxyDirectUpstreamVideoContent(job)) {
-			const logId = await getVideoLogIdByRequestId(job.requestId);
+			const logId = job.logId;
 			const response = await streamDirectUpstreamVideoContent(job);
 			if (logId) {
 				await markVideoDownloaded(logId);
@@ -4921,7 +4928,7 @@ videos.openapi(getVideoContent, async (c) => {
 		});
 	}
 
-	const logId = await getVideoLogIdByRequestId(job.requestId);
+	const logId = job.logId;
 	const response = await streamVideoFromUrl(contentUrl, job.contentType);
 	if (logId) {
 		await markVideoDownloaded(logId);

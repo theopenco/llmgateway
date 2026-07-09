@@ -48,6 +48,8 @@ import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import { ThemeToggle } from "./theme-toggle";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -142,8 +144,7 @@ export const Navbar = ({
 		{
 			title: "AI Gateway",
 			href: "/features/unified-api-interface",
-			description:
-				"Route requests to 200+ LLMs through a single, unified API endpoint.",
+			description: `Route requests to ${MARKETING_STATS.models} LLMs through a single, unified API endpoint.`,
 			icon: Network,
 			gradient:
 				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
@@ -308,7 +309,7 @@ export const Navbar = ({
 		{
 			title: "MCP Server",
 			href: "/mcp",
-			description: "Connect AI assistants to 200+ LLMs via MCP protocol.",
+			description: `Connect AI assistants to ${MARKETING_STATS.models} LLMs via MCP protocol.`,
 			icon: Server,
 			gradient:
 				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",

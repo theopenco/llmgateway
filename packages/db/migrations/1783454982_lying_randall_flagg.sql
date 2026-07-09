@@ -1,0 +1,1 @@
+ALTER TABLE "sso_provider" ADD COLUMN "provider_type" text DEFAULT 'generic' NOT NULL;

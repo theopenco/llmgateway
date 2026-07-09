@@ -12,7 +12,10 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
-import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findProjectById,
@@ -143,6 +146,8 @@ import {
 	type ProviderModelMapping,
 	type ProviderRequestBody,
 	providers,
+	resolveVertexTokenType,
+	type VertexTokenType,
 	supportsServiceTier,
 	type WebSearchTool,
 	expandAllProviderRegions,
@@ -1741,7 +1746,8 @@ chat.openapi(completions, async (c) => {
 	// Count input images from messages for cost calculation
 	const inputImageCount =
 		requestedModel === "gemini-3-pro-image-preview" ||
-		requestedModel === "gemini-3.1-flash-image-preview"
+		requestedModel === "gemini-3.1-flash-image-preview" ||
+		requestedModel === "gemini-3.1-flash-lite-image"
 			? countInputImages(messages)
 			: 0;
 
@@ -1854,8 +1860,6 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	assertApiKeyWithinUsageLimits(apiKey);
-
 	// LLM SDK: ephemeral end-user session tokens are bound to one wallet.
 	// Validate expiry + load the wallet now; below we present an "effective"
 	// project (forced credits mode) and organization (credits mirror the wallet
@@ -1885,6 +1889,12 @@ chat.openapi(completions, async (c) => {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
+
+	// User-level limits take priority: enforce the per-member budget (set on the
+	// Teams page; fails open on read errors) before the per-key usage limits, so a
+	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
+	assertApiKeyWithinUsageLimits(apiKey);
 
 	// End-user sessions always bill via wallet credits through llmgateway's own
 	// provider keys — never the developer's BYO keys.
@@ -5118,6 +5128,29 @@ chat.openapi(completions, async (c) => {
 			: undefined;
 	const upstreamModelName = azureDeploymentName || usedExternalId;
 
+	// Resolve the Google Vertex token type from the live request state so the
+	// endpoint (`?key=` query param) and the headers (`Authorization: Bearer`)
+	// always agree. Reads the current `let`s so it stays correct across retries
+	// that mutate provider/key/configIndex via applyContext.
+	//
+	// A region-specific env override replaces `usedToken` while keeping
+	// `providerKey` set and clearing `trackedKeyHealthId`; in that case the DB
+	// key is no longer the active credential, so its token-type option must not
+	// apply and env-based resolution should win. Hence we gate on
+	// `trackedKeyHealthId`, not `providerKey`.
+	function resolveActiveVertexTokenType(): VertexTokenType | undefined {
+		if (usedProvider !== "google-vertex") {
+			return undefined;
+		}
+		const dbKeyIsActiveCredential = trackedKeyHealthId !== undefined;
+		return resolveVertexTokenType(
+			usedProvider,
+			dbKeyIsActiveCredential ? (providerKey?.options ?? undefined) : undefined,
+			configIndex,
+			dbKeyIsActiveCredential,
+		);
+	}
+
 	try {
 		if (!usedProvider) {
 			throw new HTTPException(400, {
@@ -5139,6 +5172,7 @@ chat.openapi(completions, async (c) => {
 			usedRegion,
 			providerKey !== undefined,
 			usedInternalModel,
+			resolveActiveVertexTokenType(),
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -5671,6 +5705,16 @@ chat.openapi(completions, async (c) => {
 					content: cachedContent ?? null,
 					reasoningContent: cachedReasoningContent ?? null,
 					finishReason: cachedResponse.choices?.[0]?.finish_reason ?? null,
+					// Non-streaming responses are cached in OpenAI format, so the
+					// stored finish_reason is already normalized (e.g. "stop"). Map it
+					// with the OpenAI (default) branch by passing a null provider —
+					// mapping it against the upstream provider's native format (e.g.
+					// "anthropic", which never emits "stop") would resolve to UNKNOWN
+					// and log a spurious "Unknown finish reason encountered" error.
+					unifiedFinishReason: getUnifiedFinishReason(
+						cachedResponse.choices?.[0]?.finish_reason ?? null,
+						null,
+					),
 					promptTokens:
 						(
 							cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens
@@ -6575,6 +6619,9 @@ chat.openapi(completions, async (c) => {
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							webSearchEnabled: !!webSearchTool,
+							// Same resolved token type as the endpoint so header auth and
+							// the `?key=` query param never disagree.
+							tokenType: resolveActiveVertexTokenType(),
 							serviceTier: forwardedServiceTier,
 						});
 						headers["Content-Type"] = "application/json";
@@ -8813,6 +8860,7 @@ chat.openapi(completions, async (c) => {
 									{
 										const served = resolveServedServiceTier({
 											trafficType: data?.usageMetadata?.trafficType,
+											serviceTierBody: data?.usageMetadata?.serviceTier,
 										});
 										if (served) {
 											servedServiceTier = served;
@@ -10426,6 +10474,152 @@ chat.openapi(completions, async (c) => {
 	// Add event listener for the 'close' event on the connection
 	c.req.raw.signal.addEventListener("abort", onAbort);
 
+	// Build and persist the canceled-request log, then return the 400 "request
+	// canceled" response. Shared by the in-loop fetch-cancellation path and the
+	// body-read cancellation path so a client disconnect is always recorded as
+	// canceled rather than surfacing as an error or a bare 499.
+	const respondCanceled = async () => {
+		const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) ?? [];
+
+		const billCancelled = shouldBillCancelledRequests();
+		let cancelledCosts: Awaited<ReturnType<typeof calculateCosts>> | null =
+			null;
+		let estimatedPromptTokens: number | null = null;
+
+		if (billCancelled) {
+			const tokenEstimation = estimateTokens(
+				usedProvider!,
+				messages,
+				null,
+				null,
+				null,
+			);
+			estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
+
+			cancelledCosts = await calculateCosts(
+				usedInternalModel,
+				usedProvider!,
+				usedRegion ?? null,
+				estimatedPromptTokens,
+				0, // No completion tokens
+				null, // No cached tokens
+				{
+					prompt: messages
+						.map((m) => messageContentToString(m.content))
+						.join("\n"),
+					completion: "",
+				},
+				null, // No reasoning tokens
+				0, // No output images
+				undefined,
+				inputImageCount,
+				webSearchTool ? 1 : null, // Bill for web search if it was enabled
+				project.organizationId,
+				undefined, // imageQuality
+				null, // reportedImageInputTokens
+				null, // reportedImageOutputTokens
+				{ servedServiceTier, customPricing: customPricingMapping },
+			);
+		}
+
+		const baseLogEntry = createLogEntry(
+			requestId,
+			project,
+			apiKey,
+			providerKey?.id,
+			usedModelFormatted!,
+			usedModelMapping!,
+			usedProvider!,
+			initialRequestedModel,
+			requestedProvider,
+			messages,
+			temperature,
+			max_tokens,
+			top_p,
+			frequency_penalty,
+			presence_penalty,
+			reasoning_effort,
+			reasoning_max_tokens,
+			effort,
+			response_format,
+			tools,
+			tool_choice,
+			source,
+			customHeaders,
+			debugMode,
+			userAgent,
+			image_config,
+			routingMetadata,
+			rawBody,
+			null, // No response for canceled request
+			requestBody, // The request that was prepared before cancellation
+			null, // No upstream response for canceled request
+			canceledNonStreamingPluginIds,
+			undefined, // No plugin results for canceled request
+		);
+
+		await insertLogEntry({
+			...baseLogEntry,
+			duration: Date.now() - startTime,
+			timeToFirstToken: null, // Not applicable for canceled request
+			timeToFirstReasoningToken: null, // Not applicable for canceled request
+			responseSize: 0,
+			content: null,
+			reasoningContent: null,
+			finishReason: "canceled",
+			promptTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
+			completionTokens: billCancelled ? "0" : null,
+			totalTokens: billCancelled
+				? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
+				: null,
+			reasoningTokens: null,
+			cachedTokens: null,
+			hasError: false,
+			streamed: false,
+			canceled: true,
+			errorDetails: null,
+			inputCost: cancelledCosts?.inputCost ?? null,
+			outputCost: cancelledCosts?.outputCost ?? null,
+			cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+			requestCost: cancelledCosts?.requestCost ?? null,
+			webSearchCost: cancelledCosts?.webSearchCost ?? null,
+			imageInputTokens: cancelledCosts?.imageInputTokens?.toString() ?? null,
+			imageOutputTokens: cancelledCosts?.imageOutputTokens?.toString() ?? null,
+			imageInputCost: cancelledCosts?.imageInputCost ?? null,
+			imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+			audioInputTokens: cancelledCosts?.audioInputTokens?.toString() ?? null,
+			audioInputCost: cancelledCosts?.audioInputCost ?? null,
+			cost: cancelledCosts?.totalCost ?? null,
+			estimatedCost: cancelledCosts?.estimatedCost ?? false,
+			discount: cancelledCosts?.discount ?? null,
+			dataStorageCost: billCancelled
+				? calculateDataStorageCost(
+						cancelledCosts?.promptTokens ?? estimatedPromptTokens,
+						null,
+						0,
+						null,
+						retentionLevel,
+					)
+				: "0",
+			cached: false,
+			toolResults: null,
+		});
+
+		return c.json(
+			{
+				error: {
+					message: "Request canceled by client",
+					type: "canceled",
+					param: null,
+					code: "request_canceled",
+				},
+			},
+			400,
+		); // Using 400 status code for client closed request
+	};
+
 	// --- Retry loop for provider fallback ---
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviderIds = new Set<string>();
@@ -10521,6 +10715,9 @@ chat.openapi(completions, async (c) => {
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				webSearchEnabled: !!webSearchTool,
+				// Same resolved token type as the endpoint so header auth and the
+				// `?key=` query param never disagree.
+				tokenType: resolveActiveVertexTokenType(),
 				serviceTier: forwardedServiceTier,
 			});
 			if (!(requestBody instanceof FormData)) {
@@ -10816,158 +11013,21 @@ chat.openapi(completions, async (c) => {
 
 		// If the request was canceled, log it and return a response
 		if (canceled) {
-			// Log the canceled request
-			// Extract plugin IDs for logging (canceled non-streaming)
-			const canceledNonStreamingPluginIds = plugins?.map((p) => p.id) ?? [];
-
-			// Calculate costs for cancelled request if billing is enabled
-			const billCancelled = shouldBillCancelledRequests();
-			let cancelledCosts: Awaited<ReturnType<typeof calculateCosts>> | null =
-				null;
-			let estimatedPromptTokens: number | null = null;
-
-			if (billCancelled) {
-				// Estimate prompt tokens from messages
-				const tokenEstimation = estimateTokens(
-					usedProvider,
-					messages,
-					null,
-					null,
-					null,
-				);
-				estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
-
-				// Calculate costs based on prompt tokens only (no completion for non-streaming cancel)
-				// If web search tool was enabled, count it as 1 search for billing
-				cancelledCosts = await calculateCosts(
-					usedInternalModel,
-					usedProvider,
-					usedRegion ?? null,
-					estimatedPromptTokens,
-					0, // No completion tokens
-					null, // No cached tokens
-					{
-						prompt: messages
-							.map((m) => messageContentToString(m.content))
-							.join("\n"),
-						completion: "",
-					},
-					null, // No reasoning tokens
-					0, // No output images
-					undefined,
-					inputImageCount,
-					webSearchTool ? 1 : null, // Bill for web search if it was enabled
-					project.organizationId,
-					undefined, // imageQuality
-					null, // reportedImageInputTokens
-					null, // reportedImageOutputTokens
-					{ servedServiceTier, customPricing: customPricingMapping },
-				);
-			}
-
-			const baseLogEntry = createLogEntry(
-				requestId,
-				project,
-				apiKey,
-				providerKey?.id,
-				usedModelFormatted,
-				usedModelMapping,
-				usedProvider,
-				initialRequestedModel,
-				requestedProvider,
-				messages,
-				temperature,
-				max_tokens,
-				top_p,
-				frequency_penalty,
-				presence_penalty,
-				reasoning_effort,
-				reasoning_max_tokens,
-				effort,
-				response_format,
-				tools,
-				tool_choice,
-				source,
-				customHeaders,
-				debugMode,
-				userAgent,
-				image_config,
-				routingMetadata,
-				rawBody,
-				null, // No response for canceled request
-				requestBody, // The request that was prepared before cancellation
-				null, // No upstream response for canceled request
-				canceledNonStreamingPluginIds,
-				undefined, // No plugin results for canceled request
-			);
-
-			await insertLogEntry({
-				...baseLogEntry,
-				duration,
-				timeToFirstToken: null, // Not applicable for canceled request
-				timeToFirstReasoningToken: null, // Not applicable for canceled request
-				responseSize: 0,
-				content: null,
-				reasoningContent: null,
-				finishReason: "canceled",
-				promptTokens: billCancelled
-					? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
-					: null,
-				completionTokens: billCancelled ? "0" : null,
-				totalTokens: billCancelled
-					? (cancelledCosts?.promptTokens ?? estimatedPromptTokens)?.toString()
-					: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: true,
-				errorDetails: null,
-				inputCost: cancelledCosts?.inputCost ?? null,
-				outputCost: cancelledCosts?.outputCost ?? null,
-				cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
-				requestCost: cancelledCosts?.requestCost ?? null,
-				webSearchCost: cancelledCosts?.webSearchCost ?? null,
-				imageInputTokens: cancelledCosts?.imageInputTokens?.toString() ?? null,
-				imageOutputTokens:
-					cancelledCosts?.imageOutputTokens?.toString() ?? null,
-				imageInputCost: cancelledCosts?.imageInputCost ?? null,
-				imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
-				audioInputTokens: cancelledCosts?.audioInputTokens?.toString() ?? null,
-				audioInputCost: cancelledCosts?.audioInputCost ?? null,
-				cost: cancelledCosts?.totalCost ?? null,
-				estimatedCost: cancelledCosts?.estimatedCost ?? false,
-				discount: cancelledCosts?.discount ?? null,
-				dataStorageCost: billCancelled
-					? calculateDataStorageCost(
-							cancelledCosts?.promptTokens ?? estimatedPromptTokens,
-							null,
-							0,
-							null,
-							retentionLevel,
-						)
-					: "0",
-				cached: false,
-				toolResults: null,
-			});
-
-			return c.json(
-				{
-					error: {
-						message: "Request canceled by client",
-						type: "canceled",
-						param: null,
-						code: "request_canceled",
-					},
-				},
-				400,
-			); // Using 400 status code for client closed request
+			return await respondCanceled();
 		}
 
 		if (res && !res.ok) {
 			// Get the error response text
 			// Body read can throw TimeoutError if the abort signal fires during consumption
 			let errorResponseText: string;
+			// Keep the client-abort listener attached across the error-body read
+			// (it was removed when the fetch settled) so a disconnect during
+			// res.text() aborts the read and is recorded as canceled. Re-run
+			// onAbort if the client already disconnected in the gap.
+			c.req.raw.signal.addEventListener("abort", onAbort);
+			if (c.req.raw.signal.aborted) {
+				onAbort();
+			}
 			try {
 				const rawErrorResponseText = await res.text();
 				errorResponseText = usesAwsBedrockConverse()
@@ -10978,11 +11038,12 @@ chat.openapi(completions, async (c) => {
 				if (!(bodyError instanceof Error)) {
 					throw bodyError;
 				}
-				// A client disconnect can abort the in-flight body read; rethrow
-				// so the cancellation path (app.onError -> 499) is preserved
-				// instead of misreporting it as an upstream failure.
+				// A client disconnect aborts the in-flight error-body read; record
+				// it as a canceled request (same log shape as the fetch-
+				// cancellation path) instead of misreporting it as an upstream
+				// failure or a bare 499.
 				if (bodyError.name === "AbortError") {
-					throw bodyError;
+					return await respondCanceled();
 				}
 				// A read timeout or a mid-body socket failure (e.g. undici
 				// "terminated: other side closed" / ECONNRESET) both surface
@@ -11097,6 +11158,8 @@ chat.openapi(completions, async (c) => {
 						isTimeoutBody ? 504 : 502,
 					);
 				}
+			} finally {
+				c.req.raw.signal.removeEventListener("abort", onAbort);
 			}
 
 			// If the upstream Google provider rejected the request because the
@@ -11527,6 +11590,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	let json: any;
+	// Keep the client-abort listener attached across the body read. The
+	// per-attempt listener was removed when the fetch settled, so without this a
+	// client disconnect during res.json()/res.text() would neither abort the
+	// upstream read nor be recorded as canceled. Re-run onAbort if the client
+	// already disconnected in the gap before we re-attached.
+	c.req.raw.signal.addEventListener("abort", onAbort);
+	if (c.req.raw.signal.aborted) {
+		onAbort();
+	}
 	try {
 		if (forceStream && res.body) {
 			// Stream-only model: upstream returned SSE but client expects JSON.
@@ -11770,11 +11842,32 @@ chat.openapi(completions, async (c) => {
 		if (!(bodyError instanceof Error)) {
 			throw bodyError;
 		}
-		// A client disconnect can abort the in-flight body read; rethrow so the
-		// cancellation path (app.onError -> 499) is preserved instead of
-		// misreporting it as an upstream failure.
+		// A client disconnect aborts the in-flight body read; record it as a
+		// canceled request (same log shape as the fetch-cancellation path)
+		// instead of misreporting it as an upstream failure or a bare 499.
 		if (bodyError.name === "AbortError") {
-			throw bodyError;
+			// The post-loop success append already recorded this provider as a
+			// succeeded routing attempt. Drop it before logging the cancellation
+			// so a client disconnect isn't counted as a provider success in the
+			// routing trace (matching the fetch-cancellation path, which records
+			// no succeeded attempt). A cancel is not a provider failure, so the
+			// attempt is removed rather than flipped to failed.
+			for (let i = routingAttempts.length - 1; i >= 0; i--) {
+				if (
+					routingAttempts[i].provider === usedProvider &&
+					routingAttempts[i].succeeded
+				) {
+					routingAttempts.splice(i, 1);
+					break;
+				}
+			}
+			if (routingMetadata) {
+				routingMetadata = {
+					...routingMetadata,
+					routing: routingAttempts,
+				};
+			}
+			return await respondCanceled();
 		}
 		// Both a read timeout and a mid-body socket failure (e.g. undici
 		// "terminated: other side closed" / ECONNRESET) surface here: the
@@ -11946,6 +12039,8 @@ chat.openapi(completions, async (c) => {
 				isTimeoutBody ? 504 : 502,
 			);
 		}
+	} finally {
+		c.req.raw.signal.removeEventListener("abort", onAbort);
 	}
 	if (process.env.NODE_ENV !== "production") {
 		logger.debug("API response", { response: json });
@@ -11976,6 +12071,7 @@ chat.openapi(completions, async (c) => {
 	{
 		const served = resolveServedServiceTier({
 			trafficType: json?.usageMetadata?.trafficType,
+			serviceTierBody: json?.usageMetadata?.serviceTier,
 		});
 		if (served) {
 			servedServiceTier = served;

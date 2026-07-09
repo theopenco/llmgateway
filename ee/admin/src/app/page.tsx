@@ -1,6 +1,7 @@
 import {
 	AlertTriangle,
 	CircleDollarSign,
+	Gift,
 	PiggyBank,
 	Users,
 } from "lucide-react";
@@ -26,13 +27,14 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
 
-type Accent = "green" | "blue" | "purple" | "red";
+type Accent = "green" | "blue" | "purple" | "red" | "amber";
 
 const accentRing: Record<Accent, string> = {
 	green: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
 	blue: "border-sky-500/30 bg-sky-500/10 text-sky-400",
 	purple: "border-violet-500/30 bg-violet-500/10 text-violet-400",
 	red: "border-red-500/30 bg-red-500/10 text-red-400",
+	amber: "border-amber-500/30 bg-amber-500/10 text-amber-400",
 };
 
 function GroupedMetricCard({
@@ -159,7 +161,7 @@ export default async function Page({
 				</div>
 			</header>
 
-			<section className="grid gap-4 lg:grid-cols-3">
+			<section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
 				<GroupedMetricCard
 					label="Audience"
 					value={numberFormatter.format(metrics.totalSignups)}
@@ -221,9 +223,24 @@ export default async function Page({
 							label: "Unused",
 							value: currencyFormatter.format(metrics.unusedCredits),
 						},
+					]}
+				/>
+				<GroupedMetricCard
+					label="Credits Given"
+					value={currencyFormatter.format(
+						metrics.totalGiftedCredits + metrics.totalBonusCredits,
+					)}
+					subtitle="Free credits given (gift + SDK bonus)"
+					icon={<Gift className="h-4 w-4" />}
+					accent="amber"
+					stats={[
 						{
 							label: "Gifted",
 							value: currencyFormatter.format(metrics.totalGiftedCredits),
+						},
+						{
+							label: "SDK bonus",
+							value: currencyFormatter.format(metrics.totalBonusCredits),
 						},
 					]}
 				/>

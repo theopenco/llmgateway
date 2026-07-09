@@ -77,21 +77,22 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs Vercel AI Gateway — The Open Alternative",
 		description:
-			"Compare LLM Gateway's open-source, self-hostable platform with zero token markup, image and video generation, and built-in guardrails against Vercel AI Gateway's managed, AI SDK-native service.",
+			"Compare open-source, self-hostable routing with zero token markup and guardrails vs Vercel AI Gateway's managed AI SDK service.",
 		alternates: {
-			canonical: "https://llmgateway.io/compare/vercel-ai-gateway",
+			canonical: "/compare/vercel-ai-gateway",
 		},
 		openGraph: {
-			title: "LLM Gateway vs Vercel AI Gateway - Feature Comparison",
+			title: "LLM Gateway vs Vercel AI Gateway — Feature Comparison",
 			description:
-				"Compare LLM Gateway's open-source, self-hostable platform with zero token markup against Vercel AI Gateway's managed service.",
+				"Open-source, self-hostable platform with zero token markup vs Vercel AI Gateway's managed service.",
 			type: "website",
+			url: "https://llmgateway.io/compare/vercel-ai-gateway",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs Vercel AI Gateway - Feature Comparison",
+			title: "LLM Gateway vs Vercel AI Gateway — Feature Comparison",
 			description:
-				"Compare LLM Gateway's open-source, self-hostable platform with zero token markup against Vercel AI Gateway's managed service.",
+				"Open-source, self-hostable platform with zero token markup vs Vercel AI Gateway's managed service.",
 		},
 	};
 }

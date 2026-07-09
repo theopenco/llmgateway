@@ -16,6 +16,7 @@ import {
 	type ChatSidebarHandle,
 } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
+import { ProjectContextBanner } from "@/components/playground/project-context-banner";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -404,6 +405,13 @@ export default function ChatPageClient({
 
 	// Get chat ID from URL search params
 	const chatIdFromUrl = searchParams.get("id");
+	// Chat project (knowledge base) context: seeded from the ?project= param
+	// when starting a chat from a project page, then kept in sync with the
+	// loaded chat's own projectId.
+	const projectIdFromUrl = searchParams.get("project");
+	const [activeProjectId, setActiveProjectId] = useState<string | null>(
+		projectIdFromUrl,
+	);
 	const [currentChatId, setCurrentChatId] = useState<string | null>(
 		chatIdFromUrl,
 	);
@@ -792,6 +800,9 @@ export default function ChatPageClient({
 						? { mcp_servers: enabledMcpServers }
 						: {}),
 					...(isTemporaryChat ? { temporary_chat: true } : {}),
+					...(activeProjectId && !isTemporaryChat
+						? { project_id: activeProjectId }
+						: {}),
 					...(activeSkills.length > 0
 						? {
 								skill_instructions: activeSkills
@@ -817,6 +828,7 @@ export default function ChatPageClient({
 			supportsWebSearch,
 			getEnabledMcpServers,
 			isTemporaryChat,
+			activeProjectId,
 			activeSkills,
 		],
 	);
@@ -901,6 +913,23 @@ export default function ChatPageClient({
 	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
 		currentChatId ?? "",
 	);
+
+	// Keep the project context in sync: an existing chat's own projectId wins;
+	// without a chat, fall back to the ?project= param (new chat from a project).
+	useEffect(() => {
+		if (currentChatId) {
+			if (currentChatData?.chat?.id === currentChatId) {
+				setActiveProjectId(currentChatData.chat.projectId ?? null);
+			} else if (!pendingNewChatRef.current) {
+				// Navigating to a different chat whose data hasn't loaded yet —
+				// don't keep showing the previous chat's project context. A chat
+				// just created here (pendingNewChatRef) keeps the ?project= value.
+				setActiveProjectId(null);
+			}
+		} else {
+			setActiveProjectId(projectIdFromUrl);
+		}
+	}, [currentChatId, currentChatData?.chat, projectIdFromUrl]);
 
 	useEffect(() => {
 		// Use `status` from useChat (reactive) instead of the isSendingRef ref so
@@ -1147,6 +1176,7 @@ export default function ChatPageClient({
 					webSearch: webSearchEnabled,
 					comparisonEnabled,
 					organizationId: selectedOrganization?.id ?? chatOrg?.id,
+					...(activeProjectId ? { projectId: activeProjectId } : {}),
 				},
 			});
 			const newChatId = chatData.chat.id;
@@ -1974,6 +2004,9 @@ export default function ChatPageClient({
 							previewPrompt={getFirstUserMessageText(messages)}
 						/>
 					</header>
+					{activeProjectId && !isTemporaryChat ? (
+						<ProjectContextBanner projectId={activeProjectId} />
+					) : null}
 					{comparisonEnabled && !isTemporaryChat ? (
 						<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
 							<div className="flex items-center gap-2 text-xs text-muted-foreground">

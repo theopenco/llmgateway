@@ -6,12 +6,15 @@ import {
 	Archive,
 	ArchiveRestore,
 	ArrowLeft,
+	Building2,
 	CheckCircle2,
 	Clock,
+	ExternalLink,
 	Globe,
 	Mail,
 	MessageCircle,
 	Monitor,
+	MoreVertical,
 	Search,
 	Send,
 	Star,
@@ -20,6 +23,7 @@ import {
 	Trash2,
 	User,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -32,6 +36,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
@@ -345,6 +355,17 @@ export function ChatSupportLogsClient() {
 	};
 
 	const selectedConv = conversations.find((c) => c.id === selectedId);
+	const isArchived = !!(detail?.archivedAt ?? selectedConv?.archivedAt);
+
+	const handleToggleArchive = () => {
+		if (!selectedId) {
+			return;
+		}
+		archiveMutation.mutate({
+			params: { path: { id: selectedId } },
+			body: { archived: !isArchived },
+		});
+	};
 
 	return (
 		<div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden md:h-[calc(100vh-1rem)]">
@@ -606,14 +627,46 @@ export function ChatSupportLogsClient() {
 										<span className="text-xs font-medium">Escalated</span>
 									</div>
 								)}
-								<button
-									type="button"
-									onClick={() => setDeleteDialogOpen(true)}
-									className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive xl:hidden"
-								>
-									<Trash2 className="h-4 w-4" />
-									<span className="sr-only">Delete conversation</span>
-								</button>
+								{/* Actions menu — the right-side panel (with archive/delete)
+								    only renders at xl+, so expose the same actions here for
+								    mobile and tablet. */}
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<button
+											type="button"
+											aria-label="Conversation actions"
+											className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground xl:hidden"
+										>
+											<MoreVertical className="h-4 w-4" />
+											<span className="sr-only">Conversation actions</span>
+										</button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end">
+										<DropdownMenuItem
+											onClick={handleToggleArchive}
+											disabled={archiveMutation.isPending}
+										>
+											{isArchived ? (
+												<>
+													<ArchiveRestore className="mr-2 h-4 w-4" />
+													Unarchive
+												</>
+											) : (
+												<>
+													<Archive className="mr-2 h-4 w-4" />
+													Archive
+												</>
+											)}
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onClick={() => setDeleteDialogOpen(true)}
+											className="text-destructive focus:text-destructive"
+										>
+											<Trash2 className="mr-2 h-4 w-4" />
+											Delete
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
 							</div>
 
 							{/* Messages */}
@@ -747,14 +800,27 @@ export function ChatSupportLogsClient() {
 												.toUpperCase()
 										: "?"}
 								</div>
-								<div className="text-center">
+								<div className="flex max-w-full flex-col items-center text-center">
 									<p className="text-sm font-semibold text-foreground">
 										{detail?.name ?? selectedConv?.name ?? "Anonymous"}
 									</p>
 									{(detail?.email ?? selectedConv?.email) && (
-										<p className="mt-0.5 text-xs text-muted-foreground">
+										<p className="mt-0.5 break-all text-xs text-muted-foreground">
 											{detail?.email ?? selectedConv?.email}
 										</p>
+									)}
+									{detail?.organizationId && (
+										<Link
+											href={`/organizations/${detail.organizationId}`}
+											className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+											title="View organization"
+										>
+											<Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+											<span className="truncate">
+												{detail.organizationName ?? "View organization"}
+											</span>
+											<ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+										</Link>
 									)}
 								</div>
 							</div>

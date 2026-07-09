@@ -450,9 +450,9 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
 					"totalDuration",
 				),
-			totalTokens:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
-					"totalTokens",
+			totalOutputTokens:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalOutputTokens}), 0)`.as(
+					"totalOutputTokens",
 				),
 		})
 		.from(modelProviderMappingHistory)
@@ -474,7 +474,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 		const upstreamErrorsCount = Number(m.upstreamErrorsCount);
 		const cachedCount = Number(m.cachedCount);
 		const totalDuration = Number(m.totalDuration);
-		const totalTokens = Number(m.totalTokens);
+		const totalOutputTokens = Number(m.totalOutputTokens);
 		// Uptime only counts upstream/provider-side failures against the provider —
 		// client errors (4xx from user) or gateway errors aren't the provider's fault.
 		const uptime =
@@ -482,9 +482,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				? Math.round(((logsCount - upstreamErrorsCount) / logsCount) * 1000) /
 					10
 				: null;
+		// Throughput = generated (output) tokens per second of request time.
+		// Prompt tokens must not be counted — they inflate the number by the
+		// prompt/output ratio, which is 30-60x for coding-agent traffic.
 		const tokensPerSecond =
-			totalDuration > 0 && totalTokens > 0
-				? Math.round(totalTokens / (totalDuration / 1000))
+			totalDuration > 0 && totalOutputTokens > 0
+				? Math.round(totalOutputTokens / (totalDuration / 1000))
 				: null;
 		return {
 			providerId: m.providerId,
@@ -655,6 +658,10 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
 						"total_tokens",
 					),
+				totalOutputTokens:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalOutputTokens}), 0)`.as(
+						"total_output_tokens",
+					),
 			})
 			.from(modelProviderMappingHistory)
 			.innerJoin(
@@ -691,6 +698,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				totalDuration: number;
 				totalTimeToFirstToken: number;
 				totalTokens: number;
+				totalOutputTokens: number;
 			}>;
 		}
 	>();
@@ -724,6 +732,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			totalDuration: Number(r.totalDuration),
 			totalTimeToFirstToken: Number(r.totalTimeToFirstToken),
 			totalTokens: Number(r.totalTokens),
+			totalOutputTokens: Number(r.totalOutputTokens),
 		});
 		byProvider.set(key, entry);
 	}
@@ -735,7 +744,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		let totalCached = 0;
 		let totalDuration = 0;
 		let totalTtft = 0;
-		let totalTokens = 0;
+		let totalOutputTokens = 0;
 
 		const points = p.points.map((pt) => {
 			totalLogs += pt.logsCount;
@@ -744,7 +753,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			totalCached += pt.cachedCount;
 			totalDuration += pt.totalDuration;
 			totalTtft += pt.totalTimeToFirstToken;
-			totalTokens += pt.totalTokens;
+			totalOutputTokens += pt.totalOutputTokens;
 			const nonCached = pt.logsCount - pt.cachedCount;
 			return {
 				timestamp: pt.timestamp,
@@ -770,9 +779,11 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				? Math.round(((totalLogs - totalUpstreamErrors) / totalLogs) * 1000) /
 					10
 				: null;
+		// Output tokens only — including prompt tokens would inflate throughput
+		// by the prompt/output ratio (see the benchmarks endpoint above).
 		const tokensPerSecond =
 			totalDuration > 0
-				? Math.round(totalTokens / (totalDuration / 1000))
+				? Math.round(totalOutputTokens / (totalDuration / 1000))
 				: null;
 
 		return {

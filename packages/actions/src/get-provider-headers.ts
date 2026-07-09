@@ -1,4 +1,10 @@
-import type { ProviderId } from "@llmgateway/models";
+import {
+	resolveVertexTokenType,
+	type ProviderId,
+	type VertexTokenType,
+} from "@llmgateway/models";
+
+import type { ProviderKeyOptions } from "@llmgateway/db";
 
 export interface ProviderHeaderOptions {
 	/**
@@ -6,6 +12,22 @@ export interface ProviderHeaderOptions {
 	 */
 	webSearchEnabled?: boolean;
 	requestId?: string;
+	providerKeyOptions?: ProviderKeyOptions;
+	configIndex?: number;
+	/**
+	 * Skip env-var fallback when resolving the Vertex/Quartz token type, so
+	 * header auth matches the endpoint in BYOK contexts. Must mirror the
+	 * `skipEnvVars` passed to {@link getProviderEndpoint} for the same request.
+	 */
+	skipEnvVars?: boolean;
+	/**
+	 * Pre-resolved Vertex/Quartz token type. When set it takes precedence over
+	 * `providerKeyOptions`/`skipEnvVars` resolution, so the caller can resolve
+	 * the token type once and feed the identical value to both
+	 * {@link getProviderEndpoint} and this function (avoids header auth and the
+	 * `?key=` query param disagreeing).
+	 */
+	tokenType?: VertexTokenType;
 	/**
 	 * OpenAI-compatible processing tier selected by the caller via the
 	 * `service_tier` request field. For Google Vertex AI, "flex" and "priority"
@@ -43,8 +65,21 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "quartz":
 			return requestIdHeader;
 		case "google-vertex": {
+			const vertexHeaders: Record<string, string> = { ...requestIdHeader };
+			const tokenType =
+				options?.tokenType ??
+				resolveVertexTokenType(
+					provider,
+					options?.providerKeyOptions,
+					options?.configIndex,
+					options?.skipEnvVars,
+				);
+			if (tokenType === "oauth") {
+				vertexHeaders.Authorization = `Bearer ${token}`;
+			}
 			// Map the OpenAI-compatible `service_tier` to Vertex's Flex / Priority
 			// PayGo headers. Only "flex" and "priority" are valid; standard/default
 			// requests omit them. Flex and Priority PayGo are served only on the
@@ -62,16 +97,12 @@ export function getProviderHeaders(
 				options?.serviceTier === "flex" ||
 				options?.serviceTier === "priority"
 			) {
-				return {
-					...requestIdHeader,
-					"X-Vertex-AI-LLM-Request-Type": "shared",
-					"X-Vertex-AI-LLM-Shared-Request-Type": options.serviceTier,
-				};
+				vertexHeaders["X-Vertex-AI-LLM-Request-Type"] = "shared";
+				vertexHeaders["X-Vertex-AI-LLM-Shared-Request-Type"] =
+					options.serviceTier;
 			}
-			return requestIdHeader;
+			return vertexHeaders;
 		}
-		case "quartz":
-			return requestIdHeader;
 		case "vertex-anthropic":
 			return {
 				...requestIdHeader,

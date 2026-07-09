@@ -3,14 +3,14 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
-import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
+import { getAdminOrganizationIds } from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import { invalidateSwrByTables } from "@llmgateway/cache";
 import { db, eq, getTableName, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { providers } from "@llmgateway/models";
+import { isStealthProvider, providers } from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -220,9 +220,27 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	// Provider (BYOK) keys are an org-level resource; project-scoped "developer"
+	// members cannot manage them.
+	const creatorRole = userOrgs[0]?.role;
+	if (creatorRole !== "owner" && creatorRole !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can manage provider keys",
+		});
+	}
+
 	if (provider === "custom" && (!name || !baseUrl)) {
 		throw new HTTPException(400, {
 			message: "Custom providers require both a name and base URL",
+		});
+	}
+
+	// Stealth providers have no default base URL and an undisclosed platform, so
+	// users can't self-configure a working key for them. They are hidden from the
+	// UI selector; reject here too as defense in depth against direct API calls.
+	if (provider !== "custom" && isStealthProvider(provider as ProviderId)) {
+		throw new HTTPException(400, {
+			message: `Provider ${provider} cannot be configured with a provider key`,
 		});
 	}
 
@@ -396,7 +414,7 @@ keysProvider.openapi(list, async (c) => {
 	}
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	if (!organizationIds.length) {
 		return c.json({ providerKeys: [] });
@@ -454,7 +472,7 @@ keysProvider.openapi(listActive, async (c) => {
 		});
 	}
 
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	if (!organizationIds.length) {
 		return c.json({ providerKeys: [] });
@@ -532,7 +550,7 @@ keysProvider.openapi(deleteKey, async (c) => {
 	const { id } = c.req.param();
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	// Find the provider key
 	const providerKey = await db.query.providerKey.findFirst({
@@ -647,7 +665,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	const { status, customModelsOnly } = c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	// Find the provider key
 	const providerKey = await db.query.providerKey.findFirst({

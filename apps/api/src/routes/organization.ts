@@ -2,8 +2,17 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import {
+	getUserProjectIds,
+	userHasOrganizationAccess,
+} from "@/utils/authorization.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateInvoicePDF,
+	isInvoiceableTransaction,
+	isRefundTransaction,
+} from "@/utils/invoice.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -48,6 +57,10 @@ const organizationSchema = z.object({
 	credits: z.string(),
 	plan: z.enum(["free", "pro", "enterprise"]),
 	planExpiresAt: z.date().nullable(),
+	// Manual seat-limit override; null = use the plan default.
+	seats: z.number().nullable(),
+	// Manual API-key-limit override; null = use the plan default.
+	apiKeyLimit: z.number().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -77,6 +90,18 @@ const organizationSchema = z.object({
 	chatPlanCreditsLimit: z.string(),
 	chatPlanBillingCycleStart: z.date().nullable(),
 	chatPlanExpiresAt: z.date().nullable(),
+	// Org-wide default developer budget (managed on the Teams page).
+	defaultDeveloperMaxApiKeys: z.number().nullable(),
+	defaultDeveloperUsageLimit: z.string().nullable(),
+	defaultDeveloperPeriodUsageLimit: z.string().nullable(),
+	defaultDeveloperPeriodUsageDurationValue: z.number().nullable(),
+	defaultDeveloperPeriodUsageDurationUnit: z
+		.enum(["hour", "day", "week", "month"])
+		.nullable(),
+	// The authenticated user's role in this org. Populated by GET /orgs so the
+	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
+	// "developer" members). Omitted by single-org endpoints.
+	role: z.enum(["owner", "admin", "developer"]).optional(),
 });
 
 const projectSchema = z.object({
@@ -91,8 +116,10 @@ const projectSchema = z.object({
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	paymentsSdkEnabled: z.boolean(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
+	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
 });
 
@@ -155,6 +182,7 @@ const transactionSchema = z.object({
 		"end_user_margin_accrual",
 		"end_user_refund",
 		"end_user_margin_payout",
+		"end_user_bonus",
 	]),
 	amount: z.string().nullable(),
 	creditAmount: z.string().nullable(),
@@ -216,7 +244,7 @@ organization.openapi(getOrganizations, async (c) => {
 	const { includePersonal, includeChat } = c.req.valid("query");
 
 	let organizations = userOrganizations
-		.map((uo) => uo.organization!)
+		.map((uo) => ({ ...uo.organization!, role: uo.role }))
 		.filter((org) => org.status !== "deleted")
 		// Personal and chat orgs are hidden from the regular dashboard. The
 		// devpass/playground surfaces opt in via ?includePersonal=true /
@@ -234,7 +262,7 @@ organization.openapi(getOrganizations, async (c) => {
 			defaultOrganization.status !== "deleted" &&
 			defaultOrganization.kind !== "devpass"
 		) {
-			organizations = [defaultOrganization];
+			organizations = [{ ...defaultOrganization, role: "owner" as const }];
 		}
 	}
 
@@ -282,6 +310,10 @@ organization.openapi(getProjects, async (c) => {
 		});
 	}
 
+	// RBAC: project-scoped "developer" members only see the projects granted to
+	// them; owners/admins see every project in the org.
+	const accessibleProjectIds = new Set(await getUserProjectIds(user.id));
+
 	const projects = await db.query.project.findMany({
 		where: {
 			organizationId: {
@@ -294,7 +326,9 @@ organization.openapi(getProjects, async (c) => {
 	});
 
 	return c.json({
-		projects,
+		projects: projects.filter((project) =>
+			accessibleProjectIds.has(project.id),
+		),
 	});
 });
 
@@ -854,6 +888,97 @@ organization.openapi(getTransactions, async (c) => {
 	return c.json({
 		transactions,
 	});
+});
+
+const downloadTransactionInvoice = createRoute({
+	method: "get",
+	path: "/{id}/transactions/{transactionId}/invoice",
+	request: {
+		params: z.object({
+			id: z.string(),
+			transactionId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/pdf": {
+					schema: z.any().openapi({ type: "string", format: "binary" }),
+				},
+			},
+			description: "PDF invoice for the specified transaction",
+		},
+	},
+});
+
+organization.openapi(downloadTransactionInvoice, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id, transactionId } = c.req.param();
+
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const transaction = await db.query.transaction.findFirst({
+		where: {
+			id: { eq: transactionId },
+			organizationId: { eq: id },
+		},
+	});
+	if (!transaction) {
+		throw new HTTPException(404, {
+			message: "Transaction not found",
+		});
+	}
+	if (!isInvoiceableTransaction(transaction)) {
+		throw new HTTPException(400, {
+			message: "No invoice is available for this transaction",
+		});
+	}
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: id },
+		},
+	});
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const originalTransaction =
+		isRefundTransaction(transaction.type) && transaction.relatedTransactionId
+			? await db.query.transaction.findFirst({
+					where: {
+						id: { eq: transaction.relatedTransactionId },
+						organizationId: { eq: id },
+					},
+				})
+			: null;
+
+	const pdf = generateInvoicePDF(
+		buildInvoiceDataForTransaction(transaction, org, originalTransaction),
+	);
+
+	const prefix = isRefundTransaction(transaction.type)
+		? "credit-note"
+		: "invoice";
+	c.header("Content-Type", "application/pdf");
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="${prefix}-${transaction.id}.pdf"`,
+	);
+	return c.body(new Uint8Array(pdf));
 });
 
 const getReferralStats = createRoute({

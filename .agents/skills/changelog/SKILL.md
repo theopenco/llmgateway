@@ -79,10 +79,12 @@ Hand the user a single, ready-to-paste **gpt-image-2** prompt that produces the 
 
 **Resolution.** Target **1536×1024** (3:2 landscape). This is the recommended OpenGraph size for gpt-image-2: the dimensions are divisible by 16 (a gpt-image-2 requirement) and crop cleanly to the ~1.91:1 social card. Match the `width`/`height` in the frontmatter to whatever you generate. (Square `1024×1024` is acceptable for icon-style art but crops more on social cards — prefer landscape for OG.)
 
-**Prompt guidance.** Write a *small summary* prompt — 2–4 sentences — that:
+**Prompt guidance.** Write a *small summary* prompt — 2–4 sentences — in the **house image style**: a glossy 3D-rendered circuit-board scene, not a flat/minimal gradient backdrop. The prompt should:
 
-- Describes a clean, modern, abstract tech illustration that conveys the feature's concept (e.g. a catalog/ledger of model cards with price tags and guard rails for the model catalog). Concept over literalism.
-- States the LLM Gateway brand feel: minimal, premium, soft gradients, subtle depth, plenty of negative space, suitable as a backdrop behind a title.
+- Set the scene: a dark navy computer circuit board in glossy 3D isometric perspective, with bright neon-teal light traces flowing across it toward a central raised chip.
+- Put the feature's concept at the center: a glowing element mounted on the central chip (e.g. a glowing doorway for the gateway, a glowing key for API keys). Concept over literalism.
+- Surround it with supporting glossy rounded 3D icons that fit the feature (chat bubbles, keys, charts, coins…) in vivid purple, lime green, and mint, each on small pedestals on the board.
+- Add the render feel: subtle depth of field at the edges, soft reflections, premium 3D render, vibrant against the dark board.
 - **Says "no text, no words, no letters, no UI chrome"** — AI image text is unreliable; the title lives in the page, not the image.
 - Specifies the aspect: "wide 3:2 landscape composition, 1536×1024".
 
@@ -92,10 +94,13 @@ Output the prompt in a fenced block, then the save path, e.g.:
 Prompt for gpt-image-2 (1536×1024):
 
 ```
-A clean, modern abstract illustration of <concept>, in the LLM Gateway brand
-style: minimal and premium, soft gradients, subtle depth and glow, generous
-negative space, balanced as a backdrop behind a headline. Wide 3:2 landscape
-composition, 1536×1024. No text, no words, no letters, no UI chrome.
+A dark navy computer circuit board in glossy 3D isometric perspective, with
+bright neon-teal light traces flowing across it toward a central raised chip.
+On the chip sits a glowing <concept element>. Around it, glossy rounded 3D
+<supporting icons> in vivid purple, lime green, and mint stand on small
+pedestals on the board. Subtle depth of field at the edges, soft reflections,
+premium 3D render. Wide 3:2 landscape composition, 1536×1024. No text, no
+words, no letters, no UI chrome.
 ```
 
 Save the result to: apps/ui/public/changelog/<slug>.png

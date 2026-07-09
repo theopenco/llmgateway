@@ -22,6 +22,7 @@ import {
 	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -523,6 +524,21 @@ function isImageFilePart(value: unknown): value is ImageFilePart {
 	);
 }
 
+// Joined text parts of the latest user message, e.g. for image prompts and
+// knowledge base retrieval queries.
+function getLastUserText(messages: UIMessage[]): string {
+	const lastUserMessage = [...messages]
+		.reverse()
+		.find((m) => m.role === "user");
+	if (!Array.isArray(lastUserMessage?.parts)) {
+		return "";
+	}
+	return lastUserMessage.parts
+		.filter((p): p is { type: "text"; text: string } => p.type === "text")
+		.map((p) => p.text)
+		.join("\n");
+}
+
 interface ChatRequestBody {
 	messages: UIMessage[];
 	model?: string;
@@ -556,6 +572,22 @@ interface ChatRequestBody {
 	is_image_gen?: boolean;
 	temporary_chat?: boolean;
 	skill_instructions?: string;
+	project_id?: string;
+}
+
+interface ProjectRetrievalResponse {
+	project: {
+		id: string;
+		name: string;
+		instructions: string;
+	};
+	chunks: {
+		content: string;
+		score: number;
+		fileId: string;
+		fileName: string;
+	}[];
+	memories: string[];
 }
 
 interface McpClientWrapper {
@@ -584,6 +616,7 @@ export async function POST(req: Request) {
 		mcp_servers,
 		is_image_gen,
 		skill_instructions,
+		project_id,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -609,6 +642,12 @@ export async function POST(req: Request) {
 			JSON.stringify({ error: "Invalid skill_instructions" }),
 			{ status: 400 },
 		);
+	}
+
+	if (project_id !== undefined && typeof project_id !== "string") {
+		return new Response(JSON.stringify({ error: "Invalid project_id" }), {
+			status: 400,
+		});
 	}
 
 	const headerApiKey = req.headers.get("x-llmgateway-key") ?? undefined;
@@ -724,12 +763,7 @@ export async function POST(req: Request) {
 			const fileParts: { url: string; mediaType: string }[] = [];
 			if (lastUserMessage) {
 				if (Array.isArray(lastUserMessage.parts)) {
-					prompt = lastUserMessage.parts
-						.filter(
-							(p): p is { type: "text"; text: string } => p.type === "text",
-						)
-						.map((p) => p.text)
-						.join("\n");
+					prompt = getLastUserText(messages);
 					for (const p of lastUserMessage.parts) {
 						if (fileParts.length >= maxInputImages) {
 							break;
@@ -855,6 +889,57 @@ export async function POST(req: Request) {
 				JSON.stringify({ error: detailedMessage ?? message }),
 				{ status },
 			);
+		}
+	}
+
+	// Project (knowledge base) context: retrieve the chunks most relevant to
+	// the latest user message plus the project's instructions and memories, and
+	// prepend them to the system prompt. Retrieval failures degrade to a normal
+	// chat.
+	let projectContext: string | undefined;
+	// Kept for memory extraction after the stream finishes.
+	let projectQueryText = "";
+	if (project_id) {
+		projectQueryText = getLastUserText(messages).slice(0, 10_000);
+		const retrieval = await fetchServerData<ProjectRetrievalResponse>(
+			"POST",
+			"/chat-projects/{id}/retrieve",
+			{
+				params: { path: { id: project_id } },
+				body: {
+					query: projectQueryText.trim() || "Project knowledge base overview",
+				},
+				// Bill the query embedding to the same gateway key as the chat.
+				headers: { "x-llmgateway-key": finalApiKey },
+				// Don't let a slow retrieval stall the chat; on timeout the
+				// request proceeds without project context.
+				signal: AbortSignal.timeout(15_000),
+			},
+		);
+		if (retrieval) {
+			const sections: string[] = [];
+			if (retrieval.project.instructions.trim()) {
+				sections.push(
+					`Project instructions:\n${retrieval.project.instructions}`,
+				);
+			}
+			if (retrieval.memories?.length) {
+				sections.push(
+					`Project memory — durable facts saved from earlier chats in this project:\n${retrieval.memories
+						.map((memory) => `- ${memory}`)
+						.join("\n")}`,
+				);
+			}
+			if (retrieval.chunks.length) {
+				sections.push(
+					`Relevant excerpts from the project's knowledge base files. Ground your answer in these excerpts and mention the source file when you use one:\n\n${retrieval.chunks
+						.map((chunk) => `[Source: ${chunk.fileName}]\n${chunk.content}`)
+						.join("\n\n---\n\n")}`,
+				);
+			}
+			if (sections.length) {
+				projectContext = `You are answering inside the project "${retrieval.project.name}".\n\n${sections.join("\n\n")}`;
+			}
 		}
 	}
 
@@ -1134,8 +1219,9 @@ export async function POST(req: Request) {
 			)
 			.join("\n\n");
 		const resolvedSystem =
-			[existingSystem, skill_instructions].filter(Boolean).join("\n\n") ||
-			undefined;
+			[existingSystem, skill_instructions, projectContext]
+				.filter(Boolean)
+				.join("\n\n") || undefined;
 		const result = streamText({
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
 			messages: await convertToModelMessages(
@@ -1143,7 +1229,7 @@ export async function POST(req: Request) {
 			),
 			...(resolvedSystem ? { system: resolvedSystem } : {}),
 			...(hasTools ? { tools: allTools, maxSteps: 10 } : {}),
-			onFinish: async () => {
+			onFinish: async ({ text }) => {
 				// Clean up MCP clients when streaming is done
 				for (const { client } of mcpClients) {
 					try {
@@ -1151,6 +1237,27 @@ export async function POST(req: Request) {
 					} catch {
 						// Ignore close errors
 					}
+				}
+
+				// Fire-and-forget memory extraction from this exchange; failures
+				// never affect the chat response.
+				if (
+					project_id &&
+					body.temporary_chat !== true &&
+					projectQueryText.trim() &&
+					text?.trim()
+				) {
+					void fetchServerData("POST", "/chat-projects/{id}/memories/extract", {
+						params: { path: { id: project_id } },
+						body: {
+							userMessage: projectQueryText.slice(0, 8000),
+							assistantMessage: text.slice(0, 8000),
+						},
+						// Bill the extraction model call to the same gateway key
+						// as the chat.
+						headers: { "x-llmgateway-key": finalApiKey },
+						signal: AbortSignal.timeout(90_000),
+					});
 				}
 			},
 		});

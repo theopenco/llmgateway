@@ -445,6 +445,24 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/compare/aws-bedrock"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										AWS Bedrock
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/compare/azure-ai-foundry"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Azure AI Foundry
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/migration"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
@@ -548,6 +566,78 @@ export default function Footer() {
 										prefetch={true}
 									>
 										Discounted
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/roleplay"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Best for Roleplay
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/coding"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Best for Coding
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/creative-writing"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Best for Creative Writing
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/translation"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Best for Translation
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/math"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Best for Math
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/long-context"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Long Context
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/cheapest"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Cheapest
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models/open-source"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Open Source
 									</Link>
 								</li>
 							</ul>
