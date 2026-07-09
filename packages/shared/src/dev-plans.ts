@@ -71,24 +71,3 @@ export function getRemainingPremiumWeeklyAllowance(
 			: (creditsUsed ?? 0);
 	return Math.max(0, limit - used);
 }
-
-/**
- * Prorated credit delta for a mid-cycle tier change.
- *
- * Credits track prorated dollars: changing tier part-way through a billing
- * period grants (upgrade) or removes (downgrade) only the difference in the
- * tiers' credit allotments scaled by the fraction of the period that remains —
- * mirroring the prorated amount Stripe charges or credits back. Returns a
- * positive number for upgrades and a negative number for downgrades.
- */
-export function getProratedCreditDelta(
-	fromTier: DevPlanTier,
-	toTier: DevPlanTier,
-	remainingFraction: number,
-): number {
-	const normalized = Number.isFinite(remainingFraction) ? remainingFraction : 0;
-	const clamped = Math.min(1, Math.max(0, normalized));
-	const delta =
-		getDevPlanCreditsLimit(toTier) - getDevPlanCreditsLimit(fromTier);
-	return delta * clamped;
-}

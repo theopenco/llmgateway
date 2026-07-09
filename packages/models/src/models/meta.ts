@@ -404,6 +404,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 8192,
+				quantization: "fp8",
 				streaming: true,
 				vision: true,
 				tools: false,

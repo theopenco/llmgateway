@@ -54,6 +54,7 @@ function makeWallet(mode: "live" | "test"): Wallet {
 		balance: "10",
 		currency: "USD",
 		markupPercentOverride: null,
+		bonusPercentOverride: null,
 		spendCapPerSession: null,
 		status: "active",
 	};

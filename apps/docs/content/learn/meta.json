@@ -25,6 +25,7 @@
 		"team",
 		"org-analytics",
 		"member-analytics",
+		"master-keys",
 		"audit-logs",
 		"playground",
 		"playground-group",

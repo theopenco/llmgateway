@@ -45,6 +45,7 @@ export interface ApiModelProviderMapping {
 	ocrPagePrice?: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
+	quantization?: string | null;
 	streaming: boolean;
 	vision: boolean | null;
 	reasoning: boolean | null;
