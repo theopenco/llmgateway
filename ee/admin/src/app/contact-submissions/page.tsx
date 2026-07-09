@@ -342,9 +342,12 @@ export default async function ContactSubmissionsPage({
 									<TableCell className="font-medium">
 										<Link
 											href={`/contact-submissions/${submission.id}`}
-											className="block hover:underline"
+											className="flex items-center gap-2 hover:underline"
 										>
 											{submission.name}
+											{submission.kind === "provider" && (
+												<Badge variant="outline">Provider</Badge>
+											)}
 										</Link>
 									</TableCell>
 									<TableCell className="text-muted-foreground">
@@ -354,16 +357,16 @@ export default async function ContactSubmissionsPage({
 										{submission.country}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{submission.size}
+										{submission.size ?? "—"}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{deploymentLabel(submission.deployment)}
 									</TableCell>
 									<TableCell
 										className="max-w-xs truncate text-muted-foreground"
-										title={submission.message}
+										title={submission.message ?? undefined}
 									>
-										{submission.message}
+										{submission.message ?? "—"}
 									</TableCell>
 									<TableCell>
 										<Badge

@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { redisClient } from "@/auth/config.js";
-import { notifyEnterpriseContact } from "@/utils/discord.js";
+import {
+	notifyEnterpriseContact,
+	notifyProviderContact,
+} from "@/utils/discord.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -11,6 +14,8 @@ import {
 	getResendClient,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+
+import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -43,6 +48,12 @@ function deploymentLabel(value: string | undefined): string | null {
 const contactResponseSchema = z.object({
 	success: z.boolean(),
 	message: z.string(),
+});
+
+const providerResponseSchema = z.object({
+	success: z.boolean(),
+	message: z.string(),
+	checkoutUrl: z.string().nullable(),
 });
 
 const RATE_LIMIT_MAX = 3;
@@ -421,4 +432,350 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 	});
 
 	return c.json({ success: true, message: "Email sent successfully" }, 200);
+});
+
+const providerFormSchema = z.object({
+	providerName: z
+		.string()
+		.min(2, "Provider name must be at least 2 characters"),
+	email: z.string().email("Invalid email address"),
+	url: z.string().url("Please enter a valid URL"),
+	country: z.string().min(1, "Please select a country"),
+	complianceSoc2Type2: z.boolean().optional().default(false),
+	complianceIso27001: z.boolean().optional().default(false),
+	complianceGdpr: z.boolean().optional().default(false),
+	dataRetentionDays: z
+		.number()
+		.int("Enter a whole number of days")
+		.min(0, "Data retention days cannot be negative"),
+	trainsOnData: z.boolean(),
+	honeypot: z.string().optional(),
+	timestamp: z.number().optional(),
+});
+
+function complianceSummary(data: {
+	complianceSoc2Type2: boolean;
+	complianceIso27001: boolean;
+	complianceGdpr: boolean;
+}): string {
+	const items: string[] = [];
+	if (data.complianceSoc2Type2) {
+		items.push("SOC 2 Type II");
+	}
+	if (data.complianceIso27001) {
+		items.push("ISO 27001");
+	}
+	if (data.complianceGdpr) {
+		items.push("GDPR");
+	}
+	return items.length > 0 ? items.join(", ") : "None declared";
+}
+
+const submitProviderContact = createRoute({
+	method: "post",
+	path: "/provider",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: providerFormSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerResponseSchema,
+				},
+			},
+			description: "Provider listing request handled successfully",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: contactResponseSchema,
+				},
+			},
+			description: "Submission rejected by validation or spam checks",
+		},
+		429: {
+			content: {
+				"application/json": {
+					schema: contactResponseSchema,
+				},
+			},
+			description: "Submission rejected by rate limiting",
+		},
+		500: {
+			content: {
+				"application/json": {
+					schema: contactResponseSchema,
+				},
+			},
+			description: "Submission could not be processed",
+		},
+	},
+});
+
+publicContact.openapi(submitProviderContact, async (c) => {
+	const validatedData = c.req.valid("json");
+	const ipAddress = extractClientIP(c);
+	const userAgent = c.req.header("User-Agent") ?? null;
+
+	let submission: { id: string };
+	try {
+		const [inserted] = await db
+			.insert(tables.enterpriseContactSubmission)
+			.values({
+				kind: "provider",
+				name: validatedData.providerName,
+				email: validatedData.email,
+				country: validatedData.country,
+				providerUrl: validatedData.url,
+				complianceSoc2Type2: validatedData.complianceSoc2Type2,
+				complianceIso27001: validatedData.complianceIso27001,
+				complianceGdpr: validatedData.complianceGdpr,
+				dataRetentionDays: validatedData.dataRetentionDays,
+				trainsOnData: validatedData.trainsOnData,
+				honeypot: validatedData.honeypot ?? null,
+				clientTimestampMs: validatedData.timestamp?.toString() ?? null,
+				ipAddress,
+				userAgent,
+			})
+			.returning({ id: tables.enterpriseContactSubmission.id });
+
+		if (!inserted) {
+			throw new Error("No row returned from insert");
+		}
+		submission = inserted;
+	} catch (error) {
+		logger.error("Failed to persist provider listing submission", {
+			error,
+		});
+		return c.json(
+			{
+				success: false,
+				message: "Failed to store submission. Please try again later.",
+			},
+			500,
+		);
+	}
+
+	if (validatedData.honeypot && validatedData.honeypot.trim() !== "") {
+		await updateSubmissionStatus(submission.id, "rejected", "honeypot");
+		return c.json({ success: false, message: "Invalid submission" }, 400);
+	}
+
+	if (validatedData.timestamp) {
+		const timeTaken = Date.now() - validatedData.timestamp;
+		if (timeTaken < 3000) {
+			await updateSubmissionStatus(
+				submission.id,
+				"rejected",
+				"submitted_too_fast",
+			);
+			return c.json(
+				{
+					success: false,
+					message: "Please take your time filling out the form",
+				},
+				400,
+			);
+		}
+	}
+
+	const rateLimitKey = ipAddress ?? `email:${validatedData.email}`;
+	const canSubmit = await checkRateLimit(rateLimitKey);
+	if (!canSubmit) {
+		await updateSubmissionStatus(submission.id, "rejected", "rate_limited");
+		return c.json(
+			{
+				success: false,
+				message:
+					"Too many submissions. Please try again later (max 3 per hour)",
+			},
+			429,
+		);
+	}
+
+	if (isDisposableEmail(validatedData.email)) {
+		await updateSubmissionStatus(submission.id, "rejected", "disposable_email");
+		return c.json(
+			{
+				success: false,
+				message: "Please use a valid company email address",
+			},
+			400,
+		);
+	}
+
+	const contentToCheck = `${validatedData.providerName} ${validatedData.url}`;
+	if (checkForSpam(contentToCheck)) {
+		await updateSubmissionStatus(submission.id, "rejected", "keyword_spam");
+		return c.json(
+			{
+				success: false,
+				message: "Your submission contains prohibited content",
+			},
+			400,
+		);
+	}
+
+	const compliance = complianceSummary(validatedData);
+
+	// Create the Stripe checkout session for the $500 listing fee up front so the
+	// payment link is returned to the client even if the confirmation email can't
+	// be sent. The fee is refunded in full if we don't end up listing the provider.
+	let checkoutUrl: string | null = null;
+	const providerListingPriceId = process.env.STRIPE_PROVIDER_LISTING_PRICE_ID;
+	if (providerListingPriceId) {
+		try {
+			const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
+			const checkoutSession = await getStripe().checkout.sessions.create({
+				mode: "payment",
+				line_items: [{ price: providerListingPriceId, quantity: 1 }],
+				customer_email: validatedData.email,
+				success_url: `${uiUrl}/add-provider?payment=success`,
+				cancel_url: `${uiUrl}/add-provider?payment=canceled`,
+				metadata: {
+					type: "provider_listing",
+					submissionId: submission.id,
+					providerName: validatedData.providerName,
+				},
+				payment_intent_data: {
+					metadata: {
+						type: "provider_listing",
+						submissionId: submission.id,
+					},
+				},
+			});
+			checkoutUrl = checkoutSession.url;
+		} catch (err) {
+			logger.error(
+				"Failed to create provider listing checkout session",
+				err instanceof Error ? err : new Error(String(err)),
+			);
+		}
+	} else {
+		logger.warn(
+			"STRIPE_PROVIDER_LISTING_PRICE_ID not configured; skipping provider checkout",
+		);
+	}
+
+	const resend = getResendClient();
+
+	const htmlContent = `
+		<html>
+			<head>
+				<style>
+					body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+					.container { max-width: 600px; margin: 0 auto; padding: 20px; }
+					.header { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+					.field { margin-bottom: 15px; }
+					.label { font-weight: bold; color: #555; }
+					.value { color: #333; margin-top: 5px; }
+				</style>
+			</head>
+			<body>
+				<div class="container">
+					<div class="header">
+						<h2 style="margin: 0; color: #8b5cf6;">New Provider Listing Request</h2>
+					</div>
+
+					<div class="field">
+						<div class="label">Provider Name:</div>
+						<div class="value">${escapeHtml(validatedData.providerName)}</div>
+					</div>
+
+					<div class="field">
+						<div class="label">Contact Email:</div>
+						<div class="value">${escapeHtml(validatedData.email)}</div>
+					</div>
+
+					<div class="field">
+						<div class="label">URL:</div>
+						<div class="value">${escapeHtml(validatedData.url)}</div>
+					</div>
+
+					<div class="field">
+						<div class="label">HQ Country:</div>
+						<div class="value">${escapeHtml(validatedData.country)}</div>
+					</div>
+
+					<div class="field">
+						<div class="label">Compliance:</div>
+						<div class="value">${escapeHtml(compliance)}</div>
+					</div>
+
+					<div class="field">
+						<div class="label">Data Retention:</div>
+						<div class="value">${validatedData.dataRetentionDays} days</div>
+					</div>
+
+					<div class="field">
+						<div class="label">Trains on Data:</div>
+						<div class="value">${validatedData.trainsOnData ? "Yes" : "No"}</div>
+					</div>
+				</div>
+			</body>
+		</html>
+	`;
+
+	if (resend) {
+		const { error } = await resend.emails.send({
+			from: fromEmail,
+			to: [replyToEmail],
+			replyTo: validatedData.email,
+			subject: `Provider Listing Request: ${validatedData.providerName}`,
+			html: htmlContent,
+		});
+
+		if (error) {
+			logger.error(
+				"Failed to send provider listing email",
+				new Error(error.message),
+			);
+			await updateSubmissionStatus(
+				submission.id,
+				"delivery_failed",
+				"resend_send_failed",
+			);
+		} else {
+			try {
+				await updateSubmissionStatus(submission.id, "delivered");
+			} catch (err) {
+				logger.error("Failed to update submission status after delivery", {
+					submissionId: submission.id,
+					error: err,
+				});
+			}
+		}
+	} else {
+		logger.warn(
+			"Resend not configured; skipping provider listing confirmation email",
+		);
+	}
+
+	void notifyProviderContact({
+		providerName: validatedData.providerName,
+		email: validatedData.email,
+		url: validatedData.url,
+		country: validatedData.country,
+		compliance,
+		dataRetentionDays: validatedData.dataRetentionDays,
+		trainsOnData: validatedData.trainsOnData,
+		ipAddress,
+	}).catch((err) => {
+		logger.error(
+			"Failed to send provider Discord notification",
+			err instanceof Error ? err : new Error(String(err)),
+		);
+	});
+
+	return c.json(
+		{ success: true, message: "Request sent successfully", checkoutUrl },
+		200,
+	);
 });

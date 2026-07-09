@@ -15,8 +15,8 @@ interface ReplyFormProps {
 	name: string;
 	email: string;
 	country: string;
-	size: string;
-	message: string;
+	size: string | null;
+	message: string | null;
 }
 
 export function ReplyForm({
@@ -44,8 +44,8 @@ export function ReplyForm({
 					name,
 					email,
 					country,
-					size,
-					message,
+					size: size ?? "",
+					message: message ?? "",
 					type: "enterprise",
 					context: context || undefined,
 				}),

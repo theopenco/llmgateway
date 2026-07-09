@@ -128,6 +128,15 @@ export default function Footer() {
 									</Link>
 								</li>
 								<li>
+									<Link
+										href="/add-provider"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Add Provider
+									</Link>
+								</li>
+								<li>
 									<a
 										href={config.playgroundUrl}
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"

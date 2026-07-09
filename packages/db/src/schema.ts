@@ -574,14 +574,32 @@ export const enterpriseContactSubmission = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
+		kind: text({
+			enum: ["enterprise", "provider"],
+		})
+			.notNull()
+			.default("enterprise"),
 		name: text().notNull(),
 		email: text().notNull(),
 		country: text().notNull(),
-		size: text().notNull(),
+		size: text(),
 		deployment: text({
 			enum: ["self_host", "cloud", "not_sure"],
 		}),
-		message: text().notNull(),
+		message: text(),
+		providerUrl: text(),
+		complianceSoc2Type2: boolean().notNull().default(false),
+		complianceIso27001: boolean().notNull().default(false),
+		complianceGdpr: boolean().notNull().default(false),
+		dataRetentionDays: integer(),
+		trainsOnData: boolean(),
+		paymentStatus: text({
+			enum: ["unpaid", "paid", "refunded"],
+		})
+			.notNull()
+			.default("unpaid"),
+		stripeCheckoutSessionId: text(),
+		paidAt: timestamp(),
 		honeypot: text(),
 		clientTimestampMs: text(),
 		ipAddress: text(),
@@ -599,6 +617,14 @@ export const enterpriseContactSubmission = pgTable(
 		index("enterprise_contact_submission_email_idx").on(table.email),
 		index("enterprise_contact_submission_status_idx").on(
 			table.spamFilterStatus,
+		),
+		check(
+			"enterprise_contact_submission_kind_check",
+			sql`${table.kind} IN ('enterprise', 'provider')`,
+		),
+		check(
+			"enterprise_contact_submission_payment_status_check",
+			sql`${table.paymentStatus} IN ('unpaid', 'paid', 'refunded')`,
 		),
 		check(
 			"enterprise_contact_submission_deployment_check",
