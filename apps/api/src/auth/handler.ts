@@ -40,9 +40,9 @@ authHandler.use("*", async (c, next) => {
 	return await next();
 });
 
-authHandler.on(["POST", "GET"], "/auth/*", (c) => {
+authHandler.on(["POST", "GET"], "/auth/*", async (c) => {
 	if (BLOCKED_SSO_PLUGIN_PATHS.has(new URL(c.req.url).pathname)) {
 		return c.json({ error: "not_found", message: "Not found" }, 404);
 	}
-	return apiAuth.handler(c.req.raw);
+	return await apiAuth.handler(c.req.raw);
 });

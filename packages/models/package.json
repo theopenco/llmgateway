@@ -26,6 +26,7 @@
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check ."
 	},
-	"dependencies": {},
-	"devDependencies": {}
+	"devDependencies": {
+		"@types/node": "25.3.0"
+	}
 }

@@ -301,8 +301,8 @@ function PlainIdValue({ id }: { id?: string | null }) {
 	);
 }
 
-function renderParams(obj: Record<string, any>, depth = 0): React.ReactNode {
-	return Object.entries(obj).flatMap(([key, value]) => {
+function renderParams(obj: Record<string, any>, depth = 0): React.ReactNode[] {
+	return Object.entries(obj).flatMap<React.ReactNode>(([key, value]) => {
 		if (value === null || value === undefined) {
 			return [];
 		}

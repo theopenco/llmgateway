@@ -1,0 +1,100 @@
+diff --git a/dist/steps/loadTSConfig.js b/dist/steps/loadTSConfig.js
+index 931474ad1a800a278f6f5ac3f64fd24d97cfc665..293e546488bbbc218898d54b5d3c2942c6953eb7 100644
+--- a/dist/steps/loadTSConfig.js
++++ b/dist/steps/loadTSConfig.js
+@@ -2,19 +2,86 @@
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.loadTSConfig = loadTSConfig;
+ const path_1 = require("path");
+-const typescript_1 = require("typescript");
++const fs_1 = require("fs");
+ const errors_1 = require("../utils/errors");
+ /**
+- * Load the tsconfig file using Typescript's built-in config file loader.
++ * Load the tsconfig file WITHOUT relying on the TypeScript compiler API.
++ *
++ * TypeScript 7 (the native port) removed the classic JS compiler API
++ * (`ts.sys`, `ts.findConfigFile`, `ts.parseJsonConfigFileContent`, ...), so the
++ * original implementation crashes with "Cannot read properties of undefined".
++ * resolve-tspaths only needs `{ rootDir, outDir, baseUrl, paths }` from the
++ * parsed config, which we read directly from the JSON (following `extends`).
+  *
+  * @param path The path to the tsconfig file.
+  */
++function stripJsonComments(text) {
++	// Remove /* */ and // comments and trailing commas so JSON.parse accepts JSONC.
++	let out = "";
++	let inString = false;
++	let quote = "";
++	for (let i = 0; i < text.length; i++) {
++		const ch = text[i];
++		const next = text[i + 1];
++		if (inString) {
++			out += ch;
++			if (ch === "\\") {
++				out += next;
++				i++;
++			} else if (ch === quote) {
++				inString = false;
++			}
++			continue;
++		}
++		if (ch === '"' || ch === "'") {
++			inString = true;
++			quote = ch;
++			out += ch;
++			continue;
++		}
++		if (ch === "/" && next === "/") {
++			while (i < text.length && text[i] !== "\n") i++;
++			out += "\n";
++			continue;
++		}
++		if (ch === "/" && next === "*") {
++			i += 2;
++			while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
++			i++;
++			continue;
++		}
++		out += ch;
++	}
++	return out.replace(/,(\s*[}\]])/g, "$1");
++}
++function readConfig(configFileName) {
++	const raw = (0, fs_1.readFileSync)(configFileName, "utf8");
++	return JSON.parse(stripJsonComments(raw));
++}
++function loadConfigWithExtends(configFileName, seen) {
++	if (seen.has(configFileName)) return {};
++	seen.add(configFileName);
++	const config = readConfig(configFileName);
++	let compilerOptions = {};
++	const extendsField = config.extends;
++	const extendsList = Array.isArray(extendsField)
++		? extendsField
++		: extendsField
++		? [extendsField]
++		: [];
++	for (const ext of extendsList) {
++		const resolved = ext.startsWith(".")
++			? (0, path_1.resolve)((0, path_1.dirname)(configFileName), ext.endsWith(".json") ? ext : ext + ".json")
++			: require.resolve(ext, { paths: [(0, path_1.dirname)(configFileName)] });
++		Object.assign(compilerOptions, loadConfigWithExtends(resolved, seen).compilerOptions);
++	}
++	Object.assign(compilerOptions, config.compilerOptions || {});
++	return { compilerOptions };
++}
+ function loadTSConfig(path) {
+-    const configFileName = (0, typescript_1.findConfigFile)(process.cwd(), typescript_1.sys.fileExists, path);
+-    if (!configFileName)
+-        throw new errors_1.FileNotFoundError(loadTSConfig.name, path);
+-    const configFile = (0, typescript_1.readConfigFile)(configFileName, typescript_1.sys.readFile);
+-    const directory = (0, path_1.dirname)(configFileName);
+-    const options = (0, typescript_1.parseJsonConfigFileContent)(configFile.config, typescript_1.sys, directory);
+-    return options;
++	const configFileName = (0, path_1.resolve)(process.cwd(), path);
++	if (!(0, fs_1.existsSync)(configFileName))
++		throw new errors_1.FileNotFoundError(loadTSConfig.name, path);
++	const { compilerOptions } = loadConfigWithExtends(configFileName, new Set());
++	return { options: compilerOptions !== null && compilerOptions !== void 0 ? compilerOptions : {} };
+ }
