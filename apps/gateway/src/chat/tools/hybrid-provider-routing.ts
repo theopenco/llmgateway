@@ -1,9 +1,10 @@
 import {
 	hasProviderEnvironmentToken,
 	type Provider,
-	type ProviderModelMapping,
 	providers,
 } from "@llmgateway/models";
+
+export type ProjectMode = "api-keys" | "credits" | "hybrid";
 
 export function getEnvironmentBackedProviders(
 	providerIds?: string[],
@@ -19,7 +20,7 @@ export function getEnvironmentBackedProviders(
 }
 
 export function getAvailableProvidersForProjectMode(
-	projectMode: string,
+	projectMode: ProjectMode,
 	providerKeys: Array<{ provider: string }>,
 	providerIds?: string[],
 ): {
@@ -52,11 +53,11 @@ export function getAvailableProvidersForProjectMode(
 	};
 }
 
-export function preferProvidersWithKeys(
-	projectMode: string,
-	candidates: ProviderModelMapping[],
+export function preferProvidersWithKeys<T extends { providerId: string }>(
+	projectMode: ProjectMode,
+	candidates: T[],
 	providersWithKeys: Set<string>,
-): ProviderModelMapping[] {
+): T[] {
 	if (projectMode !== "hybrid") {
 		return candidates;
 	}
@@ -68,12 +69,14 @@ export function preferProvidersWithKeys(
 	return keyedCandidates.length > 0 ? keyedCandidates : candidates;
 }
 
-export function getRoutingCandidatesForProjectMode(
-	projectMode: string,
-	candidates: ProviderModelMapping[],
+export function getRoutingCandidatesForProjectMode<
+	T extends { providerId: string },
+>(
+	projectMode: ProjectMode,
+	candidates: T[],
 	rateLimitedProviderIds: Set<string>,
 	providersWithKeys: Set<string>,
-): ProviderModelMapping[] {
+): T[] {
 	const nonRateLimitedCandidates = candidates.filter(
 		(candidate) => !rateLimitedProviderIds.has(candidate.providerId),
 	);

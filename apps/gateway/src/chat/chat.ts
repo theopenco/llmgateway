@@ -3654,18 +3654,20 @@ chat.openapi(completions, async (c) => {
 						: undefined;
 
 					if (modelWithPricing) {
-						const metricsCombinations = candidatesForRouting.map((p) => ({
-							modelId: modelWithPricing.id,
-							providerId: p.providerId,
-							region: p.region,
-						}));
+						const metricsCombinations = preferredCandidatesForRouting.map(
+							(p) => ({
+								modelId: modelWithPricing.id,
+								providerId: p.providerId,
+								region: p.region,
+							}),
+						);
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
 						);
 
 						const cheapestResult = await getCheapestFromAvailableProviders(
-							candidatesForRouting,
+							preferredCandidatesForRouting,
 							modelWithPricing,
 							{
 								metricsMap: allMetricsMap,
@@ -3820,13 +3822,8 @@ chat.openapi(completions, async (c) => {
 					baseModelId,
 					availableModelProviders,
 				);
-				const preferredUptimeFallbackCandidates = preferProvidersWithKeys(
-					project.mode,
-					uptimeFallbackCandidates,
-					providersWithKeys,
-				);
 
-				if (preferredUptimeFallbackCandidates.length > 0) {
+				if (uptimeFallbackCandidates.length > 0) {
 					const rawModelForFallback = models.find((m) => m.id === baseModelId);
 					const modelWithPricing = rawModelForFallback
 						? {
@@ -3839,20 +3836,18 @@ chat.openapi(completions, async (c) => {
 
 					if (modelWithPricing) {
 						// Fetch metrics for all available providers
-						const metricsCombinations = preferredUptimeFallbackCandidates.map(
-							(p) => ({
-								modelId: modelWithPricing.id,
-								providerId: p.providerId,
-								region: p.region,
-							}),
-						);
+						const metricsCombinations = uptimeFallbackCandidates.map((p) => ({
+							modelId: modelWithPricing.id,
+							providerId: p.providerId,
+							region: p.region,
+						}));
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
-								preferredUptimeFallbackCandidates,
+								uptimeFallbackCandidates,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
@@ -3878,12 +3873,21 @@ chat.openapi(completions, async (c) => {
 								);
 							},
 						);
+						// Prefer keyed providers only among the better-uptime candidates:
+						// escaping the degraded provider takes priority, so a healthy
+						// credits-backed provider still wins over staying degraded when no
+						// keyed candidate has better uptime.
+						const preferredBetterUptimeProviders = preferProvidersWithKeys(
+							project.mode,
+							betterUptimeProviders,
+							providersWithKeys,
+						);
 
 						// Only proceed with fallback if there are providers with better uptime
 						// Otherwise stick with the original provider
-						if (betterUptimeProviders.length > 0) {
+						if (preferredBetterUptimeProviders.length > 0) {
 							const cheapestResult = await getCheapestFromAvailableProviders(
-								betterUptimeProviders,
+								preferredBetterUptimeProviders,
 								modelWithPricing,
 								{
 									metricsMap: allMetricsMap,
