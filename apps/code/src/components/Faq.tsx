@@ -43,7 +43,7 @@ const faqData = [
 	{
 		question: "Are there limits on premium models?",
 		answer:
-			"Premium frontier models — Anthropic Opus, OpenAI Pro/reasoning, Gemini Pro, and Grok 4 — are subject to a weekly fair-use allowance in addition to your monthly allowance: $10/week on Lite, $50/week on Pro, and $140/week on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.",
+			"Premium frontier models — Anthropic Opus, OpenAI Pro/reasoning, Gemini Pro, and Grok 4 — are subject to a weekly fair-use allowance in addition to your monthly allowance: 12% of your monthly credits on Lite, 15% on Pro, and 18% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.",
 	},
 	{
 		question: "Can I get a refund?",
@@ -280,13 +280,13 @@ export function Faq() {
 										</p>
 										<ul className="list-disc pl-6 mt-2 space-y-1">
 											<li>
-												<strong>Lite:</strong> $10/week
+												<strong>Lite:</strong> 12% of monthly credits
 											</li>
 											<li>
-												<strong>Pro:</strong> $50/week
+												<strong>Pro:</strong> 15% of monthly credits
 											</li>
 											<li>
-												<strong>Max:</strong> $140/week
+												<strong>Max:</strong> 18% of monthly credits
 											</li>
 										</ul>
 										<p className="mt-3">
