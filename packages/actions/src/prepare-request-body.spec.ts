@@ -50,8 +50,11 @@ async function prepareOpenAITextRequest(options: {
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
+	promptCacheOptions?: { mode?: "implicit" | "explicit"; ttl?: "30m" };
 	serviceTier?: "flex" | "priority";
 	verbosity?: "low" | "medium" | "high";
+	messages?: { role: string; content: unknown }[];
+	providerCacheControlEnabled?: boolean;
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -59,7 +62,7 @@ async function prepareOpenAITextRequest(options: {
 		model,
 		null,
 		model,
-		[{ role: "user", content: "Hello!" }],
+		(options.messages as any) ?? [{ role: "user", content: "Hello!" }],
 		false,
 		undefined,
 		undefined,
@@ -83,10 +86,11 @@ async function prepareOpenAITextRequest(options: {
 		options.useResponsesApi ?? false,
 		options.promptCacheKey,
 		options.promptCacheRetention,
-		true,
+		options.providerCacheControlEnabled ?? true,
 		undefined,
 		options.serviceTier,
 		options.verbosity,
+		options.promptCacheOptions,
 	);
 }
 
@@ -584,6 +588,80 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 		})) as any;
 
 		expect(requestBody.prompt_cache_retention).toBe("24h");
+	});
+});
+
+describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => {
+	const explicitCacheMessages = [
+		{
+			role: "system",
+			content: [
+				{
+					type: "text",
+					text: "stable reusable prefix",
+					prompt_cache_breakpoint: { mode: "explicit" },
+				},
+			],
+		},
+		{ role: "user", content: "dynamic input" },
+	];
+
+	test("forwards prompt_cache_options and breakpoints for gpt-5.6 chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+		expect(requestBody.messages[0].content[0].prompt_cache_breakpoint).toEqual({
+			mode: "explicit",
+		});
+	});
+
+	test("carries breakpoints through the Responses API content transform", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			useResponsesApi: true,
+			promptCacheOptions: { mode: "explicit", ttl: "30m" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({
+			mode: "explicit",
+			ttl: "30m",
+		});
+		expect(requestBody.input[0].content[0]).toEqual({
+			type: "input_text",
+			text: "stable reusable prefix",
+			prompt_cache_breakpoint: { mode: "explicit" },
+		});
+	});
+
+	test("strips prompt_cache_options and breakpoints on models without explicit caching", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+	});
+
+	test("strips breakpoints when provider cache writes are disabled for the project", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
 	});
 });
 

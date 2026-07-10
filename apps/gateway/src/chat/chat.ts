@@ -1445,6 +1445,7 @@ chat.openapi(completions, async (c) => {
 		stream,
 		prompt_cache_key,
 		prompt_cache_retention,
+		prompt_cache_options,
 		tool_choice,
 		routing,
 		free_models_only,
@@ -5358,6 +5359,7 @@ chat.openapi(completions, async (c) => {
 			reasoning_max_tokens,
 			prompt_cache_key,
 			prompt_cache_retention,
+			prompt_cache_options,
 			n,
 			service_tier,
 		};
@@ -6112,6 +6114,7 @@ chat.openapi(completions, async (c) => {
 				configIndex,
 			),
 			verbosity,
+			prompt_cache_options,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -6299,6 +6302,7 @@ chat.openapi(completions, async (c) => {
 				reasoning_max_tokens,
 				prompt_cache_key,
 				prompt_cache_retention,
+				prompt_cache_options,
 				effort,
 				webSearchTool,
 				image_config,

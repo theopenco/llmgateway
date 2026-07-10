@@ -498,6 +498,47 @@ describe("extractTokenUsage", () => {
 
 			expect(result.cachedTokens).toBeNull();
 		});
+
+		it("extracts GPT-5.6 cache_write_tokens from prompt_tokens_details", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 2006,
+					completion_tokens: 300,
+					total_tokens: 2306,
+					prompt_tokens_details: {
+						cached_tokens: 1920,
+						cache_write_tokens: 40,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(2006);
+			expect(result.cachedTokens).toBe(1920);
+			expect(result.cacheCreationTokens).toBe(40);
+			// OpenAI has a single 30m TTL — no 5m/1h breakdown exists.
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("leaves cache creation null when cache_write_tokens is 0", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 2006,
+					completion_tokens: 300,
+					total_tokens: 2306,
+					prompt_tokens_details: {
+						cached_tokens: 1920,
+						cache_write_tokens: 0,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.cacheCreationTokens).toBeNull();
+		});
 	});
 
 	describe("openai responses api format", () => {
@@ -547,6 +588,29 @@ describe("extractTokenUsage", () => {
 			expect(result.totalTokens).toBe(150);
 			expect(result.cachedTokens).toBeNull();
 			expect(result.reasoningTokens).toBeNull();
+		});
+
+		it("extracts GPT-5.6 cache_write_tokens from input_tokens_details", () => {
+			const data = {
+				type: "response.completed",
+				response: {
+					usage: {
+						input_tokens: 2006,
+						output_tokens: 300,
+						total_tokens: 2306,
+						input_tokens_details: {
+							cached_tokens: 1920,
+							cache_write_tokens: 40,
+						},
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(2006);
+			expect(result.cachedTokens).toBe(1920);
+			expect(result.cacheCreationTokens).toBe(40);
 		});
 
 		it("prefers response.usage over data.usage when both present", () => {

@@ -1,15 +1,24 @@
 import { z } from "@hono/zod-openapi";
 
+// OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later).
+const promptCacheBreakpointSchema = z
+	.object({
+		mode: z.enum(["explicit"]).optional(),
+	})
+	.optional();
+
 const responseInputContentSchema = z.union([
 	z.object({
 		type: z.literal("input_text"),
 		text: z.string(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 	z.object({
 		type: z.literal("input_image"),
 		image_url: z.string().optional(),
 		file_id: z.string().optional(),
 		detail: z.enum(["low", "high", "auto", "original"]).optional(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 	z.object({
 		type: z.literal("input_file"),
@@ -18,6 +27,7 @@ const responseInputContentSchema = z.union([
 		file_url: z.string().optional(),
 		filename: z.string().optional(),
 		detail: z.enum(["low", "high"]).optional(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 ]);
 
@@ -38,6 +48,7 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("text"),
 						text: z.string(),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
 						type: z.literal("image_url"),
@@ -45,6 +56,7 @@ const messageItemSchema = z.object({
 							url: z.string(),
 							detail: z.enum(["low", "high", "auto"]).optional(),
 						}),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 				]),
 			),
@@ -124,6 +136,14 @@ export const responsesRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val)),
 	prompt_cache_retention: z
 		.enum(["in_memory", "24h"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	prompt_cache_options: z
+		.object({
+			mode: z.enum(["implicit", "explicit"]).optional(),
+			ttl: z.enum(["30m"]).optional(),
+		})
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val)),

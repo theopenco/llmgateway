@@ -185,6 +185,21 @@ export function supportsOpenAIExtendedPromptCache(modelName: string): boolean {
 	return OPENAI_EXTENDED_PROMPT_CACHE_MODELS.has(modelName);
 }
 
+// OpenAI explicit prompt caching (`prompt_cache_options` +
+// `prompt_cache_breakpoint` content markers) per
+// https://developers.openai.com/api/docs/guides/prompt-caching.
+// Only GPT-5.6 and later model families support these fields; older models
+// reject them with a 400, so they must only be forwarded for this list.
+const OPENAI_EXPLICIT_PROMPT_CACHE_MODELS = new Set<string>([
+	"gpt-5.6-sol",
+	"gpt-5.6-terra",
+	"gpt-5.6-luna",
+]);
+
+export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
+	return OPENAI_EXPLICIT_PROMPT_CACHE_MODELS.has(modelName);
+}
+
 /**
  * Whether a provider is a "stealth" provider — one that has no default base URL
  * and instead requires the base URL to be supplied via a `baseUrl` env var
