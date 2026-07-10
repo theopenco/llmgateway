@@ -20,6 +20,8 @@ llmgateway_data
 !apps/ui/public/llms.txt
 !apps/code/public/llms.txt
 !apps/playground/public/llms.txt
+!apps/docs/app/llms.txt
+!apps/docs/app/llms-full.txt
 docker-compose-override-*.yml
 benchmark_results.json
 benchmark-*.json
