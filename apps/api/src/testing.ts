@@ -19,33 +19,48 @@ const credentials = {
 	password: "admin@example.com1A",
 };
 
+function isDeadlockError(error: unknown): boolean {
+	for (let current = error; current instanceof Error; current = current.cause) {
+		if ((current as Error & { code?: unknown }).code === "40P01") {
+			return true;
+		}
+	}
+	return false;
+}
+
 export async function deleteAll() {
 	// await redisClient.flushdb();
 
-	await Promise.all([
-		db.delete(tables.log),
-		db.delete(tables.auditLog),
-		db.delete(tables.apiKey),
-		db.delete(tables.providerKey),
-		db.delete(projectHourlyStats),
-		db.delete(projectHourlyModelStats),
-		db.delete(apiKeyHourlyStats),
-		db.delete(apiKeyHourlyModelStats),
-	]);
-
-	await Promise.all([
-		db.delete(tables.userOrganization),
-		db.delete(tables.organizationInvite),
-		db.delete(tables.project),
-	]);
-
-	await Promise.all([
-		db.delete(tables.organization),
-		db.delete(tables.user),
-		db.delete(tables.account),
-		db.delete(tables.session),
-		db.delete(tables.verification),
-	]);
+	// Delete sequentially, children before parents, so ON DELETE CASCADE from
+	// parent tables never races a concurrent delete on the same child rows.
+	// Concurrent deletes on cascade-linked tables (e.g. user -> account) lock
+	// the same rows in different orders and deadlock (postgres error 40P01).
+	// Test files share one database, so retry when two cleanups still collide.
+	for (let attempt = 1; ; attempt++) {
+		try {
+			await db.delete(tables.log);
+			await db.delete(tables.auditLog);
+			await db.delete(projectHourlyStats);
+			await db.delete(projectHourlyModelStats);
+			await db.delete(apiKeyHourlyStats);
+			await db.delete(apiKeyHourlyModelStats);
+			await db.delete(tables.apiKey);
+			await db.delete(tables.providerKey);
+			await db.delete(tables.organizationInvite);
+			await db.delete(tables.userOrganization);
+			await db.delete(tables.project);
+			await db.delete(tables.session);
+			await db.delete(tables.account);
+			await db.delete(tables.verification);
+			await db.delete(tables.organization);
+			await db.delete(tables.user);
+			return;
+		} catch (error) {
+			if (attempt >= 3 || !isDeadlockError(error)) {
+				throw error;
+			}
+		}
+	}
 }
 
 /**

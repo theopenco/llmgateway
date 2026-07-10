@@ -4186,11 +4186,19 @@ describe("api", () => {
 		const previousVertexKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
 		const previousGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const previousVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		// The escape must land on google-vertex, so google-ai-studio may not have
+		// an env credential to retry with. Locally, `import "dotenv/config"` in
+		// app.ts loads the repo .env, whose real LLM_GOOGLE_AI_STUDIO_API_KEY
+		// would otherwise let the retry loop call the real Google API.
+		const previousStudioKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+		const previousStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 
 		try {
 			process.env.LLM_GOOGLE_VERTEX_API_KEY = "vertex-test-token";
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+			delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -4224,6 +4232,16 @@ describe("api", () => {
 				delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 			} else {
 				process.env.LLM_GOOGLE_VERTEX_BASE_URL = previousVertexBaseUrl;
+			}
+			if (previousStudioKey === undefined) {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			} else {
+				process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = previousStudioKey;
+			}
+			if (previousStudioBaseUrl === undefined) {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			} else {
+				process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = previousStudioBaseUrl;
 			}
 		}
 	});
