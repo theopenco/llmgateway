@@ -152,9 +152,17 @@ function parseAttributes(tag: string): Record<string, string> {
 	return attrs;
 }
 
+// Decode common entities instead of blanking them: erasing "&amp;" from
+// titles previously produced false findings like a "missing &" typo.
 function stripTags(html: string): string {
 	return html
 		.replace(/<[^>]+>/g, " ")
+		.replace(/&amp;/gi, "&")
+		.replace(/&lt;/gi, "<")
+		.replace(/&gt;/gi, ">")
+		.replace(/&quot;/gi, '"')
+		.replace(/&(?:#x27|#39|apos);/gi, "'")
+		.replace(/&(?:nbsp|#160);/gi, " ")
 		.replace(/&[a-z#0-9]+;/gi, " ")
 		.replace(/\s+/g, " ")
 		.trim();
