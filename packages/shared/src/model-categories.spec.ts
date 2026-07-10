@@ -23,6 +23,16 @@ describe("model-categories", () => {
 		}
 	});
 
+	it("classifies explicitly flagged flagships as premium despite pricing", () => {
+		expect(isPremiumModel("grok-4-5")).toBe(true);
+		expect(getModelCategory("grok-4-5")).toBe("premium");
+	});
+
+	it("does not flag cheaper Grok variants as premium", () => {
+		expect(isPremiumModel("grok-4-fast-reasoning")).toBe(false);
+		expect(getModelCategory("grok-4-fast-reasoning")).toBe("standard");
+	});
+
 	it("classifies an unknown model as standard", () => {
 		expect(isPremiumModel("some-non-existent-model")).toBe(false);
 		expect(getModelCategory("some-non-existent-model")).toBe("standard");
