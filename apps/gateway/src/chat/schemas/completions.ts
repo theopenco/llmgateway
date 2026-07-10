@@ -348,7 +348,7 @@ export const completionsRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description:
-				"Controls how detailed the model's responses are. Only supported by OpenAI GPT-5.6 and later models; requests to models without verbosity support return a 400 error.",
+				"Controls how detailed the model's responses are. Only supported by OpenAI GPT-5 and later models; requests to models without verbosity support return a 400 error.",
 			example: "low",
 		}),
 	service_tier: z

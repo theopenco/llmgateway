@@ -940,7 +940,7 @@ export async function prepareRequestBody(
 		reasoning_effort = undefined;
 	}
 
-	// `verbosity` is only understood by OpenAI GPT-5.6+ models. Capability
+	// `verbosity` is only understood by OpenAI GPT-5+ models. Capability
 	// validation rejects unsupported pinned models upfront, but auto routing and
 	// retry fallbacks can still land on a mapping without verbosity support, so
 	// strip it here instead of forwarding an unknown parameter upstream.

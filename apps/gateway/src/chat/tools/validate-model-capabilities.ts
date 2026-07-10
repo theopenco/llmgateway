@@ -210,7 +210,7 @@ export function validateModelCapabilities(
 
 		if (!supportsVerbosity) {
 			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support the verbosity parameter. Remove the verbosity parameter or use a model that supports it (OpenAI GPT-5.6 and later).`,
+				message: `Model ${requestedModel} does not support the verbosity parameter. Remove the verbosity parameter or use a model that supports it (OpenAI GPT-5 and later).`,
 			});
 		}
 	}

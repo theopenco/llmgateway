@@ -851,6 +851,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01", // $10 per 1000 searches for reasoning models
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
@@ -859,6 +860,7 @@ export const openaiModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -918,6 +920,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01", // $10 per 1000 searches for reasoning models
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
@@ -926,6 +929,7 @@ export const openaiModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -985,6 +989,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01", // $10 per 1000 searches for reasoning models
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
@@ -993,6 +998,7 @@ export const openaiModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -1084,12 +1090,14 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
 					"frequency_penalty",
 					"presence_penalty",
 					"response_format",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -1147,6 +1155,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01", // $10 per 1000 searches for reasoning models
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				jsonOutput: true,
 			},
 		],
@@ -1270,12 +1279,14 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
 					"frequency_penalty",
 					"presence_penalty",
 					"response_format",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -1332,6 +1343,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01", // $10 per 1000 searches for reasoning models
 				supportsResponsesApi: true,
 				jsonOutputSchema: false,
+				verbosity: true,
 				jsonOutput: true,
 			},
 			{
@@ -1433,12 +1445,14 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
 					"frequency_penalty",
 					"presence_penalty",
 					"response_format",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -1499,6 +1513,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				supportsResponsesApi: true,
 				jsonOutputSchema: false,
+				verbosity: true,
 				jsonOutput: true,
 			},
 			{
@@ -1551,6 +1566,7 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				jsonOutput: true,
 			},
 			{
@@ -1603,6 +1619,7 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				jsonOutput: true,
 			},
 			{
@@ -1655,12 +1672,14 @@ export const openaiModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
+				verbosity: true,
 				supportedParameters: [
 					"temperature",
 					"top_p",
 					"frequency_penalty",
 					"presence_penalty",
 					"response_format",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -1721,6 +1740,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				supportsResponsesApi: true,
 				jsonOutputSchema: false,
+				verbosity: true,
 				jsonOutput: true,
 			},
 		],
@@ -1981,6 +2001,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				supportsResponsesApi: true,
 				jsonOutputSchema: false,
+				verbosity: true,
 				jsonOutput: true,
 			},
 			{

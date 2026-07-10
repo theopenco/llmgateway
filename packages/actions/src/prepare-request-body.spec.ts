@@ -796,7 +796,7 @@ describe("prepareRequestBody - verbosity", () => {
 
 	test("strips verbosity from the Responses API body for unsupported models", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
-			model: "gpt-5.5",
+			model: "gpt-5.1-codex",
 			useResponsesApi: true,
 			verbosity: "low",
 		})) as { text?: { verbosity?: string } };

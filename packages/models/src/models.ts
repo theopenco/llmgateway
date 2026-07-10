@@ -331,7 +331,7 @@ export interface ProviderModelMapping {
 	reasoning?: boolean;
 	/**
 	 * Whether this model supports the OpenAI `verbosity` parameter
-	 * (low/medium/high response detail control, GPT-5.6 and later)
+	 * (low/medium/high response detail control, GPT-5 and later)
 	 */
 	verbosity?: boolean;
 	/**

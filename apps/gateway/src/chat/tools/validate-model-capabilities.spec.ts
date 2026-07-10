@@ -143,6 +143,15 @@ describe("validateModelCapabilities - verbosity", () => {
 		).not.toThrow();
 	});
 
+	it("allows verbosity for older GPT-5 models that support it", () => {
+		const olderModel = getModel("gpt-5.1");
+		expect(() =>
+			validateModelCapabilities(olderModel, "gpt-5.1", undefined, {
+				verbosity: "high",
+			}),
+		).not.toThrow();
+	});
+
 	it("rejects verbosity for models without support", () => {
 		expect(() =>
 			validateModelCapabilities(noVisionModel, "deepseek-v4-flash", undefined, {
