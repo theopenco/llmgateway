@@ -2065,6 +2065,7 @@ export const googleModels = [
 				requestPrice: "0",
 				contextSize: 128000,
 				maxOutput: undefined,
+				quantization: "fp8",
 				streaming: true,
 				vision: true,
 				tools: false,

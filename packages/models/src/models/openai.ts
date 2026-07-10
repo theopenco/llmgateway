@@ -732,6 +732,7 @@ export const openaiModels = [
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 32768,
+				quantization: "fp4",
 				streaming: true,
 				vision: false,
 				tools: true,
