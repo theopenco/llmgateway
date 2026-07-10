@@ -8,6 +8,7 @@ import { CodeCTATracker, CodePlanTracker } from "@/components/LandingTracker";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
 import { NumberTicker } from "@/components/ui/number-ticker";
+import { formatUsd } from "@/lib/utils";
 
 import {
 	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
@@ -64,10 +65,6 @@ const plans: PlanContent[] = [
 		],
 	},
 ];
-
-function formatUsd(amount: number): string {
-	return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(0)}`;
-}
 
 interface PricingPlansProps {
 	credits: DevPlanCredits;

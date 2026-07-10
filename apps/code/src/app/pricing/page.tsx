@@ -15,6 +15,7 @@ import { CodeCTATracker } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
+import { formatUsd } from "@/lib/utils";
 
 import {
 	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
@@ -42,12 +43,6 @@ interface UsageRow {
 	pro: string | boolean;
 	max: string | boolean;
 	emphasis?: boolean;
-}
-
-function formatUsd(amount: number): string {
-	return Number.isInteger(amount)
-		? `$${amount}`
-		: `$${amount.toFixed(2).replace(/\.?0+$/, "")}`;
 }
 
 const liteCredits = getDevPlanCreditsLimit("lite");
