@@ -689,9 +689,26 @@ export function getProviderEndpoint(
 		case "llmgateway":
 		case "groq":
 		case "cerebras":
+		case "meta": {
+			// Muse Spark only exposes reasoning (as summaries) through the
+			// Responses API — Chat Completions redacts reasoning_content entirely.
+			if (model) {
+				const modelDef = models.find((m) => m.id === (modelId ?? model));
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === "meta",
+				);
+				const supportsResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
+
+				if (supportsResponsesApi) {
+					return `${url}/v1/responses`;
+				}
+			}
+			return `${url}/v1/chat/completions`;
+		}
 		case "deepseek":
 		case "moonshot":
-		case "meta":
 		case "nebius":
 		case "nanogpt":
 		case "canopywave":

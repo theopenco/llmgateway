@@ -23,6 +23,7 @@ export const metaModels = [
 				reasoning: true,
 				reasoningMode: "adaptive",
 				reasoningOutput: "omit",
+				supportsResponsesApi: true,
 				vision: true,
 				tools: true,
 				jsonOutput: true,

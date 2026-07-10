@@ -1555,6 +1555,7 @@ export async function prepareRequestBody(
 	switch (usedProvider) {
 		case "azure":
 		case "sakana":
+		case "meta":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1595,13 +1596,23 @@ export async function prepareRequestBody(
 							: "high"
 						: (genericReasoningEffort ?? defaultEffort);
 
+				// Muse Spark reasons adaptively when effort is omitted and rejects
+				// "none", so only forward an effort the caller explicitly set.
 				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedExternalId,
 					input: transformedMessages,
-					reasoning: {
-						effort: responsesReasoningEffort,
-						summary: "detailed",
-					},
+					reasoning:
+						usedProvider === "meta"
+							? {
+									...(genericReasoningEffort !== undefined && {
+										effort: genericReasoningEffort,
+									}),
+									summary: "detailed",
+								}
+							: {
+									effort: responsesReasoningEffort,
+									summary: "detailed",
+								},
 				};
 
 				if (usedProvider === "openai") {

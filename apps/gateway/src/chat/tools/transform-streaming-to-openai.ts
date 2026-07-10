@@ -736,6 +736,7 @@ export function transformStreamingToOpenai(
 
 		case "azure":
 		case "sakana":
+		case "meta":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -1337,7 +1338,6 @@ export function transformStreamingToOpenai(
 		case "deepseek":
 		case "alibaba":
 		case "moonshot":
-		case "meta":
 		case "perplexity":
 		case "nebius":
 		case "canopywave":

@@ -304,7 +304,7 @@ export interface OpenAIResponsesRequestBody {
 	prompt_cache_retention?: PromptCacheRetention;
 	prompt_cache_options?: PromptCacheOptions;
 	reasoning: {
-		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 		summary: "detailed";
 	};
 	tools?: Array<{

@@ -796,9 +796,15 @@ export function parseProviderResponse(
 					content = messageOutput.content[0].text;
 				}
 
-				// Extract reasoning content from summary
-				if (reasoningOutput?.summary?.[0]?.text) {
-					reasoningContent = reasoningOutput.summary[0].text;
+				// Extract reasoning content from summary (may hold multiple parts)
+				if (Array.isArray(reasoningOutput?.summary)) {
+					const summaryText = reasoningOutput.summary
+						.map((part: any) => part?.text ?? "")
+						.filter(Boolean)
+						.join("\n\n");
+					if (summaryText) {
+						reasoningContent = summaryText;
+					}
 				}
 
 				// Extract tool calls (if any) from the output array and transform to OpenAI format

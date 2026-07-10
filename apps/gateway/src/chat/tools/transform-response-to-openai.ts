@@ -833,6 +833,7 @@ export function transformResponseToOpenai(
 		case "mistral":
 		case "novita":
 		case "sakana":
+		case "meta":
 		case "openai": {
 			// Handle OpenAI / Azure image generation responses (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string }], usage?: {...} }
