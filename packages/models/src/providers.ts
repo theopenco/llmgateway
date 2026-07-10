@@ -1297,15 +1297,30 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"Create an API key in the API keys tab of the Meta Model API dashboard.",
 		learnMore: "https://dev.meta.ai/docs/getting-started/authentication",
-		termsUrl: null,
-		privacyPolicyUrl: null,
+		termsUrl: "https://dev.meta.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.facebook.com/privacy/policy/",
 		headquarters: "US",
 		dataPolicy: {
-			apiTraining: null,
-			consumerTraining: null,
-			promptLogging: null,
+			// Paid (pay-as-you-go) services are never trained on; only the free
+			// unpaid tier may be used for training per the Data Commitments page.
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
 			retentionPeriod: null,
+			soc2: null,
+			iso27001: null,
+			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "Data Commitments",
+				link: "https://dev.meta.ai/legal/commitments",
+			},
+			{
+				desc: "Acceptable Use Policy",
+				link: "https://dev.meta.ai/legal/acceptable-use-policy",
+			},
+		],
 	},
 	{
 		id: "sakana",
