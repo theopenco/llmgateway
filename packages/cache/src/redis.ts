@@ -45,12 +45,77 @@ redisClient.on("error", (err) => {
 
 export const LOG_QUEUE = "log_queue_" + process.env.NODE_ENV;
 
+// In-memory retry buffer for queue messages that could not be published while
+// Redis was unreachable. Messages are re-published when the connection comes
+// back (see the "ready" listener / retry interval below) instead of dropped.
+const MAX_PENDING_QUEUE_MESSAGES = 10_000;
+const PENDING_FLUSH_INTERVAL_MS = 5_000;
+const pendingQueueMessages: { queue: string; payload: string }[] = [];
+let flushingPendingQueueMessages = false;
+
+export function pendingQueueMessageCount(): number {
+	return pendingQueueMessages.length;
+}
+
+export async function flushPendingQueueMessages(): Promise<number> {
+	if (flushingPendingQueueMessages) {
+		return 0;
+	}
+	flushingPendingQueueMessages = true;
+	let flushed = 0;
+	try {
+		while (pendingQueueMessages.length > 0) {
+			const next = pendingQueueMessages[0];
+			await redisClient.lpush(next.queue, next.payload);
+			pendingQueueMessages.shift();
+			flushed++;
+		}
+	} catch (error) {
+		logger.warn("Failed to flush pending queue messages, will retry", error, {
+			flushed,
+			pending: pendingQueueMessages.length,
+		});
+	} finally {
+		flushingPendingQueueMessages = false;
+	}
+	if (flushed > 0) {
+		logger.info("Flushed pending queue messages to Redis", {
+			flushed,
+			pending: pendingQueueMessages.length,
+		});
+	}
+	return flushed;
+}
+
+function bufferPendingQueueMessage(queue: string, payload: string): void {
+	if (pendingQueueMessages.length >= MAX_PENDING_QUEUE_MESSAGES) {
+		pendingQueueMessages.shift();
+		logger.error("Pending queue buffer full, dropping oldest message", {
+			maxPending: MAX_PENDING_QUEUE_MESSAGES,
+		});
+	}
+	pendingQueueMessages.push({ queue, payload });
+}
+
+redisClient.on("ready", () => {
+	if (pendingQueueMessages.length > 0) {
+		void flushPendingQueueMessages();
+	}
+});
+
+setInterval(() => {
+	if (pendingQueueMessages.length > 0 && redisClient.status === "ready") {
+		void flushPendingQueueMessages();
+	}
+}, PENDING_FLUSH_INTERVAL_MS).unref();
+
 export async function publishToQueue(
 	queue: string,
 	message: unknown,
 ): Promise<void> {
+	const payload = JSON.stringify(message);
 	try {
-		await redisClient.lpush(queue, JSON.stringify(message));
+		await redisClient.lpush(queue, payload);
 	} catch (error) {
 		const msg = message as Record<string, unknown> | undefined;
 		const item = msg
@@ -62,15 +127,17 @@ export async function publishToQueue(
 					usedProvider: msg.usedProvider,
 				}
 			: undefined;
-		// Publishing request logs is best-effort telemetry. When Redis is briefly
-		// unreachable (deploy/failover) the command can't be queued; swallow it at
-		// warn level instead of throwing, so a transient blip doesn't turn an
-		// already-served request into an unhandled 500 or raise error alerts.
+		// When Redis is briefly unreachable (deploy/failover), buffer the message
+		// in memory and re-publish once the connection recovers, instead of
+		// throwing — a transient blip must not turn an already-served request
+		// into an unhandled 500 or raise error alerts.
 		if (isConnectionUnavailableError(error)) {
-			logger.warn("Skipped publishing to queue (Redis unavailable)", error, {
-				queue,
-				item,
-			});
+			bufferPendingQueueMessage(queue, payload);
+			logger.warn(
+				"Redis unavailable, buffered queue message for retry",
+				error,
+				{ queue, item, pending: pendingQueueMessages.length },
+			);
 			return;
 		}
 		logger.error("Error publishing to queue", error, { queue, item });
@@ -98,9 +165,17 @@ export async function consumeFromQueue(
 
 export async function closeRedisClient(): Promise<void> {
 	try {
-		await redisClient.disconnect();
+		// Drain any buffered queue messages before tearing down the connection so
+		// logs published during a Redis blip are not lost on shutdown.
+		await flushPendingQueueMessages();
+		await redisClient.quit();
 		logger.info("Redis client disconnected");
 	} catch (error) {
+		if (isConnectionUnavailableError(error)) {
+			logger.warn("Redis already disconnected during close", error);
+			redisClient.disconnect();
+			return;
+		}
 		logger.error("Error disconnecting Redis client", error);
 		throw error;
 	}
