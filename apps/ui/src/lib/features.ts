@@ -40,7 +40,7 @@ export const features: FeatureDefinition[] = [
 		title: "Unified API Interface",
 		subtitle: "One API for all LLM providers",
 		description:
-			"Compatible with the OpenAI API format for seamless migration and integration.",
+			"Compatible with the OpenAI API format — migrate by changing the base URL, keep your SDK, and reach 200+ models across 40+ providers with no code changes.",
 		longDescription:
 			"LLM Gateway provides a unified API interface that's fully compatible with the OpenAI API format. This means you can easily migrate from OpenAI to any other provider without changing your code. Simply update the base URL and API key, and you're ready to go.",
 		icon: null,

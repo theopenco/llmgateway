@@ -42,7 +42,7 @@ describe("isProviderCompliant", () => {
 			apiTraining: true,
 			consumerTraining: true,
 			promptLogging: true,
-			soc2: true,
+			soc2: 2,
 		});
 		expect(
 			isProviderCompliant(provider, { enabled: true, requireSoc2: true }),
@@ -99,7 +99,7 @@ describe("isProviderCompliant", () => {
 					apiTraining: false,
 					consumerTraining: false,
 					promptLogging: false,
-					soc2: true,
+					soc2: 2,
 				}),
 				policy,
 			),

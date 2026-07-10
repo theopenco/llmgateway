@@ -263,20 +263,25 @@ export async function generateMetadata({
 		return {};
 	}
 
+	const modelCount = modelDefinitions.filter((model) =>
+		model.providers.some((p) => p.providerId === provider.id),
+	).length;
+	const description = `Access ${modelCount} ${provider.name} models through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
+
 	return {
-		title: provider.name,
-		description: `Learn about ${provider.name} integration with LLM Gateway. Access ${provider.name} models through our unified API.`,
+		title: `${provider.name} API — Models & Pricing`,
+		description,
 		alternates: { canonical: `/providers/${provider.id}` },
 		openGraph: {
-			title: `${provider.name} | LLM Gateway`,
-			description: `Learn about ${provider.name} integration with LLM Gateway. Access ${provider.name} models through our unified API.`,
+			title: `${provider.name} API — Models & Pricing | LLM Gateway`,
+			description,
 			type: "website",
 			url: `https://llmgateway.io/providers/${provider.id}`,
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${provider.name} | LLM Gateway`,
-			description: `Learn about ${provider.name} integration with LLM Gateway.`,
+			title: `${provider.name} API — Models & Pricing | LLM Gateway`,
+			description,
 		},
 	};
 }

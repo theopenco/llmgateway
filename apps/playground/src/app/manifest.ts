@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
 		name: "LLM Gateway Playground",
 		short_name: "LLM Gateway",
 		description:
-			"Test and compare 280+ AI models in one playground. Chat, image, video, and group-chat across providers.",
+			"Test and compare 200+ AI models in one playground. Chat, image, video, and group-chat across providers.",
 		start_url: "/",
 		display: "standalone",
 		background_color: "#ffffff",

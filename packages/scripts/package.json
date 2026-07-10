@@ -16,6 +16,7 @@
 		"poc-end-user-bonus": "tsx --env-file=../../.env src/poc-end-user-bonus.ts",
 		"send": "tsx src/send.ts",
 		"send-devpass": "tsx src/send-devpass.ts",
+		"seo-audit-report": "tsx src/seo-audit-report.ts",
 		"stripe-earnings": "tsx src/stripe-earnings.ts",
 		"traffic-report": "tsx src/traffic-report.ts",
 		"test-gemini-tools-complex": "tsx src/test-gemini-tools-complex.ts",

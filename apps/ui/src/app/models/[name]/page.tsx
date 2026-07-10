@@ -597,9 +597,11 @@ export async function generateMetadata({
 	}
 
 	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
+	const pitch = `Use ${model.name ?? model.id} via one OpenAI-compatible API with live per-token pricing across providers.`;
 	const description =
-		model.description ??
-		`Compare ${model.name ?? model.id} pricing across providers, with its context window, capabilities, and one OpenAI-compatible API.`;
+		model.description && model.description.length + pitch.length <= 250
+			? `${model.description} ${pitch}`
+			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;

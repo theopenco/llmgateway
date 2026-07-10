@@ -146,6 +146,9 @@ export const metaModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "meta.llama3-1-70b-instruct-v1:0",
+				// Meta Llama has no `global.` Bedrock inference profile, so pin the
+				// `us.` cross-region profile explicitly (the gateway's default
+				// `global.` prefix yields an invalid model id for Meta models).
 				stability: "unstable",
 				inputPrice: "0.72e-6",
 				outputPrice: "0.72e-6",
@@ -156,6 +159,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				regions: [{ id: "us" }],
 			},
 		],
 	},
@@ -379,6 +383,8 @@ export const metaModels = [
 				stability: "unstable",
 				providerId: "aws-bedrock",
 				externalId: "meta.llama4-scout-17b-instruct-v1:0",
+				// Meta Llama has no `global.` Bedrock inference profile, so pin the
+				// `us.` cross-region profile explicitly.
 				inputPrice: "0.17e-6",
 				outputPrice: "0.66e-6",
 				requestPrice: "0",
@@ -389,6 +395,7 @@ export const metaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				regions: [{ id: "us" }],
 			},
 			{
 				stability: "unstable",
@@ -418,6 +425,8 @@ export const metaModels = [
 				stability: "unstable",
 				providerId: "aws-bedrock",
 				externalId: "meta.llama4-maverick-17b-instruct-v1:0",
+				// Meta Llama has no `global.` Bedrock inference profile, so pin the
+				// `us.` cross-region profile explicitly.
 				inputPrice: "0.24e-6",
 				outputPrice: "0.97e-6",
 				requestPrice: "0",
@@ -428,6 +437,7 @@ export const metaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				regions: [{ id: "us" }],
 			},
 			{
 				providerId: "novita",

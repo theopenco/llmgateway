@@ -23,14 +23,14 @@ import type { Metadata } from "next";
 const BASE_URL = "https://llmgateway.io";
 
 export const metadata: Metadata = {
-	title: "LLM Release Timeline — When Each AI Model Was Released",
+	title: "LLM Release Timeline — Model Release Dates",
 	description:
-		"Release dates for every major LLM. See when GPT, Claude, Gemini, Llama, Mistral and DeepSeek models shipped from their provider and when each was added to LLM Gateway. Browse by year.",
+		"Release dates for every major LLM — see when GPT, Claude, Gemini, Llama, Mistral, and DeepSeek models shipped and when each was added to LLM Gateway.",
 	alternates: {
 		canonical: "/timeline",
 	},
 	openGraph: {
-		title: "LLM Release Timeline — When Each AI Model Was Released",
+		title: "LLM Release Timeline — Model Release Dates",
 		description:
 			"Release dates for every major LLM — GPT, Claude, Gemini, Llama, Mistral and DeepSeek — with the date each model was added to LLM Gateway.",
 		type: "website",
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "LLM Release Timeline — When Each AI Model Was Released",
+		title: "LLM Release Timeline — Model Release Dates",
 		description:
 			"Release dates for every major LLM — GPT, Claude, Gemini, Llama, Mistral and DeepSeek — and when each was added to LLM Gateway.",
 	},
