@@ -66,6 +66,11 @@ export const completionsRequestSchema = z.object({
 										"webm",
 									]),
 								}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 							z.object({
 								type: z.literal("file"),

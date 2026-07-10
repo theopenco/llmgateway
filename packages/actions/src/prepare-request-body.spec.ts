@@ -662,6 +662,29 @@ describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => 
 		expect(
 			requestBody.messages[0].content[0].prompt_cache_breakpoint,
 		).toBeUndefined();
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+	});
+
+	test("forces explicit mode when provider cache writes are disabled (implicit auto-writes bill at 1.25x)", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			messages: explicitCacheMessages,
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+	});
+
+	test("does not force explicit mode on models without explicit caching support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
 	});
 });
 

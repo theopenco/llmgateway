@@ -1618,11 +1618,17 @@ export async function prepareRequestBody(
 					) {
 						responsesBody.prompt_cache_retention = prompt_cache_retention;
 					}
-					if (
-						prompt_cache_options !== undefined &&
-						supportsOpenAIExplicitPromptCache(usedInternalModel)
-					) {
-						responsesBody.prompt_cache_options = prompt_cache_options;
+					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
+						if (!providerCacheControlEnabled) {
+							// The project opted out of provider cache writes, but GPT-5.6
+							// implicit caching auto-writes (billed at 1.25x) on every
+							// request. Force explicit mode — with all breakpoint markers
+							// stripped above, this disables caching (and its write fees)
+							// entirely.
+							responsesBody.prompt_cache_options = { mode: "explicit" };
+						} else if (prompt_cache_options !== undefined) {
+							responsesBody.prompt_cache_options = prompt_cache_options;
+						}
 					}
 				}
 
@@ -1718,11 +1724,17 @@ export async function prepareRequestBody(
 					) {
 						requestBody.prompt_cache_retention = prompt_cache_retention;
 					}
-					if (
-						prompt_cache_options !== undefined &&
-						supportsOpenAIExplicitPromptCache(usedInternalModel)
-					) {
-						requestBody.prompt_cache_options = prompt_cache_options;
+					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
+						if (!providerCacheControlEnabled) {
+							// The project opted out of provider cache writes, but GPT-5.6
+							// implicit caching auto-writes (billed at 1.25x) on every
+							// request. Force explicit mode — with all breakpoint markers
+							// stripped above, this disables caching (and its write fees)
+							// entirely.
+							requestBody.prompt_cache_options = { mode: "explicit" };
+						} else if (prompt_cache_options !== undefined) {
+							requestBody.prompt_cache_options = prompt_cache_options;
+						}
 					}
 				}
 

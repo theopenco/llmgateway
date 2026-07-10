@@ -60,6 +60,7 @@ export interface InputAudioContent {
 			| "pcm"
 			| "webm";
 	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
 export interface FileContent {
