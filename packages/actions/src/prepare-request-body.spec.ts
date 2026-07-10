@@ -95,6 +95,46 @@ async function prepareOpenAITextRequest(options: {
 }
 
 describe("prepareRequestBody - Anthropic", () => {
+	test("should throw a typed RequestError for malformed tool_call arguments", async () => {
+		await expect(
+			prepareRequestBody(
+				"anthropic",
+				"claude-3-5-sonnet-20241022",
+				null,
+				"claude-3-5-sonnet-20241022",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Berlin"',
+								},
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				1024,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+
 	test("should extract system messages to system field for caching", async () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
@@ -2021,6 +2061,46 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should throw a typed RequestError for malformed tool_call arguments", async () => {
+		await expect(
+			prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				null,
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Berlin"',
+								},
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				1024,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+
 	test("should keep Grok 4.3 as Bedrock Mantle OpenAI chat completions", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",

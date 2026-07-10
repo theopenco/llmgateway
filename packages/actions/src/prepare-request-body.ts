@@ -24,28 +24,15 @@ import {
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
+import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
+import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
 
-/**
- * Generic typed error for invalid client requests detected before we hit the
- * upstream provider (e.g. malformed message shapes). The gateway maps this to
- * the carried `statusCode` (default 400) and writes a client_error log row so
- * the rejected request still shows up in the user's activity history instead
- * of surfacing as a generic 500 with no log. Reuse this for any similar
- * pre-upstream request validation failure.
- */
-export class RequestError extends Error {
-	public readonly statusCode: number;
-	public constructor(message: string, statusCode = 400) {
-		super(message);
-		this.name = "RequestError";
-		this.statusCode = statusCode;
-	}
-}
+export { RequestError } from "./request-error.js";
 
 function getProviderMapping(
 	modelDef: ModelDefinition | undefined,
@@ -2476,7 +2463,7 @@ export async function prepareRequestBody(
 							toolUse: {
 								toolUseId: toolCall.id,
 								name: toolCall.function.name,
-								input: JSON.parse(toolCall.function.arguments),
+								input: parseToolCallArguments(toolCall),
 							},
 						});
 					});
