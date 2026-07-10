@@ -1337,6 +1337,7 @@ export function transformStreamingToOpenai(
 		case "deepseek":
 		case "alibaba":
 		case "moonshot":
+		case "meta":
 		case "perplexity":
 		case "nebius":
 		case "canopywave":

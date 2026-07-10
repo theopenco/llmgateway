@@ -1279,6 +1279,35 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "meta",
+		name: "Meta",
+		description:
+			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_META_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0668E1",
+		website: "https://dev.meta.ai",
+		statusPageUrl: null,
+		announcement: null,
+		apiKeyInstructions:
+			"Create an API key in the API keys tab of the Meta Model API dashboard.",
+		learnMore: "https://dev.meta.ai/docs/getting-started/authentication",
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
+	},
+	{
 		id: "sakana",
 		name: "Sakana AI",
 		description:

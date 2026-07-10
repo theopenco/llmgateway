@@ -2,6 +2,35 @@ import type { ModelDefinition } from "@/models.js";
 
 export const metaModels = [
 	{
+		id: "muse-spark-1.1",
+		name: "Muse Spark 1.1",
+		description:
+			"Meta's multimodal reasoning model built for agentic tool calling, coding, structured output, and long-context workflows with image and video understanding.",
+		family: "meta",
+		releasedAt: new Date("2026-07-09"),
+		providers: [
+			{
+				providerId: "meta",
+				externalId: "muse-spark-1.1",
+				stability: "beta",
+				inputPrice: "1.25e-6",
+				cachedInputPrice: "0.15e-6",
+				outputPrice: "4.25e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningMode: "adaptive",
+				reasoningOutput: "omit",
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "llama-3.1-8b-instruct",
 		name: "Llama 3.1 8B Instruct",
 		description: "Compact Llama 3.1 for efficient text generation.",

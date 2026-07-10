@@ -298,6 +298,9 @@ export function getProviderEndpoint(
 			case "moonshot":
 				url = "https://api.moonshot.ai";
 				break;
+			case "meta":
+				url = "https://api.meta.ai";
+				break;
 			case "alibaba": {
 				const alibabaBaseUrl =
 					regionBaseUrl ?? "https://dashscope-intl.aliyuncs.com";
@@ -688,6 +691,7 @@ export function getProviderEndpoint(
 		case "cerebras":
 		case "deepseek":
 		case "moonshot":
+		case "meta":
 		case "nebius":
 		case "nanogpt":
 		case "canopywave":
