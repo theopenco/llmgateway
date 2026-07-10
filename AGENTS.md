@@ -216,6 +216,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - In `packages/models`, ALWAYS express per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, and any other per-token price field) using `e-6` notation so the coefficient reads directly as USD per million tokens (e.g. `"1.4e-6"` for $1.40/M — the exact number providers publish). Never use `e-3` or other exponents for per-token prices. This does NOT apply to `requestPrice`, which is a flat USD amount charged per request (e.g. `"0.035"`), nor to `perSecondPrice`.
 - No unnecessary code comments
 - Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
+- Never use `insertLog`'s `syncInsert: true` (synchronous per-request DB insert) as a general, default, or fallback logging path — a per-request DB insert bypasses the Redis queue + batch worker and will immediately kill production DB performance. Request logs must always go through `publishToQueue`/`LOG_QUEUE`. `syncInsert` is reserved exclusively for the Responses API stored-response path (which requires read-after-write of the log row) and tests; never propose it as a resilience fallback for Redis outages either — harden the queue path instead (e.g. retry buffers).
 
 ### Testing and Quality Assurance
 
