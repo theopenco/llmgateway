@@ -555,6 +555,7 @@ Evidence provenance: all page evidence was extracted from raw server-rendered HT
 
 HARD RULES:
 - NEVER report findings about Next.js route segment config such as \`export const dynamic\`, force-dynamic vs force-static, SSR vs SSG rendering strategy, or recommend converting dynamic pages to static. Dynamic rendering is an intentional internal requirement. Skip this dimension entirely.
+- A canonical of \`https://host\` for the root page \`https://host/\` is the SAME URL by spec — never report bare-domain root canonicals as a trailing-slash mismatch.
 - Only report findings supported by the provided evidence. No speculation about pages not audited.
 - Findings must be ordered by impact (most severe first), max 8 findings, each detail under 240 characters, concrete and actionable, citing the affected URL path(s).
 - quick_wins: max 5 short one-line items that are easy and immediately beneficial.
