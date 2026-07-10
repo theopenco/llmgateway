@@ -1751,6 +1751,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningOutput: "omit",
+				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
@@ -1759,6 +1760,7 @@ export const openaiModels = [
 					"frequency_penalty",
 					"presence_penalty",
 					"response_format",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -1790,6 +1792,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningOutput: "omit",
+				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
@@ -1798,6 +1801,7 @@ export const openaiModels = [
 					"frequency_penalty",
 					"presence_penalty",
 					"response_format",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},
@@ -1829,6 +1833,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningOutput: "omit",
+				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
@@ -1837,6 +1842,7 @@ export const openaiModels = [
 					"frequency_penalty",
 					"presence_penalty",
 					"response_format",
+					"verbosity",
 				],
 				jsonOutput: true,
 			},

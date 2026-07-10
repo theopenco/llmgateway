@@ -304,6 +304,16 @@ export const completionsRequestSchema = z.object({
 				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
 			example: "medium",
 		}),
+	verbosity: z
+		.enum(["low", "medium", "high"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Controls how detailed the model's responses are. Only supported by OpenAI GPT-5.6 and later models; requests to models without verbosity support return a 400 error.",
+			example: "low",
+		}),
 	service_tier: z
 		.enum(["auto", "default", "flex", "priority"])
 		.optional()

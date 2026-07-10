@@ -140,6 +140,7 @@ export interface ProviderContextOptions {
 	n?: number;
 	providerCacheControlEnabled: boolean;
 	service_tier?: "auto" | "default" | "flex" | "priority";
+	verbosity?: "low" | "medium" | "high";
 }
 
 interface ProjectInfo {
@@ -643,6 +644,7 @@ export async function resolveProviderContext(
 		options.providerCacheControlEnabled,
 		options.n,
 		options.service_tier,
+		options.verbosity,
 	);
 
 	// Post-validation of max_tokens in request body

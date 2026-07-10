@@ -330,6 +330,11 @@ export interface ProviderModelMapping {
 	 */
 	reasoning?: boolean;
 	/**
+	 * Whether this model supports the OpenAI `verbosity` parameter
+	 * (low/medium/high response detail control, GPT-5.6 and later)
+	 */
+	verbosity?: boolean;
+	/**
 	 * Whether the provider returns reasoning inside tagged content (e.g. &lt;think&gt;...&lt;/think&gt;)
 	 * that needs to be split into separate reasoning and content fields
 	 */

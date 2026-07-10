@@ -248,6 +248,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 		include_usage: boolean;
 	};
 	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	verbosity?: "low" | "medium" | "high";
 	n?: number;
 	extra_body?: Record<string, unknown>;
 }
@@ -291,7 +292,7 @@ export interface OpenAIResponsesRequestBody {
 	temperature?: number;
 	max_output_tokens?: number;
 	text?: {
-		format:
+		format?:
 			| { type: "text" }
 			| { type: "json_object" }
 			| {
@@ -300,6 +301,7 @@ export interface OpenAIResponsesRequestBody {
 					schema: Record<string, unknown>;
 					strict?: boolean;
 			  };
+		verbosity?: "low" | "medium" | "high";
 	};
 }
 

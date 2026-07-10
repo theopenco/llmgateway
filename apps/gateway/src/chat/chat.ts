@@ -1453,6 +1453,7 @@ chat.openapi(completions, async (c) => {
 		sensitive_word_check,
 		image_config,
 		effort,
+		verbosity,
 		service_tier,
 		web_search,
 		plugins,
@@ -2498,6 +2499,7 @@ chat.openapi(completions, async (c) => {
 			response_format,
 			reasoning_effort,
 			reasoning_max_tokens,
+			verbosity,
 			tools,
 			tool_choice,
 			webSearchTool,
@@ -6109,6 +6111,7 @@ chat.openapi(completions, async (c) => {
 				service_tier,
 				configIndex,
 			),
+			verbosity,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -6316,6 +6319,7 @@ chat.openapi(completions, async (c) => {
 				n,
 				providerCacheControlEnabled,
 				service_tier,
+				verbosity,
 			},
 		);
 	}

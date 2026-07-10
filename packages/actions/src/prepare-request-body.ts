@@ -891,6 +891,7 @@ export async function prepareRequestBody(
 	providerCacheControlEnabled = true,
 	n?: number,
 	service_tier?: "auto" | "default" | "flex" | "priority",
+	verbosity?: "low" | "medium" | "high",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	const modelDef = models.find((m) => m.id === usedInternalModel);
@@ -926,6 +927,17 @@ export async function prepareRequestBody(
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
+	}
+
+	// `verbosity` is only understood by OpenAI GPT-5.6+ models. Capability
+	// validation rejects unsupported pinned models upfront, but auto routing and
+	// retry fallbacks can still land on a mapping without verbosity support, so
+	// strip it here instead of forwarding an unknown parameter upstream.
+	if (
+		verbosity !== undefined &&
+		providerMappingForOptions?.verbosity !== true
+	) {
+		verbosity = undefined;
 	}
 
 	// `max` is Anthropic's top effort tier (above `xhigh`). Providers without a
@@ -1632,6 +1644,13 @@ export async function prepareRequestBody(
 					}
 				}
 
+				if (verbosity !== undefined) {
+					responsesBody.text = {
+						...responsesBody.text,
+						verbosity,
+					};
+				}
+
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
@@ -1730,6 +1749,9 @@ export async function prepareRequestBody(
 					} else {
 						requestBody.reasoning_effort = genericReasoningEffort;
 					}
+				}
+				if (verbosity !== undefined) {
+					requestBody.verbosity = verbosity;
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;

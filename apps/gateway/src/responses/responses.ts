@@ -324,6 +324,9 @@ responses.post("/", async (c) => {
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
 	}
+	if (req.text?.verbosity !== undefined) {
+		chatRequest.verbosity = req.text.verbosity;
+	}
 	if (req.prompt_cache_key !== undefined) {
 		chatRequest.prompt_cache_key = req.prompt_cache_key;
 	}

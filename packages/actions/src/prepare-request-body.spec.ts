@@ -51,6 +51,7 @@ async function prepareOpenAITextRequest(options: {
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
 	serviceTier?: "flex" | "priority";
+	verbosity?: "low" | "medium" | "high";
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -85,6 +86,7 @@ async function prepareOpenAITextRequest(options: {
 		true,
 		undefined,
 		options.serviceTier,
+		options.verbosity,
 	);
 }
 
@@ -619,6 +621,86 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 		})) as { service_tier?: string };
 
 		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - verbosity", () => {
+	test("forwards verbosity to gpt-5.6 chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-terra",
+			verbosity: "low",
+		})) as { verbosity?: string };
+
+		expect(requestBody.verbosity).toBe("low");
+	});
+
+	test("forwards verbosity as text.verbosity to gpt-5.6 Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			useResponsesApi: true,
+			verbosity: "high",
+		})) as { text?: { verbosity?: string } };
+
+		expect(requestBody.text?.verbosity).toBe("high");
+	});
+
+	test("keeps text.format when verbosity is combined with response_format", async () => {
+		const requestBody = (await prepareRequestBody(
+			"openai",
+			"gpt-5.6-luna",
+			null,
+			"gpt-5.6-luna",
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true, // useResponsesApi
+			undefined,
+			undefined,
+			true,
+			undefined,
+			undefined,
+			"medium", // verbosity
+		)) as { text?: { format?: { type: string }; verbosity?: string } };
+
+		expect(requestBody.text?.format?.type).toBe("json_object");
+		expect(requestBody.text?.verbosity).toBe("medium");
+	});
+
+	test("strips verbosity for models without verbosity support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			verbosity: "low",
+		})) as { verbosity?: string };
+
+		expect(requestBody.verbosity).toBeUndefined();
+	});
+
+	test("strips verbosity from the Responses API body for unsupported models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			useResponsesApi: true,
+			verbosity: "low",
+		})) as { text?: { verbosity?: string } };
+
+		expect(requestBody.text?.verbosity).toBeUndefined();
 	});
 });
 

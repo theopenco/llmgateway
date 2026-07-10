@@ -17,6 +17,7 @@ export interface ValidateModelCapabilitiesOptions {
 	};
 	reasoning_effort?: string;
 	reasoning_max_tokens?: number;
+	verbosity?: string;
 	tools?: unknown[];
 	tool_choice?: unknown;
 	webSearchTool?: WebSearchTool;
@@ -42,6 +43,7 @@ export function validateModelCapabilities(
 		response_format,
 		reasoning_effort,
 		reasoning_max_tokens,
+		verbosity,
 		tools,
 		tool_choice,
 		webSearchTool,
@@ -185,6 +187,30 @@ export function validateModelCapabilities(
 
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.`,
+			});
+		}
+	}
+
+	// Check if verbosity is specified but model doesn't support it
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		verbosity !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		const supportsVerbosity = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).verbosity === true,
+		);
+
+		if (!supportsVerbosity) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support the verbosity parameter. Remove the verbosity parameter or use a model that supports it (OpenAI GPT-5.6 and later).`,
 			});
 		}
 	}

@@ -132,6 +132,50 @@ describe("validateModelCapabilities - vision", () => {
 	});
 });
 
+describe("validateModelCapabilities - verbosity", () => {
+	const verbosityModel = getModel("gpt-5.6-terra");
+
+	it("allows verbosity for models that support it", () => {
+		expect(() =>
+			validateModelCapabilities(verbosityModel, "gpt-5.6-terra", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects verbosity for models without support", () => {
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "deepseek-v4-flash", undefined, {
+				verbosity: "low",
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("skips the verbosity check for auto and custom models", () => {
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "auto", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "custom", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+	});
+
+	it("does not check verbosity when it is not specified", () => {
+		expect(() =>
+			validateModelCapabilities(
+				noVisionModel,
+				"deepseek-v4-flash",
+				undefined,
+				{},
+			),
+		).not.toThrow();
+	});
+});
+
 describe("validateModelCapabilities - custom providers", () => {
 	it("skips all capability checks when the provider is custom", () => {
 		expect(() =>
