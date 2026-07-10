@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
 import { getStripe } from "@/routes/payments.js";
@@ -21,13 +22,20 @@ export const SELF_REFUND_WINDOW_DAYS = 14;
 
 const SELF_REFUND_WINDOW_MS = SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-// Usage at or above 10% of the purchased credits denies the self-refund
-// (equivalently, repeat top-ups require the balance to still cover 90%).
-// Compared as used*10 >= total rather than used >= 0.1*total: multiplying the
-// decimal total by 0.1 picks up float noise right at the boundary
-// (0.1*237 === 23.700000000000003), while *10 stays exact.
-function usageExceedsThreshold(used: number, total: number): boolean {
-	return used * 10 >= total;
+// Usage at or above 10% of the purchased credits denies the self-refund;
+// equivalently, repeat top-ups require the balance to still cover the
+// remaining 90%.
+const SELF_REFUND_USAGE_THRESHOLD = new Decimal("0.1");
+const SELF_REFUND_BALANCE_FLOOR = new Decimal(1).minus(
+	SELF_REFUND_USAGE_THRESHOLD,
+);
+
+function dec(value: string | number | null | undefined): Decimal {
+	return new Decimal(value ?? 0);
+}
+
+function usageExceedsThreshold(used: Decimal, total: Decimal): boolean {
+	return used.gte(total.times(SELF_REFUND_USAGE_THRESHOLD));
 }
 
 export type SelfRefundIneligibilityReason =
@@ -91,8 +99,8 @@ function latestOf(rows: TransactionRow[]): TransactionRow | undefined {
 function computeUsedCredits(
 	organization: OrganizationRow,
 	transactions: TransactionRow[],
-): number {
-	let granted = Number(organization.referralEarnings ?? "0");
+): Decimal {
+	let granted = dec(organization.referralEarnings);
 	for (const t of transactions) {
 		if (!isCompleted(t)) {
 			continue;
@@ -104,13 +112,13 @@ function computeUsedCredits(
 		) {
 			// credit_refund rows carry a negative creditAmount, netting out the
 			// refunded grant.
-			granted += Number(t.creditAmount ?? "0");
+			granted = granted.plus(dec(t.creditAmount));
 		} else if (t.type === "end_user_bonus") {
 			// End-user signup bonuses are funded from the org balance.
-			granted -= Number(t.amount ?? "0");
+			granted = granted.minus(dec(t.amount));
 		}
 	}
-	return granted - Number(organization.credits);
+	return granted.minus(dec(organization.credits));
 }
 
 function checkCreditTopupEligibility(
@@ -118,8 +126,8 @@ function checkCreditTopupEligibility(
 	transactions: TransactionRow[],
 	transaction: TransactionRow,
 ): SelfRefundEligibility {
-	const creditAmount = Number(transaction.creditAmount ?? "0");
-	if (!(creditAmount > 0)) {
+	const creditAmount = dec(transaction.creditAmount);
+	if (!creditAmount.gt(0)) {
 		return ineligible("unsupported_type");
 	}
 
@@ -145,7 +153,9 @@ function checkCreditTopupEligibility(
 	if (latestTopup?.id !== transaction.id) {
 		return ineligible("not_latest_purchase");
 	}
-	if (Number(organization.credits) * 10 < creditAmount * 9) {
+	if (
+		dec(organization.credits).lt(creditAmount.times(SELF_REFUND_BALANCE_FLOOR))
+	) {
 		return ineligible("usage_exceeded");
 	}
 	return { eligible: true };
@@ -162,10 +172,10 @@ function checkPlanEligibility(
 	const subscriptionId = isDev
 		? organization.devPlanStripeSubscriptionId
 		: organization.chatPlanStripeSubscriptionId;
-	const creditsUsed = Number(
+	const creditsUsed = dec(
 		isDev ? organization.devPlanCreditsUsed : organization.chatPlanCreditsUsed,
 	);
-	const creditsLimit = Number(
+	const creditsLimit = dec(
 		isDev
 			? organization.devPlanCreditsLimit
 			: organization.chatPlanCreditsLimit,
@@ -202,7 +212,7 @@ function checkPlanEligibility(
 		// First-ever plan purchase: threshold on the virtual credit allowance
 		// (deliberately more lenient, as a first-purchase guarantee).
 		if (
-			!(creditsLimit > 0) ||
+			!creditsLimit.gt(0) ||
 			usageExceedsThreshold(creditsUsed, creditsLimit)
 		) {
 			return ineligible("usage_exceeded");
@@ -217,7 +227,7 @@ function checkPlanEligibility(
 	const price = isDev
 		? DEV_PLAN_PRICES[plan as DevPlanTier]
 		: CHAT_PLAN_PRICES[plan as ChatPlanTier];
-	if (!price || usageExceedsThreshold(creditsUsed, price)) {
+	if (!price || usageExceedsThreshold(creditsUsed, dec(price))) {
 		return ineligible("usage_exceeded");
 	}
 	return { eligible: true };
@@ -248,7 +258,7 @@ export function computeSelfRefundEligibility({
 		return ineligible("not_completed");
 	}
 	if (
-		!(Number(transaction.amount ?? "0") > 0) ||
+		!dec(transaction.amount).gt(0) ||
 		(!transaction.stripePaymentIntentId && !transaction.stripeInvoiceId)
 	) {
 		return ineligible("unsupported_type");
