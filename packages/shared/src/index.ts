@@ -48,7 +48,6 @@ export {
 } from "./chat-plans.js";
 
 export {
-	EXPLICIT_PREMIUM_MODEL_IDS,
 	getModelCategory,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
