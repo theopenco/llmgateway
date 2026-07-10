@@ -1937,9 +1937,9 @@ export default function ChatPageClient({
 
 	return (
 		<SidebarProvider>
-			<h1 className="sr-only">
-				LLM Gateway Playground - Chat with 280+ AI Models
-			</h1>
+			<h2 className="sr-only">
+				LLM Gateway Playground - Chat with 200+ AI Models
+			</h2>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				{isTemporaryChat ? null : (
 					<ChatSidebar

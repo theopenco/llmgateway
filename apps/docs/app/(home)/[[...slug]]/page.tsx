@@ -12,6 +12,7 @@ import posthog from "posthog-js";
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { EnterpriseCTA } from "@/components/enterprise-cta";
 import { Feedback } from "@/components/feedback";
+import { JsonLd } from "@/components/json-ld";
 import { docsBaseUrl } from "@/lib/base-url";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
@@ -81,6 +82,26 @@ export default async function Page(props: {
 
 	const MDXContent = page.data.body;
 
+	const path = page.url === "/" ? "" : page.url;
+	const techArticleSchema = {
+		"@context": "https://schema.org",
+		"@type": "TechArticle",
+		headline: page.data.title,
+		description: page.data.description,
+		url: `${docsBaseUrl}${path}`,
+		...(time ? { dateModified: new Date(time).toISOString() } : {}),
+		author: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+		publisher: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+	};
+
 	return (
 		<DocsPage
 			toc={page.data.toc}
@@ -91,6 +112,7 @@ export default async function Page(props: {
 			}}
 			lastUpdate={time ? new Date(time) : new Date()}
 		>
+			<JsonLd data={techArticleSchema} />
 			<nav
 				aria-label="Page actions"
 				className="flex flex-row gap-2 items-center border-b pt-2 pb-6"

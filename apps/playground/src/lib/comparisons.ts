@@ -105,7 +105,7 @@ function planFacts(tier: ChatPlanTier) {
 export const US = {
 	name: "LLM Gateway Chat",
 	url: "https://chat.llmgateway.io",
-	modelCount: "280+",
+	modelCount: "200+",
 	plans: {
 		starter: planFacts("starter"),
 		plus: planFacts("plus"),
@@ -131,7 +131,7 @@ export const comparisons: Comparison[] = [
 		table: [
 			{
 				label: "Models",
-				us: "280+ across OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral and more",
+				us: "200+ across OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral and more",
 				them: "OpenAI only (GPT-5.x family)",
 				usWins: true,
 			},
@@ -220,7 +220,7 @@ export const comparisons: Comparison[] = [
 		faq: [
 			{
 				q: "Is LLM Gateway Chat a ChatGPT alternative?",
-				a: "Yes. It's a multi-model chat app that includes OpenAI's GPT models alongside Claude, Gemini, Grok, and 280+ others, so a single $19/mo subscription replaces ChatGPT Plus plus the other AI subscriptions you'd otherwise stack on top.",
+				a: "Yes. It's a multi-model chat app that includes OpenAI's GPT models alongside Claude, Gemini, Grok, and 200+ others, so a single $19/mo subscription replaces ChatGPT Plus plus the other AI subscriptions you'd otherwise stack on top.",
 			},
 			{
 				q: "Can I still use GPT-5 on LLM Gateway Chat?",
@@ -254,7 +254,7 @@ export const comparisons: Comparison[] = [
 		table: [
 			{
 				label: "Models",
-				us: "Claude Opus, Sonnet, Haiku + GPT, Gemini, Grok and 280+ more",
+				us: "Claude Opus, Sonnet, Haiku + GPT, Gemini, Grok and 200+ more",
 				them: "Anthropic only (Opus, Sonnet, Haiku)",
 				usWins: true,
 			},
@@ -344,7 +344,7 @@ export const comparisons: Comparison[] = [
 		faq: [
 			{
 				q: "Does LLM Gateway Chat include Claude?",
-				a: "Yes. Claude Opus, Sonnet, and Haiku are available on the Plus and Pro plans, alongside GPT, Gemini, Grok, and 280+ other models on one credit balance.",
+				a: "Yes. Claude Opus, Sonnet, and Haiku are available on the Plus and Pro plans, alongside GPT, Gemini, Grok, and 200+ other models on one credit balance.",
 			},
 			{
 				q: "Why use LLM Gateway Chat instead of Claude Pro?",
@@ -378,7 +378,7 @@ export const comparisons: Comparison[] = [
 		table: [
 			{
 				label: "Models",
-				us: "Gemini + GPT, Claude, Grok and 280+ more",
+				us: "Gemini + GPT, Claude, Grok and 200+ more",
 				them: "Google only (Gemini family)",
 				usWins: true,
 			},
@@ -467,7 +467,7 @@ export const comparisons: Comparison[] = [
 		faq: [
 			{
 				q: "Is LLM Gateway Chat a Google Gemini alternative?",
-				a: "Yes. It includes Gemini's models alongside GPT, Claude, Grok, and 280+ others on one $19/mo balance, without tying your chats to a Google account.",
+				a: "Yes. It includes Gemini's models alongside GPT, Claude, Grok, and 200+ others on one $19/mo balance, without tying your chats to a Google account.",
 			},
 			{
 				q: "Do I still get Gemini's long context window?",
@@ -491,7 +491,7 @@ export const comparisons: Comparison[] = [
 		category: "aggregator",
 		metaTitle: "LLM Gateway Chat vs Poe — multi-model chat without points math",
 		metaDescription:
-			"Poe meters every model with confusing compute points. LLM Gateway Chat gives you 280+ models on transparent provider-rate credits for $19/mo.",
+			"Poe meters every model with confusing compute points. LLM Gateway Chat gives you 200+ models on transparent provider-rate credits for $19/mo.",
 		eyebrow: "Compute points vs transparent credits",
 		verdict:
 			"Poe pioneered multi-model chat and has huge breadth, including user-built bots and group chats. Its weak point, by far the most common complaint, is the compute-points system: every model costs a different, hard-to-predict number of points, nothing rolls over, and frontier models drain your balance fast. LLM Gateway Chat is also one balance across every model, but priced as transparent credits at provider rates.",
@@ -500,7 +500,7 @@ export const comparisons: Comparison[] = [
 		table: [
 			{
 				label: "Models",
-				us: "280+ across every major provider",
+				us: "200+ across every major provider",
 				them: "100+ models plus user-built bots",
 			},
 			{
@@ -559,7 +559,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				heading: "Breadth and bots",
-				us: "The focus is direct, fast access to 280+ first-party models with image, video, and audio generation and side-by-side comparison.",
+				us: "The focus is direct, fast access to 200+ first-party models with image, video, and audio generation and side-by-side comparison.",
 				them: "Poe's real edge is its ecosystem: millions of user-created bots, creator monetization, and large group chats. If that ecosystem is why you're there, it's a genuine strength.",
 				bottomLine:
 					"Want a bot marketplace? Poe wins. Want clean, predictable access to the models themselves? That's us.",
@@ -592,7 +592,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				q: "Does it have as many models as Poe?",
-				a: "It includes 280+ first-party models across every major provider. Poe adds a large catalog of user-built bots on top; if a creator bot ecosystem is what you want, Poe is stronger there.",
+				a: "It includes 200+ first-party models across every major provider. Poe adds a large catalog of user-built bots on top; if a creator bot ecosystem is what you want, Poe is stronger there.",
 			},
 			{
 				q: "Will I run out as fast as I do on Poe?",
@@ -613,7 +613,7 @@ export const comparisons: Comparison[] = [
 		metaTitle:
 			"LLM Gateway Chat vs T3 Chat — multi-model chat with a media studio",
 		metaDescription:
-			"T3 Chat is fast $8/mo multi-model chat with no media generation. LLM Gateway Chat adds image, video, audio and group chat across 280+ models.",
+			"T3 Chat is fast $8/mo multi-model chat with no media generation. LLM Gateway Chat adds image, video, audio and group chat across 200+ models.",
 		eyebrow: "Fast and minimal vs full studio",
 		verdict:
 			"T3 Chat is genuinely excellent at one thing: fast, clean multi-model chat for $8/mo, with bring-your-own-key support. It's also deliberately minimal — no native mobile app, no voice, no persistent memory, and no real media generation. LLM Gateway Chat costs more but adds image, video, and audio generation, group chat, and a transparent credit balance.",
@@ -627,7 +627,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				label: "Models",
-				us: "280+ across every major provider",
+				us: "200+ across every major provider",
 				them: "Dozens across major providers",
 			},
 			{
@@ -710,7 +710,7 @@ export const comparisons: Comparison[] = [
 		faq: [
 			{
 				q: "Is LLM Gateway Chat worth more than T3 Chat's $8?",
-				a: "It depends on what you need. T3 is cheaper and faster for pure text chat. LLM Gateway Chat costs $19 on Plus but adds image, video, and audio generation, side-by-side group chat, persistent shareable conversations, and 280+ models with transparent credits.",
+				a: "It depends on what you need. T3 is cheaper and faster for pure text chat. LLM Gateway Chat costs $19 on Plus but adds image, video, and audio generation, side-by-side group chat, persistent shareable conversations, and 200+ models with transparent credits.",
 			},
 			{
 				q: "Does it support bring-your-own-key like T3?",
@@ -748,7 +748,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				label: "Models",
-				us: "280+ — pick or switch any model per message",
+				us: "200+ — pick or switch any model per message",
 				them: "Frontier models per query, plus its own Sonar",
 			},
 			{
@@ -842,7 +842,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				q: "Is it cheaper than Perplexity Pro?",
-				a: "Plus is $19/mo versus Perplexity Pro at $20/mo, and it covers chat, coding, and media generation across 280+ models rather than search alone.",
+				a: "Plus is $19/mo versus Perplexity Pro at $20/mo, and it covers chat, coding, and media generation across 200+ models rather than search alone.",
 			},
 		],
 	},
@@ -869,7 +869,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				label: "Models",
-				us: "280+ across every major provider",
+				us: "200+ across every major provider",
 				them: "400+ models from many providers",
 			},
 			{
@@ -922,7 +922,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				heading: "Breadth",
-				us: "280+ first-party models with a polished, persistent, media-capable interface.",
+				us: "200+ first-party models with a polished, persistent, media-capable interface.",
 				them: "More raw models — 400+ — and zero inference markup, which genuinely matters if you're building software on the API.",
 				bottomLine:
 					"For sheer model count and API economics, OpenRouter leads; for the chat experience, LLM Gateway Chat does.",
@@ -955,7 +955,7 @@ export const comparisons: Comparison[] = [
 			},
 			{
 				q: "Does it have more models than OpenRouter?",
-				a: "OpenRouter lists more raw models — 400+ versus 280+ — and has zero inference markup for API developers. For chatting, LLM Gateway Chat focuses on a polished experience across every major provider.",
+				a: "OpenRouter lists more raw models — 400+ versus 200+ — and has zero inference markup for API developers. For chatting, LLM Gateway Chat focuses on a polished experience across every major provider.",
 			},
 			{
 				q: "Why pay a subscription instead of OpenRouter's pay-as-you-go?",

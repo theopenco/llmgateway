@@ -1,12 +1,13 @@
 # LLM Gateway
 
-> LLM Gateway is a unified API for routing requests across OpenAI, Anthropic, Google, Meta, Mistral, DeepSeek and 35+ other LLM providers. Use one OpenAI-compatible API and one key to access every model, with usage analytics, cost tracking, caching, and automatic failover. Open source (AGPLv3) and self-hostable.
+> LLM Gateway is a unified API for routing requests across 40+ LLM providers, including OpenAI, Anthropic, Google, Meta, Mistral, and DeepSeek. Use one OpenAI-compatible API and one key to access 200+ models, with usage analytics, cost tracking, caching, and automatic failover. Open source (AGPLv3) and self-hostable.
 
 ## Key pages
 
 - [Models](https://llmgateway.io/models): Full catalog of supported LLMs with pricing, context windows, and capabilities.
 - [Model release timeline](https://llmgateway.io/timeline): When each LLM was released by its provider and when it was added to LLM Gateway — a reference for AI model release dates (GPT, Claude, Gemini, Llama, Mistral, DeepSeek).
-- [Pricing](https://llmgateway.io/pricing): Pay-as-you-go credits with a 5% platform fee, free Bring-Your-Own-Keys, and enterprise plans.
+- [Pricing](https://llmgateway.io/pricing): Per-token at provider rates. Pay-as-you-go credits carry a flat 5% platform fee; Bring-Your-Own-Keys is free; enterprise plans available.
+- [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing summary for AI agents.
 - [Providers](https://llmgateway.io/providers): Every supported provider and the models each offers.
 - [Docs](https://docs.llmgateway.io): API reference and integration guides.
 - [Compare](https://llmgateway.io/compare/open-router): How LLM Gateway compares to OpenRouter, LiteLLM, Portkey, and the Vercel AI Gateway.
