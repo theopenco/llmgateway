@@ -380,7 +380,7 @@ describe("AtlasCloud video models", () => {
 		expect(provider?.privacyPolicyUrl).toBe(
 			"https://www.atlascloud.ai/privacy",
 		);
-		expect(provider?.dataPolicy?.soc2).toBe(true);
+		expect(provider?.dataPolicy?.soc2).toBe(2);
 		expect(provider?.dataPolicy?.gdpr).toBe(true);
 		expect(provider?.additionalLinks).toEqual(
 			expect.arrayContaining([
