@@ -148,6 +148,11 @@ export const responsesRequestSchema = z.object({
 		.optional()
 		.transform((val) => (val === null ? undefined : val)),
 	routing: z.enum(["auto", "price", "throughput", "latency"]).optional(),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	temperature: z
 		.number()
 		.nullable()
@@ -180,6 +185,8 @@ export const responsesRequestSchema = z.object({
 						.optional(),
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
+					allowed_domains: z.array(z.string()).optional(),
+					blocked_domains: z.array(z.string()).optional(),
 				}),
 				// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
 				z.record(z.any()),

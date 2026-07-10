@@ -1000,6 +1000,127 @@ describe("api", () => {
 		expect(logs[0].usedServiceTier).toBeNull();
 	});
 
+	test("/v1/responses forwards the requested service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-service-tier",
+			token: "real-token-responses-service-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-service-tier",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-service-tier",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "priority",
+				input: "Hello!",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		// The echoed tier is the one the provider actually served, not a static
+		// "default" — the tier must survive the internal chat-completions hop.
+		expect(json.service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/responses rejects unsupported service tiers", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-bad-service-tier",
+			token: "real-token-responses-bad-service-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-bad-service-tier",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				service_tier: "priority",
+				input: "Hello!",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error).toMatchObject({
+			param: "service_tier",
+			code: "unsupported_service_tier",
+		});
+	});
+
+	test("/v1/responses streams the served service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-service-tier-stream",
+			token: "real-token-responses-service-tier-stream",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-service-tier-stream",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-service-tier-stream",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "priority",
+				stream: true,
+				input: "Hello!",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const raw = await res.text();
+		const completedLine = raw
+			.split("\n")
+			.find(
+				(line) =>
+					line.startsWith("data: ") && line.includes('"response.completed"'),
+			);
+		expect(completedLine).toBeDefined();
+		const completed = JSON.parse(completedLine!.slice(6));
+		expect(completed.response.service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
 	test("/v1/chat/completions forwards generated request id upstream", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-generated-request-id",
