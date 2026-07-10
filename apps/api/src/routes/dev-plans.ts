@@ -2,6 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	computeSelfRefundEligibility,
+	executeSelfRefund,
+	isSelfRefundCandidateType,
+} from "@/lib/self-refund.js";
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
@@ -2002,6 +2007,24 @@ const getInvoices = createRoute({
 								currency: z.string(),
 								status: z.enum(["pending", "completed", "failed"]),
 								description: z.string().nullable(),
+								refund: z
+									.object({
+										eligible: z.boolean(),
+										reason: z
+											.enum([
+												"unsupported_type",
+												"not_completed",
+												"already_refunded",
+												"window_expired",
+												"not_owner",
+												"not_latest_purchase",
+												"plan_inactive",
+												"credits_frozen",
+												"usage_exceeded",
+											])
+											.optional(),
+									})
+									.optional(),
 							}),
 						),
 					}),
@@ -2024,28 +2047,134 @@ devPlans.openapi(getInvoices, async (c) => {
 		return c.json({ invoices: [] });
 	}
 
+	// Eligibility needs the full transaction list (refund rows, ordering across
+	// types); the dev-plan billing events are filtered out of it for display.
 	const transactions = await db.query.transaction.findMany({
 		where: {
 			organizationId: { eq: personalOrg.id },
-			type: { in: ["dev_plan_start", "dev_plan_renewal", "dev_plan_upgrade"] },
 		},
 		orderBy: {
 			createdAt: "desc",
 		},
 	});
 
-	const invoices = transactions.map((t) => ({
-		id: t.id,
-		type: t.type as "dev_plan_start" | "dev_plan_renewal" | "dev_plan_upgrade",
-		date: t.createdAt.toISOString(),
-		amount: t.amount,
-		creditAmount: t.creditAmount,
-		currency: t.currency,
-		status: t.status,
-		description: t.description,
-	}));
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+
+	const invoices = transactions
+		.filter((t) =>
+			["dev_plan_start", "dev_plan_renewal", "dev_plan_upgrade"].includes(
+				t.type,
+			),
+		)
+		.map((t) => ({
+			id: t.id,
+			type: t.type as
+				| "dev_plan_start"
+				| "dev_plan_renewal"
+				| "dev_plan_upgrade",
+			date: t.createdAt.toISOString(),
+			amount: t.amount,
+			creditAmount: t.creditAmount,
+			currency: t.currency,
+			status: t.status,
+			description: t.description,
+			refund: isSelfRefundCandidateType(t.type)
+				? computeSelfRefundEligibility({
+						organization: personalOrg,
+						role: membership?.role,
+						transactions,
+						transaction: t,
+					})
+				: undefined,
+		}));
 
 	return c.json({ invoices });
+});
+
+// Self-service refund for a DevPass billing event. Only the first (or latest)
+// barely-used payment qualifies; refunding also cancels the DevPass
+// immediately. See lib/self-refund.ts for the eligibility rules.
+const selfRefundInvoice = createRoute({
+	method: "post",
+	path: "/invoices/{invoiceId}/refund",
+	request: {
+		params: z.object({
+			invoiceId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.literal("refund_processing"),
+						stripeRefundId: z.string(),
+					}),
+				},
+			},
+			description:
+				"Refund created; the DevPass is cancelled immediately and bookkeeping is applied when Stripe confirms via webhook",
+		},
+	},
+});
+
+devPlans.openapi(selfRefundInvoice, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { invoiceId } = c.req.param();
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, { message: "No DevPass organization found" });
+	}
+
+	const transactions = await db.query.transaction.findMany({
+		where: {
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+	const transaction = transactions.find((t) => t.id === invoiceId);
+	if (!transaction) {
+		throw new HTTPException(404, { message: "Invoice not found" });
+	}
+
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+
+	const eligibility = computeSelfRefundEligibility({
+		organization: personalOrg,
+		role: membership?.role,
+		transactions,
+		transaction,
+	});
+	if (!eligibility.eligible) {
+		throw new HTTPException(400, {
+			message: `This payment is not eligible for a self-service refund: ${eligibility.reason}`,
+		});
+	}
+
+	const { stripeRefundId } = await executeSelfRefund({
+		organization: personalOrg,
+		transaction,
+		userId: user.id,
+	});
+
+	return c.json({
+		status: "refund_processing" as const,
+		stripeRefundId,
+	});
 });
 
 // Download a PDF invoice for a single DevPass billing event. Billing details

@@ -527,7 +527,7 @@ function getInvoiceConfirmationClientSecret(
 	return confirmationSecret?.client_secret ?? null;
 }
 
-async function getPaymentIntentFromInvoicePayments(
+export async function getPaymentIntentFromInvoicePayments(
 	invoice: Stripe.Invoice,
 ): Promise<Stripe.PaymentIntent | null> {
 	let invoicePayments = invoice.payments?.data ?? [];
