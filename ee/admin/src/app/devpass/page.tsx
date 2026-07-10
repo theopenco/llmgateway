@@ -937,6 +937,11 @@ export default async function DevpassPage({
 										<Badge variant={getTierBadgeVariant(sub.tier)}>
 											{sub.tier}
 										</Badge>
+										{sub.pendingTier && (
+											<p className="mt-1 text-xs text-amber-600">
+												→ {sub.pendingTier} next cycle
+											</p>
+										)}
 									</TableCell>
 									<TableCell>
 										<Badge variant={getStatusBadgeVariant(sub.status)}>
