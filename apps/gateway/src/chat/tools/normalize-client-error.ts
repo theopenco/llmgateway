@@ -52,10 +52,17 @@ export function normalizeClientErrorBody(
 				? `Error from provider ${context.usedProvider}: ${context.status} ${context.statusText}`
 				: JSON.stringify(candidate);
 
+	// Bare bodies can still carry a provider error type (e.g. Bedrock's
+	// `{ message, type: "ValidationException" }` derived from x-amzn headers).
+	const bareType =
+		record && typeof record.type === "string" && record.type.length > 0
+			? record.type
+			: undefined;
+
 	return {
 		error: {
 			message,
-			type: context.finishReason,
+			type: bareType ?? context.finishReason,
 			param: null,
 			code: context.finishReason,
 			requestedProvider: context.requestedProvider,

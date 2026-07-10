@@ -38,6 +38,21 @@ describe("normalizeClientErrorBody", () => {
 		expect(result.error.responseText).toBe(body);
 	});
 
+	it("preserves the provider error type of a bare `{ message, type }` body", () => {
+		const body = JSON.stringify({
+			message: "The provided model identifier is invalid for this account.",
+			type: "ValidationException",
+		});
+		const result = normalizeClientErrorBody(body, ctx) as {
+			error: Record<string, unknown>;
+		};
+		expect(result.error.message).toBe(
+			"The provided model identifier is invalid for this account.",
+		);
+		expect(result.error.type).toBe("ValidationException");
+		expect(result.error.responseText).toBe(body);
+	});
+
 	it("wraps a non-JSON body using the raw text as the message", () => {
 		const result = normalizeClientErrorBody("upstream exploded", ctx) as {
 			error: Record<string, unknown>;
