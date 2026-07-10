@@ -1310,24 +1310,29 @@ devPlans.openapi(changeTier, async (c) => {
 		if (error instanceof HTTPException) {
 			throw error;
 		}
-		logger.error(
-			"Stripe dev plan tier change error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
 		// Stripe returns StripeCardError / StripeInvalidRequestError when an
 		// upgrade can't be collected (declined card, no payment method on file,
 		// etc.). Surface this to the caller as a 402 instead of a generic 500
-		// so the UI can prompt the user to update billing.
+		// so the UI can prompt the user to update billing. This is an expected
+		// user-facing outcome, not a server fault, so log it at warn — never
+		// error — to avoid noisy alerts for declined cards.
 		const errCode =
 			typeof error === "object" && error !== null && "code" in error
 				? String((error as { code?: unknown }).code)
 				: undefined;
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
+			logger.warn("Dev plan tier change payment declined", {
+				code: errCode,
+			});
 			throw new HTTPException(402, {
 				message:
 					"Upgrade payment could not be collected. Update your payment method and try again.",
 			});
 		}
+		logger.error(
+			"Stripe dev plan tier change error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw new HTTPException(500, {
 			message: "Failed to change dev plan tier",
 		});
