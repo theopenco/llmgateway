@@ -178,6 +178,7 @@ import {
 	getContentFilterMode,
 	shouldApplyContentFilterToModel,
 } from "./tools/check-content-filter.js";
+import { chunkMayCompleteSseEvent } from "./tools/chunk-may-complete-sse-event.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
@@ -1686,6 +1687,9 @@ chat.openapi(completions, async (c) => {
 	// Maximum buffer size for streaming responses (configurable via env var, default 50MB)
 	const MAX_BUFFER_SIZE =
 		(Number(process.env.MAX_STREAMING_BUFFER_MB) || 50) * 1024 * 1024;
+	// Only skip buffer rescans once the buffer is large enough for the rescan
+	// cost to matter; below this the O(n²) accumulation cost is negligible
+	const SSE_SCAN_SKIP_MIN_BUFFER = 64 * 1024;
 
 	c.header("x-request-id", requestId);
 
@@ -8317,6 +8321,21 @@ chat.openapi(completions, async (c) => {
 							};
 
 							break;
+						}
+
+						// Fast path: while a single large SSE event (e.g. multi-MB base64
+						// image data from Gemini) accumulates across many network chunks,
+						// rescanning the whole buffer on every chunk is O(n²). After each
+						// scan the unconsumed buffer is always an incomplete event, so a
+						// new chunk can only complete one if it contains a newline or ends
+						// with a JSON closer — otherwise skip scanning until more data
+						// arrives. This also keeps the buffer an unflattened rope until
+						// the event can actually complete.
+						if (
+							buffer.length > SSE_SCAN_SKIP_MIN_BUFFER &&
+							!chunkMayCompleteSseEvent(chunk)
+						) {
+							continue;
 						}
 
 						// Process SSE events from buffer
