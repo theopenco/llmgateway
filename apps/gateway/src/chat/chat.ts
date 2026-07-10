@@ -217,6 +217,7 @@ import {
 import { messagesContainDocuments } from "./tools/messages-contain-documents.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
+import { normalizeClientErrorBody } from "./tools/normalize-client-error.js";
 import {
 	isUpstreamTermination,
 	normalizeStreamingError,
@@ -7803,20 +7804,15 @@ chat.openapi(completions, async (c) => {
 									},
 								};
 							} else if (finishReason === "client_error") {
-								try {
-									errorData = JSON.parse(errorResponseText);
-								} catch {
-									// If we can't parse the original error, fall back to our format
-									errorData = {
-										error: {
-											message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
-											type: finishReason,
-											param: null,
-											code: finishReason,
-											responseText: errorResponseText,
-										},
-									};
-								}
+								errorData = normalizeClientErrorBody(errorResponseText, {
+									usedProvider,
+									finishReason,
+									status: res.status,
+									statusText: res.statusText,
+									requestedProvider,
+									requestedModel: initialRequestedModel,
+									usedInternalModel,
+								});
 							} else {
 								errorData = {
 									error: {
@@ -11945,14 +11941,22 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			// For client errors, return the original provider error response
+			// For client errors, return the provider error in the OpenAI
+			// `{ error }` envelope (passing OpenAI-shaped bodies through unchanged,
+			// wrapping bare shapes like Bedrock's `{ message }`).
 			if (finishReason === "client_error") {
-				try {
-					const originalError = JSON.parse(errorResponseText);
-					return c.json(originalError, res.status as 400);
-				} catch {
-					// If we can't parse the original error, fall back to our format
-				}
+				return c.json(
+					normalizeClientErrorBody(errorResponseText, {
+						usedProvider,
+						finishReason,
+						status: res.status,
+						statusText: res.statusText,
+						requestedProvider,
+						requestedModel: initialRequestedModel,
+						usedInternalModel,
+					}),
+					res.status as 400,
+				);
 			}
 
 			// Return our wrapped error response for non-client errors
