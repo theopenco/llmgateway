@@ -12,6 +12,7 @@ import {
 	notDevpassFilter,
 	notEndUserNonRevenueFilter,
 	notEndUserWalletFilter,
+	paidTransactionFilter,
 } from "@/utils/devpass-filter.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
@@ -107,6 +108,11 @@ const timeseriesDataPointSchema = z.object({
 	processed: z.number(),
 	refunds: z.number(),
 	net: z.number(),
+	// Per-day (non-cumulative) values. The cumulative series above start from a
+	// pre-range baseline, so clients cannot derive day-one deltas themselves.
+	dailySignups: z.number(),
+	dailyPaidCustomers: z.number(),
+	dailyNet: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -593,7 +599,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	const verifiedUsers = Number(verifiedRow?.count ?? 0);
 
-	// Paying customers: organizations with at least one completed transaction
+	// Paying customers: organizations with at least one completed payment
+	// transaction (credit purchase, dev/chat plan charge, or end-user top-up —
+	// gifts and bookkeeping rows don't count)
 	const [payingRow] = await db
 		.select({
 			count:
@@ -603,7 +611,11 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
+			and(
+				eq(tables.transaction.status, "completed"),
+				paidTransactionFilter,
+				transactionDateFilter,
+			),
 		);
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
@@ -1014,7 +1026,12 @@ admin.openapi(getTimeseries, async (c) => {
 					organizationId: tables.transaction.organizationId,
 				})
 				.from(tables.transaction)
-				.where(eq(tables.transaction.status, "completed"))
+				.where(
+					and(
+						eq(tables.transaction.status, "completed"),
+						paidTransactionFilter,
+					),
+				)
 				.groupBy(tables.transaction.organizationId)
 				.having(sql`MIN(${tables.transaction.createdAt}) < ${startDate}`)
 				.as("pre_range_orgs"),
@@ -1035,7 +1052,12 @@ admin.openapi(getTimeseries, async (c) => {
 					),
 				})
 				.from(tables.transaction)
-				.where(eq(tables.transaction.status, "completed"))
+				.where(
+					and(
+						eq(tables.transaction.status, "completed"),
+						paidTransactionFilter,
+					),
+				)
 				.groupBy(tables.transaction.organizationId)
 				.having(
 					and(
@@ -1083,6 +1105,9 @@ admin.openapi(getTimeseries, async (c) => {
 		processed: number;
 		refunds: number;
 		net: number;
+		dailySignups: number;
+		dailyPaidCustomers: number;
+		dailyNet: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
@@ -1101,7 +1126,8 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
 		const dailyProcessed = processedMap.get(dateStr) ?? 0;
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
-		cumulativePaid += newPaidMap.get(dateStr) ?? 0;
+		const dailyPaidCustomers = newPaidMap.get(dateStr) ?? 0;
+		cumulativePaid += dailyPaidCustomers;
 
 		totalSignups += dailySignups;
 		totalRevenue += dailyRevenue;
@@ -1116,6 +1142,9 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			dailySignups,
+			dailyPaidCustomers,
+			dailyNet: dailyRevenue - dailyRefunds,
 		});
 	}
 

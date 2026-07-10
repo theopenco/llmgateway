@@ -50,10 +50,12 @@ export function SignupsChart({
 
 	const dailyData = useMemo(
 		() =>
-			data.map((point, index) => ({
+			data.map((point) => ({
 				date: point.date,
 				daily:
-					point[activeChart] - (index > 0 ? data[index - 1][activeChart] : 0),
+					activeChart === "signups"
+						? point.dailySignups
+						: point.dailyPaidCustomers,
 			})),
 		[data, activeChart],
 	);

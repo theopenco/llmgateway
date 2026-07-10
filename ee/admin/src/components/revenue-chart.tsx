@@ -63,9 +63,9 @@ export function RevenueChart({
 }) {
 	const dailyData = useMemo(
 		() =>
-			data.map((point, index) => ({
+			data.map((point) => ({
 				date: point.date,
-				dailyNet: point.net - (index > 0 ? data[index - 1].net : 0),
+				dailyNet: point.dailyNet,
 			})),
 		[data],
 	);
