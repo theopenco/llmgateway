@@ -29,6 +29,7 @@ interface StreamingState {
 		}
 	>;
 	request?: ResponsesEchoRequest;
+	servedServiceTier?: string;
 	usage: {
 		input_tokens: number;
 		output_tokens: number;
@@ -145,7 +146,7 @@ function buildResponsePayload(
 		max_tool_calls: req?.max_tool_calls ?? null,
 		store: req?.store ?? true,
 		background: req?.background ?? false,
-		service_tier: req?.service_tier ?? "default",
+		service_tier: state.servedServiceTier ?? req?.service_tier ?? "default",
 		metadata: req?.metadata ?? {},
 		safety_identifier: req?.safety_identifier ?? null,
 		prompt_cache_key: req?.prompt_cache_key ?? null,
@@ -190,6 +191,24 @@ export function processStreamChunk(
 	state: StreamingState,
 ): SSEEvent[] {
 	const events: SSEEvent[] = [];
+
+	// Capture the served processing tier so the completion events echo the tier
+	// the provider actually applied (e.g. a flex request downgraded to default)
+	// rather than the requested one. OpenAI chunks carry a top-level
+	// service_tier; other providers surface it via the gateway's final usage
+	// chunk metadata (used_service_tier null there means downgraded to standard).
+	if (typeof chunk.service_tier === "string") {
+		state.servedServiceTier = chunk.service_tier;
+	} else {
+		const metadata = chunk.metadata as Record<string, unknown> | undefined;
+		if (metadata && typeof metadata.requested_service_tier === "string") {
+			state.servedServiceTier =
+				typeof metadata.used_service_tier === "string"
+					? metadata.used_service_tier
+					: "default";
+		}
+	}
+
 	const choices = chunk.choices as
 		| Array<{
 				delta?: {

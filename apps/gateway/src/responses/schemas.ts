@@ -148,6 +148,11 @@ export const responsesRequestSchema = z.object({
 		.optional()
 		.transform((val) => (val === null ? undefined : val)),
 	routing: z.enum(["auto", "price", "throughput", "latency"]).optional(),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	temperature: z
 		.number()
 		.nullable()

@@ -339,6 +339,9 @@ responses.post("/", async (c) => {
 	if (req.routing !== undefined) {
 		chatRequest.routing = req.routing;
 	}
+	if (req.service_tier !== undefined) {
+		chatRequest.service_tier = req.service_tier;
+	}
 	if (response_format) {
 		chatRequest.response_format = response_format;
 	}
