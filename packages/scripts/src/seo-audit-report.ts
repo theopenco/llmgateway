@@ -157,12 +157,12 @@ function parseAttributes(tag: string): Record<string, string> {
 function stripTags(html: string): string {
 	return html
 		.replace(/<[^>]+>/g, " ")
-		.replace(/&amp;/gi, "&")
 		.replace(/&lt;/gi, "<")
 		.replace(/&gt;/gi, ">")
 		.replace(/&quot;/gi, '"')
 		.replace(/&(?:#x27|#39|apos);/gi, "'")
 		.replace(/&(?:nbsp|#160);/gi, " ")
+		.replace(/&amp;/gi, "&")
 		.replace(/&[a-z#0-9]+;/gi, " ")
 		.replace(/\s+/g, " ")
 		.trim();
