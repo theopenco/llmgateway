@@ -200,6 +200,18 @@ function isRefund(type: Transaction["type"]): boolean {
 	return type === "credit_refund";
 }
 
+// Refunds move money back to the customer, so show the paid amount as negative
+// — matching the already-signed Credits column. The stored `amount` stays
+// positive (it feeds invoice/credit-note generation).
+function paidAmountDisplay(transaction: Transaction): string {
+	if (transaction.amount === null) {
+		return "—";
+	}
+	return isRefund(transaction.type)
+		? `-${transaction.amount}`
+		: transaction.amount;
+}
+
 function InvoiceDownloadButton({
 	orgId,
 	transaction,
@@ -335,7 +347,7 @@ function TransactionCard({
 					{transaction.amount && (
 						<div>
 							<p className="text-muted-foreground text-xs">Total Paid</p>
-							<p className="font-medium">{transaction.amount}</p>
+							<p className="font-medium">{paidAmountDisplay(transaction)}</p>
 						</div>
 					)}
 				</div>
@@ -459,7 +471,7 @@ export function TransactionsClient({
 													{transaction.creditAmount ?? "—"}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
-													{transaction.amount ?? "—"}
+													{paidAmountDisplay(transaction)}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
 													<Badge

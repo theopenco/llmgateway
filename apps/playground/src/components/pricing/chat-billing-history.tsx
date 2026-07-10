@@ -78,6 +78,15 @@ function formatAmount(amount: string | null, currency: string): string {
 	return `${value.toFixed(2)} ${currency}`;
 }
 
+// Refunds move money back to the customer, so show the amount as negative in the
+// history. The stored `amount` stays positive (it feeds invoice generation).
+function amountCell(transaction: Transaction): string {
+	const formatted = formatAmount(transaction.amount, transaction.currency);
+	return isRefund(transaction.type) && transaction.amount !== null
+		? `-${formatted}`
+		: formatted;
+}
+
 function InvoiceDownloadButton({
 	orgId,
 	transaction,
@@ -330,7 +339,7 @@ export function ChatBillingHistory() {
 							<span className="text-xs text-muted-foreground sm:hidden">
 								Amount{" "}
 							</span>
-							{formatAmount(transaction.amount, transaction.currency)}
+							{amountCell(transaction)}
 						</div>
 						<div className="col-span-2 mt-1 flex justify-end gap-2 sm:col-span-1 sm:mt-0">
 							{isInvoiceable(transaction) && (
