@@ -185,37 +185,70 @@ export function getBaseLimit(
 }
 
 /**
- * Spend tiers. A higher lifetime spend grants a larger multiplier on top of the
- * per-path base limit. Thresholds and multipliers are overridable via env vars.
+ * Unified trust tiers for regular (kind=default, non-enterprise) orgs. A tier
+ * qualifies when EITHER the account is old enough OR its lifetime usage spend is
+ * high enough; the org gets the highest qualifying tier. The tier drives both
+ * the per-path RPM multiplier AND the daily/monthly USD spend caps
+ * (see spend-limit.ts). Every value is overridable via env var.
  */
-interface SpendTier {
-	/** Lifetime spend (USD) at or above which this tier applies. */
-	thresholdEnvVar: string;
-	defaultThreshold: number;
-	multiplierEnvVar: string;
-	defaultMultiplier: number;
+interface SpendTierDefaults {
+	tier: number;
+	/** Account age (days) at or above which this tier qualifies. */
+	ageDays: number;
+	/** Lifetime usage spend (USD) at or above which this tier qualifies. */
+	spendUsd: number;
+	/** RPM multiplier applied to the per-path base limit. */
+	rpmMultiplier: number;
+	/** Daily USD spend cap. */
+	dailyCapUsd: number;
+	/** Monthly USD spend cap. */
+	monthlyCapUsd: number;
 }
 
-const SPEND_TIERS: readonly SpendTier[] = [
+const SPEND_TIER_DEFAULTS: readonly SpendTierDefaults[] = [
 	{
-		thresholdEnvVar: "GATEWAY_RATE_LIMIT_TIER_3_THRESHOLD",
-		defaultThreshold: 50_000,
-		multiplierEnvVar: "GATEWAY_RATE_LIMIT_TIER_3_MULTIPLIER",
-		defaultMultiplier: 10,
+		tier: 0,
+		ageDays: 0,
+		spendUsd: 0,
+		rpmMultiplier: 1,
+		dailyCapUsd: 5,
+		monthlyCapUsd: 50,
 	},
 	{
-		thresholdEnvVar: "GATEWAY_RATE_LIMIT_TIER_2_THRESHOLD",
-		defaultThreshold: 10_000,
-		multiplierEnvVar: "GATEWAY_RATE_LIMIT_TIER_2_MULTIPLIER",
-		defaultMultiplier: 4,
+		tier: 1,
+		ageDays: 7,
+		spendUsd: 10,
+		rpmMultiplier: 2,
+		dailyCapUsd: 100,
+		monthlyCapUsd: 1_000,
 	},
 	{
-		thresholdEnvVar: "GATEWAY_RATE_LIMIT_TIER_1_THRESHOLD",
-		defaultThreshold: 1_000,
-		multiplierEnvVar: "GATEWAY_RATE_LIMIT_TIER_1_MULTIPLIER",
-		defaultMultiplier: 2,
+		tier: 2,
+		ageDays: 30,
+		spendUsd: 100,
+		rpmMultiplier: 4,
+		dailyCapUsd: 500,
+		monthlyCapUsd: 5_000,
+	},
+	{
+		tier: 3,
+		ageDays: 60,
+		spendUsd: 1_000,
+		rpmMultiplier: 10,
+		dailyCapUsd: 5_000,
+		monthlyCapUsd: 50_000,
+	},
+	{
+		tier: 4,
+		ageDays: 90,
+		spendUsd: 5_000,
+		rpmMultiplier: 20,
+		dailyCapUsd: 15_000,
+		monthlyCapUsd: 200_000,
 	},
 ];
+
+const DAY_MS = 86_400_000;
 
 function getEnvNumber(name: string, fallback: number): number {
 	const raw = process.env[name];
@@ -339,28 +372,59 @@ export async function getOrganizationLifetimeSpend(
 	}
 }
 
-/**
- * The spend-tier multiplier applied to the per-path base limit for a given
- * lifetime spend.
- */
-export function getSpendTierMultiplier(lifetimeSpend: number): {
+export interface ResolvedSpendTier {
 	tier: number;
-	multiplier: number;
-} {
-	for (let i = 0; i < SPEND_TIERS.length; i++) {
-		const tier = SPEND_TIERS[i];
-		const threshold = getEnvNumber(tier.thresholdEnvVar, tier.defaultThreshold);
-		if (lifetimeSpend >= threshold) {
-			return {
-				tier: SPEND_TIERS.length - i,
-				multiplier: getEnvNumber(tier.multiplierEnvVar, tier.defaultMultiplier),
-			};
+	rpmMultiplier: number;
+	dailyCapUsd: number;
+	monthlyCapUsd: number;
+}
+
+function resolveTier(d: SpendTierDefaults): ResolvedSpendTier {
+	return {
+		tier: d.tier,
+		rpmMultiplier: getEnvNumber(
+			`GATEWAY_SPEND_TIER_${d.tier}_RPM_MULTIPLIER`,
+			d.rpmMultiplier,
+		),
+		dailyCapUsd: getEnvNumber(
+			`GATEWAY_SPEND_TIER_${d.tier}_DAILY_CAP_USD`,
+			d.dailyCapUsd,
+		),
+		monthlyCapUsd: getEnvNumber(
+			`GATEWAY_SPEND_TIER_${d.tier}_MONTHLY_CAP_USD`,
+			d.monthlyCapUsd,
+		),
+	};
+}
+
+/**
+ * Resolve an org's unified trust tier from its account age and lifetime usage
+ * spend. Returns the highest tier whose age OR spend threshold is met. Pure and
+ * synchronous: `lifetimeSpend` is passed in (cached by the caller) and age comes
+ * from the already-loaded org row.
+ */
+export function getOrgSpendTier(
+	org: { createdAt: Date },
+	lifetimeSpend: number,
+	now: number = Date.now(),
+): ResolvedSpendTier {
+	const ageDays = (now - org.createdAt.getTime()) / DAY_MS;
+	for (let i = SPEND_TIER_DEFAULTS.length - 1; i >= 0; i--) {
+		const d = SPEND_TIER_DEFAULTS[i];
+		const ageThreshold = getEnvNumber(
+			`GATEWAY_SPEND_TIER_${d.tier}_AGE_DAYS`,
+			d.ageDays,
+		);
+		const spendThreshold = getEnvNumber(
+			`GATEWAY_SPEND_TIER_${d.tier}_SPEND_USD`,
+			d.spendUsd,
+		);
+		if (ageDays >= ageThreshold || lifetimeSpend >= spendThreshold) {
+			return resolveTier(d);
 		}
 	}
-	return {
-		tier: 0,
-		multiplier: getEnvNumber("GATEWAY_RATE_LIMIT_TIER_0_MULTIPLIER", 1),
-	};
+	// T0 always qualifies (age >= 0 or spend >= 0); defensive fallback.
+	return resolveTier(SPEND_TIER_DEFAULTS[0]);
 }
 
 export interface RateLimitResult {

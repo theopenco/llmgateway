@@ -38,17 +38,23 @@ The default limits (requests per minute, per organization) are:
 	limits. [Contact us](mailto:contact@llmgateway.io) about enterprise plans.
 </Callout>
 
-### Higher Limits as You Scale
+### Trust Tiers (account age or spend)
 
-For regular (pay-as-you-go) organizations, the endpoint limits above automatically increase based on your **lifetime spend**:
+For regular (pay-as-you-go) organizations, limits scale with a **trust tier**. An organization qualifies for a tier when **either** its account is old enough **or** its lifetime usage spend is high enough — whichever gets it to the higher tier. The tier raises the per-endpoint RPM limits **and** the daily/monthly USD spend caps below.
 
-| Lifetime spend | Limit multiplier |
-| -------------- | ---------------- |
-| $1,000+        | 2×               |
-| $10,000+       | 4×               |
-| $50,000+       | 10×              |
+| Tier | Qualifies (age **or** spend) | RPM multiplier | Daily cap | Monthly cap |
+| ---- | ---------------------------- | -------------- | --------- | ----------- |
+| 0    | new / $0                     | 1×             | $5        | $50         |
+| 1    | 7 days **or** $10            | 2×             | $100      | $1,000      |
+| 2    | 30 days **or** $100          | 4×             | $500      | $5,000      |
+| 3    | 60 days **or** $1,000        | 10×            | $5,000    | $50,000     |
+| 4    | 90 days **or** $5,000        | 20×            | $15,000   | $200,000    |
 
-For example, an organization that has spent more than $10,000 gets a 4× multiplier, raising the chat completions limit from 600 to 2,400 requests per minute. The multiplier applies to every endpoint.
+For example, an org past 30 days old (or with $100+ of usage) is Tier 2: chat completions rises from 600 to 2,400 RPM, with a $500/day and $5,000/month spend ceiling.
+
+### Daily & Monthly Spend Caps
+
+Regular organizations also have hard **USD spend ceilings** — a daily and a monthly cap set by the trust tier above — so a brand-new account has a tight dollar velocity limit that rises as it ages or spends. Only real paid usage counts; **free models are exempt**, as are **enterprise** (no caps) and dev/chat plan orgs (which have their own plan limits). When a cap is reached, requests return `429` until the counter resets (UTC midnight for daily, first of the month for monthly).
 
 ### Dev and Chat Plans
 

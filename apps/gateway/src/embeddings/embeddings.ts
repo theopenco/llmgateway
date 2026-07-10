@@ -43,6 +43,7 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { checkSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
 	redactedProviderErrorText,
@@ -285,12 +286,24 @@ function getAvailableCredits(
 	};
 }
 
-function assertCreditsAvailableForEmbedding(
+async function assertCreditsAvailableForEmbedding(
 	organization: InferSelectModel<typeof tables.organization>,
 	modelDef: ModelDefinition,
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
+	// Per-org daily/monthly USD spend caps, checked even when the org has
+	// credits (a funded org can still hit its cap). Free models are exempt; the
+	// kind/enterprise/enabled gates live inside checkSpendLimit.
+	if (!modelDef.free) {
+		const spendLimit = await checkSpendLimit(organization);
+		if (!spendLimit.allowed) {
+			throw new HTTPException(429, {
+				message: `Organization ${organization.id} has reached its ${spendLimit.period} spend limit of $${spendLimit.limit}. Try again later or contact support to raise your limit.`,
+			});
+		}
+	}
+
 	const {
 		devPlanCreditsRemaining,
 		chatPlanCreditsRemaining,
@@ -751,7 +764,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
-			assertCreditsAvailableForEmbedding(
+			await assertCreditsAvailableForEmbedding(
 				retryOrganization,
 				modelDef,
 				`Organization ${retryOrganization.id} has insufficient credits`,
@@ -781,7 +794,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
 			} else {
-				assertCreditsAvailableForEmbedding(
+				await assertCreditsAvailableForEmbedding(
 					retryOrganization,
 					modelDef,
 					"No API key set for provider and organization has insufficient credits",

@@ -4,8 +4,8 @@ import {
 	baseLimitEnvVar,
 	checkOrgRateLimit,
 	getBaseLimit,
+	getOrgSpendTier,
 	getPlanClass,
-	getSpendTierMultiplier,
 	isOrgRateLimitEnabled,
 	PATH_RATE_LIMITS,
 	resolvePathRateLimit,
@@ -54,12 +54,8 @@ const ENV_KEYS = [
 	"GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM",
 	"GATEWAY_RATE_LIMIT_DEV_CHAT_COMPLETIONS_RPM",
 	"GATEWAY_RATE_LIMIT_CHATPLAN_CHAT_COMPLETIONS_RPM",
-	"GATEWAY_RATE_LIMIT_TIER_1_THRESHOLD",
-	"GATEWAY_RATE_LIMIT_TIER_2_THRESHOLD",
-	"GATEWAY_RATE_LIMIT_TIER_3_THRESHOLD",
-	"GATEWAY_RATE_LIMIT_TIER_1_MULTIPLIER",
-	"GATEWAY_RATE_LIMIT_TIER_3_MULTIPLIER",
-	"GATEWAY_RATE_LIMIT_TIER_0_MULTIPLIER",
+	"GATEWAY_SPEND_TIER_1_SPEND_USD",
+	"GATEWAY_SPEND_TIER_1_RPM_MULTIPLIER",
 	"GATEWAY_RATE_LIMIT_WINDOW_SECONDS",
 ];
 
@@ -125,34 +121,68 @@ describe("isOrgRateLimitEnabled", () => {
 	});
 });
 
-describe("getSpendTierMultiplier", () => {
-	it("returns tier 0 below the first threshold", () => {
-		expect(getSpendTierMultiplier(0)).toEqual({ tier: 0, multiplier: 1 });
-		expect(getSpendTierMultiplier(999)).toEqual({ tier: 0, multiplier: 1 });
-	});
+describe("getOrgSpendTier", () => {
+	const NOW = Date.UTC(2026, 0, 15);
+	const daysAgo = (n: number) => {
+		const offsetMs = n * 86_400_000;
+		return new Date(NOW - offsetMs);
+	};
 
-	it("returns tier 1 at $1k", () => {
-		expect(getSpendTierMultiplier(1_000)).toEqual({ tier: 1, multiplier: 2 });
-		expect(getSpendTierMultiplier(9_999)).toEqual({ tier: 1, multiplier: 2 });
-	});
-
-	it("returns tier 2 at $10k", () => {
-		expect(getSpendTierMultiplier(10_000)).toEqual({ tier: 2, multiplier: 4 });
-	});
-
-	it("returns tier 3 at $50k", () => {
-		expect(getSpendTierMultiplier(50_000)).toEqual({ tier: 3, multiplier: 10 });
-		expect(getSpendTierMultiplier(1_000_000)).toEqual({
-			tier: 3,
-			multiplier: 10,
+	it("classifies a brand-new $0 org as T0", () => {
+		expect(getOrgSpendTier({ createdAt: daysAgo(0) }, 0, NOW)).toMatchObject({
+			tier: 0,
+			rpmMultiplier: 1,
+			dailyCapUsd: 5,
+			monthlyCapUsd: 50,
 		});
 	});
 
-	it("respects env overrides for thresholds and multipliers", () => {
-		process.env.GATEWAY_RATE_LIMIT_TIER_1_THRESHOLD = "500";
-		process.env.GATEWAY_RATE_LIMIT_TIER_1_MULTIPLIER = "3";
-		expect(getSpendTierMultiplier(500)).toEqual({ tier: 1, multiplier: 3 });
-		expect(getSpendTierMultiplier(499)).toEqual({ tier: 0, multiplier: 1 });
+	it("qualifies by account age alone (spend $0)", () => {
+		expect(getOrgSpendTier({ createdAt: daysAgo(8) }, 0, NOW).tier).toBe(1);
+		expect(getOrgSpendTier({ createdAt: daysAgo(31) }, 0, NOW).tier).toBe(2);
+		expect(getOrgSpendTier({ createdAt: daysAgo(61) }, 0, NOW).tier).toBe(3);
+		expect(getOrgSpendTier({ createdAt: daysAgo(90) }, 0, NOW).tier).toBe(4);
+	});
+
+	it("qualifies by lifetime spend alone on a brand-new org", () => {
+		const org = { createdAt: daysAgo(0) };
+		expect(getOrgSpendTier(org, 10, NOW).tier).toBe(1);
+		expect(getOrgSpendTier(org, 100, NOW).tier).toBe(2);
+		expect(getOrgSpendTier(org, 1_000, NOW).tier).toBe(3);
+		expect(getOrgSpendTier(org, 5_000, NOW).tier).toBe(4);
+		expect(getOrgSpendTier(org, 1_000_000, NOW).tier).toBe(4);
+	});
+
+	it("takes the highest of the age-or-spend qualifiers", () => {
+		// 31 days old (age → T2) but $1,000 lifetime spend (spend → T3) => T3
+		expect(getOrgSpendTier({ createdAt: daysAgo(31) }, 1_000, NOW).tier).toBe(
+			3,
+		);
+	});
+
+	it("treats thresholds as inclusive", () => {
+		expect(getOrgSpendTier({ createdAt: daysAgo(7) }, 0, NOW).tier).toBe(1);
+		expect(getOrgSpendTier({ createdAt: daysAgo(6) }, 9, NOW).tier).toBe(0);
+	});
+
+	it("exposes the caps and multiplier for the resolved tier", () => {
+		expect(
+			getOrgSpendTier({ createdAt: daysAgo(0) }, 5_000, NOW),
+		).toMatchObject({
+			tier: 4,
+			rpmMultiplier: 20,
+			dailyCapUsd: 15_000,
+			monthlyCapUsd: 200_000,
+		});
+	});
+
+	it("respects env overrides for tier thresholds and values", () => {
+		process.env.GATEWAY_SPEND_TIER_1_SPEND_USD = "5";
+		process.env.GATEWAY_SPEND_TIER_1_RPM_MULTIPLIER = "3";
+		expect(getOrgSpendTier({ createdAt: daysAgo(0) }, 5, NOW)).toMatchObject({
+			tier: 1,
+			rpmMultiplier: 3,
+		});
 	});
 });
 

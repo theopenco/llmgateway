@@ -17,7 +17,7 @@ vi.mock("@/lib/org-rate-limit.js", () => ({
 	resolveOrganizationIdForToken: vi.fn(),
 	getPlanClass: vi.fn(),
 	getOrganizationLifetimeSpend: vi.fn(),
-	getSpendTierMultiplier: vi.fn(),
+	getOrgSpendTier: vi.fn(),
 	checkOrgRateLimit: vi.fn(),
 }));
 
@@ -66,9 +66,11 @@ describe("orgRateLimitMiddleware", () => {
 		vi.mocked(lib.resolveOrganizationIdForToken).mockResolvedValue("org-1");
 		vi.mocked(lib.getPlanClass).mockReturnValue("regular");
 		vi.mocked(lib.getOrganizationLifetimeSpend).mockResolvedValue(0);
-		vi.mocked(lib.getSpendTierMultiplier).mockReturnValue({
+		vi.mocked(lib.getOrgSpendTier).mockReturnValue({
 			tier: 0,
-			multiplier: 1,
+			rpmMultiplier: 1,
+			dailyCapUsd: 5,
+			monthlyCapUsd: 50,
 		});
 		vi.mocked(lib.checkOrgRateLimit).mockResolvedValue({
 			allowed: true,
