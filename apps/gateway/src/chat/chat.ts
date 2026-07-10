@@ -216,7 +216,10 @@ import {
 import { messagesContainDocuments } from "./tools/messages-contain-documents.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
-import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
+import {
+	isUpstreamTermination,
+	normalizeStreamingError,
+} from "./tools/normalize-streaming-error.js";
 import { checkOpenAIContentFilter } from "./tools/openai-content-filter.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
@@ -10769,6 +10772,15 @@ chat.openapi(completions, async (c) => {
 				} else if (error.name === "AbortError") {
 					logger.info("Streaming request aborted by client (escaped handler)", {
 						message: error.message,
+						path: c.req.path,
+					});
+				} else if (isUpstreamTermination(error)) {
+					// An upstream-side socket close (e.g. undici "terminated: other
+					// side closed" / ECONNRESET) is an expected provider/client
+					// disconnect, not a gateway fault. Log at warn to avoid alerts.
+					logger.warn("Upstream stream terminated (escaped handler)", {
+						message: error.message,
+						cause: extractErrorCause(error),
 						path: c.req.path,
 					});
 				} else {
