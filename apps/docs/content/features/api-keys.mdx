@@ -153,6 +153,12 @@ Both IPv4 (e.g. `192.0.2.0/24`) and IPv6 (e.g. `2001:db8::/32`) ranges are suppo
 
 The gateway reads the client IP from the first entry in the `X-Forwarded-For` header (set by the GCP load balancer). When an `allow_ip_cidrs` rule is configured and the gateway cannot determine the client IP, the request is denied. Invalid CIDR syntax is rejected at rule-creation time with a `400` error.
 
+### Combining Multiple Rules
+
+- **Allow rules of the same type are unioned**: a request passes if it matches _any_ of them. For example, one `allow_models` rule with `["claude-opus-4-6"]` and another with `["claude-fable-5"]` allow both models — exactly as if you had a single rule listing both.
+- **Allow rules of different types are combined with AND**: the request must satisfy every configured allow rule type (e.g. the model must be in the allowed models _and_ served by an allowed provider).
+- **Deny rules always apply**: a request matching any deny rule is rejected, regardless of allow rules.
+
 ## Error Handling
 
 When API keys encounter IAM rule violations, the API returns a `403` with the standard OpenAI error envelope:
