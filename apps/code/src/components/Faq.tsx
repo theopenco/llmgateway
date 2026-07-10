@@ -31,6 +31,11 @@ const faqData = [
 			"Yes. Upgrade or downgrade whenever you like — changes are prorated and take effect immediately. There's no lock-in and no cancellation fee.",
 	},
 	{
+		question: "Do I need a subscription, or is there pay-as-you-go?",
+		answer:
+			"Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat 5% platform fee, or bring your own provider keys for free.",
+	},
+	{
 		question: "Which tools and SDKs work with DevPass?",
 		answer:
 			"Anything that speaks the OpenAI or Anthropic API — Claude Code, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
