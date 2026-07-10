@@ -279,11 +279,11 @@ function extractPageEvidence(
 	}
 
 	const visible = html
-		.replace(/<head\b[\s\S]*?<\/head>/gi, " ")
-		.replace(/<script\b[\s\S]*?<\/script>/gi, " ")
-		.replace(/<style\b[\s\S]*?<\/style>/gi, " ")
-		.replace(/<svg\b[\s\S]*?<\/svg>/gi, " ")
-		.replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ");
+		.replace(/<head\b[\s\S]*?<\/head\s*>/gi, " ")
+		.replace(/<script\b[\s\S]*?<\/script\s*>/gi, " ")
+		.replace(/<style\b[\s\S]*?<\/style\s*>/gi, " ")
+		.replace(/<svg\b[\s\S]*?<\/svg\s*>/gi, " ")
+		.replace(/<noscript\b[\s\S]*?<\/noscript\s*>/gi, " ");
 	const approxWordCount = stripTags(visible)
 		.split(" ")
 		.filter((w) => w.length > 0).length;
