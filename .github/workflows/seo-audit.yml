@@ -4,11 +4,6 @@ on:
   schedule:
     # Monthly — 1st of the month 09:00 UTC, after the monthly traffic report.
     - cron: "0 9 1 * *"
-  push:
-    # Temporary: example run from the PR branch (workflow_dispatch only works
-    # from the default branch). Removed before merge.
-    branches:
-      - feat/seo-audit-discord
   workflow_dispatch:
     inputs:
       dry_run:
