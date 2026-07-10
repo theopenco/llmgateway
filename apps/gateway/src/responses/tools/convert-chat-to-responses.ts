@@ -212,6 +212,32 @@ function resolveServedServiceTier(
 }
 
 /**
+ * Normalize chat-completions-style annotations to the Responses API shape:
+ * chat nests citation fields under `url_citation`, the Responses API flattens
+ * them onto the annotation object.
+ */
+export function normalizeAnnotationsToResponses(
+	annotations: Array<Record<string, unknown>> | undefined,
+): Array<Record<string, unknown>> {
+	if (!annotations?.length) {
+		return [];
+	}
+	return annotations.map((annotation) => {
+		if (
+			annotation.type === "url_citation" &&
+			annotation.url_citation &&
+			typeof annotation.url_citation === "object"
+		) {
+			return {
+				type: "url_citation",
+				...(annotation.url_citation as Record<string, unknown>),
+			};
+		}
+		return annotation;
+	});
+}
+
+/**
  * Converts a chat completions response to Responses API format.
  */
 export function convertChatResponseToResponses(
@@ -262,7 +288,7 @@ export function convertChatResponseToResponses(
 			{
 				type: "output_text",
 				text: message.content,
-				annotations: message.annotations ?? [],
+				annotations: normalizeAnnotationsToResponses(message.annotations),
 			},
 		];
 

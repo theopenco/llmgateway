@@ -185,6 +185,8 @@ export const responsesRequestSchema = z.object({
 						.optional(),
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
+					allowed_domains: z.array(z.string()).optional(),
+					blocked_domains: z.array(z.string()).optional(),
 				}),
 				// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
 				z.record(z.any()),

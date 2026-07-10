@@ -1,6 +1,9 @@
 import { shortid } from "@llmgateway/db";
 
-import { normalizeEchoedTools } from "./convert-chat-to-responses.js";
+import {
+	normalizeAnnotationsToResponses,
+	normalizeEchoedTools,
+} from "./convert-chat-to-responses.js";
 
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
 
@@ -15,6 +18,7 @@ interface StreamingState {
 	reasoningId: string;
 	fullContent: string[];
 	fullReasoning: string[];
+	annotations: Record<string, unknown>[];
 	reasoningStarted: boolean;
 	finishReason: string | null;
 	sequenceNumber: number;
@@ -72,6 +76,7 @@ export function createStreamingState(
 		reasoningId: `rs_${shortid(24)}`,
 		fullContent: [],
 		fullReasoning: [],
+		annotations: [],
 		reasoningStarted: false,
 		finishReason: null,
 		sequenceNumber: 0,
@@ -214,6 +219,7 @@ export function processStreamChunk(
 				delta?: {
 					content?: string | null;
 					reasoning?: string | null;
+					annotations?: Array<Record<string, unknown>>;
 					tool_calls?: Array<{
 						index: number;
 						id?: string;
@@ -390,6 +396,28 @@ export function processStreamChunk(
 		);
 	}
 
+	// Handle annotations delta (url citations from native web search)
+	if (delta.annotations?.length) {
+		for (const annotation of normalizeAnnotationsToResponses(
+			delta.annotations,
+		)) {
+			const annotationIndex = state.annotations.length;
+			state.annotations.push(annotation);
+			if (state.contentPartStarted) {
+				events.push(
+					emitEvent(state, "response.output_text.annotation.added", {
+						type: "response.output_text.annotation.added",
+						item_id: state.messageId,
+						output_index: state.outputItemIndex,
+						content_index: 0,
+						annotation_index: annotationIndex,
+						annotation,
+					}),
+				);
+			}
+		}
+	}
+
 	// Check for usage in the chunk
 	if (chunk.usage) {
 		const usage = chunk.usage as Record<string, unknown>;
@@ -453,7 +481,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 				part: {
 					type: "output_text",
 					text: state.fullContent.join(""),
-					annotations: [],
+					annotations: state.annotations,
 				},
 			}),
 		);
@@ -473,7 +501,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 						{
 							type: "output_text",
 							text: state.fullContent.join(""),
-							annotations: [],
+							annotations: state.annotations,
 						},
 					],
 					status: "completed",
@@ -542,7 +570,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 				{
 					type: "output_text",
 					text: state.fullContent.join(""),
-					annotations: [],
+					annotations: state.annotations,
 				},
 			],
 			status: "completed",
