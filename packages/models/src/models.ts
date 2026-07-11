@@ -173,6 +173,12 @@ export interface ProviderRegion {
 	test?: "skip" | "only";
 }
 
+/**
+ * The distinct `tool_choice` modes a provider/model mapping may accept.
+ * "function" represents a named function choice (`{type:"function",...}`).
+ */
+export type ToolChoiceMode = "auto" | "none" | "required" | "function";
+
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
@@ -480,6 +486,14 @@ export interface ProviderModelMapping {
 	 * List of supported API parameters for this model/provider combination
 	 */
 	supportedParameters?: string[];
+	/**
+	 * Which `tool_choice` modes the upstream accepts for this mapping. When
+	 * omitted or empty, all modes are assumed supported. When set, a requested
+	 * `tool_choice` whose mode is not listed is downgraded to "auto" so
+	 * forced-tool requests still succeed instead of erroring upstream.
+	 * Modes: "auto", "none", "required", "function" (a named function choice).
+	 */
+	supportedToolChoices?: ToolChoiceMode[];
 	/**
 	 * Test skip/only functionality
 	 */

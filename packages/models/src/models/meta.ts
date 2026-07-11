@@ -26,6 +26,9 @@ export const metaModels = [
 				supportsResponsesApi: true,
 				vision: true,
 				tools: true,
+				// Muse Spark's endpoint only accepts tool_choice="auto"; it rejects
+				// "required" and named function choices with invalid_request_error.
+				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
@@ -467,6 +470,7 @@ export const metaModels = [
 			{
 				providerId: "novita",
 				externalId: "meta-llama/llama-3-8b-instruct",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.04e-6",
 				outputPrice: "0.04e-6",
 				requestPrice: "0",

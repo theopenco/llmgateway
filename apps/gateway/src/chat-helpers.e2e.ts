@@ -195,6 +195,14 @@ export const filteredModels = models
 		(model) =>
 			!model.providers.some((p) => (p as ProviderModelMapping).ocr === true),
 	)
+	// Filter out embedding models (they use the dedicated /v1/embeddings
+	// endpoint, not chat completions, and are covered by embeddings.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some(
+				(p) => (p as ProviderModelMapping).embeddings === true,
+			),
+	)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
@@ -491,9 +499,81 @@ export const providerModels = filteredModels
 		return testCases;
 	});
 
+// Embedding models are excluded from filteredModels above (they use the
+// dedicated /v1/embeddings endpoint). Build a separate list of embedding
+// provider/model mappings for embeddings.e2e.ts, applying the same
+// TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters.
+export const embeddingModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.embeddings === true,
+		),
+	)
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.embeddings) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
 // Log the number of test models after filtering
 console.log(`Testing ${testModels.length} model configurations`);
 console.log(`Testing ${providerModels.length} provider model configurations`);
+console.log(`Testing ${embeddingModels.length} embedding model configurations`);
 
 export const streamingModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => {

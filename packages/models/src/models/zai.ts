@@ -380,6 +380,10 @@ export const zaiModels = [
 			{
 				providerId: "zai",
 				externalId: "glm-4.5",
+				// Tool calling is unreliable: zai returns tool calls as inline
+				// <tool_call> XML in message content instead of structured
+				// tool_calls, so the gateway cannot surface them.
+				stability: "unstable",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",

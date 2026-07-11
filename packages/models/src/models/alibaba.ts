@@ -859,6 +859,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-vl-8b-instruct",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.08e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -1128,6 +1129,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1284,6 +1286,9 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-max",
+				// Tool calling is unreliable on novita: forced tool_choice requests
+				// are rejected upstream with an invalid_request_error.
+				stability: "unstable",
 				inputPrice: "0.845e-6",
 				outputPrice: "3.38e-6",
 				requestPrice: "0",
@@ -1557,6 +1562,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-vl-30b-a3b-thinking",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.2e-6",
 				outputPrice: "1e-6",
 				requestPrice: "0",
@@ -1630,6 +1636,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-4b-fp8",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.03e-6",
 				outputPrice: "0.03e-6",
 				requestPrice: "0",

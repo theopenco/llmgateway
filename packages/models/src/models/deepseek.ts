@@ -84,6 +84,7 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-1-250821",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.56e-6",
 				cachedInputPrice: "0.112e-6",
 				outputPrice: "1.68e-6",
