@@ -22,6 +22,7 @@ interface Transaction {
 	createdAt: string;
 	type:
 		| "credit_refund"
+		| "subscription_refund"
 		| "credit_topup"
 		| "credit_gift"
 		| "subscription_start"
@@ -49,7 +50,7 @@ function isInvoiceable(transaction: Transaction): boolean {
 }
 
 function isRefund(type: Transaction["type"]): boolean {
-	return type === "credit_refund";
+	return type === "credit_refund" || type === "subscription_refund";
 }
 
 function InvoiceDownloadButton({
@@ -298,6 +299,8 @@ export function TransactionsClient({
 														"Credit Top-up"}
 													{transaction.type === "credit_refund" &&
 														"Credit Refund"}
+													{transaction.type === "subscription_refund" &&
+														"Subscription Refund"}
 													{transaction.type === "credit_gift" && "Credit Gift"}
 													{transaction.type === "subscription_start" &&
 														"Subscription Start"}

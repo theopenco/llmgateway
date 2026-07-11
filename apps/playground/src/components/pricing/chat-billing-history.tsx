@@ -23,6 +23,7 @@ const TYPE_LABELS: Partial<Record<Transaction["type"], string>> = {
 	chat_plan_end: "Chat plan ended",
 	credit_topup: "Credit top-up",
 	credit_refund: "Credit refund",
+	subscription_refund: "Subscription refund",
 	credit_gift: "Credit gift",
 	end_user_topup: "Credit top-up",
 	end_user_refund: "Credit refund",
@@ -44,7 +45,11 @@ function isInvoiceable(transaction: Transaction): boolean {
 }
 
 function isRefund(type: Transaction["type"]): boolean {
-	return type === "credit_refund" || type === "end_user_refund";
+	return (
+		type === "credit_refund" ||
+		type === "subscription_refund" ||
+		type === "end_user_refund"
+	);
 }
 
 function formatAmount(amount: string | null, currency: string): string {

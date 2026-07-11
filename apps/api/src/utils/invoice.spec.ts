@@ -603,6 +603,7 @@ describe("buildInvoiceDataForTransaction", () => {
 describe("isRefundTransaction", () => {
 	it("is true for refund transaction types", () => {
 		expect(isRefundTransaction("credit_refund")).toBe(true);
+		expect(isRefundTransaction("subscription_refund")).toBe(true);
 		expect(isRefundTransaction("end_user_refund")).toBe(true);
 	});
 

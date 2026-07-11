@@ -60,13 +60,18 @@ const TRANSACTION_TYPE_LABELS: Record<string, string> = {
 	chat_plan_upgrade: "Chat Plan Upgrade",
 	end_user_topup: "Credit Top-up",
 	credit_refund: "Refund",
+	subscription_refund: "Refund",
 	end_user_refund: "Refund",
 };
 
 // Refund transactions record the returned amount as a positive `amount` (see
 // stripe.ts); they render as a credit note rather than an invoice.
 export function isRefundTransaction(type: string): boolean {
-	return type === "credit_refund" || type === "end_user_refund";
+	return (
+		type === "credit_refund" ||
+		type === "subscription_refund" ||
+		type === "end_user_refund"
+	);
 }
 
 interface InvoiceableTransaction {
