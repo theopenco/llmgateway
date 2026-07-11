@@ -3911,3 +3911,80 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		});
 	});
 });
+
+describe("prepareRequestBody - meta prompt_cache_key", () => {
+	async function prepareMetaRequest(
+		messages: Parameters<typeof prepareRequestBody>[4],
+		promptCacheKey?: string,
+	) {
+		return (await prepareRequestBody(
+			"meta",
+			"muse-spark-1.1",
+			null,
+			"muse-spark-1.1",
+			messages,
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			promptCacheKey,
+		)) as { prompt_cache_key?: string; input?: unknown };
+	}
+
+	test("derives a stable per-conversation key across turns", async () => {
+		const firstTurn = (await prepareMetaRequest([
+			{ role: "system", content: "You are a coding agent." },
+			{ role: "user", content: "Fix the failing test." },
+		])) as { prompt_cache_key?: string };
+		const secondTurn = (await prepareMetaRequest([
+			{ role: "system", content: "You are a coding agent." },
+			{ role: "user", content: "Fix the failing test." },
+			{ role: "assistant", content: "Reading the test file now." },
+			{ role: "user", content: "It's in api.spec.ts." },
+		])) as { prompt_cache_key?: string };
+
+		expect(firstTurn.prompt_cache_key).toBeDefined();
+		expect(firstTurn.prompt_cache_key).toBe(secondTurn.prompt_cache_key);
+	});
+
+	test("derives different keys for different conversations", async () => {
+		const a = await prepareMetaRequest([
+			{ role: "system", content: "You are a coding agent." },
+			{ role: "user", content: "Fix the failing test." },
+		]);
+		const b = await prepareMetaRequest([
+			{ role: "system", content: "You are a coding agent." },
+			{ role: "user", content: "Refactor the auth module." },
+		]);
+
+		expect(a.prompt_cache_key).toBeDefined();
+		expect(b.prompt_cache_key).toBeDefined();
+		expect(a.prompt_cache_key).not.toBe(b.prompt_cache_key);
+	});
+
+	test("forwards a caller-supplied prompt_cache_key unchanged", async () => {
+		const requestBody = await prepareMetaRequest(
+			[{ role: "user", content: "Hello!" }],
+			"caller-session-key",
+		);
+
+		expect(requestBody.prompt_cache_key).toBe("caller-session-key");
+	});
+});

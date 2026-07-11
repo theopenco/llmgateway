@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
@@ -45,6 +47,29 @@ export class RequestError extends Error {
 		this.name = "RequestError";
 		this.statusCode = statusCode;
 	}
+}
+
+/**
+ * Meta only routes prompt-cache lookups by `prompt_cache_key`: identical
+ * prefixes sent without a key land on different backends and report
+ * `cached_tokens: 0` every time (verified live), while the same requests with
+ * a stable key hit the cache once warm. Callers rarely send the key, so
+ * derive a stable per-conversation one from the conversation prefix — the
+ * first messages of an agent session are identical across its turns.
+ */
+export function deriveConversationCacheKey(
+	messages: BaseMessage[],
+): string | undefined {
+	if (!messages.length) {
+		return undefined;
+	}
+	const prefix = messages
+		.slice(0, 2)
+		.map((m) => ({ role: m.role, content: m.content }));
+	return createHash("sha256")
+		.update(JSON.stringify(prefix))
+		.digest("hex")
+		.slice(0, 32);
 }
 
 function getProviderMapping(
@@ -1640,6 +1665,14 @@ export async function prepareRequestBody(
 						} else if (prompt_cache_options !== undefined) {
 							responsesBody.prompt_cache_options = prompt_cache_options;
 						}
+					}
+				}
+
+				if (usedProvider === "meta") {
+					const metaCacheKey =
+						prompt_cache_key ?? deriveConversationCacheKey(processedMessages);
+					if (metaCacheKey !== undefined) {
+						responsesBody.prompt_cache_key = metaCacheKey;
 					}
 				}
 
