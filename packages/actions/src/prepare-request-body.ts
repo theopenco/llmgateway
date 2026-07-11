@@ -50,6 +50,22 @@ export class RequestError extends Error {
 }
 
 /**
+ * Hash a caller session id before using it as an upstream `prompt_cache_key`
+ * so raw session ids (e.g. Claude Code session UUIDs from x-session-id /
+ * x-session-affinity) are never exposed to providers. The salt prevents a
+ * provider from correlating the hash back to a known session id; the hash
+ * stays stable per session, which is all cache routing needs.
+ */
+export function hashSessionCacheKey(sessionId: string): string {
+	const salt =
+		process.env.PROMPT_CACHE_KEY_SALT ?? "llmgateway-prompt-cache-key-v1";
+	return createHash("sha256")
+		.update(`${salt}:${sessionId}`)
+		.digest("hex")
+		.slice(0, 32);
+}
+
+/**
  * Meta only routes prompt-cache lookups by `prompt_cache_key`: identical
  * prefixes sent without a key land on different backends and report
  * `cached_tokens: 0` every time (verified live), while the same requests with
@@ -928,6 +944,7 @@ export async function prepareRequestBody(
 	service_tier?: "auto" | "default" | "flex" | "priority",
 	verbosity?: "low" | "medium" | "high",
 	prompt_cache_options?: PromptCacheOptions,
+	session_id?: string,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	const modelDef = models.find((m) => m.id === usedInternalModel);
@@ -1644,9 +1661,6 @@ export async function prepareRequestBody(
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
 					}
-					if (prompt_cache_key !== undefined) {
-						responsesBody.prompt_cache_key = prompt_cache_key;
-					}
 					if (
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
@@ -1668,11 +1682,27 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "meta") {
-					const metaCacheKey =
-						prompt_cache_key ?? deriveConversationCacheKey(processedMessages);
-					if (metaCacheKey !== undefined) {
-						responsesBody.prompt_cache_key = metaCacheKey;
+				// prompt_cache_key influences upstream cache-shard routing; only
+				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
+				// and Meta support it. Sakana does not document the field. Prefer
+				// the caller's explicit key, then the salted hash of the caller's
+				// session id, then (Meta only, where the key is required for hits
+				// at all) a key derived from the conversation prefix.
+				if (
+					usedProvider === "openai" ||
+					usedProvider === "azure" ||
+					usedProvider === "meta"
+				) {
+					const upstreamCacheKey =
+						prompt_cache_key ??
+						(session_id !== undefined
+							? hashSessionCacheKey(session_id)
+							: undefined) ??
+						(usedProvider === "meta"
+							? deriveConversationCacheKey(processedMessages)
+							: undefined);
+					if (upstreamCacheKey !== undefined) {
+						responsesBody.prompt_cache_key = upstreamCacheKey;
 					}
 				}
 
@@ -1758,8 +1788,16 @@ export async function prepareRequestBody(
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
 					}
-					if (prompt_cache_key !== undefined) {
-						requestBody.prompt_cache_key = prompt_cache_key;
+					// Azure is intentionally excluded on this path: chat completions
+					// may hit a legacy deployment-based api-version that rejects
+					// unknown body fields, and the deployment type isn't known here.
+					const upstreamCacheKey =
+						prompt_cache_key ??
+						(session_id !== undefined
+							? hashSessionCacheKey(session_id)
+							: undefined);
+					if (upstreamCacheKey !== undefined) {
+						requestBody.prompt_cache_key = upstreamCacheKey;
 					}
 					if (
 						prompt_cache_retention !== undefined &&

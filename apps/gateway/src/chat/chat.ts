@@ -6145,6 +6145,7 @@ chat.openapi(completions, async (c) => {
 			),
 			verbosity,
 			prompt_cache_options,
+			sessionId,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -6333,6 +6334,7 @@ chat.openapi(completions, async (c) => {
 				prompt_cache_key,
 				prompt_cache_retention,
 				prompt_cache_options,
+				session_id: sessionId,
 				effort,
 				webSearchTool,
 				image_config,
