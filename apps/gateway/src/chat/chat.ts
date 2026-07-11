@@ -1482,13 +1482,17 @@ chat.openapi(completions, async (c) => {
 	let servedServiceTier: "flex" | "priority" | null = null;
 
 	// Sticky-routing session key, in priority order: the explicit x-session-id
-	// header, then x-session-affinity (sent by coding agents such as opencode),
-	// then the OpenAI-native body fields (prompt_cache_key, then user). When
-	// present, provider selection pins this session to a single provider to keep
-	// upstream prompt caches warm.
+	// header, then the session-affinity/session-id headers coding agents attach
+	// to identify a conversation (opencode sends x-session-affinity; pi sends
+	// x-session-affinity plus session_id/session-id, all carrying the same
+	// session id), then the OpenAI-native body fields (prompt_cache_key, then
+	// user). When present, provider selection pins this session to a single
+	// provider to keep upstream prompt caches warm.
 	const sessionId =
 		c.req.header("x-session-id")?.trim() ||
 		c.req.header("x-session-affinity")?.trim() ||
+		c.req.header("session_id")?.trim() ||
+		c.req.header("session-id")?.trim() ||
 		prompt_cache_key ||
 		user ||
 		undefined;

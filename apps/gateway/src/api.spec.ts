@@ -4745,6 +4745,49 @@ describe("api", () => {
 		});
 	});
 
+	test("/v1/chat/completions records pi session_id header as sessionId", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+				// pi's OpenAI-completions session-affinity header set
+				session_id: "pi-session-42",
+				"x-client-request-id": "pi-session-42",
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				messages: [
+					{
+						role: "user",
+						content: "Hello from pi!",
+					},
+				],
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].sessionId).toBe("pi-session-42");
+	});
+
 	test("Deactivated provider falls back to active provider", async () => {
 		// Use fake timers to set the date between the two deactivation dates:
 		// google-ai-studio deactivatedAt: 2026-01-17
