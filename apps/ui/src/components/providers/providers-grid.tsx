@@ -6,13 +6,16 @@ import {
 	ExternalLink,
 	Gauge,
 	MapPin,
+	Plus,
 	Search,
 	ShieldCheck,
 	Zap,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardDescription,
@@ -251,6 +254,12 @@ export function ProvidersGrid() {
 					/>
 				</div>
 				<div className="flex items-center gap-2">
+					<Button asChild variant="outline">
+						<Link href="/add-provider">
+							<Plus className="h-4 w-4" />
+							Add Provider
+						</Link>
+					</Button>
 					<span className="text-sm text-muted-foreground hidden sm:inline">
 						Sort by
 					</span>

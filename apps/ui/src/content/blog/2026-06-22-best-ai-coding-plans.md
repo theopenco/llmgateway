@@ -22,7 +22,7 @@ The short version: most plans give you one company's models inside one company's
 
 **Best overall. Flat rate. Every model. No token math.**
 
-[DevPass](https://devpass.llmgateway.io) by LLM Gateway isn't an editor and it isn't a single-vendor plan — it's the **model layer** underneath whatever coding tool you already use. One API key unlocks **280+ models** — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, plus the open-weight coders like GLM-4.7, Qwen3 and Kimi K2 — for a flat monthly price.
+[DevPass](https://devpass.llmgateway.io) by LLM Gateway isn't an editor and it isn't a single-vendor plan — it's the **model layer** underneath whatever coding tool you already use. One API key unlocks **200+ models** — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, plus the open-weight coders like GLM-4.7, Qwen3 and Kimi K2 — for a flat monthly price.
 
 **What sets it apart:**
 
@@ -47,7 +47,7 @@ export ANTHROPIC_BASE_URL="https://api.llmgateway.io/v1"
 export ANTHROPIC_API_KEY="$LLM_GATEWAY_API_KEY"
 
 # Then run Claude Code, OpenCode, Cline, or Cursor as usual —
-# every one of the 280+ models is now a single switch away
+# every one of the 200+ models is now a single switch away
 ```
 
 ---
@@ -299,7 +299,7 @@ Aider is a beloved terminal-based coding assistant that works with any model API
 
 ### What is the best AI coding plan in 2026?
 
-For most developers, DevPass is the best value because it's the only plan that combines a flat monthly price with access to every frontier model — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro and 280+ others — and works with the coding tools you already use. Single-vendor plans like Claude Code or Cursor are excellent if you're certain you'll only ever want that one company's models.
+For most developers, DevPass is the best value because it's the only plan that combines a flat monthly price with access to every frontier model — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro and 200+ others — and works with the coding tools you already use. Single-vendor plans like Claude Code or Cursor are excellent if you're certain you'll only ever want that one company's models.
 
 ### Can I use DevPass with Claude Code and Cursor?
 
@@ -311,7 +311,7 @@ For daily, agent-heavy work, almost always. DevPass turns every $1 into roughly 
 
 ### How many models do I get with DevPass?
 
-Every plan includes all 280+ models on LLM Gateway, from frontier flagships to open-weight coders like GLM-4.7, Qwen3 and Kimi K2. There's no per-model gating between tiers — the tiers differ only in monthly usage allowance.
+Every plan includes all 200+ models on LLM Gateway, from frontier flagships to open-weight coders like GLM-4.7, Qwen3 and Kimi K2. There's no per-model gating between tiers — the tiers differ only in monthly usage allowance.
 
 ---
 

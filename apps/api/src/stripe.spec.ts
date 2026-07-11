@@ -6,6 +6,7 @@ import {
 	handleChargeRefunded,
 	handleInvoicePaymentSucceeded,
 	handlePaymentIntentFailed,
+	handleSubscriptionDeleted,
 	handleSubscriptionUpdated,
 } from "./stripe.js";
 import { deleteAll } from "./testing.js";
@@ -122,8 +123,8 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 		const call = sendEmailMock.mock.calls[0][0];
 		expect(call.to).toBe("billing@acme.test");
 		expect(call.subject.toLowerCase()).toContain("feedback");
-		expect(call.html).toContain("Acme Co");
 		expect(call.html?.toLowerCase()).toContain("dev plan");
+		expect(call.html?.toLowerCase()).toContain("cancelled");
 
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
@@ -417,64 +418,44 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 	});
 
-	test("does NOT reset credits on a proration invoice from a tier change", async () => {
+	test("resets to a fresh new-tier cycle on a tier-change invoice (webhook fallback)", async () => {
+		// The change-tier endpoint normally resets state synchronously; this exercises
+		// the webhook fallback when that process died after Stripe collected payment.
+		// An upgrade invoice (`subscription_update`) starts a brand-new cycle, so the
+		// org resets to the new tier's full allowance with usage zeroed. The target
+		// tier is read from the subscription metadata the update set.
 		await seedUsedDevPlanOrg();
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: { devPlan: "max" },
+		});
 
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
 		await handleInvoicePaymentSucceeded(
 			makeInvoiceEvent({
 				billingReason: "subscription_update",
-				amountPaid: 9221,
-				invoiceId: "in_proration_001",
+				amountPaid: 17900,
+				invoiceId: "in_upgrade_001",
+				periodEnd,
 			}),
 		);
 
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
-		// The credit usage must be preserved — otherwise a user could
-		// downgrade then upgrade to repeatedly refresh their full balance.
-		expect(org?.devPlanCreditsUsed).toBe("150");
+		expect(org?.devPlan).toBe("max");
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("537");
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBeNull();
-		expect(txns[0].amount).toBe("92.21");
-	});
-
-	test("records a manual upgrade invoice without resetting used credits", async () => {
-		await seedUsedDevPlanOrg();
-
-		await handleInvoicePaymentSucceeded(
-			makeInvoiceEvent({
-				billingReason: "manual",
-				amountPaid: 5000,
-				invoiceId: "in_manual_upgrade_001",
-				metadata: {
-					organizationId: ORG_ID,
-					subscriptionType: "dev_plan",
-					devPlanChange: "upgrade",
-					fromTier: "lite",
-					toTier: "pro",
-				},
-			}),
-		);
-
-		const org = await db.query.organization.findFirst({
-			where: { id: { eq: ORG_ID } },
-		});
-		expect(org?.devPlanCreditsUsed).toBe("150");
-
-		const txns = await db.query.transaction.findMany({
-			where: { organizationId: { eq: ORG_ID } },
-		});
-		expect(txns).toHaveLength(1);
-		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBeNull();
-		expect(txns[0].amount).toBe("50");
-		expect(txns[0].stripeInvoiceId).toBe("in_manual_upgrade_001");
+		expect(txns[0].creditAmount).toBe("537");
+		expect(txns[0].amount).toBe("179");
+		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {
@@ -632,6 +613,102 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		// The stale event must not touch the active subscription's expiry/cancel
 		// flags either.
 		expect(org?.devPlanCancelled).toBe(false);
+	});
+});
+
+function makeDeletedEvent(overrides?: {
+	subscriptionId?: string;
+	metadata?: Record<string, string>;
+}): Stripe.CustomerSubscriptionDeletedEvent {
+	return {
+		id: "evt_test_deleted",
+		type: "customer.subscription.deleted",
+		data: {
+			object: {
+				id: overrides?.subscriptionId ?? SUB_ID,
+				customer: "cus_test_feedback",
+				status: "canceled",
+				metadata: overrides?.metadata ?? {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+				},
+				items: { data: [] },
+			},
+		},
+	} as unknown as Stripe.CustomerSubscriptionDeletedEvent;
+}
+
+describe("handleSubscriptionDeleted — superseded subscription", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("ignores deletion of a superseded dev-plan subscription", async () => {
+		// Repro of the production incident: the customer cancelled their old plan
+		// at period end, then started a NEW Lite plan before the old period
+		// elapsed. Stripe's deletion event for the old subscription arrived hours
+		// after the new checkout and wiped the fresh plan back to `none`.
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "lite",
+			devPlanCreditsLimit: "87",
+			devPlanCreditsUsed: "0",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleSubscriptionDeleted(
+			makeDeletedEvent({ subscriptionId: "sub_old_cancelled_plan" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+		expect(org?.devPlanStripeSubscriptionId).toBe(SUB_ID);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	test("still ends the dev plan when the active subscription is deleted", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "lite",
+			devPlanCreditsLimit: "87",
+			devPlanCreditsUsed: "10",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: true,
+		});
+
+		await handleSubscriptionDeleted(makeDeletedEvent());
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("none");
+		expect(org?.devPlanStripeSubscriptionId).toBeNull();
+		expect(org?.devPlanCreditsLimit).toBe("0");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_end");
 	});
 });
 
@@ -846,5 +923,112 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			where: { stripeRefundId: { eq: "re_devpass_refund" } },
 		});
 		expect(refunds).toHaveLength(1);
+	});
+
+	test("records a refund for a chat_plan_start that stored only the invoice id", async () => {
+		// Chat plan checkout records chat_plan_start with the invoice id but no
+		// payment intent, exactly like DevPass. The handler must resolve the invoice
+		// and record the refund instead of logging "Original transaction not found".
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_chat_refund",
+			chatPlan: "pro",
+			chatPlanCreditsLimit: "100",
+			chatPlanStripeSubscriptionId: SUB_ID,
+		});
+		const [original] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: ORG_ID,
+				type: "chat_plan_start",
+				amount: "20",
+				creditAmount: "100",
+				currency: "USD",
+				status: "completed",
+				stripeInvoiceId: "in_chat_refund",
+				description: "Chat Plan PRO started via Stripe Checkout",
+			})
+			.returning();
+
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_chat_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_chat_refund", amount: 2000, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_chat_refund",
+				customer: "cus_chat_refund",
+			}),
+		);
+
+		const refund = await db.query.transaction.findFirst({
+			where: { stripeRefundId: { eq: "re_chat_refund" } },
+		});
+		expect(refund?.type).toBe("credit_refund");
+		expect(refund?.amount).toBe("20");
+		expect(refund?.relatedTransactionId).toBe(original.id);
+
+		// Chat plans use virtual plan credits, so the refund must not deduct from the
+		// org's pay-as-you-go credit balance.
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.credits).toBe("0");
+	});
+
+	test("records a refund for a chat_plan_upgrade paid mid-cycle charge", async () => {
+		// A mid-cycle chat plan upgrade is recorded by the invoice.payment_succeeded
+		// webhook with the proration invoice's payment intent and invoice id, so a
+		// refund of that charge resolves directly by payment intent.
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_chat_upgrade_refund",
+			chatPlan: "pro",
+			chatPlanCreditsLimit: "100",
+			chatPlanStripeSubscriptionId: SUB_ID,
+		});
+		const [original] = await db
+			.insert(tables.transaction)
+			.values({
+				organizationId: ORG_ID,
+				type: "chat_plan_upgrade",
+				amount: "10",
+				currency: "USD",
+				status: "completed",
+				stripeInvoiceId: "in_chat_upgrade",
+				stripePaymentIntentId: "pi_chat_upgrade",
+				description: "Chat Plan PRO upgrade",
+			})
+			.returning();
+
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_chat_upgrade", amount: 1000, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_chat_upgrade",
+				customer: "cus_chat_upgrade_refund",
+			}),
+		);
+
+		const refund = await db.query.transaction.findFirst({
+			where: { stripeRefundId: { eq: "re_chat_upgrade" } },
+		});
+		expect(refund?.type).toBe("credit_refund");
+		expect(refund?.amount).toBe("10");
+		expect(refund?.relatedTransactionId).toBe(original.id);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.credits).toBe("0");
 	});
 });

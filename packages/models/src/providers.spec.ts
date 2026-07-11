@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
+import {
+	getSupportedServiceTiers,
+	isStealthProvider,
+	supportsServiceTier,
+} from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { models } from "./models.js";
 import {
@@ -190,6 +194,33 @@ describe("model service tier support", () => {
 	});
 });
 
+describe("isStealthProvider", () => {
+	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
+		for (const id of ["glacier", "granite", "quartz", "avalanche", "tundra"]) {
+			expect(isStealthProvider(id)).toBe(true);
+		}
+	});
+
+	it("does not flag providers with a default base URL", () => {
+		for (const id of [
+			"openai",
+			"anthropic",
+			"google-ai-studio",
+			"llmgateway",
+		]) {
+			expect(isStealthProvider(id)).toBe(false);
+		}
+	});
+
+	it("keeps stealth providers out of the definitions used for BYOK config", () => {
+		const stealth = providers.filter((provider) => isStealthProvider(provider));
+		expect(stealth.length).toBeGreaterThan(0);
+		for (const provider of stealth) {
+			expect(provider.env.required.baseUrl).toBeTruthy();
+		}
+	});
+});
+
 describe("AWS Bedrock Anthropic regions", () => {
 	it("supports current Anthropic geo profile prefixes", () => {
 		const bedrockProvider = providers.find(
@@ -349,7 +380,7 @@ describe("AtlasCloud video models", () => {
 		expect(provider?.privacyPolicyUrl).toBe(
 			"https://www.atlascloud.ai/privacy",
 		);
-		expect(provider?.dataPolicy?.soc2).toBe(true);
+		expect(provider?.dataPolicy?.soc2).toBe(2);
 		expect(provider?.dataPolicy?.gdpr).toBe(true);
 		expect(provider?.additionalLinks).toEqual(
 			expect.arrayContaining([

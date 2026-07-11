@@ -102,6 +102,9 @@ export interface RoutingMetadata {
 		contentFilterProvider?: boolean;
 		// Set when the provider was excluded because the gateway content filter matched
 		excludedByContentFilter?: boolean;
+		// Set when hybrid keyed-provider preference demoted this credits-backed
+		// candidate; kept in the scores as a last-resort retry target
+		hybrid_demoted?: boolean;
 	}>;
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;

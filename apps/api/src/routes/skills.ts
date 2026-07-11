@@ -1,12 +1,14 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { generateText, tool } from "ai";
-import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
-import { getOrCreateChatOrg } from "@/utils/personal-org.js";
+import {
+	getGatewayUrl,
+	resolvePlaygroundToken,
+} from "@/utils/playground-key.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { db, tables, eq, and, shortid } from "@llmgateway/db";
+import { db, tables, eq, and } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -306,8 +308,6 @@ skills.openapi(deleteSkill, async (c) => {
 	return c.json({ success: true });
 });
 
-const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
-
 // Default model for skill generation; must support tool calling.
 const SKILL_GENERATION_MODEL = "openai/gpt-5-mini";
 
@@ -386,55 +386,9 @@ skills.openapi(generateSkill, async (c) => {
 
 	const { prompt } = c.req.valid("json");
 
-	// Use the playground key cookie when present; otherwise fall back to the
-	// user's Chat org default project key, mirroring /playground/ensure-key.
-	let token = getCookie(c, PLAYGROUND_KEY_COOKIE_NAME);
-	if (!token) {
-		const chatOrg = await getOrCreateChatOrg(user);
-		let project = await db.query.project.findFirst({
-			where: {
-				organizationId: { eq: chatOrg.id },
-				status: { eq: "active" },
-			},
-		});
-		if (!project) {
-			[project] = await db
-				.insert(tables.project)
-				.values({
-					name: "Default Project",
-					organizationId: chatOrg.id,
-					mode: "credits",
-				})
-				.returning();
-		}
-		let key = await db.query.apiKey.findFirst({
-			where: {
-				projectId: { eq: project.id },
-				status: { eq: "active" },
-			},
-		});
-		if (!key) {
-			const prefix =
-				process.env.NODE_ENV === "development" ? "llmgdev_" : "llmgtwy_";
-			[key] = await db
-				.insert(tables.apiKey)
-				.values({
-					token: prefix + shortid(40),
-					projectId: project.id,
-					description: "Auto-generated playground key",
-					usageLimit: null,
-					createdBy: user.id,
-				})
-				.returning();
-		}
-		token = key.token;
-	}
+	const token = await resolvePlaygroundToken(c, user);
 
-	const gatewayUrl =
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1");
+	const gatewayUrl = getGatewayUrl();
 
 	const llmgateway = createLLMGateway({
 		apiKey: token,

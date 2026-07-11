@@ -72,7 +72,11 @@ export interface ProviderDataPolicy {
 	consumerTraining: boolean | null;
 	promptLogging: boolean | null;
 	retentionPeriod?: string | null;
-	soc2?: boolean | null;
+	/**
+	 * SOC 2 report type the provider holds: `1` for Type 1, `2` for Type 2.
+	 * `null`/omitted means the provider is not SOC 2 certified.
+	 */
+	soc2?: 1 | 2 | null;
 	iso27001?: boolean | null;
 	gdpr?: boolean | null;
 }
@@ -171,7 +175,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: false,
+			soc2: null,
 			iso27001: false,
 			gdpr: false,
 		},
@@ -200,7 +204,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -245,7 +249,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -294,7 +298,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "55 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -391,7 +395,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -434,7 +438,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -468,7 +472,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -547,7 +551,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -575,7 +579,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -602,7 +606,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -733,7 +737,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: "varies by service; Enterprise ZDR available",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 		additionalLinks: [
@@ -847,7 +851,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -886,7 +890,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -923,7 +927,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -948,7 +952,7 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
+			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -1005,7 +1009,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -1033,7 +1037,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 		},
 	},
@@ -1060,7 +1064,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -1078,11 +1082,21 @@ export const providers: ProviderDefinition[] = [
 		streaming: true,
 		cancellation: true,
 		color: "#10b981",
-		website: "https://canopywave.io",
+		website: "https://canopywave.com",
 		statusPageUrl: null,
 		announcement: null,
-		termsUrl: "https://canopywave.io/terms",
-		privacyPolicyUrl: "https://canopywave.io/privacy",
+		termsUrl: "https://canopywave.com/terms",
+		privacyPolicyUrl: "https://canopywave.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 1,
+			iso27001: false,
+			gdpr: false,
+		},
 	},
 	{
 		id: "inference.net",
@@ -1108,7 +1122,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 		},
 	},
 	{
@@ -1135,7 +1149,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 		},
 	},
 	{
@@ -1206,7 +1220,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: false,
 			retentionPeriod: "24 hours",
-			soc2: true,
+			soc2: 2,
 		},
 		additionalLinks: [
 			{
@@ -1267,6 +1281,50 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+	},
+	{
+		id: "meta",
+		name: "Meta",
+		description:
+			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_META_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0668E1",
+		website: "https://dev.meta.ai",
+		statusPageUrl: null,
+		announcement: null,
+		apiKeyInstructions:
+			"Create an API key in the API keys tab of the Meta Model API dashboard.",
+		learnMore: "https://dev.meta.ai/docs/getting-started/authentication",
+		termsUrl: "https://dev.meta.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.facebook.com/privacy/policy/",
+		headquarters: "US",
+		dataPolicy: {
+			// Paid (pay-as-you-go) services are never trained on; only the free
+			// unpaid tier may be used for training per the Data Commitments page.
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: null,
+			iso27001: null,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Data Commitments",
+				link: "https://dev.meta.ai/legal/commitments",
+			},
+			{
+				desc: "Acceptable Use Policy",
+				link: "https://dev.meta.ai/legal/acceptable-use-policy",
+			},
+		],
 	},
 	{
 		id: "sakana",
@@ -1368,7 +1426,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -1423,7 +1481,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 			iso27001: false,
 			gdpr: true,
 		},
@@ -1464,7 +1522,7 @@ export function isProviderCompliant(
 		return true;
 	}
 	const dataPolicy = provider.dataPolicy;
-	if (policy.requireSoc2 && dataPolicy?.soc2 !== true) {
+	if (policy.requireSoc2 && !dataPolicy?.soc2) {
 		return false;
 	}
 	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
@@ -1472,7 +1530,7 @@ export function isProviderCompliant(
 	}
 	if (
 		policy.requireSoc2OrIso27001 &&
-		!(dataPolicy?.soc2 === true || dataPolicy?.iso27001 === true)
+		!(!!dataPolicy?.soc2 || dataPolicy?.iso27001 === true)
 	) {
 		return false;
 	}

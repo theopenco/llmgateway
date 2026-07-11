@@ -14,6 +14,7 @@ import {
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
 import { ProviderIcons } from "@llmgateway/shared/components";
 
 import { AnimatedBeam } from "./animated-beam";
@@ -41,9 +42,9 @@ const Circle = ({
 Circle.displayName = "Circle";
 
 const stats = [
-	{ value: "40+", label: "Providers" },
-	{ value: "400+", label: "Models" },
-	{ value: "100B+", label: "Tokens routed" },
+	{ value: MARKETING_STATS.providers, label: "Providers" },
+	{ value: MARKETING_STATS.models, label: "Models" },
+	{ value: MARKETING_STATS.tokensRouted, label: "Tokens routed" },
 ];
 
 export function Graph() {
@@ -93,8 +94,8 @@ export function Graph() {
 							</h2>
 							<p className="mt-4 text-muted-foreground max-w-xl">
 								Your app sends one request. We route it to OpenAI, Anthropic,
-								Google, or any of 35+ providers—automatically picking the best
-								path.
+								Google, or any of {MARKETING_STATS.providers}{" "}
+								providers—automatically picking the best path.
 							</p>
 						</div>
 						<div className="flex gap-8 lg:gap-12">

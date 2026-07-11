@@ -679,13 +679,23 @@ export function ProviderSection({
 			<div className="px-3 py-3 space-y-3">
 				{/* Context + deprecation info */}
 				<div className="flex items-center justify-between text-xs">
-					<span className="text-muted-foreground">
-						Context:{" "}
-						<span className="text-foreground font-medium">
-							{activeMapping.contextSize
-								? formatContextSize(activeMapping.contextSize)
-								: "—"}
+					<span className="flex items-center gap-3 text-muted-foreground">
+						<span>
+							Context:{" "}
+							<span className="text-foreground font-medium">
+								{activeMapping.contextSize
+									? formatContextSize(activeMapping.contextSize)
+									: "—"}
+							</span>
 						</span>
+						{activeMapping.quantization && (
+							<span>
+								Quant:{" "}
+								<span className="text-foreground font-medium uppercase">
+									{activeMapping.quantization}
+								</span>
+							</span>
+						)}
 					</span>
 					{activeMapping.discount && parseFloat(activeMapping.discount) > 0 && (
 						<Badge className="text-[10px] px-1.5 py-0 h-4 font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">

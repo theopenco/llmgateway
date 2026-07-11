@@ -23,6 +23,7 @@ import {
 	type ModelDefinition,
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
+	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type Provider,
 	type ProviderRequestBody,
@@ -118,6 +119,7 @@ export interface ProviderContextOptions {
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;
 	prompt_cache_retention: PromptCacheRetention | undefined;
+	prompt_cache_options: PromptCacheOptions | undefined;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -140,6 +142,7 @@ export interface ProviderContextOptions {
 	n?: number;
 	providerCacheControlEnabled: boolean;
 	service_tier?: "auto" | "default" | "flex" | "priority";
+	verbosity?: "low" | "medium" | "high";
 }
 
 interface ProjectInfo {
@@ -643,6 +646,8 @@ export async function resolveProviderContext(
 		options.providerCacheControlEnabled,
 		options.n,
 		options.service_tier,
+		options.verbosity,
+		options.prompt_cache_options,
 	);
 
 	// Post-validation of max_tokens in request body

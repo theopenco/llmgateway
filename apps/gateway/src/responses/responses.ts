@@ -2,9 +2,14 @@ import { promisify } from "node:util";
 import { zstdDecompress } from "node:zlib";
 
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findProjectById,
@@ -50,9 +55,14 @@ export const responses = new Hono<ServerTypes>();
  * Extract and validate the API token from request headers.
  * Returns the token, apiKey, project, and organization.
  */
-async function authenticateRequest(c: {
-	req: { header: (name: string) => string | undefined };
-}) {
+async function authenticateRequest(
+	c: {
+		req: { header: (name: string) => string | undefined };
+	},
+	// Only the billable POST handlers enforce spend limits; the GET retrieval
+	// reads a stored response and must stay accessible even when over budget.
+	enforceSpendLimits = false,
+) {
 	const auth = c.req.header("Authorization");
 	const xApiKey = c.req.header("x-api-key");
 
@@ -97,6 +107,23 @@ async function authenticateRequest(c: {
 			error: "Organization has been disabled and is no longer accessible",
 			status: 410 as const,
 		};
+	}
+
+	// Enforce limits at this layer too — not only via the inner
+	// /v1/chat/completions call — so every gateway path is covered like the
+	// others. User-level member budget takes priority over the per-key limits.
+	// Both use the SWR-cached queries and fail fast before the retention/context
+	// work below.
+	if (enforceSpendLimits) {
+		try {
+			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
+			assertApiKeyWithinUsageLimits(apiKey);
+		} catch (e) {
+			if (e instanceof HTTPException) {
+				return { error: e.message, status: e.status };
+			}
+			throw e;
+		}
 	}
 
 	return { apiKey, project, organization };
@@ -150,7 +177,7 @@ responses.post("/", async (c) => {
 	const req = validation.data;
 
 	// Authenticate and check data retention
-	const authResult = await authenticateRequest(c);
+	const authResult = await authenticateRequest(c, true);
 	if ("error" in authResult) {
 		return c.json(
 			{
@@ -234,8 +261,9 @@ responses.post("/", async (c) => {
 
 	// Convert tools format: Responses API has name/description/parameters at top level,
 	// chat completions nests under function.
-	// Only forward user-defined function tools to chat completions.
-	// Built-in tool types (web_search, computer_use, code_interpreter, shell, etc.)
+	// web_search passes through unchanged — the chat completions layer resolves
+	// it to the provider's native web search / grounding.
+	// Other built-in tool types (computer_use, code_interpreter, shell, etc.)
 	// are OpenAI-native capabilities that cannot be proxied through the gateway's
 	// provider routing, so they are dropped here.
 	const tools = req.tools
@@ -249,6 +277,9 @@ responses.post("/", async (c) => {
 						parameters: tool.parameters,
 					},
 				};
+			}
+			if (tool.type === "web_search") {
+				return tool;
 			}
 			return null;
 		})
@@ -297,14 +328,23 @@ responses.post("/", async (c) => {
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
 	}
+	if (req.text?.verbosity !== undefined) {
+		chatRequest.verbosity = req.text.verbosity;
+	}
 	if (req.prompt_cache_key !== undefined) {
 		chatRequest.prompt_cache_key = req.prompt_cache_key;
 	}
 	if (req.prompt_cache_retention !== undefined) {
 		chatRequest.prompt_cache_retention = req.prompt_cache_retention;
 	}
+	if (req.prompt_cache_options !== undefined) {
+		chatRequest.prompt_cache_options = req.prompt_cache_options;
+	}
 	if (req.routing !== undefined) {
 		chatRequest.routing = req.routing;
+	}
+	if (req.service_tier !== undefined) {
+		chatRequest.service_tier = req.service_tier;
 	}
 	if (response_format) {
 		chatRequest.response_format = response_format;
@@ -630,7 +670,7 @@ responses.post("/compact", async (c) => {
 
 	const req = validation.data;
 
-	const authResult = await authenticateRequest(c);
+	const authResult = await authenticateRequest(c, true);
 	if ("error" in authResult) {
 		return c.json(
 			{

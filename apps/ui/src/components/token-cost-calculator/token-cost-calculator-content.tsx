@@ -20,7 +20,7 @@ const STEPS = [
 		icon: Route,
 		title: "Compare every model and save",
 		description:
-			"See your prompt ranked across GPT-5, Claude, Gemini, and 280+ models at each provider's cheapest live rate — then route through LLM Gateway to pay it automatically with zero markup.",
+			"See your prompt ranked across GPT-5, Claude, Gemini, and 200+ models at each provider's cheapest live rate — then route through LLM Gateway to pay it automatically with zero markup.",
 	},
 ];
 

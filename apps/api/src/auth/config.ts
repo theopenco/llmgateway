@@ -1,22 +1,27 @@
 import { passkey } from "@better-auth/passkey";
+import { sso } from "@better-auth/sso";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { Redis } from "ioredis";
 
+import { getApiBaseUrl } from "@/lib/api-url.js";
+import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
+import { autoJoinByEmailDomain } from "@/utils/sso-domain.js";
 
+import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 
-const apiUrl = process.env.API_URL ?? "http://localhost:4002";
+const apiUrl = getApiBaseUrl();
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
@@ -24,6 +29,66 @@ const originUrls =
 	process.env.ORIGIN_URLS ??
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
 const isHosted = process.env.HOSTED === "true";
+
+// SSO-only enforcement: returns true when the email's domain has an SSO
+// connection marked `enforced`, meaning non-SSO sign-in must be rejected.
+async function isSSOEnforcedForEmail(
+	email: string | null | undefined,
+): Promise<boolean> {
+	// Keep enforcement tied to the same flag that surfaces the SSO sign-in entry
+	// point: with SSO_ENABLED off there's no way to sign in via SSO, so blocking
+	// password/social/passkey would just lock the domain out entirely.
+	if (process.env.SSO_ENABLED !== "true") {
+		return false;
+	}
+
+	const domain = email?.trim().toLowerCase().split("@")[1];
+	if (!domain) {
+		return false;
+	}
+	const providers = await db.query.ssoProvider.findMany({
+		where: { enforced: { eq: true } },
+		columns: { domain: true, organizationId: true },
+	});
+	const matching = providers.filter(
+		(provider) =>
+			provider.organizationId &&
+			provider.domain
+				.split(",")
+				.map((d) => d.trim().toLowerCase())
+				.includes(domain),
+	);
+	if (!matching.length) {
+		return false;
+	}
+
+	// Only an active, enterprise org can enforce SSO. A soft-deleted org can no
+	// longer be managed to turn enforcement off, so a stale enforced row must not
+	// keep blocking a domain's users forever.
+	const orgs = await db.query.organization.findMany({
+		where: {
+			id: { in: [...new Set(matching.map((p) => p.organizationId as string))] },
+		},
+		columns: { status: true, plan: true },
+	});
+	return orgs.some(
+		(org) => org.status !== "deleted" && org.plan === "enterprise",
+	);
+}
+
+function ssoRequiredResponse(): Response {
+	return new Response(
+		JSON.stringify({
+			error: "sso_required",
+			message:
+				"Your organization requires signing in with SSO. Use the “Sign in with SSO” option.",
+		}),
+		{
+			status: 403,
+			headers: { "Content-Type": "application/json" },
+		},
+	);
+}
 
 function isCodeAppOrigin(url: string | null | undefined): boolean {
 	if (!url) {
@@ -592,6 +657,24 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					// DevPass (code) app, which share the same registrable rpID.
 					origin: [uiUrl, codeUrl],
 				}),
+				sso({
+					// This app uses a custom organization model (userOrganization),
+					// not Better Auth's organization plugin, so SSO login must not
+					// auto-provision orgs. With provisioning disabled and no
+					// organization plugin registered, the plugin only touches the
+					// ssoProvider/user/account models. Org membership is provisioned
+					// out-of-band via SCIM (see routes/scim.ts).
+					organizationProvisioning: { disabled: true },
+					// Adds `domainVerified` to the plugin's ssoProvider model. The SAML
+					// callback treats a provider as trusted for implicit account linking
+					// only when `domainVerified` is true and the asserted email is on
+					// the connection's domain — without this, SCIM-provisioned users can
+					// never complete their first SAML login (`account_not_linked`). It
+					// also makes SAML sign-in reject unverified providers outright, so
+					// registration stamps `domainVerified: true` (see routes/sso.ts)
+					// instead of using the plugin's DNS-TXT verification flow.
+					domainVerification: { enabled: true },
+				}),
 			],
 			emailAndPassword: {
 				enabled: true,
@@ -656,6 +739,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 					account: tables.account,
 					verification: tables.verification,
 					passkey: tables.passkey,
+					ssoProvider: tables.ssoProvider,
 				},
 			}),
 			socialProviders: {
@@ -691,6 +775,13 @@ If you didn't request this, you can safely ignore this email. Your password won'
 								columns: {
 									onboardingCompleted: true,
 								},
+							});
+
+							// The email is now proven to belong to this user, so honor any
+							// team invitations that were waiting on the address.
+							await acceptPendingInvitesForUser({
+								id: user.id,
+								email: user.email,
 							});
 
 							// Add verified email to Resend contacts with onboarding status
@@ -775,6 +866,16 @@ The LLM Gateway Team`.trim();
 									},
 								);
 							}
+						}
+					}
+
+					// SSO-only enforcement for password sign-in/sign-up. Social and
+					// passkey flows don't expose the email here; they are caught in the
+					// `after` hook once the session (and user email) exist.
+					if (ctx.path === "/sign-in/email" || ctx.path === "/sign-up/email") {
+						const body = ctx.body as { email?: string } | undefined;
+						if (await isSSOEnforcedForEmail(body?.email)) {
+							return ssoRequiredResponse();
 						}
 					}
 
@@ -880,6 +981,32 @@ The LLM Gateway Team`.trim();
 					return;
 				}),
 				after: createAuthMiddleware(async (ctx) => {
+					// Prefill the username on the IdP sign-in page for SP-initiated SAML.
+					// The SSO plugin only forwards `loginHint` on its OIDC path; for SAML
+					// it returns the redirect URL untouched. Microsoft Entra ID (and other
+					// IdPs that support it) honor a `login_hint` query param on the SAML2
+					// SSO URL, so append the email the user already typed. Scoped to the
+					// SAML redirect binding via the `SAMLRequest` param; a stray
+					// `login_hint` is ignored by IdPs that don't support it.
+					if (ctx.path === "/sign-in/sso") {
+						const returned = ctx.context.returned;
+						const email = (ctx.body as { email?: string } | undefined)?.email
+							?.trim()
+							.toLowerCase();
+						if (
+							email &&
+							returned &&
+							typeof returned === "object" &&
+							"url" in returned &&
+							typeof returned.url === "string" &&
+							returned.url.includes("SAMLRequest")
+						) {
+							const url = new URL(returned.url);
+							url.searchParams.set("login_hint", email);
+							ctx.context.returned = { ...returned, url: url.toString() };
+						}
+					}
+
 					// Create default org/project for first-time sessions (email signup or first social sign-in)
 					const newSession = ctx.context.newSession;
 					if (!newSession?.user) {
@@ -921,6 +1048,77 @@ The LLM Gateway Team`.trim();
 						);
 					}
 
+					// Audit enterprise SSO sign-ins. These arrive on the plugin's
+					// `/sso/...` callback paths; resolve the org from the SSO provider
+					// whose slug matches one of the user's linked accounts (the same
+					// derivation used for `isSsoUser`). Logged before the org
+					// auto-creation early-returns below so every SSO login is recorded.
+					if (ctx.path.startsWith("/sso/")) {
+						const linkedAccounts = await db.query.account.findMany({
+							where: { userId: { eq: userId } },
+							columns: { providerId: true },
+						});
+						const providerIds = linkedAccounts.map((a) => a.providerId);
+						const provider = providerIds.length
+							? await db.query.ssoProvider.findFirst({
+									where: { providerId: { in: providerIds } },
+									columns: {
+										id: true,
+										providerId: true,
+										organizationId: true,
+									},
+								})
+							: null;
+						if (provider?.organizationId) {
+							await logAuditEvent({
+								organizationId: provider.organizationId,
+								userId,
+								action: "sso.sign_in",
+								resourceType: "sso_session",
+								resourceId: provider.id,
+								metadata: {
+									resourceName: provider.providerId,
+									targetUserId: userId,
+									targetUserEmail: newSession.user.email,
+								},
+							});
+						}
+					}
+
+					// SSO-only enforcement catch-all: reject any session created through
+					// a non-SSO flow (password, social, passkey) for an enforced domain.
+					// SSO logins arrive on the plugin's `/sso/...` callback paths, which
+					// are allowed. Runs before org auto-creation so blocked sign-ins
+					// don't leave orphaned orgs.
+					if (
+						!ctx.path.startsWith("/sso/") &&
+						(await isSSOEnforcedForEmail(dbUser?.email))
+					) {
+						// Delete only the session this blocked attempt just created — not
+						// every session for the user — so a rejected social/passkey login
+						// doesn't also sign them out of valid SSO sessions elsewhere.
+						await db
+							.delete(tables.session)
+							.where(eq(tables.session.id, newSession.session.id));
+						return ssoRequiredResponse();
+					}
+
+					// Auto-accept pending team invites once the email is trustworthy:
+					// verified (email/social flows), asserted by the IdP (SSO callback
+					// paths), or self-hosted (emails are auto-verified below). Runs
+					// before the default-org logic so invited users join their team's
+					// org instead of getting a personal default org.
+					if (
+						newSession.user.emailVerified ||
+						ctx.path.startsWith("/sso/") ||
+						!isHosted
+					) {
+						await acceptPendingInvitesForUser({
+							id: userId,
+							email: newSession.user.email,
+						});
+					}
+
 					// Check if the user already has any active organizations
 					const userOrganizations = await db.query.userOrganization.findMany({
 						where: {
@@ -934,12 +1132,39 @@ The LLM Gateway Team`.trim();
 					const activeOrganizations = userOrganizations.filter(
 						(uo) => uo.organization?.status !== "deleted",
 					);
-					const hasActiveDashboardOrganization = activeOrganizations.some(
+					const hadActiveDashboardOrganization = activeOrganizations.some(
 						(uo) => uo.organization?.kind === "default",
 					);
 					const hasActivePersonalOrganization = activeOrganizations.some(
 						(uo) => uo.organization?.kind === "devpass",
 					);
+
+					// Google SSO domain auto-join: if this user has a Google account and
+					// their verified email domain matches an enterprise org's configured
+					// SSO domain, add them to that org as a developer. A successful join
+					// gives them an active dashboard org, so the default-org creation below
+					// is skipped (no redundant personal "Default Organization"). Existing
+					// members are a no-op. Never fatal to login.
+					let autoJoinedOrgId: string | null = null;
+					if (newSession.user.emailVerified && dbUser?.email) {
+						const googleAccount = await db.query.account.findFirst({
+							where: {
+								userId: { eq: userId },
+								providerId: { eq: "google" },
+							},
+						});
+						if (googleAccount) {
+							try {
+								autoJoinedOrgId = await autoJoinByEmailDomain({
+									userId,
+									email: dbUser.email,
+									name: dbUser.name,
+								});
+							} catch (error) {
+								logger.error("SSO auto-join failed", error);
+							}
+						}
+					}
 
 					// DevPass (code app) signups get a personal organization instead of
 					// the shared "Default Organization" used by the main LLM Gateway
@@ -957,29 +1182,33 @@ The LLM Gateway Team`.trim();
 						});
 						if (
 							hasActivePersonalOrganization ||
-							hasActiveDashboardOrganization
+							hadActiveDashboardOrganization
 						) {
 							return;
 						}
-					} else if (hasActiveDashboardOrganization) {
+					} else if (hadActiveDashboardOrganization) {
 						return;
 					} else {
-						const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
-						const referralMatch = cookieHeader.match(
-							/llmgateway_referral=([^;]+)/,
-						);
+						// A domain auto-join already gave the user an active dashboard org,
+						// so only create the fallback default org when they didn't join one.
+						if (!autoJoinedOrgId) {
+							const cookieHeader = ctx.request?.headers.get("cookie") ?? "";
+							const referralMatch = cookieHeader.match(
+								/llmgateway_referral=([^;]+)/,
+							);
 
-						await getOrCreateDefaultOrganization(
-							{
-								id: userId,
-								email: newSession.user.email,
-							},
-							{
-								referralOrganizationId: referralMatch
-									? decodeURIComponent(referralMatch[1])
-									: null,
-							},
-						);
+							await getOrCreateDefaultOrganization(
+								{
+									id: userId,
+									email: newSession.user.email,
+								},
+								{
+									referralOrganizationId: referralMatch
+										? decodeURIComponent(referralMatch[1])
+										: null,
+								},
+							);
+						}
 
 						if (activeOrganizations.length > 0) {
 							return;
@@ -994,6 +1223,24 @@ The LLM Gateway Team`.trim();
 							.where(eq(tables.user.id, userId));
 
 						logger.info("Automatically verified email for self-hosted user", {
+							userId,
+						});
+					}
+
+					// Enterprise SSO logins arrive on the plugin's `/sso/...` callback
+					// paths. The IdP (whose domain the org controls) has authenticated
+					// the user, so their email is verified — otherwise they'd be stuck
+					// behind the "verify your email" banner despite never using a
+					// password. The plugin defaults `emailVerified` to false because
+					// Entra/Okta don't send an email-verified claim.
+					if (ctx.path.startsWith("/sso/") && !newSession.user.emailVerified) {
+						await db
+							.update(tables.user)
+							.set({ emailVerified: true })
+							.where(eq(tables.user.id, userId));
+						newSession.user.emailVerified = true;
+
+						logger.info("Automatically verified email for SSO user", {
 							userId,
 						});
 					}

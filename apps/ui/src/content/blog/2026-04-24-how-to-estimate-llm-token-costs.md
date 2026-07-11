@@ -79,7 +79,7 @@ Plugging those three numbers (input tokens, output tokens, requests/day) into a 
 
 We built a [Token Cost Calculator](/token-cost-calculator) that:
 
-- Covers 280+ models across 35+ providers with up-to-date pricing
+- Covers 200+ models across 40+ providers with up-to-date pricing
 - Lets you compare official provider rates side-by-side
 - Shows what the same workload costs on cheaper providers for the same model (DeepSeek, Groq, Cerebras, and others often undercut the official price)
 - Generates a shareable link so you can send estimates to your team

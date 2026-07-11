@@ -2,6 +2,7 @@ import { HTTPException } from "hono/http-exception";
 
 import {
 	getRoundRobinValue,
+	parseCommaSeparatedEnv,
 	peekRoundRobinValue,
 } from "@/lib/round-robin-env.js";
 
@@ -146,4 +147,21 @@ export function getProviderEnv(
 		: peekRoundRobinValue(envVar, envValue, selectionScope, excludedIndices);
 
 	return { token: result.value, configIndex: result.index, envVarName: envVar };
+}
+
+/**
+ * Returns the number of comma-separated values configured in the named env
+ * var, or 0 if it's unset/empty. Pass the resolved `envVarName` from the
+ * provider context — it may be a regional override (e.g. `*__SINGAPORE`)
+ * rather than the provider's base var.
+ */
+export function getEnvKeyCount(envVarName: string | undefined): number {
+	if (!envVarName) {
+		return 0;
+	}
+	const value = process.env[envVarName];
+	if (!value) {
+		return 0;
+	}
+	return parseCommaSeparatedEnv(value).length;
 }

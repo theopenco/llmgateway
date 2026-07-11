@@ -8,7 +8,12 @@ import { maskToken } from "@/lib/maskToken.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
-import { notDevpassFilter } from "@/utils/devpass-filter.js";
+import {
+	notDevpassFilter,
+	notEndUserNonRevenueFilter,
+	notEndUserWalletFilter,
+	paidTransactionFilter,
+} from "@/utils/devpass-filter.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
 	floorToHourStart,
@@ -89,6 +94,7 @@ const adminMetricsSchema = z.object({
 	unusedCredits: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
+	totalBonusCredits: z.number(),
 	totalRefunds: z.number(),
 });
 
@@ -102,6 +108,11 @@ const timeseriesDataPointSchema = z.object({
 	processed: z.number(),
 	refunds: z.number(),
 	net: z.number(),
+	// Per-day (non-cumulative) values. The cumulative series above start from a
+	// pre-range baseline, so clients cannot derive day-one deltas themselves.
+	dailySignups: z.number(),
+	dailyPaidCustomers: z.number(),
+	dailyNet: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -135,6 +146,10 @@ const organizationSchema = z.object({
 	kind: z.enum(["default", "chat", "devpass"]),
 	plan: z.string(),
 	devPlan: z.string(),
+	// Manual seat-limit override; null = use the plan default.
+	seats: z.number().int().nullable().optional(),
+	// Manual API-key-limit override; null = use the plan default.
+	apiKeyLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
@@ -584,7 +599,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	const verifiedUsers = Number(verifiedRow?.count ?? 0);
 
-	// Paying customers: organizations with at least one completed transaction
+	// Paying customers: organizations with at least one completed payment
+	// transaction (credit purchase, dev/chat plan charge, or end-user top-up —
+	// gifts and bookkeeping rows don't count)
 	const [payingRow] = await db
 		.select({
 			count:
@@ -594,13 +611,19 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
+			and(
+				eq(tables.transaction.status, "completed"),
+				paidTransactionFilter,
+				transactionDateFilter,
+			),
 		);
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed credit-purchase transactions, excluding gifts
-	// and all DevPass subscription rows, using creditAmount to exclude Stripe fees)
+	// Total revenue: completed credit-purchase rows — org credit top-ups AND
+	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
+	// creditAmount to exclude Stripe fees. Excludes gifts, DevPass subscription
+	// rows, and the non-revenue end-user rows (developer margin + funded bonus).
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -614,6 +637,7 @@ admin.openapi(getMetrics, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
 		);
@@ -632,7 +656,10 @@ admin.openapi(getMetrics, async (c) => {
 
 	// Total topped up (credits from completed credit-purchase transactions).
 	// Excludes DevPass virtual credits — those are granted per cycle and reset,
-	// so they would inflate the topped-up / unused-credits numbers.
+	// so they would inflate the topped-up / unused-credits numbers — and all
+	// end-user wallet rows, which live in their own balance economy (their spend
+	// is not in `totalSpent`, so counting their top-ups would inflate unused
+	// credits).
 	const [toppedUpRow] = await db
 		.select({
 			value:
@@ -645,6 +672,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				notDevpassFilter,
+				notEndUserWalletFilter,
 				transactionDateFilter,
 			),
 		);
@@ -702,6 +730,7 @@ admin.openapi(getMetrics, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
 		);
@@ -726,6 +755,30 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalGiftedCredits = Number(giftedRow?.value ?? 0);
+
+	// Total developer-funded end-user top-up bonus credits granted (net of
+	// refund claw-backs). end_user_bonus rows store creditAmount as the change to
+	// the developer org's credit balance — negative when a bonus is granted,
+	// positive when clawed back on refund — so negate the sum to report the net
+	// credits actually gifted into end-user wallets. Excluded from revenue above
+	// and surfaced here so it can be subtracted/considered in stats separately.
+	const [bonusRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "end_user_bonus"),
+				transactionDateFilter,
+			),
+		);
+
+	const totalBonusCredits = -Number(bonusRow?.value ?? 0);
 
 	// Total refunds (positive `amount` on credit_refund rows — Stripe-side refunds).
 	const [refundsRow] = await db
@@ -762,6 +815,7 @@ admin.openapi(getMetrics, async (c) => {
 		unusedCredits,
 		overage,
 		totalGiftedCredits,
+		totalBonusCredits,
 		totalRefunds,
 	});
 });
@@ -853,6 +907,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -875,6 +930,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -917,6 +973,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -935,6 +992,7 @@ admin.openapi(getTimeseries, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
 				notDevpassFilter,
+				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -968,7 +1026,12 @@ admin.openapi(getTimeseries, async (c) => {
 					organizationId: tables.transaction.organizationId,
 				})
 				.from(tables.transaction)
-				.where(eq(tables.transaction.status, "completed"))
+				.where(
+					and(
+						eq(tables.transaction.status, "completed"),
+						paidTransactionFilter,
+					),
+				)
 				.groupBy(tables.transaction.organizationId)
 				.having(sql`MIN(${tables.transaction.createdAt}) < ${startDate}`)
 				.as("pre_range_orgs"),
@@ -989,7 +1052,12 @@ admin.openapi(getTimeseries, async (c) => {
 					),
 				})
 				.from(tables.transaction)
-				.where(eq(tables.transaction.status, "completed"))
+				.where(
+					and(
+						eq(tables.transaction.status, "completed"),
+						paidTransactionFilter,
+					),
+				)
 				.groupBy(tables.transaction.organizationId)
 				.having(
 					and(
@@ -1037,6 +1105,9 @@ admin.openapi(getTimeseries, async (c) => {
 		processed: number;
 		refunds: number;
 		net: number;
+		dailySignups: number;
+		dailyPaidCustomers: number;
+		dailyNet: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
@@ -1055,7 +1126,8 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
 		const dailyProcessed = processedMap.get(dateStr) ?? 0;
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
-		cumulativePaid += newPaidMap.get(dateStr) ?? 0;
+		const dailyPaidCustomers = newPaidMap.get(dateStr) ?? 0;
+		cumulativePaid += dailyPaidCustomers;
 
 		totalSignups += dailySignups;
 		totalRevenue += dailyRevenue;
@@ -1070,6 +1142,9 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			dailySignups,
+			dailyPaidCustomers,
+			dailyNet: dailyRevenue - dailyRefunds,
 		});
 	}
 
@@ -1493,7 +1568,7 @@ admin.openapi(getGlobalStats, async (c) => {
 				row as (typeof timeseriesBreakdownRows)[number] & { source: string }
 			).source;
 		}
-		const mapKey = `${row.date} ${key}`;
+		const mapKey = `${row.date}:${key}`;
 		const existing = timeseriesBreakdownMap.get(mapKey);
 		if (existing) {
 			existing.requestCount += Number(row.requestCount);
@@ -1978,6 +2053,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			seats: org.seats,
+			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -2058,6 +2135,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			seats: org.seats,
+			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -5285,6 +5364,105 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 		message: "Referral bonus updated successfully",
 		referralBonusEnabled: enabled,
 		referralBonusPercent: percent,
+	});
+});
+
+// Manage an organization's plan tier, seat-limit and API-key-limit overrides
+const manageOrganizationRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/manage",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						plan: z.enum(["free", "pro", "enterprise"]),
+						// Null clears the override and reverts to the plan default.
+						seats: z.number().int().min(0).max(100000).nullable(),
+						// Null clears the override and reverts to the plan default.
+						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						plan: z.string(),
+						seats: z.number().int().nullable(),
+						apiKeyLimit: z.number().int().nullable(),
+					}),
+				},
+			},
+			description: "Organization updated successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(manageOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { plan, seats, apiKeyLimit } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			plan,
+			seats,
+			apiKeyLimit,
+		})
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "organization.manage",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			previousPlan: org.plan,
+			newPlan: plan,
+			previousSeats: org.seats,
+			newSeats: seats,
+			previousApiKeyLimit: org.apiKeyLimit,
+			newApiKeyLimit: apiKeyLimit,
+		},
+	});
+
+	return c.json({
+		message: "Organization updated successfully",
+		plan,
+		seats,
+		apiKeyLimit,
 	});
 });
 
@@ -9109,6 +9287,303 @@ admin.openapi(archiveContactSubmission, async (c) => {
 	return c.json({ success: true });
 });
 
+// ── Provider Listing Requests ─────────────────────────────────────────────────
+
+const providerListingRequestSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	providerName: z.string(),
+	email: z.string(),
+	url: z.string(),
+	country: z.string(),
+	complianceSoc2Type2: z.boolean(),
+	complianceIso27001: z.boolean(),
+	complianceGdpr: z.boolean(),
+	dataRetentionDays: z.number().nullable(),
+	trainsOnData: z.boolean().nullable(),
+	paymentStatus: z.enum(["unpaid", "paid", "refunded"]),
+	paidAt: z.string().nullable(),
+	ipAddress: z.string().nullable(),
+	userAgent: z.string().nullable(),
+	spamFilterStatus: z.string(),
+	rejectionReason: z.string().nullable(),
+	archivedAt: z.string().nullable(),
+});
+
+const providerListingRequestsListSchema = z.object({
+	requests: z.array(providerListingRequestSchema),
+	total: z.number(),
+});
+
+const providerListingRequestsSortBySchema = z.enum([
+	"createdAt",
+	"providerName",
+	"email",
+	"spamFilterStatus",
+]);
+
+const getProviderListingRequests = createRoute({
+	method: "get",
+	path: "/provider-listing-requests",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			search: z.string().optional(),
+			status: z
+				.enum(["pending", "rejected", "delivered", "delivery_failed"])
+				.optional(),
+			sortBy: providerListingRequestsSortBySchema
+				.default("createdAt")
+				.optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+			archived: z
+				.enum(["true", "false"])
+				.default("false")
+				.transform((v) => v === "true")
+				.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerListingRequestsListSchema.openapi({}),
+				},
+			},
+			description: "List of provider listing requests.",
+		},
+	},
+});
+
+admin.openapi(getProviderListingRequests, async (c) => {
+	const {
+		limit = 50,
+		offset = 0,
+		search,
+		status,
+		sortBy = "createdAt",
+		sortOrder = "desc",
+		archived = false,
+	} = c.req.valid("query");
+
+	const t = tables.providerListingRequest;
+
+	const conditions = [];
+	if (search) {
+		conditions.push(
+			or(
+				sql`${t.providerName} ILIKE ${"%" + search + "%"}`,
+				sql`${t.email} ILIKE ${"%" + search + "%"}`,
+				sql`${t.url} ILIKE ${"%" + search + "%"}`,
+				sql`${t.country} ILIKE ${"%" + search + "%"}`,
+			),
+		);
+	}
+	if (status) {
+		conditions.push(eq(t.spamFilterStatus, status));
+	}
+	conditions.push(archived ? isNotNull(t.archivedAt) : isNull(t.archivedAt));
+
+	const where = and(...conditions);
+
+	const sortColumn = {
+		createdAt: t.createdAt,
+		providerName: t.providerName,
+		email: t.email,
+		spamFilterStatus: t.spamFilterStatus,
+	}[sortBy];
+
+	const orderFn = sortOrder === "asc" ? asc : desc;
+
+	const [requests, countResult] = await Promise.all([
+		db
+			.select({
+				id: t.id,
+				createdAt: t.createdAt,
+				providerName: t.providerName,
+				email: t.email,
+				url: t.url,
+				country: t.country,
+				complianceSoc2Type2: t.complianceSoc2Type2,
+				complianceIso27001: t.complianceIso27001,
+				complianceGdpr: t.complianceGdpr,
+				dataRetentionDays: t.dataRetentionDays,
+				trainsOnData: t.trainsOnData,
+				paymentStatus: t.paymentStatus,
+				paidAt: t.paidAt,
+				ipAddress: t.ipAddress,
+				userAgent: t.userAgent,
+				spamFilterStatus: t.spamFilterStatus,
+				rejectionReason: t.rejectionReason,
+				archivedAt: t.archivedAt,
+			})
+			.from(t)
+			.where(where)
+			.orderBy(orderFn(sortColumn))
+			.limit(limit)
+			.offset(offset),
+		db
+			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(where),
+	]);
+
+	return c.json({
+		requests: requests.map((r) => ({
+			...r,
+			createdAt: r.createdAt.toISOString(),
+			paidAt: r.paidAt?.toISOString() ?? null,
+			archivedAt: r.archivedAt?.toISOString() ?? null,
+		})),
+		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
+const getProviderListingRequest = createRoute({
+	method: "get",
+	path: "/provider-listing-requests/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerListingRequestSchema.openapi({}),
+				},
+			},
+			description: "Single provider listing request.",
+		},
+	},
+});
+
+admin.openapi(getProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+	const t = tables.providerListingRequest;
+
+	const rows = await db
+		.select({
+			id: t.id,
+			createdAt: t.createdAt,
+			providerName: t.providerName,
+			email: t.email,
+			url: t.url,
+			country: t.country,
+			complianceSoc2Type2: t.complianceSoc2Type2,
+			complianceIso27001: t.complianceIso27001,
+			complianceGdpr: t.complianceGdpr,
+			dataRetentionDays: t.dataRetentionDays,
+			trainsOnData: t.trainsOnData,
+			paymentStatus: t.paymentStatus,
+			paidAt: t.paidAt,
+			ipAddress: t.ipAddress,
+			userAgent: t.userAgent,
+			spamFilterStatus: t.spamFilterStatus,
+			rejectionReason: t.rejectionReason,
+			archivedAt: t.archivedAt,
+		})
+		.from(t)
+		.where(eq(t.id, id))
+		.limit(1);
+
+	const request = rows[0];
+	if (!request) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	return c.json({
+		...request,
+		createdAt: request.createdAt.toISOString(),
+		paidAt: request.paidAt?.toISOString() ?? null,
+		archivedAt: request.archivedAt?.toISOString() ?? null,
+	});
+});
+
+const deleteProviderListingRequest = createRoute({
+	method: "delete",
+	path: "/provider-listing-requests/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Request deleted.",
+		},
+		404: {
+			description: "Request not found.",
+		},
+	},
+});
+
+admin.openapi(deleteProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const existing = await db.query.providerListingRequest.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (!existing) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	await db
+		.delete(tables.providerListingRequest)
+		.where(eq(tables.providerListingRequest.id, id));
+
+	return c.json({ success: true });
+});
+
+const archiveProviderListingRequest = createRoute({
+	method: "patch",
+	path: "/provider-listing-requests/{id}/archive",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ archived: z.boolean() }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Request archived/unarchived.",
+		},
+		404: {
+			description: "Request not found.",
+		},
+	},
+});
+
+admin.openapi(archiveProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+	const { archived } = c.req.valid("json");
+
+	const rows = await db
+		.update(tables.providerListingRequest)
+		.set({ archivedAt: archived ? new Date() : null })
+		.where(eq(tables.providerListingRequest.id, id))
+		.returning();
+
+	if (rows.length === 0) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	return c.json({ success: true });
+});
+
 // ── Archive Chat Support Conversation ────────────────────────────────────────
 
 const archiveChatSupportConversation = createRoute({
@@ -9340,6 +9815,7 @@ const devpassSubscriberSchema = z.object({
 	ownerName: z.string().nullable(),
 	ownerEmail: z.string().nullable(),
 	tier: devpassTierSchema,
+	pendingTier: devpassTierSchema.nullable(),
 	status: devpassStatusSchema,
 	hasPaymentIssue: z.boolean(),
 	creditsUsed: z.string(),
@@ -9961,6 +10437,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			name: tables.organization.name,
 			billingEmail: tables.organization.billingEmail,
 			tier: tables.organization.devPlan,
+			pendingTier: tables.organization.devPlanPendingTier,
 			creditsUsed: tables.organization.devPlanCreditsUsed,
 			creditsLimit: tables.organization.devPlanCreditsLimit,
 			premiumCreditsUsed: tables.organization.devPlanPremiumCreditsUsed,
@@ -10276,6 +10753,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			ownerName: row.ownerName ?? null,
 			ownerEmail: row.ownerEmail ?? null,
 			tier,
+			pendingTier: row.pendingTier ?? null,
 			status,
 			hasPaymentIssue,
 			creditsUsed: String(row.creditsUsed),
@@ -10937,6 +11415,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		ownerName: owner[0]?.userName ?? null,
 		ownerEmail: owner[0]?.userEmail ?? null,
 		tier: org.devPlan,
+		pendingTier: org.devPlanPendingTier ?? null,
 		status,
 		hasPaymentIssue,
 		creditsUsed: String(org.devPlanCreditsUsed),

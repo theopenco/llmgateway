@@ -736,6 +736,7 @@ export function transformStreamingToOpenai(
 
 		case "azure":
 		case "sakana":
+		case "meta":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -1031,6 +1032,9 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
 						};
 						break;
 					}
@@ -1073,6 +1077,9 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
 						};
 						break;
 					}

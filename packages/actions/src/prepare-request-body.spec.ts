@@ -50,7 +50,11 @@ async function prepareOpenAITextRequest(options: {
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
+	promptCacheOptions?: { mode?: "implicit" | "explicit"; ttl?: "30m" };
 	serviceTier?: "flex" | "priority";
+	verbosity?: "low" | "medium" | "high";
+	messages?: { role: string; content: unknown }[];
+	providerCacheControlEnabled?: boolean;
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -58,7 +62,7 @@ async function prepareOpenAITextRequest(options: {
 		model,
 		null,
 		model,
-		[{ role: "user", content: "Hello!" }],
+		(options.messages as any) ?? [{ role: "user", content: "Hello!" }],
 		false,
 		undefined,
 		undefined,
@@ -82,9 +86,11 @@ async function prepareOpenAITextRequest(options: {
 		options.useResponsesApi ?? false,
 		options.promptCacheKey,
 		options.promptCacheRetention,
-		true,
+		options.providerCacheControlEnabled ?? true,
 		undefined,
 		options.serviceTier,
+		options.verbosity,
+		options.promptCacheOptions,
 	);
 }
 
@@ -585,6 +591,103 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 	});
 });
 
+describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => {
+	const explicitCacheMessages = [
+		{
+			role: "system",
+			content: [
+				{
+					type: "text",
+					text: "stable reusable prefix",
+					prompt_cache_breakpoint: { mode: "explicit" },
+				},
+			],
+		},
+		{ role: "user", content: "dynamic input" },
+	];
+
+	test("forwards prompt_cache_options and breakpoints for gpt-5.6 chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+		expect(requestBody.messages[0].content[0].prompt_cache_breakpoint).toEqual({
+			mode: "explicit",
+		});
+	});
+
+	test("carries breakpoints through the Responses API content transform", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			useResponsesApi: true,
+			promptCacheOptions: { mode: "explicit", ttl: "30m" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({
+			mode: "explicit",
+			ttl: "30m",
+		});
+		expect(requestBody.input[0].content[0]).toEqual({
+			type: "input_text",
+			text: "stable reusable prefix",
+			prompt_cache_breakpoint: { mode: "explicit" },
+		});
+	});
+
+	test("strips prompt_cache_options and breakpoints on models without explicit caching", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+	});
+
+	test("strips breakpoints when provider cache writes are disabled for the project", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+	});
+
+	test("forces explicit mode when provider cache writes are disabled (implicit auto-writes bill at 1.25x)", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			messages: explicitCacheMessages,
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+	});
+
+	test("does not force explicit mode on models without explicit caching support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - OpenAI service tiers", () => {
 	test("should forward service_tier to OpenAI chat completions", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
@@ -619,6 +722,86 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 		})) as { service_tier?: string };
 
 		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - verbosity", () => {
+	test("forwards verbosity to gpt-5.6 chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-terra",
+			verbosity: "low",
+		})) as { verbosity?: string };
+
+		expect(requestBody.verbosity).toBe("low");
+	});
+
+	test("forwards verbosity as text.verbosity to gpt-5.6 Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			useResponsesApi: true,
+			verbosity: "high",
+		})) as { text?: { verbosity?: string } };
+
+		expect(requestBody.text?.verbosity).toBe("high");
+	});
+
+	test("keeps text.format when verbosity is combined with response_format", async () => {
+		const requestBody = (await prepareRequestBody(
+			"openai",
+			"gpt-5.6-luna",
+			null,
+			"gpt-5.6-luna",
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true, // useResponsesApi
+			undefined,
+			undefined,
+			true,
+			undefined,
+			undefined,
+			"medium", // verbosity
+		)) as { text?: { format?: { type: string }; verbosity?: string } };
+
+		expect(requestBody.text?.format?.type).toBe("json_object");
+		expect(requestBody.text?.verbosity).toBe("medium");
+	});
+
+	test("strips verbosity for models without verbosity support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			verbosity: "low",
+		})) as { verbosity?: string };
+
+		expect(requestBody.verbosity).toBeUndefined();
+	});
+
+	test("strips verbosity from the Responses API body for unsupported models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.1-codex",
+			useResponsesApi: true,
+			verbosity: "low",
+		})) as { text?: { verbosity?: string } };
+
+		expect(requestBody.text?.verbosity).toBeUndefined();
 	});
 });
 
@@ -691,6 +874,52 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 			model: "claude-sonnet-4-20250514",
 		})) as AnthropicRequestBody;
 		expect(requestBody.thinking).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - xAI reasoning_effort", () => {
+	async function prepare(effort: "low" | "medium" | "high" | "xhigh") {
+		return (await prepareRequestBody(
+			"xai",
+			"grok-4-5",
+			null,
+			"grok-4.5",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			effort, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+		)) as any;
+	}
+
+	test("forwards low to xAI", async () => {
+		const requestBody = await prepare("low");
+		expect(requestBody.reasoning_effort).toBe("low");
+	});
+
+	test("forwards high to xAI", async () => {
+		const requestBody = await prepare("high");
+		expect(requestBody.reasoning_effort).toBe("high");
+	});
+
+	test("forwards medium to xAI", async () => {
+		const requestBody = await prepare("medium");
+		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+
+	test("forwards effort verbatim and lets xAI reject unsupported tiers", async () => {
+		const requestBody = await prepare("xhigh");
+		expect(requestBody.reasoning_effort).toBe("xhigh");
 	});
 });
 

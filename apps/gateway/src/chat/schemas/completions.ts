@@ -25,6 +25,15 @@ export const completionsRequestSchema = z.object({
 										ttl: z.enum(["5m", "1h"]).optional(),
 									})
 									.optional(),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional()
+									.openapi({
+										description:
+											"OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later). Ends a cacheable prefix when the request sets prompt_cache_options.mode to 'explicit'. Stripped for providers/models without explicit prompt caching support.",
+									}),
 							}),
 							z.object({
 								type: z.literal("image_url"),
@@ -32,6 +41,11 @@ export const completionsRequestSchema = z.object({
 									url: z.string(),
 									detail: z.enum(["low", "high", "auto"]).optional(),
 								}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 							z.object({
 								type: z.literal("input_audio"),
@@ -52,6 +66,11 @@ export const completionsRequestSchema = z.object({
 										"webm",
 									]),
 								}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 							z.object({
 								type: z.literal("file"),
@@ -71,6 +90,11 @@ export const completionsRequestSchema = z.object({
 										message:
 											"file.file_data or file.file_id is required for file content",
 									}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 						]),
 					),
@@ -211,6 +235,19 @@ export const completionsRequestSchema = z.object({
 				"OpenAI prompt cache retention policy. OpenAI supports in_memory and 24h for eligible models.",
 			example: "24h",
 		}),
+	prompt_cache_options: z
+		.object({
+			mode: z.enum(["implicit", "explicit"]).optional(),
+			ttl: z.enum(["30m"]).optional(),
+		})
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI explicit prompt caching options (GPT-5.6 and later). mode 'implicit' (default) places an automatic cache breakpoint at the latest message; 'explicit' caches only content parts marked with prompt_cache_breakpoint. Only forwarded for OpenAI models that support explicit prompt caching.",
+			example: { mode: "explicit" },
+		}),
 	user: z
 		.string()
 		.nullable()
@@ -303,6 +340,16 @@ export const completionsRequestSchema = z.object({
 			description:
 				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
 			example: "medium",
+		}),
+	verbosity: z
+		.enum(["low", "medium", "high"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Controls how detailed the model's responses are. Only supported by OpenAI GPT-5 and later models; requests to models without verbosity support return a 400 error.",
+			example: "low",
 		}),
 	service_tier: z
 		.enum(["auto", "default", "flex", "priority"])

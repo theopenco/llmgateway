@@ -3,13 +3,11 @@
 import { format, subDays } from "date-fns";
 import {
 	BarChart3Icon,
-	ChevronsUpDown,
 	Info,
 	KeyRound,
 	Mail,
 	MoreHorizontal,
 	TrendingUp,
-	X,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -17,6 +15,10 @@ import { useEffect, useState } from "react";
 
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { DateRangePicker } from "@/components/date-range-picker";
+import {
+	ProjectMultiSelect,
+	type OrgProject,
+} from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	useTeamMembers,
@@ -25,6 +27,7 @@ import {
 	useUpdateMemberBudget,
 	useUpdateDefaultDeveloperBudget,
 	useRemoveTeamMember,
+	useRevokeTeamInvite,
 	type TeamMembersData,
 } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -38,14 +41,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "@/lib/components/command";
 import {
 	Dialog,
 	DialogContent,
@@ -71,11 +66,6 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/lib/components/popover";
-import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -93,6 +83,8 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+
+import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -469,7 +461,13 @@ function DefaultDeveloperLimitsDialog({
 					<DialogDescription>
 						Applied to every developer in the org. A developer's own limits (set
 						via “Manage budget”) override these. Leave a field blank for
-						unlimited.
+						unlimited. New SSO teams start at{" "}
+						{currencyFormatter.format(
+							Number(SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageLimit),
+						)}
+						/{SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.periodUsageDurationUnit} and{" "}
+						{SSO_TEAM_DEFAULT_DEVELOPER_BUDGET.maxApiKeys} API keys per
+						developer.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4 py-4">
@@ -554,102 +552,6 @@ function DefaultDeveloperLimitsDialog({
 }
 
 type MemberRole = "owner" | "admin" | "developer";
-interface OrgProject {
-	id: string;
-	name: string;
-}
-
-function ProjectMultiSelect({
-	orgProjects,
-	selected,
-	onChange,
-}: {
-	orgProjects: OrgProject[];
-	selected: string[];
-	onChange: (projectIds: string[]) => void;
-}) {
-	const [open, setOpen] = useState(false);
-
-	if (orgProjects.length === 0) {
-		return (
-			<p className="text-muted-foreground text-sm">
-				This organization has no projects yet. Create a project first.
-			</p>
-		);
-	}
-
-	const selectedProjects = selected
-		.map((id) => orgProjects.find((p) => p.id === id))
-		.filter((p): p is OrgProject => Boolean(p));
-	const available = orgProjects.filter((p) => !selected.includes(p.id));
-
-	return (
-		<div className="space-y-2">
-			{selectedProjects.length > 0 && (
-				<div className="flex flex-wrap gap-1.5">
-					{selectedProjects.map((project) => (
-						<Badge key={project.id} variant="secondary" className="gap-1 pr-1">
-							{project.name}
-							<button
-								type="button"
-								aria-label={`Remove ${project.name}`}
-								className="hover:bg-muted-foreground/20 rounded-sm p-0.5"
-								onClick={() =>
-									onChange(selected.filter((id) => id !== project.id))
-								}
-							>
-								<X className="h-3 w-3" />
-							</button>
-						</Badge>
-					))}
-				</div>
-			)}
-
-			<Popover open={open} onOpenChange={setOpen}>
-				<PopoverTrigger asChild>
-					<Button
-						type="button"
-						variant="outline"
-						role="combobox"
-						aria-expanded={open}
-						disabled={available.length === 0}
-						className="w-full justify-between font-normal"
-					>
-						<span className="text-muted-foreground">
-							{available.length === 0 ? "All projects added" : "Add a project…"}
-						</span>
-						<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-					</Button>
-				</PopoverTrigger>
-				<PopoverContent
-					className="w-[--radix-popover-trigger-width] p-0"
-					align="start"
-				>
-					<Command>
-						<CommandInput placeholder="Search projects…" />
-						<CommandList>
-							<CommandEmpty>No projects found.</CommandEmpty>
-							<CommandGroup>
-								{available.map((project) => (
-									<CommandItem
-										key={project.id}
-										value={project.name}
-										onSelect={() => {
-											onChange([...selected, project.id]);
-											setOpen(false);
-										}}
-									>
-										{project.name}
-									</CommandItem>
-								))}
-							</CommandGroup>
-						</CommandList>
-					</Command>
-				</PopoverContent>
-			</Popover>
-		</div>
-	);
-}
 
 // Project-scoped developer access is an Enterprise feature: the option is
 // disabled (with a badge) off-plan.
@@ -797,6 +699,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { data, isLoading } = useTeamMembers(organizationId, initialData);
 	const addMemberMutation = useAddTeamMember(organizationId);
 	const removeMemberMutation = useRemoveTeamMember(organizationId);
+	const revokeInviteMutation = useRevokeTeamInvite(organizationId);
 
 	const currentUserRole = data?.members.find(
 		(member) => member.userId === user?.id,
@@ -813,6 +716,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const [accessMember, setAccessMember] = useState<TeamMember | null>(null);
 	const [defaultLimitsOpen, setDefaultLimitsOpen] = useState(false);
 	const defaultDeveloperBudget = data?.defaultDeveloperBudget ?? null;
+	const pendingInvites = data?.invites ?? [];
+	const seatLimit = data?.seatLimit ?? 5;
+	const seatsUsed = (data?.members.length ?? 0) + pendingInvites.length;
 
 	const { data: orgProjectsData } = api.useQuery(
 		"get",
@@ -900,7 +806,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			return;
 		}
 
-		await addMemberMutation.mutateAsync({
+		const result = await addMemberMutation.mutateAsync({
 			params: {
 				path: {
 					organizationId,
@@ -914,12 +820,37 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		});
 		toast({
 			title: "Success",
-			description: "Team member added successfully",
+			description: result.invite
+				? "Invitation sent — they'll join automatically once they sign up with this email."
+				: "Team member added successfully",
 		});
 		setEmail("");
 		setRole("developer");
 		setNewMemberProjectIds([]);
 		setIsAddDialogOpen(false);
+	};
+
+	const handleRevokeInvite = async (inviteId: string, inviteEmail: string) => {
+		const confirmed = window.confirm(
+			`Are you sure you want to revoke the invitation for ${inviteEmail}?`,
+		);
+
+		if (!confirmed) {
+			return;
+		}
+
+		await revokeInviteMutation.mutateAsync({
+			params: {
+				path: {
+					organizationId,
+					inviteId,
+				},
+			},
+		});
+		toast({
+			title: "Success",
+			description: "Invitation revoked",
+		});
 	};
 
 	const handleRemoveMember = async (memberId: string, memberName: string) => {
@@ -973,16 +904,16 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 								}}
 							>
 								<DialogTrigger asChild>
-									<Button disabled={(data?.members.length ?? 0) >= 5}>
-										Add Member
-									</Button>
+									<Button disabled={seatsUsed >= seatLimit}>Add Member</Button>
 								</DialogTrigger>
 								<DialogContent>
 									<DialogHeader>
 										<DialogTitle>Add Team Member</DialogTitle>
 										<DialogDescription>
 											Add a new member to your organization by entering their
-											email address.
+											email address. If they don't have an account yet, we'll
+											email them an invitation and they'll join automatically
+											when they sign up (including via SSO).
 										</DialogDescription>
 									</DialogHeader>
 									<div className="space-y-4 py-4">
@@ -1035,8 +966,8 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 										<Alert>
 											<AlertDescription>
 												<p>
-													Organizations can have up to 5 team members. Contact
-													us at{" "}
+													Organizations can have up to {data?.seatLimit ?? 5}{" "}
+													team members. Contact us at{" "}
 													<a
 														href="mailto:contact@llmgateway.io"
 														className="underline"
@@ -1123,7 +1054,13 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							<CardTitle>Team Members</CardTitle>
 							<CardDescription>
 								Manage your organization's team members and their roles (
-								{data?.members.length ?? 0}/5 seats used)
+								{seatsUsed}/{seatLimit} seats used
+								{pendingInvites.length > 0
+									? `, including ${pendingInvites.length} pending ${
+											pendingInvites.length === 1 ? "invitation" : "invitations"
+										}`
+									: ""}
+								)
 								{showUsage
 									? ". Cost is attributed to the member who created each API key."
 									: ""}
@@ -1319,6 +1256,91 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							)}
 						</CardContent>
 					</Card>
+
+					{pendingInvites.length > 0 && (
+						<Card>
+							<CardHeader>
+								<CardTitle>Pending Invitations</CardTitle>
+								<CardDescription>
+									People invited by email who haven't created an account yet.
+									They'll join automatically when they sign up — via email, SSO,
+									or SCIM provisioning.
+								</CardDescription>
+							</CardHeader>
+							<CardContent>
+								<Table>
+									<TableHeader>
+										<TableRow>
+											<TableHead>Email</TableHead>
+											<TableHead>Role</TableHead>
+											<TableHead>Projects</TableHead>
+											<TableHead>Invited</TableHead>
+											<TableHead>Expires</TableHead>
+											{isAdmin && (
+												<TableHead className="text-right">Actions</TableHead>
+											)}
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{pendingInvites.map((invite) => (
+											<TableRow key={invite.id}>
+												<TableCell>{invite.email}</TableCell>
+												<TableCell>
+													<Badge variant="secondary" className="capitalize">
+														{invite.role}
+													</Badge>
+												</TableCell>
+												<TableCell>
+													{invite.projects === null ? (
+														<span className="text-muted-foreground text-sm">
+															All projects
+														</span>
+													) : invite.projects.length === 0 ? (
+														<span className="text-muted-foreground text-sm">
+															No projects
+														</span>
+													) : (
+														<div className="flex flex-wrap gap-1">
+															{invite.projects.map((project) => (
+																<Badge
+																	key={project.id}
+																	variant="outline"
+																	className="font-normal"
+																>
+																	{project.name}
+																</Badge>
+															))}
+														</div>
+													)}
+												</TableCell>
+												<TableCell>
+													{format(new Date(invite.createdAt), "MMM d, yyyy")}
+												</TableCell>
+												<TableCell>
+													{format(new Date(invite.expiresAt), "MMM d, yyyy")}
+												</TableCell>
+												{isAdmin && (
+													<TableCell className="text-right">
+														<Button
+															variant="ghost"
+															size="sm"
+															className="text-destructive hover:text-destructive"
+															disabled={revokeInviteMutation.isPending}
+															onClick={() =>
+																handleRevokeInvite(invite.id, invite.email)
+															}
+														>
+															Revoke
+														</Button>
+													</TableCell>
+												)}
+											</TableRow>
+										))}
+									</TableBody>
+								</Table>
+							</CardContent>
+						</Card>
+					)}
 				</div>
 			</div>
 			{accessMember && (

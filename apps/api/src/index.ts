@@ -39,6 +39,7 @@ import { publicNewsletter } from "./routes/public-newsletter.js";
 import { publicProfile } from "./routes/public-profile.js";
 import { publicProvidersStats } from "./routes/public-providers-stats.js";
 import { referral } from "./routes/referral.js";
+import { scim } from "./routes/scim.js";
 import { v1Master } from "./routes/v1-master.js";
 import { stripeRoutes } from "./stripe.js";
 
@@ -294,5 +295,9 @@ app.route("/v1/connect", platformConnect);
 app.route("/v1/webhooks", platformWebhooks);
 
 app.route("/v1/config", publicConfig);
+
+// SCIM 2.0 provisioning (Okta → us). Bearer-token auth inside the router; mounted
+// before the session-guarded `routes` group so it stays outside session auth.
+app.route("/scim/v2", scim);
 
 app.route("/", routes);

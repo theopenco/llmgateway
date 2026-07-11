@@ -31,11 +31,11 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Models",
-		description: "280+ unique models across 35+ providers",
+		description: "200+ unique models across 40+ providers",
 		learnMoreLink: "/models",
 		learnMoreText: "Browse all models →",
-		free: "All 280+ models",
-		enterprise: "All 280+ models",
+		free: "All 200+ models",
+		enterprise: "All 200+ models",
 	},
 	{
 		name: "Provider Choice",
@@ -215,6 +215,9 @@ export function PricingTable() {
 	return (
 		<section className="w-full pb-16 md:pb-24">
 			<div className="container mx-auto px-4 md:px-6">
+				<h2 className="text-2xl md:text-3xl font-bold tracking-tight text-center mb-8">
+					Compare plans
+				</h2>
 				<div className="overflow-x-auto">
 					<table className="w-full border-collapse min-w-[600px]">
 						{/* Header */}

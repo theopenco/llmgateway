@@ -2,11 +2,11 @@
 id: cursor
 slug: cursor
 title: Cursor Integration
-description: Point Cursor's chat at any of 280+ models through LLM Gateway. One base URL override, full cost tracking — with an honest look at what Cursor does and doesn't allow.
+description: Point Cursor's chat at any of 200+ models through LLM Gateway. One base URL override, full cost tracking — with an honest look at what Cursor does and doesn't allow.
 date: 2026-07-03
 ---
 
-Cursor is an AI-powered code editor built on VS Code. It supports a custom OpenAI base URL, which means you can point its chat panel at LLM Gateway and use any model from our catalog — GPT-5, Claude, Gemini, DeepSeek, or 280+ others — with every request tracked in your dashboard.
+Cursor is an AI-powered code editor built on VS Code. It supports a custom OpenAI base URL, which means you can point its chat panel at LLM Gateway and use any model from our catalog — GPT-5, Claude, Gemini, DeepSeek, or 200+ others — with every request tracked in your dashboard.
 
 One thing up front, because most guides skip it: **the base URL override only applies to Cursor's chat / plan mode.** Composer, inline edit (Cmd/Ctrl + K), and autocomplete are locked to Cursor's own backend and will not route through any external endpoint. If you want a full coding agent running through LLM Gateway, use [Claude Code](/guides/claude-code), [Codex CLI](/guides/codex-cli), [Cline](/guides/cline), or [OpenCode](/guides/opencode) instead.
 

@@ -1373,7 +1373,7 @@ anthropic.openapi(messages, async (c) => {
 
 function determineStopReason(
 	finishReason: string | undefined,
-): "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | null {
+): "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | "refusal" | null {
 	switch (finishReason) {
 		case "stop":
 			return "end_turn";
@@ -1381,6 +1381,12 @@ function determineStopReason(
 			return "max_tokens";
 		case "tool_calls":
 			return "tool_use";
+		case "content_filter":
+			return "refusal";
+		// Unknown finish reasons fall back to "end_turn" rather than null:
+		// a null stopReason would suppress the terminal message_delta and
+		// message_stop events in the streaming path, leaving clients with a
+		// malformed stream.
 		default:
 			return "end_turn";
 	}

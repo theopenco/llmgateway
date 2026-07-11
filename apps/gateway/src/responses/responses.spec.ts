@@ -109,6 +109,31 @@ describe("responsesRequestSchema", () => {
 		expect(result.data?.reasoning?.effort).toBe("high");
 	});
 
+	it("accepts service_tier and normalizes explicit null to undefined", () => {
+		const withTier = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: "hello",
+			service_tier: "flex",
+		});
+		expect(withTier.success).toBe(true);
+		expect(withTier.data?.service_tier).toBe("flex");
+
+		const withNull = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: "hello",
+			service_tier: null,
+		});
+		expect(withNull.success).toBe(true);
+		expect(withNull.data?.service_tier).toBeUndefined();
+
+		const invalid = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: "hello",
+			service_tier: "turbo",
+		});
+		expect(invalid.success).toBe(false);
+	});
+
 	it("accepts item_reference items mixed with messages and outputs", () => {
 		const result = responsesRequestSchema.safeParse({
 			model: "gpt-5.5",
@@ -330,6 +355,75 @@ describe("convertChatResponseToResponses", () => {
 		expect(messageOutput).toBeDefined();
 		expect((messageOutput as any).content[0].type).toBe("output_text");
 		expect((messageOutput as any).content[0].text).toBe("Hello!");
+	});
+
+	it("echoes the served service tier from the chat response", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+			service_tier: "flex",
+		};
+
+		const result = convertChatResponseToResponses(
+			chatResponse,
+			"openai/gpt-5.5",
+			undefined,
+			{ service_tier: "flex" },
+		);
+
+		expect(result.service_tier).toBe("flex");
+	});
+
+	it("falls back to metadata used_service_tier, then the requested tier", () => {
+		const baseChat = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+		};
+
+		// A downgraded premium request echoes the tier actually served.
+		const downgraded = convertChatResponseToResponses(
+			{
+				...baseChat,
+				metadata: { requested_service_tier: "flex", used_service_tier: null },
+			},
+			"google-vertex/gemini-3-pro",
+			undefined,
+			{ service_tier: "flex" },
+		);
+		expect(downgraded.service_tier).toBe("default");
+
+		const served = convertChatResponseToResponses(
+			{
+				...baseChat,
+				metadata: {
+					requested_service_tier: "flex",
+					used_service_tier: "flex",
+				},
+			},
+			"google-vertex/gemini-3-pro",
+			undefined,
+			{ service_tier: "flex" },
+		);
+		expect(served.service_tier).toBe("flex");
+
+		// Without tier info from the chat response, echo the requested tier.
+		const requestedOnly = convertChatResponseToResponses(
+			baseChat,
+			"openai/gpt-5.5",
+			undefined,
+			{ service_tier: "priority" },
+		);
+		expect(requestedOnly.service_tier).toBe("priority");
 	});
 
 	it("converts tool calls to function_call outputs", () => {
@@ -569,6 +663,58 @@ describe("streaming conversion", () => {
 		const completedEvent = events.find((e) => e.event === "response.completed");
 		const completedData = JSON.parse(completedEvent!.data);
 		expect(completedData.response.status).toBe("completed");
+	});
+
+	it("captures the served service tier from stream chunks", () => {
+		const state = createStreamingState("gpt-5.5", undefined, {
+			service_tier: "flex",
+		});
+		processStreamChunk({ choices: [{ delta: { content: "Hello" } }] }, state);
+		processStreamChunk(
+			{
+				choices: [],
+				usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				service_tier: "flex",
+			},
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const completedEvent = events.find((e) => e.event === "response.completed");
+		const completedData = JSON.parse(completedEvent!.data);
+		expect(completedData.response.service_tier).toBe("flex");
+	});
+
+	it("captures a downgraded tier from the final usage chunk metadata", () => {
+		const state = createStreamingState("gemini-3-pro", undefined, {
+			service_tier: "flex",
+		});
+		processStreamChunk({ choices: [{ delta: { content: "Hello" } }] }, state);
+		processStreamChunk(
+			{
+				choices: [],
+				usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				metadata: { requested_service_tier: "flex", used_service_tier: null },
+			},
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const completedEvent = events.find((e) => e.event === "response.completed");
+		const completedData = JSON.parse(completedEvent!.data);
+		expect(completedData.response.service_tier).toBe("default");
+	});
+
+	it("echoes the requested service tier when no served tier is reported", () => {
+		const state = createStreamingState("gpt-5.5", undefined, {
+			service_tier: "priority",
+		});
+		processStreamChunk({ choices: [{ delta: { content: "Hello" } }] }, state);
+
+		const events = createCompletionEvents(state);
+		const completedEvent = events.find((e) => e.event === "response.completed");
+		const completedData = JSON.parse(completedEvent!.data);
+		expect(completedData.response.service_tier).toBe("priority");
 	});
 
 	it("uses consistent IDs across streaming events", () => {

@@ -210,8 +210,10 @@ export function Hero({ providerId }: HeroProps) {
 												<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
 												<span className="text-muted-foreground">SOC2:</span>
 												<DataPolicyBadge
-													value={provider.dataPolicy.soc2}
-													labelTrue="Certified"
+													value={Boolean(provider.dataPolicy.soc2)}
+													labelTrue={`Type ${
+														provider.dataPolicy.soc2 === 1 ? "I" : "II"
+													} Certified`}
 													labelFalse="No"
 												/>
 											</div>

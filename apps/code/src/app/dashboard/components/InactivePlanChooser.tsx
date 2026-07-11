@@ -59,7 +59,7 @@ export default function InactivePlanChooser({
 							<ul className="mb-6 flex-1 space-y-2.5">
 								{[
 									`$${plan.usage} model usage`,
-									"All 280+ models",
+									"All 200+ models",
 									"Resets monthly",
 								].map((feature) => (
 									<li key={feature} className="flex items-start gap-2">

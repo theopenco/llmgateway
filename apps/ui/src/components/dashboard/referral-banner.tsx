@@ -4,6 +4,7 @@ import { Linkedin, Mail, MessageCircle, Rocket } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
+import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import {
 	Dialog,
@@ -71,14 +72,26 @@ const referralSources = [
 
 export function ReferralBanner() {
 	const posthog = usePostHog();
+	const { user, isLoading } = useUser();
 	const [open, setOpen] = useState(false);
 
 	useEffect(() => {
-		const isDismissed = localStorage.getItem("referral_dismissed") === "true";
-		if (!isDismissed) {
-			setOpen(true);
+		if (isLoading || !user) {
+			return;
 		}
-	}, []);
+		if (localStorage.getItem("referral_dismissed") === "true") {
+			return;
+		}
+		// Enterprise SSO users never see the survey — their referral source is
+		// unambiguously the SSO sign-in, which is more useful to capture directly
+		// than whatever they'd pick from the list.
+		if (user.isSsoUser) {
+			posthog.capture("referral_source_selected", { source: "enterprise-sso" });
+			localStorage.setItem("referral_dismissed", "true");
+			return;
+		}
+		setOpen(true);
+	}, [isLoading, user, posthog]);
 
 	const handleDismiss = () => {
 		localStorage.setItem("referral_dismissed", "true");

@@ -18,6 +18,7 @@ export const nvidiaModels = [
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: undefined,
+				quantization: "fp4",
 				streaming: true,
 				vision: true,
 				tools: true,

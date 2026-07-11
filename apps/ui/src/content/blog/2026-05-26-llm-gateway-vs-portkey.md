@@ -23,7 +23,7 @@ One thing worth knowing up front: Portkey was acquired by Palo Alto Networks in 
 | Feature                  | LLM Gateway                                           | Portkey                                                                           |
 | ------------------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
 | Core model               | Unified gateway + dashboard, all-in-one               | AI gateway + LLMOps platform (observability/prompts)                              |
-| Models                   | 280+ models, 35+ providers                            | 1,600+ models (vendor claim)                                                      |
+| Models                   | 200+ models, 40+ providers                            | 1,600+ models (vendor claim)                                                      |
 | API compatibility        | OpenAI-compatible                                     | OpenAI-compatible                                                                 |
 | Deployment               | Managed cloud or self-hosted (1 Docker image)         | Managed cloud; open-source gateway; enterprise self-host                          |
 | Open source              | Full platform (AGPLv3)                                | Gateway + governance/observability (MIT, since 2.0); cloud for storage/compliance |
@@ -105,7 +105,7 @@ Portkey has invested heavily in observability: dozens of metrics, distributed tr
 
 ### The Largest Model Catalog Claim
 
-Portkey markets access to 1,600+ models across 250+ providers. LLM Gateway supports 280+ models across 35+ providers — curated and tested rather than maximal. If sheer breadth of long-tail providers is the deciding factor, Portkey advertises more.
+Portkey markets access to 1,600+ models across 250+ providers. LLM Gateway supports 200+ models across 40+ providers — curated and tested rather than maximal. If sheer breadth of long-tail providers is the deciding factor, Portkey advertises more.
 
 ### A Bigger Enterprise Governance Surface
 

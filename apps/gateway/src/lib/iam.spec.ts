@@ -444,6 +444,166 @@ describe("validateModelAccess — allow_models", () => {
 		expect(result.allowed).toBe(false);
 		expect(result.reason).toContain("not in the allowed models list");
 	});
+
+	it("unions multiple allow_models rules — model in the second rule's list", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-allow-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-allow-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("denies with all group rule IDs when model is in none of the allow_models rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-allow-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-allow-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["another-model"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed models list");
+		expect(result.reason).toContain("Rule IDs: rule-allow-1, rule-allow-2");
+	});
+
+	it("a no-op allow_models rule does not open up a group with a restrictive sibling", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-noop",
+				ruleType: "allow_models",
+				ruleValue: {},
+			}),
+			makeRule({
+				id: "rule-allow",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed models list");
+	});
+
+	it("allow_providers + multiple allow_models rules: model allowed by either rule passes", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-models-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-models-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+});
+
+describe("validateModelAccess — multiple allow_providers rules", () => {
+	it("unions the provider lists of allow_providers rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers-1",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-providers-2",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders?.sort()).toEqual([
+			"google-vertex",
+			"openai",
+		]);
+	});
+
+	it("denies a requested provider that is in none of the allow_providers rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers-1",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-providers-2",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			"google-ai-studio",
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed providers list");
+	});
 });
 
 describe("validateModelAccess — deny_models", () => {

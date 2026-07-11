@@ -4,6 +4,7 @@ import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
 	eq,
+	isNull,
 	db,
 	tables,
 	log,
@@ -46,6 +47,11 @@ describe("Log Processing", () => {
 
 	beforeEach(async () => {
 		await cleanupLogProcessingTestData(currentTestIds);
+
+		// batchProcessLogs pulls the 100 oldest unprocessed logs globally, so any
+		// stray unprocessed logs left in the shared test DB by an earlier suite can
+		// starve this test's own logs out of the batch. Clear them up front.
+		await db.delete(log).where(isNull(log.processedAt));
 
 		const testIdSuffix = randomUUID();
 		currentTestIds = {

@@ -2,11 +2,11 @@
 id: n8n
 slug: n8n
 title: n8n Integration
-description: Power n8n AI workflows with any of 280+ models through LLM Gateway. One OpenAI credential, every provider, full cost visibility per workflow.
+description: Power n8n AI workflows with any of 200+ models through LLM Gateway. One OpenAI credential, every provider, full cost visibility per workflow.
 date: 2026-07-03
 ---
 
-n8n is a workflow automation platform with first-class AI nodes. Point its OpenAI credential at LLM Gateway and every AI Agent, Chat Model, and LLM node in your workflows can use any model from our catalog — GPT-5, Claude, Gemini, DeepSeek, or 280+ others — with one credential and one bill.
+n8n is a workflow automation platform with first-class AI nodes. Point its OpenAI credential at LLM Gateway and every AI Agent, Chat Model, and LLM node in your workflows can use any model from our catalog — GPT-5, Claude, Gemini, DeepSeek, or 200+ others — with one credential and one bill.
 
 ![n8n workflow with LLM Gateway](https://docs.llmgateway.io/guides/n8n/overview.png)
 

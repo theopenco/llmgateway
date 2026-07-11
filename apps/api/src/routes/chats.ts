@@ -37,6 +37,7 @@ const chatSchema = z.object({
 	shareId: z.string().nullable(),
 	sharedAt: z.string().datetime().nullable(),
 	orgShares: z.array(z.object({ id: z.string(), organizationId: z.string() })),
+	projectId: z.string().nullable(),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 	messageCount: z.number(),
@@ -125,6 +126,8 @@ const createChatSchema = z.object({
 	// Organization context the chat is created under (the dedicated Chat org for
 	// the "Chat plan" context, or a real org). Used to separate chat history.
 	organizationId: z.string().trim().min(1).optional(),
+	// Chat project (knowledge base) the chat belongs to.
+	projectId: z.string().trim().min(1).optional(),
 });
 
 const updateChatSchema = z.object({
@@ -221,6 +224,7 @@ const listChats = createRoute({
 	request: {
 		query: z.object({
 			organizationId: z.string().trim().min(1).optional(),
+			projectId: z.string().trim().min(1).optional(),
 		}),
 	},
 	responses: {
@@ -243,7 +247,7 @@ chats.openapi(listChats, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { organizationId } = c.req.valid("query");
+	const { organizationId, projectId } = c.req.valid("query");
 	const orgFilter = await buildOrgHistoryFilter(
 		tables.chat.organizationId,
 		organizationId,
@@ -274,6 +278,7 @@ chats.openapi(listChats, async (c) => {
 				),
 				'[]'::json
 			)`,
+			projectId: tables.chat.projectId,
 			createdAt: tables.chat.createdAt,
 			updatedAt: tables.chat.updatedAt,
 			messageCount: count(tables.message.id),
@@ -294,6 +299,7 @@ chats.openapi(listChats, async (c) => {
 				eq(tables.chat.status, "active"),
 				isNull(tables.chat.parentChatId),
 				orgFilter,
+				projectId ? eq(tables.chat.projectId, projectId) : undefined,
 			),
 		)
 		.groupBy(
@@ -306,6 +312,7 @@ chats.openapi(listChats, async (c) => {
 			tables.chat.comparisonEnabled,
 			tables.chatShare.id,
 			tables.chatShare.createdAt,
+			tables.chat.projectId,
 			tables.chat.createdAt,
 			tables.chat.updatedAt,
 		)
@@ -322,6 +329,7 @@ chats.openapi(listChats, async (c) => {
 		shareId: chat.shareId,
 		sharedAt: chat.sharedAt?.toISOString() ?? null,
 		orgShares: chat.orgShares ?? [],
+		projectId: chat.projectId,
 		createdAt: chat.createdAt.toISOString(),
 		updatedAt: chat.updatedAt.toISOString(),
 		messageCount: chat.messageCount,
@@ -414,6 +422,7 @@ chats.openapi(searchChats, async (c) => {
 					),
 					'[]'::json
 				)`,
+				projectId: tables.chat.projectId,
 				createdAt: tables.chat.createdAt,
 				updatedAt: tables.chat.updatedAt,
 				messageCount: count(tables.message.id),
@@ -439,6 +448,7 @@ chats.openapi(searchChats, async (c) => {
 				tables.chat.comparisonEnabled,
 				tables.chatShare.id,
 				tables.chatShare.createdAt,
+				tables.chat.projectId,
 				tables.chat.createdAt,
 				tables.chat.updatedAt,
 			)
@@ -462,6 +472,7 @@ chats.openapi(searchChats, async (c) => {
 		shareId: chat.shareId,
 		sharedAt: chat.sharedAt?.toISOString() ?? null,
 		orgShares: chat.orgShares ?? [],
+		projectId: chat.projectId,
 		createdAt: chat.createdAt.toISOString(),
 		updatedAt: chat.updatedAt.toISOString(),
 		messageCount: chat.messageCount,
@@ -520,6 +531,15 @@ chats.openapi(createChat, async (c) => {
 
 	// Check if user has unlimited access via API key
 	const isUnlimited = await hasActiveApiKey(user.id);
+
+	if (body.projectId) {
+		const project = await db.query.chatProject.findFirst({
+			where: { id: { eq: body.projectId } },
+		});
+		if (!project || project.userId !== user.id) {
+			throw new HTTPException(400, { message: "Invalid projectId" });
+		}
+	}
 
 	if (body.parentChatId) {
 		const parentChat = await db.query.chat.findFirst({
@@ -585,6 +605,7 @@ chats.openapi(createChat, async (c) => {
 			webSearch: body.webSearch ?? false,
 			comparisonEnabled: body.comparisonEnabled ?? false,
 			parentChatId: body.parentChatId ?? null,
+			projectId: body.projectId ?? null,
 		})
 		.returning();
 
@@ -601,6 +622,7 @@ chats.openapi(createChat, async (c) => {
 				shareId: null,
 				sharedAt: null,
 				orgShares: [],
+				projectId: newChat.projectId,
 				createdAt: newChat.createdAt.toISOString(),
 				updatedAt: newChat.updatedAt.toISOString(),
 				messageCount: 0,
@@ -663,6 +685,7 @@ chats.openapi(getChat, async (c) => {
 			webSearch: tables.chat.webSearch,
 			pinned: tables.chat.pinned,
 			comparisonEnabled: tables.chat.comparisonEnabled,
+			projectId: tables.chat.projectId,
 			createdAt: tables.chat.createdAt,
 			updatedAt: tables.chat.updatedAt,
 			shareId: tables.chatShare.id,
@@ -731,6 +754,7 @@ chats.openapi(getChat, async (c) => {
 				shareId: chat.shareId,
 				sharedAt: chat.sharedAt?.toISOString() ?? null,
 				orgShares: chat.orgShares ?? [],
+				projectId: chat.projectId,
 				createdAt: chat.createdAt.toISOString(),
 				updatedAt: chat.updatedAt.toISOString(),
 				messageCount: messages.length,
@@ -870,6 +894,7 @@ chats.openapi(updateChat, async (c) => {
 				(r): r is { id: string; organizationId: string } =>
 					r.organizationId !== null,
 			),
+			projectId: updatedChat.projectId,
 			createdAt: updatedChat.createdAt.toISOString(),
 			updatedAt: updatedChat.updatedAt.toISOString(),
 			messageCount: messageCount[0].count,
@@ -1545,6 +1570,7 @@ chats.openapi(forkChat, async (c) => {
 			title: tables.chat.title,
 			model: tables.chat.model,
 			webSearch: tables.chat.webSearch,
+			projectId: tables.chat.projectId,
 		})
 		.from(tables.chat)
 		.where(
@@ -1585,6 +1611,7 @@ chats.openapi(forkChat, async (c) => {
 				model: chat.model,
 				userId: user.id,
 				webSearch: chat.webSearch ?? false,
+				projectId: chat.projectId,
 			})
 			.returning();
 

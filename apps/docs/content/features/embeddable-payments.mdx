@@ -58,6 +58,7 @@ Your backend ──(secret key sk_)──▶ POST /v1/sessions ──▶ ephemer
 - Your **secret key** (`sk_…`) never leaves your backend. It mints short-lived **ephemeral session tokens** (`es_…`) scoped to one end-user wallet.
 - The **browser** only ever holds the `es_…` token (and a publishable Stripe key). It calls the gateway directly; usage is billed to that user's wallet.
 - **Markup is applied at top-up time**: if you set a 20% markup and a user buys $10, their wallet is credited the net spend power and your **margin accrues to your organization** for later payout.
+- **Top-up bonus (optional)**: set a bonus percent to credit end-users _more_ than they pay — e.g. a 50% bonus turns a $10 top-up into $15 of spend power. The extra credits are funded from **your organization's credit balance** at top-up time (capped at your available credits), so it's a promotional lever you can switch on or off anytime. Markup and bonus are independent: the bonus is applied on top of the net credited amount.
 
 ## Set up in the dashboard
 
@@ -65,7 +66,7 @@ Before you write any code, configure the project you want to embed:
 
 1. Open the LLM Gateway dashboard and select your project.
 2. Go to **Settings → Payments SDK** and turn on **End-user sessions** (this requires the preview to be enabled for your project).
-3. _(Optional)_ Set a **markup percent** — the margin you earn on every top-up.
+3. _(Optional)_ Set a **markup percent** — the margin you earn on every top-up — and/or a **top-up bonus percent** to gift end-users extra credit (funded from your organization's credit balance).
 4. Add the browser origins allowed to call the gateway, one per line (e.g. `https://app.example.com`), then click **Save Settings**.
 5. Under **Platform Secret Keys**, click **Create Live Key** (or **Create Test Key**) and copy the `sk_…` value immediately.
 6. Store it as a server-side environment variable, for example `LLMGATEWAY_SECRET_KEY`.
@@ -212,7 +213,7 @@ const { balance, limits } = await client.getBalance();
 
 ## Buying credits
 
-`<BuyCredits amount={10} />` creates a Stripe PaymentIntent scoped to the user's wallet, renders Stripe's `PaymentElement`, and confirms the payment. Once LLM Gateway's webhook processes it, the wallet is credited the **net** amount (after your markup) and your margin accrues to your organization.
+`<BuyCredits amount={10} />` creates a Stripe PaymentIntent scoped to the user's wallet, renders Stripe's `PaymentElement`, and confirms the payment. Once LLM Gateway's webhook processes it, the wallet is credited the **net** amount (after your markup) and your margin accrues to your organization. If you've configured a **top-up bonus**, the additional developer-funded credit is applied on top of the net amount at the same time (debited from your organization's credit balance). The top-up API response and the `wallet.credited` webhook include `bonusCredited` and `totalCredited` so you can show the boosted total.
 
 `@llmgateway/elements` bundles LLM Gateway's browser-safe Stripe publishable keys. Pass `mode="test"` to `<LLMGatewayProvider>` while developing to use Stripe test mode; omit it or pass `mode="prod"` for live payments (`"prod"` is the default). You never need to provide LLM Gateway's Stripe publishable key yourself, and the end-user never sees your `sk_…` secret key.
 

@@ -145,6 +145,26 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.project.id,
 		}),
 	},
+	organizationInvite: {
+		organization: r.one.organization({
+			from: r.organizationInvite.organizationId,
+			to: r.organization.id,
+		}),
+		inviter: r.one.user({
+			from: r.organizationInvite.invitedBy,
+			to: r.user.id,
+		}),
+	},
+	ssoDefaultProject: {
+		organization: r.one.organization({
+			from: r.ssoDefaultProject.organizationId,
+			to: r.organization.id,
+		}),
+		project: r.one.project({
+			from: r.ssoDefaultProject.projectId,
+			to: r.project.id,
+		}),
+	},
 	project: {
 		organization: r.one.organization({
 			from: r.project.organizationId,
@@ -404,6 +424,54 @@ export const relations = defineRelations(schema, (r) => ({
 		shares: r.many.chatShare({
 			from: r.chat.id,
 			to: r.chatShare.chatId,
+		}),
+		project: r.one.chatProject({
+			from: r.chat.projectId,
+			to: r.chatProject.id,
+		}),
+	},
+	chatProject: {
+		user: r.one.user({
+			from: r.chatProject.userId,
+			to: r.user.id,
+		}),
+		files: r.many.chatProjectFile({
+			from: r.chatProject.id,
+			to: r.chatProjectFile.projectId,
+		}),
+		chats: r.many.chat({
+			from: r.chatProject.id,
+			to: r.chat.projectId,
+		}),
+		memories: r.many.chatProjectMemory({
+			from: r.chatProject.id,
+			to: r.chatProjectMemory.projectId,
+		}),
+	},
+	chatProjectMemory: {
+		project: r.one.chatProject({
+			from: r.chatProjectMemory.projectId,
+			to: r.chatProject.id,
+		}),
+	},
+	chatProjectFile: {
+		project: r.one.chatProject({
+			from: r.chatProjectFile.projectId,
+			to: r.chatProject.id,
+		}),
+		chunks: r.many.chatProjectFileChunk({
+			from: r.chatProjectFile.id,
+			to: r.chatProjectFileChunk.fileId,
+		}),
+	},
+	chatProjectFileChunk: {
+		file: r.one.chatProjectFile({
+			from: r.chatProjectFileChunk.fileId,
+			to: r.chatProjectFile.id,
+		}),
+		project: r.one.chatProject({
+			from: r.chatProjectFileChunk.projectId,
+			to: r.chatProject.id,
 		}),
 	},
 	chatShare: {

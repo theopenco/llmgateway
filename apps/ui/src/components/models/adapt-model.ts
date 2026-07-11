@@ -65,6 +65,7 @@ export function adaptProviderMapping(
 			ocrPagePrice: toStr(p.ocrPagePrice),
 			contextSize: p.contextSize ?? null,
 			maxOutput: p.maxOutput ?? null,
+			quantization: p.quantization ?? null,
 			streaming: p.streaming === "only" ? true : p.streaming,
 			vision: p.vision ?? null,
 			reasoning: p.reasoning ?? null,

@@ -17,6 +17,9 @@ export async function GET(
 	return new Response(await getLLMText(page), {
 		headers: {
 			"Content-Type": "text/markdown",
+			// Keep the raw-markdown mirrors fetchable for AI crawlers but out
+			// of search indexes (they duplicate the HTML docs pages).
+			"X-Robots-Tag": "noindex",
 		},
 	});
 }

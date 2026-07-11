@@ -12,8 +12,10 @@ import {
 	type OpenAIRequestBody,
 	type OpenAIResponsesRequestBody,
 	type OpenAIToolInput,
+	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type ProviderRequestBody,
+	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
 	type ToolChoiceType,
@@ -675,12 +677,19 @@ function transformContentForResponsesApi(content: any, role: string): any {
 	// Handle array content
 	if (Array.isArray(content)) {
 		return content.map((part: any) => {
+			// Carry OpenAI explicit prompt cache breakpoints (GPT-5.6+) through the
+			// content-type rewrite. Unsupported markers are already stripped before
+			// this transform runs, so anything still present must be forwarded.
+			const breakpoint =
+				part.prompt_cache_breakpoint !== undefined
+					? { prompt_cache_breakpoint: part.prompt_cache_breakpoint }
+					: undefined;
 			if (part.type === "text") {
 				// Transform "text" to "input_text" or "output_text" based on role
 				if (role === "assistant") {
-					return { type: "output_text", text: part.text };
+					return { type: "output_text", text: part.text, ...breakpoint };
 				}
-				return { type: "input_text", text: part.text };
+				return { type: "input_text", text: part.text, ...breakpoint };
 			}
 			if (part.type === "image_url") {
 				// Transform "image_url" to "input_image". The Responses API accepts
@@ -691,6 +700,7 @@ function transformContentForResponsesApi(content: any, role: string): any {
 				return {
 					type: "input_image",
 					image_url: imageUrl,
+					...breakpoint,
 				};
 			}
 			// Return other content types as-is (they may need additional handling)
@@ -891,6 +901,8 @@ export async function prepareRequestBody(
 	providerCacheControlEnabled = true,
 	n?: number,
 	service_tier?: "auto" | "default" | "flex" | "priority",
+	verbosity?: "low" | "medium" | "high",
+	prompt_cache_options?: PromptCacheOptions,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	const modelDef = models.find((m) => m.id === usedInternalModel);
@@ -926,6 +938,17 @@ export async function prepareRequestBody(
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
+	}
+
+	// `verbosity` is only understood by OpenAI GPT-5+ models. Capability
+	// validation rejects unsupported pinned models upfront, but auto routing and
+	// retry fallbacks can still land on a mapping without verbosity support, so
+	// strip it here instead of forwarding an unknown parameter upstream.
+	if (
+		verbosity !== undefined &&
+		providerMappingForOptions?.verbosity !== true
+	) {
+		verbosity = undefined;
 	}
 
 	// `max` is Anthropic's top effort tier (above `xhigh`). Providers without a
@@ -1354,6 +1377,39 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Strip OpenAI-style `prompt_cache_breakpoint` markers unless the resolved
+	// provider/model pair supports explicit prompt caching (OpenAI, GPT-5.6 and
+	// later families). OpenAI's older models and every other provider reject the
+	// unknown field with a 400. Also strip when the project opted out of
+	// provider cache writes — explicit breakpoints trigger cache writes billed
+	// at the 1.25x premium, same as Anthropic cache_control markers above.
+	const keepPromptCacheBreakpoints =
+		usedProvider === "openai" &&
+		supportsOpenAIExplicitPromptCache(usedInternalModel) &&
+		providerCacheControlEnabled;
+	if (!keepPromptCacheBreakpoints) {
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const newContent = m.content.map((part) => {
+				const asRecord = part as unknown as Record<string, unknown>;
+				if (
+					asRecord &&
+					typeof asRecord === "object" &&
+					asRecord.prompt_cache_breakpoint !== undefined
+				) {
+					mutated = true;
+					const { prompt_cache_breakpoint: _ignored, ...rest } = asRecord;
+					return rest as unknown as typeof part;
+				}
+				return part;
+			});
+			return mutated ? { ...m, content: newContent } : m;
+		});
+	}
+
 	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
 	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
 	// clients usually drop reasoning between turns, so translate the OpenAI-style
@@ -1499,6 +1555,7 @@ export async function prepareRequestBody(
 	switch (usedProvider) {
 		case "azure":
 		case "sakana":
+		case "meta":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1539,13 +1596,23 @@ export async function prepareRequestBody(
 							: "high"
 						: (genericReasoningEffort ?? defaultEffort);
 
+				// Muse Spark reasons adaptively when effort is omitted and rejects
+				// "none", so only forward an effort the caller explicitly set.
 				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedExternalId,
 					input: transformedMessages,
-					reasoning: {
-						effort: responsesReasoningEffort,
-						summary: "detailed",
-					},
+					reasoning:
+						usedProvider === "meta"
+							? {
+									...(genericReasoningEffort !== undefined && {
+										effort: genericReasoningEffort,
+									}),
+									summary: "detailed",
+								}
+							: {
+									effort: responsesReasoningEffort,
+									summary: "detailed",
+								},
 				};
 
 				if (usedProvider === "openai") {
@@ -1561,6 +1628,18 @@ export async function prepareRequestBody(
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
 					) {
 						responsesBody.prompt_cache_retention = prompt_cache_retention;
+					}
+					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
+						if (!providerCacheControlEnabled) {
+							// The project opted out of provider cache writes, but GPT-5.6
+							// implicit caching auto-writes (billed at 1.25x) on every
+							// request. Force explicit mode — with all breakpoint markers
+							// stripped above, this disables caching (and its write fees)
+							// entirely.
+							responsesBody.prompt_cache_options = { mode: "explicit" };
+						} else if (prompt_cache_options !== undefined) {
+							responsesBody.prompt_cache_options = prompt_cache_options;
+						}
 					}
 				}
 
@@ -1632,6 +1711,13 @@ export async function prepareRequestBody(
 					}
 				}
 
+				if (verbosity !== undefined) {
+					responsesBody.text = {
+						...responsesBody.text,
+						verbosity,
+					};
+				}
+
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
@@ -1648,6 +1734,18 @@ export async function prepareRequestBody(
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
 					) {
 						requestBody.prompt_cache_retention = prompt_cache_retention;
+					}
+					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
+						if (!providerCacheControlEnabled) {
+							// The project opted out of provider cache writes, but GPT-5.6
+							// implicit caching auto-writes (billed at 1.25x) on every
+							// request. Force explicit mode — with all breakpoint markers
+							// stripped above, this disables caching (and its write fees)
+							// entirely.
+							requestBody.prompt_cache_options = { mode: "explicit" };
+						} else if (prompt_cache_options !== undefined) {
+							requestBody.prompt_cache_options = prompt_cache_options;
+						}
 					}
 				}
 
@@ -1730,6 +1828,9 @@ export async function prepareRequestBody(
 					} else {
 						requestBody.reasoning_effort = genericReasoningEffort;
 					}
+				}
+				if (verbosity !== undefined) {
+					requestBody.verbosity = verbosity;
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;
