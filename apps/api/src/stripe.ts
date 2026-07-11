@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
+import Stripe from "stripe";
 import { z } from "zod";
 
 import {
@@ -48,7 +49,6 @@ import {
 } from "./utils/plan-billing.js";
 
 import type { ServerTypes } from "./vars.js";
-import type Stripe from "stripe";
 
 export async function ensureStripeCustomer(
 	organizationId: string,
@@ -389,6 +389,16 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 
 		return c.json({ received: true });
 	} catch (error) {
+		// Signature verification failures are almost always spoofed/bogus traffic
+		// hitting the public webhook endpoint (e.g. a `fake_signature` header). They
+		// are not actionable, so log at warn level and still return 400 rather than
+		// raising an error alert.
+		if (error instanceof Stripe.errors.StripeSignatureVerificationError) {
+			logger.warn("Ignoring Stripe webhook with invalid signature", {
+				message: error.message,
+			});
+			throw new HTTPException(400, { message: "Invalid signature" });
+		}
 		logger.error("Webhook error:", error as Error);
 		throw new HTTPException(400, {
 			message: `Webhook error: ${error instanceof Error ? error.message : "Unknown error"}`,
