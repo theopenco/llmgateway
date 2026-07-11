@@ -3,14 +3,17 @@ import Script from "next/script";
 interface GoogleTagProps {
 	googleTagId?: string;
 	googleAdsSignupConversion?: string;
+	googleAdsPurchaseConversion?: string;
 }
 
 export function GoogleTag({
 	googleTagId,
 	googleAdsSignupConversion,
+	googleAdsPurchaseConversion,
 }: GoogleTagProps) {
-	const adsTagId = googleAdsSignupConversion?.split("/")[0];
-	const tagIds = [googleTagId, adsTagId].filter(
+	const signupAdsTagId = googleAdsSignupConversion?.split("/")[0];
+	const purchaseAdsTagId = googleAdsPurchaseConversion?.split("/")[0];
+	const tagIds = [googleTagId, signupAdsTagId, purchaseAdsTagId].filter(
 		(id, index, ids): id is string => Boolean(id) && ids.indexOf(id) === index,
 	);
 

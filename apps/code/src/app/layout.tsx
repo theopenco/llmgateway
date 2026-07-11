@@ -105,6 +105,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 				<GoogleTag
 					googleTagId={config.googleTagId}
 					googleAdsSignupConversion={config.googleAdsSignupConversion}
+					googleAdsPurchaseConversion={config.googleAdsPurchaseConversion}
 				/>
 				<Providers config={config}>{children}</Providers>
 			</body>
