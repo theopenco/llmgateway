@@ -360,6 +360,15 @@ projects.openapi(updateProject, async (c) => {
 		updateData.allowedOrigins = normalizedAllowedOrigins;
 	}
 
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the project unchanged.
+	if (Object.keys(updateData).length === 0) {
+		return c.json({
+			message: "Project settings updated successfully",
+			project,
+		});
+	}
+
 	// Roll through the cached client so its onMutate invalidates the gateway's
 	// cached project lookups (Drizzle cache + SWR mirror) for the project table.
 	// Otherwise settings like defaultRoutingStrategy/mode/caching would keep
