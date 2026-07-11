@@ -238,10 +238,16 @@ async function checkMetaRateLimit(ipAddress: string): Promise<boolean> {
 }
 
 function getTextFromUIMessage(message: UIMessage): string {
-	return message.parts
-		.filter((p): p is { type: "text"; text: string } => p.type === "text")
-		.map((p) => p.text)
-		.join("");
+	// `message` is cast from an untrusted request body, so `parts` may be absent
+	// (e.g. older clients sending a plain `content` string). Guard both shapes.
+	if (Array.isArray(message.parts)) {
+		return message.parts
+			.filter((p): p is { type: "text"; text: string } => p.type === "text")
+			.map((p) => p.text)
+			.join("");
+	}
+	const content = (message as { content?: unknown }).content;
+	return typeof content === "string" ? content : "";
 }
 
 // Redis is a best-effort cache for clientId → conversationId. If it's
