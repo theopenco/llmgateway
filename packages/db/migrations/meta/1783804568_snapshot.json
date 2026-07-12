@@ -1,8 +1,8 @@
 {
-  "id": "b5713cf6-cff9-4ceb-8d60-57bf98849b0e",
-  "prevId": "7ab1f8a6-fb9c-460f-80c1-daa9abda579e",
   "version": "8",
   "dialect": "postgres",
+  "id": "665cf1ff-bc51-4acf-b4cd-f3bd3c66670d",
+  "prevId": "7ab1f8a6-fb9c-460f-80c1-daa9abda579e",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -7537,6 +7537,32 @@
       "generated": null,
       "identity": null,
       "name": "cache_write_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "cache_write5m_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "cache_write1h_tokens",
       "entityType": "columns",
       "schema": "public",
       "table": "log"

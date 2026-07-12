@@ -172,6 +172,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.9,
 		},
 		{
+			url: `${baseUrl}/copilot-cost-calculator`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
 			url: `${baseUrl}/nano-banana-simulator/20`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",
@@ -329,6 +335,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/compare/azure-ai-foundry`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/github-copilot`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,

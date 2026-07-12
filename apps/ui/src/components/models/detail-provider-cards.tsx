@@ -128,6 +128,7 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 								copyToClipboard={copyToClipboard}
 								copiedModel={copiedModel}
 								isImageGen={isImageGen}
+								detailed
 							/>
 							<ModelCtaButton
 								modelId={`${providerId}/${model.id}`}

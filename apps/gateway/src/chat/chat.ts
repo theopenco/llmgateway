@@ -5390,6 +5390,7 @@ chat.openapi(completions, async (c) => {
 				let reasoningTokens = null;
 				let cachedTokens = null;
 				let cacheWriteTokens: number | null = null;
+				let cacheWrite5mTokens: number | null = null;
 				let cacheWrite1hTokens: number | null = null;
 				let audioInputTokens: number | null = null;
 				let rawCachedResponseData = ""; // Raw SSE data from cached response
@@ -5449,6 +5450,15 @@ chat.openapi(completions, async (c) => {
 								chunkData.usage.prompt_tokens_details?.cache_creation_tokens;
 							if (chunkCacheWrite !== undefined && chunkCacheWrite !== null) {
 								cacheWriteTokens = chunkCacheWrite;
+							}
+							const chunkCacheWrite5m =
+								chunkData.usage.prompt_tokens_details?.cache_creation
+									?.ephemeral_5m_input_tokens;
+							if (
+								chunkCacheWrite5m !== undefined &&
+								chunkCacheWrite5m !== null
+							) {
+								cacheWrite5mTokens = chunkCacheWrite5m;
 							}
 							const chunkCacheWrite1h =
 								chunkData.usage.prompt_tokens_details?.cache_creation
@@ -5563,6 +5573,8 @@ chat.openapi(completions, async (c) => {
 					reasoningTokens: reasoningTokens?.toString() ?? null,
 					cachedTokens: cachedTokens?.toString() ?? null,
 					cacheWriteTokens: cacheWriteTokens?.toString() ?? null,
+					cacheWrite5mTokens: cacheWrite5mTokens?.toString() ?? null,
+					cacheWrite1hTokens: cacheWrite1hTokens?.toString() ?? null,
 					hasError: false,
 					streamed: true,
 					canceled: false,
@@ -5865,6 +5877,12 @@ chat.openapi(completions, async (c) => {
 							cachedResponse.usage?.prompt_tokens_details?.cache_write_tokens ??
 							cachedResponse.usage?.prompt_tokens_details?.cache_creation_tokens
 						)?.toString() ?? null,
+					cacheWrite5mTokens:
+						cachedResponse.usage?.prompt_tokens_details?.cache_creation?.ephemeral_5m_input_tokens?.toString() ??
+						null,
+					cacheWrite1hTokens:
+						cachedResponse.usage?.prompt_tokens_details?.cache_creation?.ephemeral_1h_input_tokens?.toString() ??
+						null,
 					hasError: false,
 					streamed: false,
 					canceled: false,
@@ -6127,6 +6145,7 @@ chat.openapi(completions, async (c) => {
 			),
 			verbosity,
 			prompt_cache_options,
+			sessionId,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -6315,6 +6334,7 @@ chat.openapi(completions, async (c) => {
 				prompt_cache_key,
 				prompt_cache_retention,
 				prompt_cache_options,
+				session_id: sessionId,
 				effort,
 				webSearchTool,
 				image_config,
@@ -10661,6 +10681,12 @@ chat.openapi(completions, async (c) => {
 						cacheWriteTokens: shouldIncludeTokensForBilling
 							? (cacheCreationTokens?.toString() ?? null)
 							: null,
+						cacheWrite5mTokens: shouldIncludeTokensForBilling
+							? (cacheCreation5mTokens?.toString() ?? null)
+							: null,
+						cacheWrite1hTokens: shouldIncludeTokensForBilling
+							? (cacheCreation1hTokens?.toString() ?? null)
+							: null,
 						hasError: streamingError !== null,
 						errorDetails: streamingError
 							? {
@@ -12919,6 +12945,8 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens: calculatedReasoningTokens?.toString() ?? null,
 		cachedTokens: cachedTokens?.toString() ?? null,
 		cacheWriteTokens: cacheCreationTokens?.toString() ?? null,
+		cacheWrite5mTokens: cacheCreation5mTokens?.toString() ?? null,
+		cacheWrite1hTokens: cacheCreation1hTokens?.toString() ?? null,
 		hasError: hasEmptyNonStreamingResponse,
 		streamed: false,
 		canceled: false,

@@ -56,6 +56,10 @@ const modelSchema = z.object({
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
 			reasoning: z.boolean(),
+			min_cacheable_tokens: z.number().optional().openapi({
+				description:
+					"Minimum prompt length (in tokens) the provider requires before a prompt-cache write can occur. cache_control markers on shorter prompts are accepted but silently not cached by the provider.",
+			}),
 			stability: z
 				.enum(["stable", "beta", "unstable", "experimental"])
 				.optional(),
@@ -256,6 +260,7 @@ modelsApi.openapi(listModels, async (c) => {
 						tools: provider.tools ?? false,
 						parallelToolCalls: provider.parallelToolCalls ?? false,
 						reasoning: provider.reasoning ?? false,
+						min_cacheable_tokens: provider.minCacheableTokens,
 						stability: provider.stability ?? model.stability,
 					};
 				}),

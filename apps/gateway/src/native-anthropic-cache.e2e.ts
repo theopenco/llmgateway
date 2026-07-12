@@ -11,6 +11,7 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { app } from "./app.js";
+import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
 // Generate a system prompt long enough to cross Anthropic's minimum cacheable
 // threshold for Haiku 4.5 (>= ~2k tokens). 500 repeats produces ~6.5k tokens.
@@ -823,6 +824,116 @@ describeCache(
 					"aws-bedrock/claude-haiku-4-5",
 					"streaming /v1/messages bedrock usage",
 				);
+			},
+		);
+
+		// Log persistence of the per-TTL cache write breakdown. The response has
+		// always carried usage.cache_creation, but the log record previously only
+		// stored the total cacheWriteTokens, so the dashboard couldn't attribute
+		// spend across the 1.25x (5m) and 2x (1h) write rates after the fact.
+		// A unique run tag guarantees a cache WRITE (not a read) on every run.
+		const logBreakdownRunTag = `log-breakdown-${Date.now()}`;
+
+		function buildUniqueLongSystemPrompt(tag: string): string {
+			return (
+				`You are a helpful AI assistant. Run tag: ${tag}. ` +
+				"This is detailed context information that should be cached for optimal efficiency. ".repeat(
+					400,
+				) +
+				"Please analyze carefully."
+			);
+		}
+
+		(hasAnthropicKey ? test : test.skip)(
+			"non-streaming /v1/messages 1h write persists cacheWrite1hTokens in the log",
+			getTestOptions(),
+			async () => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-haiku-4-5",
+						max_tokens: 50,
+						system: [
+							{
+								type: "text" as const,
+								text: buildUniqueLongSystemPrompt(`${logBreakdownRunTag}-1h`),
+								cache_control: {
+									type: "ephemeral" as const,
+									ttl: "1h" as const,
+								},
+							},
+						],
+						messages: [{ role: "user" as const, content: "Just reply OK." }],
+					}),
+				});
+				const json = await res.json();
+				expect(res.status).toBe(200);
+				expect(json.usage.cache_creation_input_tokens).toBeGreaterThan(0);
+
+				const logRow = await waitForLogByRequestId(requestId);
+				if (logMode) {
+					console.log("1h breakdown log row", {
+						cacheWriteTokens: logRow.cacheWriteTokens,
+						cacheWrite5mTokens: logRow.cacheWrite5mTokens,
+						cacheWrite1hTokens: logRow.cacheWrite1hTokens,
+					});
+				}
+				expect(Number(logRow.cacheWriteTokens)).toBeGreaterThan(0);
+				expect(Number(logRow.cacheWrite1hTokens)).toBe(
+					Number(logRow.cacheWriteTokens),
+				);
+				expect(Number(logRow.cacheWrite5mTokens ?? 0)).toBe(0);
+			},
+		);
+
+		(hasAnthropicKey ? test : test.skip)(
+			"streaming /v1/chat/completions 5m write persists cacheWrite5mTokens in the log",
+			getTestOptions(),
+			async () => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-haiku-4-5",
+						stream: true,
+						messages: [
+							{
+								role: "system",
+								content: buildUniqueLongSystemPrompt(
+									`${logBreakdownRunTag}-5m`,
+								),
+							},
+							{ role: "user", content: "Just reply OK." },
+						],
+					}),
+				});
+				expect(res.status).toBe(200);
+				await readSseChunks(res.body);
+
+				const logRow = await waitForLogByRequestId(requestId);
+				if (logMode) {
+					console.log("5m streaming breakdown log row", {
+						cacheWriteTokens: logRow.cacheWriteTokens,
+						cacheWrite5mTokens: logRow.cacheWrite5mTokens,
+						cacheWrite1hTokens: logRow.cacheWrite1hTokens,
+					});
+				}
+				expect(Number(logRow.cacheWriteTokens)).toBeGreaterThan(0);
+				expect(Number(logRow.cacheWrite5mTokens)).toBe(
+					Number(logRow.cacheWriteTokens),
+				);
+				expect(Number(logRow.cacheWrite1hTokens ?? 0)).toBe(0);
 			},
 		);
 	},

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { prepareRequestBody, RequestError } from "./prepare-request-body.js";
+import {
+	hashSessionCacheKey,
+	prepareRequestBody,
+	RequestError,
+} from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
@@ -3909,5 +3913,208 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 
 			expect(requestBody.max_tokens).toBeUndefined();
 		});
+	});
+});
+
+describe("prepareRequestBody - upstream prompt_cache_key", () => {
+	async function prepareCacheKeyRequest(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		messages: Parameters<typeof prepareRequestBody>[4],
+		opts: { promptCacheKey?: string; sessionId?: string } = {},
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			messages,
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			opts.promptCacheKey,
+			undefined, // prompt_cache_retention
+			true, // providerCacheControlEnabled
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			opts.sessionId,
+		)) as { prompt_cache_key?: string };
+	}
+
+	const conversation = [
+		{ role: "system" as const, content: "You are a coding agent." },
+		{ role: "user" as const, content: "Fix the failing test." },
+	];
+
+	test("meta: derives a stable per-conversation key across turns", async () => {
+		const firstTurn = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+		const secondTurn = await prepareCacheKeyRequest("meta", "muse-spark-1.1", [
+			...conversation,
+			{ role: "assistant", content: "Reading the test file now." },
+			{ role: "user", content: "It's in api.spec.ts." },
+		]);
+
+		expect(firstTurn.prompt_cache_key).toBeDefined();
+		expect(firstTurn.prompt_cache_key).toBe(secondTurn.prompt_cache_key);
+	});
+
+	test("meta: derives different keys for different conversations", async () => {
+		const a = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+		const b = await prepareCacheKeyRequest("meta", "muse-spark-1.1", [
+			{ role: "system", content: "You are a coding agent." },
+			{ role: "user", content: "Refactor the auth module." },
+		]);
+
+		expect(a.prompt_cache_key).toBeDefined();
+		expect(b.prompt_cache_key).toBeDefined();
+		expect(a.prompt_cache_key).not.toBe(b.prompt_cache_key);
+	});
+
+	test("meta: caller-supplied prompt_cache_key wins over everything", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+			{ promptCacheKey: "caller-session-key", sessionId: "sess-123" },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe("caller-session-key");
+	});
+
+	test("meta: session id beats the conversation-derived key and is hashed", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const withSession = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+			{ sessionId },
+		);
+		const withoutSession = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+
+		expect(withSession.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+		expect(withSession.prompt_cache_key).not.toBe(
+			withoutSession.prompt_cache_key,
+		);
+	});
+
+	test("openai responses API: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("openai chat completions: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-4o-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("azure responses API: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"azure",
+			"gpt-5-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("openai/azure: no key at all when neither caller key nor session id", async () => {
+		const openai = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+		);
+		const azure = await prepareCacheKeyRequest(
+			"azure",
+			"gpt-5-mini",
+			conversation,
+		);
+
+		expect(openai.prompt_cache_key).toBeUndefined();
+		expect(azure.prompt_cache_key).toBeUndefined();
+	});
+
+	test("sakana: never receives a prompt_cache_key", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"sakana",
+			"fugu-ultra",
+			conversation,
+			{ sessionId: "sess-123" },
+		);
+
+		expect(requestBody.prompt_cache_key).toBeUndefined();
+	});
+
+	test("raw session id never appears anywhere in the upstream body", async () => {
+		const sessionId = "super-secret-session-uuid";
+		for (const [provider, model] of [
+			["meta", "muse-spark-1.1"],
+			["openai", "gpt-5-mini"],
+			["openai", "gpt-4o-mini"],
+			["azure", "gpt-5-mini"],
+		] as const) {
+			const requestBody = await prepareCacheKeyRequest(
+				provider,
+				model,
+				conversation,
+				{ sessionId },
+			);
+			expect(JSON.stringify(requestBody)).not.toContain(sessionId);
+		}
+	});
+
+	test("hashSessionCacheKey is deterministic and does not contain the input", async () => {
+		const a = hashSessionCacheKey("sess-1");
+		expect(a).toBe(hashSessionCacheKey("sess-1"));
+		expect(a).not.toBe(hashSessionCacheKey("sess-2"));
+		expect(a).toHaveLength(32);
+		expect(a).not.toContain("sess-1");
 	});
 });

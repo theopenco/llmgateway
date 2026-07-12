@@ -394,6 +394,7 @@ function LoginForm() {
 							setIsLoading={setIsLoading}
 							callbackPath={returnUrl}
 							errorCallbackPath="/login"
+							newUserCallbackPath={returnUrl}
 						/>
 
 						<Button

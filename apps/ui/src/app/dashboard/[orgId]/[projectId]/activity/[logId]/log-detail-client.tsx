@@ -993,6 +993,20 @@ export function LogDetailClient({
 										value={log.cacheWriteTokens}
 									/>
 								)}
+								{log.cacheWrite5mTokens &&
+									Number(log.cacheWrite5mTokens) > 0 && (
+										<Field
+											label="Cache Write Tokens (5m TTL)"
+											value={log.cacheWrite5mTokens}
+										/>
+									)}
+								{log.cacheWrite1hTokens &&
+									Number(log.cacheWrite1hTokens) > 0 && (
+										<Field
+											label="Cache Write Tokens (1h TTL)"
+											value={log.cacheWrite1hTokens}
+										/>
+									)}
 								{log.reasoningTokens && (
 									<Field label="Reasoning Tokens" value={log.reasoningTokens} />
 								)}
