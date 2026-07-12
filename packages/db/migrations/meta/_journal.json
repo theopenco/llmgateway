@@ -1359,6 +1359,13 @@
       "when": 1783804568986,
       "tag": "1783804568_chilly_dracula",
       "breakpoints": true
+    },
+    {
+      "idx": 194,
+      "version": "8",
+      "when": 1783897295946,
+      "tag": "1783897295_migrate_require_soc2_to_type2",
+      "breakpoints": true
     }
   ]
 }
