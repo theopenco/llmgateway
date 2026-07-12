@@ -5,9 +5,29 @@ import {
 	getProviderCountries,
 	getProviderDefinition,
 	isProviderCompliant,
+	PROVIDER_COUNTRY_NAMES,
+	providers,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
 } from "./providers.js";
+
+/** True when `s` is exactly two Unicode regional-indicator symbols (a flag). */
+function isFlagEmoji(s: string): boolean {
+	const codePoints = Array.from(s, (ch) => ch.codePointAt(0) ?? 0);
+	return (
+		codePoints.length === 2 &&
+		codePoints.every((cp) => cp >= 0x1f1e6 && cp <= 0x1f1ff)
+	);
+}
+
+/** Distinct, non-null provider-headquarters country codes in the catalogue. */
+const HEADQUARTERS_CODES = Array.from(
+	new Set(
+		providers
+			.map((p) => p.headquarters)
+			.filter((c): c is string => typeof c === "string" && c.length > 0),
+	),
+);
 
 function makeProvider(
 	dataPolicy: ProviderDefinition["dataPolicy"],
@@ -220,5 +240,44 @@ describe("getProviderCountries", () => {
 		}
 		expect(countryCodeToFlag("US")).toBe("🇺🇸");
 		expect(countryCodeToFlag("FR")).toBe("🇫🇷");
+	});
+});
+
+// Guards against silent drift: any new provider `headquarters` value added to
+// the catalogue must also get a display-name entry and produce a valid flag,
+// otherwise the compliance country selector would show a bare code / broken
+// flag. These tests fail loudly when a mapping is missing.
+describe("provider headquarters country mappings are complete", () => {
+	it("has at least one headquarters country in the catalogue", () => {
+		expect(HEADQUARTERS_CODES.length).toBeGreaterThan(0);
+	});
+
+	it.each(HEADQUARTERS_CODES)("has a display-name mapping for %s", (code) => {
+		const name = PROVIDER_COUNTRY_NAMES[code];
+		expect(
+			name,
+			`Missing PROVIDER_COUNTRY_NAMES entry for headquarters "${code}". Add it in packages/models/src/providers.ts.`,
+		).toBeTruthy();
+		// The name must be a real label, not just the raw code echoed back.
+		expect(name).not.toBe(code);
+	});
+
+	it.each(HEADQUARTERS_CODES)("produces a valid flag emoji for %s", (code) => {
+		expect(
+			isFlagEmoji(countryCodeToFlag(code)),
+			`countryCodeToFlag("${code}") did not produce a valid flag emoji.`,
+		).toBe(true);
+	});
+
+	it("does not define names for codes absent from the catalogue", () => {
+		// Keeps the map lean and honest: no stale entries for retired countries.
+		const catalogue = new Set(HEADQUARTERS_CODES);
+		const orphans = Object.keys(PROVIDER_COUNTRY_NAMES).filter(
+			(code) => !catalogue.has(code),
+		);
+		expect(
+			orphans,
+			`PROVIDER_COUNTRY_NAMES has entries for codes no provider uses: ${orphans.join(", ")}`,
+		).toEqual([]);
 	});
 });

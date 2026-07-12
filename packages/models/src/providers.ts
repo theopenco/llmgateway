@@ -1575,8 +1575,11 @@ export interface ProviderCountry {
  * English display names for the country codes that appear as provider
  * headquarters in the catalogue. Kept intentionally small: the site only ever
  * surfaces countries that are actually referenced by a provider definition.
+ * Every distinct `headquarters` value in {@link providers} MUST have an entry
+ * here — enforced by a unit test so new country additions can't ship without
+ * a display name.
  */
-const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
+export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	US: "United States",
 	CN: "China",
 	NL: "Netherlands",
