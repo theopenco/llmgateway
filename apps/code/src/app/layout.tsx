@@ -89,7 +89,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.variable} ${geistMono.variable} ${bricolage.variable}`}
+			suppressHydrationWarning
+		>
 			<head>
 				<script
 					type="application/ld+json"
@@ -99,9 +103,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body
-				className={`${inter.variable} ${geistMono.variable} ${bricolage.variable} antialiased`}
-			>
+			<body className="antialiased">
 				<GoogleTag
 					googleTagId={config.googleTagId}
 					googleAdsSignupConversion={config.googleAdsSignupConversion}
