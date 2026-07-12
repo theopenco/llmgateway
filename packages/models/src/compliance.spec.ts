@@ -112,11 +112,12 @@ describe("isProviderCompliant", () => {
 		).toBe(false);
 	});
 
-	it("requireSoc2OrIso27001 passes when either certification is present", () => {
+	it("requireSoc2OrIso27001 requires SOC 2 Type 2 or ISO 27001", () => {
 		const policy: ProviderCompliancePolicy = {
 			enabled: true,
 			requireSoc2OrIso27001: true,
 		};
+		// SOC 2 Type 2 → allowed.
 		expect(
 			isProviderCompliant(
 				makeProvider({
@@ -128,6 +129,7 @@ describe("isProviderCompliant", () => {
 				policy,
 			),
 		).toBe(true);
+		// ISO 27001 → allowed.
 		expect(
 			isProviderCompliant(
 				makeProvider({
@@ -139,6 +141,19 @@ describe("isProviderCompliant", () => {
 				policy,
 			),
 		).toBe(true);
+		// SOC 2 Type 1 only (no ISO) → blocked: Type 1 does not satisfy this toggle.
+		expect(
+			isProviderCompliant(
+				makeProvider({
+					apiTraining: false,
+					consumerTraining: false,
+					promptLogging: false,
+					soc2: 1,
+				}),
+				policy,
+			),
+		).toBe(false);
+		// Neither → blocked.
 		expect(
 			isProviderCompliant(
 				makeProvider({

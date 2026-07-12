@@ -1352,6 +1352,13 @@
       "when": 1783628504658,
       "tag": "1783628504_milky_quasar",
       "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "8",
+      "when": 1783877445662,
+      "tag": "1783877445_migrate_require_soc2_to_type2",
+      "breakpoints": true
     }
   ]
 }

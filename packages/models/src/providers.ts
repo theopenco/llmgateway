@@ -99,6 +99,7 @@ export interface ProviderCompliancePolicy {
 	/** Require specifically a SOC 2 Type 2 report (the stricter attestation). */
 	requireSoc2Type2?: boolean;
 	requireIso27001?: boolean;
+	/** Require either a SOC 2 Type 2 report or ISO 27001 certification. */
 	requireSoc2OrIso27001?: boolean;
 	requireGdpr?: boolean;
 	/** Require the provider to NOT train on API prompts (apiTraining === false). */
@@ -1544,7 +1545,7 @@ export function isProviderCompliant(
 	}
 	if (
 		policy.requireSoc2OrIso27001 &&
-		!(!!dataPolicy?.soc2 || dataPolicy?.iso27001 === true)
+		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
 	) {
 		return false;
 	}

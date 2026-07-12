@@ -98,9 +98,9 @@ const REQUIREMENTS: {
 	},
 	{
 		key: "requireSoc2OrIso27001",
-		name: "SOC 2 or ISO 27001",
+		name: "SOC 2 Type 2 or ISO 27001",
 		description:
-			"Allow providers that hold either a SOC 2 or ISO 27001 certification.",
+			"Allow providers that hold either a SOC 2 Type 2 report or an ISO 27001 certification.",
 	},
 	{
 		key: "requireGdpr",
