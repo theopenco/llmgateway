@@ -10,7 +10,9 @@
 - [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing summary for AI agents.
 - [Providers](https://llmgateway.io/providers): Every supported provider and the models each offers.
 - [Docs](https://docs.llmgateway.io): API reference and integration guides.
-- [Compare](https://llmgateway.io/compare/open-router): How LLM Gateway compares to OpenRouter, LiteLLM, Portkey, and the Vercel AI Gateway.
+- [Compare](https://llmgateway.io/compare/open-router): How LLM Gateway compares to OpenRouter, LiteLLM, Portkey, the Vercel AI Gateway, and GitHub Copilot.
+- [GitHub Copilot cost calculator](https://llmgateway.io/copilot-cost-calculator): Estimate a team's monthly Copilot AI Credits bill under the June 2026 usage-based billing and compare the same workload at pass-through token prices with prompt caching.
+- [Migrate from GitHub Copilot](https://llmgateway.io/migration/github-copilot): Map Copilot chat, agent mode, and code review to gateway-backed tools with hard budget caps.
 
 ## Best models by use case
 

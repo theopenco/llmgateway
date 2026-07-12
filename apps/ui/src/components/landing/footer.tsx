@@ -289,6 +289,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/copilot-cost-calculator"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Copilot Cost Calculator
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/referrals"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
@@ -425,6 +434,15 @@ export default function Footer() {
 								Compare
 							</h3>
 							<ul className="space-y-2">
+								<li>
+									<Link
+										href="/compare/github-copilot"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										GitHub Copilot
+									</Link>
+								</li>
 								<li>
 									<Link
 										href="/compare/open-router"
