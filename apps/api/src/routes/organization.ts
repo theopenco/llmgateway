@@ -45,6 +45,7 @@ const providerCountryCodes = new Set(
 const providerCompliancePolicySchema = z.object({
 	enabled: z.boolean(),
 	requireSoc2: z.boolean().optional(),
+	requireSoc2Type2: z.boolean().optional(),
 	requireIso27001: z.boolean().optional(),
 	requireSoc2OrIso27001: z.boolean().optional(),
 	requireGdpr: z.boolean().optional(),

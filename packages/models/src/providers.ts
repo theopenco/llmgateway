@@ -94,7 +94,10 @@ export interface ProviderAdditionalLink {
  */
 export interface ProviderCompliancePolicy {
 	enabled: boolean;
+	/** Require a SOC 2 report of any type (Type 1 or Type 2). */
 	requireSoc2?: boolean;
+	/** Require specifically a SOC 2 Type 2 report (the stricter attestation). */
+	requireSoc2Type2?: boolean;
 	requireIso27001?: boolean;
 	requireSoc2OrIso27001?: boolean;
 	requireGdpr?: boolean;
@@ -1531,6 +1534,9 @@ export function isProviderCompliant(
 	}
 	const dataPolicy = provider.dataPolicy;
 	if (policy.requireSoc2 && !dataPolicy?.soc2) {
+		return false;
+	}
+	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
 		return false;
 	}
 	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {

@@ -67,6 +67,7 @@ function ProviderChip({
 
 type RequirementKey =
 	| "requireSoc2"
+	| "requireSoc2Type2"
 	| "requireIso27001"
 	| "requireSoc2OrIso27001"
 	| "requireGdpr"
@@ -80,8 +81,15 @@ const REQUIREMENTS: {
 }[] = [
 	{
 		key: "requireSoc2",
-		name: "SOC 2 (Type 2)",
-		description: "Only allow providers that hold a SOC 2 certification.",
+		name: "SOC 2 (Type 1 or 2)",
+		description:
+			"Only allow providers that hold a SOC 2 report of any type (Type 1 or Type 2).",
+	},
+	{
+		key: "requireSoc2Type2",
+		name: "SOC 2 Type 2",
+		description:
+			"Only allow providers that hold a SOC 2 Type 2 report (the stricter attestation).",
 	},
 	{
 		key: "requireIso27001",

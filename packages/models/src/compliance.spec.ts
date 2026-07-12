@@ -151,6 +151,59 @@ describe("isProviderCompliant", () => {
 		).toBe(false);
 	});
 
+	it("distinguishes SOC 2 Type 1 from Type 2", () => {
+		const type1 = makeProvider({
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			soc2: 1,
+		});
+		const type2 = makeProvider({
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			soc2: 2,
+		});
+		// requireSoc2 accepts any SOC 2 report (Type 1 or Type 2).
+		expect(
+			isProviderCompliant(type1, { enabled: true, requireSoc2: true }),
+		).toBe(true);
+		expect(
+			isProviderCompliant(type2, { enabled: true, requireSoc2: true }),
+		).toBe(true);
+		// requireSoc2Type2 accepts only Type 2.
+		expect(
+			isProviderCompliant(type1, { enabled: true, requireSoc2Type2: true }),
+		).toBe(false);
+		expect(
+			isProviderCompliant(type2, { enabled: true, requireSoc2Type2: true }),
+		).toBe(true);
+		// A provider with no SOC 2 report fails both.
+		const none = makeProvider({
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+		});
+		expect(
+			isProviderCompliant(none, { enabled: true, requireSoc2Type2: true }),
+		).toBe(false);
+	});
+
+	it("requireSoc2Type2 blocks a real Type 1 provider (canopywave)", () => {
+		// canopywave holds SOC 2 Type 1; it passes requireSoc2 but not requireSoc2Type2.
+		const canopywave = getProviderDefinition("canopywave")!;
+		expect(canopywave.dataPolicy?.soc2).toBe(1);
+		expect(
+			isProviderCompliant(canopywave, { enabled: true, requireSoc2: true }),
+		).toBe(true);
+		expect(
+			isProviderCompliant(canopywave, {
+				enabled: true,
+				requireSoc2Type2: true,
+			}),
+		).toBe(false);
+	});
+
 	it("blocks a non-compliant real provider and allows a compliant one", () => {
 		const policy: ProviderCompliancePolicy = {
 			enabled: true,
