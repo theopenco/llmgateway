@@ -1,6 +1,14 @@
 "use client";
 
-import { Check, ChevronsUpDown, RefreshCw, Sparkles, X } from "lucide-react";
+import {
+	Check,
+	ChevronsUpDown,
+	RefreshCw,
+	Search,
+	SlidersHorizontal,
+	Sparkles,
+	X,
+} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
 	useCallback,
@@ -18,6 +26,7 @@ import {
 	type DateRange,
 	DateRangeSelect,
 } from "@/components/date-range-select";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Command,
@@ -177,6 +186,7 @@ export function RecentLogs({
 	const searchParams = useSearchParams();
 	const [modelPickerOpen, setModelPickerOpen] = useState(false);
 	const [modelSearch, setModelSearch] = useState("");
+	const [dateRangeResetKey, setDateRangeResetKey] = useState(0);
 
 	// Initialize state from URL parameters
 	const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -453,6 +463,42 @@ export function RecentLogs({
 		[model, modelOptions, updateUrlWithFilters],
 	);
 
+	const activeFilterCount = [
+		dateRange,
+		unifiedFinishReason,
+		provider,
+		model,
+		apiKeyId,
+		customHeaderKey.trim() || undefined,
+		customHeaderValue.trim() || undefined,
+		sessionId.trim() || undefined,
+	].filter(Boolean).length;
+
+	const clearAllFilters = useCallback(() => {
+		isFilteringRef.current = true;
+		scrollPositionRef.current = window.scrollY;
+		setDateRange(undefined);
+		setDateRangeResetKey((key) => key + 1);
+		setUnifiedFinishReason(undefined);
+		setProvider(undefined);
+		setModel(undefined);
+		setApiKeyId(undefined);
+		setCustomHeaderKey("");
+		setCustomHeaderValue("");
+		setSessionId("");
+		updateUrlWithFilters({
+			startDate: undefined,
+			endDate: undefined,
+			unifiedFinishReason: undefined,
+			provider: undefined,
+			model: undefined,
+			apiKeyId: undefined,
+			customHeaderKey: undefined,
+			customHeaderValue: undefined,
+			sessionId: undefined,
+		});
+	}, [updateUrlWithFilters]);
+
 	if (!projectId) {
 		return (
 			<div className="py-8 text-center text-muted-foreground">
@@ -466,190 +512,239 @@ export function RecentLogs({
 			className="space-y-4 max-w-full overflow-hidden"
 			style={{ scrollBehavior: "auto" }}
 		>
-			<div className="flex flex-wrap gap-2 mb-4 sticky top-0 bg-background z-10 py-2">
-				<DateRangeSelect onChange={handleDateRangeChange} />
-
-				<Select
-					onValueChange={handleFilterChange(
-						"unifiedFinishReason",
-						setUnifiedFinishReason,
-					)}
-					value={unifiedFinishReason ?? "all"}
-				>
-					<SelectTrigger className="w-[200px]">
-						<SelectValue placeholder="Filter by unified reason" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All unified reasons</SelectItem>
-						{Object.entries(UnifiedFinishReason).map(([key, value]) => (
-							<SelectItem key={value} value={value}>
-								{key
-									.toLowerCase()
-									.replace(/_/g, " ")
-									.replace(/\b\w/g, (l) => l.toUpperCase())}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-
-				<Select onValueChange={handleProviderChange} value={provider ?? "all"}>
-					<SelectTrigger className="w-[160px]">
-						<SelectValue placeholder="Filter by provider" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All providers</SelectItem>
-						{providerOptions.map((option) => (
-							<SelectItem key={option.id} value={option.id}>
-								{option.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-
-				<Select
-					onValueChange={handleFilterChange("apiKeyId", setApiKeyId)}
-					value={apiKeyId ?? "all"}
-				>
-					<SelectTrigger className="w-[200px]">
-						<SelectValue placeholder="Filter by API key" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All API keys</SelectItem>
-						{apiKeyOptions.map((option) => (
-							<SelectItem key={option.id} value={option.id}>
-								{option.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-
-				<Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
-					<PopoverTrigger asChild>
-						<Button
-							variant="outline"
-							role="combobox"
-							aria-expanded={modelPickerOpen}
-							className="w-[260px] justify-between"
-						>
-							<span className="truncate">
-								{selectedModelOption?.label ?? model ?? "Filter by model"}
-							</span>
-							<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-						</Button>
-					</PopoverTrigger>
-					<PopoverContent className="w-[320px] p-0" align="start">
-						<Command shouldFilter={false}>
-							<CommandInput
-								placeholder="Search models..."
-								value={modelSearch}
-								onValueChange={setModelSearch}
-							/>
-							<CommandList>
-								<CommandEmpty>No models found.</CommandEmpty>
-								<CommandItem
-									value="all"
-									onSelect={() => {
-										handleFilterChange("model", setModel)("all");
-										setModelPickerOpen(false);
-										setModelSearch("");
-									}}
+			<div className="sticky top-0 z-10 pb-1 pt-1">
+				<div className="rounded-xl border bg-card/95 p-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/85">
+					<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+						<div className="flex items-center gap-2">
+							<SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+							<span className="text-sm font-medium">Filters</span>
+							{activeFilterCount > 0 && (
+								<Badge
+									variant="secondary"
+									className="h-5 rounded-full px-2 text-xs font-normal"
 								>
-									<Check
-										className={cn(
-											"h-4 w-4",
-											!model ? "opacity-100" : "opacity-0",
-										)}
-									/>
-									All models
-								</CommandItem>
-								{filteredModelOptions.map((option) => (
-									<CommandItem
-										key={option.id}
-										value={`${option.id} ${option.label} ${option.aliases.join(" ")}`}
-										onSelect={() => {
-											handleFilterChange("model", setModel)(option.id);
-											setModelPickerOpen(false);
-											setModelSearch("");
-										}}
-									>
-										<Check
-											className={cn(
-												"h-4 w-4",
-												model === option.id ? "opacity-100" : "opacity-0",
-											)}
-										/>
-										<div className="flex min-w-0 flex-col">
-											<span className="truncate">{option.label}</span>
-											{option.label !== option.id ? (
-												<span className="truncate text-xs text-muted-foreground">
-													{option.id}
-												</span>
-											) : null}
-										</div>
-									</CommandItem>
+									{activeFilterCount} active
+								</Badge>
+							)}
+						</div>
+						<div className="flex items-center gap-1.5">
+							{activeFilterCount > 0 && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									onClick={clearAllFilters}
+									className="h-8 gap-1.5 text-muted-foreground"
+								>
+									<X className="h-3.5 w-3.5" />
+									Reset
+								</Button>
+							)}
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={() => void refetch()}
+								disabled={isLoading || isRefetching || isFetchingNextPage}
+								className="h-8 gap-1.5"
+							>
+								<RefreshCw
+									className={cn("h-3.5 w-3.5", isRefetching && "animate-spin")}
+								/>
+								{isRefetching ? "Refreshing..." : "Refresh"}
+							</Button>
+						</div>
+					</div>
+
+					<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+						<DateRangeSelect
+							key={dateRangeResetKey}
+							onChange={handleDateRangeChange}
+							className="w-full"
+						/>
+
+						<Select
+							onValueChange={handleProviderChange}
+							value={provider ?? "all"}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder="Filter by provider" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All providers</SelectItem>
+								{providerOptions.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
+									</SelectItem>
 								))}
-							</CommandList>
-						</Command>
-					</PopoverContent>
-				</Popover>
+							</SelectContent>
+						</Select>
 
-				<Input
-					placeholder="Custom header key (e.g., uid)"
-					value={customHeaderKey}
-					onChange={(e) => {
-						isFilteringRef.current = true;
-						scrollPositionRef.current = window.scrollY;
-						setCustomHeaderKey(e.target.value);
-						// Update URL immediately
-						updateUrlWithFilters({
-							customHeaderKey: e.target.value ?? undefined,
-						});
-					}}
-					className="w-[200px]"
-				/>
+						<Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
+							<PopoverTrigger asChild>
+								<Button
+									variant="outline"
+									role="combobox"
+									aria-expanded={modelPickerOpen}
+									className={cn(
+										"w-full justify-between font-normal",
+										!model && "text-muted-foreground",
+									)}
+								>
+									<span className="truncate">
+										{selectedModelOption?.label ?? model ?? "All models"}
+									</span>
+									<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+								</Button>
+							</PopoverTrigger>
+							<PopoverContent className="w-[320px] p-0" align="start">
+								<Command shouldFilter={false}>
+									<CommandInput
+										placeholder="Search models..."
+										value={modelSearch}
+										onValueChange={setModelSearch}
+									/>
+									<CommandList>
+										<CommandEmpty>No models found.</CommandEmpty>
+										<CommandItem
+											value="all"
+											onSelect={() => {
+												handleFilterChange("model", setModel)("all");
+												setModelPickerOpen(false);
+												setModelSearch("");
+											}}
+										>
+											<Check
+												className={cn(
+													"h-4 w-4",
+													!model ? "opacity-100" : "opacity-0",
+												)}
+											/>
+											All models
+										</CommandItem>
+										{filteredModelOptions.map((option) => (
+											<CommandItem
+												key={option.id}
+												value={`${option.id} ${option.label} ${option.aliases.join(" ")}`}
+												onSelect={() => {
+													handleFilterChange("model", setModel)(option.id);
+													setModelPickerOpen(false);
+													setModelSearch("");
+												}}
+											>
+												<Check
+													className={cn(
+														"h-4 w-4",
+														model === option.id ? "opacity-100" : "opacity-0",
+													)}
+												/>
+												<div className="flex min-w-0 flex-col">
+													<span className="truncate">{option.label}</span>
+													{option.label !== option.id ? (
+														<span className="truncate text-xs text-muted-foreground">
+															{option.id}
+														</span>
+													) : null}
+												</div>
+											</CommandItem>
+										))}
+									</CommandList>
+								</Command>
+							</PopoverContent>
+						</Popover>
 
-				<Input
-					placeholder="Custom header value (e.g., 12345)"
-					value={customHeaderValue}
-					onChange={(e) => {
-						isFilteringRef.current = true;
-						scrollPositionRef.current = window.scrollY;
-						setCustomHeaderValue(e.target.value);
-						// Update URL immediately
-						updateUrlWithFilters({
-							customHeaderValue: e.target.value ?? undefined,
-						});
-					}}
-					className="w-[200px]"
-				/>
+						<Select
+							onValueChange={handleFilterChange("apiKeyId", setApiKeyId)}
+							value={apiKeyId ?? "all"}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder="Filter by API key" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All API keys</SelectItem>
+								{apiKeyOptions.map((option) => (
+									<SelectItem key={option.id} value={option.id}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 
-				<Input
-					placeholder="Session ID"
-					value={sessionId}
-					onChange={(e) => {
-						isFilteringRef.current = true;
-						scrollPositionRef.current = window.scrollY;
-						setSessionId(e.target.value);
-						// Update URL immediately
-						updateUrlWithFilters({
-							sessionId: e.target.value ?? undefined,
-						});
-					}}
-					className="w-[200px]"
-				/>
+						<Select
+							onValueChange={handleFilterChange(
+								"unifiedFinishReason",
+								setUnifiedFinishReason,
+							)}
+							value={unifiedFinishReason ?? "all"}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder="Filter by unified reason" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All unified reasons</SelectItem>
+								{Object.entries(UnifiedFinishReason).map(([key, value]) => (
+									<SelectItem key={value} value={value}>
+										{key
+											.toLowerCase()
+											.replace(/_/g, " ")
+											.replace(/\b\w/g, (l) => l.toUpperCase())}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 
-				<Button
-					type="button"
-					variant="outline"
-					onClick={() => void refetch()}
-					disabled={isLoading || isRefetching || isFetchingNextPage}
-					className="gap-2"
-				>
-					<RefreshCw
-						className={cn("h-4 w-4", isRefetching && "animate-spin")}
-					/>
-					{isRefetching ? "Refreshing..." : "Refresh"}
-				</Button>
+						<div className="relative">
+							<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+							<Input
+								placeholder="Header key (e.g. uid)"
+								value={customHeaderKey}
+								onChange={(e) => {
+									isFilteringRef.current = true;
+									scrollPositionRef.current = window.scrollY;
+									setCustomHeaderKey(e.target.value);
+									updateUrlWithFilters({
+										customHeaderKey: e.target.value ?? undefined,
+									});
+								}}
+								className="w-full pl-8"
+							/>
+						</div>
+
+						<div className="relative">
+							<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+							<Input
+								placeholder="Header value (e.g. 12345)"
+								value={customHeaderValue}
+								onChange={(e) => {
+									isFilteringRef.current = true;
+									scrollPositionRef.current = window.scrollY;
+									setCustomHeaderValue(e.target.value);
+									updateUrlWithFilters({
+										customHeaderValue: e.target.value ?? undefined,
+									});
+								}}
+								className="w-full pl-8"
+							/>
+						</div>
+
+						<div className="relative">
+							<Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+							<Input
+								placeholder="Session ID"
+								value={sessionId}
+								onChange={(e) => {
+									isFilteringRef.current = true;
+									scrollPositionRef.current = window.scrollY;
+									setSessionId(e.target.value);
+									updateUrlWithFilters({
+										sessionId: e.target.value ?? undefined,
+									});
+								}}
+								className="w-full pl-8"
+							/>
+						</div>
+					</div>
+				</div>
 			</div>
 
 			{isLoading ? (
