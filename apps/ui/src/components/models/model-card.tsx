@@ -498,6 +498,7 @@ export function ProviderSection({
 	copyToClipboard,
 	copiedModel,
 	isImageGen = false,
+	detailed = false,
 }: {
 	modelId: string;
 	providerInfo: ApiProvider;
@@ -515,6 +516,7 @@ export function ProviderSection({
 	copyToClipboard: (text: string) => void;
 	copiedModel: string | null;
 	isImageGen?: boolean;
+	detailed?: boolean;
 }) {
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
@@ -911,7 +913,7 @@ export function ProviderSection({
 							</div>
 							<div className="bg-background p-2">
 								<PriceCell
-									label="Cached"
+									label={detailed ? "Cache Read" : "Cached"}
 									price={activeMapping.cachedInputPrice}
 									discount={activeMapping.discount}
 									unit="/M tokens"
@@ -944,6 +946,49 @@ export function ProviderSection({
 											/1K pages
 										</span>
 									</span>
+								</div>
+							)}
+						{detailed &&
+							(activeMapping.cacheWriteInputPrice ||
+								activeMapping.cacheWriteInputPrice1h) && (
+								<div className="grid grid-cols-2 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
+									<div className="bg-background p-2">
+										<PriceCell
+											label="Cache Write 5m"
+											price={activeMapping.cacheWriteInputPrice}
+											discount={activeMapping.discount}
+											unit="/M tokens"
+											formatPrice={formatPrice}
+											multiplier={serviceTierMultiplier}
+										/>
+									</div>
+									<div className="bg-background p-2">
+										<PriceCell
+											label="Cache Write 1h"
+											price={
+												activeMapping.cacheWriteInputPrice1h ??
+												activeMapping.cacheWriteInputPrice
+											}
+											discount={activeMapping.discount}
+											unit="/M tokens"
+											formatPrice={formatPrice}
+											multiplier={serviceTierMultiplier}
+										/>
+									</div>
+								</div>
+							)}
+						{detailed &&
+							activeMapping.outputAudioPrice !== null &&
+							activeMapping.outputAudioPrice !== undefined && (
+								<div className="rounded-md bg-background border border-border/30 p-2">
+									<PriceCell
+										label="Audio Output"
+										price={activeMapping.outputAudioPrice}
+										discount={activeMapping.discount}
+										unit="/M tokens"
+										formatPrice={formatPrice}
+										multiplier={serviceTierMultiplier}
+									/>
 								</div>
 							)}
 					</div>
