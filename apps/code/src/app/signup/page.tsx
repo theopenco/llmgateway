@@ -99,6 +99,7 @@ function SignupForm() {
 							email: values.email,
 							name: values.name,
 							plan: selectedPlan,
+							method: "email",
 						});
 					}
 					trackSignupConversion({
@@ -339,6 +340,7 @@ function SignupForm() {
 							setIsLoading={setIsLoading}
 							callbackPath={returnUrl}
 							errorCallbackPath="/signup"
+							newUserCallbackPath={returnUrl}
 						/>
 					</div>
 

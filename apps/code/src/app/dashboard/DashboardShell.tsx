@@ -33,7 +33,10 @@ import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
-import { trackPurchaseConversion } from "@/lib/google-tag";
+import {
+	trackPurchaseConversion,
+	trackSignupConversion,
+} from "@/lib/google-tag";
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
@@ -129,7 +132,8 @@ export default function DashboardShell({
 	const posthog = usePostHog();
 	const { signOut } = useAuth();
 	const config = useAppConfig();
-	const { posthogKey, googleAdsPurchaseConversion } = config;
+	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
+		config;
 	const api = useApi();
 	const { stripe, isLoading: stripeLoading } = useStripe();
 	const queryClient = useQueryClient();
@@ -146,6 +150,43 @@ export default function DashboardShell({
 	const subscribeMutation = api.useMutation("post", "/dev-plans/subscribe");
 	const finalizeMutation = api.useMutation("post", "/dev-plans/finalize");
 	const setupSessionId = searchParams.get("setup_session_id");
+	const signupMethod = searchParams.get("signup_method");
+	const signupTracked = useRef(false);
+
+	// OAuth signups redirect away from /signup before it can capture anything,
+	// so better-auth sends brand-new accounts here with ?signup_method=<provider>
+	// (see SocialAuthButtons) and we fire the same analytics as the email path.
+	useEffect(() => {
+		if (!signupMethod || !user || signupTracked.current) {
+			return;
+		}
+		signupTracked.current = true;
+		if (posthogKey) {
+			posthog.capture("user_signed_up", {
+				email: user.email,
+				name: user.name,
+				method: signupMethod,
+			});
+		}
+		trackSignupConversion({
+			email: user.email,
+			method: signupMethod,
+			sendTo: googleAdsSignupConversion,
+		});
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("signup_method");
+		const query = params.toString();
+		router.replace((query ? `${pathname}?${query}` : pathname) as Route);
+	}, [
+		signupMethod,
+		user,
+		posthog,
+		posthogKey,
+		googleAdsSignupConversion,
+		searchParams,
+		router,
+		pathname,
+	]);
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [duplicateCardError, setDuplicateCardError] = useState<string | null>(
