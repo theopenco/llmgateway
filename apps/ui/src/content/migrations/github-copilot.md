@@ -7,21 +7,21 @@ date: 2026-07-12
 fromProvider: GitHub Copilot
 ---
 
-On June 1, 2026, GitHub Copilot replaced its flat-fee model with usage-based AI Credits: base seats stayed at $10–$39 per user per month, but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed — with no spending ceiling unless you manually configure one. Teams running agentic workflows have reported projected jumps from $50 to $3,000 per month.
+On June 1, 2026, GitHub Copilot replaced its flat-fee model with usage-based AI Credits: seat prices didn't change — individual plans run $10 (Pro), $39 (Pro+), and $100 (Max), while organizations pay $19 (Business) or $39 (Enterprise) per user per month — but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed, with no spending ceiling unless you manually configure one. Teams running agentic workflows have reported projected jumps from $50 to $3,000 per month.
 
 LLM Gateway gives you the same workflows — chat, agents, code review — through any coding tool you choose, with provider token rates passed through at zero markup, prompt caching, and hard budget caps per organization, project, and API key.
 
 ## What Changed in Copilot Billing
 
-|                                    | Before June 2026                  | After June 2026                             |
-| ---------------------------------- | --------------------------------- | ------------------------------------------- |
-| Base seat                          | $10–$39/user/month                | Unchanged                                   |
-| Inline completions                 | Flat-fee                          | Still flat-fee                              |
-| Chat, agent mode, code review, CLI | Premium Request Units within plan | Metered AI Credits (1 credit = $0.01)       |
-| Spending ceiling                   | The subscription price            | None by default — manual budget only        |
-| Included credits                   | —                                 | $15 (Pro), $70 (Pro+), $200 (Max) per month |
+|                                    | Before June 2026                          | After June 2026                             |
+| ---------------------------------- | ----------------------------------------- | ------------------------------------------- |
+| Base seat                          | $10–$100 (individual), $19–$39/user (org) | Unchanged                                   |
+| Inline completions                 | Flat-fee                                  | Still flat-fee                              |
+| Chat, agent mode, code review, CLI | Premium Request Units within plan         | Metered AI Credits (1 credit = $0.01)       |
+| Spending ceiling                   | The subscription price                    | None by default — manual budget only        |
+| Included credits                   | —                                         | $15 (Pro), $70 (Pro+), $200 (Max) per month |
 
-A single chat session on a premium model costs roughly $0.21; at 20 sessions a day that's about $84 per month per developer — on top of the seat. Heavy users report $150–$250 per month in overages.
+A single chat session on a premium model costs roughly $0.21; at 20 sessions a day across 20 working days, that's about $84 per month per developer — on top of the seat, and an estimate that varies with the model and token volume. Heavy users report $150–$250 per month in overages.
 
 Estimate your own team's exposure with the [Copilot cost calculator](/copilot-cost-calculator).
 
@@ -64,7 +64,7 @@ claude
 
 ### 3. Replace CI Code Review
 
-Copilot code review now consumes AI Credits (and GitHub Actions minutes for unlicensed users). The gateway's API is OpenAI-compatible, so your CI can review diffs with any model:
+Copilot code review now consumes AI Credits, and it can also consume GitHub Actions minutes when reviews run for unlicensed users. The gateway's API is OpenAI-compatible, so your CI can review diffs with any model:
 
 ```bash
 curl https://api.llmgateway.io/v1/chat/completions \
@@ -78,7 +78,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 ### 4. Set Budgets Before You Roll Out
 
-This is the step Copilot doesn't have. In the dashboard, set spend limits per organization, per project, and per API key — hard caps, not alerts. Give each team its own project so a runaway agent burns through one budget, not the company's.
+This is where the gateway goes further than Copilot's off-by-default spending budgets. In the dashboard, set spend limits per organization, per project, and per API key — hard caps, not alerts. Give each team its own project so a runaway agent burns through one budget, not the company's.
 
 ### 5. Watch Caching Cut Your Bill
 

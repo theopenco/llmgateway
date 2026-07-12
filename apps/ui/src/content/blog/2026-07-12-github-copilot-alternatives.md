@@ -23,9 +23,9 @@ That's why "GitHub Copilot alternatives" went from a curiosity search to a budge
 The complaints since June are consistent:
 
 - **No default ceiling.** Usage-based AI Credits have no built-in cap — spending budgets exist, but they're off by default and manual. A runaway agent session is a real invoice.
-- **The included credits don't cover real work.** Pro includes $15 of monthly credits, Pro+ $70, Max $200. A single premium-model chat session runs about $0.21; at 20 sessions a day, that's roughly $84 a month — before agent mode touches anything.
+- **The included credits don't cover real work.** Pro includes $15 of monthly credits, Pro+ $70, Max $200. A single premium-model chat session runs about $0.21; at 20 sessions a day across 20 working days, that's roughly $84 a month — before agent mode touches anything.
 - **Opaque per-model math.** Costs vary by model, and the credit meter sits far from the editor. Developers discover the bill after the sprint, not during it.
-- **Procurement whiplash.** Enterprises signed off on predictable per-seat pricing. Metered billing turns every seat into a variable cost that finance now wants explained.
+- **Procurement whiplash.** Enterprises signed off on predictable per-seat pricing. Metered billing turns every seat into a variable cost that finance now asks engineering to justify.
 
 If your team mostly uses inline completions, Copilot is still fine — completions didn't change. If chat and agents are where your value (and now your spend) lives, here are the alternatives.
 
@@ -88,7 +88,7 @@ Cursor is a VS Code-fork editor with AI built into every surface — tab complet
 - Curated model list; you can't bring arbitrary providers or self-host
 - Per-editor licensing adds up across large teams
 
-**Pricing:** Pro $20/month; Ultra $200/month.
+**Pricing:** Pro $20/month; Ultra $200/month (as of July 2026).
 
 **Best for:** Individual developers and small teams who want the best packaged IDE experience and are happy to switch editors.
 
@@ -112,7 +112,7 @@ Windsurf is an AI-native editor whose pitch in 2026 is predictability: Pro at $2
 - Model catalog is curated by the vendor
 - Fewer governance controls than gateway- or enterprise-focused options
 
-**Pricing:** Pro $20/month; Max $200/month.
+**Pricing:** Pro $20/month; Max $200/month (as of July 2026).
 
 **Best for:** Teams whose main objection to Copilot is bill unpredictability and who want a flat number per seat.
 
@@ -136,7 +136,7 @@ Claude Code is Anthropic's terminal-native coding agent. Plans run $17–$100/mo
 - Plan limits still exist; heavy teams hit session windows
 - No inline completions — pair it with something else
 
-**Pricing:** $17–$100/month depending on tier.
+**Pricing:** $17–$100/month depending on tier (as of July 2026).
 
 **Best for:** Developers who live in the terminal and want the most capable single agent at a known monthly price.
 
@@ -246,7 +246,7 @@ Codex CLI is OpenAI's answer to Claude Code: an open-source terminal agent that 
 
 **You want the strongest single agent at a fixed price:** Claude Code — and point it at a gateway if you need non-Anthropic models.
 
-**You want open source and token-only costs:** Cline for VS Code, Continue if you also need completions and JetBrains, Aider for the terminal.
+**You want open-source tools and token-only costs:** Cline for VS Code, Continue if you also need completions and JetBrains, Aider for the terminal.
 
 **You're already paying for ChatGPT:** Codex CLI covers agentic work at no extra subscription.
 

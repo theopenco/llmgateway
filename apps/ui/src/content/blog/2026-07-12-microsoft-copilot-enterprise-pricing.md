@@ -22,13 +22,13 @@ None of these changes raised a sticker price. All of them raised the bill. This 
 | ------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | June 1, 2026  | GitHub Copilot switches chat, agent mode, code review, and CLI to metered AI Credits | Usage above included credits bills at $0.01/credit with no default ceiling              |
 | June 16, 2026 | Copilot Cowork launches with per-task pricing                                        | $1–3 (light), $4–7 (medium), $7+ (heavy) per task, on top of the $30/user/month license |
-| June 30, 2026 | Volume discounts on the $30 Microsoft 365 Copilot add-on expire                      | Discounted enterprise agreements renew at list price                                    |
+| June 30, 2026 | Volume discounts on the $30 Microsoft 365 Copilot add-on expire                      | New agreements and renewals price the add-on at list; existing terms hold until renewal |
 
-Underneath, Microsoft 365 base licenses also rose: E3 moved from $36 to $39 per user per month, E5 from $57 to $60, and Business Standard from $12.50 to $14 — so the floor under every Copilot seat went up too.
+Underneath, Microsoft 365 base licenses also rose effective July 1, 2026: E3 moved from $36 to $39 per user per month, E5 from $57 to $60, and Business Standard from $12.50 to $14, with existing customers keeping current pricing until their next renewal — so the floor under every Copilot seat went up too.
 
 ## GitHub Copilot: AI Credits Replace the Flat Fee
 
-Seat prices didn't move — Business is still $19 per user per month and Enterprise $39. What moved is what the seat covers. Inline completions stay flat-fee, but everything else — Copilot Chat, agent mode, code review, CLI — now consumes AI Credits (1 credit = $0.01), with per-request cost varying by model.
+Seat prices didn't move — Business is still $19 per user per month and Enterprise $39. What moved is what the seat covers. Inline completions stay flat-fee, but everything else — Copilot Chat, agent mode, code review, CLI — now consumes AI Credits (1 credit = $0.01), with per-request cost varying by model. Code review can additionally consume GitHub Actions minutes when reviews run for unlicensed users.
 
 The practical numbers:
 
@@ -36,7 +36,7 @@ The practical numbers:
 - Heavy chat users report $150–$250 per month in overages on top of their seat.
 - One three-developer team running agent mode projected a jump from $50 to $3,000 per month.
 
-There is no built-in ceiling. Spending budgets exist in the billing dashboard, but they're off by default — an inversion of how the product was sold to procurement, where the seat price was the cap.
+There is no ceiling unless you configure one. Plans include monthly credit allowances, and spending budgets exist in the billing dashboard — but the budgets are off by default, an inversion of how the product was sold to procurement, where the seat price was the cap.
 
 For the developer-tool side of this, see the [best GitHub Copilot alternatives](/blog/github-copilot-alternatives) and the [LLM Gateway vs GitHub Copilot comparison](/compare/github-copilot).
 
@@ -45,14 +45,14 @@ For the developer-tool side of this, see the [best GitHub Copilot alternatives](
 The $30 per user per month Copilot add-on is unchanged on paper. In practice, three things raised its real cost:
 
 1. **The base license under it went up.** Copilot requires a qualifying Microsoft 365 plan, and E3/E5/Business Standard all rose $2–3 per user per month in 2026.
-2. **Volume discounts expired June 30, 2026.** Agreements that priced Copilot below list renew at $30.
-3. **Copilot Cowork bills per task, on top of the seat.** Cowork — the agentic mode that runs multi-step tasks across enterprise data — launched globally on June 16, 2026 with usage-based pricing: light tasks around $1–3, medium $4–7, heavy $7 and up. Task cost depends on the model used, the context retrieved, tool calls made, and runtime. Usage is billed in Copilot Credits, pay-as-you-go or through a volume commitment.
+2. **Volume discounts expired June 30, 2026.** Agreements that priced Copilot below list return to $30 at their next renewal.
+3. **Copilot Cowork bills per task, on top of the seat.** Cowork — the agentic mode that runs multi-step tasks across enterprise data — launched globally on June 16, 2026 with usage-based pricing. [Microsoft's published estimates](https://learn.microsoft.com/en-us/microsoft-365/copilot/usage-based-billing-overview-copilot-credits) put light tasks around $1–3, medium $4–7, and heavy $7 and up. Task cost depends on the model used, the context retrieved, tool calls made, and runtime. Usage is billed in Copilot Credits at $0.01 each, pay-as-you-go or through a volume commitment.
 
 Microsoft's own framing is telling: executives have said heavy users run hundreds of tasks a week — great for productivity, but "the costs can go very high." That is the vendor describing its own pricing model.
 
 ## The Pattern: Seats Are Becoming Meters
 
-Both changes are the same change. Agentic AI made flat seats unprofitable — one industry analysis puts the cost of a typical enterprise AI interaction at $1.20 in 2026, up from $0.04 in 2023, a 30x increase driven by multi-step agent workflows. Vendors responded by metering the expensive part.
+Both changes are the same change. Agentic AI made flat seats unprofitable — [one industry analysis](https://www.beri.net/article/microsoft-copilot-cowork-usage-based-pricing-enterprise-ai-budget-2026) puts the cost of a typical enterprise AI interaction at $1.20 in 2026, up from $0.04 in 2023, a 30x increase driven by multi-step agent workflows. Vendors responded by metering the expensive part.
 
 Metered pricing isn't inherently bad — it's how every serious AI platform prices, including ours. The problem is metered pricing **without controls**: no default ceiling, per-model math you can't see at request time, and usage attributed to a seat rather than a team or project. Enterprises aren't leaving Copilot because usage-based billing exists; they're leaving because they can't govern it.
 
