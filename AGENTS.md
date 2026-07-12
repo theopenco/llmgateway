@@ -38,6 +38,11 @@ This repository always uses tabs for indentation.
 
 When you are done writing code features or bug fixes, ALWAYS commit your changes. If in doubt, commit any changes.
 
+### Documentation
+
+- NEVER hardcode a list of models, providers, provider countries/headquarters, or any other catalogue-derived enumeration into documentation (`apps/docs`), changelog entries, or marketing copy. These lists go stale the moment the catalogue changes and are annoying to keep in sync. Instead, link to the relevant live page that is generated from the catalogue (e.g. the [models page](https://llmgateway.io/models) or [providers page](https://llmgateway.io/providers)).
+- The ONLY exception is video generation and image generation models: their per-model requirements (supported sizes, durations, resolutions, etc.) are how users figure out how to call them, so listing those specific models and their constraints in the docs is acceptable and preferred there.
+
 ### Testing
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.

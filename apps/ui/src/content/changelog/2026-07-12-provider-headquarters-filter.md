@@ -17,15 +17,7 @@ Data-residency and vendor-jurisdiction rules often come down to a simple questio
 
 Open **Organization → Compliance** and enable the provider compliance policy. A new **Provider Headquarters** card shows a country selector, rendered as flag chips. Select one or more countries to restrict routing to providers based in them; leave every country unselected to allow any location.
 
-The selector only offers countries that are actually referenced in the model catalogue, so there is nothing to choose that no provider can satisfy. Today that set is:
-
-| Country          | Code |
-| ---------------- | ---- |
-| 🇺🇸 United States | `US` |
-| 🇨🇳 China         | `CN` |
-| 🇫🇷 France        | `FR` |
-| 🇳🇱 Netherlands   | `NL` |
-| 🇯🇵 Japan         | `JP` |
+The selector only offers countries that are actually referenced in the model catalogue, so there is nothing to choose that no provider can satisfy. Browse the [providers directory](https://llmgateway.io/providers) to see every provider and its headquarters.
 
 The **Provider Impact** card updates live as you select countries, splitting every provider into allowed and blocked so you can see the effect before saving.
 
