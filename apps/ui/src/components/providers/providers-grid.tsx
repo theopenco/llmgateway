@@ -33,6 +33,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 
 import {
+	countryCodeToFlag,
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	type ProviderId,
@@ -69,9 +70,6 @@ const modelCounts = getModelsCountByProvider();
 const baseProviders = providerDefinitions.filter(
 	(p) => p.name !== "LLM Gateway" && p.id !== "custom",
 );
-
-const totalModels = modelDefinitions.length;
-const totalProviders = baseProviders.length;
 
 function formatTtft(ms: number | null | undefined): string {
 	if (ms === null || ms === undefined) {
@@ -125,11 +123,38 @@ function speedBadge(ttft: number | null | undefined) {
 	};
 }
 
-export function ProvidersGrid() {
+interface ProvidersGridProps {
+	/** When set, only providers headquartered in this ISO 3166-1 alpha-2 code are shown. */
+	countryCode?: string;
+	/** Overrides the default page heading. */
+	heading?: string;
+	/** Overrides the default page subheading. */
+	subheading?: string;
+}
+
+export function ProvidersGrid({
+	countryCode,
+	heading,
+	subheading,
+}: ProvidersGridProps = {}) {
 	const router = useRouter();
 	const api = useApi();
 	const [search, setSearch] = useState("");
 	const [sort, setSort] = useState<SortKey>("popular");
+
+	const visibleProviders = useMemo(
+		() =>
+			countryCode
+				? baseProviders.filter((p) => p.headquarters === countryCode)
+				: baseProviders,
+		[countryCode],
+	);
+
+	const totalProviders = visibleProviders.length;
+	const totalModels = visibleProviders.reduce(
+		(sum, p) => sum + (modelCounts[p.id] || 0),
+		0,
+	);
 
 	const { data: statsData } = api.useQuery(
 		"get",
@@ -167,7 +192,7 @@ export function ProvidersGrid() {
 	const filteredAndSorted = useMemo(() => {
 		const query = search.trim().toLowerCase();
 
-		const enriched = baseProviders.map((provider) => {
+		const enriched = visibleProviders.map((provider) => {
 			const stats = statsByProvider.get(provider.id);
 			return {
 				...provider,
@@ -214,15 +239,17 @@ export function ProvidersGrid() {
 			default:
 				return [...filtered].sort((a, b) => b.modelsCount - a.modelsCount);
 		}
-	}, [search, sort, statsByProvider]);
+	}, [search, sort, statsByProvider, visibleProviders]);
 
 	return (
 		<div className="container mx-auto px-4 pt-60 pb-8">
 			<header className="text-center mb-12">
-				<h1 className="text-4xl font-bold tracking-tight mb-4">AI Providers</h1>
+				<h1 className="text-4xl font-bold tracking-tight mb-4">
+					{heading ?? "AI Providers"}
+				</h1>
 				<p className="text-xl text-muted-foreground mb-6 max-w-3xl mx-auto">
-					Access {totalModels} models from {totalProviders} leading AI providers
-					through our unified API
+					{subheading ??
+						`Access ${totalModels} models from ${totalProviders} leading AI providers through our unified API`}
 				</p>
 				<div className="flex justify-center gap-8 text-sm text-muted-foreground">
 					<div className="flex items-center gap-2">
@@ -366,10 +393,17 @@ export function ProvidersGrid() {
 										</div>
 										<div className="flex flex-wrap items-center justify-end gap-1.5">
 											{provider.headquarters && (
-												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
+												<Link
+													href={`/providers/country/${provider.headquarters.toLowerCase()}`}
+													onClick={(e) => e.stopPropagation()}
+													className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+												>
+													<span className="leading-none">
+														{countryCodeToFlag(provider.headquarters)}
+													</span>
 													<MapPin className="h-3 w-3" />
 													{provider.headquarters}
-												</span>
+												</Link>
 											)}
 											{provider.dataPolicy?.apiTraining === false && (
 												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">

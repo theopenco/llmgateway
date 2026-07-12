@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	countryCodeToFlag,
+	getProviderCountries,
 	getProviderDefinition,
 	isProviderCompliant,
 	type ProviderCompliancePolicy,
@@ -9,6 +11,7 @@ import {
 
 function makeProvider(
 	dataPolicy: ProviderDefinition["dataPolicy"],
+	headquarters?: string | null,
 ): ProviderDefinition {
 	return {
 		id: "test",
@@ -16,6 +19,7 @@ function makeProvider(
 		description: "",
 		env: { required: { apiKey: "TEST" } },
 		dataPolicy,
+		headquarters,
 	};
 }
 
@@ -137,5 +141,84 @@ describe("isProviderCompliant", () => {
 		const deepseek = getProviderDefinition("deepseek")!;
 		expect(isProviderCompliant(openai, policy)).toBe(true);
 		expect(isProviderCompliant(deepseek, policy)).toBe(false);
+	});
+
+	it("allowedCountries restricts routing to the selected headquarters", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			allowedCountries: ["US"],
+		};
+		expect(isProviderCompliant(makeProvider(null, "US"), policy)).toBe(true);
+		expect(isProviderCompliant(makeProvider(null, "CN"), policy)).toBe(false);
+	});
+
+	it("allowedCountries fails closed for an unknown headquarters", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			allowedCountries: ["US"],
+		};
+		expect(isProviderCompliant(makeProvider(null, null), policy)).toBe(false);
+		expect(isProviderCompliant(makeProvider(null, undefined), policy)).toBe(
+			false,
+		);
+	});
+
+	it("an empty allowedCountries list applies no country restriction", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			allowedCountries: [],
+		};
+		expect(isProviderCompliant(makeProvider(null, "CN"), policy)).toBe(true);
+		expect(isProviderCompliant(makeProvider(null, null), policy)).toBe(true);
+	});
+
+	it("composes the country filter with certification requirements", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			requireSoc2: true,
+			allowedCountries: ["US"],
+		};
+		const compliant = makeProvider(
+			{
+				apiTraining: false,
+				consumerTraining: false,
+				promptLogging: false,
+				soc2: 2,
+			},
+			"US",
+		);
+		// Same certs, wrong country → blocked.
+		const wrongCountry = makeProvider(
+			{
+				apiTraining: false,
+				consumerTraining: false,
+				promptLogging: false,
+				soc2: 2,
+			},
+			"CN",
+		);
+		expect(isProviderCompliant(compliant, policy)).toBe(true);
+		expect(isProviderCompliant(wrongCountry, policy)).toBe(false);
+	});
+});
+
+describe("getProviderCountries", () => {
+	it("returns only distinct countries referenced by the catalogue, sorted by name", () => {
+		const countries = getProviderCountries();
+		const codes = countries.map((c) => c.code);
+		expect(new Set(codes).size).toBe(codes.length);
+		expect(codes).toContain("US");
+		expect(codes).toContain("CN");
+		expect(codes).not.toContain(null);
+		const names = countries.map((c) => c.name);
+		expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+	});
+
+	it("derives a flag emoji for each country", () => {
+		for (const country of getProviderCountries()) {
+			expect(country.flag.length).toBeGreaterThan(0);
+		}
+		expect(countryCodeToFlag("US")).toBe("🇺🇸");
+		expect(countryCodeToFlag("FR")).toBe("🇫🇷");
 	});
 });

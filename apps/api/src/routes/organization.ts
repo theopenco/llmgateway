@@ -28,11 +28,18 @@ import {
 	tables,
 	projectHourlyStats,
 } from "@llmgateway/db";
+import { getProviderCountries } from "@llmgateway/models";
 import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const organization = new OpenAPIHono<ServerTypes>();
+
+// Closed set of provider-headquarters country codes defined in the catalogue.
+// The compliance country filter may only reference these.
+const providerCountryCodes = new Set(
+	getProviderCountries().map((country) => country.code),
+);
 
 // Define schemas directly with Zod instead of using createSelectSchema
 const providerCompliancePolicySchema = z.object({
@@ -43,6 +50,13 @@ const providerCompliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	allowedCountries: z
+		.array(
+			z.string().refine((code) => providerCountryCodes.has(code), {
+				message: "Unsupported provider headquarters country",
+			}),
+		)
+		.optional(),
 });
 
 const organizationSchema = z.object({

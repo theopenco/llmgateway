@@ -32,6 +32,14 @@ Every requirement is **fail-closed**: a provider passes only if its published da
 
 The settings page shows a live preview of which providers are allowed and which are blocked under the current policy, so you can see the impact before saving.
 
+## Provider headquarters
+
+Beyond certifications, you can restrict routing by the country a provider is headquartered in. The **Provider Headquarters** card presents a country selector, and requests are only routed to providers based in a selected country.
+
+The selector only offers countries that are referenced by a provider in the catalogue — currently the United States, China, France, the Netherlands, and Japan. Selecting no country applies no location restriction. The country filter is also fail-closed: when at least one country is selected, a provider whose headquarters is unknown is treated as non-compliant.
+
+The country filter composes with the certification and data-policy requirements above — a provider must satisfy all active requirements to be allowed.
+
 ## Enforcement
 
 When no available provider for a model meets the policy — or a pinned provider is non-compliant — the gateway returns a `403`:

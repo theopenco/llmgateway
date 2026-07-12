@@ -3,6 +3,7 @@ import { features } from "@/lib/features";
 import { slugify } from "@/lib/slugify";
 
 import {
+	getProviderCountries,
 	models as modelDefinitions,
 	providers as providerDefinitions,
 } from "@llmgateway/models";
@@ -391,6 +392,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		}));
 
+	// Per-country provider pages
+	const providerCountryPages: MetadataRoute.Sitemap =
+		getProviderCountries().map((country) => ({
+			url: `${baseUrl}/providers/country/${country.code.toLowerCase()}`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.7,
+		}));
+
 	// Feature pages
 	const featurePages: MetadataRoute.Sitemap = features.map((feature) => ({
 		url: `${baseUrl}/features/${feature.slug}`,
@@ -500,6 +510,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...timelineYearPages,
 		...modelPages,
 		...providerPages,
+		...providerCountryPages,
 		...featurePages,
 		...enterpriseFeaturePages,
 		...blogPages,
