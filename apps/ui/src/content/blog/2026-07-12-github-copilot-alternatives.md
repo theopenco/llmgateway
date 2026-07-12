@@ -23,7 +23,7 @@ That's why "GitHub Copilot alternatives" went from a curiosity search to a budge
 The complaints since June are consistent:
 
 - **No default ceiling.** Usage-based AI Credits have no built-in cap — spending budgets exist, but they're off by default and manual. A runaway agent session is a real invoice.
-- **The included credits don't cover real work.** Pro includes $15 of monthly credits, Pro+ $70, Max $200. A single premium-model chat session runs about $0.21; at 20 sessions a day across 20 working days, that's roughly $84 a month — before agent mode touches anything.
+- **The included credits don't cover real work.** Pro includes $15 of monthly credits, Pro+ $70, Max $200. A typical chat session on a premium Sonnet-class model — roughly 4,000 input and 800 output tokens — runs about $0.21 in credits; at 20 sessions a day across 20 working days, that's roughly $84 a month — before agent mode touches anything.
 - **Opaque per-model math.** Costs vary by model, and the credit meter sits far from the editor. Developers discover the bill after the sprint, not during it.
 - **Procurement whiplash.** Enterprises signed off on predictable per-seat pricing. Metered billing turns every seat into a variable cost that finance now asks engineering to justify.
 
@@ -136,7 +136,7 @@ Claude Code is Anthropic's terminal-native coding agent. Plans run $17–$100/mo
 - Plan limits still exist; heavy teams hit session windows
 - No inline completions — pair it with something else
 
-**Pricing:** $17–$100/month depending on tier (as of July 2026).
+**Pricing:** Pro $20/month, or $17/month equivalent with annual billing; Max tiers from $100/month (as of July 2026).
 
 **Best for:** Developers who live in the terminal and want the most capable single agent at a known monthly price.
 
