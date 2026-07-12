@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 import { logger } from "@llmgateway/logger";
 import {
@@ -23,6 +23,7 @@ import {
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
@@ -52,15 +53,16 @@ export class RequestError extends Error {
 /**
  * Hash a caller session id before using it as an upstream `prompt_cache_key`
  * so raw session ids (e.g. Claude Code session UUIDs from x-session-id /
- * x-session-affinity) are never exposed to providers. The salt prevents a
- * provider from correlating the hash back to a known session id; the hash
+ * x-session-affinity) are never exposed to providers. Keyed with the gateway's
+ * API-key hash secret (GATEWAY_API_KEY_HASH_SECRET — required in production,
+ * dev fallback otherwise) so a provider cannot correlate the hash back to a
+ * known session id; the "prompt-cache-key:" prefix domain-separates these
+ * digests from API-key fingerprints computed with the same secret. The hash
  * stays stable per session, which is all cache routing needs.
  */
 export function hashSessionCacheKey(sessionId: string): string {
-	const salt =
-		process.env.PROMPT_CACHE_KEY_SALT ?? "llmgateway-prompt-cache-key-v1";
-	return createHash("sha256")
-		.update(`${salt}:${sessionId}`)
+	return createHmac("sha256", getApiKeyHashSecret())
+		.update(`prompt-cache-key:${sessionId}`)
 		.digest("hex")
 		.slice(0, 32);
 }
