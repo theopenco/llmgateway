@@ -439,7 +439,7 @@ describe("self-refund endpoints", () => {
 		expect(auditLogs[0]?.resourceId).toBe(tx.id);
 	});
 
-	test("refunding a dev plan resolves the invoice payment and cancels the subscription", async () => {
+	test("refunding a dev plan resolves the invoice payment and issues the refund", async () => {
 		await seedOrg({
 			devPlan: "pro",
 			devPlanCreditsUsed: "0",
@@ -479,7 +479,10 @@ describe("self-refund endpoints", () => {
 			{ payment_intent: "pi_from_invoice", reason: "requested_by_customer" },
 			{ idempotencyKey: `self-refund-${tx.id}` },
 		);
-		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledWith("sub_test_1");
+		// The endpoint only issues the refund; the subscription is cancelled by the
+		// charge.refunded webhook (handleChargeRefunded), covering every refund
+		// source, not just this endpoint.
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
 	});
 
 	test("rejects ineligible transactions with 400 and does not call Stripe", async () => {

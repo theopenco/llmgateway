@@ -3043,6 +3043,35 @@ export async function handleChargeRefunded(
 			.where(eq(tables.organization.id, originalTransaction.organizationId));
 	}
 
+	// A full refund of a dev/chat plan payment ends the plan — cancel the Stripe
+	// subscription so the customer isn't left refunded-but-still-subscribed.
+	// Handling it here (rather than only in the self-refund endpoint) covers every
+	// refund source: the self-service dashboard, the admin panel, and manual
+	// refunds issued straight from the Stripe dashboard. Cancelling emits
+	// customer.subscription.deleted, which resets the plan fields and records the
+	// *_plan_end transaction. Gated on a full refund so a partial refund doesn't
+	// tear down the whole plan.
+	if (charge.refunded) {
+		const planSubscriptionId = originalTransaction.type.startsWith("dev_plan")
+			? organization.devPlanStripeSubscriptionId
+			: originalTransaction.type.startsWith("chat_plan")
+				? organization.chatPlanStripeSubscriptionId
+				: null;
+		if (planSubscriptionId) {
+			try {
+				await getStripe().subscriptions.cancel(planSubscriptionId);
+				logger.info(
+					`Cancelled subscription ${planSubscriptionId} after full refund of ${originalTransaction.type} for organization ${organization.id}`,
+				);
+			} catch (error) {
+				logger.error(
+					`Refund recorded but cancelling subscription ${planSubscriptionId} failed for organization ${organization.id}`,
+					error as Error,
+				);
+			}
+		}
+	}
+
 	// Notify the internal Discord channel, mirroring the purchase notification.
 	// Runs after the transaction insert (which is guarded by the stripeRefundId
 	// dedupe check above), so webhook retries won't double-notify.

@@ -5,7 +5,6 @@ import { getStripe } from "@/routes/payments.js";
 import { getPaymentIntentFromInvoicePayments } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { logger } from "@llmgateway/logger";
 import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
@@ -308,11 +307,12 @@ export function computeSelfRefundEligibility({
 }
 
 /**
- * Issue the Stripe refund for an already-eligibility-checked transaction and,
- * for plan payments, cancel the subscription immediately. Bookkeeping (the
- * credit_refund row, credit deduction, plan-field reset) is left to the
- * charge.refunded and customer.subscription.deleted webhooks, which are
- * already idempotent and order-independent.
+ * Issue the Stripe refund for an already-eligibility-checked transaction. All
+ * bookkeeping is left to the webhooks: charge.refunded records the credit_refund
+ * row (and, for a dev/chat plan payment, cancels the Stripe subscription), and
+ * the resulting customer.subscription.deleted resets the plan fields. Keeping
+ * the cancellation in the webhook means it fires for every refund source, not
+ * just this endpoint.
  */
 export async function executeSelfRefund({
 	organization,
@@ -348,29 +348,6 @@ export async function executeSelfRefund({
 		},
 		{ idempotencyKey: `self-refund-${transaction.id}` },
 	);
-
-	// Refunding a plan payment ends the plan: cancel the subscription
-	// immediately so the customer isn't left with a refunded-but-active plan.
-	// The refund already succeeded, so a cancel failure is logged and surfaced
-	// to ops instead of failing the request — support can cancel manually.
-	const subscriptionId =
-		transaction.type === "dev_plan_start" ||
-		transaction.type === "dev_plan_renewal"
-			? organization.devPlanStripeSubscriptionId
-			: transaction.type === "chat_plan_start" ||
-				  transaction.type === "chat_plan_renewal"
-				? organization.chatPlanStripeSubscriptionId
-				: null;
-	if (subscriptionId) {
-		try {
-			await stripe.subscriptions.cancel(subscriptionId);
-		} catch (error) {
-			logger.error(
-				`Self-refund ${refund.id} succeeded but cancelling subscription ${subscriptionId} failed for organization ${organization.id}`,
-				error as Error,
-			);
-		}
-	}
 
 	await logAuditEvent({
 		organizationId: organization.id,
