@@ -1182,6 +1182,9 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking-maas",
+				// Vertex MaaS throttles this model's tiny concurrency quota (429
+				// RESOURCE_EXHAUSTED) even on single requests, flaking e2e
+				stability: "unstable",
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",

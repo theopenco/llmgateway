@@ -47,6 +47,9 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-5.2",
+				// embercloud rate-limits this model on every request (429 even for
+				// single spaced-out calls, verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "1.26e-6",
 				outputPrice: "3.96e-6",
 				cachedInputPrice: "0.234e-6",
@@ -187,6 +190,9 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-5.1",
+				// embercloud returns 400 "Temporary routing error" on every request
+				// for this model (verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.931e-6",
 				outputPrice: "2.93e-6",
 				cachedInputPrice: "0.173e-6",
@@ -401,6 +407,9 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.5",
+				// embercloud rate-limits this model on every request (429 even for
+				// single spaced-out calls, verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.6e-6",
 				outputPrice: "2.2e-6",
 				cachedInputPrice: "0.11e-6",
@@ -500,6 +509,9 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.5-air",
+				// embercloud rate-limits this model on every request (429 even for
+				// single spaced-out calls, verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.13e-6",
 				outputPrice: "0.85e-6",
 				cachedInputPrice: "0.025e-6",
