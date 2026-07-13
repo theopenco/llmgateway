@@ -4186,3 +4186,222 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		expect(a).not.toContain("sess-1");
 	});
 });
+
+describe("prepareRequestBody - Xiaomi", () => {
+	test("flattens tool message with array content (text + image) to plain string", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{ role: "user", content: "describe this" },
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{ type: "text", text: "screenshot taken" },
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,abc" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[0].content).toBe("describe this");
+		expect(requestBody.messages[1].role).toBe("tool");
+		expect(requestBody.messages[1].content).toBe("screenshot taken");
+	});
+
+	test("leaves tool message with plain string content unchanged", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{ role: "user", content: "What is the weather?" },
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "sunny, 22°C",
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[1].content).toBe("sunny, 22°C");
+	});
+
+	test("leaves user message array content unchanged (images still work)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "describe this image" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/photo.jpg" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(1);
+		expect(requestBody.messages[0].role).toBe("user");
+		expect(Array.isArray(requestBody.messages[0].content)).toBe(true);
+		expect(requestBody.messages[0].content).toHaveLength(2);
+		expect(requestBody.messages[0].content[0]).toEqual({
+			type: "text",
+			text: "describe this image",
+		});
+		expect(requestBody.messages[0].content[1]).toEqual({
+			type: "image_url",
+			image_url: { url: "https://example.com/photo.jpg" },
+		});
+	});
+
+	test("handles tool message with multiple text blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{ type: "text", text: "part one " },
+						{ type: "text", text: "part two" },
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toBe("part one \npart two");
+	});
+
+	test("handles tool message with only images, no text (empty string)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,abc" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toBe("");
+	});
+
+	test("applies standard default params (stream_options, temperature, etc.)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[{ role: "user", content: "Hello" }],
+			true,
+			0.7,
+			1024,
+			0.9,
+			0.5,
+			0.5,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			"medium",
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.stream_options).toEqual({ include_usage: true });
+		expect(requestBody.response_format).toEqual({ type: "json_object" });
+		expect(requestBody.temperature).toBe(0.7);
+		expect(requestBody.max_tokens).toBe(1024);
+		expect(requestBody.top_p).toBe(0.9);
+		expect(requestBody.frequency_penalty).toBe(0.5);
+		expect(requestBody.presence_penalty).toBe(0.5);
+		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+});
