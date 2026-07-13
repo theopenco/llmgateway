@@ -1610,6 +1610,14 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	// A regular key must not take on the reserved playground description,
+	// or it would collide with the playground key's fixed-description lookup.
+	if (descriptionInput === PLAYGROUND_API_KEY_DESCRIPTION) {
+		throw new HTTPException(403, {
+			message: "This name is reserved for the playground API key.",
+		});
+	}
+
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
