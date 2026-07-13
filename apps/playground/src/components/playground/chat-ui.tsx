@@ -103,7 +103,18 @@ import {
 } from "@/lib/message-metadata";
 import { cn } from "@/lib/utils";
 
+import type { ReasoningEffortOption } from "@/lib/fetch-models";
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
+
+const REASONING_EFFORT_LABELS: Record<ReasoningEffortOption, string> = {
+	none: "None",
+	minimal: "Minimal",
+	low: "Low",
+	medium: "Medium",
+	high: "High",
+	xhigh: "X-High",
+	max: "Max",
+};
 
 function getCaretCoordinates(
 	textarea: HTMLTextAreaElement,
@@ -170,11 +181,15 @@ interface ChatUIProps {
 	status: ChatStatus;
 	stop: () => void;
 	regenerate: () => void;
-	reasoningEffort: "" | "minimal" | "low" | "medium" | "high";
-	setReasoningEffort: (
-		value: "" | "minimal" | "low" | "medium" | "high",
-	) => void;
+	reasoningEffort: "" | ReasoningEffortOption;
+	setReasoningEffort: (value: "" | ReasoningEffortOption) => void;
 	supportsReasoning: boolean;
+	/**
+	 * Exact reasoning_effort values the selected model supports (from the model
+	 * catalog). Null/undefined when the model doesn't declare them, in which
+	 * case a generic default set is shown.
+	 */
+	reasoningEfforts?: ReasoningEffortOption[] | null;
 	imageAspectRatio:
 		| "auto"
 		| "1:1"
@@ -1013,6 +1028,7 @@ export const ChatUI = ({
 	reasoningEffort,
 	setReasoningEffort,
 	supportsReasoning,
+	reasoningEfforts,
 	imageAspectRatio,
 	setImageAspectRatio,
 	imageSize,
@@ -1854,8 +1870,7 @@ export const ChatUI = ({
 										setReasoningEffort(
 											val === "off"
 												? ""
-												: ((val as "minimal" | "low" | "medium" | "high") ??
-														""),
+												: ((val as ReasoningEffortOption) ?? ""),
 										)
 									}
 								>
@@ -1871,12 +1886,18 @@ export const ChatUI = ({
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="off">Auto</SelectItem>
-										{selectedModel.includes("gpt-5") && (
-											<SelectItem value="minimal">Minimal</SelectItem>
-										)}
-										<SelectItem value="low">Low</SelectItem>
-										<SelectItem value="medium">Medium</SelectItem>
-										<SelectItem value="high">High</SelectItem>
+										{(
+											reasoningEfforts ??
+											// Fallback for models that don't declare their
+											// supported efforts in the catalog yet.
+											((selectedModel.includes("gpt-5")
+												? ["minimal", "low", "medium", "high"]
+												: ["low", "medium", "high"]) as ReasoningEffortOption[])
+										).map((effort) => (
+											<SelectItem key={effort} value={effort}>
+												{REASONING_EFFORT_LABELS[effort]}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
 							)}

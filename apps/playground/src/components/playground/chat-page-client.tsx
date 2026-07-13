@@ -51,6 +51,7 @@ import {
 	getModelPreferenceCookie,
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
+import { getReasoningEffortOptions } from "@/lib/model-utils";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -58,6 +59,7 @@ import type {
 	ApiModel,
 	ApiModelProviderMapping,
 	ApiProvider,
+	ReasoningEffortOption,
 } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 import type { UIMessage } from "ai";
@@ -333,7 +335,7 @@ export default function ChatPageClient({
 
 	const [selectedModel, setSelectedModel] = useState(() => getInitialModel());
 	const [reasoningEffort, setReasoningEffort] = useState<
-		"" | "minimal" | "low" | "medium" | "high"
+		"" | ReasoningEffortOption
 	>("");
 	const [imageAspectRatio, setImageAspectRatio] = useState<
 		| "auto"
@@ -712,6 +714,25 @@ export default function ChatPageClient({
 		}
 		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
+	}, [models, selectedModel]);
+
+	const reasoningEfforts = useMemo(() => {
+		if (!selectedModel) {
+			return null;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return null;
+		}
+		if (!providerId) {
+			return getReasoningEffortOptions(
+				def.mappings.filter((p: ApiModelProviderMapping) => p.reasoning),
+			);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return getReasoningEffortOptions(mapping ? [mapping] : []);
 	}, [models, selectedModel]);
 
 	const supportsWebSearch = useMemo(() => {
@@ -1868,12 +1889,20 @@ export default function ChatPageClient({
 		setText(value);
 	};
 
-	// Reset reasoning effort when switching to a non-reasoning model
+	// Reset reasoning effort when switching to a non-reasoning model, or when
+	// the new model declares its supported efforts and the current value isn't
+	// among them.
 	useEffect(() => {
-		if (!supportsReasoning && reasoningEffort) {
+		if (!reasoningEffort) {
+			return;
+		}
+		if (
+			!supportsReasoning ||
+			(reasoningEfforts && !reasoningEfforts.includes(reasoningEffort))
+		) {
 			setReasoningEffort("");
 		}
-	}, [supportsReasoning, reasoningEffort]);
+	}, [supportsReasoning, reasoningEffort, reasoningEfforts]);
 
 	// Reset image size/quality only when the selected model changes and the
 	// current value is not valid for the new model. Including alibabaImageSize
@@ -2119,6 +2148,7 @@ export default function ChatPageClient({
 											reasoningEffort={reasoningEffort}
 											setReasoningEffort={setReasoningEffort}
 											supportsReasoning={supportsReasoning}
+											reasoningEfforts={reasoningEfforts}
 											imageAspectRatio={imageAspectRatio}
 											setImageAspectRatio={setImageAspectRatio}
 											imageSize={imageSize}
@@ -2179,6 +2209,7 @@ export default function ChatPageClient({
 										reasoningEffort={reasoningEffort}
 										setReasoningEffort={setReasoningEffort}
 										supportsReasoning={supportsReasoning}
+										reasoningEfforts={reasoningEfforts}
 										imageAspectRatio={imageAspectRatio}
 										setImageAspectRatio={setImageAspectRatio}
 										imageSize={imageSize}
@@ -2428,7 +2459,7 @@ function ExtraChatPanel({
 	const comparisonChatIdRef = useRef<string | null>(initialChatId);
 	const loadedComparisonChatIdRef = useRef<string | null>(null);
 	const [reasoningEffort, setReasoningEffort] = useState<
-		"" | "minimal" | "low" | "medium" | "high"
+		"" | ReasoningEffortOption
 	>("");
 	const [imageAspectRatio, setImageAspectRatio] = useState<
 		| "auto"
@@ -2640,6 +2671,40 @@ function ExtraChatPanel({
 		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
+
+	const reasoningEfforts = useMemo(() => {
+		if (!selectedModel) {
+			return null;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return null;
+		}
+		if (!providerId) {
+			return getReasoningEffortOptions(
+				def.mappings.filter((p: ApiModelProviderMapping) => p.reasoning),
+			);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return getReasoningEffortOptions(mapping ? [mapping] : []);
+	}, [models, selectedModel]);
+
+	// Reset reasoning effort when switching to a non-reasoning model, or when
+	// the new model declares its supported efforts and the current value isn't
+	// among them.
+	useEffect(() => {
+		if (!reasoningEffort) {
+			return;
+		}
+		if (
+			!supportsReasoning ||
+			(reasoningEfforts && !reasoningEfforts.includes(reasoningEffort))
+		) {
+			setReasoningEffort("");
+		}
+	}, [supportsReasoning, reasoningEffort, reasoningEfforts]);
 
 	const supportsWebSearch = useMemo(() => {
 		if (!selectedModel) {
@@ -3011,6 +3076,7 @@ function ExtraChatPanel({
 					reasoningEffort={reasoningEffort}
 					setReasoningEffort={setReasoningEffort}
 					supportsReasoning={supportsReasoning}
+					reasoningEfforts={reasoningEfforts}
 					imageAspectRatio={imageAspectRatio}
 					setImageAspectRatio={setImageAspectRatio}
 					imageSize={imageSize}
