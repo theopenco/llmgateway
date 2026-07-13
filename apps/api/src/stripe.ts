@@ -30,6 +30,7 @@ import {
 	notifyChatPlanRenewed,
 	notifyChatPlanSubscribed,
 	notifyCreditsPurchased,
+	notifyRefund,
 	notifyDevPlanCancelled,
 	notifyDevPlanRenewed,
 	notifyDevPlanSubscribed,
@@ -2833,6 +2834,21 @@ async function resolveRefundInvoiceId(
 	return typeof invoice === "string" ? invoice : (invoice.id ?? undefined);
 }
 
+// Human-readable product name for a refunded purchase, used in the internal
+// Discord refund notification.
+function refundProductLabel(type: string): string {
+	if (type === "credit_topup") {
+		return "Credits";
+	}
+	if (type.startsWith("dev_plan")) {
+		return "DevPass";
+	}
+	if (type.startsWith("chat_plan")) {
+		return "Chat Plan";
+	}
+	return "Subscription";
+}
+
 export async function handleChargeRefunded(
 	event: Stripe.ChargeRefundedEvent,
 	options: { endUserOnly?: boolean } = {},
@@ -3025,6 +3041,21 @@ export async function handleChargeRefunded(
 				credits: sql`${tables.organization.credits} - ${creditRefundAmount}`,
 			})
 			.where(eq(tables.organization.id, originalTransaction.organizationId));
+	}
+
+	// Notify the internal Discord channel, mirroring the purchase notification.
+	// Runs after the transaction insert (which is guarded by the stripeRefundId
+	// dedupe check above), so webhook retries won't double-notify.
+	if (organization.billingEmail) {
+		const refundUser = await db.query.user.findFirst({
+			where: { email: { eq: organization.billingEmail } },
+		});
+		await notifyRefund(
+			organization.billingEmail,
+			refundUser?.name,
+			refundAmountInDollars,
+			refundProductLabel(originalTransaction.type),
+		);
 	}
 
 	// Track in PostHog

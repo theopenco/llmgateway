@@ -126,6 +126,47 @@ export async function notifyCreditsPurchased(
 	});
 }
 
+export async function notifyRefund(
+	email: string,
+	name: string | null | undefined,
+	refundAmount: number,
+	product: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Refund Processed",
+				color: 0xf97316, // Orange
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Product",
+						value: product,
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: `$${refundAmount.toFixed(2)}`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyDevPlanSubscribed(
 	email: string,
 	name: string | null | undefined,
