@@ -995,10 +995,12 @@ export async function prepareRequestBody(
 		verbosity = undefined;
 	}
 
-	// `max` is Anthropic's top effort tier (above `xhigh`). Providers without a
-	// native `max` level treat it as an alias for `high` (e.g. OpenAI, Google,
-	// DeepSeek). Anthropic-family branches use `reasoning_effort` directly and
-	// handle `max` natively, so they intentionally do not use this alias.
+	// `max` is the top effort tier (above `xhigh`). Mappings that natively
+	// accept it declare `maxReasoningEffort` (e.g. OpenAI GPT-5.6) and receive
+	// it verbatim; every other mapping treats it as an alias for `high` (e.g.
+	// older OpenAI models, Google, DeepSeek). Anthropic-family branches use
+	// `reasoning_effort` directly and handle `max` natively, so they
+	// intentionally do not use this alias.
 	const genericReasoningEffort:
 		| "none"
 		| "minimal"
@@ -1006,7 +1008,12 @@ export async function prepareRequestBody(
 		| "medium"
 		| "high"
 		| "xhigh"
-		| undefined = reasoning_effort === "max" ? "high" : reasoning_effort;
+		| "max"
+		| undefined =
+		reasoning_effort === "max" &&
+		providerMappingForOptions?.maxReasoningEffort !== true
+			? "high"
+			: reasoning_effort;
 
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (

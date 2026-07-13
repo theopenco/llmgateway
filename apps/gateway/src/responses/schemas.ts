@@ -210,8 +210,7 @@ export const responsesRequestSchema = z.object({
 		.object({
 			effort: z
 				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
-				.optional()
-				.transform((val) => (val === "max" ? "high" : val)),
+				.optional(),
 			summary: z.enum(["detailed", "auto"]).optional(),
 		})
 		.nullable()

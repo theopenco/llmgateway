@@ -881,6 +881,74 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	});
 });
 
+describe("prepareRequestBody - reasoning_effort max", () => {
+	async function prepare(options: {
+		provider: Parameters<typeof prepareRequestBody>[0];
+		model: string;
+		useResponsesApi?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			options.provider,
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			options.useResponsesApi ?? false,
+		)) as any;
+	}
+
+	test("forwards max to OpenAI chat completions for GPT-5.6", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.6-sol",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+	});
+
+	test("forwards max to OpenAI Responses API for GPT-5.6", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.6-terra",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("max");
+	});
+
+	test("aliases max to high for OpenAI models without a max tier", async () => {
+		const requestBody = await prepare({ provider: "openai", model: "gpt-5.5" });
+		expect(requestBody.reasoning_effort).toBe("high");
+	});
+
+	test("aliases max to high on the Responses API for OpenAI models without a max tier", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.5",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("high");
+	});
+});
+
 describe("prepareRequestBody - xAI reasoning_effort", () => {
 	async function prepare(effort: "low" | "medium" | "high" | "xhigh") {
 		return (await prepareRequestBody(

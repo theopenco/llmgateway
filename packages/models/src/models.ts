@@ -415,6 +415,13 @@ export interface ProviderModelMapping {
 	 */
 	reasoningMode?: "enabled" | "adaptive";
 	/**
+	 * Whether this provider mapping natively accepts the `max` reasoning_effort
+	 * tier (e.g. OpenAI GPT-5.6 models). When unset, the gateway downgrades
+	 * `max` to `high` before forwarding. Anthropic mappings don't need this
+	 * flag — their request-body branches forward `max` natively.
+	 */
+	maxReasoningEffort?: boolean;
+	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
 	tools?: boolean;

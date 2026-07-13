@@ -98,7 +98,7 @@ describe("responsesRequestSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it('normalizes reasoning.effort "max" to "high"', () => {
+	it('preserves reasoning.effort "max" for model-aware downstream mapping', () => {
 		const result = responsesRequestSchema.safeParse({
 			model: "deepseek-v4",
 			input: "hello",
@@ -106,7 +106,7 @@ describe("responsesRequestSchema", () => {
 		});
 
 		expect(result.success).toBe(true);
-		expect(result.data?.reasoning?.effort).toBe("high");
+		expect(result.data?.reasoning?.effort).toBe("max");
 	});
 
 	it("accepts service_tier and normalizes explicit null to undefined", () => {

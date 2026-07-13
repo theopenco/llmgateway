@@ -307,7 +307,7 @@ export const completionsRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description:
-				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is the highest tier and is honored natively by Anthropic models (above `xhigh`); providers without a `max` tier treat it as `high`.",
+				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is the highest tier and is honored natively by Anthropic models (above `xhigh`) and OpenAI GPT-5.6 models; models without a `max` tier treat it as `high`.",
 			example: "medium",
 		}),
 	reasoning: z
@@ -317,7 +317,7 @@ export const completionsRequestSchema = z.object({
 				.optional()
 				.openapi({
 					description:
-						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is the highest tier (honored natively by Anthropic, above `xhigh`); providers without a `max` tier treat it as `high`.",
+						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is the highest tier (honored natively by Anthropic, above `xhigh`, and by OpenAI GPT-5.6 models); models without a `max` tier treat it as `high`.",
 					example: "medium",
 				}),
 			max_tokens: z.number().int().positive().optional().openapi({
