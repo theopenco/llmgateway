@@ -120,6 +120,7 @@ export interface ProviderContextOptions {
 	prompt_cache_key: string | undefined;
 	prompt_cache_retention: PromptCacheRetention | undefined;
 	prompt_cache_options: PromptCacheOptions | undefined;
+	session_id: string | undefined;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -648,6 +649,7 @@ export async function resolveProviderContext(
 		options.service_tier,
 		options.verbosity,
 		options.prompt_cache_options,
+		options.session_id,
 	);
 
 	// Post-validation of max_tokens in request body

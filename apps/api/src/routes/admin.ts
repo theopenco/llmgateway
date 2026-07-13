@@ -9981,6 +9981,7 @@ const getDevpassSubscriber = createRoute({
 const devpassTimeseriesPointSchema = z.object({
 	date: z.string(),
 	revenue: z.number(),
+	rawRevenue: z.number(),
 	cost: z.number(),
 	margin: z.number(),
 });
@@ -9989,6 +9990,7 @@ const devpassTimeseriesSchema = z.object({
 	data: z.array(devpassTimeseriesPointSchema),
 	totals: z.object({
 		revenue: z.number(),
+		rawRevenue: z.number(),
 		cost: z.number(),
 		margin: z.number(),
 	}),
@@ -11013,6 +11015,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	const data: Array<{
 		date: string;
 		revenue: number;
+		rawRevenue: number;
 		cost: number;
 		margin: number;
 	}> = [];
@@ -11031,15 +11034,20 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	);
 
 	let totalRevenue = 0;
+	let totalRawRevenue = 0;
 	let totalCost = 0;
 
+	// `rawRevenue` is the gross amount collected from dev plan payments that
+	// day; `revenue` nets refunds out of it. Margin stays net-based.
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
-		const revenue = (revenueMap.get(iso) ?? 0) - (refundMap.get(iso) ?? 0);
+		const rawRevenue = revenueMap.get(iso) ?? 0;
+		const revenue = rawRevenue - (refundMap.get(iso) ?? 0);
 		const cost = costMap.get(iso) ?? 0;
 		const margin = revenue - cost;
-		data.push({ date: iso, revenue, cost, margin });
+		data.push({ date: iso, revenue, rawRevenue, cost, margin });
 		totalRevenue += revenue;
+		totalRawRevenue += rawRevenue;
 		totalCost += cost;
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
 	}
@@ -11048,6 +11056,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		data,
 		totals: {
 			revenue: totalRevenue,
+			rawRevenue: totalRawRevenue,
 			cost: totalCost,
 			margin: totalRevenue - totalCost,
 		},

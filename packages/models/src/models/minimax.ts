@@ -213,6 +213,7 @@ export const minimaxModels = [
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131100,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: false,

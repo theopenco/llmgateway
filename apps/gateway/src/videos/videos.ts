@@ -229,7 +229,13 @@ const videoImageInputSchema = z
 		},
 	});
 
-const videoReferenceImagesSchema = z.array(videoImageInputSchema).min(1).max(3);
+const SEEDANCE_2_MAX_REFERENCE_IMAGES = 9;
+const DEFAULT_MAX_REFERENCE_IMAGES = 3;
+
+const videoReferenceImagesSchema = z
+	.array(videoImageInputSchema)
+	.min(1)
+	.max(SEEDANCE_2_MAX_REFERENCE_IMAGES);
 
 const referenceVideoUrlSchema = z
 	.string()
@@ -340,7 +346,7 @@ const createVideoRequestSchema = z
 		image: videoImageInputSchema.optional(),
 		reference_images: videoReferenceImagesSchema.optional().openapi({
 			description:
-				"One to three reference images for provider-specific asset or material-guided video generation.",
+				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.0 models accept up to 9; other providers accept up to 3.",
 			example: [
 				{
 					image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
@@ -1069,6 +1075,10 @@ function getVideoProviderConstraintReasons(
 				reasons.push(
 					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
 				);
+			} else if (inputImageCount > SEEDANCE_2_MAX_REFERENCE_IMAGES) {
+				reasons.push(
+					`Seedance 2.0 supports at most ${SEEDANCE_2_MAX_REFERENCE_IMAGES} reference images`,
+				);
 			}
 
 			return reasons;
@@ -1083,6 +1093,12 @@ function getVideoProviderConstraintReasons(
 		if (referenceAudioCount > 0) {
 			reasons.push(
 				"reference audio is currently only supported on bytedance Seedance 2.0 models",
+			);
+		}
+
+		if (inputImageCount > DEFAULT_MAX_REFERENCE_IMAGES) {
+			reasons.push(
+				`this provider mapping supports at most ${DEFAULT_MAX_REFERENCE_IMAGES} reference images`,
 			);
 		}
 

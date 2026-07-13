@@ -355,6 +355,18 @@ const nextConfig: NextConfig = {
 					permanent: true,
 				}),
 			),
+			// xAI is often referred to as "SpaceXAI" in external links; the
+			// provider id is "xai".
+			{
+				source: "/providers/spacexai",
+				destination: "/providers/xai",
+				permanent: true,
+			},
+			{
+				source: "/models/:model/spacexai",
+				destination: "/models/:model/xai",
+				permanent: true,
+			},
 			// Misc renamed or truncated URLs that picked up external links.
 			{
 				source: "/migrations/:path*",

@@ -264,11 +264,13 @@ export const organization = pgTable(
 		devPlanCreditsFrozen: boolean().notNull().default(false),
 		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
-		// Stripe current_period_start of the cycle in which the last tier change
-		// was claimed. A tier change atomically advances this to the current cycle
-		// start only if it hasn't been claimed yet, enforcing one change per cycle
-		// without a read-then-write race.
-		devPlanLastTierChangeCycleStart: timestamp(),
+		// Lease held while a dev plan upgrade request is in flight, guarding
+		// against a double charge from racing requests (e.g. a double-clicked
+		// confirm). Claimed atomically before any Stripe call and cleared when the
+		// request completes (success or failure). A lease leaked by a request that
+		// died mid-flight expires after a staleness window, so it can never block
+		// upgrades until the next billing cycle.
+		devPlanTierChangeClaimedAt: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
 		devPlanExpiresAt: timestamp(),
@@ -1440,6 +1442,8 @@ export const log = pgTable(
 		reasoningTokens: decimal(),
 		cachedTokens: decimal(),
 		cacheWriteTokens: decimal(),
+		cacheWrite5mTokens: decimal(),
+		cacheWrite1hTokens: decimal(),
 		messages: json(),
 		temperature: real(),
 		maxTokens: integer(),
@@ -2803,6 +2807,7 @@ export const auditLogActions = [
 	"payment.credit_topup",
 	"payment.auto_topup.update",
 	"payment.auto_topup.disable",
+	"payment.self_refund",
 	// Credits
 	"credits.gift",
 	// Referral

@@ -30,6 +30,7 @@ import {
 	notifyChatPlanRenewed,
 	notifyChatPlanSubscribed,
 	notifyCreditsPurchased,
+	notifyRefund,
 	notifyDevPlanCancelled,
 	notifyDevPlanRenewed,
 	notifyDevPlanSubscribed,
@@ -53,36 +54,68 @@ import type Stripe from "stripe";
 export async function ensureStripeCustomer(
 	organizationId: string,
 ): Promise<string> {
-	const organization = await db.query.organization.findFirst({
-		where: {
-			id: organizationId,
+	// Claim the row under a lock so two concurrent callers (e.g. the
+	// setup_intent.succeeded webhook racing a payment-intent request) can't
+	// each create a Stripe customer. Losing that race orphans one customer
+	// and strands any payment method attached to it, which later breaks
+	// off-session charges with "PaymentMethod does not belong to the
+	// Customer". The second caller blocks until the first commits, then
+	// sees the persisted id.
+	const { stripeCustomerId, created, billingEmail } = await db.transaction(
+		async (tx) => {
+			const [organization] = await tx
+				.select()
+				.from(tables.organization)
+				.where(eq(tables.organization.id, organizationId))
+				.for("update")
+				.limit(1);
+
+			if (!organization) {
+				throw new Error(`Organization not found: ${organizationId}`);
+			}
+
+			if (organization.stripeCustomerId) {
+				return {
+					stripeCustomerId: organization.stripeCustomerId,
+					created: false,
+					billingEmail: organization.billingEmail,
+				};
+			}
+
+			// Deterministic idempotency key: if Stripe creates the customer but
+			// the surrounding DB transaction fails to commit, the retry returns
+			// the already-created customer instead of minting a duplicate.
+			const customer = await getStripe().customers.create(
+				{
+					email: organization.billingEmail,
+					metadata: {
+						organizationId,
+					},
+				},
+				{
+					idempotencyKey: `ensure-stripe-customer:${organizationId}`,
+				},
+			);
+
+			await tx
+				.update(tables.organization)
+				.set({
+					stripeCustomerId: customer.id,
+				})
+				.where(eq(tables.organization.id, organizationId));
+
+			return {
+				stripeCustomerId: customer.id,
+				created: true,
+				billingEmail: organization.billingEmail,
+			};
 		},
-	});
+	);
 
-	if (!organization) {
-		throw new Error(`Organization not found: ${organizationId}`);
-	}
-
-	let stripeCustomerId = organization.stripeCustomerId;
-	if (!stripeCustomerId) {
-		const customer = await getStripe().customers.create({
-			email: organization.billingEmail,
-			metadata: {
-				organizationId,
-			},
-		});
-		stripeCustomerId = customer.id;
-
-		await db
-			.update(tables.organization)
-			.set({
-				stripeCustomerId,
-			})
-			.where(eq(tables.organization.id, organizationId));
-	} else {
+	if (!created) {
 		// Update existing customer email if billingEmail has changed
 		await getStripe().customers.update(stripeCustomerId, {
-			email: organization.billingEmail,
+			email: billingEmail,
 		});
 	}
 
@@ -116,15 +149,23 @@ export async function ensureEndCustomerStripeCustomer(
 			return endCustomer.stripeCustomerId;
 		}
 
-		const customer = await getStripe(mode).customers.create({
-			email: endCustomer.email ?? undefined,
-			name: endCustomer.name ?? undefined,
-			metadata: {
-				endCustomerId,
-				projectId: endCustomer.projectId,
-				organizationId: endCustomer.organizationId,
+		// Deterministic idempotency key: if Stripe creates the customer but
+		// the surrounding DB transaction fails to commit, the retry returns
+		// the already-created customer instead of minting a duplicate.
+		const customer = await getStripe(mode).customers.create(
+			{
+				email: endCustomer.email ?? undefined,
+				name: endCustomer.name ?? undefined,
+				metadata: {
+					endCustomerId,
+					projectId: endCustomer.projectId,
+					organizationId: endCustomer.organizationId,
+				},
 			},
-		});
+			{
+				idempotencyKey: `ensure-end-customer-stripe-customer:${endCustomerId}`,
+			},
+		);
 
 		await tx
 			.update(tables.endCustomer)
@@ -527,7 +568,7 @@ function getInvoiceConfirmationClientSecret(
 	return confirmationSecret?.client_secret ?? null;
 }
 
-async function getPaymentIntentFromInvoicePayments(
+export async function getPaymentIntentFromInvoicePayments(
 	invoice: Stripe.Invoice,
 ): Promise<Stripe.PaymentIntent | null> {
 	let invoicePayments = invoice.payments?.data ?? [];
@@ -2833,6 +2874,21 @@ async function resolveRefundInvoiceId(
 	return typeof invoice === "string" ? invoice : (invoice.id ?? undefined);
 }
 
+// Human-readable product name for a refunded purchase, used in the internal
+// Discord refund notification.
+function refundProductLabel(type: string): string {
+	if (type === "credit_topup") {
+		return "Credits";
+	}
+	if (type.startsWith("dev_plan")) {
+		return "DevPass";
+	}
+	if (type.startsWith("chat_plan")) {
+		return "Chat Plan";
+	}
+	return "Subscription";
+}
+
 export async function handleChargeRefunded(
 	event: Stripe.ChargeRefundedEvent,
 	options: { endUserOnly?: boolean } = {},
@@ -3029,6 +3085,50 @@ export async function handleChargeRefunded(
 				credits: sql`${tables.organization.credits} - ${creditRefundAmount}`,
 			})
 			.where(eq(tables.organization.id, originalTransaction.organizationId));
+	}
+
+	// A full refund of a dev/chat plan payment ends the plan — cancel the Stripe
+	// subscription so the customer isn't left refunded-but-still-subscribed.
+	// Handling it here (rather than only in the self-refund endpoint) covers every
+	// refund source: the self-service dashboard, the admin panel, and manual
+	// refunds issued straight from the Stripe dashboard. Cancelling emits
+	// customer.subscription.deleted, which resets the plan fields and records the
+	// *_plan_end transaction. Gated on a full refund so a partial refund doesn't
+	// tear down the whole plan.
+	if (charge.refunded) {
+		const planSubscriptionId = originalTransaction.type.startsWith("dev_plan")
+			? organization.devPlanStripeSubscriptionId
+			: originalTransaction.type.startsWith("chat_plan")
+				? organization.chatPlanStripeSubscriptionId
+				: null;
+		if (planSubscriptionId) {
+			try {
+				await getStripe().subscriptions.cancel(planSubscriptionId);
+				logger.info(
+					`Cancelled subscription ${planSubscriptionId} after full refund of ${originalTransaction.type} for organization ${organization.id}`,
+				);
+			} catch (error) {
+				logger.error(
+					`Refund recorded but cancelling subscription ${planSubscriptionId} failed for organization ${organization.id}`,
+					error as Error,
+				);
+			}
+		}
+	}
+
+	// Notify the internal Discord channel, mirroring the purchase notification.
+	// Runs after the transaction insert (which is guarded by the stripeRefundId
+	// dedupe check above), so webhook retries won't double-notify.
+	if (organization.billingEmail) {
+		const refundUser = await db.query.user.findFirst({
+			where: { email: { eq: organization.billingEmail } },
+		});
+		await notifyRefund(
+			organization.billingEmail,
+			refundUser?.name,
+			refundAmountInDollars,
+			refundProductLabel(originalTransaction.type),
+		);
 	}
 
 	// Track in PostHog

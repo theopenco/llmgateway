@@ -1,5 +1,6 @@
 import { Bricolage_Grotesque, Inter, Geist_Mono } from "next/font/google";
 
+import { GoogleTag } from "@/components/google-tag";
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
 
@@ -88,7 +89,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.variable} ${geistMono.variable} ${bricolage.variable}`}
+			suppressHydrationWarning
+		>
 			<head>
 				<script
 					type="application/ld+json"
@@ -98,9 +103,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body
-				className={`${inter.variable} ${geistMono.variable} ${bricolage.variable} antialiased`}
-			>
+			<body className="antialiased">
+				<GoogleTag
+					googleTagId={config.googleTagId}
+					googleAdsSignupConversion={config.googleAdsSignupConversion}
+					googleAdsPurchaseConversion={config.googleAdsPurchaseConversion}
+				/>
 				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>

@@ -35,6 +35,20 @@ export type Model = (typeof models)[number]["id"];
 export type Price = string;
 
 /**
+ * Reasoning effort tiers accepted by the unified reasoning_effort parameter,
+ * in ascending order of effort. Which subset a given provider mapping
+ * actually supports is declared per mapping via `reasoningEfforts`.
+ */
+export type ReasoningEffort =
+	| "none"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max";
+
+/**
  * Pricing tier for models with context-length based pricing
  */
 export interface PricingTier {
@@ -414,6 +428,17 @@ export interface ProviderModelMapping {
 	 * - "adaptive": new `thinking: { type: "adaptive" }` + `output_config.effort` format (Opus 4.7+)
 	 */
 	reasoningMode?: "enabled" | "adaptive";
+	/**
+	 * Exact `reasoning_effort` values this provider mapping supports, in
+	 * ascending order of effort. Effort tiers differ per model generation
+	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
+	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
+	 * its own list. The gateway forwards effort values to the provider as-is
+	 * (unsupported values fail upstream); this metadata is exposed via the
+	 * models APIs so clients can present valid options. When unset, the
+	 * supported values are not (yet) declared for this mapping.
+	 */
+	reasoningEfforts?: ReasoningEffort[];
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */

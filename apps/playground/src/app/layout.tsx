@@ -98,7 +98,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.variable} ${geistMono.variable}`}
+			suppressHydrationWarning
+		>
 			<head>
 				<script
 					type="application/ld+json"
@@ -115,7 +119,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body className={`${inter.variable} ${geistMono.variable} antialiased`}>
+			<body className="antialiased">
 				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>

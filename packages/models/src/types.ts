@@ -272,7 +272,14 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	stream_options?: {
 		include_usage: boolean;
 	};
-	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max";
 	verbosity?: "low" | "medium" | "high";
 	n?: number;
 	extra_body?: Record<string, unknown>;
@@ -304,7 +311,7 @@ export interface OpenAIResponsesRequestBody {
 	prompt_cache_retention?: PromptCacheRetention;
 	prompt_cache_options?: PromptCacheOptions;
 	reasoning: {
-		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "detailed";
 	};
 	tools?: Array<{

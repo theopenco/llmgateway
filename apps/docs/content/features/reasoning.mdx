@@ -39,13 +39,17 @@ Add the `reasoning_effort` parameter directly to your request:
 - `low` - Light reasoning for simpler tasks
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
-- `xhigh` - Maximum reasoning depth for the most complex problems
+- `xhigh` - Very deep reasoning for the most complex problems
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google) have each tier translated to a native budget
 
 <Callout type="info">
 	OpenAI's reasoning models do not all accept the same effort values. The
 	original GPT-5 models support `minimal`, while newer models (e.g.
 	`gpt-5.4-mini` and later) replace it with `none`. If you send an effort value
 	the target model doesn't support, OpenAI returns an `unsupported_value` error.
+	The exact values each provider mapping accepts are exposed as
+	`reasoning_efforts` on the [`/v1/models`](https://api.llmgateway.io/v1/models)
+	endpoint.
 </Callout>
 
 ```bash
@@ -73,7 +77,8 @@ Use the unified `reasoning` configuration object with an `effort` field:
 - `low` - Light reasoning for simpler tasks
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
-- `xhigh` - Maximum reasoning depth for the most complex problems
+- `xhigh` - Very deep reasoning for the most complex problems
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google) have each tier translated to a native budget
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \

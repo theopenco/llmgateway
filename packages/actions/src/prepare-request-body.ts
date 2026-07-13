@@ -1,3 +1,5 @@
+import { createHash, createHmac } from "node:crypto";
+
 import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
@@ -21,6 +23,7 @@ import {
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
@@ -45,6 +48,46 @@ export class RequestError extends Error {
 		this.name = "RequestError";
 		this.statusCode = statusCode;
 	}
+}
+
+/**
+ * Hash a caller session id before using it as an upstream `prompt_cache_key`
+ * so raw session ids (e.g. Claude Code session UUIDs from x-session-id /
+ * x-session-affinity) are never exposed to providers. Keyed with the gateway's
+ * API-key hash secret (GATEWAY_API_KEY_HASH_SECRET — required in production,
+ * dev fallback otherwise) so a provider cannot correlate the hash back to a
+ * known session id; the "prompt-cache-key:" prefix domain-separates these
+ * digests from API-key fingerprints computed with the same secret. The hash
+ * stays stable per session, which is all cache routing needs.
+ */
+export function hashSessionCacheKey(sessionId: string): string {
+	return createHmac("sha256", getApiKeyHashSecret())
+		.update(`prompt-cache-key:${sessionId}`)
+		.digest("hex")
+		.slice(0, 32);
+}
+
+/**
+ * Meta only routes prompt-cache lookups by `prompt_cache_key`: identical
+ * prefixes sent without a key land on different backends and report
+ * `cached_tokens: 0` every time (verified live), while the same requests with
+ * a stable key hit the cache once warm. Callers rarely send the key, so
+ * derive a stable per-conversation one from the conversation prefix — the
+ * first messages of an agent session are identical across its turns.
+ */
+export function deriveConversationCacheKey(
+	messages: BaseMessage[],
+): string | undefined {
+	if (!messages.length) {
+		return undefined;
+	}
+	const prefix = messages
+		.slice(0, 2)
+		.map((m) => ({ role: m.role, content: m.content }));
+	return createHash("sha256")
+		.update(JSON.stringify(prefix))
+		.digest("hex")
+		.slice(0, 32);
 }
 
 function getProviderMapping(
@@ -903,6 +946,7 @@ export async function prepareRequestBody(
 	service_tier?: "auto" | "default" | "flex" | "priority",
 	verbosity?: "low" | "medium" | "high",
 	prompt_cache_options?: PromptCacheOptions,
+	session_id?: string,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	const modelDef = models.find((m) => m.id === usedInternalModel);
@@ -951,18 +995,12 @@ export async function prepareRequestBody(
 		verbosity = undefined;
 	}
 
-	// `max` is Anthropic's top effort tier (above `xhigh`). Providers without a
-	// native `max` level treat it as an alias for `high` (e.g. OpenAI, Google,
-	// DeepSeek). Anthropic-family branches use `reasoning_effort` directly and
-	// handle `max` natively, so they intentionally do not use this alias.
-	const genericReasoningEffort:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| undefined = reasoning_effort === "max" ? "high" : reasoning_effort;
+	// Effort tiers are forwarded to the provider as-is — there is no
+	// downgrading of unsupported values (e.g. `max` on a model that tops out
+	// at `xhigh`). Providers reject unsupported values with a 4xx, and the
+	// values each mapping accepts are published as `reasoningEfforts` in the
+	// model catalog. Providers that take a thinking budget instead of an
+	// effort enum (Anthropic, Google) translate each tier to a budget below.
 
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (
@@ -1594,7 +1632,7 @@ export async function prepareRequestBody(
 						? reasoning_effort === "xhigh" || reasoning_effort === "max"
 							? "xhigh"
 							: "high"
-						: (genericReasoningEffort ?? defaultEffort);
+						: (reasoning_effort ?? defaultEffort);
 
 				// Muse Spark reasons adaptively when effort is omitted and rejects
 				// "none", so only forward an effort the caller explicitly set.
@@ -1604,8 +1642,8 @@ export async function prepareRequestBody(
 					reasoning:
 						usedProvider === "meta"
 							? {
-									...(genericReasoningEffort !== undefined && {
-										effort: genericReasoningEffort,
+									...(reasoning_effort !== undefined && {
+										effort: reasoning_effort,
 									}),
 									summary: "detailed",
 								}
@@ -1618,9 +1656,6 @@ export async function prepareRequestBody(
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
-					}
-					if (prompt_cache_key !== undefined) {
-						responsesBody.prompt_cache_key = prompt_cache_key;
 					}
 					if (
 						prompt_cache_retention !== undefined &&
@@ -1640,6 +1675,30 @@ export async function prepareRequestBody(
 						} else if (prompt_cache_options !== undefined) {
 							responsesBody.prompt_cache_options = prompt_cache_options;
 						}
+					}
+				}
+
+				// prompt_cache_key influences upstream cache-shard routing; only
+				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
+				// and Meta support it. Sakana does not document the field. Prefer
+				// the caller's explicit key, then the salted hash of the caller's
+				// session id, then (Meta only, where the key is required for hits
+				// at all) a key derived from the conversation prefix.
+				if (
+					usedProvider === "openai" ||
+					usedProvider === "azure" ||
+					usedProvider === "meta"
+				) {
+					const upstreamCacheKey =
+						prompt_cache_key ??
+						(session_id !== undefined
+							? hashSessionCacheKey(session_id)
+							: undefined) ??
+						(usedProvider === "meta"
+							? deriveConversationCacheKey(processedMessages)
+							: undefined);
+					if (upstreamCacheKey !== undefined) {
+						responsesBody.prompt_cache_key = upstreamCacheKey;
 					}
 				}
 
@@ -1725,8 +1784,16 @@ export async function prepareRequestBody(
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
 					}
-					if (prompt_cache_key !== undefined) {
-						requestBody.prompt_cache_key = prompt_cache_key;
+					// Azure is intentionally excluded on this path: chat completions
+					// may hit a legacy deployment-based api-version that rejects
+					// unknown body fields, and the deployment type isn't known here.
+					const upstreamCacheKey =
+						prompt_cache_key ??
+						(session_id !== undefined
+							? hashSessionCacheKey(session_id)
+							: undefined);
+					if (upstreamCacheKey !== undefined) {
+						requestBody.prompt_cache_key = upstreamCacheKey;
 					}
 					if (
 						prompt_cache_retention !== undefined &&
@@ -1826,7 +1893,7 @@ export async function prepareRequestBody(
 								? reasoning_effort
 								: "high";
 					} else {
-						requestBody.reasoning_effort = genericReasoningEffort;
+						requestBody.reasoning_effort = reasoning_effort;
 					}
 				}
 				if (verbosity !== undefined) {
@@ -2262,10 +2329,9 @@ export async function prepareRequestBody(
 				}
 				if (reasoning_effort !== undefined) {
 					const reasoningEffort =
-						genericReasoningEffort === "minimal" ||
-						genericReasoningEffort === "xhigh"
+						reasoning_effort === "minimal" || reasoning_effort === "xhigh"
 							? "low"
-							: genericReasoningEffort;
+							: reasoning_effort;
 					requestBody.reasoning = {
 						effort: reasoningEffort,
 					};
@@ -2954,7 +3020,7 @@ export async function prepareRequestBody(
 						// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
 							reasoning_max_tokens;
-					} else if (genericReasoningEffort !== undefined) {
+					} else if (reasoning_effort !== undefined) {
 						const getThinkingBudget = (effort: string) => {
 							switch (effort) {
 								case "minimal":
@@ -2964,6 +3030,9 @@ export async function prepareRequestBody(
 								case "high":
 									return 24576;
 								case "xhigh":
+								case "max":
+									// Google has no tier above xhigh, so max shares its
+									// top thinking budget.
 									return 65536;
 								case "medium":
 								default:
@@ -2971,7 +3040,7 @@ export async function prepareRequestBody(
 							}
 						};
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
-							getThinkingBudget(genericReasoningEffort);
+							getThinkingBudget(reasoning_effort);
 					}
 				}
 			}
@@ -3094,7 +3163,7 @@ export async function prepareRequestBody(
 				requestBody.presence_penalty = presence_penalty;
 			}
 			if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = genericReasoningEffort;
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}
@@ -3190,7 +3259,7 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = genericReasoningEffort;
+					requestBody.reasoning_effort = reasoning_effort;
 				}
 			}
 			if (usedProvider === "minimax" && supportsReasoning) {

@@ -8,13 +8,18 @@ import {
 	ChevronsUpDown,
 	Info,
 	Loader2,
+	LogIn,
+	MailWarning,
 } from "lucide-react";
+import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
 import { Checkbox } from "@/lib/components/checkbox";
 import {
@@ -78,11 +83,16 @@ export function AddProviderForm({
 }) {
 	const api = useApi();
 	const posthog = usePostHog();
+	const { user, isLoading: isUserLoading } = useUser();
+	const { sendVerificationEmail } = useAuth();
 	const submitProvider = api.useMutation("post", "/public/contact/provider");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
 	const [countryOpen, setCountryOpen] = useState(false);
+	const [isResending, setIsResending] = useState(false);
 	const [formLoadTime] = useState(() => Date.now());
+
+	const canFillForm = !!user && user.emailVerified;
 
 	const form = useForm<ProviderFormData>({
 		resolver: zodResolver(providerFormSchema),
@@ -104,6 +114,33 @@ export function AddProviderForm({
 	useEffect(() => {
 		form.setValue("timestamp", formLoadTime);
 	}, [form, formLoadTime]);
+
+	useEffect(() => {
+		if (canFillForm && user) {
+			form.setValue("email", user.email);
+		}
+	}, [canFillForm, user, form]);
+
+	const handleResendVerification = async () => {
+		if (!user) {
+			return;
+		}
+		setIsResending(true);
+		const { error } = await sendVerificationEmail({
+			email: user.email,
+			callbackURL: `${window.location.origin}/add-provider`,
+		});
+		if (error) {
+			toast.error("Failed to send verification email", {
+				description: error.message ?? "Please try again later.",
+			});
+		} else {
+			toast.success("Verification email sent", {
+				description: "Please check your inbox for the verification link.",
+			});
+		}
+		setIsResending(false);
+	};
 
 	const onSubmit = async (data: ProviderFormData) => {
 		posthog.capture("provider_request_submitted", {
@@ -216,6 +253,74 @@ export function AddProviderForm({
 									</Button>
 								</div>
 							</div>
+						) : isUserLoading ? (
+							<div className="flex items-center justify-center py-10">
+								<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+							</div>
+						) : !user ? (
+							<div className="py-4 text-center">
+								<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-6">
+									<LogIn className="w-8 h-8 text-primary" />
+								</div>
+								<h3 className="text-2xl font-semibold mb-2">
+									Sign in to add a provider
+								</h3>
+								<p className="text-muted-foreground text-balance">
+									To keep listings genuine and prevent spam, you need a
+									LLMGateway account with a verified email before submitting a
+									provider. Create your account to get started.
+								</p>
+								<div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+									<Button asChild size="lg" className="w-full sm:w-auto">
+										<Link href="/signup">
+											Sign up
+											<ArrowRight className="ml-2 h-4 w-4" />
+										</Link>
+									</Button>
+									<Button
+										asChild
+										size="lg"
+										variant="outline"
+										className="w-full sm:w-auto"
+									>
+										<Link href="/login">Log in</Link>
+									</Button>
+								</div>
+							</div>
+						) : !user.emailVerified ? (
+							<div className="py-4 text-center">
+								<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/20 mb-6">
+									<MailWarning className="w-8 h-8 text-amber-600 dark:text-amber-400" />
+								</div>
+								<h3 className="text-2xl font-semibold mb-2">
+									Verify your email first
+								</h3>
+								<p className="text-muted-foreground text-balance">
+									To prevent spam, the provider form is only available once
+									you've verified your email. We sent a verification link to{" "}
+									<span className="font-medium text-foreground">
+										{user.email}
+									</span>
+									. Click it, then reload this page.
+								</p>
+								<div className="mt-6">
+									<Button
+										onClick={handleResendVerification}
+										variant="outline"
+										size="lg"
+										disabled={isResending}
+									>
+										{isResending ? (
+											<>
+												<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+												Sending...
+											</>
+										) : (
+											"Resend verification email"
+										)}
+									</Button>
+								</div>
+							</div>
 						) : (
 							<Form {...form}>
 								<form
@@ -280,9 +385,13 @@ export function AddProviderForm({
 															type="email"
 															placeholder="team@acme.ai"
 															{...field}
-															className="bg-background h-11"
+															readOnly
+															className="bg-muted h-11 cursor-not-allowed"
 														/>
 													</FormControl>
+													<FormDescription>
+														Your verified account email.
+													</FormDescription>
 													<FormMessage />
 												</FormItem>
 											)}

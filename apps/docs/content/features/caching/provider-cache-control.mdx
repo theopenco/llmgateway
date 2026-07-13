@@ -100,6 +100,50 @@ To mark content as cacheable, send the message content as an array of blocks and
 
 Use `ttl: "5m"` (the default if omitted) for short-lived caches that match a single user's session, and `ttl: "1h"` when the same prefix will be reused over a longer window (for example, a coding agent that keeps the same project context warm across many requests).
 
+The same `cache_control` markers work on the native [`/v1/messages` endpoint](/features/anthropic-endpoint) (Anthropic request format), where cache usage comes back in Anthropic's own fields: `usage.cache_creation_input_tokens` (written this request) and `usage.cache_read_input_tokens` (served from cache).
+
+### Minimum cacheable prompt length
+
+Every Claude model has a **minimum prompt length below which nothing is cached**. A `cache_control` marker on a shorter prompt is accepted without error, but the provider silently skips the cache write — the response reports `cache_creation_input_tokens: 0` and `cache_read_input_tokens: 0` on every call, no matter how often you repeat the request. This is Anthropic's documented behavior, not a dropped breakpoint; you would see exactly the same result calling Anthropic directly.
+
+The threshold counts **all tokens up to and including the marked block** (tools, system, and preceding messages), and it varies by model generation:
+
+| Models                                                | Minimum cacheable tokens |
+| ----------------------------------------------------- | ------------------------ |
+| Opus 4.5+, Sonnet 5, Haiku 4.5                        | 4,096                    |
+| Sonnet 4.6, Haiku 3.5                                 | 2,048                    |
+| Sonnet 4.5 and earlier, Opus 4.1 and earlier, Haiku 3 | 1,024                    |
+
+The models endpoint (`GET https://api.llmgateway.io/v1/models`) exposes the exact threshold as `min_cacheable_tokens` on each provider entry, so clients can check it programmatically. LLM Gateway's automatic marker injection uses the same threshold, which is why short system prompts never trigger automatic cache writes either.
+
+### Verifying cache writes and the write premium
+
+The first request that creates a cache entry is billed at the provider's cache-write rate (1.25× input for `5m`, 2× for `1h`). On the OpenAI-compatible `/v1/chat/completions` endpoint, LLM Gateway surfaces the write side in extended usage fields — OpenAI's standard format only has `cached_tokens` for reads, so these are gateway extensions:
+
+```json
+{
+	"usage": {
+		"prompt_tokens": 5232,
+		"prompt_tokens_details": {
+			"cached_tokens": 0,
+			"cache_write_tokens": 5222,
+			"cache_creation_tokens": 5222,
+			"cache_creation": {
+				"ephemeral_5m_input_tokens": 5222,
+				"ephemeral_1h_input_tokens": 0
+			}
+		},
+		"cost_details": {
+			"input_cost": 0.00003,
+			"cache_write_input_cost": 0.0065275,
+			"cached_input_cost": 0
+		}
+	}
+}
+```
+
+`cache_write_tokens` (and its alias `cache_creation_tokens`) counts the prompt tokens written into the provider cache this request, `cache_creation` breaks the write down by TTL when both rates are in play, and `cost_details.cache_write_input_cost` is the exact USD amount billed at the write premium. A successful cache write on call 1 shows up as `cache_write_tokens > 0`; the matching read on call 2 shows up as `cached_tokens > 0` with `cached_input_cost` at the discounted rate.
+
 ### Mixing explicit markers with automatic injection
 
 Anthropic requires cache breakpoints with longer TTLs to appear before shorter ones (blocks are processed in the order `tools`, `system`, `messages`). The markers LLM Gateway injects automatically use the default 5-minute TTL, so they could never legally precede an explicit `ttl: "1h"` marker in your messages. To keep both features compatible:
