@@ -7,6 +7,7 @@ import {
 	beforeEachHook,
 	generateTestRequestId,
 	getConcurrentTestOptions,
+	getSupportedReasoningEffort,
 	getTestOptions,
 	logMode,
 	reasoningModels,
@@ -50,7 +51,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 							content: "What is 2/3 + 1/4 + 5/6?",
 						},
 					],
-					reasoning_effort: "medium",
+					reasoning_effort: getSupportedReasoningEffort(providers),
 				}),
 			});
 

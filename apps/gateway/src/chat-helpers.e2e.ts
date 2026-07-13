@@ -590,6 +590,26 @@ export const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
 );
 
+// Efforts are forwarded to providers as-is and rejected when unsupported, so
+// tests must send an effort the mapping declares. Prefers "medium" and falls
+// back to the strongest declared tier.
+export function getSupportedReasoningEffort(
+	providers: ProviderModelMapping[] | undefined,
+): string {
+	const efforts = providers?.find(
+		(p) => p.reasoning === true,
+	)?.reasoningEfforts;
+	if (!efforts || efforts.includes("medium")) {
+		return "medium";
+	}
+	for (const effort of ["high", "low", "minimal", "xhigh", "max"]) {
+		if (efforts.includes(effort as (typeof efforts)[number])) {
+			return effort;
+		}
+	}
+	return "medium";
+}
+
 export const verbosityModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
 );
