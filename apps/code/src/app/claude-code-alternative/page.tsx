@@ -22,8 +22,7 @@ const BASE_URL = "https://devpass.llmgateway.io";
 const PAGE_PATH = "/claude-code-alternative";
 
 const TITLE = "Claude Code Alternative (2026): Keep the CLI, Skip the Caps";
-const DESCRIPTION =
-	"Looking for a Claude Code alternative? DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) metered at provider rates, from $29/mo. No weekly caps.";
+const DESCRIPTION = `Looking for a Claude Code alternative? DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) metered at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. No weekly caps.`;
 
 export const metadata: Metadata = {
 	title: TITLE,
@@ -112,8 +111,7 @@ const comparisonFeatures = [
 const faqs = [
 	{
 		question: "What is the best Claude Code alternative?",
-		answer:
-			"It depends on what you're trying to escape. If it's the Claude Max price, the weekly caps or the Anthropic-only catalog — but you like the Claude Code workflow — DevPass is built for exactly that: keep the CLI, point it at one key, and get 200+ models (Claude included) metered at provider rates from $29/mo. If what you want is a different editor experience entirely, look at tools like Cursor instead.",
+		answer: `It depends on what you're trying to escape. If it's the Claude Max price, the weekly caps or the Anthropic-only catalog — but you like the Claude Code workflow — DevPass is built for exactly that: keep the CLI, point it at one key, and get 200+ models (Claude included) metered at provider rates from $${DEV_PLAN_PRICES.lite}/mo. If what you want is a different editor experience entirely, look at tools like Cursor instead.`,
 	},
 	{
 		question: "Can I keep using the Claude Code CLI with DevPass?",
@@ -122,8 +120,7 @@ const faqs = [
 	},
 	{
 		question: "How much cheaper is DevPass than Claude Max?",
-		answer:
-			"Claude Max costs $100/mo (5×) or $200/mo (20×) of an unpublished usage quota, Anthropic models only. DevPass plans are $29 (Lite), $79 (Pro) and $179 (Max), and each includes roughly 3× its price in metered model usage at the providers' published rates — about $87, $237 and $537 respectively — across 200+ models. Whether that's cheaper for you depends on your usage, but you can read your burn in real dollars instead of guessing at a multiplier.",
+		answer: `Claude Max costs $100/mo (5×) or $200/mo (20×) of an unpublished usage quota, Anthropic models only. DevPass plans are $${DEV_PLAN_PRICES.lite} (Lite), $${DEV_PLAN_PRICES.pro} (Pro) and $${DEV_PLAN_PRICES.max} (Max), and each includes roughly 3× its price in metered model usage at the providers' published rates — about $${getDevPlanCreditsLimit("lite")}, $${getDevPlanCreditsLimit("pro")} and $${getDevPlanCreditsLimit("max")} respectively — across 200+ models. Whether that's cheaper for you depends on your usage, but you can read your burn in real dollars instead of guessing at a multiplier.`,
 	},
 	{
 		question: "Does DevPass include Claude models?",
@@ -137,8 +134,7 @@ const faqs = [
 	},
 	{
 		question: "What about Claude Pro at $20/mo?",
-		answer:
-			"Claude Pro includes Claude Code access, but with a small usage quota that serious daily coding work outgrows quickly — that's what the Max tiers are for. DevPass Lite at $29/mo includes about $87 of metered usage across every model, so it's the closer comparison for daily driving.",
+		answer: `Claude Pro includes Claude Code access, but with a small usage quota that serious daily coding work outgrows quickly — that's what the Max tiers are for. DevPass Lite at $${DEV_PLAN_PRICES.lite}/mo includes about $${getDevPlanCreditsLimit("lite")} of metered usage across every model, so it's the closer comparison for daily driving.`,
 	},
 ];
 
