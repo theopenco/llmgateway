@@ -53,36 +53,60 @@ import type Stripe from "stripe";
 export async function ensureStripeCustomer(
 	organizationId: string,
 ): Promise<string> {
-	const organization = await db.query.organization.findFirst({
-		where: {
-			id: organizationId,
+	// Claim the row under a lock so two concurrent callers (e.g. the
+	// setup_intent.succeeded webhook racing a payment-intent request) can't
+	// each create a Stripe customer. Losing that race orphans one customer
+	// and strands any payment method attached to it, which later breaks
+	// off-session charges with "PaymentMethod does not belong to the
+	// Customer". The second caller blocks until the first commits, then
+	// sees the persisted id.
+	const { stripeCustomerId, created, billingEmail } = await db.transaction(
+		async (tx) => {
+			const [organization] = await tx
+				.select()
+				.from(tables.organization)
+				.where(eq(tables.organization.id, organizationId))
+				.for("update")
+				.limit(1);
+
+			if (!organization) {
+				throw new Error(`Organization not found: ${organizationId}`);
+			}
+
+			if (organization.stripeCustomerId) {
+				return {
+					stripeCustomerId: organization.stripeCustomerId,
+					created: false,
+					billingEmail: organization.billingEmail,
+				};
+			}
+
+			const customer = await getStripe().customers.create({
+				email: organization.billingEmail,
+				metadata: {
+					organizationId,
+				},
+			});
+
+			await tx
+				.update(tables.organization)
+				.set({
+					stripeCustomerId: customer.id,
+				})
+				.where(eq(tables.organization.id, organizationId));
+
+			return {
+				stripeCustomerId: customer.id,
+				created: true,
+				billingEmail: organization.billingEmail,
+			};
 		},
-	});
+	);
 
-	if (!organization) {
-		throw new Error(`Organization not found: ${organizationId}`);
-	}
-
-	let stripeCustomerId = organization.stripeCustomerId;
-	if (!stripeCustomerId) {
-		const customer = await getStripe().customers.create({
-			email: organization.billingEmail,
-			metadata: {
-				organizationId,
-			},
-		});
-		stripeCustomerId = customer.id;
-
-		await db
-			.update(tables.organization)
-			.set({
-				stripeCustomerId,
-			})
-			.where(eq(tables.organization.id, organizationId));
-	} else {
+	if (!created) {
 		// Update existing customer email if billingEmail has changed
 		await getStripe().customers.update(stripeCustomerId, {
-			email: organization.billingEmail,
+			email: billingEmail,
 		});
 	}
 
