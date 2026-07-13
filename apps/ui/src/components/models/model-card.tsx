@@ -520,9 +520,13 @@ export function ProviderSection({
 }) {
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
+	const [showMappingDetails, setShowMappingDetails] = useState(false);
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const hasMappingDetails =
+		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
+		(activeMapping.supportedParameters?.length ?? 0) > 0;
 	const supportedServiceTierIds = new Set(activeMapping.serviceTiers ?? []);
 	const serviceTiers = (providerInfo.serviceTiers ?? []).filter((tier) =>
 		supportedServiceTierIds.has(tier.id),
@@ -1312,6 +1316,72 @@ export function ProviderSection({
 							</>
 						)}
 					</button>
+				)}
+
+				{/* Reasoning efforts + supported parameters, collapsed by default */}
+				{hasMappingDetails && (
+					<>
+						{showMappingDetails && (
+							<div className="space-y-2.5">
+								{(activeMapping.reasoningEfforts?.length ?? 0) > 0 && (
+									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+											Reasoning Efforts
+										</div>
+										<div className="flex flex-wrap gap-1">
+											{activeMapping.reasoningEfforts!.map((effort) => (
+												<Badge
+													key={effort}
+													variant="outline"
+													className="text-[10px] px-1.5 py-0 h-4 font-mono text-muted-foreground"
+												>
+													{effort}
+												</Badge>
+											))}
+										</div>
+									</div>
+								)}
+								{(activeMapping.supportedParameters?.length ?? 0) > 0 && (
+									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+											Supported Parameters
+										</div>
+										<div className="flex flex-wrap gap-1">
+											{activeMapping.supportedParameters!.map((param) => (
+												<Badge
+													key={param}
+													variant="outline"
+													className="text-[10px] px-1.5 py-0 h-4 font-mono text-muted-foreground"
+												>
+													{param}
+												</Badge>
+											))}
+										</div>
+									</div>
+								)}
+							</div>
+						)}
+						<button
+							type="button"
+							className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+							onClick={(e) => {
+								e.stopPropagation();
+								setShowMappingDetails((v) => !v);
+							}}
+						>
+							{showMappingDetails ? (
+								<>
+									<ChevronUp className="h-3 w-3" />
+									Hide details
+								</>
+							) : (
+								<>
+									<ChevronDown className="h-3 w-3" />
+									Show details
+								</>
+							)}
+						</button>
+					</>
 				)}
 			</div>
 		</div>
