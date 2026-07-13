@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { redisClient } from "@/auth/config.js";
+import { apiAuth, redisClient } from "@/auth/config.js";
 import {
 	notifyEnterpriseContact,
 	notifyProviderContact,
@@ -514,6 +514,22 @@ const submitProviderContact = createRoute({
 			},
 			description: "Submission rejected by validation or spam checks",
 		},
+		401: {
+			content: {
+				"application/json": {
+					schema: contactResponseSchema,
+				},
+			},
+			description: "Authentication required to submit a provider listing",
+		},
+		403: {
+			content: {
+				"application/json": {
+					schema: contactResponseSchema,
+				},
+			},
+			description: "A verified email is required to submit a listing",
+		},
 		429: {
 			content: {
 				"application/json": {
@@ -534,7 +550,35 @@ const submitProviderContact = createRoute({
 });
 
 publicContact.openapi(submitProviderContact, async (c) => {
+	// Server-side spam gate: only authenticated users with a verified email may
+	// submit a provider listing. This mirrors the UI gate but is the real
+	// enforcement point — the UI check is a convenience, not a security boundary.
+	const session = await apiAuth.api.getSession({ headers: c.req.raw.headers });
+	if (!session?.user) {
+		return c.json(
+			{
+				success: false,
+				message: "You must be signed in to submit a provider listing.",
+			},
+			401,
+		);
+	}
+	if (!session.user.emailVerified) {
+		return c.json(
+			{
+				success: false,
+				message:
+					"Please verify your email address before submitting a provider listing.",
+			},
+			403,
+		);
+	}
+
 	const validatedData = c.req.valid("json");
+	// Tie the submission to the authenticated, verified account email rather than
+	// trusting the client-supplied value, so a listing can't be attributed to an
+	// address the submitter doesn't own.
+	const email = session.user.email;
 	const ipAddress = extractClientIP(c);
 	const userAgent = c.req.header("User-Agent") ?? null;
 
@@ -544,7 +588,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 			.insert(tables.providerListingRequest)
 			.values({
 				providerName: validatedData.providerName,
-				email: validatedData.email,
+				email,
 				url: validatedData.url,
 				country: validatedData.country,
 				complianceSoc2Type2: validatedData.complianceSoc2Type2,
@@ -599,7 +643,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 		}
 	}
 
-	const rateLimitKey = ipAddress ?? `email:${validatedData.email}`;
+	const rateLimitKey = ipAddress ?? `user:${session.user.id}`;
 	const canSubmit = await checkRateLimit(rateLimitKey);
 	if (!canSubmit) {
 		await updateProviderRequestStatus(
@@ -617,7 +661,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 		);
 	}
 
-	if (isDisposableEmail(validatedData.email)) {
+	if (isDisposableEmail(email)) {
 		await updateProviderRequestStatus(
 			submission.id,
 			"rejected",
@@ -667,7 +711,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 			const checkoutSession = await getStripe().checkout.sessions.create({
 				mode: "payment",
 				line_items: [{ price: providerListingPriceId, quantity: 1 }],
-				customer_email: validatedData.email,
+				customer_email: email,
 				success_url: `${uiUrl}/add-provider?payment=success`,
 				cancel_url: `${uiUrl}/add-provider?payment=canceled`,
 				metadata: {
@@ -724,7 +768,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 
 					<div class="field">
 						<div class="label">Contact Email:</div>
-						<div class="value">${escapeHtml(validatedData.email)}</div>
+						<div class="value">${escapeHtml(email)}</div>
 					</div>
 
 					<div class="field">
@@ -760,7 +804,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 		const { error } = await resend.emails.send({
 			from: fromEmail,
 			to: [replyToEmail],
-			replyTo: validatedData.email,
+			replyTo: email,
 			subject: `Provider Listing Request: ${validatedData.providerName}`,
 			html: htmlContent,
 		});
@@ -793,7 +837,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 
 	void notifyProviderContact({
 		providerName: validatedData.providerName,
-		email: validatedData.email,
+		email,
 		url: validatedData.url,
 		country: validatedData.country,
 		compliance,
