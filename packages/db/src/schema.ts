@@ -269,6 +269,11 @@ export const organization = pgTable(
 		// start only if it hasn't been claimed yet, enforcing one change per cycle
 		// without a read-then-write race.
 		devPlanLastTierChangeCycleStart: timestamp(),
+		// Wall-clock time the claim above was taken. A claim leaked by a request
+		// that died before releasing it (crash, restart, failed rollback) would
+		// otherwise block tier changes until the next billing cycle; claims older
+		// than a staleness window are treated as abandoned and may be re-claimed.
+		devPlanTierChangeClaimedAt: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
 		devPlanExpiresAt: timestamp(),

@@ -41,6 +41,11 @@ import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
 
+// How long an unreleased tier-change cycle claim is honored before a retry may
+// take it over. Well above the Stripe SDK's request timeout (80s per attempt),
+// so a claim this old cannot still have an upgrade charge in flight.
+const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
+
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
 	orgId: string,
@@ -1069,10 +1074,25 @@ devPlans.openapi(changeTier, async (c) => {
 		// newer period start and is allowed. Downgrades are exempt: they only
 		// schedule the lower tier for renewal (no charge), so an earlier upgrade must
 		// not block a later downgrade.
+		//
+		// A claim whose request died before releasing it (process crash or restart
+		// mid-request, failed rollback) would otherwise block every retry with a 409
+		// until the next billing cycle. Claims are therefore stamped with a
+		// wall-clock time and treated as abandoned once older than the staleness
+		// window — far above the Stripe SDK's request timeout, so a claim this old
+		// cannot still have a charge in flight — letting a retry re-claim the same
+		// period. A missing stamp (claims taken before the column existed) is
+		// treated as stale for the same reason.
 		if (isUpgrade) {
+			const staleClaimBefore = new Date(
+				Date.now() - STALE_TIER_CHANGE_CLAIM_MS,
+			);
 			const claimed = await db
 				.update(tables.organization)
-				.set({ devPlanLastTierChangeCycleStart: cycleStart })
+				.set({
+					devPlanLastTierChangeCycleStart: cycleStart,
+					devPlanTierChangeClaimedAt: new Date(),
+				})
 				.where(
 					and(
 						eq(tables.organization.id, personalOrg.id),
@@ -1082,14 +1102,26 @@ devPlans.openapi(changeTier, async (c) => {
 								tables.organization.devPlanLastTierChangeCycleStart,
 								cycleStart,
 							),
+							isNull(tables.organization.devPlanTierChangeClaimedAt),
+							lt(
+								tables.organization.devPlanTierChangeClaimedAt,
+								staleClaimBefore,
+							),
 						),
 					),
 				)
 				.returning({ id: tables.organization.id });
 			if (claimed.length === 0) {
+				logger.warn("Dev plan upgrade denied: cycle already claimed", {
+					organizationId: personalOrg.id,
+					cycleStart: cycleStart.toISOString(),
+					claimedCycleStart:
+						personalOrg.devPlanLastTierChangeCycleStart?.toISOString(),
+					claimedAt: personalOrg.devPlanTierChangeClaimedAt?.toISOString(),
+				});
 				throw new HTTPException(409, {
 					message:
-						"An upgrade is already being processed. Please try again in a moment.",
+						"An upgrade is already being processed. Please try again in a few minutes.",
 				});
 			}
 			claimedCycleThisCall = true;
@@ -1296,6 +1328,7 @@ devPlans.openapi(changeTier, async (c) => {
 				.set({
 					devPlanLastTierChangeCycleStart:
 						personalOrg.devPlanLastTierChangeCycleStart,
+					devPlanTierChangeClaimedAt: personalOrg.devPlanTierChangeClaimedAt,
 				})
 				.where(eq(tables.organization.id, personalOrg.id))
 				.catch((rollbackError) => {

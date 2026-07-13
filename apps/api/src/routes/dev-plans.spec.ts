@@ -315,12 +315,16 @@ describe("dev plan tier changes", () => {
 
 	it("blocks a concurrent duplicate upgrade for the same period", async () => {
 		// A double-clicked confirm: the current Stripe period was already claimed
-		// (marker at the period start), so the second request is rejected before any
-		// Stripe call, preventing a second full-price charge and cycle reset.
+		// (marker at the period start, stamped moments ago), so the second request
+		// is rejected before any Stripe call, preventing a second full-price charge
+		// and cycle reset.
 		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
 		await db
 			.update(tables.organization)
-			.set({ devPlanLastTierChangeCycleStart: claimedCycleStart })
+			.set({
+				devPlanLastTierChangeCycleStart: claimedCycleStart,
+				devPlanTierChangeClaimedAt: new Date(nowSeconds * 1000),
+			})
 			.where(eq(tables.organization.id, ORG_ID));
 
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
@@ -350,6 +354,114 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanLastTierChangeCycleStart?.getTime()).toBe(
 			claimedCycleStart.getTime(),
 		);
+	});
+
+	it("re-claims a stale claim leaked by a request that never finished", async () => {
+		// A prior upgrade attempt claimed this period but died before completing or
+		// releasing (crash, restart). The claim's stamp is well past the staleness
+		// window, so a retry treats it as abandoned and the upgrade goes through
+		// instead of 409ing until the next billing cycle.
+		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanLastTierChangeCycleStart: claimedCycleStart,
+				devPlanTierChangeClaimedAt: new Date((nowSeconds - 1200) * 1000),
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade" },
+			},
+			items: {
+				data: [
+					{ id: "si_dev_plan", current_period_end: nowSeconds + THIRTY_DAYS },
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		// The retry took over the claim with a fresh stamp.
+		expect(org?.devPlanTierChangeClaimedAt?.getTime()).toBeGreaterThan(
+			(nowSeconds - 60) * 1000,
+		);
+	});
+
+	it("treats a claim without a claimed-at stamp as stale", async () => {
+		// Claims taken before the stamp column existed have a marker but no
+		// timestamp. If one of those leaked, it must not lock the org out; a retry
+		// re-claims it.
+		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
+		await db
+			.update(tables.organization)
+			.set({ devPlanLastTierChangeCycleStart: claimedCycleStart })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade" },
+			},
+			items: {
+				data: [
+					{ id: "si_dev_plan", current_period_end: nowSeconds + THIRTY_DAYS },
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
 	});
 
 	it("rejects a tier change on an already-ended subscription", async () => {
