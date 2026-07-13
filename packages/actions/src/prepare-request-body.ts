@@ -3072,6 +3072,16 @@ export async function prepareRequestBody(
 				requestBody.model = usedExternalId.substring(usedProvider.length + 1);
 			}
 
+			// Together rejects assistant tool_call messages whose content is null
+			// with a bare "Input validation error", even though the OpenAI spec
+			// allows null there; an empty string is accepted.
+			requestBody.messages = (requestBody.messages as BaseMessage[]).map((m) =>
+				m.role === "assistant" &&
+				(m.content === null || m.content === undefined)
+					? { ...m, content: "" }
+					: m,
+			);
+
 			if (response_format) {
 				requestBody.response_format = response_format;
 			}
