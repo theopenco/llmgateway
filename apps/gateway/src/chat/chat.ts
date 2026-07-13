@@ -12812,6 +12812,17 @@ chat.openapi(completions, async (c) => {
 		audioInputTokens,
 		usedProvider === "openai" ? readServiceTierValue(json) : undefined,
 	);
+	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
+	// assistant message so clients can replay them on later turns to preserve
+	// reasoning across calls without stored responses.
+	if (
+		parsedResponse.reasoningDetails &&
+		parsedResponse.reasoningDetails.length > 0 &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.reasoning_details =
+			parsedResponse.reasoningDetails;
+	}
 	const transformedMetadata =
 		transformedResponse.metadata &&
 		typeof transformedResponse.metadata === "object"

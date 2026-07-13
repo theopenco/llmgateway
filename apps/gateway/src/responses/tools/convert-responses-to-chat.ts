@@ -13,6 +13,70 @@ interface ChatMessage {
 		};
 	}>;
 	tool_call_id?: string;
+	reasoning?: string;
+	reasoning_details?: Array<Record<string, unknown>>;
+}
+
+interface PendingReasoning {
+	texts: string[];
+	details: Array<Record<string, unknown>>;
+}
+
+/**
+ * Collect a Responses API `reasoning` input item into the pending-reasoning
+ * buffer. Encrypted payloads become "reasoning.encrypted" reasoning_details
+ * entries (replayed to the provider to preserve reasoning across calls);
+ * summary/content text is folded into the assistant `reasoning` field.
+ */
+function collectReasoningItem(
+	item: Record<string, unknown>,
+	pending: PendingReasoning,
+): void {
+	if (
+		typeof item.encrypted_content === "string" &&
+		item.encrypted_content.length > 0
+	) {
+		pending.details.push({
+			type: "reasoning.encrypted",
+			data: item.encrypted_content,
+			...(typeof item.id === "string" && { id: item.id }),
+			format: "openai-responses-v1",
+			index: pending.details.length,
+		});
+	}
+	for (const parts of [item.summary, item.content]) {
+		if (!Array.isArray(parts)) {
+			continue;
+		}
+		const text = parts
+			.map((part) =>
+				part && typeof part === "object" && typeof part.text === "string"
+					? part.text
+					: "",
+			)
+			.filter(Boolean)
+			.join("\n\n");
+		if (text) {
+			pending.texts.push(text);
+		}
+	}
+}
+
+/**
+ * Drain the pending-reasoning buffer into fields to spread onto the next
+ * assistant chat message.
+ */
+function takePendingReasoning(pending: PendingReasoning): {
+	reasoning?: string;
+	reasoning_details?: Array<Record<string, unknown>>;
+} {
+	const result = {
+		...(pending.texts.length > 0 && { reasoning: pending.texts.join("\n\n") }),
+		...(pending.details.length > 0 && { reasoning_details: pending.details }),
+	};
+	pending.texts = [];
+	pending.details = [];
+	return result;
 }
 
 /**
@@ -33,6 +97,11 @@ export function convertResponsesInputToMessages(
 		messages.push({ role: "user", content: input });
 		return messages;
 	}
+
+	// Reasoning items precede the assistant items they belong to; buffer them
+	// and attach to the next assistant message so the provider layer can replay
+	// the reasoning (encrypted payloads and/or text) on this turn.
+	const pendingReasoning: PendingReasoning = { texts: [], details: [] };
 
 	let i = 0;
 	while (i < input.length) {
@@ -90,16 +159,19 @@ export function convertResponsesInputToMessages(
 				role: "assistant",
 				content: foldedContent,
 				tool_calls: toolCalls,
+				...takePendingReasoning(pendingReasoning),
 			});
 			continue;
 		}
 
-		// Skip reasoning items — they cannot be converted to chat messages.
-		// These appear in stored output when chaining via previous_response_id.
+		// Reasoning items (from stored output when chaining via
+		// previous_response_id, or replayed by stateless clients) are buffered
+		// and attached to the assistant message that follows them.
 		if (
 			"type" in item &&
 			(item as Record<string, unknown>).type === "reasoning"
 		) {
+			collectReasoningItem(item as Record<string, unknown>, pendingReasoning);
 			i++;
 			continue;
 		}
@@ -134,9 +206,17 @@ export function convertResponsesInputToMessages(
 				? ("system" as const)
 				: (msg.role as ChatMessage["role"]);
 
+		// Reasoning belongs to the assistant items directly following it. A
+		// non-assistant message means the buffered reasoning has no owner —
+		// drop it rather than mis-attach it to a later turn.
+		if (role !== "assistant") {
+			takePendingReasoning(pendingReasoning);
+		}
+
 		const chatMsg: ChatMessage = {
 			role,
 			content: convertContent(msg.content),
+			...(role === "assistant" ? takePendingReasoning(pendingReasoning) : {}),
 		};
 
 		if (msg.name) {

@@ -19,6 +19,7 @@ interface ChatCompletionsResponse {
 				};
 			}>;
 			reasoning?: string | null;
+			reasoning_details?: Array<Record<string, unknown>>;
 			refusal?: string | null;
 			annotations?: Array<Record<string, unknown>>;
 		};
@@ -190,6 +191,24 @@ export function normalizeEchoedTools(tools: unknown[] | undefined): unknown[] {
 }
 
 /**
+ * Remove `encrypted_content` from reasoning output items. Encrypted reasoning
+ * is always kept in stored responses (so previous_response_id chaining
+ * preserves reasoning server-side, like OpenAI), but is only returned on the
+ * wire when the request asked for it via include:["reasoning.encrypted_content"].
+ */
+export function stripEncryptedReasoningContent<
+	T extends Record<string, unknown>,
+>(output: T[]): T[] {
+	return output.map((item) => {
+		if (item.type !== "reasoning" || item.encrypted_content === undefined) {
+			return item;
+		}
+		const { encrypted_content: _ignored, ...rest } = item;
+		return rest as unknown as T;
+	});
+}
+
+/**
  * Resolve the processing tier the provider actually served from a chat
  * completions response. OpenAI echoes it as a top-level `service_tier`;
  * other providers (e.g. Google flex/priority) surface it via the gateway's
@@ -250,8 +269,33 @@ export function convertChatResponseToResponses(
 	const message = choice?.message;
 	const output: ResponsesApiOutput[] = [];
 
-	// Add reasoning output if present
-	if (message?.reasoning) {
+	// Add reasoning output if present. Encrypted reasoning payloads captured
+	// from the provider ("reasoning.encrypted" reasoning_details entries) are
+	// attached as `encrypted_content` so the reasoning can be replayed on later
+	// turns; the caller strips them from the wire response unless the request
+	// asked for them via include:["reasoning.encrypted_content"].
+	const encryptedDetails = (message?.reasoning_details ?? []).filter(
+		(detail) =>
+			detail.type === "reasoning.encrypted" &&
+			typeof detail.data === "string" &&
+			(detail.data as string).length > 0,
+	);
+	if (encryptedDetails.length > 0) {
+		encryptedDetails.forEach((detail, index) => {
+			output.push({
+				type: "reasoning",
+				id:
+					typeof detail.id === "string" && detail.id
+						? detail.id
+						: `rs_${shortid(24)}`,
+				summary:
+					index === 0 && message?.reasoning
+						? [{ type: "summary_text", text: message.reasoning }]
+						: [],
+				encrypted_content: detail.data,
+			});
+		});
+	} else if (message?.reasoning) {
 		output.push({
 			type: "reasoning",
 			id: `rs_${shortid(24)}`,

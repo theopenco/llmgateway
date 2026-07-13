@@ -3,6 +3,7 @@ import { shortid } from "@llmgateway/db";
 import {
 	normalizeAnnotationsToResponses,
 	normalizeEchoedTools,
+	stripEncryptedReasoningContent,
 } from "./convert-chat-to-responses.js";
 
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
@@ -18,6 +19,7 @@ interface StreamingState {
 	reasoningId: string;
 	fullContent: string[];
 	fullReasoning: string[];
+	encryptedReasoning: Array<{ data: string; id?: string }>;
 	annotations: Record<string, unknown>[];
 	reasoningStarted: boolean;
 	finishReason: string | null;
@@ -76,6 +78,7 @@ export function createStreamingState(
 		reasoningId: `rs_${shortid(24)}`,
 		fullContent: [],
 		fullReasoning: [],
+		encryptedReasoning: [],
 		annotations: [],
 		reasoningStarted: false,
 		finishReason: null,
@@ -219,6 +222,7 @@ export function processStreamChunk(
 				delta?: {
 					content?: string | null;
 					reasoning?: string | null;
+					reasoning_details?: Array<Record<string, unknown>>;
 					annotations?: Array<Record<string, unknown>>;
 					tool_calls?: Array<{
 						index: number;
@@ -294,6 +298,42 @@ export function processStreamChunk(
 			);
 		}
 		state.fullReasoning.push(delta.reasoning);
+	}
+
+	// Capture encrypted reasoning payloads ("reasoning.encrypted" entries) so
+	// the completed reasoning output item can carry encrypted_content for
+	// stateless replay. They arrive as a single delta when the provider's
+	// reasoning item completes, possibly before any summary text was streamed.
+	if (delta.reasoning_details?.length) {
+		for (const detail of delta.reasoning_details) {
+			if (
+				detail.type === "reasoning.encrypted" &&
+				typeof detail.data === "string" &&
+				detail.data.length > 0
+			) {
+				if (!state.reasoningStarted) {
+					state.reasoningStarted = true;
+					if (typeof detail.id === "string" && detail.id) {
+						state.reasoningId = detail.id;
+					}
+					events.push(
+						emitEvent(state, "response.output_item.added", {
+							type: "response.output_item.added",
+							output_index: state.outputItemIndex,
+							item: {
+								type: "reasoning",
+								id: state.reasoningId,
+								summary: [],
+							},
+						}),
+					);
+				}
+				state.encryptedReasoning.push({
+					data: detail.data,
+					...(typeof detail.id === "string" && detail.id && { id: detail.id }),
+				});
+			}
+		}
 	}
 
 	// Handle tool_calls delta
@@ -456,10 +496,101 @@ export function processStreamChunk(
 }
 
 /**
+ * Build the reasoning output items for the final output array. Each captured
+ * encrypted reasoning payload becomes its own reasoning item (mirroring the
+ * provider's items, with their original ids when known); the aggregated
+ * summary text rides on the first item. Without encrypted payloads a single
+ * summary-only item is produced.
+ */
+function buildReasoningOutputItems(
+	state: StreamingState,
+): Record<string, unknown>[] {
+	if (!state.reasoningStarted) {
+		return [];
+	}
+	const summary = [
+		{
+			type: "summary_text",
+			text: state.fullReasoning.join(""),
+		},
+	];
+	if (state.encryptedReasoning.length === 0) {
+		return [{ type: "reasoning", id: state.reasoningId, summary }];
+	}
+	return state.encryptedReasoning.map((entry, index) => ({
+		type: "reasoning",
+		id: entry.id ?? (index === 0 ? state.reasoningId : `rs_${shortid(24)}`),
+		summary: index === 0 ? summary : [],
+		encrypted_content: entry.data,
+	}));
+}
+
+/**
+ * Build the complete final output array (reasoning, function calls, message)
+ * including encrypted reasoning payloads. Used for response storage; wire
+ * events strip encrypted_content unless the request opted in via
+ * include:["reasoning.encrypted_content"].
+ */
+export function buildFinalOutputItems(
+	state: StreamingState,
+): Record<string, unknown>[] {
+	const output: Record<string, unknown>[] = [
+		...buildReasoningOutputItems(state),
+	];
+
+	for (const tc of state.toolCalls.values()) {
+		output.push({
+			type: "function_call",
+			id: tc.id,
+			call_id: tc.callId,
+			name: tc.name,
+			arguments: tc.arguments,
+			status: "completed",
+		});
+	}
+
+	if (state.fullContent.length > 0) {
+		output.push({
+			type: "message",
+			id: state.messageId,
+			role: "assistant",
+			content: [
+				{
+					type: "output_text",
+					text: state.fullContent.join(""),
+					annotations: state.annotations,
+				},
+			],
+			status: "completed",
+		});
+	}
+
+	return output;
+}
+
+/**
  * Generate the completion events when the stream ends.
  */
-export function createCompletionEvents(state: StreamingState): SSEEvent[] {
+export function createCompletionEvents(
+	state: StreamingState,
+	includeEncryptedReasoning = false,
+): SSEEvent[] {
 	const events: SSEEvent[] = [];
+
+	// Close the reasoning item(s) if started. Encrypted payloads are only put
+	// on the wire when the request asked for them.
+	const reasoningItems = includeEncryptedReasoning
+		? buildReasoningOutputItems(state)
+		: stripEncryptedReasoningContent(buildReasoningOutputItems(state));
+	for (const item of reasoningItems) {
+		events.push(
+			emitEvent(state, "response.output_item.done", {
+				type: "response.output_item.done",
+				output_index: 0,
+				item,
+			}),
+		);
+	}
 
 	// Close content part if started
 	if (state.contentPartStarted) {
@@ -534,48 +665,11 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 		status = "incomplete";
 	}
 
-	// Build final output array
-	const output: Record<string, unknown>[] = [];
-
-	if (state.reasoningStarted) {
-		output.push({
-			type: "reasoning",
-			id: state.reasoningId,
-			summary: [
-				{
-					type: "summary_text",
-					text: state.fullReasoning.join(""),
-				},
-			],
-		});
-	}
-
-	for (const tc of state.toolCalls.values()) {
-		output.push({
-			type: "function_call",
-			id: tc.id,
-			call_id: tc.callId,
-			name: tc.name,
-			arguments: tc.arguments,
-			status: "completed",
-		});
-	}
-
-	if (state.fullContent.length > 0) {
-		output.push({
-			type: "message",
-			id: state.messageId,
-			role: "assistant",
-			content: [
-				{
-					type: "output_text",
-					text: state.fullContent.join(""),
-					annotations: state.annotations,
-				},
-			],
-			status: "completed",
-		});
-	}
+	// Build final output array (encrypted reasoning gated by the include opt-in)
+	const fullOutput = buildFinalOutputItems(state);
+	const output = includeEncryptedReasoning
+		? fullOutput
+		: stripEncryptedReasoningContent(fullOutput);
 
 	events.push(
 		emitEvent(state, "response.completed", {

@@ -298,14 +298,24 @@ export interface OpenAIResponsesFunctionCallOutput {
 	output: string;
 }
 
+export interface OpenAIResponsesReasoningItem {
+	type: "reasoning";
+	id?: string;
+	summary: unknown[];
+	encrypted_content: string;
+}
+
 export type OpenAIResponsesInputItem =
 	| OpenAIMessage
 	| OpenAIResponsesFunctionCall
-	| OpenAIResponsesFunctionCallOutput;
+	| OpenAIResponsesFunctionCallOutput
+	| OpenAIResponsesReasoningItem;
 
 export interface OpenAIResponsesRequestBody {
 	model: string;
 	input: OpenAIResponsesInputItem[];
+	store?: boolean;
+	include?: string[];
 	service_tier?: "auto" | "default" | "flex" | "priority";
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;

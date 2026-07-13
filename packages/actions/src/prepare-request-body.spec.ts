@@ -3153,6 +3153,57 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_completion_tokens).toBe(32000);
 			expect(requestBody.max_tokens).toBeUndefined();
 		});
+
+		test("strips reasoning_details from chat-completions messages", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "Hi!",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-blob",
+								format: "openai-responses-v1",
+							},
+						],
+					},
+					{ role: "user", content: "Again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) => m.reasoning_details === undefined,
+				),
+			).toBe(true);
+		});
 	});
 
 	describe("azure-ai-foundry", () => {
@@ -3527,6 +3578,90 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
 				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
 			]);
+		});
+
+		test("runs stateless and requests encrypted reasoning payloads", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([{ role: "user", content: "Hello!" }]),
+			)) as any;
+
+			expect(requestBody.store).toBe(false);
+			expect(requestBody.include).toEqual(["reasoning.encrypted_content"]);
+		});
+
+		test("replays encrypted reasoning_details as reasoning input items", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-encrypted-blob",
+								id: "rs_upstream",
+								format: "openai-responses-v1",
+								index: 0,
+							},
+						],
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const reasoningIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "reasoning",
+			);
+			const functionCallIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "function_call",
+			);
+			expect(reasoningIndex).toBeGreaterThan(-1);
+			expect(reasoningIndex).toBeLessThan(functionCallIndex);
+			expect(requestBody.input[reasoningIndex]).toEqual({
+				type: "reasoning",
+				id: "rs_upstream",
+				summary: [],
+				encrypted_content: "gAAAA-encrypted-blob",
+			});
+		});
+
+		test("skips foreign-format reasoning_details entries", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "hello" },
+					{
+						role: "assistant",
+						content: "hi",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "anthropic-blob",
+								format: "anthropic-claude-v1",
+							},
+						],
+					},
+					{ role: "user", content: "again" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.some((i: any) => i.type === "reasoning")).toBe(
+				false,
+			);
 		});
 	});
 

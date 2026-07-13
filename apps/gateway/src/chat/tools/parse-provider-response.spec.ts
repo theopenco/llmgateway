@@ -50,6 +50,73 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("openai responses format reasoning", () => {
+		it("extracts encrypted reasoning payloads into reasoningDetails", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						id: "rs_upstream",
+						summary: [{ type: "summary_text", text: "thinking..." }],
+						encrypted_content: "gAAAA-encrypted-blob",
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						content: [{ type: "output_text", text: "The answer is 42" }],
+					},
+				],
+				usage: {
+					input_tokens: 10,
+					output_tokens: 50,
+					total_tokens: 60,
+				},
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.5", json);
+
+			expect(result.content).toBe("The answer is 42");
+			expect(result.reasoningContent).toBe("thinking...");
+			expect(result.reasoningDetails).toEqual([
+				{
+					type: "reasoning.encrypted",
+					data: "gAAAA-encrypted-blob",
+					id: "rs_upstream",
+					format: "openai-responses-v1",
+					index: 0,
+				},
+			]);
+		});
+
+		it("leaves reasoningDetails null when reasoning items carry no encrypted content", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						id: "rs_upstream",
+						summary: [{ type: "summary_text", text: "thinking..." }],
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						content: [{ type: "output_text", text: "Hi" }],
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.5", json);
+
+			expect(result.reasoningDetails).toBeNull();
+		});
+	});
+
 	describe("google reasoning output", () => {
 		it("treats missing thought text as null when only thought signatures are returned", () => {
 			const json = {

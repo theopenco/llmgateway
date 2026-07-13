@@ -13,7 +13,7 @@ import {
 } from "./reasoning-details.js";
 
 import type { Annotation, ImageObject } from "./types.js";
-import type { Provider } from "@llmgateway/models";
+import type { Provider, ReasoningDetail } from "@llmgateway/models";
 
 /**
  * Parses response content and metadata from different providers
@@ -29,6 +29,7 @@ export function parseProviderResponse(
 ) {
 	let content = null;
 	let reasoningContent = null;
+	let reasoningDetails: ReasoningDetail[] | null = null;
 	let finishReason = null;
 	let promptTokens = null;
 	let completionTokens = null;
@@ -807,6 +808,28 @@ export function parseProviderResponse(
 					}
 				}
 
+				// Collect encrypted reasoning payloads (returned when the upstream
+				// request sets store:false + include:["reasoning.encrypted_content"])
+				// so clients can replay them on later turns to preserve reasoning
+				// without stored responses.
+				const encryptedReasoningItems = json.output.filter(
+					(item: any) =>
+						item.type === "reasoning" &&
+						typeof item.encrypted_content === "string" &&
+						item.encrypted_content.length > 0,
+				);
+				if (encryptedReasoningItems.length > 0) {
+					reasoningDetails = encryptedReasoningItems.map(
+						(item: any, index: number) => ({
+							type: "reasoning.encrypted",
+							data: item.encrypted_content,
+							...(typeof item.id === "string" && { id: item.id }),
+							format: "openai-responses-v1",
+							index,
+						}),
+					);
+				}
+
 				// Extract tool calls (if any) from the output array and transform to OpenAI format
 				const functionCalls = json.output.filter(
 					(item: any) => item.type === "function_call",
@@ -1067,6 +1090,7 @@ export function parseProviderResponse(
 	return {
 		content,
 		reasoningContent,
+		reasoningDetails,
 		finishReason,
 		promptTokens,
 		completionTokens,

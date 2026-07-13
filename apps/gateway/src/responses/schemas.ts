@@ -218,6 +218,15 @@ export const responsesRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val)),
 	text: z.record(z.any()).optional(),
 	store: z.boolean().optional(),
+	// Additional output data to include. Only "reasoning.encrypted_content" has
+	// gateway-level behavior (returns encrypted reasoning payloads on reasoning
+	// output items so they can be replayed statelessly); other values are
+	// accepted and ignored.
+	include: z
+		.array(z.string())
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	metadata: z.record(z.string()).optional(),
 	top_p: z
 		.number()

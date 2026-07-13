@@ -838,7 +838,29 @@ export function transformStreamingToOpenai(
 					case "response.output_text.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
-					case "response.web_search_call.completed":
+					case "response.web_search_call.completed": {
+						// A completed reasoning item may carry encrypted reasoning
+						// (store:false + include:["reasoning.encrypted_content"]).
+						// Surface it as a reasoning_details delta so clients can replay
+						// it on later turns to preserve reasoning across calls.
+						const doneItem = data.item;
+						const encryptedReasoning =
+							data.type === "response.output_item.done" &&
+							doneItem?.type === "reasoning" &&
+							typeof doneItem.encrypted_content === "string" &&
+							doneItem.encrypted_content.length > 0
+								? [
+										{
+											type: "reasoning.encrypted",
+											data: doneItem.encrypted_content,
+											...(typeof doneItem.id === "string" && {
+												id: doneItem.id,
+											}),
+											format: "openai-responses-v1",
+											index: data.output_index ?? 0,
+										},
+									]
+								: null;
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -848,13 +870,19 @@ export function transformStreamingToOpenai(
 							choices: [
 								{
 									index: 0,
-									delta: { role: "assistant" },
+									delta: {
+										role: "assistant",
+										...(encryptedReasoning && {
+											reasoning_details: encryptedReasoning,
+										}),
+									},
 									finish_reason: null,
 								},
 							],
 							usage: null,
 						};
 						break;
+					}
 
 					case "response.reasoning_summary_part.added":
 					case "response.reasoning_summary_text.delta":

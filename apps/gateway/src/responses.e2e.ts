@@ -9,10 +9,13 @@ import {
 	getConcurrentTestOptions,
 	getTestOptions,
 	logMode,
+	reasoningModels,
 	testModels,
 	toolCallModels,
 	validateLogByRequestId,
 } from "@/chat-helpers.e2e.js";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 // Pick one model per provider to keep CI cost manageable while still
 // validating the Responses API conversion layer across every provider.
@@ -47,6 +50,19 @@ const TOOL_CALL_DENYLIST = new Set<string>([
 const responsesTestModels = oneModelPerProvider(testModels);
 const responsesToolCallModels = oneModelPerProvider(toolCallModels).filter(
 	(m) => !TOOL_CALL_DENYLIST.has(m.model),
+);
+
+// Encrypted reasoning payloads are only produced by upstreams reached via the
+// OpenAI Responses API (store:false + include:["reasoning.encrypted_content"]).
+const encryptedReasoningModels = oneModelPerProvider(
+	reasoningModels.filter((m) =>
+		m.providers.some(
+			(p: ProviderModelMapping) =>
+				p.reasoning === true &&
+				p.supportsResponsesApi === true &&
+				(p.providerId === "openai" || p.providerId === "azure"),
+		),
+	),
 );
 
 interface ResponsesOutputItem {
@@ -180,6 +196,77 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					JSON.stringify(secondJson, null, 2),
 				);
 			}
+			expect(secondRes.status).toBe(200);
+			const text = getOutputText(secondJson);
+			expect(text.toLowerCase()).toContain("ada");
+		},
+	);
+
+	test.each(encryptedReasoningModels)(
+		"responses stateless encrypted reasoning $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const firstInput = [
+				{
+					role: "user",
+					content:
+						"My name is Ada. Please remember it. Reply with a brief acknowledgement.",
+				},
+			];
+			const firstRequestId = generateTestRequestId();
+			const firstRes = await postResponses(
+				{
+					model,
+					store: false,
+					include: ["reasoning.encrypted_content"],
+					input: firstInput,
+				},
+				firstRequestId,
+			);
+			const firstJson = await firstRes.json();
+			if (logMode) {
+				console.log(
+					"responses encrypted reasoning first:",
+					JSON.stringify(firstJson, null, 2),
+				);
+			}
+
+			expect(firstRes.status).toBe(200);
+			const reasoningItem = (firstJson.output ?? []).find(
+				(i: ResponsesOutputItem & { encrypted_content?: string }) =>
+					i.type === "reasoning",
+			);
+			expect(reasoningItem).toBeDefined();
+			expect(typeof reasoningItem.encrypted_content).toBe("string");
+			expect(reasoningItem.encrypted_content.length).toBeGreaterThan(0);
+
+			// Stateless second turn: replay the full first output (including the
+			// encrypted reasoning item) plus the new user message.
+			const secondRequestId = generateTestRequestId();
+			const secondRes = await postResponses(
+				{
+					model,
+					store: false,
+					include: ["reasoning.encrypted_content"],
+					input: [
+						...firstInput,
+						...firstJson.output,
+						{
+							role: "user",
+							content: "What is my name? Reply with just the name.",
+						},
+					],
+				},
+				secondRequestId,
+			);
+			const secondJson = await secondRes.json();
+			if (logMode) {
+				console.log(
+					"responses encrypted reasoning second:",
+					JSON.stringify(secondJson, null, 2),
+				);
+			}
+
 			expect(secondRes.status).toBe(200);
 			const text = getOutputText(secondJson);
 			expect(text.toLowerCase()).toContain("ada");

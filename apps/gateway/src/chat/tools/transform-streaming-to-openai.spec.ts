@@ -416,6 +416,55 @@ describe("transformStreamingToOpenai", () => {
 		expect(result?.choices?.[0]?.delta?.content).toBe("Hi");
 	});
 
+	it("surfaces encrypted reasoning from output_item.done as reasoning_details", () => {
+		const result = transformStreamingToOpenai(
+			"openai",
+			"gpt-5.5",
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				item: {
+					type: "reasoning",
+					id: "rs_upstream",
+					summary: [{ type: "summary_text", text: "thinking..." }],
+					encrypted_content: "gAAAA-encrypted-blob",
+				},
+				sequence_number: 5,
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]?.delta?.reasoning_details).toEqual([
+			{
+				type: "reasoning.encrypted",
+				data: "gAAAA-encrypted-blob",
+				id: "rs_upstream",
+				format: "openai-responses-v1",
+				index: 0,
+			},
+		]);
+	});
+
+	it("emits a plain delta for output_item.done without encrypted reasoning", () => {
+		const result = transformStreamingToOpenai(
+			"openai",
+			"gpt-5.5",
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				item: {
+					type: "reasoning",
+					id: "rs_upstream",
+					summary: [{ type: "summary_text", text: "thinking..." }],
+				},
+				sequence_number: 5,
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]?.delta).toEqual({ role: "assistant" });
+	});
+
 	it("preserves Azure Responses API response.completed usage", () => {
 		const result = transformStreamingToOpenai(
 			"azure",

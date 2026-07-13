@@ -27,6 +27,7 @@ import { compactRequestSchema, responsesRequestSchema } from "./schemas.js";
 import { convertChatResponseToCompaction } from "./tools/convert-chat-to-compaction.js";
 import {
 	convertChatResponseToResponses,
+	stripEncryptedReasoningContent,
 	type ResponsesApiOutput,
 	type ResponsesApiResponse,
 } from "./tools/convert-chat-to-responses.js";
@@ -37,6 +38,7 @@ import {
 	processStreamChunk,
 	createCompletionEvents,
 	createFailedEvent,
+	buildFinalOutputItems,
 } from "./tools/convert-streaming-to-responses.js";
 import {
 	storeResponse,
@@ -194,14 +196,23 @@ responses.post("/", async (c) => {
 	const { project, organization } = authResult;
 
 	const shouldStore = req.store !== false;
+	const includeEncryptedReasoning =
+		req.include?.includes("reasoning.encrypted_content") ?? false;
 
-	// Require retention to use the Responses API
-	if (organization.retentionLevel !== "retain") {
+	// Require retention to use the stateful Responses API features. Stateless
+	// requests (store:false without previous_response_id) persist nothing, so
+	// they work without retention — pair them with
+	// include:["reasoning.encrypted_content"] to preserve reasoning across
+	// calls without stored responses.
+	if (
+		organization.retentionLevel !== "retain" &&
+		(shouldStore || req.previous_response_id)
+	) {
 		return c.json(
 			{
 				error: {
 					message:
-						"The Responses API requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, or use /v1/chat/completions instead.",
+						"The Responses API requires data retention to be enabled for stored responses. Enable 'Retain All Data' in your organization's policies, send store:false (optionally with include:[\"reasoning.encrypted_content\"]) for stateless use, or use /v1/chat/completions instead.",
 					type: "invalid_request_error",
 					code: "data_retention_required",
 				},
@@ -479,7 +490,10 @@ responses.post("/", async (c) => {
 
 				if (data === "[DONE]") {
 					// Send completion events
-					const completionEvents = createCompletionEvents(state);
+					const completionEvents = createCompletionEvents(
+						state,
+						includeEncryptedReasoning,
+					);
 					for (const event of completionEvents) {
 						await stream.writeSSE({
 							event: event.event,
@@ -487,7 +501,9 @@ responses.post("/", async (c) => {
 						});
 					}
 
-					// Store for previous_response_id
+					// Store for previous_response_id. Storage always keeps encrypted
+					// reasoning payloads (even when the wire response strips them) so
+					// chaining preserves reasoning like OpenAI's stored responses do.
 					if (shouldStore) {
 						const completedData = JSON.parse(
 							completionEvents[completionEvents.length - 1]!.data,
@@ -498,7 +514,7 @@ responses.post("/", async (c) => {
 							{
 								id: logId,
 								input: inputItems,
-								output: completedResponse?.output ?? [],
+								output: buildFinalOutputItems(state),
 								instructions: req.instructions,
 								model: req.model,
 								status: completedResponse?.status ?? "completed",
@@ -597,7 +613,9 @@ responses.post("/", async (c) => {
 		req,
 	);
 
-	// Store for previous_response_id (unless store: false)
+	// Store for previous_response_id (unless store: false). Storage always
+	// keeps encrypted reasoning payloads (even when the wire response strips
+	// them) so chaining preserves reasoning like OpenAI's stored responses do.
 	if (shouldStore) {
 		await storeResponse(
 			logId,
@@ -617,6 +635,12 @@ responses.post("/", async (c) => {
 				created_at: responsesResponse.created_at,
 			},
 			projectId,
+		);
+	}
+
+	if (!includeEncryptedReasoning) {
+		responsesResponse.output = stripEncryptedReasoningContent(
+			responsesResponse.output,
 		);
 	}
 
@@ -932,7 +956,11 @@ responses.get("/:response_id", async (c) => {
 		model: stored.model,
 		previous_response_id: null,
 		instructions: stored.instructions ?? null,
-		output: stored.output as ResponsesApiOutput[],
+		// Stored output keeps encrypted reasoning payloads for chaining; the
+		// retrieval endpoint (like OpenAI's without include) never returns them.
+		output: stripEncryptedReasoningContent(
+			stored.output as ResponsesApiOutput[],
+		),
 		error: null,
 		tools: [],
 		tool_choice: "auto",

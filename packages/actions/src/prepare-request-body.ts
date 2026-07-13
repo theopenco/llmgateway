@@ -781,6 +781,40 @@ function transformContentForResponsesApi(content: any, role: string): any {
  * is still unmatched. Ambiguous cases throw rather than risk attaching a result
  * to the wrong call.
  */
+/**
+ * Extract encrypted reasoning payloads carried on an assistant message
+ * (`reasoning_details` entries of type "reasoning.encrypted") back into
+ * Responses API `reasoning` input items. Clients receive these payloads on
+ * prior responses (store:false + include:["reasoning.encrypted_content"]) and
+ * replay them to preserve reasoning across calls without stored responses.
+ * Only OpenAI-Responses-shaped payloads are forwarded — opaque blobs from a
+ * different provider/format would be rejected upstream.
+ */
+function extractEncryptedReasoningItems(msg: any): any[] {
+	if (msg.role !== "assistant" || !Array.isArray(msg.reasoning_details)) {
+		return [];
+	}
+	const items: any[] = [];
+	for (const detail of msg.reasoning_details) {
+		if (
+			detail &&
+			typeof detail === "object" &&
+			detail.type === "reasoning.encrypted" &&
+			typeof detail.data === "string" &&
+			detail.data.length > 0 &&
+			(detail.format === undefined || detail.format === "openai-responses-v1")
+		) {
+			items.push({
+				type: "reasoning",
+				...(typeof detail.id === "string" && { id: detail.id }),
+				summary: [],
+				encrypted_content: detail.data,
+			});
+		}
+	}
+	return items;
+}
+
 function transformMessagesForResponsesApi(messages: any[]): any[] {
 	const items: any[] = [];
 
@@ -841,6 +875,12 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 				output,
 			});
 			continue;
+		}
+
+		// Replay encrypted reasoning from prior turns ahead of the assistant
+		// items it preceded, mirroring the item order the Responses API emits.
+		if (msg.role === "assistant") {
+			items.push(...extractEncryptedReasoningItems(msg));
 		}
 
 		// Assistant messages with tool_calls: emit the message, then function_call items
@@ -1482,6 +1522,22 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Keep a pre-strip reference for the OpenAI Responses API path below, which
+	// converts `reasoning_details` entries back into `reasoning` input items.
+	const messagesWithReasoningDetails = processedMessages;
+
+	// `reasoning_details` is the gateway's carrier for opaque reasoning payloads
+	// (e.g. OpenAI encrypted reasoning). No chat-completions upstream understands
+	// it, and strict providers reject unknown message fields, so strip it from
+	// every path except the Responses API transform above.
+	processedMessages = processedMessages.map((m) => {
+		if ((m as any).reasoning_details === undefined) {
+			return m;
+		}
+		const { reasoning_details: _ignored, ...rest } = m as any;
+		return rest as typeof m;
+	});
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedExternalId,
@@ -1620,8 +1676,9 @@ export async function prepareRequestBody(
 				// - Convert content types (text -> input_text/output_text, image_url -> input_image)
 				// - Convert assistant tool_calls to function_call items
 				// - Convert tool role messages to function_call_output items
-				const transformedMessages =
-					transformMessagesForResponsesApi(processedMessages);
+				const transformedMessages = transformMessagesForResponsesApi(
+					messagesWithReasoningDetails,
+				);
 
 				// Fugu always reasons and only accepts "high"/"xhigh" effort — it has
 				// no off switch and rejects none/minimal/low/medium — so every tier at
@@ -1652,6 +1709,16 @@ export async function prepareRequestBody(
 									summary: "detailed",
 								},
 				};
+
+				// Run stateless upstream and ask for encrypted reasoning payloads so
+				// reasoning can be replayed on later turns (the gateway never uses
+				// upstream response storage — conversations are always resent in
+				// full). Only OpenAI and Azure document store/include on their
+				// Responses API surface.
+				if (usedProvider === "openai" || usedProvider === "azure") {
+					responsesBody.store = false;
+					responsesBody.include = ["reasoning.encrypted_content"];
+				}
 
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {

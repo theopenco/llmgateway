@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 
 import { responsesRequestSchema } from "./schemas.js";
-import { convertChatResponseToResponses } from "./tools/convert-chat-to-responses.js";
+import {
+	convertChatResponseToResponses,
+	stripEncryptedReasoningContent,
+} from "./tools/convert-chat-to-responses.js";
 import { convertResponsesInputToMessages } from "./tools/convert-responses-to-chat.js";
 import {
 	createStreamingState,
@@ -9,6 +12,7 @@ import {
 	processStreamChunk,
 	createCompletionEvents,
 	createFailedEvent,
+	buildFinalOutputItems,
 } from "./tools/convert-streaming-to-responses.js";
 import { resolveItemReferences } from "./tools/response-state.js";
 
@@ -96,6 +100,29 @@ describe("responsesRequestSchema", () => {
 		});
 
 		expect(result.success).toBe(true);
+	});
+
+	it("accepts include with reasoning.encrypted_content", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: "hello",
+			store: false,
+			include: ["reasoning.encrypted_content"],
+		});
+
+		expect(result.success).toBe(true);
+		expect(result.data?.include).toEqual(["reasoning.encrypted_content"]);
+	});
+
+	it("normalizes include null to undefined", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: "hello",
+			include: null,
+		});
+
+		expect(result.success).toBe(true);
+		expect(result.data?.include).toBeUndefined();
 	});
 
 	it('preserves reasoning.effort "max" so it is forwarded to the provider as-is', () => {
@@ -293,9 +320,8 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result[0]!.content).toBe("You are helpful");
 	});
 
-	it("skips reasoning items from stored output", () => {
+	it("attaches reasoning summary text to the following assistant message", () => {
 		// Reasoning items appear in stored output when chaining via previous_response_id.
-		// The function should skip them since they can't be converted to chat messages.
 		const input = [
 			{
 				type: "reasoning",
@@ -311,7 +337,68 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result).toHaveLength(2);
 		expect(result[0]!.role).toBe("assistant");
 		expect(result[0]!.content).toBe("The answer is 42");
+		expect(result[0]!.reasoning).toBe("thinking...");
+		expect(result[0]!.reasoning_details).toBeUndefined();
 		expect(result[1]!.role).toBe("user");
+	});
+
+	it("attaches encrypted reasoning to the assistant tool_calls message", () => {
+		const input = [
+			{ role: "user" as const, content: "What's the weather?" },
+			{
+				type: "reasoning",
+				id: "rs_abc",
+				summary: [],
+				encrypted_content: "gAAAA-encrypted-blob",
+			},
+			{
+				type: "function_call" as const,
+				call_id: "call_123",
+				name: "get_weather",
+				arguments: '{"location": "SF"}',
+			},
+			{
+				type: "function_call_output" as const,
+				call_id: "call_123",
+				output: '{"temp": 72}',
+			},
+		] as unknown[];
+		const result = convertResponsesInputToMessages(
+			input as Parameters<typeof convertResponsesInputToMessages>[0],
+		);
+		expect(result).toHaveLength(3);
+		expect(result[1]!.role).toBe("assistant");
+		expect(result[1]!.tool_calls).toHaveLength(1);
+		expect(result[1]!.reasoning_details).toEqual([
+			{
+				type: "reasoning.encrypted",
+				data: "gAAAA-encrypted-blob",
+				id: "rs_abc",
+				format: "openai-responses-v1",
+				index: 0,
+			},
+		]);
+		expect(result[2]!.role).toBe("tool");
+	});
+
+	it("drops buffered reasoning when no assistant item follows it", () => {
+		const input = [
+			{
+				type: "reasoning",
+				id: "rs_orphan",
+				summary: [{ type: "summary_text", text: "stale thinking" }],
+				encrypted_content: "gAAAA-stale",
+			},
+			{ role: "user" as const, content: "New question" },
+			{ role: "assistant" as const, content: "Answer" },
+		] as unknown[];
+		const result = convertResponsesInputToMessages(
+			input as Parameters<typeof convertResponsesInputToMessages>[0],
+		);
+		expect(result).toHaveLength(2);
+		expect(result[1]!.role).toBe("assistant");
+		expect(result[1]!.reasoning).toBeUndefined();
+		expect(result[1]!.reasoning_details).toBeUndefined();
 	});
 });
 
@@ -509,6 +596,58 @@ describe("convertChatResponseToResponses", () => {
 		expect((reasoning as any).summary[0].text).toBe(
 			"Let me think step by step...",
 		);
+	});
+
+	it("emits reasoning items with encrypted_content from reasoning_details", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						content: "The answer is 42",
+						reasoning: "Let me think step by step...",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-encrypted-blob",
+								id: "rs_upstream",
+								format: "openai-responses-v1",
+								index: 0,
+							},
+						],
+					},
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 50, total_tokens: 60 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.5");
+
+		const reasoning = result.output.find((o) => o.type === "reasoning");
+		expect(reasoning).toBeDefined();
+		expect((reasoning as any).id).toBe("rs_upstream");
+		expect((reasoning as any).encrypted_content).toBe("gAAAA-encrypted-blob");
+		expect((reasoning as any).summary[0].text).toBe(
+			"Let me think step by step...",
+		);
+	});
+
+	it("strips encrypted_content via stripEncryptedReasoningContent", () => {
+		const output = [
+			{
+				type: "reasoning",
+				id: "rs_1",
+				summary: [],
+				encrypted_content: "gAAAA-secret",
+			},
+			{ type: "message", id: "msg_1", role: "assistant" },
+		];
+
+		const stripped = stripEncryptedReasoningContent(output);
+
+		expect(stripped[0]).toEqual({ type: "reasoning", id: "rs_1", summary: [] });
+		expect(stripped[1]).toBe(output[1]);
 	});
 
 	it("uses provided responseId when given", () => {
@@ -790,6 +929,103 @@ describe("streaming conversion", () => {
 		const completedEvent = events.find((e) => e.event === "response.completed");
 		const completedData = JSON.parse(completedEvent!.data);
 		expect(completedData.response.status).toBe("incomplete");
+	});
+
+	it("captures encrypted reasoning deltas and gates them on the include opt-in", () => {
+		const state = createStreamingState("gpt-5.5");
+		// Summary text streams first, then the encrypted payload arrives when the
+		// provider's reasoning item completes.
+		processStreamChunk(
+			{ choices: [{ delta: { reasoning: "thinking..." } }] },
+			state,
+		);
+		processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							reasoning_details: [
+								{
+									type: "reasoning.encrypted",
+									data: "gAAAA-encrypted-blob",
+									id: "rs_upstream",
+									format: "openai-responses-v1",
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+		processStreamChunk({ choices: [{ delta: { content: "Hello" } }] }, state);
+
+		// Without the include opt-in, no encrypted_content on the wire.
+		// (createCompletionEvents only advances sequence numbers, so the same
+		// state can be replayed with the opt-in below.)
+		const strippedEvents = createCompletionEvents(state, false);
+		const strippedCompleted = JSON.parse(
+			strippedEvents.find((e) => e.event === "response.completed")!.data,
+		);
+		const strippedReasoning = strippedCompleted.response.output.find(
+			(o: Record<string, unknown>) => o.type === "reasoning",
+		);
+		expect(strippedReasoning).toBeDefined();
+		expect(strippedReasoning.encrypted_content).toBeUndefined();
+
+		// With include:["reasoning.encrypted_content"], the payload is returned.
+		const events = createCompletionEvents(state, true);
+		const reasoningDone = events.find(
+			(e) =>
+				e.event === "response.output_item.done" &&
+				JSON.parse(e.data).item.type === "reasoning",
+		);
+		expect(reasoningDone).toBeDefined();
+		const reasoningItem = JSON.parse(reasoningDone!.data).item;
+		expect(reasoningItem.encrypted_content).toBe("gAAAA-encrypted-blob");
+		expect(reasoningItem.id).toBe("rs_upstream");
+		expect(reasoningItem.summary[0].text).toBe("thinking...");
+
+		const completed = JSON.parse(
+			events.find((e) => e.event === "response.completed")!.data,
+		);
+		const outReasoning = completed.response.output.find(
+			(o: Record<string, unknown>) => o.type === "reasoning",
+		);
+		expect(outReasoning.encrypted_content).toBe("gAAAA-encrypted-blob");
+
+		// Storage always keeps the encrypted payload for chaining.
+		const stored = buildFinalOutputItems(state);
+		const storedReasoning = stored.find((o) => o.type === "reasoning");
+		expect(storedReasoning!.encrypted_content).toBe("gAAAA-encrypted-blob");
+	});
+
+	it("starts the reasoning item from an encrypted-only delta (no summary text)", () => {
+		const state = createStreamingState("gpt-5.5");
+		const events = processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							reasoning_details: [
+								{
+									type: "reasoning.encrypted",
+									data: "gAAAA-blob",
+									id: "rs_upstream",
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+
+		const added = events.find((e) => e.event === "response.output_item.added");
+		expect(added).toBeDefined();
+		const item = JSON.parse(added!.data).item;
+		expect(item.type).toBe("reasoning");
+		expect(item.id).toBe("rs_upstream");
 	});
 
 	it("creates a response.failed event", () => {
