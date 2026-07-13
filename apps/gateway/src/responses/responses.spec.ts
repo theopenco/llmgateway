@@ -98,7 +98,7 @@ describe("responsesRequestSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it('preserves reasoning.effort "max" for model-aware downstream mapping', () => {
+	it('preserves reasoning.effort "max" so it is forwarded to the provider as-is', () => {
 		const result = responsesRequestSchema.safeParse({
 			model: "deepseek-v4",
 			input: "hello",

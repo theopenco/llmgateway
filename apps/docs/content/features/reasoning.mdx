@@ -40,7 +40,7 @@ Add the `reasoning_effort` parameter directly to your request:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Honored natively by Anthropic adaptive-thinking models and OpenAI GPT-5.6 models; models without a `max` tier treat it as `high`
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 models. Effort values are forwarded to the provider as-is, so sending a value the target model doesn't support results in a provider error
 
 <Callout type="info">
 	OpenAI's reasoning models do not all accept the same effort values. The
@@ -78,7 +78,7 @@ Use the unified `reasoning` configuration object with an `effort` field:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Honored natively by Anthropic adaptive-thinking models and OpenAI GPT-5.6 models; models without a `max` tier treat it as `high`
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 models. Effort values are forwarded to the provider as-is, so sending a value the target model doesn't support results in a provider error
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \

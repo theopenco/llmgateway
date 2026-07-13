@@ -917,7 +917,7 @@ describe("prepareRequestBody - reasoning_effort max", () => {
 		)) as any;
 	}
 
-	test("forwards max to OpenAI chat completions for GPT-5.6", async () => {
+	test("forwards max to OpenAI chat completions verbatim", async () => {
 		const requestBody = await prepare({
 			provider: "openai",
 			model: "gpt-5.6-sol",
@@ -925,7 +925,7 @@ describe("prepareRequestBody - reasoning_effort max", () => {
 		expect(requestBody.reasoning_effort).toBe("max");
 	});
 
-	test("forwards max to OpenAI Responses API for GPT-5.6", async () => {
+	test("forwards max to OpenAI Responses API verbatim", async () => {
 		const requestBody = await prepare({
 			provider: "openai",
 			model: "gpt-5.6-terra",
@@ -934,18 +934,18 @@ describe("prepareRequestBody - reasoning_effort max", () => {
 		expect(requestBody.reasoning.effort).toBe("max");
 	});
 
-	test("aliases max to high for OpenAI models without a max tier", async () => {
+	test("forwards max unchanged for models without a max tier (provider rejects it)", async () => {
 		const requestBody = await prepare({ provider: "openai", model: "gpt-5.5" });
-		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.reasoning_effort).toBe("max");
 	});
 
-	test("aliases max to high on the Responses API for OpenAI models without a max tier", async () => {
+	test("forwards max unchanged on the Responses API for models without a max tier", async () => {
 		const requestBody = await prepare({
 			provider: "openai",
 			model: "gpt-5.5",
 			useResponsesApi: true,
 		});
-		expect(requestBody.reasoning.effort).toBe("high");
+		expect(requestBody.reasoning.effort).toBe("max");
 	});
 });
 
@@ -1256,7 +1256,7 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
-	test('aliases "max" effort to "high" for providers without a max tier', async () => {
+	test('maps "max" effort to the top Google thinking budget', async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
 			"gemini-2.5-pro",
@@ -1277,10 +1277,10 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false,
 		)) as any;
 
-		// "max" has no Google tier, so it aliases to "high" (24576) rather than
-		// falling through to the medium default (8192).
+		// Google has no effort enum, so "max" shares xhigh's top thinking
+		// budget rather than falling through to the medium default (8192).
 		expect(requestBody.generationConfig.thinkingConfig.thinkingBudget).toBe(
-			24576,
+			65536,
 		);
 	});
 
