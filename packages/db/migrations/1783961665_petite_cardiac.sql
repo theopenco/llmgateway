@@ -1,1 +1,0 @@
-ALTER TABLE "organization" ADD COLUMN "dev_plan_tier_change_claimed_at" timestamp;

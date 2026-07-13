@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2b76266a-841a-43d3-a7b7-3d8387f40d8f",
+  "id": "cc8968bd-9891-45c6-81e8-f335960bcb55",
   "prevId": "1b740fa3-5a45-44e7-bc36-e449044d7a7e",
   "ddl": [
     {
@@ -12011,19 +12011,6 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_billing_cycle_start",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_last_tier_change_cycle_start",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"

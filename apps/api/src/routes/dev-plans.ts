@@ -41,10 +41,27 @@ import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
 
-// How long an unreleased tier-change cycle claim is honored before a retry may
-// take it over. Well above the Stripe SDK's request timeout (80s per attempt),
-// so a claim this old cannot still have an upgrade charge in flight.
+// How long an unreleased tier-change lease is honored before a retry may take
+// it over. Well above the Stripe SDK's request timeout (80s per attempt), so a
+// lease this old cannot still have an upgrade charge in flight.
 const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
+
+// A failed release is swallowed: the lease then simply expires via the
+// staleness window instead of blocking upgrades until renewal.
+async function releaseTierChangeLease(organizationId: string) {
+	await db
+		.update(tables.organization)
+		.set({ devPlanTierChangeClaimedAt: null })
+		.where(eq(tables.organization.id, organizationId))
+		.catch((releaseError) => {
+			logger.error(
+				"Failed to release dev plan tier-change lease",
+				releaseError instanceof Error
+					? releaseError
+					: new Error(String(releaseError)),
+			);
+		});
+}
 
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
@@ -1001,10 +1018,10 @@ devPlans.openapi(changeTier, async (c) => {
 
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
 
-	// Tracks whether this request won the atomic per-cycle claim, so a failure
-	// after the claim can release it (a declined charge shouldn't burn the user's
-	// one change for the cycle).
-	let claimedCycleThisCall = false;
+	// Tracks whether this request won the upgrade lease, so only the winning
+	// request releases it — a request that lost the claim race must not clear a
+	// lease still held by the in-flight upgrade.
+	let claimedLeaseThisCall = false;
 
 	try {
 		const subscription =
@@ -1055,7 +1072,6 @@ devPlans.openapi(changeTier, async (c) => {
 		// branch below sets devPlanPendingTier back to null). Only block scheduling
 		// *another* downgrade while one is already pending — to revert to the
 		// current tier the user uses the dedicated cancel-downgrade action.
-		const cycleStart = new Date(subscriptionItem.current_period_start * 1000);
 		if (personalOrg.devPlanPendingTier && !isUpgrade) {
 			throw new HTTPException(409, {
 				message:
@@ -1066,42 +1082,28 @@ devPlans.openapi(changeTier, async (c) => {
 		// Guard UPGRADES against a double charge. An upgrade resets the billing
 		// cycle and charges the full new-tier price, so two racing requests (e.g. a
 		// double-clicked confirm) would each start a fresh cycle and charge again.
-		// Claim the current Stripe period atomically *before* any Stripe call: a
-		// single conditional UPDATE advances the marker to this cycle's period start
-		// only if it hasn't been claimed yet (NULL or an earlier cycle). Both racing
-		// requests read the same pre-reset period start, so only one wins the claim;
-		// the other gets 409. After the anchor reset a legitimate next upgrade sees a
-		// newer period start and is allowed. Downgrades are exempt: they only
-		// schedule the lower tier for renewal (no charge), so an earlier upgrade must
-		// not block a later downgrade.
-		//
-		// A claim whose request died before releasing it (process crash or restart
-		// mid-request, failed rollback) would otherwise block every retry with a 409
-		// until the next billing cycle. Claims are therefore stamped with a
-		// wall-clock time and treated as abandoned once older than the staleness
-		// window — far above the Stripe SDK's request timeout, so a claim this old
-		// cannot still have a charge in flight — letting a retry re-claim the same
-		// period. A missing stamp (claims taken before the column existed) is
-		// treated as stale for the same reason.
+		// Take a lease atomically *before* any Stripe call: a single conditional
+		// UPDATE stamps the claim time only if no lease is held, so of two racing
+		// requests only one wins and the other gets 409. The lease is released when
+		// the request completes (success or failure); if the request dies without
+		// releasing (process crash or restart mid-flight), the lease expires after
+		// the staleness window — far above the Stripe SDK's request timeout, so a
+		// lease that old cannot still have a charge in flight — and a retry
+		// re-claims it. A re-submit after a completed upgrade is not this guard's
+		// job: it is rejected by the "Already on <tier> plan" check above.
+		// Downgrades are exempt: they only schedule the lower tier for renewal (no
+		// charge), so an in-flight upgrade must not block a later downgrade.
 		if (isUpgrade) {
 			const staleClaimBefore = new Date(
 				Date.now() - STALE_TIER_CHANGE_CLAIM_MS,
 			);
 			const claimed = await db
 				.update(tables.organization)
-				.set({
-					devPlanLastTierChangeCycleStart: cycleStart,
-					devPlanTierChangeClaimedAt: new Date(),
-				})
+				.set({ devPlanTierChangeClaimedAt: new Date() })
 				.where(
 					and(
 						eq(tables.organization.id, personalOrg.id),
 						or(
-							isNull(tables.organization.devPlanLastTierChangeCycleStart),
-							lt(
-								tables.organization.devPlanLastTierChangeCycleStart,
-								cycleStart,
-							),
 							isNull(tables.organization.devPlanTierChangeClaimedAt),
 							lt(
 								tables.organization.devPlanTierChangeClaimedAt,
@@ -1112,11 +1114,8 @@ devPlans.openapi(changeTier, async (c) => {
 				)
 				.returning({ id: tables.organization.id });
 			if (claimed.length === 0) {
-				logger.warn("Dev plan upgrade denied: cycle already claimed", {
+				logger.warn("Dev plan upgrade denied: lease already held", {
 					organizationId: personalOrg.id,
-					cycleStart: cycleStart.toISOString(),
-					claimedCycleStart:
-						personalOrg.devPlanLastTierChangeCycleStart?.toISOString(),
 					claimedAt: personalOrg.devPlanTierChangeClaimedAt?.toISOString(),
 				});
 				throw new HTTPException(409, {
@@ -1124,7 +1123,7 @@ devPlans.openapi(changeTier, async (c) => {
 						"An upgrade is already being processed. Please try again in a few minutes.",
 				});
 			}
-			claimedCycleThisCall = true;
+			claimedLeaseThisCall = true;
 		}
 
 		// Upgrades charge the full new-tier price today; downgrades are deferred to
@@ -1314,31 +1313,19 @@ devPlans.openapi(changeTier, async (c) => {
 			},
 		});
 
+		if (claimedLeaseThisCall) {
+			await releaseTierChangeLease(personalOrg.id);
+		}
+
 		return c.json({
 			success: true,
 		});
 	} catch (error) {
-		// Release the per-cycle claim if we won it but the change didn't complete,
-		// so a transient failure (e.g. a declined upgrade charge) doesn't lock the
-		// user out of changing tiers until renewal. Restores the prior marker value
-		// read before the claim.
-		if (claimedCycleThisCall) {
-			await db
-				.update(tables.organization)
-				.set({
-					devPlanLastTierChangeCycleStart:
-						personalOrg.devPlanLastTierChangeCycleStart,
-					devPlanTierChangeClaimedAt: personalOrg.devPlanTierChangeClaimedAt,
-				})
-				.where(eq(tables.organization.id, personalOrg.id))
-				.catch((rollbackError) => {
-					logger.error(
-						"Failed to release dev plan tier-change cycle claim after error",
-						rollbackError instanceof Error
-							? rollbackError
-							: new Error(String(rollbackError)),
-					);
-				});
+		// Release the lease if we won it but the change didn't complete, so a
+		// transient failure (e.g. a declined upgrade charge) doesn't block retries
+		// for the full staleness window.
+		if (claimedLeaseThisCall) {
+			await releaseTierChangeLease(personalOrg.id);
 		}
 		if (error instanceof HTTPException) {
 			throw error;

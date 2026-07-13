@@ -264,15 +264,12 @@ export const organization = pgTable(
 		devPlanCreditsFrozen: boolean().notNull().default(false),
 		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
-		// Stripe current_period_start of the cycle in which the last tier change
-		// was claimed. A tier change atomically advances this to the current cycle
-		// start only if it hasn't been claimed yet, enforcing one change per cycle
-		// without a read-then-write race.
-		devPlanLastTierChangeCycleStart: timestamp(),
-		// Wall-clock time the claim above was taken. A claim leaked by a request
-		// that died before releasing it (crash, restart, failed rollback) would
-		// otherwise block tier changes until the next billing cycle; claims older
-		// than a staleness window are treated as abandoned and may be re-claimed.
+		// Lease held while a dev plan upgrade request is in flight, guarding
+		// against a double charge from racing requests (e.g. a double-clicked
+		// confirm). Claimed atomically before any Stripe call and cleared when the
+		// request completes (success or failure). A lease leaked by a request that
+		// died mid-flight expires after a staleness window, so it can never block
+		// upgrades until the next billing cycle.
 		devPlanTierChangeClaimedAt: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
