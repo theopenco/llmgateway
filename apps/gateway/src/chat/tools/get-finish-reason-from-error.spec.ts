@@ -17,6 +17,16 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(404)).toBe("upstream_error");
 	});
 
+	it("returns gateway_error for 402 insufficient balance", () => {
+		expect(getFinishReasonFromError(402)).toBe("gateway_error");
+		expect(
+			getFinishReasonFromError(
+				402,
+				'{"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}',
+			),
+		).toBe("gateway_error");
+	});
+
 	it("returns content_filter for Azure ResponsibleAIPolicyViolation", () => {
 		const azureError = JSON.stringify({
 			error: {
@@ -74,13 +84,13 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(400, alibabaError)).toBe("content_filter");
 	});
 
-	it("returns client_error for zai content filter", () => {
+	it("returns content_filter for zai content filter", () => {
 		expect(
 			getFinishReasonFromError(
 				400,
 				"System detected potentially unsafe or sensitive content in input or generation",
 			),
-		).toBe("client_error");
+		).toBe("content_filter");
 	});
 
 	it("returns client_error for OpenAI JSON format validation error", () => {
@@ -140,8 +150,69 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(403)).toBe("gateway_error");
 	});
 
+	it("returns gateway_error for 400 invalid API key payloads", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"API key not valid. Please pass a valid API key.","type":"authentication_error","code":"invalid_api_key"}}',
+			),
+		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for invalid_api_key code only", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Some unfamiliar wording","code":"invalid_api_key"}}',
+			),
+		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for 'Incorrect API key provided' wording", () => {
+		expect(
+			getFinishReasonFromError(401, "Incorrect API key provided: sk-test***"),
+		).toBe("gateway_error");
+	});
+
 	it("returns client_error when no error text provided for other 4xx", () => {
 		expect(getFinishReasonFromError(400)).toBe("client_error");
 		expect(getFinishReasonFromError(422)).toBe("client_error");
+	});
+
+	it("returns gateway_error for bare 'Not Found' body", () => {
+		expect(getFinishReasonFromError(400, "Not Found")).toBe("gateway_error");
+		expect(getFinishReasonFromError(400, "  Not Found  ")).toBe(
+			"gateway_error",
+		);
+	});
+
+	it("returns gateway_error for Azure missing deployment errors", () => {
+		const azureDeploymentError = JSON.stringify({
+			type: "error",
+			error: {
+				type: "invalid_request_error",
+				code: null,
+				headers: { "x-ms-fe-error": "true" },
+				message:
+					"Could not find an existing deployment to match the model in the request. Please verify the model matches an existing deployment in the account.",
+				param: null,
+			},
+			sequence_number: 2,
+		});
+		expect(getFinishReasonFromError(400, azureDeploymentError)).toBe(
+			"gateway_error",
+		);
+	});
+
+	it("returns gateway_error for upstream 'Unknown model' messages", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"object":"error","message":"Unknown model: foo","type":"invalid_model"}',
+			),
+		).toBe("gateway_error");
+		expect(getFinishReasonFromError(400, "unknown model: bar")).toBe(
+			"gateway_error",
+		);
 	});
 });

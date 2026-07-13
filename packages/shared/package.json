@@ -24,6 +24,18 @@
 		"./email": {
 			"types": "./dist/email.d.ts",
 			"import": "./dist/email.js"
+		},
+		"./api-key-hash": {
+			"types": "./dist/api-key-hash.d.ts",
+			"import": "./dist/api-key-hash.js"
+		},
+		"./routing-config": {
+			"types": "./dist/routing-config.d.ts",
+			"import": "./dist/routing-config.js"
+		},
+		"./url-safety-node": {
+			"types": "./dist/url-safety-node.d.ts",
+			"import": "./dist/url-safety-node.js"
 		}
 	},
 	"module": "./dist/index.js",
@@ -62,12 +74,13 @@
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
 		"date-fns": "4.1.0",
+		"decimal.js": "10.5.0",
 		"embla-carousel-react": "8.6.0",
 		"lucide-react": "0.561.0",
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",
-		"react": "19.2.4",
-		"react-dom": "19.2.4",
+		"react": "19.2.7",
+		"react-dom": "19.2.7",
 		"react-hook-form": "7.65.0",
 		"react-medium-image-zoom": "5.4.0",
 		"resend": "6.8.0",
@@ -76,7 +89,7 @@
 		"zod": "3.25.75"
 	},
 	"devDependencies": {
-		"@types/react": "^19.2.14",
+		"@types/react": "^19.2.17",
 		"@types/react-dom": "^19.2.3"
 	}
 }

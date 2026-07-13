@@ -1,4 +1,9 @@
-import { randomUUID } from "crypto";
+import {
+	randomBytes,
+	randomInt as cryptoRandomInt,
+	randomUUID,
+	scrypt,
+} from "crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import {
@@ -45,18 +50,26 @@ async function bulkInsert<T extends Record<string, any>>(
 	}
 }
 
+// CSPRNG-backed uniform float in [0, 1). Seed data is not security-sensitive,
+// but routing all randomness through a secure source keeps CodeQL's
+// js/insecure-randomness query quiet without per-line suppressions.
+function secureRandom(): number {
+	const scale = 2 ** 47;
+	return cryptoRandomInt(0, scale) / scale;
+}
+
 function randomInt(min: number, max: number) {
-	return Math.floor(Math.random() * (max - min + 1)) + min;
+	return Math.floor(secureRandom() * (max - min + 1)) + min;
 }
 
 function randomFloat(min: number, max: number, decimals = 2) {
 	/* eslint-disable no-mixed-operators */
-	return Number((Math.random() * (max - min) + min).toFixed(decimals));
+	return Number((secureRandom() * (max - min) + min).toFixed(decimals));
 	/* eslint-enable no-mixed-operators */
 }
 
 function randomChoice<T>(arr: T[]): T {
-	return arr[Math.floor(Math.random() * arr.length)]!;
+	return arr[Math.floor(secureRandom() * arr.length)]!;
 }
 
 function daysAgo(days: number) {
@@ -71,8 +84,37 @@ function hoursAgo(hours: number) {
 	/* eslint-enable no-mixed-operators */
 }
 
-const PASSWORD_HASH =
-	"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460";
+// Every seeded account uses its own email address as its plaintext password
+// (e.g. log in as admin@example.com with the password "admin@example.com").
+// This replicates better-auth's default scrypt hashing (@better-auth/utils
+// v0.4.1, node impl) so the stored hash verifies against that plaintext at
+// login. Keep these parameters in sync with better-auth if it ever changes.
+const SCRYPT_CONFIG = { N: 16384, r: 16, p: 1, dkLen: 64 } as const;
+
+function hashPassword(password: string): Promise<string> {
+	const salt = randomBytes(16).toString("hex");
+	return new Promise((resolve, reject) => {
+		scrypt(
+			password.normalize("NFKC"),
+			salt,
+			SCRYPT_CONFIG.dkLen,
+			{
+				N: SCRYPT_CONFIG.N,
+				r: SCRYPT_CONFIG.r,
+				p: SCRYPT_CONFIG.p,
+
+				maxmem: 128 * SCRYPT_CONFIG.N * SCRYPT_CONFIG.r * 2,
+			},
+			(err, key) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(`${salt}:${key.toString("hex")}`);
+				}
+			},
+		);
+	});
+}
 
 const MODELS = [
 	{
@@ -169,7 +211,7 @@ const FINISH_REASONS = [
 
 function weightedRandomChoice<T extends { weight: number }>(arr: T[]): T {
 	const total = arr.reduce((sum, item) => sum + item.weight, 0);
-	let r = Math.random() * total;
+	let r = secureRandom() * total;
 	for (const item of arr) {
 		r -= item.weight;
 		if (r <= 0) {
@@ -179,6 +221,8 @@ function weightedRandomChoice<T extends { weight: number }>(arr: T[]): T {
 	return arr[arr.length - 1]!;
 }
 
+// Each of these users can log in with their email as both username AND password
+// (password == email). See hashPassword() above.
 const EXTRA_USERS = [
 	{ id: "user-alice", name: "Alice Chen", email: "alice.chen@techcorp.io" },
 	{ id: "user-bob", name: "Bob Martinez", email: "bob@startupinc.com" },
@@ -208,7 +252,7 @@ const EXTRA_ORGS: Array<{
 	credits: number;
 	devPlan: "none" | "lite" | "pro" | "max";
 	status: "active" | "inactive";
-	isPersonal: boolean;
+	kind: "default" | "chat" | "devpass";
 	createdAt: Date;
 }> = [
 	{
@@ -219,7 +263,7 @@ const EXTRA_ORGS: Array<{
 		credits: 450,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(180),
 	},
 	{
@@ -230,7 +274,7 @@ const EXTRA_ORGS: Array<{
 		credits: 12,
 		devPlan: "lite",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(90),
 	},
 	{
@@ -241,7 +285,7 @@ const EXTRA_ORGS: Array<{
 		credits: 5200,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(365),
 	},
 	{
@@ -252,7 +296,7 @@ const EXTRA_ORGS: Array<{
 		credits: 180,
 		devPlan: "pro",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(150),
 	},
 	{
@@ -263,7 +307,7 @@ const EXTRA_ORGS: Array<{
 		credits: 3400,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(270),
 	},
 	{
@@ -274,7 +318,7 @@ const EXTRA_ORGS: Array<{
 		credits: 0,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(45),
 	},
 	{
@@ -285,7 +329,7 @@ const EXTRA_ORGS: Array<{
 		credits: 8900,
 		devPlan: "max",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(400),
 	},
 	{
@@ -296,7 +340,7 @@ const EXTRA_ORGS: Array<{
 		credits: 320,
 		devPlan: "pro",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(200),
 	},
 	{
@@ -307,7 +351,7 @@ const EXTRA_ORGS: Array<{
 		credits: 560,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(120),
 	},
 	{
@@ -318,7 +362,7 @@ const EXTRA_ORGS: Array<{
 		credits: 3,
 		devPlan: "lite",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(60),
 	},
 	{
@@ -329,7 +373,7 @@ const EXTRA_ORGS: Array<{
 		credits: 210,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(300),
 	},
 	{
@@ -340,7 +384,7 @@ const EXTRA_ORGS: Array<{
 		credits: 7,
 		devPlan: "none",
 		status: "inactive",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(500),
 	},
 	{
@@ -351,7 +395,7 @@ const EXTRA_ORGS: Array<{
 		credits: 12500,
 		devPlan: "max",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(450),
 	},
 	{
@@ -362,7 +406,7 @@ const EXTRA_ORGS: Array<{
 		credits: 140,
 		devPlan: "pro",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(80),
 	},
 	{
@@ -373,7 +417,7 @@ const EXTRA_ORGS: Array<{
 		credits: 1,
 		devPlan: "none",
 		status: "active",
-		isPersonal: false,
+		kind: "default",
 		createdAt: daysAgo(30),
 	},
 	{
@@ -384,7 +428,7 @@ const EXTRA_ORGS: Array<{
 		credits: 25,
 		devPlan: "pro",
 		status: "active",
-		isPersonal: true,
+		kind: "devpass",
 		createdAt: daysAgo(100),
 	},
 	{
@@ -395,7 +439,7 @@ const EXTRA_ORGS: Array<{
 		credits: 8,
 		devPlan: "lite",
 		status: "active",
-		isPersonal: true,
+		kind: "devpass",
 		createdAt: daysAgo(70),
 	},
 	{
@@ -406,7 +450,7 @@ const EXTRA_ORGS: Array<{
 		credits: 50,
 		devPlan: "max",
 		status: "active",
-		isPersonal: true,
+		kind: "devpass",
 		createdAt: daysAgo(55),
 	},
 ];
@@ -568,16 +612,16 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 			const completionTokens = isError ? 0 : randomInt(10, 4000);
 			const totalTokens = promptTokens + completionTokens;
 			const cachedTokens =
-				Math.random() < 0.15 ? randomInt(5, promptTokens) : 0;
+				secureRandom() < 0.15 ? randomInt(5, promptTokens) : 0;
 			const isCached = cachedTokens > 0;
-			const isStreamed = Math.random() < 0.6;
+			const isStreamed = secureRandom() < 0.6;
 			const duration = isError ? randomInt(50, 500) : randomInt(200, 15000);
 			const timeToFirstToken =
 				isStreamed && !isError ? randomInt(50, Math.min(duration, 2000)) : null;
 			const inputCost = (promptTokens / 1000) * modelDef.inputPrice;
 			const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
 			const cost = inputCost + outputCost;
-			const discount = Math.random() < 0.1 ? randomFloat(0.05, 0.3) : 0;
+			const discount = secureRandom() < 0.1 ? randomFloat(0.05, 0.3) : 0;
 			const usedMode =
 				proj.mode === "hybrid"
 					? randomChoice(["api-keys", "credits"] as const)
@@ -669,9 +713,9 @@ function generateTransactions() {
 							: "0";
 			const creditAmount = isCredit || isRefund ? amount : undefined;
 			const status =
-				Math.random() < 0.85
+				secureRandom() < 0.85
 					? "completed"
-					: Math.random() < 0.5
+					: secureRandom() < 0.5
 						? "pending"
 						: "failed";
 			transactions.push({
@@ -905,11 +949,11 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 			const hourTs = hoursAgo(h);
 			hourTs.setMinutes(0, 0, 0);
 			for (const modelDef of modelsUsed) {
-				if (Math.random() < 0.3) {
+				if (secureRandom() < 0.3) {
 					continue;
 				}
 				const reqCount = randomInt(1, isHighVolume ? 30 : 10);
-				const errCount = Math.random() < 0.1 ? randomInt(1, 3) : 0;
+				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
 				/* eslint-disable no-mixed-operators */
@@ -970,6 +1014,96 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 	return stats;
 }
 
+// Coding-agent sources recognized by the Agents dashboard, with relative weights.
+const AGENT_SOURCES: Array<{ source: string; weight: number }> = [
+	{ source: "claude.com/claude-code", weight: 0.35 },
+	{ source: "cursor", weight: 0.2 },
+	{ source: "cline", weight: 0.15 },
+	{ source: "codex", weight: 0.1 },
+	{ source: "opencode", weight: 0.1 },
+	{ source: "autohand", weight: 0.06 },
+	{ source: "n8n", weight: 0.04 },
+];
+
+function generateProjectHourlySourceStats(projects: ProjectDef[]) {
+	const stats = [];
+	let statIdx = 0;
+	for (const proj of projects) {
+		const org = EXTRA_ORGS.find((o) => o.id === proj.orgId);
+		const isHighVolume = org?.plan === "enterprise";
+		const isMedVolume = org?.plan === "pro";
+		const numHours = isHighVolume ? 168 : isMedVolume ? 72 : 24;
+		const sourcesUsed = isHighVolume
+			? AGENT_SOURCES.slice(0, 7)
+			: isMedVolume
+				? AGENT_SOURCES.slice(0, 5)
+				: AGENT_SOURCES.slice(0, 3);
+
+		for (let h = 0; h < numHours; h++) {
+			const hourTs = hoursAgo(h);
+			hourTs.setMinutes(0, 0, 0);
+			for (const sourceDef of sourcesUsed) {
+				if (secureRandom() < 0.35) {
+					continue;
+				}
+				const reqCount = randomInt(1, isHighVolume ? 25 : 8);
+				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
+				const inputTok = reqCount * randomInt(200, 4000);
+				const outputTok = reqCount * randomInt(100, 2500);
+				const costPerReq = randomFloat(0.002, 0.06);
+				const costVal = reqCount * costPerReq;
+
+				stats.push({
+					id: `phss-${statIdx}`,
+					projectId: proj.id,
+					hourTimestamp: hourTs,
+					source: sourceDef.source,
+					requestCount: reqCount,
+					errorCount: errCount,
+					cacheCount: randomInt(0, Math.floor(reqCount * 0.2)),
+					streamedCount: Math.floor(reqCount * 0.6),
+					nonStreamedCount: Math.floor(reqCount * 0.4),
+					completedCount: reqCount - errCount,
+					lengthLimitCount: 0,
+					contentFilterCount: 0,
+					toolCallsCount: randomInt(0, 2),
+					canceledCount: 0,
+					unknownFinishCount: 0,
+					clientErrorCount: 0,
+					gatewayErrorCount: 0,
+					upstreamErrorCount: errCount,
+					inputTokens: String(inputTok),
+					outputTokens: String(outputTok),
+					totalTokens: String(inputTok + outputTok),
+					reasoningTokens: "0",
+					cachedTokens: "0",
+					cacheWriteTokens: "0",
+					cost: Number(costVal.toFixed(6)),
+					inputCost: Number((costVal * 0.4).toFixed(6)),
+					outputCost: Number((costVal * 0.5).toFixed(6)),
+					requestCost: Number((costVal * 0.1).toFixed(6)),
+					dataStorageCost: 0,
+					discountSavings: 0,
+					imageInputCost: 0,
+					imageOutputCost: 0,
+					audioInputCost: 0,
+					videoOutputCost: 0,
+					cachedInputCost: 0,
+					cacheWriteInputCost: 0,
+					creditsRequestCount: Math.floor(reqCount * 0.6),
+					apiKeysRequestCount: Math.floor(reqCount * 0.4),
+					creditsCost: Number((costVal * 0.6).toFixed(6)),
+					apiKeysCost: Number((costVal * 0.4).toFixed(6)),
+					creditsDataStorageCost: 0,
+					apiKeysDataStorageCost: 0,
+				});
+				statIdx++;
+			}
+		}
+	}
+	return stats;
+}
+
 function minutesAgo(minutes: number) {
 	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - minutes * 60 * 1000);
@@ -994,7 +1128,7 @@ function generateSeedProviders() {
 		cachedCount: randomInt(50, 5000),
 		avgTimeToFirstToken: randomFloat(80, 2500, 1),
 		avgTimeToFirstReasoningToken:
-			Math.random() < 0.3 ? randomFloat(200, 5000, 1) : null,
+			secureRandom() < 0.3 ? randomFloat(200, 5000, 1) : null,
 		statsUpdatedAt: hoursAgo(randomInt(0, 6)),
 	}));
 }
@@ -1020,7 +1154,7 @@ function generateSeedModels() {
 		cachedCount: randomInt(20, 3000),
 		avgTimeToFirstToken: randomFloat(80, 3000, 1),
 		avgTimeToFirstReasoningToken:
-			Math.random() < 0.2 ? randomFloat(200, 6000, 1) : null,
+			secureRandom() < 0.2 ? randomFloat(200, 6000, 1) : null,
 		statsUpdatedAt: hoursAgo(randomInt(0, 6)),
 	}));
 }
@@ -1033,7 +1167,7 @@ function generateSeedModelProviderMappings() {
 				id: `${m.id}::${p.providerId}`,
 				modelId: m.id,
 				providerId: p.providerId,
-				modelName: p.modelName,
+				externalId: p.externalId,
 				inputPrice:
 					p.inputPrice !== undefined && p.inputPrice !== null
 						? String(p.inputPrice)
@@ -1078,10 +1212,6 @@ function generateSeedModelProviderMappings() {
 					p.webSearchPrice !== undefined && p.webSearchPrice !== null
 						? String(p.webSearchPrice)
 						: null,
-				discount:
-					p.discount !== undefined && p.discount !== null
-						? String(p.discount)
-						: "0",
 				stability: p.stability ?? "stable",
 				supportedParameters: p.supportedParameters ?? null,
 				test: p.test ?? null,
@@ -1195,6 +1325,7 @@ async function seed() {
 	await upsert(tables.user, {
 		id: "test-user-id",
 		name: "Test User",
+		// Login: admin@example.com / admin@example.com (password == email)
 		email: "admin@example.com",
 		emailVerified: true,
 	});
@@ -1203,7 +1334,7 @@ async function seed() {
 		id: "test-account-id",
 		providerId: "credential",
 		accountId: "test-account-id",
-		password: PASSWORD_HASH,
+		password: await hashPassword("admin@example.com"),
 		userId: "test-user-id",
 	});
 
@@ -1236,6 +1367,47 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
+	// Embeddable Payments SDK POC: a project with the SDK enabled and a 50%
+	// end-user top-up bonus, plus a live platform secret key, so the end-user
+	// wallet + bonus flow can be exercised end-to-end locally (mint a session with
+	// the platform secret, top up as an end-user, get +50% credit). The bonus is
+	// funded from this org's credit balance, so it is seeded with credits.
+	await upsert(tables.organization, {
+		id: "sdk-poc-org-id",
+		name: "Payments SDK POC",
+		billingEmail: "admin@example.com",
+		credits: 100,
+		retentionLevel: "retain",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "sdk-poc-user-org-id",
+		userId: "test-user-id",
+		organizationId: "sdk-poc-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "sdk-poc-project-id",
+		name: "Payments SDK POC",
+		organizationId: "sdk-poc-org-id",
+		mode: "credits",
+		paymentsSdkEnabled: true,
+		endUserEnabled: true,
+		endUserTopUpBonusPercent: "50",
+	});
+
+	// Live-mode platform secret (token does not start with `sk_test_`), so minted
+	// sessions/wallets are live and eligible for the developer-funded bonus.
+	await upsert(tables.apiKey, {
+		id: "sdk-poc-platform-secret-id",
+		token: "sk_pocbonus_live_secret",
+		projectId: "sdk-poc-project-id",
+		description: "Payments SDK POC platform secret",
+		keyType: "platform_secret",
+		createdBy: "test-user-id",
+	});
+
 	// Personal org for the test admin so DevPass Pro is available locally
 	await upsert(tables.organization, {
 		id: "test-personal-org-id",
@@ -1244,7 +1416,7 @@ async function seed() {
 		credits: 0,
 		retentionLevel: "retain",
 		plan: "free",
-		isPersonal: true,
+		kind: "devpass",
 		devPlan: "pro",
 		devPlanCycle: "monthly",
 		devPlanCreditsUsed: "0",
@@ -1274,60 +1446,209 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
-	// Realistic per-agent activity for the DevPass dashboard
-	const DEVPASS_AGENTS = [
+	// Realistic per-agent activity for the DevPass dashboard and the public
+	// /apps page. Each agent has its own mix of models so per-agent charts show
+	// a breakdown across multiple models. Weights are renormalized internally
+	// so it's safe to add or reorder entries.
+	interface DevpassAgentModel {
+		model: string;
+		provider: string;
+		weight: number;
+	}
+	const DEVPASS_AGENTS: Array<{
+		source: string;
+		weight: number;
+		models: DevpassAgentModel[];
+	}> = [
 		{
 			source: "claude.com/claude-code",
-			model: "claude-3.5-sonnet",
-			provider: "anthropic",
-			weight: 0.32,
+			weight: 0.22,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.7 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.2 },
+				{ model: "claude-3-opus", provider: "anthropic", weight: 0.1 },
+			],
 		},
-		{ source: "cursor", model: "gpt-4o", provider: "openai", weight: 0.18 },
+		{
+			source: "cursor",
+			weight: 0.14,
+			models: [
+				{ model: "gpt-4o", provider: "openai", weight: 0.45 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.35 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+				{ model: "o1", provider: "openai", weight: 0.05 },
+			],
+		},
 		{
 			source: "cline",
-			model: "claude-3.5-sonnet",
-			provider: "anthropic",
-			weight: 0.16,
+			weight: 0.1,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.7 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.2 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.1 },
+			],
 		},
-		{ source: "codex", model: "o1", provider: "openai", weight: 0.12 },
+		{
+			source: "codex",
+			weight: 0.08,
+			models: [
+				{ model: "o1", provider: "openai", weight: 0.55 },
+				{ model: "o3-mini", provider: "openai", weight: 0.3 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.15 },
+			],
+		},
 		{
 			source: "opencode",
-			model: "claude-3-haiku",
-			provider: "anthropic",
-			weight: 0.1,
+			weight: 0.07,
+			models: [
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.5 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.2 },
+			],
+		},
+		{
+			source: "aider",
+			weight: 0.06,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.55 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.3 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
+			],
+		},
+		{
+			source: "continue.dev",
+			weight: 0.05,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.5 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.3 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.2 },
+			],
+		},
+		{
+			source: "windsurf",
+			weight: 0.05,
+			models: [
+				{ model: "gpt-4o", provider: "openai", weight: 0.5 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.35 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
+		},
+		{
+			source: "roo-cline",
+			weight: 0.04,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.65 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.1 },
+			],
+		},
+		{
+			source: "kilo-code",
+			weight: 0.03,
+			models: [
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.6 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.25 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
+		},
+		{
+			source: "zed",
+			weight: 0.03,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.15 },
+			],
+		},
+		{
+			source: "bolt.new",
+			weight: 0.03,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.65 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.1 },
+			],
+		},
+		{
+			source: "v0.dev",
+			weight: 0.025,
+			models: [
+				{ model: "gpt-4o", provider: "openai", weight: 0.55 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.35 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.1 },
+			],
+		},
+		{
+			source: "lovable.dev",
+			weight: 0.025,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.3 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.1 },
+			],
 		},
 		{
 			source: "autohand",
-			model: "deepseek-chat",
-			provider: "deepseek",
-			weight: 0.06,
+			weight: 0.02,
+			models: [
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.55 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
 		},
 		{
 			source: "soulforge",
-			model: "gemini-2.0-flash",
-			provider: "google-ai-studio",
-			weight: 0.04,
+			weight: 0.02,
+			models: [
+				{
+					model: "gemini-2.0-flash",
+					provider: "google-ai-studio",
+					weight: 0.6,
+				},
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.25 },
+				{ model: "gemini-1.5-pro", provider: "google-ai-studio", weight: 0.15 },
+			],
 		},
 		{
 			source: "openclaw",
-			model: "claude-3-haiku",
-			provider: "anthropic",
-			weight: 0.02,
+			weight: 0.015,
+			models: [
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.55 },
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
 		},
-		{ source: "n8n", model: "gpt-4o-mini", provider: "openai", weight: 0.02 },
+		{
+			source: "n8n",
+			weight: 0.015,
+			models: [
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.55 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.3 },
+				{ model: "claude-3-haiku", provider: "anthropic", weight: 0.15 },
+			],
+		},
 	];
-	const DEVPASS_LOG_COUNT = 240;
+	const DEVPASS_LOG_COUNT = 1800;
+	const DEVPASS_WEIGHT_TOTAL = DEVPASS_AGENTS.reduce(
+		(sum, a) => sum + a.weight,
+		0,
+	);
 	const devpassLogs: Array<Record<string, any>> = [];
 	let devpassRunningCost = 0;
 	for (let i = 0; i < DEVPASS_LOG_COUNT; i++) {
-		const r = Math.random();
+		const r = secureRandom() * DEVPASS_WEIGHT_TOTAL;
 		let acc = 0;
 		const agent =
 			DEVPASS_AGENTS.find((a) => {
 				acc += a.weight;
 				return r <= acc;
 			}) ?? DEVPASS_AGENTS[0];
-		const modelDef = MODELS.find((m) => m.model === agent.model) ?? MODELS[0];
+		const agentModel = weightedRandomChoice(agent.models);
+		const modelDef =
+			MODELS.find(
+				(m) =>
+					m.model === agentModel.model && m.provider === agentModel.provider,
+			) ?? MODELS[0];
 		const finishDef = weightedRandomChoice(FINISH_REASONS);
 		const isError =
 			finishDef.unified === "upstream_error" ||
@@ -1341,8 +1662,8 @@ async function seed() {
 		const completionTokens = isError ? 0 : randomInt(60, 4500);
 		const totalTokens = promptTokens + completionTokens;
 		const cachedTokens =
-			Math.random() < 0.3 ? randomInt(50, promptTokens / 2) : 0;
-		const isStreamed = Math.random() < 0.85;
+			secureRandom() < 0.3 ? randomInt(50, promptTokens / 2) : 0;
+		const isStreamed = secureRandom() < 0.85;
 		const duration = isError ? randomInt(80, 600) : randomInt(450, 22000);
 		const inputCost = (promptTokens / 1000) * modelDef.inputPrice;
 		const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
@@ -1454,6 +1775,139 @@ async function seed() {
 	}
 	await bulkInsert(tables.projectHourlyStats, devpassHourlyStats);
 
+	// Split each hourly bucket across a few models so the Model Usage Overview chart has data.
+	const devpassModels: Array<{ provider: string; model: string }> = [
+		{ provider: "anthropic", model: "claude-3.5-sonnet" },
+		{ provider: "openai", model: "gpt-4o" },
+		{ provider: "anthropic", model: "claude-3-haiku" },
+		{ provider: "openai", model: "gpt-4o-mini" },
+	];
+	const devpassHourlyModelStats: Array<Record<string, any>> = [];
+	for (const bucket of devpassHourlyStats) {
+		const splits = devpassModels.map(() => randomFloat(0.1, 1));
+		const splitTotal = splits.reduce((a, b) => a + b, 0);
+		const weights = splits.map((w) => w / splitTotal);
+		devpassModels.forEach((m, i) => {
+			const w = weights[i];
+			const reqs = Math.round(bucket.requestCount * w);
+			const inTok = Math.round(Number(bucket.inputTokens) * w);
+			const outTok = Math.round(Number(bucket.outputTokens) * w);
+			const streamed = Math.floor(bucket.streamedCount * w);
+			const errors = Math.floor(bucket.errorCount * w);
+			devpassHourlyModelStats.push({
+				id: `devpass-phms-${bucket.id}-${i}`,
+				projectId: "test-personal-project-id",
+				hourTimestamp: bucket.hourTimestamp,
+				usedModel: m.model,
+				usedProvider: m.provider,
+				requestCount: reqs,
+				errorCount: errors,
+				cacheCount: Math.floor(bucket.cacheCount * w),
+				streamedCount: streamed,
+				nonStreamedCount: Math.max(0, reqs - streamed),
+				completedCount: Math.max(0, reqs - errors),
+				lengthLimitCount: 0,
+				contentFilterCount: 0,
+				toolCallsCount: 0,
+				canceledCount: 0,
+				unknownFinishCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+				inputTokens: String(inTok),
+				outputTokens: String(outTok),
+				totalTokens: String(inTok + outTok),
+				reasoningTokens: "0",
+				cachedTokens: String(Math.floor(Number(bucket.cachedTokens) * w)),
+				cacheWriteTokens: "0",
+				cost: Number((bucket.cost * w).toFixed(4)),
+				inputCost: Number((bucket.inputCost * w).toFixed(4)),
+				outputCost: Number((bucket.outputCost * w).toFixed(4)),
+				requestCost: Number((bucket.requestCost * w).toFixed(4)),
+				dataStorageCost: 0,
+				discountSavings: 0,
+				imageInputCost: 0,
+				imageOutputCost: 0,
+				audioInputCost: 0,
+				videoOutputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				creditsRequestCount: reqs,
+				apiKeysRequestCount: 0,
+				creditsCost: Number((bucket.cost * w).toFixed(4)),
+				apiKeysCost: 0,
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
+			});
+		});
+	}
+	await bulkInsert(tables.projectHourlyModelStats, devpassHourlyModelStats);
+
+	// Split each hourly bucket across coding-agent sources so the Agents
+	// dashboard and the DevPass "Top coding agents" breakdown have data.
+	const devpassHourlySourceStats: Array<Record<string, any>> = [];
+	for (const bucket of devpassHourlyStats) {
+		const splits = DEVPASS_AGENTS.map((a) => a.weight * randomFloat(0.5, 1.5));
+		const splitTotal = splits.reduce((a, b) => a + b, 0);
+		const weights = splits.map((w) => w / splitTotal);
+		DEVPASS_AGENTS.forEach((agent, i) => {
+			const w = weights[i];
+			const reqs = Math.round(bucket.requestCount * w);
+			if (reqs === 0) {
+				return;
+			}
+			const inTok = Math.round(Number(bucket.inputTokens) * w);
+			const outTok = Math.round(Number(bucket.outputTokens) * w);
+			const streamed = Math.floor(bucket.streamedCount * w);
+			const errors = Math.floor(bucket.errorCount * w);
+			devpassHourlySourceStats.push({
+				id: `devpass-phss-${bucket.id}-${i}`,
+				projectId: "test-personal-project-id",
+				hourTimestamp: bucket.hourTimestamp,
+				source: agent.source,
+				requestCount: reqs,
+				errorCount: errors,
+				cacheCount: Math.floor(bucket.cacheCount * w),
+				streamedCount: streamed,
+				nonStreamedCount: Math.max(0, reqs - streamed),
+				completedCount: Math.max(0, reqs - errors),
+				lengthLimitCount: 0,
+				contentFilterCount: 0,
+				toolCallsCount: 0,
+				canceledCount: 0,
+				unknownFinishCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
+				inputTokens: String(inTok),
+				outputTokens: String(outTok),
+				totalTokens: String(inTok + outTok),
+				reasoningTokens: "0",
+				cachedTokens: String(Math.floor(Number(bucket.cachedTokens) * w)),
+				cacheWriteTokens: "0",
+				cost: Number((bucket.cost * w).toFixed(4)),
+				inputCost: Number((bucket.inputCost * w).toFixed(4)),
+				outputCost: Number((bucket.outputCost * w).toFixed(4)),
+				requestCost: Number((bucket.requestCost * w).toFixed(4)),
+				dataStorageCost: 0,
+				discountSavings: 0,
+				imageInputCost: 0,
+				imageOutputCost: 0,
+				audioInputCost: 0,
+				videoOutputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				creditsRequestCount: reqs,
+				apiKeysRequestCount: 0,
+				creditsCost: Number((bucket.cost * w).toFixed(4)),
+				apiKeysCost: 0,
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
+			});
+		});
+	}
+	await bulkInsert(tables.projectHourlySourceStats, devpassHourlySourceStats);
+
 	// Sync the personal org's used-credits to roughly match the seeded spend
 	// so the usage bar in the dashboard reflects this activity.
 	const usedCredits = Math.min(
@@ -1467,7 +1921,7 @@ async function seed() {
 		credits: 0,
 		retentionLevel: "retain",
 		plan: "free",
-		isPersonal: true,
+		kind: "devpass",
 		devPlan: "pro",
 		devPlanCycle: "monthly",
 		devPlanCreditsUsed: usedCredits.toFixed(4),
@@ -1478,6 +1932,7 @@ async function seed() {
 	await upsert(tables.user, {
 		id: "enterprise-user-id",
 		name: "Enterprise User",
+		// Login: enterprise@example.com / enterprise@example.com (password == email)
 		email: "enterprise@example.com",
 		emailVerified: true,
 	});
@@ -1486,7 +1941,7 @@ async function seed() {
 		id: "enterprise-account-id",
 		providerId: "credential",
 		accountId: "enterprise-account-id",
-		password: PASSWORD_HASH,
+		password: await hashPassword("enterprise@example.com"),
 		userId: "enterprise-user-id",
 	});
 
@@ -1506,9 +1961,27 @@ async function seed() {
 		role: "owner",
 	});
 
+	// Also make the default admin (admin@example.com) an admin of the enterprise
+	// org so it can be reached by switching orgs with the same login.
+	await upsert(tables.userOrganization, {
+		id: "enterprise-admin-user-org-id",
+		userId: "test-user-id",
+		organizationId: "enterprise-org-id",
+		role: "admin",
+	});
+
 	await upsert(tables.project, {
 		id: "enterprise-project-id",
 		name: "Enterprise Project",
+		organizationId: "enterprise-org-id",
+		mode: "hybrid",
+	});
+
+	// A second project in the enterprise org, so the developer below has a
+	// project they are NOT granted access to (for testing project-scoped RBAC).
+	await upsert(tables.project, {
+		id: "enterprise-project-secondary-id",
+		name: "Restricted Project",
 		organizationId: "enterprise-org-id",
 		mode: "hybrid",
 	});
@@ -1519,6 +1992,55 @@ async function seed() {
 		projectId: "enterprise-project-id",
 		description: "Enterprise API Key",
 		createdBy: "enterprise-user-id",
+	});
+
+	// A project-scoped "developer" member of the enterprise org — limited to the
+	// Enterprise Project only — for testing the RBAC/developer experience. Log in
+	// as developer@example.com with the password developer@example.com (== email).
+	await upsert(tables.user, {
+		id: "enterprise-dev-user-id",
+		name: "Enterprise Developer",
+		email: "developer@example.com",
+		emailVerified: true,
+		onboardingCompleted: true,
+	});
+
+	await upsert(tables.account, {
+		id: "enterprise-dev-account-id",
+		providerId: "credential",
+		accountId: "enterprise-dev-account-id",
+		password: await hashPassword("developer@example.com"),
+		userId: "enterprise-dev-user-id",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "enterprise-dev-user-org-id",
+		userId: "enterprise-dev-user-id",
+		organizationId: "enterprise-org-id",
+		role: "developer",
+		// A sample budget so the developer sees the caps an admin set on them.
+		maxApiKeys: 3,
+		usageLimit: "50",
+		periodUsageLimit: "10",
+		periodUsageDurationValue: 1,
+		periodUsageDurationUnit: "day",
+	});
+
+	// Grant the developer access to the Enterprise Project only (not the
+	// restricted one above).
+	await upsert(tables.userProject, {
+		id: "enterprise-dev-user-project-id",
+		userOrganizationId: "enterprise-dev-user-org-id",
+		projectId: "enterprise-project-id",
+	});
+
+	// A key the developer created, so their own-usage view has something to show.
+	await upsert(tables.apiKey, {
+		id: "enterprise-dev-api-key-id",
+		token: "test-enterprise-dev",
+		projectId: "enterprise-project-id",
+		description: "Enterprise Developer API Key",
+		createdBy: "enterprise-dev-user-id",
 	});
 
 	await Promise.all(logs.map((log) => upsert(tables.log, log)));
@@ -1534,6 +2056,40 @@ async function seed() {
 		description: "Test credit top-up for referral eligibility",
 	});
 
+	const devpassRenewalCreatedAt = daysAgo(6);
+	await upsert(tables.transaction, {
+		id: "test-devpass-renewal-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassRenewalCreatedAt,
+		updatedAt: devpassRenewalCreatedAt,
+		type: "dev_plan_renewal",
+		amount: "79",
+		creditAmount: String(getDevPlanCreditsLimit("pro")),
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_renewal",
+		stripeInvoiceId: "in_seed_devpass_renewal",
+		description: "Seeded DevPass Pro renewal for admin dashboard",
+	});
+
+	const devpassRefundCreatedAt = new Date();
+	await upsert(tables.transaction, {
+		id: "test-devpass-refund-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassRefundCreatedAt,
+		updatedAt: devpassRefundCreatedAt,
+		type: "credit_refund",
+		amount: "15",
+		creditAmount: "0",
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_renewal",
+		stripeRefundId: "re_seed_devpass_refund",
+		relatedTransactionId: "test-devpass-renewal-transaction-id",
+		refundReason: "requested_by_customer",
+		description: "Seeded DevPass refund for admin dashboard",
+	});
+
 	// ── Bulk seed data for admin dashboard ──
 	// Seed extra users
 	for (const u of EXTRA_USERS) {
@@ -1541,15 +2097,16 @@ async function seed() {
 			id: u.id,
 			name: u.name,
 			email: u.email,
-			emailVerified: Math.random() < 0.85,
-			onboardingCompleted: Math.random() < 0.7,
+			emailVerified: secureRandom() < 0.85,
+			onboardingCompleted: secureRandom() < 0.7,
 			createdAt: daysAgo(randomInt(10, 400)),
 		});
 		await upsert(tables.account, {
 			id: `account-${u.id}`,
 			providerId: "credential",
 			accountId: `account-${u.id}`,
-			password: PASSWORD_HASH,
+			// Password == email, e.g. alice.chen@techcorp.io logs in with that string.
+			password: await hashPassword(u.email),
 			userId: u.id,
 		});
 	}
@@ -1565,11 +2122,11 @@ async function seed() {
 			retentionLevel:
 				org.plan === "enterprise"
 					? "retain"
-					: Math.random() < 0.5
+					: secureRandom() < 0.5
 						? "retain"
 						: "none",
 			status: org.status,
-			isPersonal: org.isPersonal,
+			kind: org.kind,
 			devPlan: org.devPlan,
 			devPlanCreditsUsed:
 				org.devPlan !== "none" ? String(randomFloat(0, 20)) : "0",
@@ -1603,7 +2160,7 @@ async function seed() {
 			name: proj.name,
 			organizationId: proj.orgId,
 			mode: proj.mode,
-			cachingEnabled: Math.random() < 0.3,
+			cachingEnabled: secureRandom() < 0.3,
 		});
 	}
 
@@ -1636,6 +2193,74 @@ async function seed() {
 
 	const hourlyModelStats = generateProjectHourlyModelStats(projects);
 	await bulkInsert(tables.projectHourlyModelStats, hourlyModelStats);
+
+	const hourlySourceStats = generateProjectHourlySourceStats(projects);
+	await bulkInsert(tables.projectHourlySourceStats, hourlySourceStats);
+
+	// Seed agent source stats for the default "Test Project" so the Agents
+	// dashboard the test user lands on shows activity out of the box.
+	const testProjectSourceStats: Array<Record<string, any>> = [];
+	let testSourceIdx = 0;
+	for (let h = 0; h < 30 * 24; h++) {
+		const hourTs = hoursAgo(h);
+		hourTs.setMinutes(0, 0, 0);
+		for (const sourceDef of AGENT_SOURCES) {
+			if (secureRandom() < 0.45) {
+				continue;
+			}
+			const reqCount = randomInt(1, 12);
+			const errCount = secureRandom() < 0.1 ? randomInt(1, 2) : 0;
+			const inputTok = reqCount * randomInt(200, 4000);
+			const outputTok = reqCount * randomInt(100, 2500);
+			const costVal = reqCount * randomFloat(0.002, 0.06);
+			testProjectSourceStats.push({
+				id: `test-phss-${testSourceIdx}`,
+				projectId: "test-project-id",
+				hourTimestamp: hourTs,
+				source: sourceDef.source,
+				requestCount: reqCount,
+				errorCount: errCount,
+				cacheCount: randomInt(0, Math.floor(reqCount * 0.2)),
+				streamedCount: Math.floor(reqCount * 0.6),
+				nonStreamedCount: Math.floor(reqCount * 0.4),
+				completedCount: reqCount - errCount,
+				lengthLimitCount: 0,
+				contentFilterCount: 0,
+				toolCallsCount: randomInt(0, 2),
+				canceledCount: 0,
+				unknownFinishCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: errCount,
+				inputTokens: String(inputTok),
+				outputTokens: String(outputTok),
+				totalTokens: String(inputTok + outputTok),
+				reasoningTokens: "0",
+				cachedTokens: "0",
+				cacheWriteTokens: "0",
+				cost: Number(costVal.toFixed(6)),
+				inputCost: Number((costVal * 0.4).toFixed(6)),
+				outputCost: Number((costVal * 0.5).toFixed(6)),
+				requestCost: Number((costVal * 0.1).toFixed(6)),
+				dataStorageCost: 0,
+				discountSavings: 0,
+				imageInputCost: 0,
+				imageOutputCost: 0,
+				audioInputCost: 0,
+				videoOutputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				creditsRequestCount: Math.floor(reqCount * 0.6),
+				apiKeysRequestCount: Math.floor(reqCount * 0.4),
+				creditsCost: Number((costVal * 0.6).toFixed(6)),
+				apiKeysCost: Number((costVal * 0.4).toFixed(6)),
+				creditsDataStorageCost: 0,
+				apiKeysDataStorageCost: 0,
+			});
+			testSourceIdx++;
+		}
+	}
+	await bulkInsert(tables.projectHourlySourceStats, testProjectSourceStats);
 
 	// Seed providers, models, and mappings
 	const seedProviders = generateSeedProviders();

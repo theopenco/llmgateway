@@ -1,7 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import {
 	isRetryableErrorType,
+	sameKeyRetryDelay,
+	SAME_KEY_RETRY_DELAY_MS,
+	shouldRetryAlternateKey,
+	shouldRetrySameKey,
 	shouldRetryRequest,
 	selectNextProvider,
 	getErrorType,
@@ -125,11 +129,220 @@ describe("shouldRetryRequest", () => {
 	});
 });
 
+describe("shouldRetryAlternateKey", () => {
+	it("retries alternate keys for retryable upstream failures", () => {
+		expect(shouldRetryAlternateKey("upstream_error", 500)).toBe(true);
+		expect(shouldRetryAlternateKey("network_error", 0)).toBe(true);
+	});
+
+	it("retries alternate keys for auth failures on the current provider", () => {
+		expect(shouldRetryAlternateKey("gateway_error", 401)).toBe(true);
+		expect(shouldRetryAlternateKey("gateway_error", 403)).toBe(true);
+	});
+
+	it("retries alternate keys for invalid API key payloads without 401/403", () => {
+		expect(
+			shouldRetryAlternateKey(
+				"gateway_error",
+				400,
+				"API key not valid. Please pass a valid API key.",
+			),
+		).toBe(true);
+	});
+
+	it("does not retry alternate keys for non-retryable failure types", () => {
+		expect(shouldRetryAlternateKey("client_error", 400)).toBe(false);
+		expect(shouldRetryAlternateKey("content_filter", 403)).toBe(false);
+	});
+});
+
+describe("shouldRetrySameKey", () => {
+	const defaultOpts = {
+		usedProvider: "openai",
+		errorType: "upstream_error",
+		statusCode: 500,
+		envVarName: "OPENAI_API_KEY",
+		envKeyCount: 1,
+		hasOtherProvider: false,
+		retryCount: 0,
+		maxRetries: 2,
+	};
+
+	it("retries with single env key on upstream error", () => {
+		expect(shouldRetrySameKey(defaultOpts)).toBe(true);
+	});
+
+	it("does not retry when another provider is available to fall back to", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, hasOtherProvider: true })).toBe(
+			false,
+		);
+	});
+
+	it("retries on upstream timeouts", () => {
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, errorType: "upstream_timeout" }),
+		).toBe(true);
+	});
+
+	it("retries on network errors", () => {
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "network_error",
+				statusCode: 0,
+			}),
+		).toBe(true);
+	});
+
+	it("retries regardless of whether a specific provider was requested", () => {
+		// The "no other provider" gate lives at the call site (the
+		// provider-fallback check), so this helper no longer keys off
+		// requestedProvider — it fires for both direct and auto-routed requests.
+		expect(shouldRetrySameKey(defaultOpts)).toBe(true);
+	});
+
+	it("does not retry when env var has multiple keys (alternate-key path covers it)", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, envKeyCount: 2 })).toBe(false);
+	});
+
+	it("does not retry when no env var was used (BYOK)", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, envVarName: undefined })).toBe(
+			false,
+		);
+	});
+
+	it("does not retry on auth failures (same key will fail again)", () => {
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "gateway_error",
+				statusCode: 401,
+			}),
+		).toBe(false);
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "gateway_error",
+				statusCode: 403,
+			}),
+		).toBe(false);
+	});
+
+	it("does not retry on rate limits (would hammer the rate-limited key)", () => {
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "upstream_error",
+				statusCode: 429,
+			}),
+		).toBe(false);
+	});
+
+	it("does not retry any 4xx (deterministic for the identical request/key)", () => {
+		for (const statusCode of [400, 402, 404, 408, 422, 499]) {
+			expect(
+				shouldRetrySameKey({
+					...defaultOpts,
+					errorType: "upstream_error",
+					statusCode,
+				}),
+			).toBe(false);
+		}
+	});
+
+	it("retries 5xx and network failures (statusCode 0)", () => {
+		for (const statusCode of [500, 502, 503, 529]) {
+			expect(
+				shouldRetrySameKey({
+					...defaultOpts,
+					errorType: "upstream_error",
+					statusCode,
+				}),
+			).toBe(true);
+		}
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "network_error",
+				statusCode: 0,
+			}),
+		).toBe(true);
+	});
+
+	it("does not retry gateway_error even without an auth status code (invalid key payloads)", () => {
+		// e.g. providers returning 400 with "API key not valid" — the
+		// alternate-key path rotates keys for these, but the same key would
+		// fail identically.
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				errorType: "gateway_error",
+				statusCode: 400,
+			}),
+		).toBe(false);
+	});
+
+	it("does not retry on non-retryable error types", () => {
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, errorType: "client_error" }),
+		).toBe(false);
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, errorType: "content_filter" }),
+		).toBe(false);
+	});
+
+	it("retries up to maxRetries times then stops", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, retryCount: 1 })).toBe(true);
+		expect(shouldRetrySameKey({ ...defaultOpts, retryCount: 2 })).toBe(false);
+		expect(shouldRetrySameKey({ ...defaultOpts, retryCount: 3 })).toBe(false);
+	});
+
+	it("does not retry at all when maxRetries is 0", () => {
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, retryCount: 0, maxRetries: 0 }),
+		).toBe(false);
+	});
+
+	it("does not retry for custom or llmgateway providers", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, usedProvider: "custom" })).toBe(
+			false,
+		);
+		expect(
+			shouldRetrySameKey({ ...defaultOpts, usedProvider: "llmgateway" }),
+		).toBe(false);
+	});
+
+	it("does not retry when env var is unset (envKeyCount=0)", () => {
+		expect(shouldRetrySameKey({ ...defaultOpts, envKeyCount: 0 })).toBe(false);
+	});
+});
+
+describe("sameKeyRetryDelay", () => {
+	it("resolves after the fixed delay", async () => {
+		vi.useFakeTimers();
+		try {
+			let resolved = false;
+			const pending = sameKeyRetryDelay().then(() => {
+				resolved = true;
+			});
+
+			await vi.advanceTimersByTimeAsync(SAME_KEY_RETRY_DELAY_MS - 1);
+			expect(resolved).toBe(false);
+
+			await vi.advanceTimersByTimeAsync(1);
+			await pending;
+			expect(resolved).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 describe("selectNextProvider", () => {
 	const modelProviders = [
-		{ providerId: "openai", modelName: "gpt-4o" },
-		{ providerId: "anthropic", modelName: "claude-3-5-sonnet" },
-		{ providerId: "google", modelName: "gemini-pro" },
+		{ providerId: "openai", externalId: "gpt-4o" },
+		{ providerId: "anthropic", externalId: "claude-3-5-sonnet" },
+		{ providerId: "google", externalId: "gemini-pro" },
 	];
 
 	it("selects the lowest-scored non-failed provider", () => {
@@ -145,7 +358,7 @@ describe("selectNextProvider", () => {
 			failedProviders,
 			modelProviders,
 		);
-		expect(result).toEqual({ providerId: "openai", modelName: "gpt-4o" });
+		expect(result).toEqual({ providerId: "openai", externalId: "gpt-4o" });
 	});
 
 	it("returns null when all providers have failed", () => {
@@ -194,7 +407,7 @@ describe("selectNextProvider", () => {
 		);
 		expect(result).toEqual({
 			providerId: "anthropic",
-			modelName: "claude-3-5-sonnet",
+			externalId: "claude-3-5-sonnet",
 		});
 	});
 
@@ -213,7 +426,7 @@ describe("selectNextProvider", () => {
 		);
 		expect(result).toEqual({
 			providerId: "anthropic",
-			modelName: "claude-3-5-sonnet",
+			externalId: "claude-3-5-sonnet",
 		});
 	});
 
@@ -224,9 +437,9 @@ describe("selectNextProvider", () => {
 			{ providerId: "openai", score: 0.2 },
 		];
 		const reroutedModelProviders = [
-			{ providerId: "glacier", modelName: "gemini-3-pro-image-preview" },
-			{ providerId: "google", modelName: "gemini-3-pro-image-preview" },
-			{ providerId: "openai", modelName: "gemini-3-pro-image-preview" },
+			{ providerId: "glacier", externalId: "gemini-3-pro-image-preview" },
+			{ providerId: "google", externalId: "gemini-3-pro-image-preview" },
+			{ providerId: "openai", externalId: "gemini-3-pro-image-preview" },
 		];
 
 		const result = selectNextProvider(
@@ -237,7 +450,7 @@ describe("selectNextProvider", () => {
 
 		expect(result).toEqual({
 			providerId: "google",
-			modelName: "gemini-3-pro-image-preview",
+			externalId: "gemini-3-pro-image-preview",
 		});
 	});
 });

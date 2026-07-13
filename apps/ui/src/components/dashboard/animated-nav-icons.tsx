@@ -114,6 +114,21 @@ export function AnimatedBarChart3({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// ChartArea — trend line draws itself across the axes
+export function AnimatedChartArea({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<path d="M3 3v16a2 2 0 0 0 2 2h16" />
+			<motion.path
+				d="M7 15l3-4 3 2 4-6"
+				initial={false}
+				animate={isHovered ? { pathLength: [0, 1] } : { pathLength: 1 }}
+				transition={{ duration: 0.5, ease: "easeInOut" }}
+			/>
+		</svg>
+	);
+}
+
 // Key — rotates like turning a lock
 export function AnimatedKey({ isHovered }: AnimatedIconProps) {
 	return (
@@ -144,6 +159,30 @@ export function AnimatedSettings({ isHovered }: AnimatedIconProps) {
 				style={{ transformOrigin: "12px 12px" }}
 			/>
 			<circle cx="12" cy="12" r="3" />
+		</svg>
+	);
+}
+
+// KeySquare — key body jiggles, square head pulses
+export function AnimatedKeySquare({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.path
+				d="M12.4 2.7c.9-.9 2.5-.9 3.4 0l5.5 5.5c.9.9.9 2.5 0 3.4l-3.7 3.7c-.9.9-2.5.9-3.4 0L8.7 9.8c-.9-.9-.9-2.5 0-3.4z"
+				initial={false}
+				animate={isHovered ? { scale: [1, 1.12, 1] } : { scale: 1 }}
+				transition={{ duration: 0.4, ease: "easeInOut" }}
+				style={{ transformOrigin: "15px 8px" }}
+			/>
+			<motion.g
+				initial={false}
+				animate={isHovered ? { rotate: [0, -6, 4, -2, 0] } : { rotate: 0 }}
+				transition={{ duration: 0.5, ease: "easeInOut" }}
+				style={{ transformOrigin: "12px 12px" }}
+			>
+				<path d="m14 7 3 3" />
+				<path d="m9.4 10.6-6.814 6.814A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814" />
+			</motion.g>
 		</svg>
 	);
 }
@@ -207,6 +246,21 @@ export function AnimatedShieldAlert({ isHovered }: AnimatedIconProps) {
 				animate={isHovered ? { scale: [1, 1.8, 1] } : { scale: 1 }}
 				transition={{ duration: 0.3, delay: 0.1 }}
 				style={{ transformOrigin: "12px 16px" }}
+			/>
+		</svg>
+	);
+}
+
+// BadgeCheck — badge steady, check draws itself
+export function AnimatedBadgeCheck({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" />
+			<motion.path
+				d="m9 12 2 2 4-4"
+				initial={false}
+				animate={isHovered ? { pathLength: [0, 1] } : { pathLength: 1 }}
+				transition={{ duration: 0.4, ease: "easeInOut" }}
 			/>
 		</svg>
 	);
@@ -304,6 +358,56 @@ export function AnimatedPercent({ isHovered }: AnimatedIconProps) {
 	);
 }
 
+// Terminal — chevron prompt slides forward, cursor blinks
+export function AnimatedTerminal({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.polyline
+				points="4 17 10 11 4 5"
+				initial={false}
+				animate={isHovered ? { translateX: [0, 2, 0] } : { translateX: 0 }}
+				transition={{ duration: 0.35, ease: "easeInOut" }}
+			/>
+			<motion.line
+				x1="12"
+				y1="19"
+				x2="20"
+				y2="19"
+				initial={false}
+				animate={isHovered ? { opacity: [1, 0.2, 1] } : { opacity: 1 }}
+				transition={{ duration: 0.5, delay: 0.1, ease: "easeInOut" }}
+			/>
+		</svg>
+	);
+}
+
+// Users — second person pops in, both bob on hover
+export function AnimatedUsers({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.g
+				initial={false}
+				animate={isHovered ? { translateY: [0, -1.5, 0] } : { translateY: 0 }}
+				transition={{ duration: 0.3, ease: "easeInOut" }}
+			>
+				<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+				<circle cx="9" cy="7" r="4" />
+			</motion.g>
+			<motion.g
+				initial={false}
+				animate={
+					isHovered ? { scale: [1, 1.15, 1], opacity: [0.6, 1] } : { scale: 1 }
+				}
+				transition={{ duration: 0.3, delay: 0.1, ease: "easeOut" }}
+				style={{ transformOrigin: "20px 12px" }}
+			>
+				<path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+				<path d="M16 3.13a4 4 0 0 1 0 7.75" />
+			</motion.g>
+		</svg>
+	);
+}
+
 // ExternalLink — arrow shoots out diagonally
 export function AnimatedExternalLink({ isHovered }: AnimatedIconProps) {
 	return (
@@ -329,6 +433,27 @@ export function AnimatedExternalLink({ isHovered }: AnimatedIconProps) {
 				transition={{ duration: 0.3, ease: "easeInOut" }}
 			/>
 			<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+		</svg>
+	);
+}
+
+// Building2 (SSO) — subtle lift on hover
+export function AnimatedBuilding2({ isHovered }: AnimatedIconProps) {
+	return (
+		<svg {...svgProps}>
+			<motion.g
+				initial={false}
+				animate={isHovered ? { translateY: [0, -1.5, 0] } : { translateY: 0 }}
+				transition={{ duration: 0.3, ease: "easeInOut" }}
+			>
+				<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+				<path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+				<path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+				<path d="M10 6h4" />
+				<path d="M10 10h4" />
+				<path d="M10 14h4" />
+				<path d="M10 18h4" />
+			</motion.g>
 		</svg>
 	);
 }

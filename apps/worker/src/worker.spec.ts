@@ -12,6 +12,7 @@ import { db, eq, inArray, tables } from "@llmgateway/db";
 import {
 	acquireLock,
 	cleanupExpiredLogData,
+	cleanupExpiredModelHistory,
 	processAutoTopUp,
 } from "./worker.js";
 
@@ -49,6 +50,17 @@ describe("worker", () => {
 	};
 
 	const cleanupRetentionTestData = async () => {
+		await db
+			.delete(tables.modelProviderMappingHistory)
+			.where(
+				inArray(tables.modelProviderMappingHistory.id, [
+					"mph-old",
+					"mph-recent",
+				]),
+			);
+		await db
+			.delete(tables.modelHistory)
+			.where(inArray(tables.modelHistory.id, ["mh-old", "mh-recent"]));
 		await db
 			.delete(tables.log)
 			.where(eq(tables.log.id, retentionTestIds.logId));
@@ -382,6 +394,59 @@ describe("worker", () => {
 			expect(cleanedLog?.userAgent).toBeNull();
 			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
 			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
+		});
+	});
+
+	describe("cleanupExpiredModelHistory", () => {
+		test("should delete history rows older than the retention window", async () => {
+			process.env.ENABLE_DATA_RETENTION_CLEANUP = "true";
+
+			// eslint-disable-next-line no-mixed-operators
+			const oldTimestamp = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+			// eslint-disable-next-line no-mixed-operators
+			const recentTimestamp = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000);
+
+			await db.insert(tables.modelProviderMappingHistory).values([
+				{
+					id: "mph-old",
+					modelId: "retention-model",
+					providerId: "retention-provider",
+					modelProviderMappingId: "retention-mapping",
+					minuteTimestamp: oldTimestamp,
+				},
+				{
+					id: "mph-recent",
+					modelId: "retention-model",
+					providerId: "retention-provider",
+					modelProviderMappingId: "retention-mapping",
+					minuteTimestamp: recentTimestamp,
+				},
+			]);
+
+			await db.insert(tables.modelHistory).values([
+				{
+					id: "mh-old",
+					modelId: "retention-model",
+					minuteTimestamp: oldTimestamp,
+				},
+				{
+					id: "mh-recent",
+					modelId: "retention-model",
+					minuteTimestamp: recentTimestamp,
+				},
+			]);
+
+			await cleanupExpiredModelHistory();
+
+			const mappingRows = await db.query.modelProviderMappingHistory.findMany({
+				where: { id: { in: ["mph-old", "mph-recent"] } },
+			});
+			const modelRows = await db.query.modelHistory.findMany({
+				where: { id: { in: ["mh-old", "mh-recent"] } },
+			});
+
+			expect(mappingRows.map((r) => r.id)).toEqual(["mph-recent"]);
+			expect(modelRows.map((r) => r.id)).toEqual(["mh-recent"]);
 		});
 	});
 });

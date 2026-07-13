@@ -10,6 +10,7 @@ import {
 	createCompletionEvents,
 	createFailedEvent,
 } from "./tools/convert-streaming-to-responses.js";
+import { resolveItemReferences } from "./tools/response-state.js";
 
 vi.mock("@llmgateway/db", async (importOriginal) => {
 	const actual = await importOriginal<Record<string, unknown>>();
@@ -20,6 +21,9 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 				from: vi.fn().mockReturnValue({
 					where: vi.fn().mockReturnValue({
 						limit: vi.fn().mockResolvedValue([]),
+						orderBy: vi.fn().mockReturnValue({
+							limit: vi.fn().mockResolvedValue([]),
+						}),
 					}),
 				}),
 			}),
@@ -31,6 +35,14 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 		},
 	};
 });
+
+const redisGet = vi.fn();
+vi.mock("@llmgateway/cache", () => ({
+	redisClient: {
+		get: (...args: unknown[]) => redisGet(...args),
+		set: vi.fn().mockResolvedValue("OK"),
+	},
+}));
 
 vi.mock("@llmgateway/logger", () => ({
 	logger: {
@@ -79,6 +91,60 @@ describe("responsesRequestSchema", () => {
 							text: "tool failed: invalid image path",
 						},
 					],
+				},
+			],
+		});
+
+		expect(result.success).toBe(true);
+	});
+
+	it('preserves reasoning.effort "max" so it is forwarded to the provider as-is', () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "deepseek-v4",
+			input: "hello",
+			reasoning: { effort: "max" },
+		});
+
+		expect(result.success).toBe(true);
+		expect(result.data?.reasoning?.effort).toBe("max");
+	});
+
+	it("accepts service_tier and normalizes explicit null to undefined", () => {
+		const withTier = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: "hello",
+			service_tier: "flex",
+		});
+		expect(withTier.success).toBe(true);
+		expect(withTier.data?.service_tier).toBe("flex");
+
+		const withNull = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: "hello",
+			service_tier: null,
+		});
+		expect(withNull.success).toBe(true);
+		expect(withNull.data?.service_tier).toBeUndefined();
+
+		const invalid = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: "hello",
+			service_tier: "turbo",
+		});
+		expect(invalid.success).toBe(false);
+	});
+
+	it("accepts item_reference items mixed with messages and outputs", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			input: [
+				{ role: "developer", content: "be helpful" },
+				{ role: "user", content: "hi" },
+				{ type: "item_reference", id: "fc_97KANutVc7ZxBoNerPUN1FE2" },
+				{
+					type: "function_call_output",
+					call_id: "call_rvsx8tvgGBCjGB8HitLxPG1F",
+					output: "done",
 				},
 			],
 		});
@@ -289,6 +355,75 @@ describe("convertChatResponseToResponses", () => {
 		expect(messageOutput).toBeDefined();
 		expect((messageOutput as any).content[0].type).toBe("output_text");
 		expect((messageOutput as any).content[0].text).toBe("Hello!");
+	});
+
+	it("echoes the served service tier from the chat response", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+			service_tier: "flex",
+		};
+
+		const result = convertChatResponseToResponses(
+			chatResponse,
+			"openai/gpt-5.5",
+			undefined,
+			{ service_tier: "flex" },
+		);
+
+		expect(result.service_tier).toBe("flex");
+	});
+
+	it("falls back to metadata used_service_tier, then the requested tier", () => {
+		const baseChat = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+		};
+
+		// A downgraded premium request echoes the tier actually served.
+		const downgraded = convertChatResponseToResponses(
+			{
+				...baseChat,
+				metadata: { requested_service_tier: "flex", used_service_tier: null },
+			},
+			"google-vertex/gemini-3-pro",
+			undefined,
+			{ service_tier: "flex" },
+		);
+		expect(downgraded.service_tier).toBe("default");
+
+		const served = convertChatResponseToResponses(
+			{
+				...baseChat,
+				metadata: {
+					requested_service_tier: "flex",
+					used_service_tier: "flex",
+				},
+			},
+			"google-vertex/gemini-3-pro",
+			undefined,
+			{ service_tier: "flex" },
+		);
+		expect(served.service_tier).toBe("flex");
+
+		// Without tier info from the chat response, echo the requested tier.
+		const requestedOnly = convertChatResponseToResponses(
+			baseChat,
+			"openai/gpt-5.5",
+			undefined,
+			{ service_tier: "priority" },
+		);
+		expect(requestedOnly.service_tier).toBe("priority");
 	});
 
 	it("converts tool calls to function_call outputs", () => {
@@ -530,6 +665,58 @@ describe("streaming conversion", () => {
 		expect(completedData.response.status).toBe("completed");
 	});
 
+	it("captures the served service tier from stream chunks", () => {
+		const state = createStreamingState("gpt-5.5", undefined, {
+			service_tier: "flex",
+		});
+		processStreamChunk({ choices: [{ delta: { content: "Hello" } }] }, state);
+		processStreamChunk(
+			{
+				choices: [],
+				usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				service_tier: "flex",
+			},
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const completedEvent = events.find((e) => e.event === "response.completed");
+		const completedData = JSON.parse(completedEvent!.data);
+		expect(completedData.response.service_tier).toBe("flex");
+	});
+
+	it("captures a downgraded tier from the final usage chunk metadata", () => {
+		const state = createStreamingState("gemini-3-pro", undefined, {
+			service_tier: "flex",
+		});
+		processStreamChunk({ choices: [{ delta: { content: "Hello" } }] }, state);
+		processStreamChunk(
+			{
+				choices: [],
+				usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				metadata: { requested_service_tier: "flex", used_service_tier: null },
+			},
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const completedEvent = events.find((e) => e.event === "response.completed");
+		const completedData = JSON.parse(completedEvent!.data);
+		expect(completedData.response.service_tier).toBe("default");
+	});
+
+	it("echoes the requested service tier when no served tier is reported", () => {
+		const state = createStreamingState("gpt-5.5", undefined, {
+			service_tier: "priority",
+		});
+		processStreamChunk({ choices: [{ delta: { content: "Hello" } }] }, state);
+
+		const events = createCompletionEvents(state);
+		const completedEvent = events.find((e) => e.event === "response.completed");
+		const completedData = JSON.parse(completedEvent!.data);
+		expect(completedData.response.service_tier).toBe("priority");
+	});
+
 	it("uses consistent IDs across streaming events", () => {
 		const state = createStreamingState("gpt-4o-mini");
 		const events1 = processStreamChunk(
@@ -614,5 +801,77 @@ describe("streaming conversion", () => {
 		expect(data.type).toBe("response.failed");
 		expect(data.response.status).toBe("failed");
 		expect(data.response.id).toBe(state.responseId);
+	});
+});
+
+describe("resolveItemReferences", () => {
+	const storedFunctionCall = {
+		type: "function_call",
+		id: "fc_97KANutVc7ZxBoNerPUN1FE2",
+		call_id: "call_rvsx8tvgGBCjGB8HitLxPG1F",
+		name: "view_image",
+		arguments: '{"path":"/tmp/a.png"}',
+		status: "completed",
+	};
+
+	it("returns input unchanged when there are no item_reference items", async () => {
+		const input = [
+			{ role: "user", content: "hi" },
+			{ type: "function_call_output", call_id: "call_1", output: "done" },
+		];
+		const result = await resolveItemReferences(input, "project_1");
+		expect(result).toBe(input);
+		expect(redisGet).not.toHaveBeenCalled();
+	});
+
+	it("replaces an item_reference with the resolved stored item", async () => {
+		redisGet.mockResolvedValueOnce(JSON.stringify(storedFunctionCall));
+		const input = [
+			{ role: "developer", content: "be helpful" },
+			{ role: "user", content: "hi" },
+			{ type: "item_reference", id: "fc_97KANutVc7ZxBoNerPUN1FE2" },
+			{
+				type: "function_call_output",
+				call_id: "call_rvsx8tvgGBCjGB8HitLxPG1F",
+				output: "done",
+			},
+		];
+
+		const resolved = await resolveItemReferences(input, "project_1");
+
+		expect(resolved[2]).toEqual(storedFunctionCall);
+
+		// The resolved function_call must convert into an assistant tool_calls
+		// message that precedes the tool result, otherwise strict providers reject
+		// the orphaned tool message.
+		const messages = convertResponsesInputToMessages(
+			resolved as Parameters<typeof convertResponsesInputToMessages>[0],
+		);
+		const assistantIdx = messages.findIndex((m) => m.role === "assistant");
+		const toolIdx = messages.findIndex((m) => m.role === "tool");
+		expect(assistantIdx).toBeGreaterThanOrEqual(0);
+		expect(toolIdx).toBeGreaterThan(assistantIdx);
+		expect(messages[assistantIdx]!.tool_calls).toEqual([
+			{
+				id: "call_rvsx8tvgGBCjGB8HitLxPG1F",
+				type: "function",
+				function: {
+					name: "view_image",
+					arguments: '{"path":"/tmp/a.png"}',
+				},
+			},
+		]);
+	});
+
+	it("drops item_reference items that cannot be resolved", async () => {
+		redisGet.mockResolvedValueOnce(null);
+		const input = [
+			{ role: "user", content: "hi" },
+			{ type: "item_reference", id: "fc_missing" },
+		];
+
+		const resolved = await resolveItemReferences(input, "project_1");
+
+		expect(resolved).toEqual([{ role: "user", content: "hi" }]);
 	});
 });

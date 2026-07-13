@@ -3,18 +3,22 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
-import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
+import { getAdminOrganizationIds } from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { invalidateSwrByTables } from "@llmgateway/cache";
+import { db, eq, getTableName, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { providers } from "@llmgateway/models";
+import { isStealthProvider, providers } from "@llmgateway/models";
+import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
 
 export const keysProvider = new OpenAPIHono<ServerTypes>();
+
+const providerKeyTableName = getTableName(tables.providerKey);
 
 // Create a schema for provider key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
@@ -28,7 +32,25 @@ const providerKeySchema = z.object({
 	baseUrl: z.string().nullable(),
 	options: z
 		.object({
-			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
+			aws_bedrock_region_prefix: z
+				.enum(["us.", "global.", "eu.", "apac."])
+				.optional(),
+			aws_bedrock_region: z
+				.enum([
+					"global",
+					"us",
+					"eu",
+					"apac",
+					"us-east-1",
+					"us-east-2",
+					"us-west-2",
+					"eu-central-1",
+					"eu-west-1",
+					"ap-northeast-1",
+					"ap-southeast-1",
+					"ap-southeast-2",
+				])
+				.optional(),
 			azure_resource: z.string().optional(),
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
@@ -39,9 +61,11 @@ const providerKeySchema = z.object({
 			alibaba_region: z
 				.enum(["singapore", "us-virginia", "cn-beijing"])
 				.optional(),
+			vertex_openai_project_id: z.string().optional(),
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	customModelsOnly: z.boolean(),
 	organizationId: z.string(),
 });
 
@@ -62,12 +86,33 @@ const createProviderKeySchema = z.object({
 		),
 	name: z
 		.string()
-		.regex(/^[a-z]+$/, "Name must contain only lowercase letters a-z")
+		.regex(
+			/^[a-z]+(-[a-z]+)*$/,
+			"Name must contain only lowercase letters a-z and single hyphens between them",
+		)
 		.optional(),
 	baseUrl: z.string().url().optional(),
 	options: z
 		.object({
-			aws_bedrock_region_prefix: z.enum(["us.", "global.", "eu."]).optional(),
+			aws_bedrock_region_prefix: z
+				.enum(["us.", "global.", "eu.", "apac."])
+				.optional(),
+			aws_bedrock_region: z
+				.enum([
+					"global",
+					"us",
+					"eu",
+					"apac",
+					"us-east-1",
+					"us-east-2",
+					"us-west-2",
+					"eu-central-1",
+					"eu-west-1",
+					"ap-northeast-1",
+					"ap-southeast-1",
+					"ap-southeast-2",
+				])
+				.optional(),
 			azure_resource: z.string().optional(),
 			azure_api_version: z.string().optional(),
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
@@ -79,15 +124,22 @@ const createProviderKeySchema = z.object({
 				.enum(["singapore", "us-virginia", "cn-beijing"])
 				.optional(),
 			google_vertex_project_id: z.string().optional(),
+			vertex_openai_project_id: z.string().optional(),
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
 });
 
-// Schema for updating a provider key status
-const updateProviderKeyStatusSchema = z.object({
-	status: z.enum(["active", "inactive"]),
-});
+// Schema for updating a provider key status / settings
+const updateProviderKeyStatusSchema = z
+	.object({
+		status: z.enum(["active", "inactive"]).optional(),
+		// Custom providers only: restrict requests to catalog-defined models.
+		customModelsOnly: z.boolean().optional(),
+	})
+	.refine((v) => v.status !== undefined || v.customModelsOnly !== undefined, {
+		message: "No updatable fields provided",
+	});
 
 // Create a new provider key
 const create = createRoute({
@@ -168,10 +220,44 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	// Provider (BYOK) keys are an org-level resource; project-scoped "developer"
+	// members cannot manage them.
+	const creatorRole = userOrgs[0]?.role;
+	if (creatorRole !== "owner" && creatorRole !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can manage provider keys",
+		});
+	}
+
 	if (provider === "custom" && (!name || !baseUrl)) {
 		throw new HTTPException(400, {
 			message: "Custom providers require both a name and base URL",
 		});
+	}
+
+	// Stealth providers have no default base URL and an undisclosed platform, so
+	// users can't self-configure a working key for them. They are hidden from the
+	// UI selector; reject here too as defense in depth against direct API calls.
+	if (provider !== "custom" && isStealthProvider(provider as ProviderId)) {
+		throw new HTTPException(400, {
+			message: `Provider ${provider} cannot be configured with a provider key`,
+		});
+	}
+
+	// SSRF guard: reject base URLs that resolve to internal/reserved addresses
+	// before they are stored or used as an outbound fetch target. No-op unless
+	// the hosted provider URL guard is enabled.
+	if (baseUrl) {
+		try {
+			await assertSafeProviderUrl(baseUrl);
+		} catch (error) {
+			throw new HTTPException(400, {
+				message:
+					error instanceof Error
+						? error.message
+						: "Provider base URL is not allowed",
+			});
+		}
 	}
 
 	if (provider === "custom" && name) {
@@ -280,6 +366,10 @@ keysProvider.openapi(create, async (c) => {
 		},
 	});
 
+	// The gateway caches provider keys via SWR; invalidate so a newly added key
+	// is usable immediately.
+	await invalidateSwrByTables([providerKeyTableName]);
+
 	return c.json({
 		providerKey: {
 			...providerKey,
@@ -324,7 +414,7 @@ keysProvider.openapi(list, async (c) => {
 	}
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	if (!organizationIds.length) {
 		return c.json({ providerKeys: [] });
@@ -346,6 +436,64 @@ keysProvider.openapi(list, async (c) => {
 			token: undefined,
 		})),
 	});
+});
+
+// List provider keys with minimal fields (provider + status only)
+const listActive = createRoute({
+	method: "get",
+	path: "/provider/active",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providerKeys: z
+							.array(
+								z.object({
+									provider: z.string(),
+									status: z.enum(["active", "inactive", "deleted"]).nullable(),
+								}),
+							)
+							.openapi({}),
+					}),
+				},
+			},
+			description: "List of provider keys with minimal fields.",
+		},
+	},
+});
+
+keysProvider.openapi(listActive, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const organizationIds = await getAdminOrganizationIds(user.id);
+
+	if (!organizationIds.length) {
+		return c.json({ providerKeys: [] });
+	}
+
+	const providerKeys = await db.query.providerKey.findMany({
+		where: {
+			organizationId: {
+				in: organizationIds,
+			},
+			status: {
+				eq: "active",
+			},
+		},
+		columns: {
+			provider: true,
+			status: true,
+		},
+	});
+
+	return c.json({ providerKeys });
 });
 
 // Soft-delete a provider key
@@ -402,7 +550,7 @@ keysProvider.openapi(deleteKey, async (c) => {
 	const { id } = c.req.param();
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	// Find the provider key
 	const providerKey = await db.query.providerKey.findFirst({
@@ -439,6 +587,10 @@ keysProvider.openapi(deleteKey, async (c) => {
 			provider: providerKey.provider,
 		},
 	});
+
+	// The gateway caches provider keys via SWR; invalidate so a deleted key
+	// stops being used immediately.
+	await invalidateSwrByTables([providerKeyTableName]);
 
 	return c.json({
 		message: "Provider key deleted successfully",
@@ -510,10 +662,10 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status } = c.req.valid("json");
+	const { status, customModelsOnly } = c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	// Find the provider key
 	const providerKey = await db.query.providerKey.findFirst({
@@ -525,6 +677,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 				in: organizationIds,
 			},
 		},
+		with: {
+			organization: true,
+		},
 	});
 
 	if (!providerKey) {
@@ -533,16 +688,53 @@ keysProvider.openapi(updateStatus, async (c) => {
 		});
 	}
 
-	// Update the provider key status
+	if (customModelsOnly !== undefined) {
+		if (providerKey.provider !== "custom") {
+			throw new HTTPException(400, {
+				message: "customModelsOnly can only be set on custom provider keys",
+			});
+		}
+		// Restricting to a custom catalog is an enterprise feature.
+		if (providerKey.organization?.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message: "Custom models require an enterprise plan",
+			});
+		}
+	}
+
+	const updates: {
+		status?: "active" | "inactive";
+		customModelsOnly?: boolean;
+	} = {};
+	if (status !== undefined) {
+		updates.status = status;
+	}
+	if (customModelsOnly !== undefined) {
+		updates.customModelsOnly = customModelsOnly;
+	}
+
+	// Update the provider key
 	const [updatedProviderKey] = await db
 		.update(tables.providerKey)
-		.set({
-			status,
-		})
+		.set(updates)
 		.where(eq(tables.providerKey.id, id))
 		.returning();
 
-	if (providerKey.status !== status) {
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	if (status !== undefined && providerKey.status !== status) {
+		changes.status = { old: providerKey.status, new: status };
+	}
+	if (
+		customModelsOnly !== undefined &&
+		providerKey.customModelsOnly !== customModelsOnly
+	) {
+		changes.customModelsOnly = {
+			old: providerKey.customModelsOnly,
+			new: customModelsOnly,
+		};
+	}
+
+	if (Object.keys(changes).length > 0) {
 		await logAuditEvent({
 			organizationId: providerKey.organizationId,
 			userId: user.id,
@@ -551,15 +743,16 @@ keysProvider.openapi(updateStatus, async (c) => {
 			resourceId: id,
 			metadata: {
 				provider: providerKey.provider,
-				changes: {
-					status: { old: providerKey.status, new: status },
-				},
+				changes,
 			},
 		});
+		// The gateway caches provider keys (incl. customModelsOnly) via SWR;
+		// invalidate so status/restriction changes take effect promptly.
+		await invalidateSwrByTables([providerKeyTableName]);
 	}
 
 	return c.json({
-		message: `Provider key status updated to ${status}`,
+		message: "Provider key updated",
 		providerKey: {
 			...updatedProviderKey,
 			maskedToken: maskToken(updatedProviderKey.token),

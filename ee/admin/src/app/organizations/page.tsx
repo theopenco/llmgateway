@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { BlockOrgButton } from "@/components/block-org-button";
 import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,10 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { setOrganizationStatus } from "@/lib/admin-organizations";
+import {
+	blockOrganization,
+	setOrganizationStatus,
+} from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -188,6 +192,12 @@ export default async function OrganizationsPage({
 		return await setOrganizationStatus(orgId, status);
 	}
 
+	async function handleBlockOrganization(orgId: string) {
+		"use server";
+
+		return await blockOrganization(orgId);
+	}
+
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -211,7 +221,7 @@ export default async function OrganizationsPage({
 						<input
 							type="text"
 							name="search"
-							placeholder="Search by name, email, or ID..."
+							placeholder="Search by name, email, member email, or ID..."
 							defaultValue={search}
 							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
 						/>
@@ -244,6 +254,7 @@ export default async function OrganizationsPage({
 									search={search}
 								/>
 							</TableHead>
+							<TableHead>Kind</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Plan"
@@ -314,7 +325,7 @@ export default async function OrganizationsPage({
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={11}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -334,6 +345,13 @@ export default async function OrganizationsPage({
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{org.billingEmail}
+									</TableCell>
+									<TableCell>
+										<Badge
+											variant={org.kind === "default" ? "outline" : "secondary"}
+										>
+											{org.kind}
+										</Badge>
 									</TableCell>
 									<TableCell>
 										<Badge variant={getPlanBadgeVariant(org.plan)}>
@@ -381,6 +399,12 @@ export default async function OrganizationsPage({
 												orgName={org.name}
 												currentStatus={org.status}
 												onToggle={handleToggleOrgStatus}
+											/>
+											<BlockOrgButton
+												orgId={org.id}
+												orgName={org.name}
+												disabled={org.status === "deleted"}
+												onBlock={handleBlockOrganization}
 											/>
 										</div>
 									</TableCell>

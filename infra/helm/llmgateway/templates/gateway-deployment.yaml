@@ -17,6 +17,9 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: {{ .Values.gateway.metricsPort | default 9090 | quote }}
     spec:
       {{- include "llmgateway.imagePullSecrets" . | nindent 6 }}
       initContainers:
@@ -47,6 +50,9 @@ spec:
           ports:
             - name: http
               containerPort: 80
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.gateway.metricsPort | default 9090 }}
               protocol: TCP
           envFrom:
             - configMapRef:

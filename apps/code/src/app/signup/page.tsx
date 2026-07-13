@@ -12,6 +12,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod/v3";
 
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Button } from "@/components/ui/button";
 import {
 	Form,
@@ -25,9 +26,10 @@ import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
+import { trackSignupConversion } from "@/lib/google-tag";
 
 const formSchema = z.object({
-	name: z.string().min(2, { message: "Name is required" }),
+	name: z.string().optional(),
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
@@ -49,18 +51,11 @@ function SignupForm() {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const posthog = usePostHog();
-	const { posthogKey } = useAppConfig();
+	const { posthogKey, googleAdsSignupConversion } = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signUp } = useAuth();
-	const baseReturnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
+	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
 	const selectedPlan = searchParams.get("plan");
-	const selectedCycle = searchParams.get("cycle");
-	// Carry the chosen billing cycle through to the dashboard so
-	// InactivePlanChooser can preselect Monthly vs Annual.
-	const returnUrl =
-		selectedCycle === "annual" || selectedCycle === "monthly"
-			? `${baseReturnUrl}${baseReturnUrl.includes("?") ? "&" : "?"}cycle=${selectedCycle}`
-			: baseReturnUrl;
 
 	useUser({
 		redirectTo: returnUrl,
@@ -88,7 +83,7 @@ function SignupForm() {
 
 		const { error } = await signUp.email(
 			{
-				name: values.name,
+				name: values.name?.trim() ?? "",
 				email: values.email,
 				password: values.password,
 			},
@@ -104,8 +99,14 @@ function SignupForm() {
 							email: values.email,
 							name: values.name,
 							plan: selectedPlan,
+							method: "email",
 						});
 					}
+					trackSignupConversion({
+						email: values.email,
+						method: "email",
+						sendTo: googleAdsSignupConversion,
+					});
 					toast.success("Account created", {
 						description:
 							"Please check your email to verify your account before signing in.",
@@ -253,7 +254,7 @@ function SignupForm() {
 						</p>
 					</div>
 
-					<div className="mt-8">
+					<div className="mt-8 space-y-4">
 						<Form {...form}>
 							<form
 								onSubmit={form.handleSubmit(onSubmit)}
@@ -264,9 +265,13 @@ function SignupForm() {
 									name="name"
 									render={({ field }) => (
 										<FormItem>
-											<FormLabel>Name</FormLabel>
+											<FormLabel>Name (optional)</FormLabel>
 											<FormControl>
-												<Input placeholder="John Doe" {...field} />
+												<Input
+													placeholder="John Doe"
+													autoComplete="name"
+													{...field}
+												/>
 											</FormControl>
 											<FormMessage />
 										</FormItem>
@@ -318,6 +323,25 @@ function SignupForm() {
 								</Button>
 							</form>
 						</Form>
+
+						<div className="relative">
+							<div className="absolute inset-0 flex items-center">
+								<span className="w-full border-t" />
+							</div>
+							<div className="relative flex justify-center text-xs uppercase">
+								<span className="bg-background px-2 text-muted-foreground">
+									Or
+								</span>
+							</div>
+						</div>
+
+						<SocialAuthButtons
+							isLoading={isLoading}
+							setIsLoading={setIsLoading}
+							callbackPath={returnUrl}
+							errorCallbackPath="/signup"
+							newUserCallbackPath={returnUrl}
+						/>
 					</div>
 
 					<p className="mt-6 text-center text-sm text-muted-foreground">

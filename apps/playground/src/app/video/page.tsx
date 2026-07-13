@@ -3,16 +3,22 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import VideoPageClient from "@/components/playground/video-page-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import {
+	decodeModelPreference,
+	VIDEO_MODEL_COOKIE,
+} from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Video Generation",
+	title: "AI Video Generator — Compare Veo, Wan & More in One Playground",
 	description:
 		"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in one playground.",
+	alternates: { canonical: "/video" },
 };
 
 export default async function VideoPage({
@@ -21,13 +27,22 @@ export default async function VideoPage({
 	searchParams: Promise<{ orgId: string; projectId: string }>;
 }) {
 	const { orgId, projectId } = await searchParams;
+	const cookieStore = await cookies();
+	const initialModelPreference = decodeModelPreference(
+		cookieStore.get(VIDEO_MODEL_COOKIE)?.value,
+	);
 
 	const [models, providers] = await Promise.all([
 		fetchModels(),
 		fetchProviders(),
 	]);
 
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
+	// Ensure the dedicated Chat org exists, then list it so it can back the
+	// default billing context for the playground.
+	await fetchServerData("GET", "/playground/chat-org");
+	const initialOrganizationsData = await fetchServerData("GET", "/orgs", {
+		params: { query: { includeChat: "true" } },
+	});
 
 	let initialProjectsData: { projects: Project[] } | null = null;
 	if (orgId) {
@@ -62,7 +77,7 @@ export default async function VideoPage({
 		}
 	}
 
-	const organizations = (
+	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
 		"organizations" in initialOrganizationsData
@@ -70,8 +85,14 @@ export default async function VideoPage({
 					.organizations
 			: []
 	) as Organization[];
+	// The Chat org backs the default billing context and must not appear in the
+	// dashboard org switcher.
+	const chatOrg = allOrganizations.find((o) => o.kind === "chat") ?? null;
+	const organizations = allOrganizations.filter((o) => o.kind === "default");
 	const selectedOrganization =
-		(orgId ? organizations.find((o) => o.id === orgId) : organizations[0]) ??
+		(orgId ? organizations.find((o) => o.id === orgId) : null) ??
+		chatOrg ??
+		organizations[0] ??
 		null;
 
 	if (!initialProjectsData && selectedOrganization?.id) {
@@ -105,7 +126,6 @@ export default async function VideoPage({
 			notFound();
 		}
 	} else if (selectedOrganization?.id) {
-		const cookieStore = await cookies();
 		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
@@ -122,6 +142,7 @@ export default async function VideoPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
+			<PlaygroundSeoSection variant="video" />
 			<VideoPageClient
 				models={models}
 				providers={providers}
@@ -129,6 +150,7 @@ export default async function VideoPage({
 				selectedOrganization={selectedOrganization}
 				projects={projects}
 				selectedProject={selectedProject}
+				initialModelPreference={initialModelPreference}
 			/>
 		</>
 	);

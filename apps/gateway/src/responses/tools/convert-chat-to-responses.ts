@@ -24,6 +24,7 @@ interface ChatCompletionsResponse {
 		};
 		finish_reason?: string | null;
 	}>;
+	service_tier?: string | null;
 	usage?: {
 		prompt_tokens?: number;
 		completion_tokens?: number;
@@ -54,6 +55,7 @@ interface ChatCompletionsResponse {
 			web_search_cost?: number | null;
 			image_input_cost?: number | null;
 			image_output_cost?: number | null;
+			audio_input_cost?: number | null;
 			data_storage_cost?: number | null;
 		};
 	};
@@ -90,6 +92,7 @@ export interface ResponsesApiUsage {
 		web_search_cost?: number | null;
 		image_input_cost?: number | null;
 		image_output_cost?: number | null;
+		audio_input_cost?: number | null;
 		data_storage_cost?: number | null;
 	};
 }
@@ -155,6 +158,83 @@ export interface ResponsesEchoRequest {
 	metadata?: Record<string, unknown>;
 	safety_identifier?: string;
 	prompt_cache_key?: string;
+	prompt_cache_retention?: "in_memory" | "24h";
+}
+
+/**
+ * Normalize echoed tools so each function tool has all fields the Open Responses
+ * spec marks as required-nullable (description, parameters, strict). The spec's
+ * functionToolSchema rejects responses where these are missing even though many
+ * callers omit them on the request side.
+ */
+export function normalizeEchoedTools(tools: unknown[] | undefined): unknown[] {
+	if (!tools) {
+		return [];
+	}
+	return tools.map((tool) => {
+		if (
+			typeof tool !== "object" ||
+			tool === null ||
+			(tool as Record<string, unknown>).type !== "function"
+		) {
+			return tool;
+		}
+		const t = tool as Record<string, unknown>;
+		return {
+			...t,
+			description: t.description ?? null,
+			parameters: t.parameters ?? null,
+			strict: t.strict ?? null,
+		};
+	});
+}
+
+/**
+ * Resolve the processing tier the provider actually served from a chat
+ * completions response. OpenAI echoes it as a top-level `service_tier`;
+ * other providers (e.g. Google flex/priority) surface it via the gateway's
+ * `metadata.used_service_tier` (null there means downgraded to standard).
+ * Returns undefined when the chat response carries no tier information.
+ */
+function resolveServedServiceTier(
+	chatResponse: ChatCompletionsResponse,
+): string | undefined {
+	if (typeof chatResponse.service_tier === "string") {
+		return chatResponse.service_tier;
+	}
+	const metadata = chatResponse.metadata;
+	if (metadata && typeof metadata.requested_service_tier === "string") {
+		return typeof metadata.used_service_tier === "string"
+			? metadata.used_service_tier
+			: "default";
+	}
+	return undefined;
+}
+
+/**
+ * Normalize chat-completions-style annotations to the Responses API shape:
+ * chat nests citation fields under `url_citation`, the Responses API flattens
+ * them onto the annotation object.
+ */
+export function normalizeAnnotationsToResponses(
+	annotations: Array<Record<string, unknown>> | undefined,
+): Array<Record<string, unknown>> {
+	if (!annotations?.length) {
+		return [];
+	}
+	return annotations.map((annotation) => {
+		if (
+			annotation.type === "url_citation" &&
+			annotation.url_citation &&
+			typeof annotation.url_citation === "object"
+		) {
+			return {
+				type: "url_citation",
+				...(annotation.url_citation as Record<string, unknown>),
+			};
+		}
+		return annotation;
+	});
 }
 
 /**
@@ -208,7 +288,7 @@ export function convertChatResponseToResponses(
 			{
 				type: "output_text",
 				text: message.content,
-				annotations: message.annotations ?? [],
+				annotations: normalizeAnnotationsToResponses(message.annotations),
 			},
 		];
 
@@ -263,7 +343,7 @@ export function convertChatResponseToResponses(
 		instructions: request?.instructions ?? null,
 		output,
 		error: null,
-		tools: request?.tools ?? [],
+		tools: normalizeEchoedTools(request?.tools),
 		tool_choice: request?.tool_choice ?? "auto",
 		truncation: request?.truncation ?? "disabled",
 		parallel_tool_calls: request?.parallel_tool_calls ?? true,
@@ -284,7 +364,10 @@ export function convertChatResponseToResponses(
 		max_tool_calls: request?.max_tool_calls ?? null,
 		store: request?.store ?? true,
 		background: request?.background ?? false,
-		service_tier: request?.service_tier ?? "default",
+		service_tier:
+			resolveServedServiceTier(chatResponse) ??
+			request?.service_tier ??
+			"default",
 		metadata: {
 			...(request?.metadata ?? {}),
 			...(chatResponse.metadata ?? {}),

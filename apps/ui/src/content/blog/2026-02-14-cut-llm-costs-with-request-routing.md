@@ -99,7 +99,7 @@ The exact numbers depend on your traffic patterns, but the principle holds: most
 
 LLM Gateway handles all of this out of the box:
 
-- **Smart routing** across 300+ models from every major provider
+- **Smart routing** across 200+ models from every major provider
 - **Response caching** with Redis for instant repeated queries
 - **Automatic fallback** when providers go down
 - **Cost tracking** so you can see exactly where your money goes
@@ -116,4 +116,4 @@ curl https://api.llmgateway.io/v1/chat/completions \
 
 Switch models by changing a single string. No SDK changes, no code rewrites.
 
-**[Start saving on LLM costs](/signup)** | **[Compare model pricing](/models)** | **[Read the docs](https://docs.llmgateway.io)**
+**[Start saving on LLM costs](/signup)** | **[Estimate savings with the Token Cost Calculator](/token-cost-calculator)** | **[Compare model pricing](/models)** | **[Read the docs](https://docs.llmgateway.io)**

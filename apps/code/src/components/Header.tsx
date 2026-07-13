@@ -5,10 +5,13 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
 
 export function Header() {
 	const config = useAppConfig();
+	const { user, isLoading } = useUser();
+	const isAuthenticated = !!user && !isLoading;
 	const [menuOpen, setMenuOpen] = useState(false);
 
 	return (
@@ -27,33 +30,39 @@ export function Header() {
 				{/* Desktop nav */}
 				<div className="hidden sm:flex items-center gap-3">
 					<Button variant="ghost" size="sm" asChild>
-						<a
-							href={`${config.uiUrl}/models`}
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							Models
-						</a>
+						<Link href="/coding-models">Models</Link>
+					</Button>
+					<Button variant="ghost" size="sm" asChild>
+						<Link href="/guides">Guides</Link>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
 						<Link href="/pricing">Pricing</Link>
+					</Button>
+					<Button variant="ghost" size="sm" asChild>
+						<Link href="/compare">Compare</Link>
+					</Button>
+					<Button variant="ghost" size="sm" asChild>
+						<Link href="/leaderboard">Leaderboard</Link>
 					</Button>
 					<Button variant="ghost" size="sm" asChild>
 						<a href={config.docsUrl} target="_blank" rel="noopener noreferrer">
 							Docs
 						</a>
 					</Button>
-					<Button variant="ghost" size="sm" asChild>
-						<a href={config.uiUrl} target="_blank" rel="noopener noreferrer">
-							Dashboard
-						</a>
-					</Button>
-					<Button variant="ghost" size="sm" asChild>
-						<Link href="/login">Sign in</Link>
-					</Button>
-					<Button size="sm" asChild>
-						<Link href="/signup">Get Started</Link>
-					</Button>
+					{isAuthenticated ? (
+						<Button size="sm" asChild>
+							<Link href="/dashboard">Dashboard</Link>
+						</Button>
+					) : (
+						<>
+							<Button variant="ghost" size="sm" asChild>
+								<Link href="/login">Sign in</Link>
+							</Button>
+							<Button size="sm" asChild>
+								<Link href="/signup">Get Started</Link>
+							</Button>
+						</>
+					)}
 				</div>
 
 				{/* Mobile menu button */}
@@ -78,11 +87,32 @@ export function Header() {
 						Models
 					</Link>
 					<Link
+						href="/guides"
+						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+						onClick={() => setMenuOpen(false)}
+					>
+						Guides
+					</Link>
+					<Link
 						href="/pricing"
 						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
 						onClick={() => setMenuOpen(false)}
 					>
 						Pricing
+					</Link>
+					<Link
+						href="/compare"
+						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+						onClick={() => setMenuOpen(false)}
+					>
+						Compare
+					</Link>
+					<Link
+						href="/leaderboard"
+						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+						onClick={() => setMenuOpen(false)}
+					>
+						Leaderboard
 					</Link>
 					<a
 						href={config.docsUrl}
@@ -92,26 +122,28 @@ export function Header() {
 					>
 						Docs
 					</a>
-					<a
-						href={config.uiUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
-					>
-						Dashboard
-					</a>
-					<Link
-						href="/login"
-						className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
-						onClick={() => setMenuOpen(false)}
-					>
-						Sign in
-					</Link>
-					<Button size="sm" className="w-full" asChild>
-						<Link href="/signup" onClick={() => setMenuOpen(false)}>
-							Get Started
-						</Link>
-					</Button>
+					{isAuthenticated ? (
+						<Button size="sm" className="w-full" asChild>
+							<Link href="/dashboard" onClick={() => setMenuOpen(false)}>
+								Dashboard
+							</Link>
+						</Button>
+					) : (
+						<>
+							<Link
+								href="/login"
+								className="block text-sm text-muted-foreground hover:text-foreground transition-colors"
+								onClick={() => setMenuOpen(false)}
+							>
+								Sign in
+							</Link>
+							<Button size="sm" className="w-full" asChild>
+								<Link href="/signup" onClick={() => setMenuOpen(false)}>
+									Get Started
+								</Link>
+							</Button>
+						</>
+					)}
 				</div>
 			)}
 		</header>

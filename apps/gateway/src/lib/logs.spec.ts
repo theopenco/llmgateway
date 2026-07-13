@@ -7,6 +7,7 @@ import {
 	getUnifiedFinishReason,
 	isContentFilterFinishReason,
 	isExpectedUnknownFinishReason,
+	isLengthLimitFinishReason,
 } from "./logs.js";
 
 describe("getUnifiedFinishReason", () => {
@@ -33,6 +34,30 @@ describe("getUnifiedFinishReason", () => {
 			UnifiedFinishReason.COMPLETED,
 		);
 		expect(getUnifiedFinishReason("refusal", "anthropic")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
+	it("maps Vertex Anthropic finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("end_turn", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("stop_sequence", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("max_tokens", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_use", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("refusal", "vertex-anthropic")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
+	it("maps aws-bedrock refusal to content filter", () => {
+		expect(getUnifiedFinishReason("refusal", "aws-bedrock")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
 	});
@@ -80,6 +105,27 @@ describe("getUnifiedFinishReason", () => {
 		expect(getUnifiedFinishReason("OTHER", "google-ai-studio")).toBe(
 			UnifiedFinishReason.UNKNOWN,
 		);
+	});
+
+	it("maps OpenAI-format finish reasons returned by Google providers", () => {
+		expect(getUnifiedFinishReason("stop", "google-ai-studio")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "google-ai-studio")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "google-ai-studio")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("length", "google-vertex")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(
+			getUnifiedFinishReason("MALFORMED_FUNCTION_CALL", "google-ai-studio"),
+		).toBe(UnifiedFinishReason.TOOL_CALLS);
+		expect(
+			getUnifiedFinishReason("MALFORMED_RESPONSE", "google-ai-studio"),
+		).toBe(UnifiedFinishReason.UNKNOWN);
 	});
 
 	it("maps Glacier finish reasons like Google AI Studio", () => {
@@ -151,6 +197,42 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps zai finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("stop", "zai")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "zai")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "zai")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("sensitive", "zai")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("content_filter", "zai")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
+	it("maps novita finish reasons correctly", () => {
+		expect(getUnifiedFinishReason("stop", "novita")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("length", "novita")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "novita")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("sensitive", "novita")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+		expect(getUnifiedFinishReason("content_filter", "novita")).toBe(
+			UnifiedFinishReason.CONTENT_FILTER,
+		);
+	});
+
 	it("maps llmgateway_content_filter to CONTENT_FILTER", () => {
 		expect(
 			getUnifiedFinishReason("llmgateway_content_filter", "any-provider"),
@@ -170,9 +252,24 @@ describe("isExpectedUnknownFinishReason", () => {
 		expect(isExpectedUnknownFinishReason("OTHER", "google-vertex")).toBe(true);
 	});
 
+	it("returns true for Google MALFORMED_RESPONSE finish reason", () => {
+		expect(
+			isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "google-ai-studio"),
+		).toBe(true);
+		expect(isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "glacier")).toBe(
+			true,
+		);
+		expect(
+			isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "google-vertex"),
+		).toBe(true);
+	});
+
 	it("returns false for OTHER from other providers", () => {
 		expect(isExpectedUnknownFinishReason("OTHER", "openai")).toBe(false);
 		expect(isExpectedUnknownFinishReason("OTHER", "anthropic")).toBe(false);
+		expect(isExpectedUnknownFinishReason("MALFORMED_RESPONSE", "openai")).toBe(
+			false,
+		);
 	});
 
 	it("returns false for other finish reasons from Google", () => {
@@ -211,6 +308,29 @@ describe("isContentFilterFinishReason", () => {
 
 	it("returns true for OpenAI content filters", () => {
 		expect(isContentFilterFinishReason("content_filter", "openai")).toBe(true);
+	});
+});
+
+describe("isLengthLimitFinishReason", () => {
+	it("returns true for Google MAX_TOKENS (e.g. tiny max_tokens)", () => {
+		expect(isLengthLimitFinishReason("MAX_TOKENS", "google-ai-studio")).toBe(
+			true,
+		);
+		expect(isLengthLimitFinishReason("MAX_TOKENS", "google-vertex")).toBe(true);
+	});
+
+	it("returns true for OpenAI length finish reason", () => {
+		expect(isLengthLimitFinishReason("length", "openai")).toBe(true);
+	});
+
+	it("returns true for Anthropic max_tokens finish reason", () => {
+		expect(isLengthLimitFinishReason("max_tokens", "anthropic")).toBe(true);
+	});
+
+	it("returns false for normal stop finish reasons", () => {
+		expect(isLengthLimitFinishReason("STOP", "google-ai-studio")).toBe(false);
+		expect(isLengthLimitFinishReason("stop", "openai")).toBe(false);
+		expect(isLengthLimitFinishReason(null, "openai")).toBe(false);
 	});
 });
 

@@ -1,14 +1,15 @@
 import { serve } from "@hono/node-server";
 
 import { redisClient } from "@llmgateway/cache";
-import { closeDatabase } from "@llmgateway/db";
+import { closeDatabase, setQueryTags } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 
 import { app } from "./app.js";
+import { metricsApp } from "./metrics-app.js";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
@@ -16,14 +17,23 @@ import type { Server } from "node:http";
 
 const port = Number(process.env.PORT) || 4001;
 
+// The Prometheus metrics endpoint is served on a separate port so it can be
+// exposed only internally (via the cluster network / Service) and never through
+// the public gateway ingress.
+const metricsPort = Number(process.env.METRICS_PORT) || 9090;
+
 // GCP Load Balancer has a fixed 600s keepalive timeout. Node.js default is 5s.
 // If Node closes the connection first, the LB sends requests on stale connections → 502.
 // Default to 620s (above GCP's 600s) to ensure the LB closes first.
 const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 
 let sdk: NodeSDK | null = null;
+let metricsServer: ServerType | null = null;
 
 async function startServer() {
+	// Tag every DB query with the originating service for Cloud SQL Query Insights
+	setQueryTags({ application: "gateway" });
+
 	// Initialize tracing for gateway service
 	try {
 		sdk = initializeInstrumentation({
@@ -35,6 +45,13 @@ async function startServer() {
 		// Continue without tracing
 	}
 
+	// Serve Prometheus metrics on a separate, internal-only port.
+	logger.info("Metrics server starting", { port: metricsPort });
+	metricsServer = serve({
+		port: metricsPort,
+		fetch: metricsApp.fetch,
+	});
+
 	logger.info("Server starting", { port });
 
 	return serve({
@@ -45,9 +62,12 @@ async function startServer() {
 
 let isShuttingDown = false;
 
-// Grace period for in-flight requests to complete before force closing (default 120s)
+// Grace period for in-flight requests to complete before force closing.
+// Defaults to 20 minutes to match AI_STREAMING_TIMEOUT_MS so long-running streams
+// aren't force-killed mid-flight during rollouts. Should remain <= k8s
+// terminationGracePeriodSeconds (minus any preStop sleep).
 const shutdownGracePeriodMs =
-	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 120000;
+	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 1200000;
 
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
@@ -99,6 +119,12 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		await closeServer(server);
 		logger.info("HTTP server closed");
 
+		if (metricsServer) {
+			logger.info("Closing metrics server");
+			await closeServer(metricsServer);
+			logger.info("Metrics server closed");
+		}
+
 		logger.info("Closing database connection");
 		await closeDatabase();
 		logger.info("Database connection closed");
@@ -115,10 +141,7 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		logger.info("Graceful shutdown completed");
 		process.exit(0);
 	} catch (error) {
-		logger.error(
-			"Error during graceful shutdown",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("Error during graceful shutdown", toError(error));
 		process.exit(1);
 	}
 };

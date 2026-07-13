@@ -11,7 +11,18 @@ import {
 } from "@/lib/components/select";
 import { Switch } from "@/lib/components/switch";
 
+import { validateApiKeyLimitsWithinMemberBudget } from "@llmgateway/shared";
+
 import type { ApiKey } from "@/lib/types";
+import type { ApiKeyLimitConstraints } from "@llmgateway/shared";
+
+export type MemberBudgetConstraint = ApiKeyLimitConstraints;
+
+function hasMemberBudgetCaps(budget: MemberBudgetConstraint | null): boolean {
+	return (
+		!!budget && (budget.usageLimit !== null || budget.periodUsageLimit !== null)
+	);
+}
 
 export const apiKeyPeriodDurationUnits = [
 	"hour",
@@ -142,6 +153,21 @@ export function buildApiKeyLimitPayload(value: ApiKeyLimitFormValue): {
 	};
 }
 
+/**
+ * Validate a built limit payload against the key owner's effective member
+ * budget. Returns an error string (surfaced as a toast) or null when within the
+ * budget. No-op when the member has no caps configured.
+ */
+export function validateApiKeyLimitPayloadWithinMemberBudget(
+	payload: ApiKeyLimitPayload,
+	memberBudget: MemberBudgetConstraint | null | undefined,
+): string | null {
+	if (!memberBudget || !hasMemberBudgetCaps(memberBudget)) {
+		return null;
+	}
+	return validateApiKeyLimitsWithinMemberBudget(payload, memberBudget);
+}
+
 export function formatCurrencyAmount(value: string): string {
 	return `$${Number(value).toFixed(2)}`;
 }
@@ -225,12 +251,45 @@ interface ApiKeyLimitFieldsProps {
 	idPrefix: string;
 	onChange: (value: ApiKeyLimitFormValue) => void;
 	value: ApiKeyLimitFormValue;
+	memberBudget?: MemberBudgetConstraint | null;
+}
+
+function MemberBudgetNotice({ budget }: { budget: MemberBudgetConstraint }) {
+	const parts: string[] = [];
+	if (budget.usageLimit !== null) {
+		parts.push(`${formatCurrencyAmount(budget.usageLimit)} total`);
+	}
+	if (
+		budget.periodUsageLimit !== null &&
+		budget.periodUsageDurationValue !== null &&
+		budget.periodUsageDurationUnit !== null
+	) {
+		parts.push(
+			`${formatCurrencyAmount(budget.periodUsageLimit)} per ${formatPeriodWindowLabel(
+				budget.periodUsageDurationValue,
+				budget.periodUsageDurationUnit,
+			)}`,
+		);
+	}
+
+	if (parts.length === 0) {
+		return null;
+	}
+
+	return (
+		<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+			Your organization limits you to{" "}
+			<span className="font-medium">{parts.join(" and ")}</span>. This
+			key&apos;s limits must be at or below that.
+		</div>
+	);
 }
 
 export function ApiKeyLimitFields({
 	idPrefix,
 	onChange,
 	value,
+	memberBudget,
 }: ApiKeyLimitFieldsProps) {
 	const updateValue = <K extends keyof ApiKeyLimitFormValue>(
 		key: K,
@@ -244,6 +303,9 @@ export function ApiKeyLimitFields({
 
 	return (
 		<div className="space-y-4">
+			{memberBudget && hasMemberBudgetCaps(memberBudget) && (
+				<MemberBudgetNotice budget={memberBudget} />
+			)}
 			<div className="rounded-md border p-4 space-y-3">
 				<div className="flex items-center gap-2">
 					<Switch
@@ -299,10 +361,13 @@ export function ApiKeyLimitFields({
 					Current period usage resets when the configured window elapses.
 				</div>
 				{value.periodUsageLimitEnabled && (
-					<div className="grid gap-3 md:grid-cols-[1fr_132px_132px]">
+					<div className="grid items-end gap-3 md:grid-cols-[1fr_132px_132px]">
 						<div className="space-y-2">
-							<Label htmlFor={`${idPrefix}-period-limit`}>
-								Recurring usage limit
+							<Label
+								className="whitespace-nowrap"
+								htmlFor={`${idPrefix}-period-limit`}
+							>
+								Limit
 							</Label>
 							<div className="relative">
 								<span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
@@ -337,30 +402,32 @@ export function ApiKeyLimitFields({
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor={`${idPrefix}-duration-unit`}>Unit</Label>
-							<Select
-								value={value.periodUsageDurationUnit}
-								onValueChange={(nextValue) =>
-									updateValue(
-										"periodUsageDurationUnit",
-										nextValue as ApiKeyPeriodDurationUnit,
-									)
-								}
-							>
-								<SelectTrigger
-									id={`${idPrefix}-duration-unit`}
-									className="w-full"
+							<div>
+								<Select
+									value={value.periodUsageDurationUnit}
+									onValueChange={(nextValue) =>
+										updateValue(
+											"periodUsageDurationUnit",
+											nextValue as ApiKeyPeriodDurationUnit,
+										)
+									}
 								>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{apiKeyPeriodDurationUnits.map((unit) => (
-										<SelectItem key={unit} value={unit}>
-											{unit[0]?.toUpperCase()}
-											{unit.slice(1)}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+									<SelectTrigger
+										id={`${idPrefix}-duration-unit`}
+										className="w-full"
+									>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{apiKeyPeriodDurationUnits.map((unit) => (
+											<SelectItem key={unit} value={unit}>
+												{unit[0]?.toUpperCase()}
+												{unit.slice(1)}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
 						</div>
 					</div>
 				)}

@@ -7,11 +7,21 @@ export interface GalleryItem {
 	id: string;
 	prompt: string;
 	timestamp: number;
+	// Organization context active when the generation was started. Captured up
+	// front so the saved item is attributed to the right org even if the user
+	// switches organizations while the generation is in flight.
+	organizationId?: string;
 	inputImages?: { dataUrl: string; mediaType: string }[];
+	// Sidebar thumbnail URL for items loaded from the lightweight history
+	// list, which carries no base64 image data.
+	thumbnailUrl?: string | null;
 	models: {
 		modelId: string;
 		modelName: string;
 		images: GeneratedImage[];
+		// Number of stored images for history items whose image data hasn't
+		// been fetched yet (images stays empty until the detail query resolves).
+		imageCount?: number;
 		error?: string;
 		isLoading: boolean;
 	}[];
@@ -48,10 +58,21 @@ export const GPT_IMAGE_SIZES = [
 	"2160x3840",
 ] as const;
 
+const REVE_ASPECT_RATIOS: AspectRatio[] = [
+	"auto",
+	"1:1",
+	"16:9",
+	"9:16",
+	"3:2",
+	"2:3",
+	"4:3",
+];
+
 export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
 	const isGptImage = lower.includes("gpt-image");
+	const isReve = lower.includes("reve");
 
 	const usesPixelDimensions =
 		isGptImage ||
@@ -62,18 +83,36 @@ export function getModelImageConfig(model: string) {
 
 	const isSeedream =
 		lower.includes("seedream") || lower.includes("bytedance/seedream");
+	// Seedream 5.0 Pro tops out at ~2K (no 4K preset at launch) and adds a 1K
+	// tier, unlike the other Seedream image models which run 2K/4K.
+	const isSeedreamPro = lower.includes("seedream-5-0-pro");
 
 	const isGemini31FlashImage = lower.includes("gemini-3.1-flash-image");
+	const isGemini31FlashLiteImage = lower.includes(
+		"gemini-3.1-flash-lite-image",
+	);
 
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
-		: isSeedream
-			? (["2K", "4K"] as const)
-			: isGemini31FlashImage
-				? (["0.5K", "1K", "2K", "4K"] as const)
-				: (["1K", "2K", "4K"] as const);
+		: isReve
+			? (["2K"] as const)
+			: isSeedreamPro
+				? (["1K", "2K"] as const)
+				: isSeedream
+					? (["2K", "4K"] as const)
+					: isGemini31FlashLiteImage
+						? (["1K"] as const)
+						: isGemini31FlashImage
+							? (["0.5K", "1K", "2K", "4K"] as const)
+							: (["1K", "2K", "4K"] as const);
 
-	const defaultSize = isGptImage ? "1024x1024" : isSeedream ? "2K" : "1K";
+	const defaultSize = isGptImage
+		? "1024x1024"
+		: isReve
+			? "2K"
+			: isSeedream
+				? "2K"
+				: "1K";
 
 	const supportsQuality = isGptImage;
 	const availableQualities = isGptImage
@@ -83,17 +122,23 @@ export function getModelImageConfig(model: string) {
 
 	const maxInputImages = getMaxInputImages(lower);
 
+	const supportedAspectRatios: AspectRatio[] | undefined = isReve
+		? REVE_ASPECT_RATIOS
+		: undefined;
+
 	return {
 		usesPixelDimensions,
 		isSeedream,
 		isGemini31FlashImage,
 		isGptImage,
+		isReve,
 		availableSizes,
 		defaultSize,
 		supportsQuality,
 		availableQualities,
 		defaultQuality,
 		maxInputImages,
+		supportedAspectRatios,
 	};
 }
 

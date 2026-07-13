@@ -40,24 +40,24 @@ const threeProviderModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "google-vertex",
-			modelName: "test-model-vertex",
+			externalId: "test-model-vertex",
 			streaming: true,
-			inputPrice: 0.5,
-			outputPrice: 1.0,
+			inputPrice: "0.5",
+			outputPrice: "1.0",
 		},
 		{
 			providerId: "google-ai-studio",
-			modelName: "test-model-studio",
+			externalId: "test-model-studio",
 			streaming: true,
-			inputPrice: 0.5,
-			outputPrice: 1.0,
+			inputPrice: "0.5",
+			outputPrice: "1.0",
 		},
 		{
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 			streaming: true,
-			inputPrice: 0.3,
-			outputPrice: 0.6,
+			inputPrice: "0.3",
+			outputPrice: "0.6",
 		},
 	],
 };
@@ -73,10 +73,10 @@ const singleActiveProviderModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "google-vertex",
-			modelName: "test-model-vertex",
+			externalId: "test-model-vertex",
 			streaming: true,
-			inputPrice: 0.5,
-			outputPrice: 1.0,
+			inputPrice: "0.5",
+			outputPrice: "1.0",
 		},
 	],
 };
@@ -88,7 +88,7 @@ const freeModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "openai",
-			modelName: "free-model-openai",
+			externalId: "free-model-openai",
 			streaming: true,
 		},
 	],
@@ -100,17 +100,17 @@ const paidModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "openai",
-			modelName: "paid-model-openai",
+			externalId: "paid-model-openai",
 			streaming: true,
-			inputPrice: 5.0,
-			outputPrice: 15.0,
+			inputPrice: "5.0",
+			outputPrice: "15.0",
 		},
 		{
 			providerId: "anthropic",
-			modelName: "paid-model-anthropic",
+			externalId: "paid-model-anthropic",
 			streaming: true,
-			inputPrice: 3.0,
-			outputPrice: 10.0,
+			inputPrice: "3.0",
+			outputPrice: "10.0",
 		},
 	],
 };
@@ -443,6 +443,166 @@ describe("validateModelAccess — allow_models", () => {
 
 		expect(result.allowed).toBe(false);
 		expect(result.reason).toContain("not in the allowed models list");
+	});
+
+	it("unions multiple allow_models rules — model in the second rule's list", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-allow-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-allow-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("denies with all group rule IDs when model is in none of the allow_models rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-allow-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-allow-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["another-model"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed models list");
+		expect(result.reason).toContain("Rule IDs: rule-allow-1, rule-allow-2");
+	});
+
+	it("a no-op allow_models rule does not open up a group with a restrictive sibling", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-noop",
+				ruleType: "allow_models",
+				ruleValue: {},
+			}),
+			makeRule({
+				id: "rule-allow",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed models list");
+	});
+
+	it("allow_providers + multiple allow_models rules: model allowed by either rule passes", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-models-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-models-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+});
+
+describe("validateModelAccess — multiple allow_providers rules", () => {
+	it("unions the provider lists of allow_providers rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers-1",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-providers-2",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders?.sort()).toEqual([
+			"google-vertex",
+			"openai",
+		]);
+	});
+
+	it("denies a requested provider that is in none of the allow_providers rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers-1",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-providers-2",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			"google-ai-studio",
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed providers list");
 	});
 });
 
@@ -960,7 +1120,7 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("never selects a provider not in the IAM-filtered list", () => {
 		// Simulate IAM filtering: only openai is allowed
 		const iamFilteredProviders = [
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -977,14 +1137,14 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 		});
 	});
 
 	it("returns null when the only scored providers are IAM-denied", () => {
 		// IAM allows only openai, but only google providers are scored
 		const iamFilteredProviders = [
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -1004,8 +1164,8 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("skips IAM-denied providers even when they have the best score", () => {
 		// IAM denies google-vertex
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -1022,15 +1182,15 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "google-ai-studio",
-			modelName: "test-model-studio",
+			externalId: "test-model-studio",
 		});
 	});
 
 	it("handles both IAM filtering and failed providers together", () => {
 		// IAM denies google-vertex; google-ai-studio has failed
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 		const failedProviders = new Set(["google-ai-studio"]);
 
@@ -1048,15 +1208,15 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 		});
 	});
 
 	it("returns null when all providers are either IAM-denied or failed", () => {
 		// IAM denies google-vertex; openai and google-ai-studio have failed
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 		const failedProviders = new Set(["google-ai-studio", "openai"]);
 
@@ -1078,7 +1238,7 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("with empty IAM-filtered list returns null (all providers denied)", () => {
 		const iamFilteredProviders: Array<{
 			providerId: string;
-			modelName: string;
+			externalId: string;
 		}> = [];
 
 		const providerScores = [
@@ -1189,6 +1349,166 @@ describe("validateModelAccess — edge cases", () => {
 			paidModel.id,
 			undefined,
 			paidModel,
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+});
+
+// ===========================
+// allow_ip_cidrs / deny_ip_cidrs
+// ===========================
+
+describe("validateModelAccess — IP CIDR rules", () => {
+	it("allow_ip_cidrs permits requests from IPv4 within the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.42",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs denies requests from IPv4 outside the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"198.51.100.1",
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("198.51.100.1");
+	});
+
+	it("allow_ip_cidrs permits IPv6 within the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["2001:db8::/32"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"2001:db8::1",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs supports IPv4-mapped IPv6 client addresses", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"::ffff:192.0.2.42",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs denies when client IP is not available", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			undefined,
+		);
+
+		expect(result.allowed).toBe(false);
+	});
+
+	it("deny_ip_cidrs blocks requests from listed range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_ip_cidrs",
+				ruleValue: { ipCidrs: ["10.0.0.0/8", "2001:db8:bad::/48"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"10.1.2.3",
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("10.1.2.3");
+	});
+
+	it("deny_ip_cidrs allows requests from outside the listed ranges", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_ip_cidrs",
+				ruleValue: { ipCidrs: ["10.0.0.0/8"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.1",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("ignores malformed CIDR entries without throwing", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["not-a-cidr", "192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.5",
 		);
 
 		expect(result.allowed).toBe(true);

@@ -13,8 +13,16 @@ import {
 import { cookies } from "next/headers";
 import { z } from "zod";
 
+import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 import { getModelImageConfig } from "@/lib/image-gen";
+import {
+	isRecord,
+	readNumber,
+	readString,
+	type PlaygroundMessageMetadata,
+} from "@/lib/message-metadata";
+import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -51,6 +59,31 @@ interface McpCallToolResult {
 	isError?: boolean;
 }
 
+interface PlaygroundMetadataFinishStepPart {
+	type: "finish-step";
+	response: {
+		modelId: string;
+		headers?: Record<string, string>;
+	};
+	usage: {
+		inputTokens?: number;
+		inputTokenDetails?: {
+			cacheReadTokens?: number;
+		};
+		outputTokens?: number;
+	};
+	providerMetadata?: unknown;
+}
+
+type PlaygroundMetadataStreamPart =
+	| PlaygroundMetadataFinishStepPart
+	| { type: string };
+
+type GatewayResponseMetadata = Pick<
+	PlaygroundMessageMetadata,
+	"logId" | "organizationId" | "projectId" | "discount"
+>;
+
 /**
  * Type guard to check if a value is an MCP CallToolResult
  */
@@ -75,6 +108,218 @@ function isMcpTextContent(value: unknown): value is McpTextContent {
 		"text" in value &&
 		typeof (value as McpTextContent).text === "string"
 	);
+}
+
+function isPlaygroundMetadataFinishStepPart(
+	part: PlaygroundMetadataStreamPart,
+): part is PlaygroundMetadataFinishStepPart {
+	return part.type === "finish-step" && "response" in part && "usage" in part;
+}
+
+function readLLMGatewayProvider(
+	providerMetadata: unknown,
+): Record<string, unknown> | undefined {
+	if (!isRecord(providerMetadata)) {
+		return undefined;
+	}
+	const llmgateway = providerMetadata.llmgateway;
+	return isRecord(llmgateway) ? llmgateway : undefined;
+}
+
+function extractGatewayResponseMetadata(
+	value: unknown,
+): GatewayResponseMetadata | undefined {
+	if (!isRecord(value)) {
+		return undefined;
+	}
+
+	const metadata = isRecord(value.metadata)
+		? (value.metadata as Record<string, unknown>)
+		: isRecord(value.responseMetadata)
+			? (value.responseMetadata as Record<string, unknown>)
+			: value;
+
+	const gatewayMetadata: GatewayResponseMetadata = {
+		logId: readString(metadata.log_id),
+		organizationId: readString(metadata.organization_id),
+		projectId: readString(metadata.project_id),
+		discount: readNumber(metadata.discount),
+	};
+
+	if (
+		!gatewayMetadata.logId &&
+		!gatewayMetadata.organizationId &&
+		!gatewayMetadata.projectId &&
+		gatewayMetadata.discount === undefined
+	) {
+		return undefined;
+	}
+
+	return gatewayMetadata;
+}
+
+function mergeGatewayResponseMetadata(
+	metadata: PlaygroundMessageMetadata | undefined,
+	gatewayMetadata: GatewayResponseMetadata | undefined,
+): PlaygroundMessageMetadata | undefined {
+	if (!gatewayMetadata) {
+		return metadata;
+	}
+
+	return {
+		...(metadata ?? {}),
+		...(gatewayMetadata.logId ? { logId: gatewayMetadata.logId } : {}),
+		...(gatewayMetadata.organizationId
+			? { organizationId: gatewayMetadata.organizationId }
+			: {}),
+		...(gatewayMetadata.projectId
+			? { projectId: gatewayMetadata.projectId }
+			: {}),
+		...(gatewayMetadata.discount !== undefined
+			? { discount: gatewayMetadata.discount }
+			: {}),
+	};
+}
+
+interface GatewaySourceCitation {
+	url: string;
+	title?: string;
+}
+
+// The gateway surfaces web search results as OpenAI-style `url_citation`
+// annotations, which the AI SDK provider does not forward as source parts
+// when streaming — so they are captured here from the raw SSE side-channel.
+function extractUrlCitations(value: unknown): GatewaySourceCitation[] {
+	if (!isRecord(value) || !Array.isArray(value.choices)) {
+		return [];
+	}
+
+	const citations: GatewaySourceCitation[] = [];
+	for (const choice of value.choices) {
+		if (!isRecord(choice)) {
+			continue;
+		}
+		for (const container of [choice.delta, choice.message]) {
+			if (!isRecord(container) || !Array.isArray(container.annotations)) {
+				continue;
+			}
+			for (const annotation of container.annotations) {
+				if (
+					!isRecord(annotation) ||
+					annotation.type !== "url_citation" ||
+					!isRecord(annotation.url_citation)
+				) {
+					continue;
+				}
+				const url = readString(annotation.url_citation.url);
+				if (url) {
+					citations.push({
+						url,
+						title: readString(annotation.url_citation.title),
+					});
+				}
+			}
+		}
+	}
+
+	return citations;
+}
+
+function createGatewayMetadataCaptureStream(
+	onMetadata: (metadata: GatewayResponseMetadata) => void,
+	onCitations?: (citations: GatewaySourceCitation[]) => void,
+): TransformStream<Uint8Array, Uint8Array> {
+	const decoder = new TextDecoder();
+	let buffer = "";
+
+	const parseEvents = (events: string[]) => {
+		for (const event of events) {
+			const data = event
+				.split("\n")
+				.filter((line) => line.startsWith("data:"))
+				.map((line) => line.slice(5).trimStart())
+				.join("\n");
+			if (!data || data === "[DONE]") {
+				continue;
+			}
+
+			try {
+				const parsed: unknown = JSON.parse(data);
+				const metadata = extractGatewayResponseMetadata(parsed);
+				if (metadata) {
+					onMetadata(metadata);
+				}
+				if (onCitations) {
+					const citations = extractUrlCitations(parsed);
+					if (citations.length > 0) {
+						onCitations(citations);
+					}
+				}
+			} catch {
+				// Ignore non-JSON stream events.
+			}
+		}
+	};
+
+	return new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			buffer += decoder.decode(chunk, { stream: true });
+			const events = buffer.split("\n\n");
+			buffer = events.pop() ?? "";
+			parseEvents(events);
+			controller.enqueue(chunk);
+		},
+		flush() {
+			buffer += decoder.decode();
+			if (buffer) {
+				parseEvents([buffer]);
+			}
+		},
+	});
+}
+
+function extractPlaygroundMessageMetadata(
+	part: PlaygroundMetadataStreamPart,
+): PlaygroundMessageMetadata | undefined {
+	if (!isPlaygroundMetadataFinishStepPart(part)) {
+		return undefined;
+	}
+
+	const llmgateway = readLLMGatewayProvider(part.providerMetadata);
+	const llmgatewayUsage =
+		llmgateway && isRecord(llmgateway.usage)
+			? (llmgateway.usage as Record<string, unknown>)
+			: undefined;
+	const llmgatewayMetadata =
+		llmgateway && isRecord(llmgateway.metadata)
+			? (llmgateway.metadata as Record<string, unknown>)
+			: llmgateway && isRecord(llmgateway.responseMetadata)
+				? (llmgateway.responseMetadata as Record<string, unknown>)
+				: llmgateway;
+
+	const promptTokensDetails = llmgatewayUsage?.promptTokensDetails;
+	const requestId = readString(part.response.headers?.["x-request-id"]);
+
+	const metadata: PlaygroundMessageMetadata = {
+		usedModel: part.response.modelId,
+		...(requestId ? { requestId } : {}),
+		...extractGatewayResponseMetadata(llmgatewayMetadata),
+		usage: {
+			inputTokens:
+				readNumber(llmgatewayUsage?.promptTokens) ?? part.usage.inputTokens,
+			// Prefer the gateway's cachedTokens (enriched metadata) over the AI SDK's
+			// cacheReadTokens — the gateway has access to the actual billed token counts.
+			cachedInputTokens: isRecord(promptTokensDetails)
+				? readNumber(promptTokensDetails.cachedTokens)
+				: part.usage.inputTokenDetails?.cacheReadTokens,
+			outputTokens:
+				readNumber(llmgatewayUsage?.completionTokens) ??
+				part.usage.outputTokens,
+			totalCost: readNumber(llmgatewayUsage?.cost),
+		},
+	};
+
+	return metadata;
 }
 
 /**
@@ -279,6 +524,21 @@ function isImageFilePart(value: unknown): value is ImageFilePart {
 	);
 }
 
+// Joined text parts of the latest user message, e.g. for image prompts and
+// knowledge base retrieval queries.
+function getLastUserText(messages: UIMessage[]): string {
+	const lastUserMessage = [...messages]
+		.reverse()
+		.find((m) => m.role === "user");
+	if (!Array.isArray(lastUserMessage?.parts)) {
+		return "";
+	}
+	return lastUserMessage.parts
+		.filter((p): p is { type: "text"; text: string } => p.type === "text")
+		.map((p) => p.text)
+		.join("\n");
+}
+
 interface ChatRequestBody {
 	messages: UIMessage[];
 	model?: string;
@@ -310,6 +570,24 @@ interface ChatRequestBody {
 	web_search?: boolean;
 	mcp_servers?: McpServerConfig[];
 	is_image_gen?: boolean;
+	temporary_chat?: boolean;
+	skill_instructions?: string;
+	project_id?: string;
+}
+
+interface ProjectRetrievalResponse {
+	project: {
+		id: string;
+		name: string;
+		instructions: string;
+	};
+	chunks: {
+		content: string;
+		score: number;
+		fileId: string;
+		fileName: string;
+	}[];
+	memories: string[];
 }
 
 interface McpClientWrapper {
@@ -337,10 +615,37 @@ export async function POST(req: Request) {
 		web_search,
 		mcp_servers,
 		is_image_gen,
+		skill_instructions,
+		project_id,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
 		return new Response(JSON.stringify({ error: "Missing messages" }), {
+			status: 400,
+		});
+	}
+
+	if (
+		body.temporary_chat !== undefined &&
+		typeof body.temporary_chat !== "boolean"
+	) {
+		return new Response(JSON.stringify({ error: "Invalid temporary_chat" }), {
+			status: 400,
+		});
+	}
+
+	if (
+		skill_instructions !== undefined &&
+		typeof skill_instructions !== "string"
+	) {
+		return new Response(
+			JSON.stringify({ error: "Invalid skill_instructions" }),
+			{ status: 400 },
+		);
+	}
+
+	if (project_id !== undefined && typeof project_id !== "string") {
+		return new Response(JSON.stringify({ error: "Invalid project_id" }), {
 			status: 400,
 		});
 	}
@@ -351,8 +656,8 @@ export async function POST(req: Request) {
 
 	const cookieStore = await cookies();
 	const cookieApiKey =
-		cookieStore.get("llmgateway_playground_key")?.value ??
-		cookieStore.get("__Host-llmgateway_playground_key")?.value;
+		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
+		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value;
 	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
@@ -366,9 +671,64 @@ export async function POST(req: Request) {
 			? "http://localhost:4001/v1"
 			: "https://api.llmgateway.io/v1");
 
+	let latestGatewayResponseMetadata: GatewayResponseMetadata | undefined;
+	const captureGatewayMetadata = (metadata: GatewayResponseMetadata) => {
+		latestGatewayResponseMetadata = {
+			...latestGatewayResponseMetadata,
+			...metadata,
+		};
+	};
+	const collectedCitations: GatewaySourceCitation[] = [];
+	const seenCitationUrls = new Set<string>();
+	const captureGatewayCitations = (citations: GatewaySourceCitation[]) => {
+		for (const citation of citations) {
+			if (!seenCitationUrls.has(citation.url)) {
+				seenCitationUrls.add(citation.url);
+				collectedCitations.push(citation);
+			}
+		}
+	};
+	const gatewayFetch: typeof fetch = async (input, init) => {
+		const response = await fetch(input, init);
+		const contentType = response.headers.get("content-type") ?? "";
+
+		if (contentType.includes("text/event-stream") && response.body) {
+			const providerStream = response.body.pipeThrough(
+				createGatewayMetadataCaptureStream(
+					captureGatewayMetadata,
+					captureGatewayCitations,
+				),
+			);
+
+			return new Response(providerStream, {
+				status: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
+			});
+		}
+
+		if (contentType.includes("application/json")) {
+			void response
+				.clone()
+				.json()
+				.then((json: unknown) => {
+					const metadata = extractGatewayResponseMetadata(json);
+					if (metadata) {
+						captureGatewayMetadata(metadata);
+					}
+				})
+				.catch(() => {
+					// Ignore JSON parsing errors in the metadata side-channel.
+				});
+		}
+
+		return response;
+	};
+
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
 		baseURL: gatewayUrl,
+		fetch: gatewayFetch,
 		headers: {
 			"x-source": "chat.llmgateway.io",
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),
@@ -403,12 +763,7 @@ export async function POST(req: Request) {
 			const fileParts: { url: string; mediaType: string }[] = [];
 			if (lastUserMessage) {
 				if (Array.isArray(lastUserMessage.parts)) {
-					prompt = lastUserMessage.parts
-						.filter(
-							(p): p is { type: "text"; text: string } => p.type === "text",
-						)
-						.map((p) => p.text)
-						.join("\n");
+					prompt = getLastUserText(messages);
 					for (const p of lastUserMessage.parts) {
 						if (fileParts.length >= maxInputImages) {
 							break;
@@ -534,6 +889,57 @@ export async function POST(req: Request) {
 				JSON.stringify({ error: detailedMessage ?? message }),
 				{ status },
 			);
+		}
+	}
+
+	// Project (knowledge base) context: retrieve the chunks most relevant to
+	// the latest user message plus the project's instructions and memories, and
+	// prepend them to the system prompt. Retrieval failures degrade to a normal
+	// chat.
+	let projectContext: string | undefined;
+	// Kept for memory extraction after the stream finishes.
+	let projectQueryText = "";
+	if (project_id) {
+		projectQueryText = getLastUserText(messages).slice(0, 10_000);
+		const retrieval = await fetchServerData<ProjectRetrievalResponse>(
+			"POST",
+			"/chat-projects/{id}/retrieve",
+			{
+				params: { path: { id: project_id } },
+				body: {
+					query: projectQueryText.trim() || "Project knowledge base overview",
+				},
+				// Bill the query embedding to the same gateway key as the chat.
+				headers: { "x-llmgateway-key": finalApiKey },
+				// Don't let a slow retrieval stall the chat; on timeout the
+				// request proceeds without project context.
+				signal: AbortSignal.timeout(15_000),
+			},
+		);
+		if (retrieval) {
+			const sections: string[] = [];
+			if (retrieval.project.instructions.trim()) {
+				sections.push(
+					`Project instructions:\n${retrieval.project.instructions}`,
+				);
+			}
+			if (retrieval.memories?.length) {
+				sections.push(
+					`Project memory — durable facts saved from earlier chats in this project:\n${retrieval.memories
+						.map((memory) => `- ${memory}`)
+						.join("\n")}`,
+				);
+			}
+			if (retrieval.chunks.length) {
+				sections.push(
+					`Relevant excerpts from the project's knowledge base files. Ground your answer in these excerpts and mention the source file when you use one:\n\n${retrieval.chunks
+						.map((chunk) => `[Source: ${chunk.fileName}]\n${chunk.content}`)
+						.join("\n\n---\n\n")}`,
+				);
+			}
+			if (sections.length) {
+				projectContext = `You are answering inside the project "${retrieval.project.name}".\n\n${sections.join("\n\n")}`;
+			}
 		}
 	}
 
@@ -801,11 +1207,29 @@ export async function POST(req: Request) {
 		const hasTools = Object.keys(allTools).length > 0;
 
 		// Streaming chat with optional MCP tools
+		const existingSystem = messages
+			.filter((m) => m.role === "system")
+			.map((m) =>
+				m.parts
+					.filter(
+						(p): p is Extract<typeof p, { type: "text" }> => p.type === "text",
+					)
+					.map((p) => p.text)
+					.join(""),
+			)
+			.join("\n\n");
+		const resolvedSystem =
+			[existingSystem, skill_instructions, projectContext]
+				.filter(Boolean)
+				.join("\n\n") || undefined;
 		const result = streamText({
-			model: llmgateway.chat(selectedModel),
-			messages: await convertToModelMessages(messages),
+			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
+			messages: await convertToModelMessages(
+				messages.filter((m) => m.role !== "system"),
+			),
+			...(resolvedSystem ? { system: resolvedSystem } : {}),
 			...(hasTools ? { tools: allTools, maxSteps: 10 } : {}),
-			onFinish: async () => {
+			onFinish: async ({ text }) => {
 				// Clean up MCP clients when streaming is done
 				for (const { client } of mcpClients) {
 					try {
@@ -814,15 +1238,80 @@ export async function POST(req: Request) {
 						// Ignore close errors
 					}
 				}
+
+				// Fire-and-forget memory extraction from this exchange; failures
+				// never affect the chat response.
+				if (
+					project_id &&
+					body.temporary_chat !== true &&
+					projectQueryText.trim() &&
+					text?.trim()
+				) {
+					void fetchServerData("POST", "/chat-projects/{id}/memories/extract", {
+						params: { path: { id: project_id } },
+						body: {
+							userMessage: projectQueryText.slice(0, 8000),
+							assistantMessage: text.slice(0, 8000),
+						},
+						// Bill the extraction model call to the same gateway key
+						// as the chat.
+						headers: { "x-llmgateway-key": finalApiKey },
+						signal: AbortSignal.timeout(90_000),
+					});
+				}
 			},
 		});
 
 		// Build the UI message stream and pipe through SSE formatting
+		let latestMessageMetadata: PlaygroundMessageMetadata | undefined;
 		const uiStream = result.toUIMessageStream({
 			sendReasoning: true,
 			sendSources: true,
+			messageMetadata: ({ part }) => {
+				if (part.type === "finish") {
+					return mergeGatewayResponseMetadata(
+						latestMessageMetadata,
+						latestGatewayResponseMetadata,
+					);
+				}
+				const metadata = mergeGatewayResponseMetadata(
+					extractPlaygroundMessageMetadata(part),
+					latestGatewayResponseMetadata,
+				);
+				if (metadata) {
+					latestMessageMetadata = metadata;
+				}
+				return undefined;
+			},
 		});
-		const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
+		// The provider drops gateway web-search annotations when streaming, so
+		// citations captured from the raw SSE are re-emitted as source-url parts
+		// at the end of each step, where the UI renders them as Sources.
+		type PlaygroundUIMessageChunk =
+			typeof uiStream extends ReadableStream<infer TChunk> ? TChunk : never;
+		let emittedCitationCount = 0;
+		const uiStreamWithSources = uiStream.pipeThrough(
+			new TransformStream<PlaygroundUIMessageChunk, PlaygroundUIMessageChunk>({
+				transform(chunk, controller) {
+					if (chunk.type === "finish-step") {
+						while (emittedCitationCount < collectedCitations.length) {
+							const citation = collectedCitations[emittedCitationCount];
+							controller.enqueue({
+								type: "source-url",
+								sourceId: `gateway-citation-${emittedCitationCount}`,
+								url: citation.url,
+								...(citation.title ? { title: citation.title } : {}),
+							} as PlaygroundUIMessageChunk);
+							emittedCitationCount++;
+						}
+					}
+					controller.enqueue(chunk);
+				},
+			}),
+		);
+		const sseStream = uiStreamWithSources.pipeThrough(
+			new JsonToSseTransformStream(),
+		);
 
 		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
 		// timeouts on long-running requests (e.g. tool calls, reasoning).

@@ -1,40 +1,52 @@
 import {
 	models,
 	providers,
+	expandAllProviderRegions,
 	type ProviderDefinition,
 	type ProviderModelMapping,
 	type ProviderId,
+	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderEnvConfig,
+	resolveVertexTokenType,
 } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
+function appendPath(url: string, path: string): string {
+	return `${url.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+function getBedrockMantleBaseUrl(url: string, region?: string): string {
+	if (url.includes("/openai/v1")) {
+		return url;
+	}
+	if (url.includes("bedrock-mantle.")) {
+		return appendPath(url, "/openai/v1");
+	}
+	if (url.includes("bedrock-runtime.")) {
+		const mantleRegion =
+			region === "global" || region === "us"
+				? "us-west-2"
+				: (region ?? "us-west-2");
+		return `https://bedrock-mantle.${mantleRegion}.api.aws/openai/v1`;
+	}
+	return appendPath(url, "/openai/v1");
+}
+
 function buildVertexCompatibleEndpoint(
 	provider: "google-vertex" | "quartz",
 	url: string,
-	modelName: string | undefined,
+	externalId: string | undefined,
 	token: string | undefined,
 	stream: boolean | undefined,
 	configIndex: number | undefined,
 	providerKeyOptions?: ProviderKeyOptions,
+	skipEnvVars?: boolean,
+	vertexTokenType?: VertexTokenType,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
-	const model = modelName ?? "gemini-2.5-flash-lite";
-
-	if (model === "gemini-2.0-flash-lite" || model === "gemini-2.5-flash-lite") {
-		const baseEndpoint = `${url}/v1/publishers/google/models/${model}:${endpoint}`;
-		const queryParams = [];
-		if (token) {
-			queryParams.push(`key=${token}`);
-		}
-		if (stream) {
-			queryParams.push("alt=sse");
-		}
-		return queryParams.length > 0
-			? `${baseEndpoint}?${queryParams.join("&")}`
-			: baseEndpoint;
-	}
+	const model = externalId ?? "gemini-2.5-flash-lite";
 
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
@@ -49,9 +61,21 @@ function buildVertexCompatibleEndpoint(
 		);
 	}
 
+	// Only Google Vertex supports OAuth bearer auth; Quartz always uses the
+	// `?key=` API-key query param.
+	const tokenType =
+		provider === "google-vertex"
+			? (vertexTokenType ??
+				resolveVertexTokenType(
+					provider,
+					providerKeyOptions,
+					configIndex,
+					skipEnvVars,
+				))
+			: "api-key";
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
 	const queryParams = [];
-	if (token) {
+	if (token && tokenType === "api-key") {
 		queryParams.push(`key=${token}`);
 	}
 	if (stream) {
@@ -63,7 +87,16 @@ function buildVertexCompatibleEndpoint(
 }
 
 /**
- * Get the endpoint URL for a provider API call
+ * Get the endpoint URL for a provider API call.
+ *
+ * @param model - The upstream model id sent in the URL path (e.g. for Google
+ *   Vertex `/models/${model}:generateContent`). Pass the canonical gateway
+ *   model id and the function will resolve the upstream id via the registry;
+ *   if you already have the upstream id (Azure deployment override, etc.),
+ *   pass it directly.
+ * @param modelId - Canonical gateway model id, used to look up
+ *   capability info (e.g. supportsResponsesApi). When omitted, falls back to
+ *   `model` — but pass the root id explicitly whenever you have it.
  */
 export function getProviderEndpoint(
 	provider: ProviderId,
@@ -78,16 +111,29 @@ export function getProviderEndpoint(
 	imageGenerations?: boolean,
 	region?: string,
 	skipEnvVars?: boolean,
+	modelId?: string,
+	vertexTokenType?: VertexTokenType,
 ): string {
-	let modelName = model;
+	let externalId = model;
+	let providerMapping: ProviderModelMapping | undefined;
 	if (model && model !== "custom") {
-		const modelInfo = models.find((m) => m.id === model);
+		const modelInfo = models.find((m) => m.id === (modelId ?? model));
 		if (modelInfo) {
-			const providerMapping = modelInfo.providers.find(
-				(p) => p.providerId === provider,
+			const expandedProviderMappings = expandAllProviderRegions(
+				modelInfo.providers,
 			);
+			providerMapping =
+				expandedProviderMappings.find(
+					(p) =>
+						p.providerId === provider &&
+						(region ? p.region === region : !p.region),
+				) ??
+				expandedProviderMappings.find(
+					(p) => p.providerId === provider && !p.region,
+				) ??
+				expandedProviderMappings.find((p) => p.providerId === provider);
 			if (providerMapping) {
-				modelName = providerMapping.modelName;
+				externalId = providerMapping.externalId;
 			}
 		}
 	}
@@ -154,6 +200,16 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "granite":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("granite", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "google-vertex":
 				url =
 					envValueOrDefault(
@@ -162,6 +218,36 @@ export function getProviderEndpoint(
 						"https://aiplatform.googleapis.com",
 					) ?? "https://aiplatform.googleapis.com";
 				break;
+			case "vertex-openai": {
+				const vertexOpenaiDefaultHost =
+					regionBaseUrl ?? "https://aiplatform.googleapis.com";
+				url =
+					envValueOrDefault(
+						"vertex-openai",
+						"baseUrl",
+						vertexOpenaiDefaultHost,
+					) ?? vertexOpenaiDefaultHost;
+				break;
+			}
+			case "vertex-anthropic": {
+				const vaDefaultRegion =
+					providerKeyOptions?.vertex_anthropic_region ??
+					getProviderEnvValue(
+						"vertex-anthropic",
+						"region",
+						configIndex,
+						"global",
+					) ??
+					"global";
+				const vaDefaultHost =
+					vaDefaultRegion === "global"
+						? "https://aiplatform.googleapis.com"
+						: `https://${vaDefaultRegion}-aiplatform.googleapis.com`;
+				url =
+					envValueOrDefault("vertex-anthropic", "baseUrl", vaDefaultHost) ??
+					vaDefaultHost;
+				break;
+			}
 			case "quartz":
 				url = skipEnvVars
 					? undefined
@@ -169,6 +255,16 @@ export function getProviderEndpoint(
 				if (!url) {
 					throw new Error(
 						"Quartz provider requires LLM_QUARTZ_BASE_URL environment variable",
+					);
+				}
+				break;
+			case "tundra":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue("tundra", "baseUrl", configIndex);
+				if (!url) {
+					throw new Error(
+						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
 					);
 				}
 				break;
@@ -202,6 +298,9 @@ export function getProviderEndpoint(
 			case "moonshot":
 				url = "https://api.moonshot.ai";
 				break;
+			case "meta":
+				url = "https://api.meta.ai";
+				break;
 			case "alibaba": {
 				const alibabaBaseUrl =
 					regionBaseUrl ?? "https://dashscope-intl.aliyuncs.com";
@@ -228,14 +327,34 @@ export function getProviderEndpoint(
 			case "minimax":
 				url = "https://api.minimax.io";
 				break;
-			case "aws-bedrock":
+			case "sakana":
+				url = "https://api.sakana.ai";
+				break;
+			case "reve":
+				url = "https://api.reve.com";
+				break;
+			case "xiaomi":
 				url =
 					envValueOrDefault(
-						"aws-bedrock",
+						"xiaomi",
 						"baseUrl",
-						"https://bedrock-runtime.us-east-1.amazonaws.com",
-					) ?? "https://bedrock-runtime.us-east-1.amazonaws.com";
+						"https://api.xiaomimimo.com",
+					) ?? "https://api.xiaomimimo.com";
 				break;
+			case "aws-bedrock": {
+				// Precedence: explicit baseUrl arg (handled above) > env baseUrl >
+				// region-derived endpoint > hardcoded default. An explicitly
+				// configured base URL (e.g. a proxy / private endpoint) must win
+				// over the region endpoint so regional requests don't bypass it.
+				const envBaseUrl = skipEnvVars
+					? undefined
+					: getProviderEnvValue("aws-bedrock", "baseUrl", configIndex);
+				url =
+					envBaseUrl ??
+					regionBaseUrl ??
+					"https://bedrock-runtime.us-east-1.amazonaws.com";
+				break;
+			}
 			case "azure": {
 				const resource =
 					providerKeyOptions?.azure_resource ??
@@ -274,8 +393,14 @@ export function getProviderEndpoint(
 				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}
+			case "canopywave":
+				url = "https://inference.canopywave.io";
+				break;
 			case "embercloud":
 				url = "https://api.embercloud.ai";
+				break;
+			case "deepinfra":
+				url = "https://api.deepinfra.com/v1/openai";
 				break;
 			case "custom":
 				if (!baseUrl) {
@@ -297,8 +422,8 @@ export function getProviderEndpoint(
 			return `${url}/v1/messages`;
 		case "google-ai-studio": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = modelName
-				? `${url}/v1beta/models/${modelName}:${endpoint}`
+			const baseEndpoint = externalId
+				? `${url}/v1beta/models/${externalId}:${endpoint}`
 				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
 			const queryParams = [];
 			if (token) {
@@ -313,8 +438,8 @@ export function getProviderEndpoint(
 		}
 		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
-			const baseEndpoint = modelName
-				? `${url}/v1beta/models/${modelName}:${endpoint}`
+			const baseEndpoint = externalId
+				? `${url}/v1beta/models/${externalId}:${endpoint}`
 				: `${url}/v1beta/models/gemini-2.0-flash:${endpoint}`;
 			const queryParams = [];
 			if (token) {
@@ -332,12 +457,65 @@ export function getProviderEndpoint(
 			return buildVertexCompatibleEndpoint(
 				provider,
 				url,
-				modelName,
+				externalId,
 				token,
 				stream,
 				configIndex,
 				providerKeyOptions,
+				skipEnvVars,
+				vertexTokenType,
 			);
+		case "vertex-openai": {
+			const projectId =
+				providerKeyOptions?.vertex_openai_project_id ??
+				getProviderEnvValue("vertex-openai", "project", configIndex);
+			if (!projectId) {
+				const providerEnv = getProviderEnvConfig("vertex-openai");
+				throw new Error(
+					`${providerEnv?.required.project ?? "LLM_VERTEX_OPENAI_PROJECT"} environment variable is required for vertex-openai model "${externalId}"`,
+				);
+			}
+			const vertexRegion =
+				region ??
+				providerKeyOptions?.vertex_openai_region ??
+				getProviderEnvValue("vertex-openai", "region", configIndex, "global") ??
+				"global";
+			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
+		}
+		case "vertex-anthropic": {
+			let vaProjectId: string | undefined =
+				process.env.LLM_VERTEX_ANTHROPIC_PROJECT;
+			if (!vaProjectId) {
+				const saJson = process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
+				if (saJson) {
+					try {
+						const sa = JSON.parse(saJson) as { project_id?: string };
+						vaProjectId = sa.project_id;
+					} catch {
+						// ignore parse errors; error thrown below
+					}
+				}
+			}
+			const vaRegion =
+				providerKeyOptions?.vertex_anthropic_region ??
+				getProviderEnvValue(
+					"vertex-anthropic",
+					"region",
+					configIndex,
+					"global",
+				) ??
+				"global";
+
+			if (!vaProjectId) {
+				throw new Error(
+					"vertex-anthropic provider requires LLM_VERTEX_ANTHROPIC_PROJECT or a valid LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON with project_id",
+				);
+			}
+
+			const vaModel = externalId ?? "claude-sonnet-4-6";
+			const vaEndpoint = stream ? "streamRawPredict" : "rawPredict";
+			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
+		}
 		case "perplexity":
 			return `${url}/chat/completions`;
 		case "novita":
@@ -348,13 +526,28 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
+			if (providerMapping?.apiFormat === "openai-chat-completions") {
+				const mantleBaseUrl = getBedrockMantleBaseUrl(url, region);
+				return appendPath(mantleBaseUrl, "/chat/completions");
+			}
+
+			const awsRegionPrefix = region
+				? (
+						providers.find((p) => p.id === "aws-bedrock") as
+							| ProviderDefinition
+							| undefined
+					)?.regionConfig?.modelPrefixMap?.[region]
+				: undefined;
+			// envValueOrDefault honors skipEnvVars (BYOK), so the server's
+			// LLM_AWS_BEDROCK_REGION can't silently affect provider-key routing.
 			const prefix =
 				providerKeyOptions?.aws_bedrock_region_prefix ??
-				getProviderEnvValue("aws-bedrock", "region", configIndex, "global.") ??
+				awsRegionPrefix ??
+				envValueOrDefault("aws-bedrock", "region", "global.") ??
 				"global.";
 
 			const endpoint = stream ? "converse-stream" : "converse";
-			return `${url}/model/${prefix}${modelName}/${endpoint}`;
+			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}
 		case "azure": {
 			const deploymentType =
@@ -385,9 +578,9 @@ export function getProviderEndpoint(
 						providerKeyOptions?.azure_api_version ??
 						getProviderEnvValue("azure", "apiVersion", configIndex) ??
 						"2025-04-01-preview";
-					return `${url}/openai/deployments/${modelName}/images/generations?api-version=${imageApiVersion}`;
+					return `${url}/openai/deployments/${externalId}/images/generations?api-version=${imageApiVersion}`;
 				}
-				return `${url}/openai/deployments/${modelName}/chat/completions?api-version=${apiVersion}`;
+				return `${url}/openai/deployments/${externalId}/chat/completions?api-version=${apiVersion}`;
 			} else {
 				// Azure AI Foundry (unified endpoint)
 				if (imageGenerations) {
@@ -403,13 +596,7 @@ export function getProviderEndpoint(
 				);
 
 				if (model && useResponsesApiEnv !== "false") {
-					const modelDef = models.find(
-						(m) =>
-							m.id === model ||
-							m.providers.some(
-								(p) => p.modelName === model && p.providerId === "azure",
-							),
-					);
+					const modelDef = models.find((m) => m.id === (modelId ?? model));
 					const providerMapping = modelDef?.providers.find(
 						(p) => p.providerId === "azure",
 					);
@@ -418,7 +605,7 @@ export function getProviderEndpoint(
 						true;
 
 					if (supportsResponsesApi) {
-						return `${url}/openai/v1/responses`;
+						return `${url}/openai/v1/responses?api-version=preview`;
 					}
 				}
 				return `${url}/openai/v1/chat/completions`;
@@ -442,14 +629,7 @@ export function getProviderEndpoint(
 			}
 			// Use responses endpoint for models that support responses API
 			if (model) {
-				// Look up by model ID first, then fall back to provider modelName
-				const modelDef = models.find(
-					(m) =>
-						m.id === model ||
-						m.providers.some(
-							(p) => p.modelName === model && p.providerId === "openai",
-						),
-				);
+				const modelDef = models.find((m) => m.id === (modelId ?? model));
 				const providerMapping = modelDef?.providers.find(
 					(p) => p.providerId === "openai",
 				);
@@ -478,16 +658,64 @@ export function getProviderEndpoint(
 				return `${url}/v1/images/generations`;
 			}
 			return `${url}/v1/chat/completions`;
+		case "reve":
+			if (imageGenerations) {
+				return `${url}/v1/image/create`;
+			}
+			return `${url}/v1/image/create`;
+		case "deepinfra":
+			return `${url}/chat/completions`;
+		case "sakana": {
+			// Fugu exposes reasoning summaries only through the Responses API, but
+			// its Responses API streams the whole answer as a single delta on
+			// completion. So use the Responses API only for non-streaming requests
+			// (where reasoning matters and chunking doesn't); stream over the Chat
+			// Completions endpoint, which emits incremental content deltas.
+			if (!stream && model) {
+				const modelDef = models.find((m) => m.id === (modelId ?? model));
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === "sakana",
+				);
+				const supportsResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
+				if (supportsResponsesApi) {
+					return `${url}/v1/responses`;
+				}
+			}
+			return `${url}/v1/chat/completions`;
+		}
 		case "inference.net":
 		case "llmgateway":
 		case "groq":
 		case "cerebras":
+		case "meta": {
+			// Muse Spark only exposes reasoning (as summaries) through the
+			// Responses API — Chat Completions redacts reasoning_content entirely.
+			if (model) {
+				const modelDef = models.find((m) => m.id === (modelId ?? model));
+				const providerMapping = modelDef?.providers.find(
+					(p) => p.providerId === "meta",
+				);
+				const supportsResponsesApi =
+					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
+					true;
+
+				if (supportsResponsesApi) {
+					return `${url}/v1/responses`;
+				}
+			}
+			return `${url}/v1/chat/completions`;
+		}
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
 		case "nanogpt":
+		case "canopywave":
 		case "minimax":
+		case "xiaomi":
 		case "embercloud":
+		case "tundra":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

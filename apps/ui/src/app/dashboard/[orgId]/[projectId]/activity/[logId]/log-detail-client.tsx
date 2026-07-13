@@ -36,6 +36,11 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+} from "@llmgateway/models";
+
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 
@@ -197,6 +202,34 @@ function formatDuration(ms: number) {
 		return `${ms}ms`;
 	}
 	return `${(ms / 1000).toFixed(2)}s`;
+}
+
+// Selection reasons where the weighted-score formula is bypassed entirely, so
+// every provider's score is a hardcoded 0 placeholder rather than a real value.
+// "session-sticky" is intentionally excluded: it scores providers with the
+// normal weighted algorithm and pins the result for the session, so the logged
+// scores are real values worth surfacing. The all-zero fallback below hides
+// those scores when they couldn't be computed (no metrics available).
+const SCORE_BYPASSED_SELECTION_REASONS = new Set([
+	"random-exploration",
+	"price-only-no-metrics",
+]);
+
+// The per-provider score only carries information when scoring actually ran.
+// Exploration/price-only paths emit 0 for every provider, and "stable-preferred"
+// can layer on top of a sticky pick, so treat an all-zero set as "scoring did
+// not run" regardless of the reason.
+function isProviderScoreMeaningful(
+	selectionReason: string | null | undefined,
+	providerScores: { score: number }[],
+): boolean {
+	if (
+		selectionReason &&
+		SCORE_BYPASSED_SELECTION_REASONS.has(selectionReason)
+	) {
+		return false;
+	}
+	return providerScores.some((s) => s.score !== 0);
 }
 
 function isBase64ImageChar(char: string) {
@@ -437,8 +470,8 @@ export function LogDetailClient({
 		Number(log.dataStorageCost) > 0;
 
 	const throughput =
-		log.duration && log.totalTokens
-			? (Number(log.totalTokens) / (log.duration / 1000)).toFixed(1)
+		log.duration && log.completionTokens
+			? (Number(log.completionTokens) / (log.duration / 1000)).toFixed(1)
 			: null;
 
 	return (
@@ -651,79 +684,87 @@ export function LogDetailClient({
 											/>
 										)}
 									{log.routingMetadata.providerScores &&
-										log.routingMetadata.providerScores.length > 0 && (
-											<div className="mt-3 pt-3 border-t border-border/50">
-												<p className="text-xs text-muted-foreground mb-2">
-													Provider Scores
-												</p>
-												<div className="space-y-1.5">
-													{log.routingMetadata.providerScores.map((score) => (
-														<div
-															key={`${score.providerId}-${score.region ?? "default"}`}
-															className="flex items-center justify-between text-xs font-mono"
-														>
-															<span className="flex items-center gap-1.5">
-																{score.providerId}
-																{score.region && (
-																	<span className="text-muted-foreground">
-																		({score.region})
-																	</span>
-																)}
-																{score.failed && (
-																	<span className="inline-flex items-center gap-0.5 text-red-500">
-																		<AlertCircle className="h-3 w-3" />
-																		<span>
-																			{score.status_code}
-																			{score.error_type && (
-																				<span className="ml-0.5 text-red-400">
-																					{score.error_type}
-																				</span>
-																			)}
+										log.routingMetadata.providerScores.length > 0 &&
+										(() => {
+											const scores = log.routingMetadata?.providerScores ?? [];
+											const showScore = isProviderScoreMeaningful(
+												log.routingMetadata?.selectionReason,
+												scores,
+											);
+											return (
+												<div className="mt-3 pt-3 border-t border-border/50">
+													<p className="text-xs text-muted-foreground mb-2">
+														Provider Scores
+													</p>
+													<div className="space-y-1.5">
+														{scores.map((score) => (
+															<div
+																key={`${score.providerId}-${score.region ?? "default"}`}
+																className="flex items-center justify-between text-xs font-mono"
+															>
+																<span className="flex items-center gap-1.5">
+																	{score.providerId}
+																	{score.region && (
+																		<span className="text-muted-foreground">
+																			({score.region})
 																		</span>
-																	</span>
-																)}
-																{score.rate_limited && (
-																	<span className="inline-flex items-center gap-0.5 text-amber-500">
-																		<Clock className="h-3 w-3" />
-																		<span>rpm capped</span>
-																	</span>
-																)}
-																{score.excludedByContentFilter && (
-																	<span className="inline-flex items-center gap-0.5 text-amber-500">
-																		<Ban className="h-3 w-3" />
-																		<span>content filter</span>
-																	</span>
-																)}
-															</span>
-															<span className="text-muted-foreground font-mono">
-																{score.score.toFixed(2)}
-																{score.uptime !== undefined && (
-																	<span className="ml-2">
-																		{score.uptime?.toFixed(0)}% up
-																	</span>
-																)}
-																{score.throughput !== undefined && (
-																	<span className="ml-2">
-																		{score.throughput?.toFixed(0)}t/s
-																	</span>
-																)}
-																{score.latency !== undefined && (
-																	<span className="ml-2">
-																		{score.latency?.toFixed(0)}ms
-																	</span>
-																)}
-																{score.price !== undefined && (
-																	<span className="ml-2">${score.price}</span>
-																)}
-																{score.cacheSupported && (
-																	<span className="ml-2">cache</span>
-																)}
-															</span>
-														</div>
-													))}
+																	)}
+																	{score.failed && (
+																		<span className="inline-flex items-center gap-0.5 text-red-500">
+																			<AlertCircle className="h-3 w-3" />
+																			<span>
+																				{score.status_code}
+																				{score.error_type && (
+																					<span className="ml-0.5 text-red-400">
+																						{score.error_type}
+																					</span>
+																				)}
+																			</span>
+																		</span>
+																	)}
+																	{score.rate_limited && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Clock className="h-3 w-3" />
+																			<span>rpm capped</span>
+																		</span>
+																	)}
+																	{score.excludedByContentFilter && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Ban className="h-3 w-3" />
+																			<span>content filter</span>
+																		</span>
+																	)}
+																</span>
+																<span className="text-muted-foreground font-mono">
+																	{showScore && score.score.toFixed(2)}
+																	{score.uptime !== undefined && (
+																		<span className="ml-2">
+																			{score.uptime?.toFixed(0)}% up
+																		</span>
+																	)}
+																	{score.throughput !== undefined && (
+																		<span className="ml-2">
+																			{score.throughput?.toFixed(0)}t/s
+																		</span>
+																	)}
+																	{score.latency !== undefined && (
+																		<span className="ml-2">
+																			{score.latency?.toFixed(0)}ms
+																		</span>
+																	)}
+																	{score.price !== undefined && (
+																		<span className="ml-2">${score.price}</span>
+																	)}
+																	{score.cacheSupported && (
+																		<span className="ml-2">cache</span>
+																	)}
+																</span>
+															</div>
+														))}
+													</div>
 												</div>
-											</div>
-										)}
+											);
+										})()}
 									{log.routingMetadata.routing &&
 										log.routingMetadata.routing.length > 0 && (
 											<div className="mt-3 pt-3 border-t border-border/50">
@@ -843,6 +884,14 @@ export function LogDetailClient({
 													muted
 												/>
 											)}
+										{!!log.cacheWriteInputCost &&
+											Number(log.cacheWriteInputCost) > 0 && (
+												<Field
+													label="Cache Write Cost"
+													value={`$${Number(log.cacheWriteInputCost).toFixed(8)}`}
+													muted
+												/>
+											)}
 										<Field
 											label="Request Cost"
 											value={
@@ -859,6 +908,14 @@ export function LogDetailClient({
 												muted
 											/>
 										)}
+										{!!log.contentFilterCost &&
+											Number(log.contentFilterCost) > 0 && (
+												<Field
+													label="Content Filter Cost"
+													value={`$${Number(log.contentFilterCost).toFixed(8)}`}
+													muted
+												/>
+											)}
 										{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
 											<Field
 												label="Image Input Cost"
@@ -882,6 +939,13 @@ export function LogDetailClient({
 													muted
 												/>
 											)}
+										{!!log.audioInputCost && Number(log.audioInputCost) > 0 && (
+											<Field
+												label="Audio Input Cost"
+												value={`$${Number(log.audioInputCost).toFixed(8)}`}
+												muted
+											/>
+										)}
 										<Field
 											label="Inference Total"
 											value={log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
@@ -900,6 +964,38 @@ export function LogDetailClient({
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}
+										{log.requestedServiceTier && (
+											<Field
+												label="Requested Service Tier"
+												value={
+													log.requestedServiceTier.charAt(0).toUpperCase() +
+													log.requestedServiceTier.slice(1)
+												}
+											/>
+										)}
+										{log.usedServiceTier &&
+											(() => {
+												const tierName =
+													log.usedServiceTier.charAt(0).toUpperCase() +
+													log.usedServiceTier.slice(1);
+												const tier = getServiceTier(
+													log.usedProvider ?? "",
+													log.usedServiceTier,
+												);
+												const multiplier = tier
+													? formatServiceTierMultiplier(tier.multiplier)
+													: "";
+												return (
+													<Field
+														label="Used Service Tier"
+														value={
+															multiplier
+																? `${tierName} (${multiplier})`
+																: tierName
+														}
+													/>
+												);
+											})()}
 									</div>
 								</div>
 								<div className="border-t border-border/50 pt-4">
@@ -929,6 +1025,26 @@ export function LogDetailClient({
 								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
 									<Field label="Cached Input Tokens" value={log.cachedTokens} />
 								)}
+								{log.cacheWriteTokens && Number(log.cacheWriteTokens) > 0 && (
+									<Field
+										label="Cache Write Tokens"
+										value={log.cacheWriteTokens}
+									/>
+								)}
+								{log.cacheWrite5mTokens &&
+									Number(log.cacheWrite5mTokens) > 0 && (
+										<Field
+											label="Cache Write Tokens (5m TTL)"
+											value={log.cacheWrite5mTokens}
+										/>
+									)}
+								{log.cacheWrite1hTokens &&
+									Number(log.cacheWrite1hTokens) > 0 && (
+										<Field
+											label="Cache Write Tokens (1h TTL)"
+											value={log.cacheWrite1hTokens}
+										/>
+									)}
 								{log.reasoningTokens && (
 									<Field label="Reasoning Tokens" value={log.reasoningTokens} />
 								)}
@@ -942,6 +1058,12 @@ export function LogDetailClient({
 									<Field
 										label="Image Output Tokens"
 										value={log.imageOutputTokens}
+									/>
+								)}
+								{log.audioInputTokens && Number(log.audioInputTokens) > 0 && (
+									<Field
+										label="Audio Input Tokens"
+										value={log.audioInputTokens}
 									/>
 								)}
 								<Field
@@ -1044,6 +1166,19 @@ export function LogDetailClient({
 												label="Copy request ID"
 											/>
 										</span>
+									}
+								/>
+								<Field
+									label="Trace ID"
+									value={
+										log.traceId ? (
+											<span className="inline-flex items-center gap-2">
+												<span className="font-mono text-xs">{log.traceId}</span>
+												<CopyButton value={log.traceId} label="Copy trace ID" />
+											</span>
+										) : (
+											"—"
+										)
 									}
 								/>
 								<Field

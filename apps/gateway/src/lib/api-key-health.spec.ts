@@ -2,11 +2,14 @@ import { describe, it, expect, beforeEach } from "vitest";
 
 import {
 	isKeyHealthy,
+	isTrackedKeyHealthy,
 	reportKeySuccess,
 	reportKeyError,
+	reportTrackedKeyError,
 	getKeyHealth,
 	getKeyMetrics,
 	getAllKeyMetrics,
+	getTrackedKeyMetrics,
 	calculateUptimePenalty,
 	resetKeyHealth,
 	UPTIME_PENALTY_THRESHOLD,
@@ -58,6 +61,85 @@ describe("api-key-health", () => {
 			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0)).toBe(false);
 			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 1)).toBe(true);
 			expect(isKeyHealthy("LLM_ANTHROPIC_API_KEY", 0)).toBe(true);
+		});
+
+		it("should propagate auth blacklist across selection scopes", () => {
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 401, undefined, "gpt-4");
+			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0, "gpt-4")).toBe(false);
+			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0, "claude-3-5-sonnet")).toBe(
+				false,
+			);
+			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0)).toBe(false);
+			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 1, "gpt-4")).toBe(true);
+		});
+
+		it("should propagate invalid-key payload blacklist across scopes", () => {
+			reportKeyError(
+				"LLM_OPENAI_API_KEY",
+				0,
+				400,
+				"API key not valid. Please pass a valid API key.",
+				"gpt-4",
+			);
+			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0, "gpt-4")).toBe(false);
+			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0, "claude-3-5-sonnet")).toBe(
+				false,
+			);
+		});
+
+		it("should keep non-auth uptime penalties scoped per model", () => {
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+			reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+
+			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0, "gpt-4")).toBe(false);
+			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0, "claude-3-5-sonnet")).toBe(
+				true,
+			);
+		});
+
+		it("should propagate tracked-key auth blacklist across scopes", () => {
+			reportTrackedKeyError("provider-key-1", 401, undefined, "gpt-4");
+			expect(isTrackedKeyHealthy("provider-key-1", "gpt-4")).toBe(false);
+			expect(isTrackedKeyHealthy("provider-key-1", "claude-3-5-sonnet")).toBe(
+				false,
+			);
+			expect(isTrackedKeyHealthy("provider-key-1")).toBe(false);
+			expect(isTrackedKeyHealthy("provider-key-2", "gpt-4")).toBe(true);
+		});
+
+		it("should surface unscoped blacklist in metrics for new scopes", () => {
+			reportTrackedKeyError("provider-key-1", 401, undefined, "gpt-4");
+			const metrics = getTrackedKeyMetrics(
+				"provider-key-1",
+				"claude-3-5-sonnet",
+			);
+			expect(metrics.permanentlyBlacklisted).toBe(true);
+			expect(metrics.uptime).toBe(0);
+		});
+
+		it("should report zero uptime for blacklisted keys even with prior successes in another scope", () => {
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0, "gpt-4");
+			reportKeySuccess("LLM_OPENAI_API_KEY", 0, "gpt-4");
+			reportKeyError(
+				"LLM_OPENAI_API_KEY",
+				0,
+				401,
+				undefined,
+				"claude-3-5-sonnet",
+			);
+
+			const successScopeMetrics = getKeyMetrics(
+				"LLM_OPENAI_API_KEY",
+				0,
+				"gpt-4",
+			);
+			expect(successScopeMetrics.permanentlyBlacklisted).toBe(true);
+			expect(successScopeMetrics.uptime).toBe(0);
+
+			const unscopedMetrics = getKeyMetrics("LLM_OPENAI_API_KEY", 0);
+			expect(unscopedMetrics.permanentlyBlacklisted).toBe(true);
+			expect(unscopedMetrics.uptime).toBe(0);
 		});
 	});
 
@@ -152,6 +234,22 @@ describe("api-key-health", () => {
 				0,
 				400,
 				"API Key not found. Please pass a valid API key.",
+			);
+
+			expect(getKeyMetrics("LLM_OPENAI_API_KEY", 0)).toMatchObject({
+				uptime: 0,
+				totalRequests: 1,
+				consecutiveErrors: 0,
+				permanentlyBlacklisted: true,
+			});
+		});
+
+		it("should permanently blacklist ignored 4xx with invalid key text", () => {
+			reportKeyError(
+				"LLM_OPENAI_API_KEY",
+				0,
+				400,
+				"API key not valid. Please pass a valid API key.",
 			);
 
 			expect(getKeyMetrics("LLM_OPENAI_API_KEY", 0)).toMatchObject({

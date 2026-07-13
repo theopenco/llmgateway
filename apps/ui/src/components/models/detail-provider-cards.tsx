@@ -37,11 +37,13 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 	const formatPrice = (
 		price: string | null | undefined,
 		discount?: string | null,
+		align: "center" | "end" = "center",
+		multiplier = 1,
 	) => {
 		if (price === null || price === undefined) {
 			return "—";
 		}
-		const priceNum = parseFloat(price);
+		const priceNum = parseFloat(price) * multiplier;
 		const discountNum = discount ? parseFloat(discount) : 0;
 		const originalPrice = parseFloat((priceNum * 1e6).toFixed(4));
 		if (discountNum > 0) {
@@ -49,7 +51,9 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 				(priceNum * 1e6 * (1 - discountNum)).toFixed(4),
 			);
 			return (
-				<div className="flex flex-col justify-items-center">
+				<div
+					className={`flex flex-col gap-0.5 ${align === "end" ? "items-end" : "items-center"}`}
+				>
 					<div className="flex items-center gap-1">
 						<span className="line-through text-muted-foreground text-xs">
 							${originalPrice}
@@ -58,6 +62,9 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 							${discountedPrice}
 						</span>
 					</div>
+					<span className="text-[9px] font-semibold leading-none rounded px-1 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+						{Math.round(discountNum * 100)}% off
+					</span>
 				</div>
 			);
 		}
@@ -108,7 +115,7 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 						(mappings.length === 1 && !!mappings[0].region);
 
 					return (
-						<div key={providerId} className="flex flex-col gap-3">
+						<div key={providerId} className="flex h-full flex-col gap-3">
 							<ProviderSection
 								modelId={model.id}
 								providerInfo={providerInfo}
@@ -121,8 +128,12 @@ export function DetailProviderCards({ model }: { model: ModelWithProviders }) {
 								copyToClipboard={copyToClipboard}
 								copiedModel={copiedModel}
 								isImageGen={isImageGen}
+								detailed
 							/>
-							<ModelCtaButton modelId={`${providerId}/${model.id}`} />
+							<ModelCtaButton
+								modelId={`${providerId}/${model.id}`}
+								output={model.output}
+							/>
 						</div>
 					);
 				})}

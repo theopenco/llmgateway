@@ -1,0 +1,81 @@
+name: 🐛 Bug report
+description: Report a problem with the Gateway, DevPass, Chat Playground, Dashboard, or API.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please search [existing issues](https://github.com/theopenco/llmgateway/issues) first to avoid duplicates.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      description: Which part of LLM Gateway is affected?
+      options:
+        - "Gateway (API request routing)"
+        - "DevPass / Code"
+        - "Chat Playground"
+        - "Dashboard / UI"
+        - "API (billing, analytics, management)"
+        - "Other / not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce the issue?
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened? Include error messages, request IDs, or logs if available.
+    validations:
+      required: false
+  - type: input
+    id: model
+    attributes:
+      label: Model / provider involved
+      description: If the bug is request-related, which model and provider were you using?
+      placeholder: e.g. openai/gpt-4o-mini
+    validations:
+      required: false
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      description: Where are you seeing this?
+      options:
+        - "Cloud (llmgateway.io)"
+        - "Self-hosted"
+        - "Local development"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser/OS, SDK and version, or anything else relevant.
+    validations:
+      required: false

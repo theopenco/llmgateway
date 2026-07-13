@@ -2,6 +2,8 @@
 
 import { cookies } from "next/headers";
 
+import { PLAYGROUND_KEY_COOKIE_NAMES } from "@/lib/constants";
+
 const COOKIE_NAME = "llmgateway-last-used-project";
 
 /**
@@ -22,17 +24,21 @@ export async function setLastUsedProjectAction(
 }
 
 /**
- * Server Action to clear all last used project cookies on logout
+ * Server Action to clear cookies that should not persist across users on logout:
+ * last-used-project cookies and the auto-generated playground API key cookie.
  */
 export async function clearLastUsedProjectCookiesAction(): Promise<void> {
 	const cookieStore = await cookies();
 
-	// Get all cookies to find and delete the last-used-project ones
 	const allCookies = cookieStore.getAll();
 
 	for (const cookie of allCookies) {
 		if (cookie.name.startsWith(COOKIE_NAME)) {
 			cookieStore.delete(cookie.name);
 		}
+	}
+
+	for (const name of PLAYGROUND_KEY_COOKIE_NAMES) {
+		cookieStore.delete(name);
 	}
 }

@@ -11,6 +11,7 @@ export function extractToolCalls(
 ): any[] | null {
 	switch (provider) {
 		case "anthropic":
+		case "vertex-anthropic":
 			// Anthropic streaming tool calls come as content_block_start with tool_use type
 			if (
 				data.type === "content_block_start" &&

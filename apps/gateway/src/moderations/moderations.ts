@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
+import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -11,19 +12,29 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
-import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	applyEndUserSession,
+	assertTestWalletModelAllowed,
+} from "@/lib/end-user-session.js";
+import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
+import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -167,10 +178,6 @@ function getResponseContent(responseJson: unknown): string | null {
 	}
 
 	return JSON.stringify(responseJson);
-}
-
-function getErrorFinishReason(status: number): string {
-	return status >= 500 ? "upstream_error" : "client_error";
 }
 
 export const moderations = new OpenAPIHono<ServerTypes>();
@@ -340,40 +347,81 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	const token = extractApiToken(c);
 	const apiKey = await findApiKeyByToken(token);
 
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		throw new HTTPException(401, {
 			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
-	assertApiKeyWithinUsageLimits(apiKey);
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
 
-	const project = await findProjectById(apiKey.projectId);
-	if (!project) {
+	const baseProject = await findProjectById(apiKey.projectId);
+	if (!baseProject) {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
 	}
 
-	if (project.status === "deleted") {
+	if (baseProject.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
 
-	const organization = await findOrganizationById(project.organizationId);
-	if (!organization) {
+	// User-level limits take priority: enforce the per-member budget (set on the
+	// Teams page; fails open on read errors) before the per-key usage limits, so a
+	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
+	assertApiKeyWithinUsageLimits(apiKey);
+
+	const baseOrganization = await findOrganizationById(
+		baseProject.organizationId,
+	);
+	if (!baseOrganization) {
 		throw new HTTPException(500, {
 			message: "Could not find organization",
 		});
 	}
 
-	if (organization.status === "deleted") {
+	if (baseOrganization.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
 		});
 	}
+
+	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
+	// of the developer's org credits. No-op for normal keys.
+	const { project, organization, wallet } = await applyEndUserSession(
+		c,
+		apiKey,
+		baseProject,
+		baseOrganization,
+	);
+
+	// Sandbox wallets can only spend on free models, so reject paid moderation
+	// requests from test-mode end-user sessions.
+	const moderationModelId = upstreamModel.includes("/")
+		? upstreamModel.slice(upstreamModel.lastIndexOf("/") + 1)
+		: upstreamModel;
+	assertTestWalletModelAllowed(
+		wallet,
+		models.find((m) => m.id === moderationModelId),
+	);
+
+	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
+	// before sending if the org's policy doesn't permit it.
+	await assertProviderCompliant(organization, "openai", {
+		organizationId: project.organizationId,
+		modelId: moderationModelId,
+		apiKeyId: apiKey.id,
+		model: upstreamModel,
+	});
 
 	const retentionLevel = organization.retentionLevel ?? "none";
 
@@ -386,7 +434,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		providerKey = await findProviderKey(
 			project.organizationId,
 			"openai",
-			requestId,
+			upstreamModel,
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -396,7 +444,9 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		}
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
-		const envResult = getProviderEnv("openai");
+		const envResult = getProviderEnv("openai", {
+			selectionScope: upstreamModel,
+		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
 		envVarName = envResult.envVarName;
@@ -404,12 +454,14 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		providerKey = await findProviderKey(
 			project.organizationId,
 			"openai",
-			requestId,
+			upstreamModel,
 		);
 		if (providerKey) {
 			usedToken = providerKey.token;
 		} else {
-			const envResult = getProviderEnv("openai");
+			const envResult = getProviderEnv("openai", {
+				selectionScope: upstreamModel,
+			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
 			envVarName = envResult.envVarName;
@@ -466,6 +518,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		const fetchSignal = createCombinedSignal(controller);
 		upstreamResponse = await fetch(upstreamUrl, {
 			method: "POST",
+			// SSRF: never follow redirects on an authenticated provider request. A
+			// tenant-supplied baseUrl could 3xx to an internal host at request time,
+			// and a redirect would also leak the upstream token.
+			redirect: "error",
 			headers: {
 				"Content-Type": "application/json",
 				...getProviderHeaders("openai", usedToken, { requestId }),
@@ -607,7 +663,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			responseSize,
 			content: getResponseContent(upstreamJson),
 			reasoningContent: null,
-			finishReason: getErrorFinishReason(upstreamResponse.status),
+			finishReason: getFinishReasonFromError(
+				upstreamResponse.status,
+				upstreamText,
+			),
 			promptTokens: null,
 			completionTokens: null,
 			totalTokens: null,
@@ -647,8 +706,15 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 		return c.json(
 			(typeof upstreamJson === "string"
-				? { error: { message: upstreamJson } }
-				: upstreamJson) ?? { error: true },
+				? buildOpenAIErrorBody({
+						message: upstreamJson,
+						status: upstreamResponse.status,
+					})
+				: upstreamJson) ??
+				buildOpenAIErrorBody({
+					message: "An error occurred",
+					status: upstreamResponse.status,
+				}),
 			upstreamResponse.status as
 				| 400
 				| 401

@@ -2,16 +2,27 @@
 
 import {
 	Activity,
+	Blocks,
 	BookOpen,
 	Bot,
+	Boxes,
+	Building2,
+	Calculator,
 	ChevronDown,
+	Clock,
 	Code,
+	GitCompare,
+	Gift,
 	Github,
+	KeyRound,
+	LayoutGrid,
 	Menu,
 	MessagesSquare,
 	Network,
-	Puzzle,
+	Newspaper,
+	ScrollText,
 	Server,
+	Shield,
 	ShieldCheck,
 	Sparkles,
 	Wrench,
@@ -23,6 +34,7 @@ import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { ModelSearch } from "@/components/shared/model-search";
+import { useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import {
 	NavigationMenu,
@@ -36,23 +48,54 @@ import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import { ThemeToggle } from "./theme-toggle";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Route } from "next";
-import type { ReactNode } from "react";
 
-function ListItem({
+function IconMenuItem({
 	title,
 	href,
-	children,
+	description,
+	icon: IconComponent,
+	gradient,
 	external,
 }: {
 	title: string;
 	href: string;
-	children: ReactNode;
+	description: string;
+	icon: React.ElementType;
+	gradient: string;
 	external?: boolean;
 }) {
+	const linkClassName = cn(
+		"group/product flex items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",
+		gradient,
+		"hover:shadow-lg focus:shadow-md",
+	);
+	const iconColor = gradient.split(" ").slice(-2).join(" ");
+
+	const inner = (
+		<>
+			<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted/80 transition-colors">
+				<IconComponent
+					className={cn(
+						"h-4 w-4 text-muted-foreground transition-colors",
+						iconColor,
+					)}
+				/>
+			</div>
+			<div className="space-y-0.5">
+				<div className="text-sm font-medium leading-none">{title}</div>
+				<p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+					{description}
+				</p>
+			</div>
+		</>
+	);
+
 	return (
 		<li>
 			<NavigationMenuLink asChild>
@@ -61,23 +104,13 @@ function ListItem({
 						href={href}
 						target="_blank"
 						rel="noopener noreferrer"
-						className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+						className={linkClassName}
 					>
-						<div className="text-sm font-medium leading-none">{title}</div>
-						<p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
-							{children}
-						</p>
+						{inner}
 					</a>
 				) : (
-					<Link
-						href={href as Route}
-						prefetch={true}
-						className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-					>
-						<div className="text-sm font-medium leading-none">{title}</div>
-						<p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
-							{children}
-						</p>
+					<Link href={href as Route} prefetch={true} className={linkClassName}>
+						{inner}
 					</Link>
 				)}
 			</NavigationMenuLink>
@@ -97,8 +130,10 @@ export const Navbar = ({
 	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
+	const { user, isLoading } = useUser();
+	const isAuthenticated = !!user && !isLoading;
 
-	const featuresLinks: Array<{
+	const productsLinks: Array<{
 		title: string;
 		href: string;
 		description: string;
@@ -109,48 +144,10 @@ export const Navbar = ({
 		{
 			title: "AI Gateway",
 			href: "/features/unified-api-interface",
-			description:
-				"Route requests to 200+ LLMs through a single, unified API endpoint.",
+			description: `Route requests to ${MARKETING_STATS.models} LLMs through a single, unified API endpoint.`,
 			icon: Network,
 			gradient:
 				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
-		},
-		{
-			title: "Observability",
-			href: "/features/performance-monitoring",
-			description:
-				"Monitor usage, costs, and latency with real-time analytics dashboards.",
-			icon: Activity,
-			gradient:
-				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
-		},
-		{
-			title: "Chat Playground",
-			href: config.playgroundUrl ?? "#",
-			description:
-				"Test prompts and compare model responses side by side, instantly.",
-			icon: MessagesSquare,
-			gradient:
-				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
-			external: true,
-		},
-		{
-			title: "Guardrails",
-			href: "/features/guardrails",
-			description:
-				"Protect your AI with content moderation and safety filters.",
-			icon: ShieldCheck,
-			gradient:
-				"hover:from-amber-500/20 hover:to-orange-600/30 hover:shadow-amber-500/10 group-hover/product:text-amber-500 dark:group-hover/product:text-amber-400",
-		},
-		{
-			title: "Integrations",
-			href: "/guides",
-			description:
-				"Connect seamlessly with popular frameworks, SDKs, and tools.",
-			icon: Puzzle,
-			gradient:
-				"hover:from-pink-500/20 hover:to-rose-600/30 hover:shadow-pink-500/10 group-hover/product:text-pink-500 dark:group-hover/product:text-pink-400",
 		},
 		{
 			title: "DevPass",
@@ -163,13 +160,23 @@ export const Navbar = ({
 			external: true,
 		},
 		{
-			title: "Reliability",
-			href: "/reliability",
+			title: "Chat Playground",
+			href: config.playgroundUrl ?? "#",
 			description:
-				"Automatic failover and 99.9999% effective uptime across providers.",
-			icon: ShieldCheck,
+				"Test prompts and compare model responses side by side, instantly.",
+			icon: MessagesSquare,
 			gradient:
-				"hover:from-emerald-500/20 hover:to-green-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
+				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
+			external: true,
+		},
+		{
+			title: "Observability",
+			href: "/features/performance-monitoring",
+			description:
+				"Monitor usage, costs, and latency with real-time analytics dashboards.",
+			icon: Activity,
+			gradient:
+				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
 		},
 	];
 
@@ -177,47 +184,117 @@ export const Navbar = ({
 		title: string;
 		href: string;
 		description: string;
+		icon: React.ElementType;
+		gradient: string;
 		external?: boolean;
 	}> = [
+		{
+			title: "Enterprise",
+			href: "/enterprise",
+			description:
+				"Custom billing, extended retention, and priority support for teams.",
+			icon: Building2,
+			gradient:
+				"hover:from-blue-500/20 hover:to-blue-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
+		},
 		{
 			title: "Blog",
 			href: "/blog",
 			description: "Product updates, tutorials, benchmarks, and announcements.",
+			icon: Newspaper,
+			gradient:
+				"hover:from-amber-500/20 hover:to-orange-600/30 hover:shadow-amber-500/10 group-hover/product:text-amber-500 dark:group-hover/product:text-amber-400",
 		},
 		{
 			title: "Changelog",
 			href: "/changelog",
 			description: "What's new in LLM Gateway across releases.",
+			icon: ScrollText,
+			gradient:
+				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
+		},
+		{
+			title: "Integrations",
+			href: "/guides",
+			description:
+				"Connect seamlessly with popular frameworks, SDKs, and tools.",
+			icon: Blocks,
+			gradient:
+				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
+		},
+		{
+			title: "Reliability",
+			href: "/reliability",
+			description:
+				"Automatic failover and 99.9999% effective uptime across providers.",
+			icon: ShieldCheck,
+			gradient:
+				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
+		},
+		{
+			title: "Guardrails",
+			href: "/features/guardrails",
+			description:
+				"Protect your AI with content moderation and safety filters.",
+			icon: Shield,
+			gradient:
+				"hover:from-rose-500/20 hover:to-red-600/30 hover:shadow-rose-500/10 group-hover/product:text-rose-500 dark:group-hover/product:text-rose-400",
 		},
 		{
 			title: "Providers",
 			href: "/providers",
 			description: "Connect and manage your provider API keys.",
+			icon: KeyRound,
+			gradient:
+				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",
+		},
+		{
+			title: "Apps",
+			href: "/apps",
+			description: "Browse apps and tools that work with LLM Gateway.",
+			icon: LayoutGrid,
+			gradient:
+				"hover:from-pink-500/20 hover:to-rose-600/30 hover:shadow-pink-500/10 group-hover/product:text-pink-500 dark:group-hover/product:text-pink-400",
 		},
 		{
 			title: "Models",
 			href: "/models",
 			description: "Browse all available LLM models and capabilities.",
+			icon: Boxes,
+			gradient:
+				"hover:from-purple-500/20 hover:to-fuchsia-600/30 hover:shadow-purple-500/10 group-hover/product:text-purple-500 dark:group-hover/product:text-purple-400",
 		},
 		{
 			title: "Model Timeline",
 			href: "/timeline",
 			description: "Track the release history of all models.",
+			icon: Clock,
+			gradient:
+				"hover:from-teal-500/20 hover:to-cyan-600/30 hover:shadow-teal-500/10 group-hover/product:text-teal-500 dark:group-hover/product:text-teal-400",
 		},
 		{
 			title: "Compare",
 			href: "/models/compare",
 			description: "Compare models side by side.",
+			icon: GitCompare,
+			gradient:
+				"hover:from-sky-500/20 hover:to-blue-600/30 hover:shadow-sky-500/10 group-hover/product:text-sky-500 dark:group-hover/product:text-sky-400",
 		},
 		{
 			title: "Token Cost Calculator",
 			href: "/token-cost-calculator",
 			description: "Calculate your LLM token costs and savings instantly.",
+			icon: Calculator,
+			gradient:
+				"hover:from-green-500/20 hover:to-emerald-600/30 hover:shadow-green-500/10 group-hover/product:text-green-500 dark:group-hover/product:text-green-400",
 		},
 		{
 			title: "Referral Program",
 			href: "/referrals",
 			description: "Earn 1% of LLM spending.",
+			icon: Gift,
+			gradient:
+				"hover:from-yellow-500/20 hover:to-amber-600/30 hover:shadow-yellow-500/10 group-hover/product:text-yellow-500 dark:group-hover/product:text-yellow-400",
 		},
 	];
 
@@ -232,7 +309,7 @@ export const Navbar = ({
 		{
 			title: "MCP Server",
 			href: "/mcp",
-			description: "Connect AI assistants to 200+ LLMs via MCP protocol.",
+			description: `Connect AI assistants to ${MARKETING_STATS.models} LLMs via MCP protocol.`,
 			icon: Server,
 			gradient:
 				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",
@@ -283,8 +360,8 @@ export const Navbar = ({
 
 	const mobileSections = [
 		{
-			label: "Features",
-			items: featuresLinks.map((i) => ({
+			label: "Products",
+			items: productsLinks.map((i) => ({
 				name: i.title,
 				href: i.href,
 				external: i.external,
@@ -367,119 +444,45 @@ export const Navbar = ({
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
 								<NavigationMenuList className="flex gap-1 text-sm">
-									{/* Features dropdown */}
+									{/* Products dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
-											Features
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
+											Products
 										</NavigationMenuTrigger>
 										<NavigationMenuContent>
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[520px] lg:w-[580px]">
-												{featuresLinks.map((product) => {
-													const IconComponent = product.icon;
-													const linkClassName = cn(
-														"group/product flex items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",
-														product.gradient,
-														"hover:shadow-lg focus:shadow-md",
-													);
-
-													return (
-														<li key={product.title}>
-															<NavigationMenuLink asChild>
-																{product.external ? (
-																	<a
-																		href={product.href}
-																		target="_blank"
-																		rel="noopener noreferrer"
-																		className={linkClassName}
-																	>
-																		<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted/80 transition-colors">
-																			<IconComponent
-																				className={cn(
-																					"h-4 w-4 text-muted-foreground transition-colors",
-																					product.gradient
-																						.split(" ")
-																						.slice(-2)
-																						.join(" "),
-																				)}
-																			/>
-																		</div>
-																		<div className="space-y-0.5">
-																			<div className="text-sm font-medium leading-none">
-																				{product.title}
-																			</div>
-																			<p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-																				{product.description}
-																			</p>
-																		</div>
-																	</a>
-																) : (
-																	<Link
-																		href={product.href as Route}
-																		prefetch={true}
-																		className={linkClassName}
-																	>
-																		<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted/80 transition-colors">
-																			<IconComponent
-																				className={cn(
-																					"h-4 w-4 text-muted-foreground transition-colors",
-																					product.gradient
-																						.split(" ")
-																						.slice(-2)
-																						.join(" "),
-																				)}
-																			/>
-																		</div>
-																		<div className="space-y-0.5">
-																			<div className="text-sm font-medium leading-none">
-																				{product.title}
-																			</div>
-																			<p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-																				{product.description}
-																			</p>
-																		</div>
-																	</Link>
-																)}
-															</NavigationMenuLink>
-														</li>
-													);
-												})}
+												{productsLinks.map((product) => (
+													<IconMenuItem
+														key={product.title}
+														title={product.title}
+														href={product.href}
+														description={product.description}
+														icon={product.icon}
+														gradient={product.gradient}
+														external={product.external}
+													/>
+												))}
 											</ul>
 										</NavigationMenuContent>
 									</NavigationMenuItem>
 
 									{/* Resources dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
 											Resources
 										</NavigationMenuTrigger>
 										<NavigationMenuContent>
-											<ul className="grid gap-3 p-6 md:w-[480px] lg:w-[640px] lg:grid-cols-[.8fr_1fr]">
-												<li className="row-span-3">
-													<NavigationMenuLink asChild>
-														<Link
-															href="/enterprise"
-															prefetch={true}
-															className="group/enterprise flex h-full w-full select-none flex-col justify-end rounded-md bg-linear-to-b from-muted/50 to-muted p-6 no-underline outline-none transition-all duration-300 focus:shadow-md hover:from-blue-500/20 hover:to-blue-600/30 hover:shadow-lg hover:shadow-blue-500/10"
-														>
-															<div className="mb-2 mt-4 text-lg font-medium group-hover/enterprise:text-blue-500 dark:group-hover/enterprise:text-blue-400 transition-colors">
-																Enterprise
-															</div>
-															<p className="text-sm leading-tight text-muted-foreground">
-																Advanced features for teams. Custom billing,
-																extended retention, and priority support.
-															</p>
-														</Link>
-													</NavigationMenuLink>
-												</li>
+											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[680px] lg:w-[820px] lg:grid-cols-3">
 												{resourcesLinks.map((link) => (
-													<ListItem
+													<IconMenuItem
 														key={link.title}
 														title={link.title}
 														href={link.href}
+														description={link.description}
+														icon={link.icon}
+														gradient={link.gradient}
 														external={link.external}
-													>
-														{link.description}
-													</ListItem>
+													/>
 												))}
 											</ul>
 										</NavigationMenuContent>
@@ -501,80 +504,22 @@ export const Navbar = ({
 
 									{/* AI dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
 											AI
 										</NavigationMenuTrigger>
 										<NavigationMenuContent>
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[520px] lg:w-[580px]">
-												{aiLinks.map((item) => {
-													const IconComponent = item.icon;
-													const linkClassName = cn(
-														"group/product flex items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",
-														item.gradient,
-														"hover:shadow-lg focus:shadow-md",
-													);
-
-													return (
-														<li key={item.title}>
-															<NavigationMenuLink asChild>
-																{item.external ? (
-																	<a
-																		href={item.href}
-																		target="_blank"
-																		rel="noopener noreferrer"
-																		className={linkClassName}
-																	>
-																		<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted/80 transition-colors">
-																			<IconComponent
-																				className={cn(
-																					"h-4 w-4 text-muted-foreground transition-colors",
-																					item.gradient
-																						.split(" ")
-																						.slice(-2)
-																						.join(" "),
-																				)}
-																			/>
-																		</div>
-																		<div className="space-y-0.5">
-																			<div className="text-sm font-medium leading-none">
-																				{item.title}
-																			</div>
-																			<p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-																				{item.description}
-																			</p>
-																		</div>
-																	</a>
-																) : (
-																	<Link
-																		href={item.href as Route}
-																		prefetch={true}
-																		className={linkClassName}
-																	>
-																		<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted/80 transition-colors">
-																			<IconComponent
-																				className={cn(
-																					"h-4 w-4 text-muted-foreground transition-colors",
-																					item.gradient
-																						.split(" ")
-																						.slice(-2)
-																						.join(" "),
-																				)}
-																			/>
-																		</div>
-																		<div className="space-y-0.5">
-																			<div className="text-sm font-medium leading-none">
-																				{item.title}
-																			</div>
-																			<p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-																				{item.description}
-																			</p>
-																		</div>
-																	</Link>
-																)}
-															</NavigationMenuLink>
-														</li>
-													);
-												})}
+												{aiLinks.map((item) => (
+													<IconMenuItem
+														key={item.title}
+														title={item.title}
+														href={item.href}
+														description={item.description}
+														icon={item.icon}
+														gradient={item.gradient}
+														external={item.external}
+													/>
+												))}
 											</ul>
 										</NavigationMenuContent>
 									</NavigationMenuItem>
@@ -596,17 +541,17 @@ export const Navbar = ({
 						</div>
 
 						{/* Right side */}
-						<div className="bg-background group-data-[state=active]:block nav:group-data-[state=active]:flex mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap nav:m-0 nav:flex nav:w-fit nav:shrink-0 nav:gap-3 nav:space-y-0 nav:border-transparent nav:bg-transparent nav:p-0 nav:shadow-none dark:shadow-none dark:nav:bg-transparent">
+						<div className="bg-background group-data-[state=active]:block nav:group-data-[state=active]:flex mb-6 hidden max-h-[calc(100dvh-7rem)] w-full flex-wrap items-center justify-end space-y-6 overflow-y-auto overscroll-contain rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap nav:m-0 nav:flex nav:max-h-none nav:w-fit nav:shrink-0 nav:gap-3 nav:space-y-0 nav:overflow-visible nav:border-transparent nav:bg-transparent nav:p-0 nav:shadow-none dark:shadow-none dark:nav:bg-transparent">
 							{/* Mobile nav */}
 							<div className="nav:hidden">
-								<div className="mb-6">
+								<div className="mb-4">
 									<ModelSearch models={models} providers={providers} />
 								</div>
-								<ul className="space-y-6 text-base">
+								<ul className="text-base">
 									<li>
 										<Link
 											href="/pricing"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 											prefetch={true}
 										>
 											Pricing
@@ -617,7 +562,7 @@ export const Navbar = ({
 											href={config.docsUrl ?? ""}
 											target="_blank"
 											rel="noopener noreferrer"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 										>
 											Docs
 										</a>
@@ -625,7 +570,7 @@ export const Navbar = ({
 									<li>
 										<Link
 											href="/models"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 											prefetch={true}
 										>
 											Models
@@ -633,7 +578,7 @@ export const Navbar = ({
 									</li>
 
 									{mobileSections.map((section) => (
-										<li key={section.label} className="space-y-2">
+										<li key={section.label}>
 											<button
 												type="button"
 												onClick={() =>
@@ -643,10 +588,10 @@ export const Navbar = ({
 															: section.label,
 													)
 												}
-												className="flex w-full items-center justify-between gap-2 text-left"
+												className="flex w-full items-center justify-between gap-2 py-2.5 text-left"
 												aria-expanded={openMobileSection === section.label}
 											>
-												<span className="text-muted-foreground text-sm font-medium">
+												<span className="text-muted-foreground">
 													{section.label}
 												</span>
 												<ChevronDown
@@ -656,36 +601,39 @@ export const Navbar = ({
 													)}
 												/>
 											</button>
-											{openMobileSection === section.label ? (
-												<ul className="space-y-3 pl-4 pt-1">
-													{section.items.map((item) => (
-														<li key={item.name}>
-															{item.external ? (
-																<a
-																	href={item.href}
-																	target="_blank"
-																	rel="noopener noreferrer"
-																	className="text-muted-foreground hover:text-accent-foreground block duration-150 text-sm"
-																>
-																	{item.name}
-																</a>
-															) : (
-																<Link
-																	href={item.href as Route}
-																	className="text-muted-foreground hover:text-accent-foreground block duration-150 text-sm"
-																	prefetch={true}
-																>
-																	{item.name}
-																</Link>
-															)}
-														</li>
-													))}
-												</ul>
-											) : null}
+											<ul
+												className={cn(
+													"grid grid-cols-2 gap-x-4 rounded-xl bg-muted/40 px-3 py-2 mb-2",
+													openMobileSection !== section.label && "hidden",
+												)}
+											>
+												{section.items.map((item) => (
+													<li key={item.name}>
+														{item.external ? (
+															<a
+																href={item.href}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
+															>
+																{item.name}
+															</a>
+														) : (
+															<Link
+																href={item.href as Route}
+																className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
+																prefetch={true}
+															>
+																{item.name}
+															</Link>
+														)}
+													</li>
+												))}
+											</ul>
 										</li>
 									))}
 
-									<li className="flex items-center gap-4 pt-4 border-t border-border">
+									<li className="flex items-center gap-4 pt-3 mt-2 border-t border-border">
 										<a
 											href={config.githubUrl}
 											target="_blank"
@@ -737,20 +685,33 @@ export const Navbar = ({
 
 								<ThemeToggle />
 
-								<Link
-									href="/login"
-									prefetch={true}
-									className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden nav:block whitespace-nowrap"
-								>
-									Log In
-								</Link>
+								{isAuthenticated ? (
+									<Button
+										asChild
+										className="bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit"
+									>
+										<Link href="/dashboard" prefetch={true}>
+											Dashboard
+										</Link>
+									</Button>
+								) : (
+									<>
+										<Link
+											href="/login"
+											prefetch={true}
+											className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden nav:block whitespace-nowrap"
+										>
+											Log In
+										</Link>
 
-								<Button
-									asChild
-									className="bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit"
-								>
-									<AuthLink href="/signup">Get Started</AuthLink>
-								</Button>
+										<Button
+											asChild
+											className="bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-700 dark:hover:bg-zinc-200 font-medium w-full md:w-fit"
+										>
+											<AuthLink href="/signup">Get Started</AuthLink>
+										</Button>
+									</>
+								)}
 							</div>
 						</div>
 					</div>

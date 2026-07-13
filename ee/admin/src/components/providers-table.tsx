@@ -36,7 +36,10 @@ function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 		"12h": "12h",
 		"24h": "24h",
 		"2d": "2d",
+		"3d": "3d",
 		"7d": "7d",
+		"30d": "30d",
+		"90d": "90d",
 	};
 	return map[pageWindow] ?? "24h";
 }
@@ -47,6 +50,7 @@ type ProviderSortBy =
 	| "logsCount"
 	| "errorsCount"
 	| "cachedCount"
+	| "totalCost"
 	| "avgTimeToFirstToken"
 	| "modelCount"
 	| "updatedAt";
@@ -67,7 +71,7 @@ function SortableHeader({
 	pageWindow?: PageWindow;
 }) {
 	const isActive = currentSortBy === sortKey;
-	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
+	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
 	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}${windowParam}`;
@@ -97,6 +101,12 @@ function SortableHeader({
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);
 }
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	maximumFractionDigits: 4,
+});
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
@@ -170,6 +180,9 @@ function ProviderRow({
 					{formatNumber(provider.cachedCount)}
 				</TableCell>
 				<TableCell className="tabular-nums">
+					{currencyFormatter.format(provider.totalCost)}
+				</TableCell>
+				<TableCell className="tabular-nums">
 					{provider.avgTimeToFirstToken !== null
 						? `${Math.round(provider.avgTimeToFirstToken)}ms`
 						: "\u2014"}
@@ -193,7 +206,7 @@ function ProviderRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={10} className="p-4">
+					<TableCell colSpan={11} className="p-4">
 						<HistoryChart
 							title={`${provider.name} — History`}
 							description="Request volume, errors, latency, and tokens over time"
@@ -243,6 +256,7 @@ export function ProvidersTable({
 					{sh("Errors", "errorsCount")}
 					<TableHead>Error Rate</TableHead>
 					{sh("Cached", "cachedCount")}
+					{sh("Cost", "totalCost")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
 					{sh("Last Updated", "updatedAt")}
 					<TableHead></TableHead>
@@ -252,7 +266,7 @@ export function ProvidersTable({
 				{providers.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={10}
+							colSpan={11}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No providers found

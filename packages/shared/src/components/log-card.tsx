@@ -44,6 +44,11 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+} from "@llmgateway/models";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -126,6 +131,8 @@ export interface LogCardData {
 	reasoningTokens?: string | number | null;
 	imageInputTokens?: string | number | null;
 	imageOutputTokens?: string | number | null;
+	audioInputTokens?: string | number | null;
+	cacheWriteTokens?: string | number | null;
 	duration?: number | null;
 	timeToFirstToken?: number | null;
 	timeToFirstReasoningToken?: number | null;
@@ -137,16 +144,23 @@ export interface LogCardData {
 	inputCost?: number | null;
 	outputCost?: number | null;
 	cachedInputCost?: number | string | null;
+	cacheWriteInputCost?: number | string | null;
 	requestCost?: number | null;
 	webSearchCost?: number | string | null;
+	contentFilterCost?: number | string | null;
 	imageInputCost?: number | string | null;
 	imageOutputCost?: number | string | null;
 	videoOutputCost?: number | string | null;
+	audioInputCost?: number | string | null;
 	discount?: number | null;
 	pricingTier?: string | null;
+	requestedServiceTier?: string | null;
+	usedServiceTier?: string | null;
 	dataStorageCost?: number | string | null;
 	createdAt: string | Date;
 	requestId?: string | null;
+	traceId?: string | null;
+	sessionId?: string | null;
 	projectId?: string | null;
 	projectName?: string | null;
 	organizationId?: string | null;
@@ -177,6 +191,7 @@ export interface LogCardData {
 	responseFormat?: unknown;
 	params?: unknown;
 	customHeaders?: unknown;
+	userAgent?: string | null;
 }
 
 export interface LogCardProps {
@@ -850,6 +865,14 @@ export function LogCard({
 										<div className="font-medium">{log.cachedTokens}</div>
 									</>
 								)}
+								{log.cacheWriteTokens && Number(log.cacheWriteTokens) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Cache Write Tokens
+										</div>
+										<div className="font-medium">{log.cacheWriteTokens}</div>
+									</>
+								)}
 								{log.reasoningTokens && Number(log.reasoningTokens) > 0 && (
 									<>
 										<div className="text-muted-foreground">
@@ -872,6 +895,14 @@ export function LogCard({
 											Image Output Tokens
 										</div>
 										<div>{log.imageOutputTokens}</div>
+									</>
+								)}
+								{log.audioInputTokens && Number(log.audioInputTokens) > 0 && (
+									<>
+										<div className="text-muted-foreground">
+											Audio Input Tokens
+										</div>
+										<div>{log.audioInputTokens}</div>
 									</>
 								)}
 								<div className="text-muted-foreground">
@@ -948,6 +979,13 @@ export function LogCard({
 													<div>{`$${Number(log.cachedInputCost).toFixed(8)}`}</div>
 												</>
 											)}
+										{!!log.cacheWriteInputCost &&
+											Number(log.cacheWriteInputCost) > 0 && (
+												<>
+													<div>Cache Write Cost</div>
+													<div>{`$${Number(log.cacheWriteInputCost).toFixed(8)}`}</div>
+												</>
+											)}
 										<div>Request Cost</div>
 										<div>
 											{log.requestCost
@@ -960,6 +998,13 @@ export function LogCard({
 												<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
 											</>
 										)}
+										{!!log.contentFilterCost &&
+											Number(log.contentFilterCost) > 0 && (
+												<>
+													<div>Content Filter Cost</div>
+													<div>{`$${Number(log.contentFilterCost).toFixed(8)}`}</div>
+												</>
+											)}
 										{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
 											<>
 												<div>Image Input Cost</div>
@@ -980,6 +1025,12 @@ export function LogCard({
 													<div>{`$${Number(log.videoOutputCost).toFixed(8)}`}</div>
 												</>
 											)}
+										{!!log.audioInputCost && Number(log.audioInputCost) > 0 && (
+											<>
+												<div>Audio Input Cost</div>
+												<div>{`$${Number(log.audioInputCost).toFixed(8)}`}</div>
+											</>
+										)}
 										<div>Inference Total</div>
 										<div>{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}</div>
 										{log.discount && log.discount !== 1 && (
@@ -994,6 +1045,37 @@ export function LogCard({
 											<>
 												<div>Pricing Tier</div>
 												<div>{log.pricingTier}</div>
+											</>
+										)}
+										{log.requestedServiceTier && (
+											<>
+												<div>Requested Service Tier</div>
+												<div>
+													<span className="capitalize">
+														{log.requestedServiceTier}
+													</span>
+												</div>
+											</>
+										)}
+										{log.usedServiceTier && (
+											<>
+												<div>Used Service Tier</div>
+												<div>
+													<span className="capitalize">
+														{log.usedServiceTier}
+													</span>
+													{(() => {
+														const tier = getServiceTier(
+															log.usedProvider ?? "",
+															log.usedServiceTier,
+														);
+														return tier ? (
+															<span className="ml-1 text-muted-foreground">
+																({formatServiceTierMultiplier(tier.multiplier)})
+															</span>
+														) : null;
+													})()}
+												</div>
 											</>
 										)}
 									</div>
@@ -1032,6 +1114,26 @@ export function LogCard({
 										/>
 									)}
 								</div>
+								<div className="text-muted-foreground">Trace ID</div>
+								<div className="flex items-center gap-1 font-mono text-xs break-all">
+									<span>{log.traceId ?? "—"}</span>
+									{showCopyButtons && log.traceId && (
+										<CopyMetadataButton
+											value={log.traceId}
+											label="Copy trace ID"
+										/>
+									)}
+								</div>
+								<div className="text-muted-foreground">Session ID</div>
+								<div className="flex items-center gap-1 font-mono text-xs break-all">
+									<span>{log.sessionId ?? "—"}</span>
+									{showCopyButtons && log.sessionId && (
+										<CopyMetadataButton
+											value={log.sessionId}
+											label="Copy session ID"
+										/>
+									)}
+								</div>
 								{showLogId && (
 									<>
 										<div className="text-muted-foreground">Log ID</div>
@@ -1050,6 +1152,14 @@ export function LogCard({
 								<div className="font-mono text-xs break-all">
 									{log.source ?? "-"}
 								</div>
+								{log.userAgent && (
+									<>
+										<div className="text-muted-foreground">User Agent</div>
+										<div className="font-mono text-xs break-all">
+											{log.userAgent}
+										</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Project</div>
 								<RelatedResourceValue
 									id={log.projectId}

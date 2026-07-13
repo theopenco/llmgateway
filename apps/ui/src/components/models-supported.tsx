@@ -109,7 +109,7 @@ const convertToApiModel = (
 					createdAt: new Date().toISOString(),
 					modelId: def.id,
 					providerId: map.providerId,
-					modelName: map.modelName,
+					externalId: map.externalId,
 					inputPrice: map.inputPrice?.toString() ?? null,
 					outputPrice: map.outputPrice?.toString() ?? null,
 					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
@@ -118,6 +118,8 @@ const convertToApiModel = (
 						map.cacheWriteInputPrice1h?.toString() ?? null,
 					imageInputPrice: map.imageInputPrice?.toString() ?? null,
 					imageOutputPrice: map.imageOutputPrice?.toString() ?? null,
+					inputCharacterPrice: map.inputCharacterPrice?.toString() ?? null,
+					outputAudioPrice: map.outputAudioPrice?.toString() ?? null,
 					imageInputTokensByResolution:
 						map.imageInputTokensByResolution ?? null,
 					imageOutputTokensByResolution:
@@ -148,7 +150,31 @@ const convertToApiModel = (
 								]),
 							)
 						: null,
-					discount: map.discount?.toString() ?? null,
+					pricingTiers: map.pricingTiers
+						? map.pricingTiers.map((t) => ({
+								name: t.name,
+								upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
+								inputPrice: String(t.inputPrice),
+								outputPrice: String(t.outputPrice),
+								cachedInputPrice:
+									t.cachedInputPrice !== undefined
+										? String(t.cachedInputPrice)
+										: null,
+								cacheReadInputPrice:
+									t.cacheReadInputPrice !== undefined
+										? String(t.cacheReadInputPrice)
+										: null,
+								cacheWriteInputPrice:
+									t.cacheWriteInputPrice !== undefined
+										? String(t.cacheWriteInputPrice)
+										: null,
+								cacheWriteInputPrice1h:
+									t.cacheWriteInputPrice1h !== undefined
+										? String(t.cacheWriteInputPrice1h)
+										: null,
+							}))
+						: null,
+					discount: null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
 					deprecatedAt: map.deprecatedAt?.toISOString() ?? null,

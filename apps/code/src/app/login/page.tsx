@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	Loader2,
@@ -14,11 +15,12 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod/v3";
 
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Button } from "@/components/ui/button";
 import {
 	Form,
@@ -80,32 +82,45 @@ function LoginForm() {
 		},
 	});
 
+	const passkeyAutofillStarted = useRef(false);
 	useEffect(() => {
-		if (window.PublicKeyCredential) {
-			void signIn.passkey({ autoFill: true }).then((res) => {
-				if (res?.data) {
-					queryClient.clear();
-					if (posthogKey) {
-						posthog.capture("user_logged_in", { method: "passkey" });
-					}
-					router.push(returnUrl);
-				} else if (res?.error) {
-					if (res.error.message?.toLowerCase().includes("cancelled")) {
-						return;
-					}
-					toast.error(res.error.message ?? "Failed to sign in with passkey", {
-						style: {
-							backgroundColor: "var(--destructive)",
-							color: "var(--destructive-foreground)",
-						},
-					});
-				}
-			});
+		// Start the conditional (autofill) passkey ceremony exactly once. Re-running
+		// it restarts the WebAuthn request, which flickers the browser/password
+		// manager prompt and aborts an in-progress manual passkey button click.
+		if (passkeyAutofillStarted.current) {
+			return;
 		}
-	}, [signIn, queryClient, posthogKey, posthog, router, returnUrl]);
+		if (typeof window === "undefined" || !window.PublicKeyCredential) {
+			return;
+		}
+		passkeyAutofillStarted.current = true;
+		void signIn.passkey({ autoFill: true }).then((res) => {
+			if (res?.data) {
+				queryClient.clear();
+				if (posthogKey) {
+					posthog.capture("user_logged_in", { method: "passkey" });
+				}
+				router.push(returnUrl);
+			} else if (res?.error) {
+				if (res.error.message?.toLowerCase().includes("cancelled")) {
+					return;
+				}
+				toast.error(res.error.message ?? "Failed to sign in with passkey", {
+					style: {
+						backgroundColor: "var(--destructive)",
+						color: "var(--destructive-foreground)",
+					},
+				});
+			}
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
+		// Abort the pending conditional (autofill) passkey ceremony so it can't pop a
+		// native passkey/biometric prompt after a successful email sign-in + redirect.
+		WebAuthnAbortService.cancelCeremony();
 		const { error } = await signIn.email(
 			{
 				email: values.email,
@@ -153,6 +168,9 @@ function LoginForm() {
 	async function handlePasskeySignIn() {
 		setIsLoading(true);
 		try {
+			// Cancel the pending conditional (autofill) ceremony started on mount so
+			// it doesn't collide with this modal request and abort it as "cancelled".
+			WebAuthnAbortService.cancelCeremony();
 			const res = await signIn.passkey();
 			if (res?.error) {
 				toast.error(res.error.message ?? "Failed to sign in with passkey", {
@@ -370,6 +388,14 @@ function LoginForm() {
 								</span>
 							</div>
 						</div>
+
+						<SocialAuthButtons
+							isLoading={isLoading}
+							setIsLoading={setIsLoading}
+							callbackPath={returnUrl}
+							errorCallbackPath="/login"
+							newUserCallbackPath={returnUrl}
+						/>
 
 						<Button
 							onClick={handlePasskeySignIn}

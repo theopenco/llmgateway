@@ -14,6 +14,13 @@ export interface NormalizeStreamingErrorOptions {
 }
 
 export interface NormalizedStreamingError {
+	/**
+	 * True when the failure is an expected upstream-side disconnect (the provider
+	 * closed the socket mid-stream, e.g. "terminated: other side closed"), rather
+	 * than a gateway-side streaming read fault. Callers use this to avoid logging
+	 * the error at server-error severity and to classify it as an upstream error.
+	 */
+	terminated: boolean;
 	client: {
 		message: string;
 		type: "gateway_error";
@@ -78,13 +85,60 @@ function getErrorCode(error: unknown): string | undefined {
 	return undefined;
 }
 
-function isUpstreamTermination(error: unknown, cause?: string): boolean {
+function safeStringifyError(error: unknown): string {
+	if (error === null || error === undefined) {
+		return "Unknown error";
+	}
+
+	if (typeof error === "string") {
+		return error;
+	}
+
+	if (typeof error !== "object") {
+		return String(error);
+	}
+
+	if (error instanceof Error) {
+		return error.message || error.name || "Unknown error";
+	}
+
+	const candidate = error as { message?: unknown; error?: unknown };
+	if (typeof candidate.message === "string" && candidate.message.length > 0) {
+		return candidate.message;
+	}
+	if (typeof candidate.error === "string" && candidate.error.length > 0) {
+		return candidate.error;
+	}
+
+	try {
+		const serialized = JSON.stringify(error);
+		if (serialized && serialized !== "{}") {
+			return serialized;
+		}
+	} catch {
+		// fall through to constructor name fallback
+	}
+
+	const ctorName =
+		(error as { constructor?: { name?: string } }).constructor?.name ??
+		"Object";
+	return `[unserializable ${ctorName}]`;
+}
+
+/**
+ * True when the failure is an expected upstream-side socket close (the provider
+ * or client closed the connection mid-request, e.g. undici's
+ * "terminated: other side closed" / ECONNRESET), rather than a gateway bug.
+ * Callers use this to log such disconnects at warn severity instead of raising
+ * server-error alerts.
+ */
+export function isUpstreamTermination(error: unknown): boolean {
 	if (!(error instanceof Error)) {
 		return false;
 	}
 
 	const normalizedMessage = error.message.trim().toLowerCase();
-	const normalizedCause = cause?.toLowerCase() ?? "";
+	const normalizedCause = extractErrorCause(error)?.toLowerCase() ?? "";
 
 	return (
 		(error.name === "TypeError" && normalizedMessage === "terminated") ||
@@ -101,13 +155,18 @@ export function normalizeStreamingError(
 ): NormalizedStreamingError {
 	const { error, provider, model, bufferSnapshot, phase } = options;
 
-	const errorName = error instanceof Error ? error.name : "UnknownError";
-	const rawMessage =
-		error instanceof Error ? error.message : String(error ?? "Unknown error");
+	const errorName =
+		error instanceof Error
+			? error.name
+			: error && typeof error === "object"
+				? ((error as { constructor?: { name?: string } }).constructor?.name ??
+					"UnknownError")
+				: "UnknownError";
+	const rawMessage = safeStringifyError(error);
 	const cause = extractErrorCause(error);
 	const errorCode = getErrorCode(error);
 
-	const terminated = isUpstreamTermination(error, cause);
+	const terminated = isUpstreamTermination(error);
 	const statusCode = terminated ? 502 : 500;
 	const statusText = terminated
 		? "Upstream Stream Terminated"
@@ -118,6 +177,7 @@ export function normalizeStreamingError(
 	const responseText = cause ? `${rawMessage} | cause: ${cause}` : rawMessage;
 
 	return {
+		terminated,
 		client: {
 			message,
 			type: "gateway_error",

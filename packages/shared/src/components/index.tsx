@@ -1,3 +1,4 @@
+export * from "./integration-guides-grid";
 export * from "./integration-icons";
 export * from "./log-card";
 export * from "./model-selector";

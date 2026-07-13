@@ -1,6 +1,6 @@
 import { serve, type ServerType } from "@hono/node-server";
 
-import { closeDatabase, runMigrations } from "@llmgateway/db";
+import { closeDatabase, runMigrations, setQueryTags } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
 	shutdownInstrumentation,
@@ -26,6 +26,9 @@ let sdk: NodeSDK | null = null;
 
 async function startServer() {
 	const port = Number(process.env.PORT) || 4002;
+
+	// Tag every DB query with the originating service for Cloud SQL Query Insights
+	setQueryTags({ application: "api" });
 
 	// Initialize tracing for API service
 	try {

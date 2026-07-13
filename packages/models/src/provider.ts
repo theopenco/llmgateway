@@ -86,6 +86,35 @@ export function getProviderEnvValue(
 	return values[configIndex];
 }
 
+export type VertexTokenType = "api-key" | "oauth";
+
+interface VertexTokenTypeOptions {
+	google_vertex_token_type?: VertexTokenType;
+}
+
+/**
+ * Google Vertex AI accepts either an API key (sent as `?key=`) or an OAuth2
+ * Bearer token. Resolution order: provider-key option → env var → "api-key".
+ */
+export function resolveVertexTokenType(
+	provider: "google-vertex",
+	providerKeyOptions?: VertexTokenTypeOptions,
+	configIndex?: number,
+	skipEnvVars?: boolean,
+): VertexTokenType {
+	const optionValue = providerKeyOptions?.google_vertex_token_type;
+	if (optionValue === "api-key" || optionValue === "oauth") {
+		return optionValue;
+	}
+	if (!skipEnvVars) {
+		const envValue = getProviderEnvValue(provider, "tokenType", configIndex);
+		if (envValue === "api-key" || envValue === "oauth") {
+			return envValue;
+		}
+	}
+	return "api-key";
+}
+
 export function validateProviderEnv(provider: Provider): string[] {
 	const config = getProviderEnvConfig(provider);
 	if (!config) {
@@ -127,6 +156,25 @@ export function getRegionSpecificEnvValue(
 }
 
 /**
+ * Get the region-specific env var name only when that var is actually set.
+ * Returns `{BASE_ENV_VAR}__{REGION}` when the regional override exists, else
+ * undefined. Use this when you need to attribute health to the regional
+ * credential rather than the base env var.
+ */
+export function getRegionSpecificEnvVarName(
+	provider: Provider,
+	region: string,
+): string | undefined {
+	const baseEnvVar = getProviderEnvVar(provider);
+	if (!baseEnvVar) {
+		return undefined;
+	}
+	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionalName = `${baseEnvVar}__${regionSuffix}`;
+	return process.env[regionalName] ? regionalName : undefined;
+}
+
+/**
  * Check whether an env var exists for a specific region.
  * Returns true if a region-specific env var (`{BASE_ENV_VAR}__{REGION}`) exists,
  * OR if the base env var exists and the queried region is the provider's default region.
@@ -143,10 +191,17 @@ export function hasRegionSpecificEnvKey(
 	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
 		return true;
 	}
-	// The base key covers the provider's default region
 	const def = getProviderDefinition(provider);
-	if (def?.regionConfig?.defaultRegion === region && process.env[baseEnvVar]) {
-		return true;
+	if (process.env[baseEnvVar]) {
+		// The base key covers the provider's default region, and — for providers
+		// whose credential is shared across regions (e.g. AWS Bedrock) — every
+		// region, so non-default regions don't need a per-region env key.
+		if (
+			def?.regionConfig?.defaultRegion === region ||
+			def?.regionConfig?.sharedCredentialAcrossRegions
+		) {
+			return true;
+		}
 	}
 	return false;
 }

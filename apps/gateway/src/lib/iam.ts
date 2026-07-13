@@ -1,12 +1,16 @@
 import { HTTPException } from "hono/http-exception";
 
 import { findActiveIamRules } from "@/lib/cached-queries.js";
+import { anyCidrMatches } from "@/lib/client-ip.js";
+import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 
 import {
 	models,
 	type ModelDefinition,
 	type ProviderId,
 } from "@llmgateway/models";
+
+import type { GatewayApiKey } from "@/lib/cached-queries.js";
 
 export interface IamRule {
 	id: string;
@@ -16,13 +20,16 @@ export interface IamRule {
 		| "allow_pricing"
 		| "deny_pricing"
 		| "allow_providers"
-		| "deny_providers";
+		| "deny_providers"
+		| "allow_ip_cidrs"
+		| "deny_ip_cidrs";
 	ruleValue: {
 		models?: string[];
 		providers?: string[];
 		pricingType?: "free" | "paid";
 		maxInputPrice?: number;
 		maxOutputPrice?: number;
+		ipCidrs?: string[];
 	};
 	status: "active" | "inactive";
 }
@@ -38,6 +45,7 @@ export async function validateModelAccess(
 	requestedModel: string,
 	requestedProvider?: string,
 	activeModelInfo?: ModelDefinition,
+	clientIp?: string,
 ): Promise<IamValidationResult> {
 	// Get all active IAM rules for this API key (using cacheable select builder)
 	const iamRules = await findActiveIamRules(apiKeyId);
@@ -64,13 +72,70 @@ export async function validateModelAccess(
 	// Track which providers are allowed/denied by IAM rules
 	let allowedProviders: Set<ProviderId> = new Set(modelProviderIds);
 
-	// Process each rule type
+	// Allow rules of the same type are unioned: the request passes the group if
+	// ANY rule in it allows the request. Deny rules always apply individually.
+	const allowGroups = new Map<IamRule["ruleType"], IamRule[]>();
+	const denyRules: IamRule[] = [];
 	for (const rule of iamRules) {
+		if (rule.ruleType.startsWith("allow_")) {
+			if (isNoopAllowRule(rule)) {
+				continue;
+			}
+			const group = allowGroups.get(rule.ruleType);
+			if (group) {
+				group.push(rule);
+			} else {
+				allowGroups.set(rule.ruleType, [rule]);
+			}
+		} else {
+			denyRules.push(rule);
+		}
+	}
+
+	for (const group of allowGroups.values()) {
+		let groupAllowed = false;
+		let firstDenial: RuleEvaluationResult | undefined;
+		let unionedProviders: Set<ProviderId> | undefined;
+		for (const rule of group) {
+			const result = await evaluateRule(
+				rule,
+				modelDef,
+				requestedProvider,
+				allowedProviders,
+				clientIp,
+			);
+			if (result.allowed) {
+				groupAllowed = true;
+				if (result.allowedProviders) {
+					unionedProviders ??= new Set<ProviderId>();
+					for (const provider of result.allowedProviders) {
+						unionedProviders.add(provider);
+					}
+				}
+			} else if (!firstDenial) {
+				firstDenial = result;
+			}
+		}
+		if (!groupAllowed) {
+			return {
+				allowed: false,
+				reason:
+					(firstDenial?.reason ?? "Request denied by IAM rules.") +
+					` Adapt your LLMGateway API key IAM permissions in the dashboard or contact your LLMGateway API Key issuer. (Rule ID${group.length > 1 ? "s" : ""}: ${group.map((r) => r.id).join(", ")})`,
+			};
+		}
+		if (unionedProviders) {
+			allowedProviders = unionedProviders;
+		}
+	}
+
+	for (const rule of denyRules) {
 		const result = await evaluateRule(
 			rule,
 			modelDef,
 			requestedProvider,
 			allowedProviders,
+			clientIp,
 		);
 		if (!result.allowed) {
 			return {
@@ -80,7 +145,6 @@ export async function validateModelAccess(
 					` Adapt your LLMGateway API key IAM permissions in the dashboard or contact your LLMGateway API Key issuer. (Rule ID: ${rule.id})`,
 			};
 		}
-		// Update allowed providers based on rule evaluation
 		if (result.allowedProviders) {
 			allowedProviders = result.allowedProviders;
 		}
@@ -97,10 +161,69 @@ export async function validateModelAccess(
 	return { allowed: true, allowedProviders: Array.from(allowedProviders) };
 }
 
+export async function validateRequestModelAccess(
+	apiKey: GatewayApiKey,
+	requestedModel: string,
+	requestedProvider?: string,
+	activeModelInfo?: ModelDefinition,
+	clientIp?: string,
+	options: { autoRouting?: boolean } = {},
+): Promise<IamValidationResult> {
+	const sessionValidation = validateEndUserSessionModelAccess(
+		apiKey,
+		requestedModel,
+		activeModelInfo,
+		options,
+	);
+	if (sessionValidation) {
+		if (
+			sessionValidation.allowed &&
+			requestedProvider &&
+			!sessionValidation.allowedProviders?.includes(requestedProvider)
+		) {
+			return {
+				allowed: false,
+				reason: `Provider ${requestedProvider} is not allowed for this end-user session`,
+			};
+		}
+		return sessionValidation;
+	}
+
+	return await validateModelAccess(
+		apiKey.id,
+		requestedModel,
+		requestedProvider,
+		activeModelInfo,
+		clientIp,
+	);
+}
+
 interface RuleEvaluationResult {
 	allowed: boolean;
 	reason?: string;
 	allowedProviders?: Set<ProviderId>;
+}
+
+// An allow rule without its value field set does not restrict anything, so it
+// must not count as "allows everything" when unioned with sibling rules.
+function isNoopAllowRule(rule: IamRule): boolean {
+	const { ruleType, ruleValue } = rule;
+	switch (ruleType) {
+		case "allow_models":
+			return !ruleValue.models;
+		case "allow_providers":
+			return !ruleValue.providers;
+		case "allow_pricing":
+			return (
+				!ruleValue.pricingType &&
+				ruleValue.maxInputPrice === undefined &&
+				ruleValue.maxOutputPrice === undefined
+			);
+		case "allow_ip_cidrs":
+			return !ruleValue.ipCidrs || ruleValue.ipCidrs.length === 0;
+		default:
+			return false;
+	}
 }
 
 async function evaluateRule(
@@ -108,6 +231,7 @@ async function evaluateRule(
 	modelDef: ModelDefinition,
 	requestedProvider: string | undefined,
 	currentAllowedProviders: Set<ProviderId>,
+	clientIp: string | undefined,
 ): Promise<RuleEvaluationResult> {
 	const { ruleType, ruleValue } = rule;
 
@@ -223,7 +347,7 @@ async function evaluateRule(
 					if (
 						ruleValue.maxInputPrice !== undefined &&
 						provider.inputPrice &&
-						provider.inputPrice > ruleValue.maxInputPrice
+						Number(provider.inputPrice) > ruleValue.maxInputPrice
 					) {
 						return {
 							allowed: false,
@@ -234,7 +358,7 @@ async function evaluateRule(
 					if (
 						ruleValue.maxOutputPrice !== undefined &&
 						provider.outputPrice &&
-						provider.outputPrice > ruleValue.maxOutputPrice
+						Number(provider.outputPrice) > ruleValue.maxOutputPrice
 					) {
 						return {
 							allowed: false,
@@ -263,6 +387,38 @@ async function evaluateRule(
 						reason: "Paid models are not allowed",
 					};
 				}
+			}
+			break;
+
+		case "allow_ip_cidrs":
+			if (ruleValue.ipCidrs && ruleValue.ipCidrs.length > 0) {
+				if (!clientIp) {
+					return {
+						allowed: false,
+						reason:
+							"Client IP could not be determined but an IP allow-list rule is configured",
+					};
+				}
+				if (!anyCidrMatches(clientIp, ruleValue.ipCidrs)) {
+					return {
+						allowed: false,
+						reason: `Client IP ${clientIp} is not in the allowed CIDR ranges`,
+					};
+				}
+			}
+			break;
+
+		case "deny_ip_cidrs":
+			if (
+				ruleValue.ipCidrs &&
+				ruleValue.ipCidrs.length > 0 &&
+				clientIp &&
+				anyCidrMatches(clientIp, ruleValue.ipCidrs)
+			) {
+				return {
+					allowed: false,
+					reason: `Client IP ${clientIp} is in the denied CIDR ranges`,
+				};
 			}
 			break;
 	}

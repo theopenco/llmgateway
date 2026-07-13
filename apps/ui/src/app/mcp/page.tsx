@@ -3,11 +3,11 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { McpContent } from "@/components/mcp/mcp-content";
 
 export const metadata = {
-	title: "MCP Server | LLM Gateway",
+	title: "MCP Server — 200+ Models for Claude Code & Cursor",
 	description:
 		"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other AI assistants. Access 200+ models from OpenAI, Anthropic, Google, and more.",
 	openGraph: {
-		title: "MCP Server | LLM Gateway",
+		title: "MCP Server — 200+ Models for Claude Code & Cursor",
 		description:
 			"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other AI assistants. Access 200+ models from OpenAI, Anthropic, Google, and more.",
 	},

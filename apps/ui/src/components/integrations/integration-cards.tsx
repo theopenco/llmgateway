@@ -9,11 +9,18 @@ import {
 	AnthropicIcon,
 	AutohandIcon,
 	CodexIcon,
+	ContinueIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
+	DevPassCodeIcon,
+	HermesIcon,
+	KiloCodeIcon,
+	KimiIcon,
+	MimoCodeIcon,
 	N8nIcon,
 	OpenCodeIcon,
+	PiIcon,
 	VSCodeIcon,
 } from "@llmgateway/shared/components";
 
@@ -31,6 +38,14 @@ interface Integration {
 }
 
 const integrations: Integration[] = [
+	{
+		name: "DevPass Code",
+		description:
+			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
+		href: "/guides/devpass-code",
+		icon: DevPassCodeIcon,
+		comingSoon: false,
+	},
 	{
 		name: "Autohand Code",
 		description:
@@ -50,7 +65,7 @@ const integrations: Integration[] = [
 	{
 		name: "Cursor",
 		description:
-			"Use LLM Gateway with Cursor IDE for AI-powered code editing and chat.",
+			"Use LLM Gateway with Cursor IDE in plan mode only. Cursor's coding agent does not work with external API endpoints.",
 		href: "https://docs.llmgateway.io/guides/cursor",
 		icon: CursorIcon,
 		comingSoon: false,
@@ -73,6 +88,46 @@ const integrations: Integration[] = [
 		comingSoon: false,
 	},
 	{
+		name: "Continue CLI",
+		description:
+			"Use LLM Gateway with Continue's open-source AI code assistant CLI.",
+		href: "/guides/continue",
+		icon: ContinueIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Hermes Agent",
+		description:
+			"Use LLM Gateway with Nous Research's Hermes Agent for terminal-based AI coding.",
+		href: "/guides/hermes-agent",
+		icon: HermesIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Kilo Code",
+		description:
+			"Use LLM Gateway with Kilo Code in VS Code for autonomous AI coding with built-in provider support.",
+		href: "/guides/kilo-code",
+		icon: KiloCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Kimi Code",
+		description:
+			"Use LLM Gateway with Kimi Code CLI for autonomous terminal-based AI coding.",
+		href: "/guides/kimi-code",
+		icon: KimiIcon,
+		comingSoon: false,
+	},
+	{
+		name: "MiMo Code",
+		description:
+			"Use LLM Gateway with MiMo Code CLI for autonomous terminal-based AI coding.",
+		href: "/guides/mimocode",
+		icon: MimoCodeIcon,
+		comingSoon: false,
+	},
+	{
 		name: "n8n",
 		description:
 			"Connect n8n workflow automation to LLM Gateway for AI-powered workflows.",
@@ -83,8 +138,16 @@ const integrations: Integration[] = [
 	{
 		name: "OpenCode",
 		description:
-			"Use LLM Gateway with OpenCode for AI-powered development workflows.",
+			"Use LLM Gateway with OpenCode CLI for AI-powered development workflows.",
 		href: "/guides/opencode",
+		icon: OpenCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "OpenCode Desktop",
+		description:
+			"Use LLM Gateway with OpenCode Desktop app — connect via GUI, no config files needed.",
+		href: "/guides/opencode-desktop",
 		icon: OpenCodeIcon,
 		comingSoon: false,
 	},
@@ -94,6 +157,14 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with OpenClaw for AI-powered chat across Discord, WhatsApp, Telegram, and more.",
 		href: "/guides/openclaw",
 		icon: OpenClawIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Pi",
+		description:
+			"Use LLM Gateway with Pi coding agent for AI-powered terminal coding with any model.",
+		href: "/guides/pi",
+		icon: PiIcon,
 		comingSoon: false,
 	},
 	{

@@ -5,13 +5,16 @@ import {
 	modelProviderMapping,
 	modelProviderMappingHistory,
 	modelHistory,
+	modelProviderMappingHistoryHourly,
+	modelHistoryHourly,
 	log,
 	sql,
+	asc,
 	eq,
 	gte,
 	lt,
 	and,
-	sum,
+	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -19,12 +22,36 @@ import { logger } from "@llmgateway/logger";
 const BACKFILL_DURATION_SECONDS =
 	Number(process.env.BACKFILL_DURATION_SECONDS) || 300;
 
+// Safety cap on how many hourly buckets a single backfill pass will compute,
+// so a large gap (or a corrupt timestamp) can't tie the worker up indefinitely.
+const HOURLY_BACKFILL_MAX_ITERATIONS =
+	Number(process.env.HOURLY_BACKFILL_MAX_ITERATIONS) || 24 * 400;
+
 const ONE_MINUTE_MS = 60 * 1000;
+const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
 const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
 const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
 const usedRegionSql = sql<
 	string | null
 >`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
+
+function excludeRecoveredSameProviderRegionRetry() {
+	return sql<boolean>`not (
+		coalesce(${log.hasError}, false) = true
+		and coalesce(${log.retried}, false) = true
+		and exists (
+			select 1
+			from "log" as final_retry_log
+			where final_retry_log.id = ${log.retriedByLogId}
+				and final_retry_log.used_provider = ${log.usedProvider}
+				and coalesce(final_retry_log.has_error, false) = false
+				and nullif(
+					split_part(split_part(final_retry_log.used_model, '/', 2), ':', 2),
+					''
+				) is not distinct from ${usedRegionSql}
+		)
+	)`;
+}
 
 interface MappingMinuteStats {
 	modelId: string | null;
@@ -35,6 +62,12 @@ interface MappingMinuteStats {
 	clientErrorsCount: number;
 	gatewayErrorsCount: number;
 	upstreamErrorsCount: number;
+	completedCount: number;
+	lengthLimitCount: number;
+	contentFilterCount: number;
+	toolCallsCount: number;
+	canceledCount: number;
+	unknownFinishCount: number;
 	cachedCount: number;
 	totalInputTokens: number;
 	totalOutputTokens: number;
@@ -60,6 +93,12 @@ function createEmptyMappingMinuteStats(
 		clientErrorsCount: 0,
 		gatewayErrorsCount: 0,
 		upstreamErrorsCount: 0,
+		completedCount: 0,
+		lengthLimitCount: 0,
+		contentFilterCount: 0,
+		toolCallsCount: 0,
+		canceledCount: 0,
+		unknownFinishCount: 0,
 		cachedCount: 0,
 		totalInputTokens: 0,
 		totalOutputTokens: 0,
@@ -82,6 +121,12 @@ function mergeMappingMinuteStats(
 	target.clientErrorsCount += source.clientErrorsCount;
 	target.gatewayErrorsCount += source.gatewayErrorsCount;
 	target.upstreamErrorsCount += source.upstreamErrorsCount;
+	target.completedCount += source.completedCount;
+	target.lengthLimitCount += source.lengthLimitCount;
+	target.contentFilterCount += source.contentFilterCount;
+	target.toolCallsCount += source.toolCallsCount;
+	target.canceledCount += source.canceledCount;
+	target.unknownFinishCount += source.unknownFinishCount;
 	target.cachedCount += source.cachedCount;
 	target.totalInputTokens += source.totalInputTokens;
 	target.totalOutputTokens += source.totalOutputTokens;
@@ -94,6 +139,60 @@ function mergeMappingMinuteStats(
 		source.totalTimeToFirstReasoningToken;
 	target.totalCost += source.totalCost;
 	return target;
+}
+
+// Metric columns shared by model_history and model_provider_mapping_history that
+// are overwritten on conflict. Used to build a single bulk upsert SET clause so
+// the per-minute history write is one statement instead of one round-trip (and
+// one implicit transaction/fsync) per model and per mapping.
+const HISTORY_METRIC_COLUMNS = [
+	"logsCount",
+	"errorsCount",
+	"clientErrorsCount",
+	"gatewayErrorsCount",
+	"upstreamErrorsCount",
+	"completedCount",
+	"lengthLimitCount",
+	"contentFilterCount",
+	"toolCallsCount",
+	"canceledCount",
+	"unknownFinishCount",
+	"cachedCount",
+	"totalInputTokens",
+	"totalOutputTokens",
+	"totalTokens",
+	"totalReasoningTokens",
+	"totalCachedTokens",
+	"totalDuration",
+	"totalTimeToFirstToken",
+	"totalTimeToFirstReasoningToken",
+	"totalCost",
+] as const;
+
+// Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
+// parameters; history rows have ~25 columns, so 1000 rows stays well under it.
+const HISTORY_UPSERT_CHUNK_SIZE = 1000;
+
+// The schema uses Drizzle's global `casing: "snake_case"`, so a column's `.name`
+// is the camelCase logical name and the snake_case DB name is only resolved at
+// SQL-build time. The raw `excluded.<column>` reference below needs the actual
+// DB column name, so convert it the same way Drizzle does.
+function toSnakeCase(name: string): string {
+	return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+// Build the ON CONFLICT DO UPDATE SET clause for a history table, taking each
+// metric value from the row being inserted (`excluded`) so a single multi-row
+// statement updates every conflicting row correctly.
+function buildHistoryUpsertSet(
+	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], { name: string }>,
+): Record<string, SQL> {
+	const set: Record<string, SQL> = {};
+	for (const key of HISTORY_METRIC_COLUMNS) {
+		set[key] = sql`excluded.${sql.identifier(toSnakeCase(columns[key].name))}`;
+	}
+	set.updatedAt = sql`now()`;
+	return set;
 }
 
 /**
@@ -128,6 +227,30 @@ function getPreviousMinuteStart(): Date {
 }
 
 /**
+ * Helper function to round any date to the start of its hour (00 minutes, 00
+ * seconds, 00 milliseconds). Mirrors roundToMinuteStart so hourly buckets align
+ * to the same wall-clock basis as the minute history they roll up.
+ */
+function roundToHourStart(date: Date): Date {
+	return new Date(
+		date.getFullYear(),
+		date.getMonth(),
+		date.getDate(),
+		date.getHours(),
+		0,
+		0,
+		0,
+	);
+}
+
+/**
+ * Helper function to get the start of the current hour (rounded down)
+ */
+function getCurrentHourStart(): Date {
+	return roundToHourStart(new Date());
+}
+
+/**
  * Calculate and store 1-minute historical data for models for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
@@ -158,6 +281,30 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			upstreamErrorsCount:
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 					"upstreamErrorsCount",
+				),
+			completedCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'completed' then 1 else 0 end)::int`.as(
+					"completedCount",
+				),
+			lengthLimitCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'length_limit' then 1 else 0 end)::int`.as(
+					"lengthLimitCount",
+				),
+			contentFilterCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'content_filter' then 1 else 0 end)::int`.as(
+					"contentFilterCount",
+				),
+			toolCallsCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'tool_calls' then 1 else 0 end)::int`.as(
+					"toolCallsCount",
+				),
+			canceledCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'canceled' then 1 else 0 end)::int`.as(
+					"canceledCount",
+				),
+			unknownFinishCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'unknown' or ${log.unifiedFinishReason} is null then 1 else 0 end)::int`.as(
+					"unknownFinishCount",
 				),
 			cachedCount:
 				sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
@@ -202,6 +349,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			and(
 				gte(log.createdAt, roundedTargetMinute),
 				lt(log.createdAt, minuteEnd),
+				excludeRecoveredSameProviderRegionRetry(),
 			),
 		)
 		.groupBy(usedBaseModelSql);
@@ -224,6 +372,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 
 	// Process all models
 	const processedModels = new Set<string>();
+	const modelHistoryValues: (typeof modelHistory.$inferInsert)[] = [];
 
 	for (const modelEntry of allModels) {
 		if (processedModels.has(modelEntry.modelId)) {
@@ -239,6 +388,12 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
 		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
 		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+		const completedCount = stat?.completedCount ?? 0;
+		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
+		const contentFilterCount = stat?.contentFilterCount ?? 0;
+		const toolCallsCount = stat?.toolCallsCount ?? 0;
+		const canceledCount = stat?.canceledCount ?? 0;
+		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
 		const cachedCount = stat?.cachedCount ?? 0;
 		const totalInputTokens = stat?.totalInputTokens ?? 0;
 		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
@@ -251,48 +406,48 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			stat?.totalTimeToFirstReasoningToken ?? 0;
 		const totalCost = stat?.totalCost ?? 0;
 
-		// Insert or update a history record for this minute
+		// Collect the history record for this minute; written in one bulk upsert
+		// below instead of a per-model round-trip.
+		modelHistoryValues.push({
+			modelId: modelEntry.modelId,
+			minuteTimestamp: roundedTargetMinute,
+			logsCount,
+			errorsCount,
+			clientErrorsCount,
+			gatewayErrorsCount,
+			upstreamErrorsCount,
+			completedCount,
+			lengthLimitCount,
+			contentFilterCount,
+			toolCallsCount,
+			canceledCount,
+			unknownFinishCount,
+			cachedCount,
+			totalInputTokens,
+			totalOutputTokens,
+			totalTokens,
+			totalReasoningTokens,
+			totalCachedTokens,
+			totalDuration,
+			totalTimeToFirstToken,
+			totalTimeToFirstReasoningToken,
+			totalCost,
+		});
+	}
+
+	const modelHistoryUpsertSet = buildHistoryUpsertSet(modelHistory);
+	for (
+		let i = 0;
+		i < modelHistoryValues.length;
+		i += HISTORY_UPSERT_CHUNK_SIZE
+	) {
+		const chunk = modelHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
 		await database
 			.insert(modelHistory)
-			.values({
-				modelId: modelEntry.modelId,
-				minuteTimestamp: roundedTargetMinute,
-				logsCount,
-				errorsCount,
-				clientErrorsCount,
-				gatewayErrorsCount,
-				upstreamErrorsCount,
-				cachedCount,
-				totalInputTokens,
-				totalOutputTokens,
-				totalTokens,
-				totalReasoningTokens,
-				totalCachedTokens,
-				totalDuration,
-				totalTimeToFirstToken,
-				totalTimeToFirstReasoningToken,
-				totalCost,
-			})
+			.values(chunk)
 			.onConflictDoUpdate({
 				target: [modelHistory.modelId, modelHistory.minuteTimestamp],
-				set: {
-					logsCount,
-					errorsCount,
-					clientErrorsCount,
-					gatewayErrorsCount,
-					upstreamErrorsCount,
-					cachedCount,
-					totalInputTokens,
-					totalOutputTokens,
-					totalTokens,
-					totalReasoningTokens,
-					totalCachedTokens,
-					totalDuration,
-					totalTimeToFirstToken,
-					totalTimeToFirstReasoningToken,
-					totalCost,
-					updatedAt: new Date(),
-				},
+				set: modelHistoryUpsertSet,
 			});
 	}
 
@@ -337,6 +492,30 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 					"upstreamErrorsCount",
 				),
+			completedCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'completed' then 1 else 0 end)::int`.as(
+					"completedCount",
+				),
+			lengthLimitCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'length_limit' then 1 else 0 end)::int`.as(
+					"lengthLimitCount",
+				),
+			contentFilterCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'content_filter' then 1 else 0 end)::int`.as(
+					"contentFilterCount",
+				),
+			toolCallsCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'tool_calls' then 1 else 0 end)::int`.as(
+					"toolCallsCount",
+				),
+			canceledCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'canceled' then 1 else 0 end)::int`.as(
+					"canceledCount",
+				),
+			unknownFinishCount:
+				sql<number>`sum(case when ${log.unifiedFinishReason} = 'unknown' or ${log.unifiedFinishReason} is null then 1 else 0 end)::int`.as(
+					"unknownFinishCount",
+				),
 			cachedCount:
 				sql<number>`sum(case when ${log.cached} = true then 1 else 0 end)::int`.as(
 					"cachedCount",
@@ -380,6 +559,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			and(
 				gte(log.createdAt, roundedTargetMinute),
 				lt(log.createdAt, minuteEnd),
+				excludeRecoveredSameProviderRegionRetry(),
 			),
 		)
 		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql);
@@ -458,6 +638,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 
 	// Process all model-provider mappings
 	const processedMappings = new Set<string>();
+	const mappingHistoryValues: (typeof modelProviderMappingHistory.$inferInsert)[] =
+		[];
 
 	let activeMappingsCount = 0;
 
@@ -477,6 +659,12 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const clientErrorsCount = stat?.clientErrorsCount ?? 0;
 		const gatewayErrorsCount = stat?.gatewayErrorsCount ?? 0;
 		const upstreamErrorsCount = stat?.upstreamErrorsCount ?? 0;
+		const completedCount = stat?.completedCount ?? 0;
+		const lengthLimitCount = stat?.lengthLimitCount ?? 0;
+		const contentFilterCount = stat?.contentFilterCount ?? 0;
+		const toolCallsCount = stat?.toolCallsCount ?? 0;
+		const canceledCount = stat?.canceledCount ?? 0;
+		const unknownFinishCount = stat?.unknownFinishCount ?? 0;
 		const cachedCount = stat?.cachedCount ?? 0;
 		const totalInputTokens = stat?.totalInputTokens ?? 0;
 		const totalOutputTokens = stat?.totalOutputTokens ?? 0;
@@ -493,53 +681,55 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			activeMappingsCount++;
 		}
 
-		// Insert or update a history record for this minute
+		// Collect the history record for this minute; written in one bulk upsert
+		// below instead of a per-mapping round-trip.
+		mappingHistoryValues.push({
+			modelId: mapping.modelId, // LLMGateway model name
+			providerId: mapping.providerId,
+			modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
+			minuteTimestamp: roundedTargetMinute,
+			logsCount,
+			errorsCount,
+			clientErrorsCount,
+			gatewayErrorsCount,
+			upstreamErrorsCount,
+			completedCount,
+			lengthLimitCount,
+			contentFilterCount,
+			toolCallsCount,
+			canceledCount,
+			unknownFinishCount,
+			cachedCount,
+			totalInputTokens,
+			totalOutputTokens,
+			totalTokens,
+			totalReasoningTokens,
+			totalCachedTokens,
+			totalDuration,
+			totalTimeToFirstToken,
+			totalTimeToFirstReasoningToken,
+			totalCost,
+		});
+	}
+
+	const mappingHistoryUpsertSet = buildHistoryUpsertSet(
+		modelProviderMappingHistory,
+	);
+	for (
+		let i = 0;
+		i < mappingHistoryValues.length;
+		i += HISTORY_UPSERT_CHUNK_SIZE
+	) {
+		const chunk = mappingHistoryValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE);
 		await database
 			.insert(modelProviderMappingHistory)
-			.values({
-				modelId: mapping.modelId, // LLMGateway model name
-				providerId: mapping.providerId,
-				modelProviderMappingId: mapping.id, // Exact model_provider_mapping.id
-				minuteTimestamp: roundedTargetMinute,
-				logsCount,
-				errorsCount,
-				clientErrorsCount,
-				gatewayErrorsCount,
-				upstreamErrorsCount,
-				cachedCount,
-				totalInputTokens,
-				totalOutputTokens,
-				totalTokens,
-				totalReasoningTokens,
-				totalCachedTokens,
-				totalDuration,
-				totalTimeToFirstToken,
-				totalTimeToFirstReasoningToken,
-				totalCost,
-			})
+			.values(chunk)
 			.onConflictDoUpdate({
 				target: [
 					modelProviderMappingHistory.modelProviderMappingId,
 					modelProviderMappingHistory.minuteTimestamp,
 				],
-				set: {
-					logsCount,
-					errorsCount,
-					clientErrorsCount,
-					gatewayErrorsCount,
-					upstreamErrorsCount,
-					cachedCount,
-					totalInputTokens,
-					totalOutputTokens,
-					totalTokens,
-					totalReasoningTokens,
-					totalCachedTokens,
-					totalDuration,
-					totalTimeToFirstToken,
-					totalTimeToFirstReasoningToken,
-					totalCost,
-					updatedAt: new Date(),
-				},
+				set: mappingHistoryUpsertSet,
 			});
 	}
 
@@ -736,182 +926,384 @@ export async function calculateCurrentMinuteHistory() {
 }
 
 /**
- * Calculate 60-minute weighted aggregated statistics with time-tier weighting
- * (last 1 min = 10x, last 5 min = 3x, rest of hour = 1x).
+ * Roll up one hour of model_history (the 60 minute rows) into a single
+ * model_history_hourly row per model. Idempotent: re-running an hour recomputes
+ * its totals from the current minute data and overwrites the existing row.
+ * @param targetHour Any time within the hour to aggregate
  */
-// Routing metric time-tier weights
-const ROUTING_WINDOW_MINUTES = 60;
-const TIER_1_MINUTES = 1; // "hot" tier boundary
-const TIER_2_MINUTES = 5; // "warm" tier boundary
-const TIER_1_WEIGHT = 10; // weight for 0-<1 min ago
-const TIER_2_WEIGHT = 3; // weight for 1-<5 min ago
-const TIER_3_WEIGHT = 1; // weight for 5-60 min ago
+async function calculateModelHistoryForHour(targetHour: Date) {
+	const roundedHour = roundToHourStart(targetHour);
+	const hourEnd = new Date(roundedHour.getTime() + ONE_HOUR_MS);
+	const database = db;
 
-function getTierWeight(minuteTimestamp: Date, now: Date): number {
-	const ageMinutes = (now.getTime() - minuteTimestamp.getTime()) / (60 * 1000);
-	if (ageMinutes < 0) {
-		return TIER_1_WEIGHT;
+	const hourlyStats = await database
+		.select({
+			modelId: modelHistory.modelId,
+			logsCount: sql<number>`coalesce(sum(${modelHistory.logsCount}), 0)::int`,
+			errorsCount: sql<number>`coalesce(sum(${modelHistory.errorsCount}), 0)::int`,
+			clientErrorsCount: sql<number>`coalesce(sum(${modelHistory.clientErrorsCount}), 0)::int`,
+			gatewayErrorsCount: sql<number>`coalesce(sum(${modelHistory.gatewayErrorsCount}), 0)::int`,
+			upstreamErrorsCount: sql<number>`coalesce(sum(${modelHistory.upstreamErrorsCount}), 0)::int`,
+			completedCount: sql<number>`coalesce(sum(${modelHistory.completedCount}), 0)::int`,
+			lengthLimitCount: sql<number>`coalesce(sum(${modelHistory.lengthLimitCount}), 0)::int`,
+			contentFilterCount: sql<number>`coalesce(sum(${modelHistory.contentFilterCount}), 0)::int`,
+			toolCallsCount: sql<number>`coalesce(sum(${modelHistory.toolCallsCount}), 0)::int`,
+			canceledCount: sql<number>`coalesce(sum(${modelHistory.canceledCount}), 0)::int`,
+			unknownFinishCount: sql<number>`coalesce(sum(${modelHistory.unknownFinishCount}), 0)::int`,
+			cachedCount: sql<number>`coalesce(sum(${modelHistory.cachedCount}), 0)::int`,
+			totalInputTokens: sql<number>`coalesce(sum(${modelHistory.totalInputTokens}), 0)::bigint`,
+			totalOutputTokens: sql<number>`coalesce(sum(${modelHistory.totalOutputTokens}), 0)::bigint`,
+			totalTokens: sql<number>`coalesce(sum(${modelHistory.totalTokens}), 0)::bigint`,
+			totalReasoningTokens: sql<number>`coalesce(sum(${modelHistory.totalReasoningTokens}), 0)::bigint`,
+			totalCachedTokens: sql<number>`coalesce(sum(${modelHistory.totalCachedTokens}), 0)::bigint`,
+			totalDuration: sql<number>`coalesce(sum(${modelHistory.totalDuration}), 0)::int`,
+			totalTimeToFirstToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstToken}), 0)::int`,
+			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstReasoningToken}), 0)::int`,
+			totalCost: sql<number>`coalesce(sum(${modelHistory.totalCost}), 0)`,
+		})
+		.from(modelHistory)
+		.where(
+			and(
+				gte(modelHistory.minuteTimestamp, roundedHour),
+				lt(modelHistory.minuteTimestamp, hourEnd),
+			),
+		)
+		.groupBy(modelHistory.modelId);
+
+	for (const row of hourlyStats) {
+		const { modelId, ...stats } = row;
+		await database
+			.insert(modelHistoryHourly)
+			.values({ modelId, hourTimestamp: roundedHour, ...stats })
+			.onConflictDoUpdate({
+				target: [modelHistoryHourly.modelId, modelHistoryHourly.hourTimestamp],
+				set: { ...stats, updatedAt: new Date() },
+			});
 	}
-	if (ageMinutes < TIER_1_MINUTES) {
-		return TIER_1_WEIGHT;
-	}
-	if (ageMinutes < TIER_2_MINUTES) {
-		return TIER_2_WEIGHT;
-	}
-	return TIER_3_WEIGHT;
+
+	return { totalModels: hourlyStats.length };
 }
+
+/**
+ * Roll up one hour of model_provider_mapping_history (the 60 minute rows) into a
+ * single model_provider_mapping_history_hourly row per mapping. Idempotent.
+ * @param targetHour Any time within the hour to aggregate
+ */
+async function calculateMappingHistoryForHour(targetHour: Date) {
+	const roundedHour = roundToHourStart(targetHour);
+	const hourEnd = new Date(roundedHour.getTime() + ONE_HOUR_MS);
+	const database = db;
+
+	const hourlyStats = await database
+		.select({
+			modelProviderMappingId:
+				modelProviderMappingHistory.modelProviderMappingId,
+			modelId: modelProviderMappingHistory.modelId,
+			providerId: modelProviderMappingHistory.providerId,
+			logsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::int`,
+			errorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.errorsCount}), 0)::int`,
+			clientErrorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount}), 0)::int`,
+			gatewayErrorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.gatewayErrorsCount}), 0)::int`,
+			upstreamErrorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.upstreamErrorsCount}), 0)::int`,
+			completedCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.completedCount}), 0)::int`,
+			lengthLimitCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.lengthLimitCount}), 0)::int`,
+			contentFilterCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.contentFilterCount}), 0)::int`,
+			toolCallsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.toolCallsCount}), 0)::int`,
+			canceledCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.canceledCount}), 0)::int`,
+			unknownFinishCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.unknownFinishCount}), 0)::int`,
+			cachedCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.cachedCount}), 0)::int`,
+			totalInputTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalInputTokens}), 0)::bigint`,
+			totalOutputTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalOutputTokens}), 0)::bigint`,
+			totalTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTokens}), 0)::bigint`,
+			totalReasoningTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalReasoningTokens}), 0)::bigint`,
+			totalCachedTokens: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCachedTokens}), 0)::bigint`,
+			totalDuration: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalDuration}), 0)::int`,
+			totalTimeToFirstToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)::int`,
+			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken}), 0)::int`,
+			totalCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCost}), 0)`,
+		})
+		.from(modelProviderMappingHistory)
+		.where(
+			and(
+				gte(modelProviderMappingHistory.minuteTimestamp, roundedHour),
+				lt(modelProviderMappingHistory.minuteTimestamp, hourEnd),
+			),
+		)
+		.groupBy(
+			modelProviderMappingHistory.modelProviderMappingId,
+			modelProviderMappingHistory.modelId,
+			modelProviderMappingHistory.providerId,
+		);
+
+	for (const row of hourlyStats) {
+		const { modelProviderMappingId, modelId, providerId, ...stats } = row;
+		await database
+			.insert(modelProviderMappingHistoryHourly)
+			.values({
+				modelProviderMappingId,
+				modelId,
+				providerId,
+				hourTimestamp: roundedHour,
+				...stats,
+			})
+			.onConflictDoUpdate({
+				target: [
+					modelProviderMappingHistoryHourly.modelProviderMappingId,
+					modelProviderMappingHistoryHourly.hourTimestamp,
+				],
+				set: { ...stats, updatedAt: new Date() },
+			});
+	}
+
+	return { totalMappings: hourlyStats.length };
+}
+
+/**
+ * Roll up a single hour of minute history into the hourly summary tables.
+ */
+async function calculateHistoryForHour(targetHour: Date) {
+	const mappingResult = await calculateMappingHistoryForHour(targetHour);
+	const modelResult = await calculateModelHistoryForHour(targetHour);
+	return { mappingResult, modelResult };
+}
+
+/**
+ * Calculate the hourly summary for the previous (now-complete) hour and refresh
+ * the current in-progress hour so dashboards see recent data without waiting for
+ * the hour to close. Called once per minutely tick.
+ */
+export async function calculateHourlyHistory() {
+	const currentHourStart = getCurrentHourStart();
+	const previousHourStart = new Date(currentHourStart.getTime() - ONE_HOUR_MS);
+
+	try {
+		await calculateHistoryForHour(previousHourStart);
+		await calculateHistoryForHour(currentHourStart);
+
+		logger.debug(
+			`Recorded hourly history for ${previousHourStart.toISOString()} and ${currentHourStart.toISOString()}`,
+		);
+	} catch (error) {
+		logger.error("Error calculating hourly history:", error as Error);
+		throw error;
+	}
+}
+
+/**
+ * Backfill missing hourly summary rows by walking every completed hour from the
+ * earliest minute-history entry up to the previous complete hour and recomputing
+ * only the hours absent from EITHER summary table. Detecting missing hours
+ * (rather than resuming from the latest entry) is what makes this robust: the
+ * minutely loop writes the current and previous hour on startup, so the latest
+ * hourly entry is never a reliable "everything before this is done" watermark —
+ * resuming from it would strand the older gap. Recomputing any hour missing from
+ * one table also heals a table left behind by a partial write. The in-progress
+ * current hour is excluded (the live loop owns it).
+ */
+export async function backfillHourlyHistoryIfNeeded() {
+	logger.info("Checking for missing hourly history periods to backfill...");
+
+	try {
+		const database = db;
+
+		const currentHourStart = getCurrentHourStart();
+		const previousHourStart = new Date(
+			currentHourStart.getTime() - ONE_HOUR_MS,
+		);
+
+		// Earliest minute-history entry across both source tables — the oldest hour
+		// the hourly rollup could possibly cover.
+		const earliestMappingMinute = await database
+			.select({ minuteTimestamp: modelProviderMappingHistory.minuteTimestamp })
+			.from(modelProviderMappingHistory)
+			.orderBy(asc(modelProviderMappingHistory.minuteTimestamp))
+			.limit(1);
+
+		const earliestModelMinute = await database
+			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
+			.from(modelHistory)
+			.orderBy(asc(modelHistory.minuteTimestamp))
+			.limit(1);
+
+		let earliestMinute: Date | null = null;
+		if (earliestMappingMinute.length > 0 && earliestModelMinute.length > 0) {
+			earliestMinute = new Date(
+				Math.min(
+					earliestMappingMinute[0]!.minuteTimestamp.getTime(),
+					earliestModelMinute[0]!.minuteTimestamp.getTime(),
+				),
+			);
+		} else if (earliestMappingMinute.length > 0) {
+			earliestMinute = earliestMappingMinute[0]!.minuteTimestamp;
+		} else if (earliestModelMinute.length > 0) {
+			earliestMinute = earliestModelMinute[0]!.minuteTimestamp;
+		}
+
+		if (!earliestMinute) {
+			logger.info("No minute history found. Skipping hourly backfill.");
+			return;
+		}
+
+		const startHour = roundToHourStart(earliestMinute);
+		if (startHour > previousHourStart) {
+			logger.info(
+				"Hourly history is up to date (no completed hours to roll up).",
+			);
+			return;
+		}
+
+		// Hours already summarized in each table (excluding the in-progress current
+		// hour). An hour is recomputed only when it is missing from either set.
+		const [mappingHours, modelHours] = await Promise.all([
+			database
+				.select({
+					hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
+				})
+				.from(modelProviderMappingHistoryHourly)
+				.where(
+					lt(modelProviderMappingHistoryHourly.hourTimestamp, currentHourStart),
+				),
+			database
+				.select({ hourTimestamp: modelHistoryHourly.hourTimestamp })
+				.from(modelHistoryHourly)
+				.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart)),
+		]);
+
+		const mappingHourSet = new Set(
+			mappingHours.map((r) => r.hourTimestamp.getTime()),
+		);
+		const modelHourSet = new Set(
+			modelHours.map((r) => r.hourTimestamp.getTime()),
+		);
+
+		logger.info(
+			`Backfilling missing hourly history from ${startHour.toISOString()} to ${previousHourStart.toISOString()}`,
+		);
+
+		let hour = startHour;
+		let scanned = 0;
+		let computed = 0;
+		while (
+			hour <= previousHourStart &&
+			scanned < HOURLY_BACKFILL_MAX_ITERATIONS
+		) {
+			const ms = hour.getTime();
+			if (!mappingHourSet.has(ms) || !modelHourSet.has(ms)) {
+				const result = await calculateHistoryForHour(hour);
+				logger.info(
+					`Backfilled hourly history for ${hour.toISOString()}: ${result.mappingResult.totalMappings} mappings, ${result.modelResult.totalModels} models`,
+				);
+				computed++;
+			}
+
+			const nextHour = roundToHourStart(new Date(hour.getTime() + ONE_HOUR_MS));
+			if (nextHour.getTime() <= hour.getTime()) {
+				logger.error(
+					`Loop safety break: Time calculation error at ${hour.toISOString()}`,
+				);
+				break;
+			}
+
+			hour = nextHour;
+			scanned++;
+		}
+
+		if (scanned >= HOURLY_BACKFILL_MAX_ITERATIONS) {
+			logger.warn(
+				`Hourly backfill stopped at iteration limit ${HOURLY_BACKFILL_MAX_ITERATIONS} to prevent runaway backfill`,
+			);
+		}
+
+		logger.info(
+			`Hourly backfill complete: scanned ${scanned} hour(s), computed ${computed} missing.`,
+		);
+	} catch (error) {
+		logger.error("Error during hourly history backfill:", error as Error);
+		throw error;
+	}
+}
+
+/**
+ * Roll up the last hour of model_provider_mapping_history into unweighted
+ * counters on `provider`, `model`, and `modelProviderMapping`. Used for
+ * admin/UI displays only — routing decisions no longer read these columns
+ * (the gateway aggregates from history on-demand using per-project tier
+ * weights, see packages/db/src/provider-metrics-history.ts).
+ */
+const STATS_ROLLUP_WINDOW_MINUTES = 60;
 
 export async function calculateAggregatedStatistics() {
 	logger.debug("Starting aggregated statistics calculation...");
 
 	try {
 		const database = db;
-		const windowMs = ROUTING_WINDOW_MINUTES * 60 * 1000;
-		const oneHourAgo = new Date(Date.now() - windowMs);
-
-		// Update provider statistics (aggregated from model-provider mappings)
-		const providerAggregates = await database
-			.select({
-				providerId: modelProviderMappingHistory.providerId,
-				totalLogsCount: sum(modelProviderMappingHistory.logsCount),
-				totalErrorsCount: sum(modelProviderMappingHistory.errorsCount),
-				totalClientErrorsCount: sum(
-					modelProviderMappingHistory.clientErrorsCount,
-				),
-				totalGatewayErrorsCount: sum(
-					modelProviderMappingHistory.gatewayErrorsCount,
-				),
-				totalUpstreamErrorsCount: sum(
-					modelProviderMappingHistory.upstreamErrorsCount,
-				),
-				totalCachedCount: sum(modelProviderMappingHistory.cachedCount),
-			})
-			.from(modelProviderMappingHistory)
-			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
-			.groupBy(modelProviderMappingHistory.providerId);
-
-		for (const aggregate of providerAggregates) {
-			if (!aggregate.providerId) {
-				continue;
-			}
-
-			await database
-				.update(provider)
-				.set({
-					logsCount: Number(aggregate.totalLogsCount ?? 0),
-					errorsCount: Number(aggregate.totalErrorsCount ?? 0),
-					clientErrorsCount: Number(aggregate.totalClientErrorsCount ?? 0),
-					gatewayErrorsCount: Number(aggregate.totalGatewayErrorsCount ?? 0),
-					upstreamErrorsCount: Number(aggregate.totalUpstreamErrorsCount ?? 0),
-					cachedCount: Number(aggregate.totalCachedCount ?? 0),
-					statsUpdatedAt: new Date(),
-					updatedAt: new Date(),
-				})
-				.where(eq(provider.id, aggregate.providerId));
-		}
-
-		logger.debug(
-			`Updated statistics for ${providerAggregates.length} providers`,
-		);
-
-		// Update model statistics (aggregated from model-provider mappings)
-		const modelAggregates = await database
-			.select({
-				modelId: modelProviderMappingHistory.modelId,
-				totalLogsCount: sum(modelProviderMappingHistory.logsCount),
-				totalErrorsCount: sum(modelProviderMappingHistory.errorsCount),
-				totalClientErrorsCount: sum(
-					modelProviderMappingHistory.clientErrorsCount,
-				),
-				totalGatewayErrorsCount: sum(
-					modelProviderMappingHistory.gatewayErrorsCount,
-				),
-				totalUpstreamErrorsCount: sum(
-					modelProviderMappingHistory.upstreamErrorsCount,
-				),
-				totalCachedCount: sum(modelProviderMappingHistory.cachedCount),
-			})
-			.from(modelProviderMappingHistory)
-			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
-			.groupBy(modelProviderMappingHistory.modelId);
-
-		for (const aggregate of modelAggregates) {
-			if (!aggregate.modelId) {
-				continue;
-			}
-
-			await database
-				.update(model)
-				.set({
-					logsCount: Number(aggregate.totalLogsCount ?? 0),
-					errorsCount: Number(aggregate.totalErrorsCount ?? 0),
-					clientErrorsCount: Number(aggregate.totalClientErrorsCount ?? 0),
-					gatewayErrorsCount: Number(aggregate.totalGatewayErrorsCount ?? 0),
-					upstreamErrorsCount: Number(aggregate.totalUpstreamErrorsCount ?? 0),
-					cachedCount: Number(aggregate.totalCachedCount ?? 0),
-					statsUpdatedAt: new Date(),
-					updatedAt: new Date(),
-				})
-				.where(eq(model.id, aggregate.modelId));
-		}
-
-		logger.debug(`Updated statistics for ${modelAggregates.length} models`);
-
-		// Update model-provider mapping statistics with weighted routing metrics
-		// Fetch per-minute rows from the last hour for weighted aggregation
 		const now = new Date();
-		const mappingRows = await database
+		const minuteMs = 60 * 1000;
+		const windowMs = STATS_ROLLUP_WINDOW_MINUTES * minuteMs;
+		const oneHourAgo = new Date(now.getTime() - windowMs);
+
+		const mappingAggregates = await database
 			.select({
 				modelProviderMappingId:
 					modelProviderMappingHistory.modelProviderMappingId,
-				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
-				logsCount: modelProviderMappingHistory.logsCount,
-				errorsCount: modelProviderMappingHistory.errorsCount,
-				clientErrorsCount: modelProviderMappingHistory.clientErrorsCount,
-				gatewayErrorsCount: modelProviderMappingHistory.gatewayErrorsCount,
-				upstreamErrorsCount: modelProviderMappingHistory.upstreamErrorsCount,
-				cachedCount: modelProviderMappingHistory.cachedCount,
-				totalOutputTokens: modelProviderMappingHistory.totalOutputTokens,
-				totalDuration: modelProviderMappingHistory.totalDuration,
-				totalTimeToFirstToken:
-					modelProviderMappingHistory.totalTimeToFirstToken,
-				totalTimeToFirstReasoningToken:
-					modelProviderMappingHistory.totalTimeToFirstReasoningToken,
+				providerId: modelProviderMappingHistory.providerId,
+				modelId: modelProviderMappingHistory.modelId,
+				totalLogs:
+					sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::bigint`.as(
+						"total_logs",
+					),
+				totalErrors:
+					sql<number>`coalesce(sum(${modelProviderMappingHistory.errorsCount}), 0)::bigint`.as(
+						"total_errors",
+					),
+				totalClientErrors:
+					sql<number>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount}), 0)::bigint`.as(
+						"total_client_errors",
+					),
+				totalGatewayErrors:
+					sql<number>`coalesce(sum(${modelProviderMappingHistory.gatewayErrorsCount}), 0)::bigint`.as(
+						"total_gateway_errors",
+					),
+				totalUpstreamErrors:
+					sql<number>`coalesce(sum(${modelProviderMappingHistory.upstreamErrorsCount}), 0)::bigint`.as(
+						"total_upstream_errors",
+					),
+				totalCached:
+					sql<number>`coalesce(sum(${modelProviderMappingHistory.cachedCount}), 0)::bigint`.as(
+						"total_cached",
+					),
 			})
 			.from(modelProviderMappingHistory)
-			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo));
+			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
+			.groupBy(
+				modelProviderMappingHistory.modelProviderMappingId,
+				modelProviderMappingHistory.providerId,
+				modelProviderMappingHistory.modelId,
+			);
 
-		// Aggregate per modelProviderMappingId with tier weights for routing,
-		// and plain sums for dashboard stats
-		interface MappingAgg {
-			// Unweighted sums (for dashboard/display stats)
+		interface RollupAgg {
 			totalLogs: number;
 			totalErrors: number;
 			totalClientErrors: number;
 			totalGatewayErrors: number;
 			totalUpstreamErrors: number;
 			totalCached: number;
-			// Weighted sums (for routing metrics)
-			weightedLogs: number;
-			// weightedRoutingErrors excludes client_error: caller-fault failures
-			// (e.g. malformed requests, validation rejections) shouldn't count
-			// against a provider's routing uptime score.
-			weightedRoutingErrors: number;
-			weightedDuration: number;
-			weightedOutputTokens: number;
-			weightedTTFT: number;
-			weightedTTFRT: number;
 		}
 
-		const aggMap = new Map<string, MappingAgg>();
+		const providerMap = new Map<string, RollupAgg>();
+		const modelMap = new Map<string, RollupAgg>();
 
-		for (const row of mappingRows) {
-			if (!row.modelProviderMappingId) {
-				continue;
-			}
-
-			const key = row.modelProviderMappingId;
-			let agg = aggMap.get(key);
+		const addToRollup = (
+			target: Map<string, RollupAgg>,
+			key: string,
+			totalLogs: number,
+			totalErrors: number,
+			totalClientErrors: number,
+			totalGatewayErrors: number,
+			totalUpstreamErrors: number,
+			totalCached: number,
+		) => {
+			let agg = target.get(key);
 			if (!agg) {
 				agg = {
 					totalLogs: 0,
@@ -920,72 +1312,54 @@ export async function calculateAggregatedStatistics() {
 					totalGatewayErrors: 0,
 					totalUpstreamErrors: 0,
 					totalCached: 0,
-					weightedLogs: 0,
-					weightedRoutingErrors: 0,
-					weightedDuration: 0,
-					weightedOutputTokens: 0,
-					weightedTTFT: 0,
-					weightedTTFRT: 0,
 				};
-				aggMap.set(key, agg);
+				target.set(key, agg);
 			}
+			agg.totalLogs += totalLogs;
+			agg.totalErrors += totalErrors;
+			agg.totalClientErrors += totalClientErrors;
+			agg.totalGatewayErrors += totalGatewayErrors;
+			agg.totalUpstreamErrors += totalUpstreamErrors;
+			agg.totalCached += totalCached;
+		};
 
-			const weight = getTierWeight(row.minuteTimestamp, now);
+		for (const row of mappingAggregates) {
+			const totalLogs = Number(row.totalLogs ?? 0);
+			const totalErrors = Number(row.totalErrors ?? 0);
+			const totalClientErrors = Number(row.totalClientErrors ?? 0);
+			const totalGatewayErrors = Number(row.totalGatewayErrors ?? 0);
+			const totalUpstreamErrors = Number(row.totalUpstreamErrors ?? 0);
+			const totalCached = Number(row.totalCached ?? 0);
 
-			// Unweighted sums
-			agg.totalLogs += row.logsCount;
-			agg.totalErrors += row.errorsCount;
-			agg.totalClientErrors += row.clientErrorsCount;
-			agg.totalGatewayErrors += row.gatewayErrorsCount;
-			agg.totalUpstreamErrors += row.upstreamErrorsCount;
-			agg.totalCached += row.cachedCount;
-
-			// Weighted sums
-			agg.weightedLogs += row.logsCount * weight;
-			const routingErrors = Math.max(
-				0,
-				row.errorsCount - row.clientErrorsCount,
-			);
-			agg.weightedRoutingErrors += routingErrors * weight;
-			agg.weightedDuration += row.totalDuration * weight;
-			agg.weightedOutputTokens += row.totalOutputTokens * weight;
-			agg.weightedTTFT += row.totalTimeToFirstToken * weight;
-			agg.weightedTTFRT += row.totalTimeToFirstReasoningToken * weight;
+			if (row.providerId) {
+				addToRollup(
+					providerMap,
+					row.providerId,
+					totalLogs,
+					totalErrors,
+					totalClientErrors,
+					totalGatewayErrors,
+					totalUpstreamErrors,
+					totalCached,
+				);
+			}
+			if (row.modelId) {
+				addToRollup(
+					modelMap,
+					row.modelId,
+					totalLogs,
+					totalErrors,
+					totalClientErrors,
+					totalGatewayErrors,
+					totalUpstreamErrors,
+					totalCached,
+				);
+			}
 		}
 
-		let mappingUpdateCount = 0;
-		const updatedMappingIds: string[] = [];
-
-		for (const [mappingId, agg] of aggMap) {
-			if (!mappingId) {
-				continue;
-			}
-
-			// Compute routing metrics from weighted sums
-			let routingUptime: number | null = null;
-			let routingLatency: number | null = null;
-			let routingThroughput: number | null = null;
-			let routingTotalRequests: number | null = null;
-
-			if (agg.weightedLogs > 0) {
-				const successfulRequests = agg.weightedLogs - agg.weightedRoutingErrors;
-				routingUptime = (successfulRequests / agg.weightedLogs) * 100;
-
-				const effectiveTTFT =
-					agg.weightedTTFRT > 0 ? agg.weightedTTFRT : agg.weightedTTFT;
-				routingLatency =
-					effectiveTTFT > 0 ? effectiveTTFT / agg.weightedLogs : null;
-
-				routingThroughput =
-					agg.weightedDuration > 0
-						? (agg.weightedOutputTokens / agg.weightedDuration) * 1000
-						: null;
-
-				routingTotalRequests = agg.totalLogs;
-			}
-
+		for (const [providerId, agg] of providerMap) {
 			await database
-				.update(modelProviderMapping)
+				.update(provider)
 				.set({
 					logsCount: agg.totalLogs,
 					errorsCount: agg.totalErrors,
@@ -993,53 +1367,62 @@ export async function calculateAggregatedStatistics() {
 					gatewayErrorsCount: agg.totalGatewayErrors,
 					upstreamErrorsCount: agg.totalUpstreamErrors,
 					cachedCount: agg.totalCached,
-					routingUptime,
-					routingLatency,
-					routingThroughput,
-					routingTotalRequests,
+					statsUpdatedAt: new Date(),
+					updatedAt: new Date(),
+				})
+				.where(eq(provider.id, providerId));
+		}
+
+		logger.debug(`Updated statistics for ${providerMap.size} providers`);
+
+		for (const [modelId, agg] of modelMap) {
+			await database
+				.update(model)
+				.set({
+					logsCount: agg.totalLogs,
+					errorsCount: agg.totalErrors,
+					clientErrorsCount: agg.totalClientErrors,
+					gatewayErrorsCount: agg.totalGatewayErrors,
+					upstreamErrorsCount: agg.totalUpstreamErrors,
+					cachedCount: agg.totalCached,
+					statsUpdatedAt: new Date(),
+					updatedAt: new Date(),
+				})
+				.where(eq(model.id, modelId));
+		}
+
+		logger.debug(`Updated statistics for ${modelMap.size} models`);
+
+		let mappingUpdateCount = 0;
+
+		for (const row of mappingAggregates) {
+			const mappingId = row.modelProviderMappingId;
+			if (!mappingId) {
+				continue;
+			}
+
+			const totalLogs = Number(row.totalLogs ?? 0);
+			const totalErrors = Number(row.totalErrors ?? 0);
+			const totalClientErrors = Number(row.totalClientErrors ?? 0);
+			const totalGatewayErrors = Number(row.totalGatewayErrors ?? 0);
+			const totalUpstreamErrors = Number(row.totalUpstreamErrors ?? 0);
+			const totalCached = Number(row.totalCached ?? 0);
+
+			await database
+				.update(modelProviderMapping)
+				.set({
+					logsCount: totalLogs,
+					errorsCount: totalErrors,
+					clientErrorsCount: totalClientErrors,
+					gatewayErrorsCount: totalGatewayErrors,
+					upstreamErrorsCount: totalUpstreamErrors,
+					cachedCount: totalCached,
 					statsUpdatedAt: new Date(),
 					updatedAt: new Date(),
 				})
 				.where(eq(modelProviderMapping.id, mappingId));
 
-			updatedMappingIds.push(mappingId);
 			mappingUpdateCount++;
-		}
-
-		// Clear stale routing metrics for mappings with no traffic in the last hour
-		if (updatedMappingIds.length > 0) {
-			await database
-				.update(modelProviderMapping)
-				.set({
-					routingUptime: null,
-					routingLatency: null,
-					routingThroughput: null,
-					routingTotalRequests: null,
-					statsUpdatedAt: new Date(),
-					updatedAt: new Date(),
-				})
-				.where(
-					and(
-						eq(modelProviderMapping.status, "active"),
-						sql`${modelProviderMapping.id} NOT IN (${sql.join(
-							updatedMappingIds.map((id) => sql`${id}`),
-							sql`, `,
-						)})`,
-					),
-				);
-		} else {
-			// No traffic at all in the last hour, clear all routing metrics
-			await database
-				.update(modelProviderMapping)
-				.set({
-					routingUptime: null,
-					routingLatency: null,
-					routingThroughput: null,
-					routingTotalRequests: null,
-					statsUpdatedAt: new Date(),
-					updatedAt: new Date(),
-				})
-				.where(eq(modelProviderMapping.status, "active"));
 		}
 
 		logger.debug(

@@ -5,7 +5,7 @@ import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 export const metadata = {
-	title: "Web Search Models - AI Models with Internet Access | LLM Gateway",
+	title: "Web Search Models - AI Models with Internet Access",
 	description:
 		"Browse and compare AI models with built-in web search capabilities. Get real-time information and grounded responses from the internet.",
 	openGraph: {

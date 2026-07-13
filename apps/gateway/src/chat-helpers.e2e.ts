@@ -104,6 +104,43 @@ if (specifiedProviders) {
 	console.log(`TEST_PROVIDERS specified: ${specifiedProviders.join(", ")}`);
 }
 
+/**
+ * Check whether a single TEST_MODELS entry matches at least one real
+ * provider/model mapping (regions expanded).
+ */
+function testModelMatchesAnyMapping(entry: ParsedTestModel): boolean {
+	return models.some((model) => {
+		if (model.id !== entry.modelId) {
+			return false;
+		}
+		return expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		).some(
+			(p) =>
+				p.providerId === entry.providerId &&
+				(entry.region === undefined || p.region === entry.region),
+		);
+	});
+}
+
+// Fail loudly if TEST_MODELS is set but some entries match zero mappings.
+// Otherwise a typo'd model string silently runs no tests and "passes",
+// giving a false sense of security.
+if (specifiedModels && parsedTestModels) {
+	const unmatched = specifiedModels.filter(
+		(_, i) => !testModelMatchesAnyMapping(parsedTestModels[i]),
+	);
+	if (unmatched.length > 0) {
+		throw new Error(
+			`TEST_MODELS contains ${unmatched.length} entr${
+				unmatched.length === 1 ? "y that matches" : "ies that match"
+			} no provider/model mapping: ${unmatched.join(
+				", ",
+			)}. Check for typos (expected "provider/model" or "provider/model:region").`,
+		);
+	}
+}
+
 function hasAllRequiredProviderEnvVars(providerId: string): boolean {
 	const def = getProviderDefinition(providerId);
 	if (!def) {
@@ -143,11 +180,21 @@ if (hasOnlyModels) {
 export const filteredModels = models
 	// Filter out auto/custom models
 	.filter((model) => !["custom", "auto"].includes(model.id))
-	// Filter out video-only models (they use the /v1/videos endpoint, not chat completions)
+	// Filter out video-only and audio-only models (they use dedicated endpoints —
+	// /v1/videos and /v1/audio/speech — not chat completions)
 	.filter((model) => {
 		const output = (model as ModelDefinition).output;
-		return !output || !output.includes("video") || output.includes("text");
+		if (!output || output.includes("text")) {
+			return true;
+		}
+		return !output.includes("video") && !output.includes("audio");
 	})
+	// Filter out OCR models (they use the dedicated /v1/ocr endpoint, not chat
+	// completions, and are covered by ocr.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some((p) => (p as ProviderModelMapping).ocr === true),
+	)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
@@ -351,7 +398,7 @@ export const testModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
 				providers: [provider],
 				originalModel: model.id, // Keep track of the original model for reference
 			});
@@ -435,7 +482,7 @@ export const providerModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
 				provider,
 				originalModel: model.id, // Keep track of the original model for reference
 			});
@@ -461,6 +508,10 @@ export const streamingModels = testModels.filter((m) =>
 
 export const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
+);
+
+export const verbosityModels = testModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
 );
 
 export const streamingReasoningModels = reasoningModels.filter((m) =>

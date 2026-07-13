@@ -2,6 +2,8 @@ import { cache } from "react";
 
 import { getConfig } from "./config-server";
 
+import type { DiscountData } from "./discount";
+
 export interface ApiProvider {
 	id: string;
 	createdAt: string;
@@ -12,6 +14,12 @@ export interface ApiProvider {
 	color: string | null;
 	website: string | null;
 	announcement: string | null;
+	serviceTiers?: Array<{
+		id: string;
+		name: string;
+		multiplier: number;
+		description?: string;
+	}> | null;
 	status: "active" | "inactive";
 }
 
@@ -20,7 +28,7 @@ export interface ApiModelProviderMapping {
 	createdAt: string;
 	modelId: string;
 	providerId: string;
-	modelName: string;
+	externalId: string;
 	region?: string | null;
 	inputPrice: string | null;
 	outputPrice: string | null;
@@ -31,12 +39,19 @@ export interface ApiModelProviderMapping {
 	imageOutputPrice: string | null;
 	imageInputTokensByResolution: Record<string, number> | null;
 	imageOutputTokensByResolution: Record<string, number> | null;
+	inputCharacterPrice: string | null;
+	outputAudioPrice: string | null;
 	requestPrice: string | null;
+	ocrPagePrice?: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
+	quantization?: string | null;
 	streaming: boolean;
 	vision: boolean | null;
 	reasoning: boolean | null;
+	reasoningEfforts?:
+		| ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[]
+		| null;
 	reasoningOutput: string | null;
 	reasoningMaxTokens: boolean | null;
 	tools: boolean | null;
@@ -49,6 +64,17 @@ export interface ApiModelProviderMapping {
 	supportsVideoAudio: boolean | null;
 	supportsVideoWithoutAudio: boolean | null;
 	perSecondPrice: Record<string, string> | null;
+	pricingTiers: Array<{
+		name: string;
+		upToTokens: number | null;
+		inputPrice: string;
+		outputPrice: string;
+		cachedInputPrice: string | null;
+		cacheReadInputPrice: string | null;
+		cacheWriteInputPrice: string | null;
+		cacheWriteInputPrice1h: string | null;
+	}> | null;
+	serviceTiers?: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
@@ -89,6 +115,27 @@ export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 		return [];
 	}
 });
+
+export const fetchModelDiscounts = cache(
+	async (modelId: string): Promise<DiscountData[]> => {
+		const config = getConfig();
+		try {
+			const response = await fetch(
+				`${config.apiBackendUrl}/public/discounts/model/${encodeURIComponent(modelId)}`,
+				{ next: { revalidate: 60 } },
+			);
+			if (!response.ok) {
+				console.error("Failed to fetch discounts:", response.statusText);
+				return [];
+			}
+			const data = await response.json();
+			return data.discounts ?? [];
+		} catch (error) {
+			console.error("Error fetching discounts:", error);
+			return [];
+		}
+	},
+);
 
 export const fetchProviders = cache(async (): Promise<ApiProvider[]> => {
 	const config = getConfig();

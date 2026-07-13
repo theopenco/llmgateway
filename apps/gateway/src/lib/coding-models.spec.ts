@@ -6,11 +6,11 @@ import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 const baseProvider: ProviderModelMapping = {
 	providerId: "openai",
-	modelName: "test-model",
+	externalId: "test-model",
 	streaming: true,
 	tools: true,
 	jsonOutputSchema: true,
-	cachedInputPrice: 0.1 / 1e6,
+	cachedInputPrice: "0.1e-6",
 };
 
 const baseModel: ModelDefinition = {
@@ -22,13 +22,13 @@ const baseModel: ModelDefinition = {
 
 describe("providerSupportsCachedInput", () => {
 	it("returns true when cachedInputPrice is set to a positive number", () => {
-		expect(providerSupportsCachedInput({ cachedInputPrice: 0.1 / 1e6 })).toBe(
+		expect(providerSupportsCachedInput({ cachedInputPrice: "0.1e-6" })).toBe(
 			true,
 		);
 	});
 
 	it("returns true when cachedInputPrice is zero", () => {
-		expect(providerSupportsCachedInput({ cachedInputPrice: 0 })).toBe(true);
+		expect(providerSupportsCachedInput({ cachedInputPrice: "0" })).toBe(true);
 	});
 
 	it("returns false when cachedInputPrice is undefined", () => {
@@ -45,7 +45,7 @@ describe("providerSupportsCachedInput", () => {
 });
 
 describe("isCodingModel", () => {
-	it("returns true when at least one stable provider has cached pricing, tools, JSON output, and streaming", () => {
+	it("returns true when at least one stable provider has cached pricing, tools, and streaming", () => {
 		expect(isCodingModel(baseModel)).toBe(true);
 	});
 
@@ -76,13 +76,13 @@ describe("isCodingModel", () => {
 		expect(isCodingModel({ ...baseModel, providers: [provider] })).toBe(false);
 	});
 
-	it("returns false when no provider supports JSON output", () => {
+	it("returns true even when no provider supports JSON output", () => {
 		const provider: ProviderModelMapping = {
 			...baseProvider,
 			jsonOutput: false,
 			jsonOutputSchema: false,
 		};
-		expect(isCodingModel({ ...baseModel, providers: [provider] })).toBe(false);
+		expect(isCodingModel({ ...baseModel, providers: [provider] })).toBe(true);
 	});
 
 	it("returns false when streaming is explicitly disabled", () => {
@@ -97,7 +97,7 @@ describe("isCodingModel", () => {
 		const cachedProvider = baseProvider;
 		const uncachedProvider: ProviderModelMapping = {
 			providerId: "groq",
-			modelName: "test-model",
+			externalId: "test-model",
 			streaming: true,
 			tools: true,
 			jsonOutputSchema: true,

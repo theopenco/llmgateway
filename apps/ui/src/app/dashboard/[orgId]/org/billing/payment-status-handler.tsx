@@ -103,7 +103,7 @@ export function PaymentStatusHandler({
 	}
 
 	return (
-		<div className="mx-auto max-w-3xl px-4 pt-6 md:px-8">
+		<div className="px-4 pt-6 md:px-8">
 			<div className="border rounded-lg p-4 bg-muted/50 space-y-3">
 				<div className="flex items-center justify-between">
 					<div className="space-y-1">

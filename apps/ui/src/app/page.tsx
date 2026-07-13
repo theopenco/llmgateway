@@ -1,9 +1,21 @@
 import dynamic from "next/dynamic";
 
 import { HeroRSC } from "@/components/landing/hero-rsc";
-import { ProductHuntPopup } from "@/components/landing/product-hunt-popup";
 
 const Features = dynamic(() => import("@/components/landing/features"));
+const TrustBar = dynamic(() =>
+	import("@/components/enterprise/trust-bar").then(
+		(mod) => mod.TrustBarEnterprise,
+	),
+);
+const Uptime = dynamic(() =>
+	import("@/components/enterprise/uptime").then(
+		(mod) => mod.UptimeVisualization,
+	),
+);
+const PricingStrip = dynamic(() =>
+	import("@/components/landing/pricing-strip").then((mod) => mod.PricingStrip),
+);
 const Testimonials = dynamic(() =>
 	import("@/components/landing/testimonials").then((mod) => mod.Testimonials),
 );
@@ -28,15 +40,17 @@ export default function Home() {
 	return (
 		<>
 			<HeroRSC />
+			<TrustBar />
 			<Features />
 			<Graph />
 			<CodeExample />
+			<Uptime />
 			<Testimonials />
+			<PricingStrip />
 			<Faq />
 			<EnterpriseCTA />
 			<CallToAction />
 			<Footer />
-			<ProductHuntPopup />
 		</>
 	);
 }

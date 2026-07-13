@@ -2,7 +2,6 @@
 
 import { Plus, X } from "lucide-react";
 
-import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ModelSelector } from "@/components/model-selector";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -20,8 +19,7 @@ interface VideoHeaderProps {
 	onRemoveModel: (index: number) => void;
 	comparisonMode: boolean;
 	onComparisonModeChange: (enabled: boolean) => void;
-	isModelOptionDisabled?: (value: string) => boolean;
-	getModelOptionDisabledReason?: (value: string) => string | undefined;
+	hideCompare?: boolean;
 }
 
 export function VideoHeader({
@@ -33,8 +31,7 @@ export function VideoHeader({
 	onRemoveModel,
 	comparisonMode,
 	onComparisonModeChange,
-	isModelOptionDisabled,
-	getModelOptionDisabledReason,
+	hideCompare = false,
 }: VideoHeaderProps) {
 	return (
 		<header className="bg-background flex items-center border-b p-4">
@@ -52,8 +49,6 @@ export function VideoHeader({
 										onValueChange={(v) => onModelChange(index, v)}
 										placeholder="Select model..."
 										mode="video"
-										isOptionDisabled={isModelOptionDisabled}
-										getOptionDisabledReason={getModelOptionDisabledReason}
 									/>
 								</div>
 								{selectedModels.length > 1 && (
@@ -89,40 +84,35 @@ export function VideoHeader({
 							onValueChange={(v) => onModelChange(0, v)}
 							placeholder="Select a video model..."
 							mode="video"
-							isOptionDisabled={isModelOptionDisabled}
-							getOptionDisabledReason={getModelOptionDisabledReason}
 						/>
 					</div>
 				)}
 			</div>
-			<div className="ml-3 flex items-center gap-3">
-				<div className="hidden items-center gap-2 md:flex">
-					<Label
-						htmlFor="comparison-mode-vid"
-						className="text-muted-foreground text-xs"
-					>
-						Compare
-					</Label>
-					<Switch
-						id="comparison-mode-vid"
-						checked={comparisonMode}
-						onCheckedChange={onComparisonModeChange}
-					/>
+			{(!hideCompare || comparisonMode) && (
+				<div className="ml-3 flex items-center gap-3">
+					<div className="hidden items-center gap-2 md:flex">
+						{hideCompare ? (
+							<span className="text-muted-foreground text-xs">
+								Comparison Mode
+							</span>
+						) : (
+							<>
+								<Label
+									htmlFor="comparison-mode-vid"
+									className="text-muted-foreground text-xs"
+								>
+									Comparison Mode
+								</Label>
+								<Switch
+									id="comparison-mode-vid"
+									checked={comparisonMode}
+									onCheckedChange={onComparisonModeChange}
+								/>
+							</>
+						)}
+					</div>
 				</div>
-				<ThemeToggle />
-				<a
-					href={
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3002/dashboard"
-							: "https://llmgateway.io/dashboard"
-					}
-					target="_blank"
-					rel="noopener noreferrer"
-					className="hidden sm:inline"
-				>
-					<span className="text-nowrap">Dashboard</span>
-				</a>
-			</div>
+			)}
 		</header>
 	);
 }

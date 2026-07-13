@@ -29,40 +29,16 @@ import { useFetchClient } from "@/lib/fetch-client";
 
 import { ContactSalesCard } from "./contact-sales-card";
 
-interface Violation {
-	id: string;
-	createdAt: string;
-	ruleId: string;
-	ruleName: string;
-	category: string;
-	actionTaken: "blocked" | "redacted" | "warned";
-	matchedPattern: string | null;
-	matchedContent: string | null;
-	logId: string | null;
-	apiKeyId: string | null;
-	model: string | null;
-}
+import type { paths } from "@/lib/api/v1";
 
-interface ViolationsResponse {
-	violations: Violation[];
-	pagination: {
-		nextCursor: string | null;
-		hasMore: boolean;
-		limit: number;
-	};
-}
-
-interface Stats {
-	totalViolations: number;
-	last24Hours: number;
-	last7Days: number;
-	byAction: {
-		blocked: number;
-		redacted: number;
-		warned: number;
-	};
-	byCategory: Record<string, number>;
-}
+type ViolationsResponse =
+	paths["/guardrails/violations/{organizationId}"]["get"]["responses"][200]["content"]["application/json"];
+type Violation = ViolationsResponse["violations"][number];
+type ViolationsQuery = NonNullable<
+	paths["/guardrails/violations/{organizationId}"]["get"]["parameters"]["query"]
+>;
+type Stats =
+	paths["/guardrails/stats/{organizationId}"]["get"]["responses"][200]["content"]["application/json"];
 
 function getActionBadgeVariant(
 	action: string,
@@ -111,6 +87,7 @@ export function SecurityEventsClient() {
 	// Filters
 	const [actionFilter, setActionFilter] = useState<string>("all");
 	const [categoryFilter, setCategoryFilter] = useState<string>("all");
+	const [statsDays, setStatsDays] = useState<string>("7");
 
 	const canViewEvents =
 		selectedOrganization?.plan === "enterprise" &&
@@ -121,17 +98,20 @@ export function SecurityEventsClient() {
 			const response = await fetchClient.GET(
 				"/guardrails/stats/{organizationId}",
 				{
-					params: { path: { organizationId } },
+					params: {
+						path: { organizationId },
+						query: { days: statsDays },
+					},
 				},
 			);
 
 			if (response.data) {
-				setStats(response.data as unknown as Stats);
+				setStats(response.data);
 			}
 		} catch {
 			// Silently fail for stats
 		}
-	}, [fetchClient, organizationId]);
+	}, [fetchClient, organizationId, statsDays]);
 
 	const fetchViolations = useCallback(
 		async (cursor?: string) => {
@@ -143,12 +123,12 @@ export function SecurityEventsClient() {
 					setIsLoadingMore(true);
 				}
 
-				const queryParams: Record<string, string> = {};
+				const queryParams: ViolationsQuery = {};
 				if (cursor) {
 					queryParams.cursor = cursor;
 				}
 				if (actionFilter !== "all") {
-					queryParams.action = actionFilter;
+					queryParams.actionTaken = actionFilter;
 				}
 				if (categoryFilter !== "all") {
 					queryParams.category = categoryFilter;
@@ -169,7 +149,7 @@ export function SecurityEventsClient() {
 					return;
 				}
 
-				const data = response.data as unknown as ViolationsResponse;
+				const data = response.data;
 
 				if (isInitialLoad) {
 					setViolations(data.violations);
@@ -190,23 +170,23 @@ export function SecurityEventsClient() {
 		[fetchClient, organizationId, actionFilter, categoryFilter],
 	);
 
-	// Reset and refetch when filters or view permissions change
+	// Reset and refetch the violations list when filters or permissions change
 	useEffect(() => {
 		if (canViewEvents) {
 			setViolations([]);
 			setNextCursor(null);
-			void fetchStats();
 			void fetchViolations();
 		} else {
 			setIsLoading(false);
 		}
-	}, [
-		canViewEvents,
-		fetchStats,
-		fetchViolations,
-		actionFilter,
-		categoryFilter,
-	]);
+	}, [canViewEvents, fetchViolations, actionFilter, categoryFilter]);
+
+	// Refetch stats when the time window or permissions change
+	useEffect(() => {
+		if (canViewEvents) {
+			void fetchStats();
+		}
+	}, [canViewEvents, fetchStats]);
 
 	if (selectedOrganization?.plan !== "enterprise") {
 		return <ContactSalesCard />;
@@ -235,41 +215,66 @@ export function SecurityEventsClient() {
 
 	return (
 		<div className="space-y-6">
-			{/* Stats Cards */}
-			{stats && (
-				<div className="grid gap-4 md:grid-cols-4">
-					<Card>
-						<CardHeader className="pb-2">
-							<CardDescription>Total Violations</CardDescription>
-							<CardTitle className="text-3xl">
-								{stats.totalViolations}
-							</CardTitle>
-						</CardHeader>
-					</Card>
-					<Card>
-						<CardHeader className="pb-2">
-							<CardDescription>Last 24 Hours</CardDescription>
-							<CardTitle className="text-3xl">{stats.last24Hours}</CardTitle>
-						</CardHeader>
-					</Card>
-					<Card>
-						<CardHeader className="pb-2">
-							<CardDescription>Blocked</CardDescription>
-							<CardTitle className="text-3xl text-destructive">
-								{stats.byAction?.blocked ?? 0}
-							</CardTitle>
-						</CardHeader>
-					</Card>
-					<Card>
-						<CardHeader className="pb-2">
-							<CardDescription>Redacted</CardDescription>
-							<CardTitle className="text-3xl text-orange-500">
-								{stats.byAction?.redacted ?? 0}
-							</CardTitle>
-						</CardHeader>
-					</Card>
+			{/* Stats overview */}
+			<div className="space-y-4">
+				<div className="flex items-center justify-between gap-2">
+					<h2 className="text-lg font-semibold">Overview</h2>
+					<Select value={statsDays} onValueChange={setStatsDays}>
+						<SelectTrigger className="w-[160px]">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="7">Last 7 days</SelectItem>
+							<SelectItem value="30">Last 30 days</SelectItem>
+							<SelectItem value="90">Last 90 days</SelectItem>
+						</SelectContent>
+					</Select>
 				</div>
-			)}
+				{stats && (
+					<div className="grid gap-4 md:grid-cols-4">
+						<Card>
+							<CardHeader className="pb-2">
+								<CardDescription>Total Violations</CardDescription>
+								<CardTitle className="text-3xl">
+									{stats.totalViolations}
+								</CardTitle>
+								<p className="text-xs text-muted-foreground">
+									Last {statsDays} days
+								</p>
+							</CardHeader>
+						</Card>
+						<Card>
+							<CardHeader className="pb-2">
+								<CardDescription>Last 24 Hours</CardDescription>
+								<CardTitle className="text-3xl">{stats.last24Hours}</CardTitle>
+								<p className="text-xs text-muted-foreground">&nbsp;</p>
+							</CardHeader>
+						</Card>
+						<Card>
+							<CardHeader className="pb-2">
+								<CardDescription>Blocked</CardDescription>
+								<CardTitle className="text-3xl text-destructive">
+									{stats.byAction?.blocked ?? 0}
+								</CardTitle>
+								<p className="text-xs text-muted-foreground">
+									Last {statsDays} days
+								</p>
+							</CardHeader>
+						</Card>
+						<Card>
+							<CardHeader className="pb-2">
+								<CardDescription>Redacted</CardDescription>
+								<CardTitle className="text-3xl text-orange-500">
+									{stats.byAction?.redacted ?? 0}
+								</CardTitle>
+								<p className="text-xs text-muted-foreground">
+									Last {statsDays} days
+								</p>
+							</CardHeader>
+						</Card>
+					</div>
+				)}
+			</div>
 
 			{/* Violations List */}
 			<Card>
@@ -314,12 +319,14 @@ export function SecurityEventsClient() {
 								</SelectTrigger>
 								<SelectContent>
 									<SelectItem value="all">All categories</SelectItem>
-									<SelectItem value="prompt_injection">
-										Prompt Injection
-									</SelectItem>
+									<SelectItem value="injection">Prompt Injection</SelectItem>
 									<SelectItem value="jailbreak">Jailbreak</SelectItem>
-									<SelectItem value="pii_detection">PII Detection</SelectItem>
+									<SelectItem value="pii">PII Detection</SelectItem>
 									<SelectItem value="secrets">Secrets</SelectItem>
+									<SelectItem value="files">File Types</SelectItem>
+									<SelectItem value="document_leakage">
+										Document Leakage
+									</SelectItem>
 									<SelectItem value="blocked_terms">Blocked Terms</SelectItem>
 									<SelectItem value="custom_regex">Custom Regex</SelectItem>
 									<SelectItem value="topic_restriction">

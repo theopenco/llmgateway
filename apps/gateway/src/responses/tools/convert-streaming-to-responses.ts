@@ -1,5 +1,10 @@
 import { shortid } from "@llmgateway/db";
 
+import {
+	normalizeAnnotationsToResponses,
+	normalizeEchoedTools,
+} from "./convert-chat-to-responses.js";
+
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
 
 interface StreamingState {
@@ -13,8 +18,10 @@ interface StreamingState {
 	reasoningId: string;
 	fullContent: string[];
 	fullReasoning: string[];
+	annotations: Record<string, unknown>[];
 	reasoningStarted: boolean;
 	finishReason: string | null;
+	sequenceNumber: number;
 	toolCalls: Map<
 		number,
 		{
@@ -26,6 +33,7 @@ interface StreamingState {
 		}
 	>;
 	request?: ResponsesEchoRequest;
+	servedServiceTier?: string;
 	usage: {
 		input_tokens: number;
 		output_tokens: number;
@@ -46,6 +54,7 @@ interface StreamingState {
 			web_search_cost?: number | null;
 			image_input_cost?: number | null;
 			image_output_cost?: number | null;
+			audio_input_cost?: number | null;
 			data_storage_cost?: number | null;
 		};
 	};
@@ -67,8 +76,10 @@ export function createStreamingState(
 		reasoningId: `rs_${shortid(24)}`,
 		fullContent: [],
 		fullReasoning: [],
+		annotations: [],
 		reasoningStarted: false,
 		finishReason: null,
+		sequenceNumber: 0,
 		toolCalls: new Map(),
 		request,
 		usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
@@ -121,7 +132,7 @@ function buildResponsePayload(
 		instructions: req?.instructions ?? null,
 		output,
 		error: null,
-		tools: req?.tools ?? [],
+		tools: normalizeEchoedTools(req?.tools),
 		tool_choice: req?.tool_choice ?? "auto",
 		truncation: req?.truncation ?? "disabled",
 		parallel_tool_calls: req?.parallel_tool_calls ?? true,
@@ -140,7 +151,7 @@ function buildResponsePayload(
 		max_tool_calls: req?.max_tool_calls ?? null,
 		store: req?.store ?? true,
 		background: req?.background ?? false,
-		service_tier: req?.service_tier ?? "default",
+		service_tier: state.servedServiceTier ?? req?.service_tier ?? "default",
 		metadata: req?.metadata ?? {},
 		safety_identifier: req?.safety_identifier ?? null,
 		prompt_cache_key: req?.prompt_cache_key ?? null,
@@ -153,16 +164,28 @@ interface SSEEvent {
 }
 
 /**
+ * Build an SSE event with an auto-incrementing sequence_number, which the
+ * Open Responses streaming-event schemas require on every event.
+ */
+function emitEvent(
+	state: StreamingState,
+	event: string,
+	data: Record<string, unknown>,
+): SSEEvent {
+	return {
+		event,
+		data: JSON.stringify({ ...data, sequence_number: state.sequenceNumber++ }),
+	};
+}
+
+/**
  * Generate the initial response.created event.
  */
 export function createResponseCreatedEvent(state: StreamingState): SSEEvent {
-	return {
-		event: "response.created",
-		data: JSON.stringify({
-			type: "response.created",
-			response: buildResponsePayload(state, { status: "in_progress" }),
-		}),
-	};
+	return emitEvent(state, "response.created", {
+		type: "response.created",
+		response: buildResponsePayload(state, { status: "in_progress" }),
+	});
 }
 
 /**
@@ -173,11 +196,30 @@ export function processStreamChunk(
 	state: StreamingState,
 ): SSEEvent[] {
 	const events: SSEEvent[] = [];
+
+	// Capture the served processing tier so the completion events echo the tier
+	// the provider actually applied (e.g. a flex request downgraded to default)
+	// rather than the requested one. OpenAI chunks carry a top-level
+	// service_tier; other providers surface it via the gateway's final usage
+	// chunk metadata (used_service_tier null there means downgraded to standard).
+	if (typeof chunk.service_tier === "string") {
+		state.servedServiceTier = chunk.service_tier;
+	} else {
+		const metadata = chunk.metadata as Record<string, unknown> | undefined;
+		if (metadata && typeof metadata.requested_service_tier === "string") {
+			state.servedServiceTier =
+				typeof metadata.used_service_tier === "string"
+					? metadata.used_service_tier
+					: "default";
+		}
+	}
+
 	const choices = chunk.choices as
 		| Array<{
 				delta?: {
 					content?: string | null;
 					reasoning?: string | null;
+					annotations?: Array<Record<string, unknown>>;
 					tool_calls?: Array<{
 						index: number;
 						id?: string;
@@ -239,9 +281,8 @@ export function processStreamChunk(
 	if (delta.reasoning) {
 		if (!state.reasoningStarted) {
 			state.reasoningStarted = true;
-			events.push({
-				event: "response.output_item.added",
-				data: JSON.stringify({
+			events.push(
+				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
 					output_index: state.outputItemIndex,
 					item: {
@@ -250,7 +291,7 @@ export function processStreamChunk(
 						summary: [],
 					},
 				}),
-			});
+			);
 		}
 		state.fullReasoning.push(delta.reasoning);
 	}
@@ -276,9 +317,8 @@ export function processStreamChunk(
 					arguments: tc.function?.arguments ?? "",
 					outputIndex: tcOutputIndex,
 				});
-				events.push({
-					event: "response.output_item.added",
-					data: JSON.stringify({
+				events.push(
+					emitEvent(state, "response.output_item.added", {
 						type: "response.output_item.added",
 						output_index: tcOutputIndex,
 						item: {
@@ -290,19 +330,18 @@ export function processStreamChunk(
 							status: "in_progress",
 						},
 					}),
-				});
+				);
 			} else {
 				if (tc.function?.arguments) {
 					existing.arguments += tc.function.arguments;
-					events.push({
-						event: "response.function_call_arguments.delta",
-						data: JSON.stringify({
+					events.push(
+						emitEvent(state, "response.function_call_arguments.delta", {
 							type: "response.function_call_arguments.delta",
 							item_id: existing.id,
 							output_index: existing.outputIndex,
 							delta: tc.function.arguments,
 						}),
-					});
+					);
 				}
 			}
 		}
@@ -317,9 +356,8 @@ export function processStreamChunk(
 				state.outputItemIndex++;
 			}
 
-			events.push({
-				event: "response.output_item.added",
-				data: JSON.stringify({
+			events.push(
+				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
 					output_index: state.outputItemIndex,
 					item: {
@@ -330,33 +368,54 @@ export function processStreamChunk(
 						status: "in_progress",
 					},
 				}),
-			});
+			);
 		}
 
 		if (!state.contentPartStarted) {
 			state.contentPartStarted = true;
-			events.push({
-				event: "response.content_part.added",
-				data: JSON.stringify({
+			events.push(
+				emitEvent(state, "response.content_part.added", {
 					type: "response.content_part.added",
+					item_id: state.messageId,
 					output_index: state.outputItemIndex,
 					content_index: 0,
-					part: { type: "output_text", text: "" },
+					part: { type: "output_text", text: "", annotations: [] },
 				}),
-			});
+			);
 		}
 
 		state.fullContent.push(delta.content);
-		events.push({
-			event: "response.output_text.delta",
-			data: JSON.stringify({
+		events.push(
+			emitEvent(state, "response.output_text.delta", {
 				type: "response.output_text.delta",
 				item_id: state.messageId,
 				output_index: state.outputItemIndex,
 				content_index: 0,
 				delta: delta.content,
 			}),
-		});
+		);
+	}
+
+	// Handle annotations delta (url citations from native web search)
+	if (delta.annotations?.length) {
+		for (const annotation of normalizeAnnotationsToResponses(
+			delta.annotations,
+		)) {
+			const annotationIndex = state.annotations.length;
+			state.annotations.push(annotation);
+			if (state.contentPartStarted) {
+				events.push(
+					emitEvent(state, "response.output_text.annotation.added", {
+						type: "response.output_text.annotation.added",
+						item_id: state.messageId,
+						output_index: state.outputItemIndex,
+						content_index: 0,
+						annotation_index: annotationIndex,
+						annotation,
+					}),
+				);
+			}
+		}
 	}
 
 	// Check for usage in the chunk
@@ -404,34 +463,34 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 
 	// Close content part if started
 	if (state.contentPartStarted) {
-		events.push({
-			event: "response.output_text.done",
-			data: JSON.stringify({
+		events.push(
+			emitEvent(state, "response.output_text.done", {
 				type: "response.output_text.done",
+				item_id: state.messageId,
 				output_index: state.outputItemIndex,
 				content_index: 0,
 				text: state.fullContent.join(""),
 			}),
-		});
-		events.push({
-			event: "response.content_part.done",
-			data: JSON.stringify({
+		);
+		events.push(
+			emitEvent(state, "response.content_part.done", {
 				type: "response.content_part.done",
+				item_id: state.messageId,
 				output_index: state.outputItemIndex,
 				content_index: 0,
 				part: {
 					type: "output_text",
 					text: state.fullContent.join(""),
+					annotations: state.annotations,
 				},
 			}),
-		});
+		);
 	}
 
 	// Close output item if started
 	if (state.outputItemStarted) {
-		events.push({
-			event: "response.output_item.done",
-			data: JSON.stringify({
+		events.push(
+			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
 				output_index: state.outputItemIndex,
 				item: {
@@ -442,19 +501,19 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 						{
 							type: "output_text",
 							text: state.fullContent.join(""),
+							annotations: state.annotations,
 						},
 					],
 					status: "completed",
 				},
 			}),
-		});
+		);
 	}
 
 	// Emit output_item.done for each function_call
 	for (const tc of state.toolCalls.values()) {
-		events.push({
-			event: "response.output_item.done",
-			data: JSON.stringify({
+		events.push(
+			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
 				output_index: tc.outputIndex,
 				item: {
@@ -466,7 +525,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 					status: "completed",
 				},
 			}),
-		});
+		);
 	}
 
 	// Map finish_reason to status
@@ -511,19 +570,19 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 				{
 					type: "output_text",
 					text: state.fullContent.join(""),
+					annotations: state.annotations,
 				},
 			],
 			status: "completed",
 		});
 	}
 
-	events.push({
-		event: "response.completed",
-		data: JSON.stringify({
+	events.push(
+		emitEvent(state, "response.completed", {
 			type: "response.completed",
 			response: buildResponsePayload(state, { status, output }),
 		}),
-	});
+	);
 
 	return events;
 }
@@ -532,11 +591,8 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
  * Generate a response.failed event for streaming errors.
  */
 export function createFailedEvent(state: StreamingState): SSEEvent {
-	return {
-		event: "response.failed",
-		data: JSON.stringify({
-			type: "response.failed",
-			response: buildResponsePayload(state, { status: "failed" }),
-		}),
-	};
+	return emitEvent(state, "response.failed", {
+		type: "response.failed",
+		response: buildResponsePayload(state, { status: "failed" }),
+	});
 }

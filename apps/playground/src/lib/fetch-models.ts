@@ -13,12 +13,21 @@ export interface ApiProvider {
 	status: "active" | "inactive";
 }
 
+export type ReasoningEffortOption =
+	| "none"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max";
+
 export interface ApiModelProviderMapping {
 	id: string;
 	createdAt: string;
 	modelId: string;
 	providerId: string;
-	modelName: string;
+	externalId: string;
 	region?: string | null;
 	inputPrice: string | null;
 	outputPrice: string | null;
@@ -34,7 +43,10 @@ export interface ApiModelProviderMapping {
 	maxOutput: number | null;
 	streaming: boolean;
 	vision: boolean | null;
+	audio: boolean | null;
+	document: boolean | null;
 	reasoning: boolean | null;
+	reasoningEfforts: ReasoningEffortOption[] | null;
 	reasoningOutput: string | null;
 	tools: boolean | null;
 	jsonOutput: boolean | null;
@@ -45,6 +57,7 @@ export interface ApiModelProviderMapping {
 	supportedParameters: string[] | null;
 	supportedVideoSizes: string[] | null;
 	supportedVideoDurationsSeconds: number[] | null;
+	supportedVideoDurationsSecondsImageToVideo: number[] | null;
 	supportsVideoAudio: boolean | null;
 	supportsVideoWithoutAudio: boolean | null;
 	perSecondPrice: Record<string, string> | null;

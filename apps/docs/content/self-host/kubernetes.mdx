@@ -1,0 +1,55 @@
+---
+title: Kubernetes
+description: Deploy LLM Gateway to any Kubernetes cluster with the official Helm chart.
+icon: Ship
+---
+
+Kubernetes is the deployment model we recommend for production. The gateway is stateless, so it scales horizontally with no coordination; pods self-heal; and the same manifests run on any cluster — EKS, GKE, AKS, or your own.
+
+We publish an official **Helm chart** that deploys the gateway, API, UI, and worker with sane defaults and lets you wire in a managed Postgres and Redis through values.
+
+## Prerequisites
+
+- A Kubernetes cluster and `kubectl` configured to reach it
+- [Helm 3](https://helm.sh/docs/intro/install/)
+- A PostgreSQL database and Redis instance (use a managed service in production)
+
+## Install the chart
+
+The chart is published as an OCI artifact on GitHub Container Registry:
+
+```bash
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway
+```
+
+This installs the latest published version. To pin to a specific release, append `--version <version>`, matching a published release tag without the `v` prefix (e.g. `1.2.3`).
+
+## Configure with values
+
+Provide a `values.yaml` to point the chart at your managed database and cache and to set your secrets:
+
+```yaml
+config:
+  AUTH_SECRET: "your-secret-key-here"
+  GATEWAY_API_KEY_HASH_SECRET: "your-api-key-hash-secret-here"
+  DATABASE_URL: "postgres://user:password@your-managed-host:5432/llmgateway"
+  REDIS_URL: "redis://your-managed-host:6379"
+  LLM_OPENAI_API_KEY: "sk-..."
+  LLM_ANTHROPIC_API_KEY: "sk-ant-..."
+```
+
+```bash
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
+```
+
+In production, store secrets in your cluster's secret manager rather than committing them to `values.yaml`. The cloud guides cover the recommended approach for each provider:
+
+- [AWS](/self-host/aws) — EKS with RDS, ElastiCache, and Secrets Manager
+- [Google Cloud](/self-host/gcp) — GKE with Cloud SQL, Memorystore, and Secret Manager
+- [Azure](/self-host/azure) — AKS with Azure Database for PostgreSQL, Azure Cache for Redis, and Key Vault
+
+## Scaling the gateway
+
+Because the gateway is stateless, scale it horizontally to match traffic — either by setting the replica count in values or with a `HorizontalPodAutoscaler` that targets CPU or request load. The API, UI, and worker serve your team rather than your traffic and rarely need more than one or two replicas.
+
+See the [Helm chart README](https://github.com/theopenco/llmgateway/tree/main/infra/helm) for the full list of configurable values and the [list of available versions](https://github.com/theopenco/llmgateway/pkgs/container/charts%2Fllmgateway).

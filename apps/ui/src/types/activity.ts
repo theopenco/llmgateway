@@ -10,6 +10,16 @@ export interface ActivityModelUsage {
 	cost: number;
 }
 
+export interface ActivityApiKeyUsage {
+	id: string;
+	description: string;
+	requestCount: number;
+	inputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	cost: number;
+}
+
 export interface DailyActivity {
 	date: string;
 	requestCount: number;
@@ -24,6 +34,7 @@ export interface DailyActivity {
 	requestCost: number;
 	dataStorageCost: number;
 	imageInputCost: number;
+	audioInputCost: number;
 	imageOutputCost: number;
 	videoOutputCost: number;
 	cachedInputCost: number;
@@ -40,6 +51,7 @@ export interface DailyActivity {
 	creditsDataStorageCost: number;
 	apiKeysDataStorageCost: number;
 	modelBreakdown: ActivityModelUsage[];
+	apiKeyBreakdown: ActivityApiKeyUsage[];
 }
 
 export interface ActivityResponse {
@@ -62,6 +74,7 @@ export type ActivitT =
 				requestCost: number;
 				dataStorageCost: number;
 				imageInputCost: number;
+				audioInputCost: number;
 				imageOutputCost: number;
 				videoOutputCost: number;
 				cachedInputCost: number;
@@ -78,6 +91,7 @@ export type ActivitT =
 				creditsDataStorageCost: number;
 				apiKeysDataStorageCost: number;
 				modelBreakdown: ActivityModelUsage[];
+				apiKeyBreakdown: ActivityApiKeyUsage[];
 			}[];
 	  }
 	| undefined;
@@ -90,3 +104,8 @@ export interface LogsData {
 
 export type LogDetailData =
 	paths["/logs/{id}"]["get"]["responses"][200]["content"]["application/json"];
+
+export type SourceActivityData =
+	paths["/activity/sources"]["get"]["responses"][200]["content"]["application/json"];
+
+export type SourceUsage = SourceActivityData["sources"][number];

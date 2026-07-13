@@ -43,6 +43,33 @@ mockServer.post("/v1/chat/completions", async (c) => {
 	});
 });
 
+// SSRF redirect probe: a public-looking provider that 3xx-redirects the gateway
+// onward to an "internal" endpoint. The gateway must refuse to follow it, so the
+// internal secret below must never reach the caller.
+mockServer.post("/ssrf-redirect/v1/chat/completions", async (c) => {
+	return c.redirect(
+		`http://localhost:${MOCK_PORT}/ssrf-internal/v1/chat/completions`,
+		302,
+	);
+});
+
+mockServer.post("/ssrf-internal/v1/chat/completions", async (c) => {
+	return c.json({
+		id: "chatcmpl-internal",
+		object: "chat.completion",
+		created: Math.floor(Date.now() / 1000),
+		model: "internal-model",
+		choices: [
+			{
+				index: 0,
+				message: { role: "assistant", content: "INTERNAL_SSRF_SECRET" },
+				finish_reason: "stop",
+			},
+		],
+		usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+	});
+});
+
 async function cleanupDb() {
 	await db.delete(tables.log);
 	await db.delete(tables.apiKey);
@@ -146,7 +173,7 @@ describe("Custom Provider E2E", () => {
 
 			const json = await res.json();
 			expect(res.status).toBe(400);
-			expect(json.message).toContain(
+			expect(json.error.message).toContain(
 				"Custom providers are not supported in credits mode",
 			);
 		});
@@ -168,7 +195,7 @@ describe("Custom Provider E2E", () => {
 
 			const json = await res.json();
 			expect(res.status).toBe(400);
-			expect(json.message).toContain(
+			expect(json.error.message).toContain(
 				"Custom models require a provider key configured in your organization settings",
 			);
 		});
@@ -186,6 +213,52 @@ describe("Custom Provider E2E", () => {
 				},
 				body: JSON.stringify({
 					model: "my-custom/gpt-4o-mini",
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+
+			const json = await res.json();
+			expect(res.status).toBe(200);
+			expect(json.choices[0].message.content).toBe(
+				"Hello from custom provider!",
+			);
+		});
+
+		test("should not cap max_tokens for custom providers", async () => {
+			await setupTestData({ mode: "api-keys", includeProviderKey: true });
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "my-custom/qwen3.6-plus",
+					max_tokens: 32000,
+					messages: [{ role: "user", content: "hello" }],
+				}),
+			});
+
+			const json = await res.json();
+			expect(res.status).toBe(200);
+			expect(json.choices[0].message.content).toBe(
+				"Hello from custom provider!",
+			);
+		});
+
+		test("should not reject json_object response_format for custom providers", async () => {
+			await setupTestData({ mode: "api-keys", includeProviderKey: true });
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "my-custom/qwen3.6-plus",
+					response_format: { type: "json_object" },
 					messages: [{ role: "user", content: "hello" }],
 				}),
 			});
@@ -244,7 +317,7 @@ describe("Custom Provider E2E", () => {
 
 			// Credits mode doesn't support custom providers
 			expect(res.status).toBe(400);
-			expect((await res.json()).message).toContain(
+			expect((await res.json()).error.message).toContain(
 				"Custom providers are not supported in credits mode",
 			);
 		});
@@ -268,7 +341,39 @@ describe("Custom Provider E2E", () => {
 
 			const json = await res.json();
 			expect(res.status).toBe(400);
-			expect(json.message).toContain("not found");
+			expect(json.error.message).toContain("not found");
+		});
+	});
+
+	describe("SSRF - provider redirects are not followed", () => {
+		test("does not follow a provider 3xx redirect to an internal endpoint", async () => {
+			await setupTestData({ mode: "api-keys" });
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-redirect",
+				token: "sk-test-key",
+				provider: "custom",
+				name: "rdr",
+				organizationId: "org-id",
+				baseUrl: `http://localhost:${MOCK_PORT}/ssrf-redirect`,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "rdr/gpt-4o-mini",
+					messages: [{ role: "user", content: "redirect-ssrf-probe" }],
+				}),
+			});
+
+			// The gateway must error instead of following the redirect, and the
+			// internal endpoint's secret must never be relayed to the caller.
+			const text = await res.text();
+			expect(res.status).not.toBe(200);
+			expect(text).not.toContain("INTERNAL_SSRF_SECRET");
 		});
 	});
 });

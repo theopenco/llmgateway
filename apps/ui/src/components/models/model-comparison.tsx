@@ -50,15 +50,22 @@ const modelMap = new Map(models.map((model) => [model.id, model]));
 function parseProviderModel(value: string | null): {
 	providerId?: string;
 	modelId?: ModelId;
+	region?: string;
 } {
 	if (!value) {
 		return {};
 	}
-	if (value.includes("_")) {
-		const [providerId, model] = value.split("_");
-		return { providerId, modelId: toModelId(model) };
-	}
-	return { modelId: toModelId(value) };
+	// URL shape is `providerId_modelId[:region]` (the optional `:region`
+	// suffix mirrors the ModelSelector value contract). Older bookmarks
+	// without a provider prefix still parse as plain `modelId[:region]`.
+	const [first, rest] = value.includes("_")
+		? (value.split("_", 2) as [string, string])
+		: ["", value];
+	const providerId = first || undefined;
+	const colonIdx = rest.lastIndexOf(":");
+	const modelPart = colonIdx === -1 ? rest : rest.slice(0, colonIdx);
+	const region = colonIdx === -1 ? undefined : rest.slice(colonIdx + 1);
+	return { providerId, modelId: toModelId(modelPart), region };
 }
 
 function toModelId(value: string | null): ModelId | undefined {
@@ -77,6 +84,7 @@ type PriceField =
 	| "imageInputPrice";
 
 type ProviderWithInfo = ProviderModelMapping & {
+	discount?: string | null;
 	providerInfo?: (typeof providerDefinitions)[number];
 };
 
@@ -242,29 +250,32 @@ function getPricingSummary(
 	field: PriceField,
 ): PricingSummary | undefined {
 	const entries = providers
-		.filter(
-			(provider) =>
-				provider[field] !== undefined &&
-				provider[field] !== null &&
-				provider[field] !== 0,
-		)
+		.filter((provider) => {
+			const raw = provider[field];
+			if (raw === undefined || raw === null) {
+				return false;
+			}
+			const num = Number(raw);
+			return Number.isFinite(num) && num !== 0;
+		})
 		.map((provider) => {
-			const rawValue = provider[field] as number;
+			const rawValue = Number(provider[field] as string);
 			const multiplier =
 				field === "requestPrice"
 					? 1000
 					: field === "imageInputPrice"
 						? 1
 						: 1_000_000;
+			const discountNum = Number(provider.discount ?? "0");
 			const discounted =
-				rawValue * multiplier * (provider.discount ? 1 - provider.discount : 1);
+				rawValue * multiplier * (discountNum ? 1 - discountNum : 1);
 			const original = rawValue * multiplier;
 
 			return {
 				provider,
 				discounted,
 				original,
-				hasDiscount: Boolean(provider.discount),
+				hasDiscount: Boolean(discountNum),
 			};
 		});
 
@@ -398,7 +409,13 @@ function StabilityBadge({ stability }: { stability?: StabilityLevel }) {
 	);
 }
 
-function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
+function ProvidersList({
+	providers,
+	modelId,
+}: {
+	providers: ProviderWithInfo[];
+	modelId: string;
+}) {
 	if (!providers.length) {
 		return <span className="text-muted-foreground">—</span>;
 	}
@@ -407,7 +424,7 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 		<div className="flex flex-col gap-3">
 			{providers.map((provider) => (
 				<div
-					key={`${provider.providerId}-${provider.modelName}`}
+					key={`${provider.providerId}-${provider.region ?? ""}`}
 					className="space-y-1"
 				>
 					<div className="flex items-center gap-2 text-base">
@@ -422,7 +439,8 @@ function ProvidersList({ providers }: { providers: ProviderWithInfo[] }) {
 						</span>
 					</div>
 					<div className="text-sm text-muted-foreground">
-						API: {provider.providerId}/{provider.modelName}
+						API: {provider.providerId}/{modelId}
+						{provider.region ? `:${provider.region}` : ""}
 					</div>
 					<StabilityBadge stability={provider.stability} />
 				</div>
@@ -483,8 +501,12 @@ function getProviderPricingSummary(
 	if (!provider) {
 		return undefined;
 	}
-	const raw = provider[field] as number | undefined;
-	if (raw === undefined || raw === null) {
+	const rawRaw = provider[field];
+	if (rawRaw === undefined || rawRaw === null) {
+		return undefined;
+	}
+	const raw = Number(rawRaw);
+	if (!Number.isFinite(raw)) {
 		return undefined;
 	}
 	const multiplier =
@@ -493,14 +515,14 @@ function getProviderPricingSummary(
 			: field === "imageInputPrice"
 				? 1
 				: 1_000_000;
-	const discounted =
-		raw * multiplier * (provider.discount ? 1 - provider.discount : 1);
+	const discountNum = Number(provider.discount ?? "0");
+	const discounted = raw * multiplier * (discountNum ? 1 - discountNum : 1);
 	const original = raw * multiplier;
 	return {
 		value: formatPriceValue(discounted, field),
 		providerLabel: provider.providerInfo?.name ?? provider.providerId,
 		originalValue:
-			provider.discount && original !== discounted
+			discountNum && original !== discounted
 				? formatPriceValue(original, field)
 				: undefined,
 	};
@@ -537,7 +559,7 @@ function renderRowValue(
 		case "stability":
 			return <StabilityBadge stability={detail.stability} />;
 		case "providers":
-			return <ProvidersList providers={detail.providers} />;
+			return <ProvidersList providers={detail.providers} modelId={detail.id} />;
 		case "maxContext": {
 			const ctx = selectedProvider?.contextSize ?? detail.aggregated.maxContext;
 			return ctx ? formatContextSize(ctx) : PLACEHOLDER;
@@ -650,10 +672,16 @@ export function ModelComparison() {
 		? DEFAULT_RIGHT_MODEL
 		: (models[1]?.id as ModelId | undefined);
 
-	const { providerId: queryLeftProviderId, modelId: queryLeft } =
-		parseProviderModel(searchParams.get("left"));
-	const { providerId: queryRightProviderId, modelId: queryRight } =
-		parseProviderModel(searchParams.get("right"));
+	const {
+		providerId: queryLeftProviderId,
+		modelId: queryLeft,
+		region: queryLeftRegion,
+	} = parseProviderModel(searchParams.get("left"));
+	const {
+		providerId: queryRightProviderId,
+		modelId: queryRight,
+		region: queryRightRegion,
+	} = parseProviderModel(searchParams.get("right"));
 
 	const leftModelId: ModelId | undefined = queryLeft ?? fallbackLeftModel;
 	const rightModelId: ModelId | undefined = queryRight ?? fallbackRightModel;
@@ -663,23 +691,27 @@ export function ModelComparison() {
 		nextRight?: ModelId,
 		leftProviderId?: string,
 		rightProviderId?: string,
+		leftRegion?: string,
+		rightRegion?: string,
 	) => {
 		const params = new URLSearchParams(searchParamsString);
+		const buildParam = (
+			model: ModelId,
+			providerId: string | undefined,
+			region: string | undefined,
+		) => {
+			const provider =
+				providerId ?? modelMap.get(model)?.providers[0]?.providerId ?? "";
+			const regionSuffix = region ? `:${region}` : "";
+			return `${provider}_${model}${regionSuffix}`;
+		};
 		if (nextLeft) {
-			const providerId =
-				leftProviderId ??
-				modelMap.get(nextLeft)?.providers[0]?.providerId ??
-				"";
-			params.set("left", `${providerId}_${nextLeft}`);
+			params.set("left", buildParam(nextLeft, leftProviderId, leftRegion));
 		} else {
 			params.delete("left");
 		}
 		if (nextRight) {
-			const providerId =
-				rightProviderId ??
-				modelMap.get(nextRight)?.providers[0]?.providerId ??
-				"";
-			params.set("right", `${providerId}_${nextRight}`);
+			params.set("right", buildParam(nextRight, rightProviderId, rightRegion));
 		} else {
 			params.delete("right");
 		}
@@ -784,13 +816,26 @@ export function ModelComparison() {
 														modelMap.get(leftModelId)?.providers[0]?.providerId,
 												)?.id ??
 												""
-											}/${leftModelId}`
+											}/${leftModelId}${queryLeftRegion ? `:${queryLeftRegion}` : ""}`
 										: ""
 								}
 								onValueChange={(value) => {
 									const [prov, mod] = value.split("/");
-									const next = toModelId(mod ?? value) ?? fallbackLeftModel;
-									updateParams(next, rightModelId, prov, undefined);
+									const rest = mod ?? value;
+									const colonIdx = rest.lastIndexOf(":");
+									const modelPart =
+										colonIdx === -1 ? rest : rest.slice(0, colonIdx);
+									const region =
+										colonIdx === -1 ? undefined : rest.slice(colonIdx + 1);
+									const next = toModelId(modelPart) ?? fallbackLeftModel;
+									updateParams(
+										next,
+										rightModelId,
+										prov,
+										queryRightProviderId,
+										region,
+										queryRightRegion,
+									);
 								}}
 							/>
 						</div>
@@ -812,13 +857,26 @@ export function ModelComparison() {
 															?.providerId,
 												)?.id ??
 												""
-											}/${rightModelId}`
+											}/${rightModelId}${queryRightRegion ? `:${queryRightRegion}` : ""}`
 										: ""
 								}
 								onValueChange={(value) => {
 									const [prov, mod] = value.split("/");
-									const next = toModelId(mod ?? value) ?? fallbackRightModel;
-									updateParams(leftModelId, next, undefined, prov);
+									const rest = mod ?? value;
+									const colonIdx = rest.lastIndexOf(":");
+									const modelPart =
+										colonIdx === -1 ? rest : rest.slice(0, colonIdx);
+									const region =
+										colonIdx === -1 ? undefined : rest.slice(colonIdx + 1);
+									const next = toModelId(modelPart) ?? fallbackRightModel;
+									updateParams(
+										leftModelId,
+										next,
+										queryLeftProviderId,
+										prov,
+										queryLeftRegion,
+										region,
+									);
 								}}
 							/>
 						</div>

@@ -2,17 +2,23 @@ import { describe, expect, it, vi } from "vitest";
 
 import { metricsKey } from "@llmgateway/db";
 import {
-	getProviderDefinition,
 	models,
+	type ModelDefinition,
 	type ProviderModelMapping,
 	type BaseMessage,
 	type OpenAIRequestBody,
 } from "@llmgateway/models";
+import {
+	applyRoutingPreference,
+	buildProviderPriorityDefaults,
+	resolveRoutingConfig,
+} from "@llmgateway/shared/routing-config";
 
 import {
 	getCheapestFromAvailableProviders,
 	getProviderSelectionPrice,
-	resolveMetricsModelId,
+	type SessionProviderEntry,
+	type SessionProviderStore,
 } from "./get-cheapest-from-available-providers.js";
 import { getCheapestModelForProvider } from "./get-cheapest-model-for-provider.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
@@ -34,33 +40,53 @@ describe("Models", () => {
 	});
 
 	it("should include o1-mini model", () => {
-		const o1MiniModel = models.find((model) => model.id === "o1-mini");
+		const o1MiniModel = models.find((model) => model.id === "o1-mini") as
+			| ModelDefinition
+			| undefined;
 		expect(o1MiniModel).toBeDefined();
 		expect(o1MiniModel?.supportsSystemRole).toBe(false);
 		expect(o1MiniModel?.family).toBe("openai");
 	});
 
 	it("should mark Claude Sonnet 4.6 provider mappings as vision-capable", () => {
-		const sonnet46 = models.find((model) => model.id === "claude-sonnet-4-6");
+		const sonnet46 = models.find(
+			(model) => model.id === "claude-sonnet-4-6",
+		) as ModelDefinition | undefined;
 
 		expect(sonnet46).toBeDefined();
-		expect(sonnet46?.providers.map((provider) => provider.vision)).toEqual([
-			true,
-			true,
-			true,
-		]);
+		expect(
+			sonnet46?.providers.map(
+				(provider: ProviderModelMapping) => provider.vision,
+			),
+		).toEqual([true, true, true]);
 	});
 
 	it("should have free: true when provider mapping has zero pricing", () => {
+		// Image-output models like gpt-image-2 explicitly set outputPrice=0
+		// because the model never returns text output, but still bill via
+		// imageOutputPrice. Treat them as priced.
+		const hasImagePricing = (provider: ProviderModelMapping) =>
+			!!provider.imageInputPrice || !!provider.imageOutputPrice;
+
+		// Embedding models bill only on input tokens and set outputPrice=0
+		// because they don't produce text output.
+		const isEmbeddingProvider = (provider: ProviderModelMapping) =>
+			provider.embeddings === true;
+
+		const isZero = (p: string | undefined) =>
+			p !== undefined && Number(p) === 0;
+
 		// Filter models that have zero input/output pricing AND no request or per-second price
 		const modelsWithZeroPricing = models.filter((model) =>
 			model.providers.some(
 				(provider) =>
-					(provider.inputPrice === 0 || provider.outputPrice === 0) &&
+					(isZero(provider.inputPrice) || isZero(provider.outputPrice)) &&
 					!(provider as ProviderModelMapping).requestPrice &&
 					!Object.values(
 						(provider as ProviderModelMapping).perSecondPrice ?? {},
-					).some((price) => price > 0),
+					).some((price) => Number(price) > 0) &&
+					!hasImagePricing(provider as ProviderModelMapping) &&
+					!isEmbeddingProvider(provider as ProviderModelMapping),
 			),
 		);
 
@@ -72,13 +98,15 @@ describe("Models", () => {
 			const errorDetails = modelsWithoutFreeFlag.map((model) => {
 				const zeroPricedProviders = model.providers.filter(
 					(p) =>
-						(p.inputPrice === 0 || p.outputPrice === 0) &&
+						(isZero(p.inputPrice) || isZero(p.outputPrice)) &&
 						!(p as ProviderModelMapping).requestPrice &&
 						!Object.values(
 							(p as ProviderModelMapping).perSecondPrice ?? {},
-						).some((price) => price > 0),
+						).some((price) => Number(price) > 0) &&
+						!hasImagePricing(p as ProviderModelMapping) &&
+						!isEmbeddingProvider(p as ProviderModelMapping),
 				);
-				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.modelName} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
+				return `${model.id}: providers ${zeroPricedProviders.map((p) => `${p.providerId}/${p.externalId} (input: ${p.inputPrice}, output: ${p.outputPrice})`).join(", ")}`;
 			});
 			throw new Error(
 				`Models with zero pricing must have free: true:\n${errorDetails.join("\n")}`,
@@ -98,6 +126,8 @@ describe("System Role Handling", () => {
 
 		const requestBody = await prepareRequestBody(
 			"openai",
+			"o1-mini",
+			null,
 			"o1-mini",
 			messages,
 			false, // stream
@@ -130,6 +160,8 @@ describe("System Role Handling", () => {
 
 		const requestBody = await prepareRequestBody(
 			"openai",
+			"gpt-4o-mini",
+			null,
 			"gpt-4o-mini",
 			messages,
 			false, // stream
@@ -171,6 +203,8 @@ describe("System Role Handling", () => {
 		const requestBody = await prepareRequestBody(
 			"openai",
 			"o1-mini",
+			null,
+			"o1-mini",
 			messages,
 			false, // stream
 			undefined, // temperature
@@ -204,6 +238,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-5",
+				null,
+				"gpt-5",
 				messages,
 				false, // stream
 				0.7, // temperature - should be overridden to 1
@@ -225,6 +261,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5-mini models", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5-mini",
+				null,
 				"gpt-5-mini",
 				messages,
 				false, // stream
@@ -248,6 +286,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-5-nano",
+				null,
+				"gpt-5-nano",
 				messages,
 				false, // stream
 				0.9, // temperature - should be overridden to 1
@@ -269,6 +309,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5-chat-latest models", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5-chat-latest",
+				null,
 				"gpt-5-chat-latest",
 				messages,
 				false, // stream
@@ -292,6 +334,8 @@ describe("prepareRequestBody", () => {
 			const body = await prepareRequestBody(
 				"openai",
 				"gpt-4o-mini",
+				null,
+				"gpt-4o-mini",
 				messages,
 				false, // stream
 				0.7, // temperature - should remain as-is
@@ -313,6 +357,8 @@ describe("prepareRequestBody", () => {
 		it("should override temperature to 1 for gpt-5 models with reasoning enabled", async () => {
 			const body = await prepareRequestBody(
 				"openai",
+				"gpt-5",
+				null,
 				"gpt-5",
 				messages,
 				false, // stream
@@ -363,7 +409,7 @@ describe("getCheapestModelForProvider", () => {
 				model.providers.some(
 					(p) =>
 						p.providerId === "openai" &&
-						p.modelName === cheapestModel &&
+						p.externalId === cheapestModel &&
 						p.inputPrice !== undefined &&
 						p.outputPrice !== undefined,
 				),
@@ -379,14 +425,14 @@ describe("getCheapestModelForProvider", () => {
 		if (cheapestModel) {
 			const modelWithProvider = models.find((model) =>
 				model.providers.some(
-					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+					(p) => p.providerId === "openai" && p.externalId === cheapestModel,
 				),
 			);
 
 			if (modelWithProvider) {
 				// Check if any provider mapping has a deprecatedAt date
 				const providerMapping = modelWithProvider.providers.find(
-					(p) => p.providerId === "openai" && p.modelName === cheapestModel,
+					(p) => p.providerId === "openai" && p.externalId === cheapestModel,
 				) as ProviderModelMapping | undefined;
 				if (providerMapping?.deprecatedAt) {
 					// If the provider mapping has a deprecatedAt date, it should be in the future
@@ -395,83 +441,10 @@ describe("getCheapestModelForProvider", () => {
 			}
 		}
 	});
-
-	it("should account for discount when calculating cheapest model", () => {
-		// Test that discounts are properly applied in the cheapest model calculation
-		// Look for models with discount providers
-		const modelsWithDiscountProviders = models.filter((model) =>
-			model.providers.some(
-				(p) =>
-					(p as ProviderModelMapping).discount !== undefined &&
-					(p as ProviderModelMapping).discount! < 1,
-			),
-		);
-
-		if (modelsWithDiscountProviders.length > 0) {
-			// Find a model that has both regular and discount providers
-			const testModel = modelsWithDiscountProviders.find((model) => {
-				const regularProvider = model.providers.find(
-					(p) =>
-						!(p as ProviderModelMapping).discount ||
-						(p as ProviderModelMapping).discount === 1,
-				);
-				const discountProvider = model.providers.find(
-					(p) =>
-						(p as ProviderModelMapping).discount &&
-						(p as ProviderModelMapping).discount! < 1,
-				);
-				return regularProvider && discountProvider;
-			});
-
-			if (testModel) {
-				const regularProvider = testModel.providers.find(
-					(p) =>
-						!(p as ProviderModelMapping).discount ||
-						(p as ProviderModelMapping).discount === 1,
-				);
-				const discountProvider = testModel.providers.find(
-					(p) =>
-						(p as ProviderModelMapping).discount &&
-						(p as ProviderModelMapping).discount! < 1,
-				);
-
-				if (
-					regularProvider &&
-					discountProvider &&
-					regularProvider.inputPrice &&
-					discountProvider.inputPrice
-				) {
-					// Calculate expected prices
-					const regularPrice =
-						(regularProvider.inputPrice + (regularProvider.outputPrice ?? 0)) /
-						2;
-					const discountPrice =
-						((discountProvider.inputPrice +
-							(discountProvider.outputPrice ?? 0)) /
-							2) *
-						(discountProvider as ProviderModelMapping).discount!;
-
-					// The discount provider should be cheaper than the regular provider
-					expect(discountPrice).toBeLessThan(regularPrice);
-
-					// Test both provider functions handle discounts
-					const cheapestForDiscountProvider = getCheapestModelForProvider(
-						discountProvider.providerId,
-					);
-					const cheapestForRegularProvider = getCheapestModelForProvider(
-						regularProvider.providerId,
-					);
-
-					expect(cheapestForDiscountProvider).toBeDefined();
-					expect(cheapestForRegularProvider).toBeDefined();
-				}
-			}
-		}
-	});
 });
 
 describe("getCheapestFromAvailableProviders", () => {
-	it("should return cheapest provider from available providers", () => {
+	it("should return cheapest provider from available providers", async () => {
 		// Find a model with multiple providers
 		const modelWithMultipleProviders = models.find(
 			(model) =>
@@ -487,7 +460,7 @@ describe("getCheapestFromAvailableProviders", () => {
 			);
 
 			if (availableProviders.length > 1) {
-				const cheapestProvider = getCheapestFromAvailableProviders(
+				const cheapestProvider = await getCheapestFromAvailableProviders(
 					availableProviders,
 					modelWithMultipleProviders,
 				);
@@ -495,103 +468,452 @@ describe("getCheapestFromAvailableProviders", () => {
 				expect(cheapestProvider).toBeDefined();
 				expect(cheapestProvider?.provider).toMatchObject({
 					providerId: expect.any(String),
-					modelName: expect.any(String),
+					externalId: expect.any(String),
 				});
 			}
 		}
 	});
 
-	it("should account for discounts when selecting cheapest provider", () => {
-		// Find a model that has both regular and discount providers
-		const modelWithDiscountProvider = models.find((model) => {
-			const hasRegularProvider = model.providers.some(
-				(p) =>
-					(!(p as ProviderModelMapping).discount ||
-						(p as ProviderModelMapping).discount === 1) &&
-					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined,
+	describe("sticky session routing", () => {
+		const modelWithMultipleProviders = models.find(
+			(model) =>
+				model.providers.length > 1 &&
+				model.providers.some(
+					(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+				),
+		);
+
+		function createMemoryStore(
+			initial: SessionProviderEntry | null = null,
+		): SessionProviderStore & {
+			value: SessionProviderEntry | null;
+			setCalls: SessionProviderEntry[];
+		} {
+			const store = {
+				value: initial,
+				setCalls: [] as SessionProviderEntry[],
+				get: async () => store.value,
+				set: async (providerId: string, region?: string) => {
+					store.value = { providerId, region };
+					store.setCalls.push({ providerId, region });
+				},
+			};
+			return store;
+		}
+
+		// openai is priced ~5x cheaper than deepseek, so with equal priority and
+		// equal metrics the weighted-score winner is always openai. This lets the
+		// tests assert that stickiness keeps a session on a *more expensive*
+		// provider once pinned.
+		const stickyModel = {
+			id: "sticky-routing-model",
+			name: "Sticky Routing Model",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					externalId: "sticky-openai",
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					streaming: true as const,
+				},
+				{
+					providerId: "deepseek" as const,
+					externalId: "sticky-deepseek",
+					inputPrice: "5.0e-6",
+					outputPrice: "10.0e-6",
+					streaming: true as const,
+				},
+			],
+		};
+
+		// Neutralize per-provider priority defaults (deepseek ships with priority 2)
+		// so these tests isolate price + uptime behavior from priority bias.
+		const equalPriority = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, deepseek: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		function stickyMetrics(openaiUptime: number, deepseekUptime: number) {
+			return new Map([
+				[
+					metricsKey(stickyModel.id, "openai", undefined),
+					{
+						modelId: stickyModel.id,
+						providerId: "openai",
+						uptime: openaiUptime,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				],
+				[
+					metricsKey(stickyModel.id, "deepseek", undefined),
+					{
+						modelId: stickyModel.id,
+						providerId: "deepseek",
+						uptime: deepseekUptime,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				],
+			]);
+		}
+
+		it("scores the best provider, pins it, and reuses it on the next request", async () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
 			);
-			const hasDiscountProvider = model.providers.some(
-				(p) =>
-					(p as ProviderModelMapping).discount !== undefined &&
-					(p as ProviderModelMapping).discount! < 1 &&
-					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined,
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const store = createMemoryStore();
+			const first = await getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionProviderStore: store },
 			);
-			return hasRegularProvider && hasDiscountProvider;
+			const second = await getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionProviderStore: store },
+			);
+
+			const regionOf = (p: unknown) =>
+				(p as { region?: string } | undefined)?.region;
+
+			expect(first?.metadata.selectionReason).toBe("session-sticky");
+			// The freshly scored best is persisted to the store.
+			expect(store.value?.providerId).toBe(first?.provider.providerId);
+			// The next request for the same session reuses the pinned provider.
+			expect(second?.provider.providerId).toBe(first?.provider.providerId);
+			expect(regionOf(second?.provider)).toBe(regionOf(first?.provider));
 		});
 
-		if (modelWithDiscountProvider) {
-			const regularProvider = modelWithDiscountProvider.providers.find(
-				(p) =>
-					(!(p as ProviderModelMapping).discount ||
-						(p as ProviderModelMapping).discount === 1) &&
-					(p as ProviderModelMapping).stability !== "experimental" &&
-					(p as ProviderModelMapping).stability !== "unstable" &&
-					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined,
-			);
-			const discountProvider = modelWithDiscountProvider.providers.find(
-				(p) =>
-					(p as ProviderModelMapping).discount !== undefined &&
-					(p as ProviderModelMapping).discount! < 1 &&
-					(p as ProviderModelMapping).stability !== "experimental" &&
-					(p as ProviderModelMapping).stability !== "unstable" &&
-					p.inputPrice !== undefined &&
-					p.outputPrice !== undefined,
-			);
-
-			if (regularProvider && discountProvider) {
-				const availableProviders = [regularProvider, discountProvider];
-
-				const cheapestProvider = getCheapestFromAvailableProviders(
-					availableProviders,
-					modelWithDiscountProvider,
-				);
-
-				// Calculate actual effective prices with discount and priority
-				// The function uses: discountMultiplier = 1 - discount, effectivePrice = totalPrice / priority
-				const regularProviderDef = getProviderDefinition(
-					regularProvider.providerId,
-				);
-				const discountProviderDef = getProviderDefinition(
-					discountProvider.providerId,
-				);
-				const regularPriority = regularProviderDef?.priority ?? 1;
-				const discountPriority = discountProviderDef?.priority ?? 1;
-
-				const regularBasePrice =
-					(regularProvider.inputPrice! + regularProvider.outputPrice!) / 2;
-				const regularEffectivePrice =
-					regularPriority > 0
-						? regularBasePrice / regularPriority
-						: regularBasePrice;
-
-				const discount = (discountProvider as ProviderModelMapping).discount!;
-				const discountMultiplier = 1 - discount;
-				const discountBasePrice =
-					((discountProvider.inputPrice! + discountProvider.outputPrice!) / 2) *
-					discountMultiplier;
-				const discountEffectivePrice =
-					discountPriority > 0
-						? discountBasePrice / discountPriority
-						: discountBasePrice;
-
-				// The provider with lower effective price should be selected
-				if (discountEffectivePrice < regularEffectivePrice) {
-					expect(cheapestProvider?.provider.providerId).toBe(
-						discountProvider.providerId,
-					);
-				} else {
-					expect(cheapestProvider?.provider.providerId).toBe(
-						regularProvider.providerId,
-					);
-				}
+		it("pins the same provider the weighted algorithm would pick without a session", async () => {
+			if (!modelWithMultipleProviders) {
+				return;
 			}
-		}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const withoutSession = await getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+			);
+			const store = createMemoryStore();
+			const withSession = await getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionProviderStore: store },
+			);
+
+			expect(withSession?.provider.providerId).toBe(
+				withoutSession?.provider.providerId,
+			);
+		});
+
+		it("does not pin a session when session stickiness is disabled", async () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{ session: { enabled: false } },
+				buildProviderPriorityDefaults(),
+			);
+			const store = createMemoryStore();
+			const result = await getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionProviderStore: store, routingConfig: overrides },
+			);
+
+			expect(result?.metadata.selectionReason).not.toBe("session-sticky");
+			expect(store.value).toBeNull();
+		});
+
+		it("re-pins to the current best when the saved provider is gone", async () => {
+			if (!modelWithMultipleProviders) {
+				return;
+			}
+			const availableProviders = modelWithMultipleProviders.providers.filter(
+				(p) => p.inputPrice !== undefined && p.outputPrice !== undefined,
+			);
+			if (availableProviders.length <= 1) {
+				return;
+			}
+
+			// Saved provider is not in the available list (e.g. health-filtered),
+			// so the session is re-scored and re-pinned to the current best.
+			const store = createMemoryStore({
+				providerId: "definitely-not-a-real-provider",
+			});
+			const result = await getCheapestFromAvailableProviders(
+				availableProviders,
+				modelWithMultipleProviders,
+				{ sessionProviderStore: store },
+			);
+
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+			expect(result?.provider.providerId).not.toBe(
+				"definitely-not-a-real-provider",
+			);
+			expect(store.value?.providerId).toBe(result?.provider.providerId);
+		});
+
+		it("uses the weighted-score winner for a new session and persists it", async () => {
+			const store = createMemoryStore();
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 99),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+			expect(store.value).toEqual({ providerId: "openai", region: undefined });
+		});
+
+		it("pins the full weighted-score winner, not merely the cheapest provider", async () => {
+			// openai is ~5x cheaper, but its uptime is poor. The full weighted
+			// score (price + uptime + throughput + priority, not price alone) makes
+			// the more expensive deepseek the winner — and that is what gets pinned.
+			const store = createMemoryStore();
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(50, 100),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("deepseek");
+			expect(store.value).toEqual({
+				providerId: "deepseek",
+				region: undefined,
+			});
+		});
+
+		it("keeps the session on its pinned provider even when a cheaper one is available", async () => {
+			// Previously pinned to the more expensive deepseek.
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 99),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			// Cheaper openai exists, but stickiness keeps the cache warm on deepseek.
+			expect(result?.provider.providerId).toBe("deepseek");
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+		});
+
+		it("refreshes the pin (its TTL) on reuse", async () => {
+			const store = createMemoryStore({ providerId: "deepseek" });
+			await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 99),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(store.setCalls).toEqual([
+				{ providerId: "deepseek", region: undefined },
+			]);
+		});
+
+		it("re-pins to the best provider when the pinned one's uptime is too low", async () => {
+			// deepseek is pinned but its uptime fell below the 85% session threshold.
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 50),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+			expect(store.value).toEqual({ providerId: "openai", region: undefined });
+		});
+
+		it("keeps the pin when uptime is exactly at the threshold", async () => {
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 85),
+					routingConfig: equalPriority,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("deepseek");
+		});
+
+		it("honors a custom session uptime threshold", async () => {
+			const strictThreshold = resolveRoutingConfig(
+				{
+					providerPriorities: { openai: 1, deepseek: 1 },
+					session: { uptimeThreshold: 95 },
+				},
+				buildProviderPriorityDefaults(),
+			);
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 90), // 90 < 95 → re-pin
+					routingConfig: strictThreshold,
+					sessionProviderStore: store,
+				},
+			);
+
+			expect(result?.provider.providerId).toBe("openai");
+		});
+
+		it("ignores the saved provider and the store when stickiness is disabled", async () => {
+			const disabled = resolveRoutingConfig(
+				{
+					providerPriorities: { openai: 1, deepseek: 1 },
+					session: { enabled: false },
+				},
+				buildProviderPriorityDefaults(),
+			);
+			const store = createMemoryStore({ providerId: "deepseek" });
+			const result = await getCheapestFromAvailableProviders(
+				stickyModel.providers,
+				stickyModel,
+				{
+					metricsMap: stickyMetrics(99, 99),
+					routingConfig: disabled,
+					sessionProviderStore: store,
+				},
+			);
+
+			// Falls back to the weighted winner and never touches the store.
+			expect(result?.provider.providerId).toBe("openai");
+			expect(result?.metadata.selectionReason).not.toBe("session-sticky");
+			expect(store.setCalls).toEqual([]);
+			expect(store.value).toEqual({ providerId: "deepseek" });
+		});
+
+		it("reuses the pinned region and re-pins when the saved region is gone", async () => {
+			// Same provider, two regions; r1 is cheaper than r2.
+			const regionModel = {
+				id: "sticky-region-model",
+				name: "Sticky Region Model",
+				family: "openai" as const,
+				providers: [
+					{
+						providerId: "openai" as const,
+						externalId: "sticky-r1",
+						region: "r1",
+						inputPrice: "1.0e-6",
+						outputPrice: "2.0e-6",
+						streaming: true as const,
+					},
+					{
+						providerId: "openai" as const,
+						externalId: "sticky-r2",
+						region: "r2",
+						inputPrice: "5.0e-6",
+						outputPrice: "10.0e-6",
+						streaming: true as const,
+					},
+				],
+			};
+			const regionMetrics = new Map([
+				[
+					metricsKey(regionModel.id, "openai", "r1"),
+					{
+						modelId: regionModel.id,
+						providerId: "openai",
+						region: "r1",
+						uptime: 99,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				],
+				[
+					metricsKey(regionModel.id, "openai", "r2"),
+					{
+						modelId: regionModel.id,
+						providerId: "openai",
+						region: "r2",
+						uptime: 99,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				],
+			]);
+
+			// Pinned to the pricier r2 → stays on r2.
+			const pinned = createMemoryStore({ providerId: "openai", region: "r2" });
+			const reused = await getCheapestFromAvailableProviders(
+				regionModel.providers,
+				regionModel,
+				{
+					metricsMap: regionMetrics,
+					routingConfig: equalPriority,
+					sessionProviderStore: pinned,
+				},
+			);
+			expect(reused?.provider.region).toBe("r2");
+
+			// Saved region no longer offered → re-pin to the best region (r1).
+			const stale = createMemoryStore({ providerId: "openai", region: "gone" });
+			const repinned = await getCheapestFromAvailableProviders(
+				regionModel.providers,
+				regionModel,
+				{
+					metricsMap: regionMetrics,
+					routingConfig: equalPriority,
+					sessionProviderStore: stale,
+				},
+			);
+			expect(repinned?.provider.region).toBe("r1");
+			expect(stale.value).toEqual({ providerId: "openai", region: "r1" });
+		});
 	});
 
-	it("should use per-second pricing for video providers", () => {
+	it("should use per-second pricing for video providers", async () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",
 		);
@@ -605,7 +927,7 @@ describe("getCheapestFromAvailableProviders", () => {
 					provider.providerId === "avalanche",
 			) ?? [];
 
-		const cheapestProvider = getCheapestFromAvailableProviders(
+		const cheapestProvider = await getCheapestFromAvailableProviders(
 			availableProviders,
 			videoModel!,
 			{
@@ -617,7 +939,10 @@ describe("getCheapestFromAvailableProviders", () => {
 			},
 		);
 
-		expect(cheapestProvider?.provider.providerId).toBe("avalanche");
+		// google-vertex and avalanche have identical per-second pricing, so this
+		// is a price tie; the price-only path deterministically selects the
+		// first-listed provider (google-vertex).
+		expect(cheapestProvider?.provider.providerId).toBe("google-vertex");
 
 		const vertexScore = cheapestProvider?.metadata.providerScores.find(
 			(provider) => provider.providerId === "google-vertex",
@@ -627,10 +952,55 @@ describe("getCheapestFromAvailableProviders", () => {
 		);
 
 		expect(vertexScore?.price).toBeCloseTo(3.2);
-		expect(avalancheScore?.price).toBeCloseTo(2.56);
+		expect(avalancheScore?.price).toBeCloseTo(3.2);
 	});
 
-	it("should disable random exploration for vitest processes", () => {
+	it("should apply effective discounts before comparing provider prices", async () => {
+		const discountRoutingModel = {
+			id: "discount-routing-test",
+			name: "Discount Routing Test",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					externalId: "discount-routing-test",
+					inputPrice: "2",
+					outputPrice: "2",
+					streaming: true as const,
+				},
+				{
+					providerId: "anthropic" as const,
+					externalId: "discount-routing-test",
+					inputPrice: "1",
+					outputPrice: "1",
+					streaming: true as const,
+				},
+			],
+		};
+		const equalPriorityConfig = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, anthropic: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		const result = await getCheapestFromAvailableProviders(
+			discountRoutingModel.providers,
+			discountRoutingModel,
+			{
+				routingConfig: equalPriorityConfig,
+				providerDiscountResolver: (provider) =>
+					provider.providerId === "openai" ? "0.6" : "0",
+			},
+		);
+
+		expect(result?.provider.providerId).toBe("openai");
+		expect(
+			result?.metadata.providerScores.find(
+				(score) => score.providerId === "openai",
+			)?.price,
+		).toBe(0.8);
+	});
+
+	it("should disable random exploration for vitest processes", async () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",
 		);
@@ -659,18 +1029,13 @@ describe("getCheapestFromAvailableProviders", () => {
 		process.argv = ["node", "/tmp/vitest.mjs"];
 
 		try {
-			const result = getCheapestFromAvailableProviders(
+			const result = await getCheapestFromAvailableProviders(
 				[avalancheProvider, vertexProvider],
 				videoModel,
 				{
 					metricsMap: new Map([
 						[
-							metricsKey(
-								"veo-3.1-generate-preview",
-								"avalanche",
-								undefined,
-								"veo3",
-							),
+							metricsKey("veo-3.1-generate-preview", "avalanche", undefined),
 							{
 								modelId: "veo-3.1-generate-preview",
 								providerId: "avalanche",
@@ -685,7 +1050,6 @@ describe("getCheapestFromAvailableProviders", () => {
 								"veo-3.1-generate-preview",
 								"google-vertex",
 								undefined,
-								"veo-3.1-generate-001",
 							),
 							{
 								modelId: "veo-3.1-generate-preview",
@@ -723,7 +1087,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
-	it("should include provider scores during random exploration", () => {
+	it("should include provider scores during random exploration", async () => {
 		const videoModel = models.find(
 			(model) => model.id === "veo-3.1-generate-preview",
 		);
@@ -755,18 +1119,13 @@ describe("getCheapestFromAvailableProviders", () => {
 		process.argv = ["node", "/tmp/not-a-test-run.mjs"];
 
 		try {
-			const result = getCheapestFromAvailableProviders(
+			const result = await getCheapestFromAvailableProviders(
 				[avalancheProvider, vertexProvider],
 				videoModel,
 				{
 					metricsMap: new Map([
 						[
-							metricsKey(
-								"veo-3.1-generate-preview",
-								"avalanche",
-								undefined,
-								"veo3",
-							),
+							metricsKey("veo-3.1-generate-preview", "avalanche", undefined),
 							{
 								modelId: "veo-3.1-generate-preview",
 								providerId: "avalanche",
@@ -781,7 +1140,6 @@ describe("getCheapestFromAvailableProviders", () => {
 								"veo-3.1-generate-preview",
 								"google-vertex",
 								undefined,
-								"veo-3.1-generate-001",
 							),
 							{
 								modelId: "veo-3.1-generate-preview",
@@ -822,327 +1180,13 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
-	it("should return null for empty provider list", () => {
+	it("should return null for empty provider list", async () => {
 		const testModel = models[0];
-		const result = getCheapestFromAvailableProviders([], testModel);
+		const result = await getCheapestFromAvailableProviders([], testModel);
 		expect(result).toBe(null);
 	});
 
-	describe("resolveMetricsModelId", () => {
-		it("returns the candidate's modelName when it matches a concrete catalog model", () => {
-			expect(
-				resolveMetricsModelId("grok-4-1-fast", "grok-4-1-fast-non-reasoning"),
-			).toBe("grok-4-1-fast-non-reasoning");
-			expect(
-				resolveMetricsModelId("grok-4-1-fast", "grok-4-1-fast-reasoning"),
-			).toBe("grok-4-1-fast-reasoning");
-		});
-
-		it("falls back to the parent model id when the modelName is provider-specific", () => {
-			expect(
-				resolveMetricsModelId("gpt-4o-mini", "gpt-4o-mini-2024-07-18"),
-			).toBe("gpt-4o-mini");
-		});
-
-		it("falls back to the parent model id when the modelName is unknown", () => {
-			expect(
-				resolveMetricsModelId("custom-parent", "totally-unknown-model"),
-			).toBe("custom-parent");
-		});
-	});
-
-	describe("virtual model variant routing", () => {
-		const virtualModel: Parameters<
-			typeof getCheapestFromAvailableProviders
-		>[1] = {
-			id: "virtual-test",
-			providers: [
-				{
-					providerId: "openai",
-					modelName: "virtual-test-non-reasoning",
-					inputPrice: 1 / 1e6,
-					outputPrice: 2 / 1e6,
-				},
-				{
-					providerId: "openai",
-					modelName: "virtual-test-reasoning",
-					inputPrice: 10 / 1e6,
-					outputPrice: 20 / 1e6,
-				},
-			],
-		};
-
-		it("scores the reasoning variant by its own pricing, not the first variant in the array", () => {
-			const result = getCheapestFromAvailableProviders(
-				[{ providerId: "openai", modelName: "virtual-test-reasoning" }],
-				virtualModel,
-			);
-
-			expect(result?.provider.modelName).toBe("virtual-test-reasoning");
-			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
-		});
-
-		it("scores the non-reasoning variant by its own pricing", () => {
-			const result = getCheapestFromAvailableProviders(
-				[{ providerId: "openai", modelName: "virtual-test-non-reasoning" }],
-				virtualModel,
-			);
-
-			expect(result?.provider.modelName).toBe("virtual-test-non-reasoning");
-			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(1.5 / 1e6);
-		});
-
-		it("filters out a reasoning variant whose stability is unstable while keeping the non-reasoning sibling", () => {
-			const modelWithUnstableReasoning: Parameters<
-				typeof getCheapestFromAvailableProviders
-			>[1] = {
-				id: "virtual-stability-test",
-				providers: [
-					{
-						providerId: "openai",
-						modelName: "virtual-stability-non-reasoning",
-						inputPrice: 1 / 1e6,
-						outputPrice: 2 / 1e6,
-					},
-					{
-						providerId: "openai",
-						modelName: "virtual-stability-reasoning",
-						inputPrice: 10 / 1e6,
-						outputPrice: 20 / 1e6,
-						stability: "unstable",
-					},
-				],
-			};
-
-			const reasoningResult = getCheapestFromAvailableProviders(
-				[
-					{
-						providerId: "openai",
-						modelName: "virtual-stability-reasoning",
-					},
-				],
-				modelWithUnstableReasoning,
-			);
-			expect(reasoningResult).toBe(null);
-
-			const nonReasoningResult = getCheapestFromAvailableProviders(
-				[
-					{
-						providerId: "openai",
-						modelName: "virtual-stability-non-reasoning",
-					},
-				],
-				modelWithUnstableReasoning,
-			);
-			expect(nonReasoningResult?.provider.modelName).toBe(
-				"virtual-stability-non-reasoning",
-			);
-		});
-
-		it("preserves the legacy providerId+region match when the candidate does not name a specific variant", () => {
-			const result = getCheapestFromAvailableProviders(
-				[{ providerId: "openai", modelName: "unrelated-name" }],
-				virtualModel,
-			);
-
-			expect(result?.provider.modelName).toBe("unrelated-name");
-			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(1.5 / 1e6);
-		});
-
-		it("scores the reasoning variant under the price-only-no-metrics path", () => {
-			const result = getCheapestFromAvailableProviders(
-				[{ providerId: "openai", modelName: "virtual-test-reasoning" }],
-				virtualModel,
-				{ metricsMap: new Map() },
-			);
-
-			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
-			expect(result?.provider.modelName).toBe("virtual-test-reasoning");
-			expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
-		});
-
-		it("routes the catalog grok-4-1-fast reasoning variant with reasoning-variant cache support", () => {
-			const grokModel = models.find((model) => model.id === "grok-4-1-fast");
-			expect(grokModel).toBeDefined();
-			if (!grokModel) {
-				throw new Error("Missing grok-4-1-fast fixture");
-			}
-
-			const reasoningProvider = grokModel.providers.find(
-				(p) => p.modelName === "grok-4-1-fast-reasoning",
-			);
-			expect(reasoningProvider).toBeDefined();
-			if (!reasoningProvider) {
-				throw new Error("Missing reasoning variant");
-			}
-
-			const result = getCheapestFromAvailableProviders(
-				[reasoningProvider],
-				grokModel,
-				{ metricsMap: new Map(), promptTokens: 200_000 },
-			);
-
-			expect(result?.provider.modelName).toBe("grok-4-1-fast-reasoning");
-		});
-
-		it("scores the weighted-score path using variant-specific metrics", () => {
-			const reasoningProvider = {
-				providerId: "openai" as const,
-				modelName: "virtual-test-reasoning",
-			};
-			const nonReasoningProvider = {
-				providerId: "openai" as const,
-				modelName: "virtual-test-non-reasoning",
-			};
-
-			// Variant-keyed metrics: non-reasoning is healthy, reasoning is degraded.
-			// Without modelName-aware lookup these would clobber each other under the
-			// same `modelId:providerId:region` legacy key.
-			const metricsMap = new Map([
-				[
-					metricsKey(
-						"virtual-test",
-						"openai",
-						undefined,
-						"virtual-test-non-reasoning",
-					),
-					{
-						modelId: "virtual-test",
-						providerId: "openai",
-						modelName: "virtual-test-non-reasoning",
-						uptime: 99.9,
-						averageLatency: 100,
-						throughput: 200,
-						totalRequests: 100,
-					},
-				],
-				[
-					metricsKey(
-						"virtual-test",
-						"openai",
-						undefined,
-						"virtual-test-reasoning",
-					),
-					{
-						modelId: "virtual-test",
-						providerId: "openai",
-						modelName: "virtual-test-reasoning",
-						uptime: 50,
-						averageLatency: 1000,
-						throughput: 10,
-						totalRequests: 100,
-					},
-				],
-			]);
-
-			const reasoningResult = getCheapestFromAvailableProviders(
-				[reasoningProvider],
-				virtualModel,
-				{ metricsMap },
-			);
-			expect(reasoningResult?.provider.modelName).toBe(
-				"virtual-test-reasoning",
-			);
-			expect(reasoningResult?.metadata.providerScores[0]?.uptime).toBe(50);
-			expect(reasoningResult?.metadata.providerScores[0]?.latency).toBe(1000);
-			expect(reasoningResult?.metadata.providerScores[0]?.throughput).toBe(10);
-
-			const nonReasoningResult = getCheapestFromAvailableProviders(
-				[nonReasoningProvider],
-				virtualModel,
-				{ metricsMap },
-			);
-			expect(nonReasoningResult?.provider.modelName).toBe(
-				"virtual-test-non-reasoning",
-			);
-			expect(nonReasoningResult?.metadata.providerScores[0]?.uptime).toBe(99.9);
-			expect(nonReasoningResult?.metadata.providerScores[0]?.latency).toBe(100);
-			expect(nonReasoningResult?.metadata.providerScores[0]?.throughput).toBe(
-				200,
-			);
-		});
-
-		it("scores the random-exploration metadata using variant-specific metrics", () => {
-			const reasoningProvider = {
-				providerId: "openai" as const,
-				modelName: "virtual-test-reasoning",
-			};
-
-			const metricsMap = new Map([
-				[
-					metricsKey(
-						"virtual-test",
-						"openai",
-						undefined,
-						"virtual-test-non-reasoning",
-					),
-					{
-						modelId: "virtual-test",
-						providerId: "openai",
-						modelName: "virtual-test-non-reasoning",
-						uptime: 99.9,
-						averageLatency: 100,
-						throughput: 200,
-						totalRequests: 100,
-					},
-				],
-				[
-					metricsKey(
-						"virtual-test",
-						"openai",
-						undefined,
-						"virtual-test-reasoning",
-					),
-					{
-						modelId: "virtual-test",
-						providerId: "openai",
-						modelName: "virtual-test-reasoning",
-						uptime: 75,
-						averageLatency: 800,
-						throughput: 25,
-						totalRequests: 100,
-					},
-				],
-			]);
-
-			const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-			const originalArgv = process.argv;
-			const originalNodeEnv = process.env.NODE_ENV;
-			const originalVitest = process.env.VITEST;
-			delete process.env.NODE_ENV;
-			delete process.env.VITEST;
-			process.argv = ["node", "/tmp/not-a-test-run.mjs"];
-
-			try {
-				const result = getCheapestFromAvailableProviders(
-					[reasoningProvider],
-					virtualModel,
-					{ metricsMap },
-				);
-				expect(result?.metadata.selectionReason).toBe("random-exploration");
-				expect(result?.provider.modelName).toBe("virtual-test-reasoning");
-				expect(result?.metadata.providerScores[0]?.uptime).toBe(75);
-				expect(result?.metadata.providerScores[0]?.latency).toBe(800);
-				expect(result?.metadata.providerScores[0]?.throughput).toBe(25);
-				expect(result?.metadata.providerScores[0]?.price).toBeCloseTo(15 / 1e6);
-			} finally {
-				randomSpy.mockRestore();
-				process.argv = originalArgv;
-				if (originalNodeEnv !== undefined) {
-					process.env.NODE_ENV = originalNodeEnv;
-				} else {
-					delete process.env.NODE_ENV;
-				}
-				if (originalVitest !== undefined) {
-					process.env.VITEST = originalVitest;
-				} else {
-					delete process.env.VITEST;
-				}
-			}
-		});
-	});
-
-	it("should use the default exploration rate when EXPLORATION_RATE is empty", () => {
+	it("should use the default exploration rate when EXPLORATION_RATE is empty", async () => {
 		const originalExplorationRate = process.env.EXPLORATION_RATE;
 		process.env.EXPLORATION_RATE = "";
 
@@ -1152,17 +1196,17 @@ describe("getCheapestFromAvailableProviders", () => {
 				throw new Error("Missing gpt-4o-mini test fixture");
 			}
 
-			expect(() =>
-				getCheapestFromAvailableProviders(
-					[
-						{
-							providerId: "openai",
-							modelName: "gpt-4o-mini",
-						},
-					],
-					testModel,
-				),
-			).not.toThrow();
+			const result = await getCheapestFromAvailableProviders(
+				[
+					{
+						providerId: "openai",
+						externalId: "gpt-4o-mini",
+					},
+				],
+				testModel,
+			);
+
+			expect(result).not.toBeNull();
 		} finally {
 			if (originalExplorationRate === undefined) {
 				delete process.env.EXPLORATION_RATE;
@@ -1172,7 +1216,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		}
 	});
 
-	it("should throw when EXPLORATION_RATE is outside the valid range", () => {
+	it("should throw when EXPLORATION_RATE is outside the valid range", async () => {
 		const originalExplorationRate = process.env.EXPLORATION_RATE;
 		const originalArgv = process.argv;
 		const originalNodeEnv = process.env.NODE_ENV;
@@ -1188,17 +1232,17 @@ describe("getCheapestFromAvailableProviders", () => {
 				throw new Error("Missing gpt-4o-mini test fixture");
 			}
 
-			expect(() =>
+			await expect(
 				getCheapestFromAvailableProviders(
 					[
 						{
 							providerId: "openai",
-							modelName: "gpt-4o-mini",
+							externalId: "gpt-4o-mini",
 						},
 					],
 					testModel,
 				),
-			).toThrow(
+			).rejects.toThrow(
 				'Invalid EXPLORATION_RATE: "1.5". Expected a number between 0 and 1.',
 			);
 		} finally {
@@ -1224,11 +1268,32 @@ describe("getCheapestFromAvailableProviders", () => {
 	it("should prefer request pricing over zero token placeholders", () => {
 		expect(
 			getProviderSelectionPrice({
-				inputPrice: 0,
-				outputPrice: 0,
-				requestPrice: 0.03,
-			}),
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.03",
+			}).toNumber(),
 		).toBe(0.03);
+	});
+
+	it("should compute exact prices without IEEE-754 noise", () => {
+		// Raw JS arithmetic on these inputs produces 0.020000000000000004; the
+		// Decimal-backed implementation must return exactly 0.02.
+		expect(
+			getProviderSelectionPrice({
+				inputPrice: "0.01",
+				outputPrice: "0.03",
+			}).toNumber(),
+		).toBe(0.02);
+
+		// Per-token rates expressed as USD/1M tokens. Ensure (input + output) / 2
+		// lands on a clean decimal even when the inputs already round-tripped
+		// through Number division.
+		expect(
+			getProviderSelectionPrice({
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+			}).toNumber(),
+		).toBe(0.375 / 1e6);
 	});
 
 	describe("cache support weighting", () => {
@@ -1239,17 +1304,17 @@ describe("getCheapestFromAvailableProviders", () => {
 			providers: [
 				{
 					providerId: "openai" as const,
-					modelName: "cache-test",
-					inputPrice: 1.0 / 1e6,
-					outputPrice: 2.0 / 1e6,
-					cachedInputPrice: 0.1 / 1e6,
+					externalId: "cache-test",
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					cachedInputPrice: "0.1e-6",
 					streaming: true as const,
 				},
 				{
 					providerId: "deepseek" as const,
-					modelName: "cache-test",
-					inputPrice: 1.0 / 1e6,
-					outputPrice: 2.0 / 1e6,
+					externalId: "cache-test",
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
 					streaming: true as const,
 				},
 			],
@@ -1257,7 +1322,7 @@ describe("getCheapestFromAvailableProviders", () => {
 
 		const equalMetrics = new Map([
 			[
-				metricsKey("cache-test-model", "openai", undefined, "cache-test"),
+				metricsKey("cache-test-model", "openai", undefined),
 				{
 					modelId: "cache-test-model",
 					providerId: "openai",
@@ -1268,7 +1333,7 @@ describe("getCheapestFromAvailableProviders", () => {
 				},
 			],
 			[
-				metricsKey("cache-test-model", "deepseek", undefined, "cache-test"),
+				metricsKey("cache-test-model", "deepseek", undefined),
 				{
 					modelId: "cache-test-model",
 					providerId: "deepseek",
@@ -1280,11 +1345,22 @@ describe("getCheapestFromAvailableProviders", () => {
 			],
 		]);
 
-		it("does not factor cache support when prompt is below the threshold", () => {
-			const result = getCheapestFromAvailableProviders(
+		// Neutralize provider priority defaults so these tests isolate cache
+		// support weighting from any per-provider priority bias.
+		const equalPriorityConfig = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, deepseek: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		it("does not factor cache support when prompt is below the threshold", async () => {
+			const result = await getCheapestFromAvailableProviders(
 				cacheTestModel.providers,
 				cacheTestModel,
-				{ metricsMap: equalMetrics, promptTokens: 1000 },
+				{
+					metricsMap: equalMetrics,
+					promptTokens: 1000,
+					routingConfig: equalPriorityConfig,
+				},
 			);
 
 			const openai = result?.metadata.providerScores.find(
@@ -1297,11 +1373,15 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(openai?.score).toBe(deepseek?.score);
 		});
 
-		it("prefers a cache-supporting provider when prompt is large", () => {
-			const result = getCheapestFromAvailableProviders(
+		it("prefers a cache-supporting provider when prompt is large", async () => {
+			const result = await getCheapestFromAvailableProviders(
 				cacheTestModel.providers,
 				cacheTestModel,
-				{ metricsMap: equalMetrics, promptTokens: 8000 },
+				{
+					metricsMap: equalMetrics,
+					promptTokens: 8000,
+					routingConfig: equalPriorityConfig,
+				},
 			);
 
 			expect(result?.provider.providerId).toBe("openai");
@@ -1318,35 +1398,212 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect((openai?.score ?? 0) < (deepseek?.score ?? 0)).toBe(true);
 		});
 
-		it("does not override a much cheaper non-cache provider for large prompts", () => {
+		it("does not override a much cheaper non-cache provider for large prompts", async () => {
 			const cheapNoCacheModel = {
 				...cacheTestModel,
 				providers: [
 					{
 						providerId: "openai" as const,
-						modelName: "cache-test",
-						inputPrice: 10.0 / 1e6,
-						outputPrice: 20.0 / 1e6,
-						cachedInputPrice: 1.0 / 1e6,
+						externalId: "cache-test",
+						inputPrice: "10.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "1.0e-6",
 						streaming: true as const,
 					},
 					{
 						providerId: "deepseek" as const,
-						modelName: "cache-test",
-						inputPrice: 1.0 / 1e6,
-						outputPrice: 2.0 / 1e6,
+						externalId: "cache-test",
+						inputPrice: "1.0e-6",
+						outputPrice: "2.0e-6",
 						streaming: true as const,
 					},
 				],
 			};
 
-			const result = getCheapestFromAvailableProviders(
+			const result = await getCheapestFromAvailableProviders(
 				cheapNoCacheModel.providers,
 				cheapNoCacheModel,
-				{ metricsMap: equalMetrics, promptTokens: 10_000 },
+				{
+					metricsMap: equalMetrics,
+					promptTokens: 10_000,
+					routingConfig: equalPriorityConfig,
+				},
 			);
 
 			expect(result?.provider.providerId).toBe("deepseek");
+		});
+	});
+
+	describe("routing config overrides", () => {
+		it("excludes providers whose override priority is 0", async () => {
+			const model = models.find((m) => m.id === "gpt-4o-mini");
+			if (!model) {
+				throw new Error("Missing gpt-4o-mini fixture");
+			}
+			const providersWithOpenAi = (
+				model.providers as ProviderModelMapping[]
+			).filter((p) => p.providerId === "openai");
+			if (providersWithOpenAi.length === 0) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{ providerPriorities: { openai: 0 } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = await getCheapestFromAvailableProviders(
+				providersWithOpenAi,
+				model,
+				{ routingConfig: overrides },
+			);
+
+			expect(result).toBe(null);
+		});
+
+		it("accepts custom thresholds without failing selection", async () => {
+			const model = models.find((m) => m.providers.length >= 2);
+			if (!model) {
+				return;
+			}
+			const available = (model.providers as ProviderModelMapping[]).slice(0, 2);
+
+			const overrides = resolveRoutingConfig(
+				{ thresholds: { defaultUptime: 50 } },
+				buildProviderPriorityDefaults(),
+			);
+			const result = await getCheapestFromAvailableProviders(available, model, {
+				routingConfig: overrides,
+				metricsMap: new Map(),
+			});
+			expect(result).not.toBeNull();
+		});
+
+		it("falls back to price-only selection when every scoring weight is zero", async () => {
+			const model = models.find((m) => m.id === "gpt-4o-mini");
+			if (!model) {
+				throw new Error("Missing gpt-4o-mini fixture");
+			}
+			const available = (model.providers as ProviderModelMapping[]).filter(
+				(p) => p.providerId === "openai",
+			);
+			if (available.length === 0) {
+				return;
+			}
+
+			const overrides = resolveRoutingConfig(
+				{
+					weights: {
+						price: 0,
+						imagePrice: 0,
+						uptime: 0,
+						throughput: 0,
+						latency: 0,
+						cache: 0,
+					},
+				},
+				buildProviderPriorityDefaults(),
+			);
+
+			// Provide a non-empty metrics map so we follow the weighted-score
+			// branch rather than the empty-map shortcut.
+			const metricsMap = new Map([
+				[
+					metricsKey(model.id, available[0].providerId, available[0].region),
+					{
+						providerId: available[0].providerId,
+						modelId: model.id,
+						uptime: 99,
+						averageLatency: 100,
+						throughput: 100,
+						totalRequests: 50,
+					},
+				],
+			]);
+
+			const result = await getCheapestFromAvailableProviders(available, model, {
+				routingConfig: overrides,
+				metricsMap,
+			});
+			expect(result).not.toBeNull();
+			expect(result?.metadata.selectionReason).toBe("price-only-no-metrics");
+		});
+	});
+
+	describe("getCheapestFromAvailableProviders zero-price routing", () => {
+		const freeVsPaidModel = {
+			id: "free-vs-paid-model",
+			name: "Free vs Paid Model",
+			family: "openai" as const,
+			providers: [
+				{
+					providerId: "openai" as const,
+					externalId: "free-openai",
+					inputPrice: "0",
+					outputPrice: "0",
+					streaming: true as const,
+				},
+				{
+					providerId: "deepseek" as const,
+					externalId: "paid-deepseek",
+					inputPrice: "1.0e-6",
+					outputPrice: "2.0e-6",
+					streaming: true as const,
+				},
+			],
+		};
+
+		const equalPriority = resolveRoutingConfig(
+			{ providerPriorities: { openai: 1, deepseek: 1 } },
+			buildProviderPriorityDefaults(),
+		);
+
+		// The free provider has slightly worse uptime than the paid one. Under the
+		// "price" strategy the free provider must still win — uptime's 10% weight
+		// must not let a paid provider beat a free one on cost.
+		const metricsMap = new Map([
+			[
+				metricsKey(freeVsPaidModel.id, "openai", undefined),
+				{
+					modelId: freeVsPaidModel.id,
+					providerId: "openai",
+					uptime: 99,
+					averageLatency: 200,
+					throughput: 100,
+					totalRequests: 100,
+				},
+			],
+			[
+				metricsKey(freeVsPaidModel.id, "deepseek", undefined),
+				{
+					modelId: freeVsPaidModel.id,
+					providerId: "deepseek",
+					uptime: 100,
+					averageLatency: 200,
+					throughput: 100,
+					totalRequests: 100,
+				},
+			],
+		]);
+
+		it("selects the free provider under the price strategy", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				freeVsPaidModel.providers,
+				freeVsPaidModel,
+				{
+					metricsMap,
+					routingConfig: applyRoutingPreference(equalPriority, "price"),
+				},
+			);
+			expect(result?.provider.providerId).toBe("openai");
+		});
+
+		it("still selects the free provider under default weighted routing", async () => {
+			const result = await getCheapestFromAvailableProviders(
+				freeVsPaidModel.providers,
+				freeVsPaidModel,
+				{ metricsMap, routingConfig: equalPriority },
+			);
+			expect(result?.provider.providerId).toBe("openai");
 		});
 	});
 });

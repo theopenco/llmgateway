@@ -1,7 +1,9 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
+import { atlascloudModels } from "./models/atlascloud.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
+import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
@@ -10,16 +12,41 @@ import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
+import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
+import { reveModels } from "./models/reve.js";
+import { sakanaModels } from "./models/sakana.js";
 import { xaiModels } from "./models/xai.js";
+import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
 import type { providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
-export type Model = (typeof models)[number]["providers"][number]["modelName"];
+export type Model = (typeof models)[number]["id"];
+
+/**
+ * Decimal-safe price representation. Always a string so values are preserved
+ * exactly (no IEEE-754 noise) all the way from model definition through to
+ * the Decimal-based cost engine.
+ */
+export type Price = string;
+
+/**
+ * Reasoning effort tiers accepted by the unified reasoning_effort parameter,
+ * in ascending order of effort. Which subset a given provider mapping
+ * actually supports is declared per mapping via `reasoningEfforts`.
+ */
+export type ReasoningEffort =
+	| "none"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -36,26 +63,37 @@ export interface PricingTier {
 	/**
 	 * Price per input token in USD for this tier
 	 */
-	inputPrice: number;
+	inputPrice: Price;
 	/**
 	 * Price per output token in USD for this tier
 	 */
-	outputPrice: number;
+	outputPrice: Price;
 	/**
-	 * Price per cached input token in USD for this tier
+	 * Price per cached input token in USD for this tier.
+	 * Used when the cache hit was NOT explicitly requested by the caller. For
+	 * Alibaba this is the implicit-cache rate (20% of input); for Anthropic this
+	 * is the explicit-cache read rate (10%) since Anthropic only has explicit
+	 * caching; for OpenAI this is the automatic prompt-cache rate.
 	 */
-	cachedInputPrice?: number;
+	cachedInputPrice?: Price;
+	/**
+	 * Price per cached input token when the request used `cache_control` to
+	 * explicitly mark content for caching (provider-specific explicit-cache hit
+	 * rate). When unset, falls back to `cachedInputPrice`. Currently only set on
+	 * Alibaba Qwen, where explicit hits bill at 10% vs. implicit at 20%.
+	 */
+	cacheReadInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this tier (5-minute TTL).
 	 * For Anthropic, this is the 1.25x base-input rate.
 	 */
-	cacheWriteInputPrice?: number;
+	cacheWriteInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this tier (1-hour TTL).
 	 * For Anthropic, this is the 2x base-input rate. When unset, 1-hour writes
 	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
 	 */
-	cacheWriteInputPrice1h?: number;
+	cacheWriteInputPrice1h?: Price;
 }
 
 /**
@@ -73,45 +111,46 @@ export interface ProviderRegion {
 	 * Price per input token in USD for this region.
 	 * When absent, falls back to the mapping-level inputPrice.
 	 */
-	inputPrice?: number;
+	inputPrice?: Price;
 	/**
 	 * Price per output token in USD for this region.
 	 * When absent, falls back to the mapping-level outputPrice.
 	 */
-	outputPrice?: number;
+	outputPrice?: Price;
 	/**
 	 * Price per cached input token in USD for this region
 	 */
-	cachedInputPrice?: number;
+	cachedInputPrice?: Price;
+	/**
+	 * Price per cached input token when the request used `cache_control` to
+	 * explicitly mark content for caching. When unset, falls back to
+	 * `cachedInputPrice`. See PricingTier docs.
+	 */
+	cacheReadInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this region (5-minute TTL)
 	 */
-	cacheWriteInputPrice?: number;
+	cacheWriteInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD for this region (1-hour TTL).
 	 * When unset, 1-hour writes fall back to `cacheWriteInputPrice`.
 	 */
-	cacheWriteInputPrice1h?: number;
+	cacheWriteInputPrice1h?: Price;
 	/**
 	 * Context-length based pricing tiers for this region.
 	 * When absent, falls back to the mapping-level pricingTiers.
 	 */
 	pricingTiers?: PricingTier[];
 	/**
-	 * Discount multiplier (0-1) for this region.
-	 * When absent, falls back to the mapping-level discount.
-	 */
-	discount?: number;
-	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
 	 */
-	requestPrice?: number;
+	requestPrice?: Price;
 	/**
 	 * Price per web search query in USD for this region.
 	 * When absent, falls back to the mapping-level webSearchPrice.
 	 */
-	webSearchPrice?: number;
+	webSearchPrice?: Price;
 	/**
 	 * Context window size in tokens for this region.
 	 * When absent, falls back to the mapping-level contextSize.
@@ -136,34 +175,62 @@ export interface ProviderRegion {
 
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
-	modelName: string;
+	/**
+	 * Provider-specific upstream model id used when calling the upstream
+	 * provider. Distinct from the root `ModelDefinition.id` and from any
+	 * human-readable display name.
+	 */
+	externalId: string;
 	/**
 	 * Price per input token in USD
 	 */
-	inputPrice?: number;
+	inputPrice?: Price;
 	/**
 	 * Price per output token in USD
 	 */
-	outputPrice?: number;
+	outputPrice?: Price;
+	/**
+	 * Price per output audio token in USD (for speech generation / text-to-speech
+	 * models where audio output is billed separately from text). When unset,
+	 * audio output tokens fall back to `outputPrice`.
+	 */
+	outputAudioPrice?: Price;
+	/**
+	 * Price per input character in USD. Used by speech generation models that
+	 * bill on input characters rather than tokens (e.g. OpenAI `tts-1`), since
+	 * the OpenAI speech endpoint returns audio bytes without token usage.
+	 */
+	inputCharacterPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
-	imageOutputPrice?: number;
+	imageOutputPrice?: Price;
 	/**
-	 * Price per cached input token in USD
+	 * Price per cached input token in USD.
+	 * Used when the cache hit was NOT explicitly requested by the caller. For
+	 * Alibaba this is the implicit-cache rate (20% of input); for Anthropic this
+	 * is the explicit-cache read rate (10%) since Anthropic only has explicit
+	 * caching; for OpenAI this is the automatic prompt-cache rate.
 	 */
-	cachedInputPrice?: number;
+	cachedInputPrice?: Price;
+	/**
+	 * Price per cached input token when the request used `cache_control` to
+	 * explicitly mark content for caching (provider-specific explicit-cache hit
+	 * rate). When unset, falls back to `cachedInputPrice`. Currently only set on
+	 * Alibaba Qwen, where explicit hits bill at 10% vs. implicit at 20%.
+	 */
+	cacheReadInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD (5-minute TTL).
 	 * For Anthropic, this is the 1.25x base-input rate.
 	 */
-	cacheWriteInputPrice?: number;
+	cacheWriteInputPrice?: Price;
 	/**
 	 * Price per cache write input token in USD (1-hour TTL).
 	 * For Anthropic, this is the 2x base-input rate. When unset, 1-hour writes
 	 * fall back to `cacheWriteInputPrice` (the 5-minute rate).
 	 */
-	cacheWriteInputPrice1h?: number;
+	cacheWriteInputPrice1h?: Price;
 	/**
 	 * Minimum number of tokens required for a segment to be cacheable.
 	 * Prompts smaller than this threshold won't be cached even with cache_control set.
@@ -173,7 +240,27 @@ export interface ProviderModelMapping {
 	/**
 	 * Price per image input in USD
 	 */
-	imageInputPrice?: number;
+	imageInputPrice?: Price;
+	/**
+	 * Price per audio input token in USD. When unset, audio input tokens are
+	 * billed at the regular `inputPrice` (used for providers that don't price
+	 * audio separately, e.g. Gemini 2.5 Pro where audio follows the text tier).
+	 */
+	inputAudioPrice?: Price;
+	/**
+	 * Price per cached image input token in USD. Used by image-output models
+	 * (e.g. gpt-image-2) where OpenAI bills cached image tokens at a different
+	 * rate than cached text tokens. When unset, cached image tokens fall back
+	 * to `cachedInputPrice`.
+	 */
+	cachedImageInputPrice?: Price;
+	/**
+	 * Price per cached audio input token in USD. Used by Google Gemini models
+	 * which list a separate context-cache rate for audio that's higher than the
+	 * text/image/video cache rate. When unset, cached audio tokens fall back to
+	 * `cachedInputPrice`.
+	 */
+	cachedInputAudioPrice?: Price;
 	/**
 	 * Resolution-based token counts for image output.
 	 * Maps resolution keys (e.g., "1K", "2K", "4K", "default") to tokens per image.
@@ -191,17 +278,18 @@ export interface ProviderModelMapping {
 	/**
 	 * Price per request in USD
 	 */
-	requestPrice?: number;
+	requestPrice?: Price;
+	/**
+	 * Price per page processed in USD for OCR models. Billed against the
+	 * `usage_info.pages_processed` count returned by the /v1/ocr endpoint.
+	 */
+	ocrPagePrice?: Price;
 	/**
 	 * Price per second in USD for video generation models.
 	 * Maps billing keys like "default", "4k", "default_audio", "4k_audio",
 	 * "default_video", and "4k_video" to per-second pricing.
 	 */
-	perSecondPrice?: Record<string, number>;
-	/**
-	 * Discount multiplier (0-1), where 0.5 = 50% off
-	 */
-	discount?: number;
+	perSecondPrice?: Record<string, Price>;
 	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
@@ -217,6 +305,12 @@ export interface ProviderModelMapping {
 	 */
 	maxOutput?: number;
 	/**
+	 * Weight quantization the provider serves this model at (e.g. "fp8").
+	 * Only set when the provider explicitly documents the serving precision;
+	 * when absent, the quantization is unknown or undisclosed.
+	 */
+	quantization?: Quantization;
+	/**
 	 * Whether this specific model supports streaming for this provider.
 	 * - true: supports both streaming and non-streaming
 	 * - false: does not support streaming
@@ -230,18 +324,90 @@ export interface ProviderModelMapping {
 	 */
 	vision?: boolean;
 	/**
+	 * Whether this specific model accepts audio inputs (`input_audio` content
+	 * blocks) for this provider. Used by the `model: "auto"` router to avoid
+	 * selecting providers that would fail upstream when the request contains
+	 * audio content.
+	 */
+	audio?: boolean;
+	/**
+	 * Whether this specific model accepts document inputs (`file` content
+	 * blocks carrying PDF or text-family MIME types) for this provider. Used by
+	 * the `model: "auto"` router and capability validator to avoid selecting
+	 * providers that would fail upstream when the request contains document
+	 * content. Per-provider MIME allowlists live in the provider transform
+	 * modules (e.g. transform-google-messages.ts).
+	 */
+	document?: boolean;
+	/**
 	 * Whether this model supports reasoning mode
 	 */
 	reasoning?: boolean;
+	/**
+	 * Whether this model supports the OpenAI `verbosity` parameter
+	 * (low/medium/high response detail control, GPT-5 and later)
+	 */
+	verbosity?: boolean;
 	/**
 	 * Whether the provider returns reasoning inside tagged content (e.g. &lt;think&gt;...&lt;/think&gt;)
 	 * that needs to be split into separate reasoning and content fields
 	 */
 	splitTaggedReasoning?: boolean;
 	/**
+	 * Whether this provider mapping requires an explicit chat-template flag to
+	 * produce reasoning. Hybrid models like DeepSeek V3.2 on Novita keep thinking
+	 * off by default and ignore `reasoning_effort`, so the gateway sends
+	 * `chat_template_kwargs: { thinking: true }` (the documented vLLM/Novita
+	 * parameter) when the caller requests reasoning.
+	 */
+	requiresEnableThinking?: boolean;
+	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;
+	/**
+	 * Provider-specific request/endpoint format when a provider has multiple API
+	 * surfaces for different models. Defaults to the provider's native format.
+	 */
+	apiFormat?: "openai-chat-completions";
+	/**
+	 * Provider service tier IDs supported by this specific model mapping.
+	 * Provider definitions own the tier metadata and default multipliers;
+	 * mappings opt in to the subset actually supported by the upstream model.
+	 */
+	serviceTiers?: string[];
+	/**
+	 * Optional per-tier multiplier overrides for provider/model combinations whose
+	 * tier pricing differs from the provider default while still being expressed
+	 * as a multiplier over this mapping's standard token prices.
+	 */
+	serviceTierMultipliers?: Partial<Record<string, number>>;
+	/**
+	 * Regions where the mapping supports service tiers. When omitted, the mapping
+	 * supports its service tiers across all regions.
+	 */
+	serviceTierRegions?: string[];
+	/**
+	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
+	 * (multiple completion choices per request) natively. When true, the gateway
+	 * forwards `n` to the upstream provider; when false/unset, requests with
+	 * `n > 1` are rejected with a 400 error. Only set this for providers that
+	 * actually accumulate input tokens once and bill output tokens across all
+	 * choices upstream (e.g. OpenAI Chat Completions, Google `candidateCount`).
+	 */
+	supportsN?: boolean;
+	/**
+	 * Whether this mapping supports `n > 1` on streaming requests. Only
+	 * meaningful when supportsN is true; unset means streaming is allowed.
+	 * Google accepts candidateCount on generateContent but rejects it on
+	 * streamGenerateContent, so Google mappings set this to false.
+	 */
+	supportsNStreaming?: boolean;
+	/**
+	 * Upper bound the upstream enforces for `n` (e.g. Google caps
+	 * candidateCount at 8). When unset, only the request-schema cap applies.
+	 */
+	maxN?: number;
 	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
@@ -263,6 +429,17 @@ export interface ProviderModelMapping {
 	 */
 	reasoningMode?: "enabled" | "adaptive";
 	/**
+	 * Exact `reasoning_effort` values this provider mapping supports, in
+	 * ascending order of effort. Effort tiers differ per model generation
+	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
+	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
+	 * its own list. The gateway forwards effort values to the provider as-is
+	 * (unsupported values fail upstream); this metadata is exposed via the
+	 * models APIs so clients can present valid options. When unset, the
+	 * supported values are not (yet) declared for this mapping.
+	 */
+	reasoningEfforts?: ReasoningEffort[];
+	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
 	tools?: boolean;
@@ -275,6 +452,13 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutput?: boolean;
 	/**
+	 * Whether JSON-mode streaming output for this provider mapping should be
+	 * buffered and healed before being sent downstream. Use this for providers
+	 * that support JSON mode but may stream reasoning or explanatory text as
+	 * content before the final JSON object.
+	 */
+	healStreamingJsonOutput?: boolean;
+	/**
 	 * Whether this provider supports JSON schema output mode (json_schema response format)
 	 */
 	jsonOutputSchema?: boolean;
@@ -285,7 +469,13 @@ export interface ProviderModelMapping {
 	/**
 	 * Price per web search query in USD (charged when web search is used)
 	 */
-	webSearchPrice?: number;
+	webSearchPrice?: Price;
+	/**
+	 * Price per content filter violation in USD (charged additionally when the
+	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
+	 * "Content violates usage guidelines" response).
+	 */
+	contentFilterPrice?: number;
 	/**
 	 * List of supported API parameters for this model/provider combination
 	 */
@@ -316,6 +506,30 @@ export interface ProviderModelMapping {
 	 */
 	imageGenerations?: boolean;
 	/**
+	 * Whether this model uses a dedicated embeddings API.
+	 * When true, requests are routed to a provider-specific /v1/embeddings endpoint
+	 * and pricing is computed against input tokens only (no completion tokens).
+	 */
+	embeddings?: boolean;
+	/**
+	 * Whether this model uses a dedicated speech generation API.
+	 * When true, requests are routed to the gateway's /v1/audio/speech endpoint
+	 * which returns binary audio rather than a chat completion.
+	 */
+	speechGenerations?: boolean;
+	/**
+	 * Whether this model uses a dedicated OCR (optical character recognition)
+	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
+	 * which extracts text/markdown from documents and images rather than
+	 * returning a chat completion. Billed per page processed via ocrPagePrice.
+	 */
+	ocr?: boolean;
+	/**
+	 * Prebuilt voices supported for speech generation models. The first entry is
+	 * used as the default when the caller does not specify a `voice`.
+	 */
+	supportedVoices?: string[];
+	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
 	 * When absent (undefined), the provider uses a single global endpoint.
@@ -342,6 +556,11 @@ export interface ProviderModelMapping {
 	 */
 	supportedVideoDurationsSeconds?: number[];
 	/**
+	 * Supported output durations in seconds when using image-to-video (frame inputs).
+	 * Overrides supportedVideoDurationsSeconds for that input mode when set.
+	 */
+	supportedVideoDurationsSecondsImageToVideo?: number[];
+	/**
 	 * Whether this provider mapping supports generating video with audio.
 	 */
 	supportsVideoAudio?: boolean;
@@ -352,6 +571,16 @@ export interface ProviderModelMapping {
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
+
+export type Quantization =
+	| "int4"
+	| "int8"
+	| "fp4"
+	| "fp6"
+	| "fp8"
+	| "fp16"
+	| "bf16"
+	| "fp32";
 
 export interface ModelDefinition {
 	/**
@@ -388,7 +617,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video")[];
+	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -426,6 +655,7 @@ export const models = [
 	...googleModels,
 	...perplexityModels,
 	...xaiModels,
+	...xiaomiModels,
 	...metaModels,
 	...deepseekModels,
 	...mistralModels,
@@ -433,7 +663,12 @@ export const models = [
 	...minimaxModels,
 	...moonshotModels,
 	...alibabaModels,
+	...atlascloudModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...reveModels,
+	...sakanaModels,
+	...nvidiaModels,
 	...zaiModels,
+	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];

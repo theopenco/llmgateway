@@ -31,18 +31,18 @@ import type { Metadata } from "next";
 import type { Route } from "next";
 
 export const metadata: Metadata = {
-	title: "Referral Program | LLM Gateway",
+	title: "Referral Program — Earn 1% of Referred LLM Spend",
 	description:
 		"Earn credits by referring new users to LLM Gateway. Get 1% of all LLM spending from users you refer, added directly to your account balance.",
 	openGraph: {
-		title: "Referral Program | LLM Gateway",
+		title: "Referral Program — Earn 1% of Referred LLM Spend",
 		description:
 			"Earn 1% of all LLM spending from users you refer to LLM Gateway.",
 		type: "website",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "Referral Program | LLM Gateway",
+		title: "Referral Program — Earn 1% of Referred LLM Spend",
 		description:
 			"Earn 1% of all LLM spending from users you refer to LLM Gateway.",
 	},
@@ -51,9 +51,9 @@ export const metadata: Metadata = {
 const sellingPoints = [
 	{
 		icon: Network,
-		title: "210+ Models, One API",
+		title: "200+ Models, One API",
 		description:
-			"Access OpenAI, Anthropic, Google, Meta, Mistral, and 25+ providers through a single OpenAI-compatible endpoint. Zero code changes to switch providers.",
+			"Access OpenAI, Anthropic, Google, Meta, Mistral, and 40+ providers through a single OpenAI-compatible endpoint. Zero code changes to switch providers.",
 		href: "/features/unified-api-interface",
 		accent: "text-violet-500 dark:text-violet-400",
 		accentBg: "bg-violet-500/10",
@@ -556,12 +556,12 @@ export default function ReferralsPublicPage() {
 											{
 												feature: "Auto Failover",
 												us: "Built-in",
-												them: "Limited",
+												them: "Yes",
 											},
 											{
 												feature: "Analytics",
 												us: "Request-level insights",
-												them: "Basic",
+												them: "Logs + export",
 											},
 											{
 												feature: "Self-Hosting",
@@ -571,7 +571,7 @@ export default function ReferralsPublicPage() {
 											{
 												feature: "Guardrails",
 												us: "PII, injection, secrets",
-												them: "Not available",
+												them: "Enterprise",
 											},
 											{
 												feature: "Dev Plans (Coding)",

@@ -4,6 +4,7 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
+import { JsonLd } from "@/components/seo/json-ld";
 
 import {
 	models as modelDefinitions,
@@ -64,7 +65,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					createdAt: new Date().toISOString(),
 					modelId: def.id,
 					providerId: map.providerId,
-					modelName: map.modelName,
+					externalId: map.externalId,
 					inputPrice: map.inputPrice?.toString() ?? null,
 					outputPrice: map.outputPrice?.toString() ?? null,
 					cachedInputPrice: map.cachedInputPrice?.toString() ?? null,
@@ -73,6 +74,8 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 						map.cacheWriteInputPrice1h?.toString() ?? null,
 					imageInputPrice: map.imageInputPrice?.toString() ?? null,
 					imageOutputPrice: map.imageOutputPrice?.toString() ?? null,
+					inputCharacterPrice: map.inputCharacterPrice?.toString() ?? null,
+					outputAudioPrice: map.outputAudioPrice?.toString() ?? null,
 					imageInputTokensByResolution:
 						map.imageInputTokensByResolution ?? null,
 					imageOutputTokensByResolution:
@@ -103,7 +106,31 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 								]),
 							)
 						: null,
-					discount: map.discount?.toString() ?? null,
+					pricingTiers: map.pricingTiers
+						? map.pricingTiers.map((t) => ({
+								name: t.name,
+								upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
+								inputPrice: String(t.inputPrice),
+								outputPrice: String(t.outputPrice),
+								cachedInputPrice:
+									t.cachedInputPrice !== undefined
+										? String(t.cachedInputPrice)
+										: null,
+								cacheReadInputPrice:
+									t.cacheReadInputPrice !== undefined
+										? String(t.cacheReadInputPrice)
+										: null,
+								cacheWriteInputPrice:
+									t.cacheWriteInputPrice !== undefined
+										? String(t.cacheWriteInputPrice)
+										: null,
+								cacheWriteInputPrice1h:
+									t.cacheWriteInputPrice1h !== undefined
+										? String(t.cacheWriteInputPrice1h)
+										: null,
+							}))
+						: null,
+					discount: null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
 					deprecatedAt: map.deprecatedAt?.toISOString() ?? null,
@@ -146,8 +173,61 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			return bDate - aDate; // Descending (newest first)
 		});
 
+	const providerUrl = `https://llmgateway.io/providers/${provider.id}`;
+
+	const organizationSchema = {
+		"@context": "https://schema.org",
+		"@type": "Organization",
+		name: provider.name,
+		url: provider.website ?? providerUrl,
+		...(provider.description ? { description: provider.description } : {}),
+		subjectOf: {
+			"@type": "WebPage",
+			url: providerUrl,
+		},
+	};
+
+	const itemListSchema = {
+		"@context": "https://schema.org",
+		"@type": "ItemList",
+		name: `${provider.name} models on LLM Gateway`,
+		numberOfItems: providerModels.length,
+		itemListElement: providerModels.map((model, index) => ({
+			"@type": "ListItem",
+			position: index + 1,
+			url: `https://llmgateway.io/models/${encodeURIComponent(model.id)}`,
+			name: model.name ?? model.id,
+		})),
+	};
+
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Providers",
+				item: "https://llmgateway.io/providers",
+			},
+			{
+				"@type": "ListItem",
+				position: 3,
+				name: provider.name,
+				item: providerUrl,
+			},
+		],
+	};
+
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
+			<JsonLd data={[organizationSchema, itemListSchema, breadcrumbSchema]} />
 			<main>
 				<Navbar />
 				<Hero providerId={provider.id} />
@@ -183,18 +263,25 @@ export async function generateMetadata({
 		return {};
 	}
 
+	const modelCount = modelDefinitions.filter((model) =>
+		model.providers.some((p) => p.providerId === provider.id),
+	).length;
+	const description = `Access ${modelCount} ${provider.name} models through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
+
 	return {
-		title: provider.name,
-		description: `Learn about ${provider.name} integration with LLM Gateway. Access ${provider.name} models through our unified API.`,
+		title: `${provider.name} API — Models & Pricing`,
+		description,
+		alternates: { canonical: `/providers/${provider.id}` },
 		openGraph: {
-			title: `${provider.name} - LLM Gateway`,
-			description: `Learn about ${provider.name} integration with LLM Gateway. Access ${provider.name} models through our unified API.`,
+			title: `${provider.name} API — Models & Pricing | LLM Gateway`,
+			description,
 			type: "website",
+			url: `https://llmgateway.io/providers/${provider.id}`,
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${provider.name} - LLM Gateway`,
-			description: `Learn about ${provider.name} integration with LLM Gateway.`,
+			title: `${provider.name} API — Models & Pricing | LLM Gateway`,
+			description,
 		},
 	};
 }

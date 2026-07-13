@@ -32,7 +32,10 @@ export type HistoryWindow =
 	| "12h"
 	| "24h"
 	| "2d"
-	| "7d";
+	| "3d"
+	| "7d"
+	| "30d"
+	| "90d";
 
 export interface HistoryDataPoint {
 	timestamp: string;
@@ -83,7 +86,10 @@ export const windowOptions: { value: HistoryWindow; label: string }[] = [
 	{ value: "12h", label: "12h" },
 	{ value: "24h", label: "24h" },
 	{ value: "2d", label: "2d" },
+	{ value: "3d", label: "3d" },
 	{ value: "7d", label: "7d" },
+	{ value: "30d", label: "30d" },
+	{ value: "90d", label: "90d" },
 ];
 
 const metricTabs: { key: ActiveMetric; label: string }[] = [
@@ -94,9 +100,25 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "cost", label: "Cost" },
 ];
 
+// Windows longer than 24h are served from the hourly rollup tables; 24h and
+// below come from the per-minute history tables. Mirrors the API's
+// isHourlyWindow threshold.
+const HOURLY_WINDOWS = new Set<HistoryWindow>(["2d", "3d", "7d", "30d", "90d"]);
+
+export function historyBucketSource(
+	window: HistoryWindow,
+): "hourly" | "minute" {
+	return HOURLY_WINDOWS.has(window) ? "hourly" : "minute";
+}
+
 function formatTimestamp(ts: string, window: HistoryWindow): string {
 	const date = new Date(ts);
-	const dayWindows = new Set(["2d", "7d"]);
+	// Long ranges are day-bucketed visually — drop the time-of-day noise.
+	const longWindows = new Set(["30d", "90d"]);
+	if (longWindows.has(window)) {
+		return format(date, "MMM d");
+	}
+	const dayWindows = new Set(["2d", "3d", "7d"]);
 	if (dayWindows.has(window)) {
 		return format(date, "MMM d HH:mm");
 	}
@@ -116,6 +138,7 @@ export function HistoryChart({
 }) {
 	const [data, setData] = useState<HistoryDataPoint[]>([]);
 	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 	const [internalWindow, setInternalWindow] = useState<HistoryWindow>("4h");
 	const window = externalWindow ?? internalWindow;
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
@@ -123,12 +146,16 @@ export function HistoryChart({
 	const loadData = useCallback(
 		async (w: HistoryWindow) => {
 			setLoading(true);
+			setError(null);
 			try {
 				const result = await fetchData(w);
 				setData(result ?? []);
-			} catch (error) {
-				console.error("Failed to load history:", error);
+			} catch (err) {
+				console.error("Failed to load history:", err);
 				setData([]);
+				setError(
+					err instanceof Error ? err.message : "Failed to load history data",
+				);
 			} finally {
 				setLoading(false);
 			}
@@ -163,6 +190,18 @@ export function HistoryChart({
 	const summaryStats = {
 		totalRequests: data.reduce((sum, d) => sum + d.logsCount, 0),
 		totalErrors: data.reduce((sum, d) => sum + d.errorsCount, 0),
+		totalClientErrors: data.reduce(
+			(sum, d) => sum + (d.clientErrorsCount ?? 0),
+			0,
+		),
+		totalGatewayErrors: data.reduce(
+			(sum, d) => sum + (d.gatewayErrorsCount ?? 0),
+			0,
+		),
+		totalUpstreamErrors: data.reduce(
+			(sum, d) => sum + (d.upstreamErrorsCount ?? 0),
+			0,
+		),
 		totalTokens: data.reduce((sum, d) => sum + d.totalTokens, 0),
 		totalCost: data.reduce((sum, d) => sum + d.totalCost, 0),
 		avgTtft:
@@ -211,7 +250,19 @@ export function HistoryChart({
 			<CardHeader className="space-y-4 pb-2">
 				<div className="flex items-start justify-between gap-4">
 					<div>
-						<CardTitle className="text-base">{title}</CardTitle>
+						<div className="flex items-center gap-2">
+							<CardTitle className="text-base">{title}</CardTitle>
+							<span
+								className="rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+								title={
+									historyBucketSource(window) === "hourly"
+										? "Aggregated from the hourly rollup tables (windows > 24h)"
+										: "Aggregated from the per-minute history tables (windows ≤ 24h)"
+								}
+							>
+								{historyBucketSource(window)} buckets
+							</span>
+						</div>
 						{description && <CardDescription>{description}</CardDescription>}
 					</div>
 					{!externalWindow && (
@@ -242,7 +293,18 @@ export function HistoryChart({
 						<strong className="text-foreground">
 							{summaryStats.totalErrors.toLocaleString()}
 						</strong>{" "}
-						({summaryStats.errorRate}%)
+						({summaryStats.errorRate}%) — client:{" "}
+						<strong className="text-foreground">
+							{summaryStats.totalClientErrors.toLocaleString()}
+						</strong>
+						, gateway:{" "}
+						<strong className="text-foreground">
+							{summaryStats.totalGatewayErrors.toLocaleString()}
+						</strong>
+						, upstream:{" "}
+						<strong className="text-foreground">
+							{summaryStats.totalUpstreamErrors.toLocaleString()}
+						</strong>
 					</span>
 					<span>
 						Tokens:{" "}
@@ -302,6 +364,21 @@ export function HistoryChart({
 				{loading ? (
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
 						Loading...
+					</div>
+				) : error ? (
+					<div className="flex h-[200px] flex-col items-center justify-center gap-2 text-sm text-destructive">
+						<span>Failed to load history</span>
+						<span className="max-w-md text-center text-xs text-muted-foreground">
+							{error}
+						</span>
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-7 px-2 text-xs"
+							onClick={() => void loadData(window)}
+						>
+							Retry
+						</Button>
 					</div>
 				) : data.length === 0 ? (
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">

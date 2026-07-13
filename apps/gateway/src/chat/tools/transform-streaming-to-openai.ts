@@ -3,7 +3,10 @@ import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractBedrockCacheCreationDetails,
+} from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
@@ -85,7 +88,8 @@ export function transformStreamingToOpenai(
 	};
 
 	switch (usedProvider) {
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			const usage = data.message?.usage ?? data.usage;
 			if (data.type === "message_start") {
 				transformedData = {
@@ -203,8 +207,13 @@ export function transformStreamingToOpenai(
 				};
 			} else if (
 				data.type === "content_block_delta" &&
-				data.delta?.partial_json
+				(data.delta?.type === "input_json_delta" ||
+					data.delta?.partial_json !== undefined)
 			) {
+				// input_json_delta carries the tool-call arguments. The first delta
+				// of a tool_use block often has an empty partial_json (""), so match
+				// on the delta type rather than the truthiness of partial_json.
+				const partialJson = data.delta.partial_json ?? "";
 				// Skip partial_json deltas for server_tool_use blocks (e.g. web search)
 				if (
 					serverToolUseIndices &&
@@ -241,7 +250,7 @@ export function transformStreamingToOpenai(
 										{
 											index: data.index ?? 0,
 											function: {
-												arguments: data.delta.partial_json,
+												arguments: partialJson,
 											},
 										},
 									],
@@ -288,6 +297,16 @@ export function transformStreamingToOpenai(
 					],
 					usage: normalizeAnthropicUsage(usage),
 				};
+			} else if (
+				data.type === "content_block_start" ||
+				data.type === "content_block_stop"
+			) {
+				// Text/thinking/redacted_thinking blocks open with a
+				// content_block_start and close with a content_block_stop. Neither
+				// carries renderable content or usage (that arrives in the
+				// content_block_delta and message_delta chunks), so drop them
+				// instead of forwarding an empty assistant delta.
+				return null;
 			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
 				const stopReason = data.delta.stop_reason;
 				transformedData = {
@@ -716,6 +735,8 @@ export function transformStreamingToOpenai(
 		}
 
 		case "azure":
+		case "sakana":
+		case "meta":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -929,11 +950,33 @@ export function transformStreamingToOpenai(
 						};
 						break;
 
+					case "response.output_text.annotation.added":
 					case "response.output_item.annotations.added":
 					case "response.content_part.annotations.added": {
-						// Handle web search annotations/citations from OpenAI Responses API
-						const annotations =
-							data.annotations ?? data.part?.annotations ?? [];
+						// Handle web search annotations/citations from OpenAI Responses API.
+						// Annotations arrive flat ({type, url, title, ...}) and must be
+						// mapped to the chat-completions nested url_citation shape.
+						const rawAnnotations = data.annotation
+							? [data.annotation]
+							: (data.annotations ?? data.part?.annotations ?? []);
+						const annotations: Annotation[] = [];
+						for (const annotation of rawAnnotations) {
+							if (annotation?.type !== "url_citation") {
+								continue;
+							}
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: annotation.url ?? annotation.url_citation?.url ?? "",
+									title: annotation.title ?? annotation.url_citation?.title,
+									start_index:
+										annotation.start_index ??
+										annotation.url_citation?.start_index,
+									end_index:
+										annotation.end_index ?? annotation.url_citation?.end_index,
+								},
+							});
+						}
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -989,6 +1032,9 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
 						};
 						break;
 					}
@@ -1031,6 +1077,9 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
 						};
 						break;
 					}
@@ -1203,7 +1252,10 @@ export function transformStreamingToOpenai(
 					finishReason = "length";
 				} else if (stopReason === "tool_use") {
 					finishReason = "tool_calls";
-				} else if (stopReason === "content_filtered") {
+				} else if (
+					stopReason === "content_filtered" ||
+					stopReason === "refusal"
+				) {
 					finishReason = "content_filter";
 				}
 
@@ -1224,7 +1276,11 @@ export function transformStreamingToOpenai(
 				const inputTokens = data.usage.inputTokens ?? 0;
 				const cacheReadTokens = data.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = data.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(data.usage);
 				const promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+				const hasCacheCreationDetails =
+					cacheDetails.cacheCreation5mTokens !== null ||
+					cacheDetails.cacheCreation1hTokens !== null;
 
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1242,9 +1298,27 @@ export function transformStreamingToOpenai(
 						prompt_tokens: promptTokens,
 						completion_tokens: data.usage.outputTokens ?? 0,
 						total_tokens: data.usage.totalTokens ?? 0,
-						...(cacheReadTokens > 0 && {
+						...((cacheReadTokens > 0 || cacheWriteTokens > 0) && {
 							prompt_tokens_details: {
 								cached_tokens: cacheReadTokens,
+								...(cacheWriteTokens > 0 && {
+									cache_write_tokens: cacheWriteTokens,
+									cache_creation_tokens: cacheWriteTokens,
+								}),
+								...(cacheWriteTokens > 0 &&
+									hasCacheCreationDetails && {
+										cache_creation: {
+											ephemeral_5m_input_tokens:
+												cacheDetails.cacheCreation5mTokens ??
+												Math.max(
+													0,
+													cacheWriteTokens -
+														(cacheDetails.cacheCreation1hTokens ?? 0),
+												),
+											ephemeral_1h_input_tokens:
+												cacheDetails.cacheCreation1hTokens ?? 0,
+										},
+									}),
 							},
 						}),
 					},
@@ -1272,14 +1346,20 @@ export function transformStreamingToOpenai(
 		case "moonshot":
 		case "perplexity":
 		case "nebius":
+		case "canopywave":
 		case "inference.net":
 		case "together-ai":
+		case "deepinfra":
 		case "custom":
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "granite":
+		case "tundra":
+		case "xiaomi":
 		case "azure-ai-foundry":
+		case "vertex-openai":
 		case "llmgateway": {
 			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
 			// chunk on some models — empty id/object/choices, no usage. Drop it
@@ -1307,6 +1387,11 @@ export function transformStreamingToOpenai(
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {
 				transformedData.choices[0].finish_reason = "stop";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "abort") {
+				logger.warn("[streaming] Upstream sent abort finish_reason", {
+					provider: usedProvider,
+					model: usedModel,
+					chunk: data,
+				});
 				transformedData.choices[0].finish_reason = "canceled";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "tool_use") {
 				transformedData.choices[0].finish_reason = "tool_calls";

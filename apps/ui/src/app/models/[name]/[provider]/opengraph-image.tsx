@@ -1,5 +1,7 @@
 import { ImageResponse } from "next/og";
 
+import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
+import { fetchModelDiscounts } from "@/lib/fetch-models";
 import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
@@ -12,7 +14,9 @@ import {
 import {
 	AWSBedrockIconStatic,
 	getProviderIcon,
+	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
+	XAIIconStatic,
 } from "@llmgateway/shared/components";
 
 export const size = {
@@ -20,6 +24,7 @@ export const size = {
 	height: 630,
 };
 export const contentType = "image/png";
+export const revalidate = 60;
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -27,6 +32,7 @@ interface ImageProps {
 
 function getEffectivePricePerMillion(
 	mapping: ProviderModelMapping | undefined,
+	discount: number,
 ) {
 	if (
 		!mapping?.inputPrice &&
@@ -36,17 +42,17 @@ function getEffectivePricePerMillion(
 		return null;
 	}
 
-	const applyDiscount = (price?: number | null) => {
+	const applyDiscount = (price?: string | number | null) => {
 		if (price === undefined || price === null) {
 			return undefined;
 		}
-		const base = price * 1e6;
-		if (!mapping?.discount) {
+		const base = Number(price) * 1e6;
+		if (!discount) {
 			return { original: base, discounted: base };
 		}
 		return {
 			original: base,
-			discounted: base * (1 - mapping.discount),
+			discounted: base * (1 - discount),
 		};
 	};
 
@@ -103,15 +109,47 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 				? MinimaxIconStatic
 				: selectedMapping.providerId === "aws-bedrock"
 					? AWSBedrockIconStatic
-					: getProviderIcon(selectedMapping.providerId)
+					: selectedMapping.providerId === "google-ai-studio"
+						? GoogleStudioAIIconStatic
+						: selectedMapping.providerId === "xai"
+							? XAIIconStatic
+							: getProviderIcon(selectedMapping.providerId)
 			: null;
-		const pricing = getEffectivePricePerMillion(selectedMapping);
-		const requestPrice = selectedMapping?.requestPrice;
-		const perSecondPrice = selectedMapping?.perSecondPrice;
+		const discounts = await fetchModelDiscounts(decodedName);
+		const effectiveDiscount = selectedMapping
+			? getEffectiveProviderDiscount(
+					discounts,
+					selectedMapping.providerId,
+					decodedName,
+				)
+			: undefined;
+		const discountNum = discountFraction(effectiveDiscount);
+
+		const hasPricingTiers = (selectedMapping?.pricingTiers?.length ?? 0) > 1;
+		const pricing = getEffectivePricePerMillion(selectedMapping, discountNum);
+		const requestPrice =
+			selectedMapping?.requestPrice !== undefined
+				? Number(selectedMapping.requestPrice)
+				: undefined;
+		const perSecondPrice = selectedMapping?.perSecondPrice
+			? Object.fromEntries(
+					Object.entries(selectedMapping.perSecondPrice).map(([k, v]) => [
+						k,
+						Number(v),
+					]),
+				)
+			: undefined;
 		const isVideoGen = selectedMapping?.videoGenerations === true;
 		const isImageGen = selectedMapping?.imageGenerations === true;
+		const isOcr = selectedMapping?.ocr === true;
+		const ocrPagePrice =
+			selectedMapping?.ocrPagePrice !== undefined &&
+			selectedMapping?.ocrPagePrice !== null
+				? Number(selectedMapping.ocrPagePrice)
+				: undefined;
+		const hasOcrPricing = ocrPagePrice !== undefined && ocrPagePrice > 0;
 		const hasTokenPricing =
-			pricing?.input ?? pricing?.output ?? pricing?.cachedInput;
+			!isOcr && (pricing?.input ?? pricing?.output ?? pricing?.cachedInput);
 
 		const contextSize = selectedMapping?.contextSize ?? 0;
 
@@ -125,7 +163,11 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						? AWSBedrockIconStatic
 						: providerId === "minimax"
 							? MinimaxIconStatic
-							: getProviderIcon(providerId);
+							: providerId === "google-ai-studio"
+								? GoogleStudioAIIconStatic
+								: providerId === "xai"
+									? XAIIconStatic
+									: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,
@@ -329,9 +371,10 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							gap: 28,
 						}}
 					>
-						{(hasTokenPricing ??
-							(requestPrice !== undefined && requestPrice !== 0) ??
-							(perSecondPrice && Object.keys(perSecondPrice).length > 0)) && (
+						{(hasTokenPricing ||
+							(requestPrice !== undefined && requestPrice !== 0) ||
+							(perSecondPrice && Object.keys(perSecondPrice).length > 0) ||
+							hasOcrPricing) && (
 							<span
 								style={{
 									color: "#6B7280",
@@ -343,14 +386,16 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							>
 								{isVideoGen && perSecondPrice
 									? "Pricing per second"
-									: isImageGen &&
-										  requestPrice !== undefined &&
-										  requestPrice !== 0 &&
-										  !hasTokenPricing
-										? "Pricing per request"
-										: requestPrice !== undefined && requestPrice !== 0
-											? "Pricing"
-											: "Pricing per 1M tokens"}
+									: hasOcrPricing
+										? "Pricing per 1K pages"
+										: isImageGen &&
+											  requestPrice !== undefined &&
+											  requestPrice !== 0 &&
+											  !hasTokenPricing
+											? "Pricing per request"
+											: requestPrice !== undefined && requestPrice !== 0
+												? "Pricing"
+												: "Pricing per 1M tokens"}
 							</span>
 						)}
 						<div
@@ -455,6 +500,36 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								</div>
 							)}
 
+							{/* OCR per-1K-pages price */}
+							{ocrPagePrice !== undefined && ocrPagePrice > 0 && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Per 1K Pages
+									</span>
+									<span style={{ fontWeight: 700, fontSize: 56 }}>
+										${(ocrPagePrice * 1000).toFixed(2)}
+									</span>
+								</div>
+							)}
+
 							{/* Input - only show if has token pricing */}
 							{hasTokenPricing && (
 								<div
@@ -477,12 +552,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 											letterSpacing: "0.05em",
 										}}
 									>
-										Input
+										{hasPricingTiers ? "Input (starting at)" : "Input"}
 									</span>
-									{formatDollars(
-										pricing?.input ?? undefined,
-										selectedMapping?.discount,
-									)}
+									{formatDollars(pricing?.input ?? undefined, discountNum)}
 								</div>
 							)}
 
@@ -508,12 +580,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 											letterSpacing: "0.05em",
 										}}
 									>
-										Output
+										{hasPricingTiers ? "Output (starting at)" : "Output"}
 									</span>
-									{formatDollars(
-										pricing?.output ?? undefined,
-										selectedMapping?.discount,
-									)}
+									{formatDollars(pricing?.output ?? undefined, discountNum)}
 								</div>
 							)}
 						</div>

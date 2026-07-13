@@ -4,6 +4,15 @@
 
 import type { ProviderId } from "./providers.js";
 
+/**
+ * OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later families).
+ * Placed on a content part to end a cacheable prefix when the request uses
+ * `prompt_cache_options.mode: "explicit"`.
+ */
+export interface PromptCacheBreakpoint {
+	mode?: "explicit";
+}
+
 // Base content types
 export interface TextContent {
 	type: "text";
@@ -12,6 +21,7 @@ export interface TextContent {
 		type: "ephemeral";
 		ttl?: "5m" | "1h";
 	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
 export interface ImageUrlContent {
@@ -20,6 +30,7 @@ export interface ImageUrlContent {
 		url: string;
 		detail?: "low" | "high" | "auto";
 	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
 export interface ImageContent {
@@ -29,6 +40,37 @@ export interface ImageContent {
 		media_type: string;
 		data: string;
 	};
+}
+
+export interface InputAudioContent {
+	type: "input_audio";
+	input_audio: {
+		data: string;
+		format:
+			| "wav"
+			| "mp3"
+			| "aiff"
+			| "aac"
+			| "ogg"
+			| "flac"
+			| "m4a"
+			| "mpeg"
+			| "mpga"
+			| "mp4"
+			| "pcm"
+			| "webm";
+	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
+}
+
+export interface FileContent {
+	type: "file";
+	file: {
+		filename?: string;
+		file_data?: string;
+		file_id?: string;
+	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
 export interface ToolUseContent {
@@ -48,6 +90,8 @@ export type MessageContent =
 	| TextContent
 	| ImageUrlContent
 	| ImageContent
+	| InputAudioContent
+	| FileContent
 	| ToolUseContent
 	| ToolResultContent;
 
@@ -175,6 +219,19 @@ export type ToolChoiceType =
 			};
 	  };
 
+export type PromptCacheRetention = "in_memory" | "24h";
+
+/**
+ * OpenAI explicit prompt caching controls (GPT-5.6 and later families).
+ * `mode: "explicit"` disables the automatic breakpoint on the latest message
+ * and caches only content parts carrying a `prompt_cache_breakpoint` marker.
+ * `ttl` currently only supports "30m" upstream.
+ */
+export interface PromptCacheOptions {
+	mode?: "implicit" | "explicit";
+	ttl?: "30m";
+}
+
 export type AnthropicToolChoice =
 	| "auto"
 	| "any"
@@ -193,12 +250,16 @@ export interface BaseRequestBody {
 	frequency_penalty?: number;
 	presence_penalty?: number;
 	stream?: boolean;
+	service_tier?: "auto" | "default" | "flex" | "priority";
 }
 
 export interface OpenAIRequestBody extends BaseRequestBody {
 	messages: OpenAIMessage[];
 	tools?: OpenAITool[];
 	tool_choice?: ToolChoiceType;
+	prompt_cache_key?: string;
+	prompt_cache_retention?: PromptCacheRetention;
+	prompt_cache_options?: PromptCacheOptions;
 	response_format?: {
 		type: "text" | "json_object" | "json_schema";
 		json_schema?: {
@@ -211,7 +272,16 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	stream_options?: {
 		include_usage: boolean;
 	};
-	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max";
+	verbosity?: "low" | "medium" | "high";
+	n?: number;
 	extra_body?: Record<string, unknown>;
 }
 
@@ -236,8 +306,12 @@ export type OpenAIResponsesInputItem =
 export interface OpenAIResponsesRequestBody {
 	model: string;
 	input: OpenAIResponsesInputItem[];
+	service_tier?: "auto" | "default" | "flex" | "priority";
+	prompt_cache_key?: string;
+	prompt_cache_retention?: PromptCacheRetention;
+	prompt_cache_options?: PromptCacheOptions;
 	reasoning: {
-		effort: "minimal" | "low" | "medium" | "high" | "xhigh";
+		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "detailed";
 	};
 	tools?: Array<{
@@ -251,7 +325,7 @@ export interface OpenAIResponsesRequestBody {
 	temperature?: number;
 	max_output_tokens?: number;
 	text?: {
-		format:
+		format?:
 			| { type: "text" }
 			| { type: "json_object" }
 			| {
@@ -260,6 +334,7 @@ export interface OpenAIResponsesRequestBody {
 					schema: Record<string, unknown>;
 					strict?: boolean;
 			  };
+		verbosity?: "low" | "medium" | "high";
 	};
 }
 
@@ -281,9 +356,11 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 		| {
 				type: "enabled";
 				budget_tokens: number;
+				display?: "summarized" | "omitted";
 		  }
 		| {
 				type: "adaptive";
+				display?: "summarized" | "omitted";
 		  };
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
@@ -293,6 +370,13 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 export interface GoogleRequestBody {
 	contents: GoogleMessage[];
 	tools?: GoogleTool[];
+	/**
+	 * Processing tier for the Gemini Developer API (google-ai-studio / glacier).
+	 * "flex" / "priority" select Flex / Priority inference. The served tier is
+	 * returned in the `x-gemini-service-tier` response header.
+	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.
+	 */
+	service_tier?: "auto" | "default" | "flex" | "priority";
 	generationConfig?: {
 		temperature?: number;
 		maxOutputTokens?: number;
@@ -333,12 +417,11 @@ export interface ProviderValidationResult {
 export interface ModelWithPricing {
 	providers: Array<{
 		providerId: string;
-		inputPrice?: number;
-		outputPrice?: number;
-		perSecondPrice?: Record<string, number>;
+		inputPrice?: string;
+		outputPrice?: string;
+		perSecondPrice?: Record<string, string>;
 		supportedParameters?: string[];
-		modelName: string;
-		discount?: number;
+		externalId: string;
 		region?: string;
 		stability?: string;
 	}>;
@@ -347,7 +430,7 @@ export interface ModelWithPricing {
 // Available model provider structure
 export interface AvailableModelProvider {
 	providerId: string;
-	modelName: string;
+	externalId: string;
 	region?: string;
 }
 
@@ -368,20 +451,37 @@ export type RequestBodyPreparer = (
 	frequency_penalty?: number,
 	presence_penalty?: number,
 	response_format?: OpenAIRequestBody["response_format"],
-	tools?: OpenAITool[],
+	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
-	reasoning_effort?: "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,
-	userPlan?: "free" | "pro" | null,
+	userPlan?: "free" | "pro" | "enterprise" | null,
 	sensitive_word_check?: { status: "DISABLE" | "ENABLE" },
 	image_config?: {
 		aspect_ratio?: string;
 		image_size?: string;
 		image_quality?: string;
+		n?: number;
+		seed?: number;
 	},
-) => Promise<ProviderRequestBody>;
+	effort?: "low" | "medium" | "high",
+	imageGenerations?: boolean,
+	webSearchTool?: WebSearchTool,
+	reasoning_max_tokens?: number,
+	useResponsesApi?: boolean,
+	prompt_cache_key?: string,
+	prompt_cache_retention?: PromptCacheRetention,
+	n?: number,
+) => Promise<ProviderRequestBody | FormData>;
 
 // Type guards
 export function isTextContent(content: MessageContent): content is TextContent {
@@ -398,6 +498,16 @@ export function isImageContent(
 	content: MessageContent,
 ): content is ImageContent {
 	return content.type === "image";
+}
+
+export function isInputAudioContent(
+	content: MessageContent,
+): content is InputAudioContent {
+	return content.type === "input_audio";
+}
+
+export function isFileContent(content: MessageContent): content is FileContent {
+	return content.type === "file";
 }
 
 export function isToolUseContent(
@@ -444,13 +554,14 @@ export function hasMaxTokens(
 export interface WebSearchTool {
 	type: "web_search";
 	/**
-	 * User location for localized search results (OpenAI)
+	 * User location for localized search results (OpenAI and Anthropic)
 	 */
 	user_location?: {
 		type: "approximate";
 		city?: string;
 		region?: string;
 		country?: string;
+		timezone?: string;
 	};
 	/**
 	 * Controls how much context is retrieved from the web (OpenAI)
@@ -463,6 +574,16 @@ export interface WebSearchTool {
 	 * Maximum number of web searches to perform (Anthropic)
 	 */
 	max_uses?: number;
+	/**
+	 * Restrict search results to these domains (Anthropic). Mutually exclusive
+	 * with blocked_domains.
+	 */
+	allowed_domains?: string[];
+	/**
+	 * Exclude these domains from search results (Anthropic). Mutually exclusive
+	 * with allowed_domains.
+	 */
+	blocked_domains?: string[];
 }
 
 /**

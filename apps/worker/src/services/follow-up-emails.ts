@@ -5,11 +5,14 @@ import {
 	db,
 	eq,
 	followUpEmail,
+	inArray,
 	organization,
 	project,
 	projectHourlyStats,
+	resolveVerifiedOrgRecipient,
 	sql,
 	transaction,
+	userOrganization,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -135,34 +138,6 @@ The LLM Gateway Team`,
 	}
 }
 
-// ─── Recipient Resolution ────────────────────────────────────────────────────
-
-async function getOrgRecipientEmail(
-	organizationId: string,
-): Promise<string | null> {
-	const org = await db.query.organization.findFirst({
-		where: { id: { eq: organizationId } },
-	});
-
-	if (org?.billingEmail) {
-		return org.billingEmail;
-	}
-
-	const ownerMembership = await db.query.userOrganization.findFirst({
-		where: {
-			organizationId: { eq: organizationId },
-			role: { eq: "owner" },
-		},
-		with: { user: true },
-	});
-
-	if (!ownerMembership?.user?.emailVerified) {
-		return null;
-	}
-
-	return ownerMembership.user.email ?? null;
-}
-
 // ─── Send & Record ───────────────────────────────────────────────────────────
 
 async function sendAndRecord(
@@ -206,7 +181,7 @@ async function sendAndRecord(
 
 // ─── Email A: Signed up but never bought credits (>24h) ─────────────────────
 
-async function processNoPurchaseEmails(): Promise<void> {
+export async function processNoPurchaseEmails(): Promise<void> {
 	const twentyFourHoursAgo = new Date(Date.now() - MS_PER_DAY);
 
 	const eligibleOrgs = await db
@@ -220,6 +195,11 @@ async function processNoPurchaseEmails(): Promise<void> {
 				sql`${organization.createdAt} > ${maxAgeAgo}`,
 				eq(organization.devPlan, "none"),
 				eq(organization.status, "active"),
+				// Only nudge normal pay-as-you-go team orgs. Personal orgs back the
+				// DevPass coding product and chat orgs back chat.llmgateway.io — both
+				// have their own billing and are hidden from the dashboard, so they
+				// should never receive the "add credits" email.
+				eq(organization.kind, "default"),
 				sql`${organization.id} NOT IN (
 					SELECT ${transaction.organizationId}
 					FROM ${transaction}
@@ -231,22 +211,74 @@ async function processNoPurchaseEmails(): Promise<void> {
 					FROM ${followUpEmail}
 					WHERE ${followUpEmail.emailType} = 'no_purchase'
 				)`,
+				// Skip orgs whose owner already subscribes to a DevPass plan on any
+				// of their organizations — they shouldn't be nudged to add credits.
+				sql`${organization.id} NOT IN (
+					SELECT owner_membership.organization_id
+					FROM ${userOrganization} owner_membership
+					WHERE owner_membership.role = 'owner'
+					AND owner_membership.user_id IN (
+						SELECT devpass_membership.user_id
+						FROM ${userOrganization} devpass_membership
+						JOIN ${organization} devpass_org
+							ON devpass_org.id = devpass_membership.organization_id
+						WHERE devpass_org.dev_plan != 'none'
+					)
+				)`,
 			),
 		);
 
+	// Resolve the recipient for each org up front so we can deduplicate on the
+	// actual address the email is delivered to (billingEmail, falling back to the
+	// owner). Keying on the recipient — not org ownership — means a shared billing
+	// contact is nudged once across all their orgs, while a co-owner with their
+	// own address still gets nudged for their own credit-less org.
+	const candidates: { organizationId: string; email: string }[] = [];
 	for (const { organizationId } of eligibleOrgs) {
 		if (isStopRequested()) {
 			break;
 		}
+		const email = await resolveVerifiedOrgRecipient(organizationId);
+		if (!email) {
+			logger.warn("No email found for org, skipping no_purchase follow-up", {
+				organizationId,
+			});
+			continue;
+		}
+		candidates.push({ organizationId, email });
+	}
+
+	if (candidates.length === 0) {
+		return;
+	}
+
+	// Recipients already nudged in a previous run, matched on the recorded
+	// recipient address (sentTo) rather than current org ownership, which can
+	// change after the fact.
+	const recipientEmails = [...new Set(candidates.map((c) => c.email))];
+	const priorSends = await db
+		.select({ sentTo: followUpEmail.sentTo })
+		.from(followUpEmail)
+		.where(
+			and(
+				eq(followUpEmail.emailType, "no_purchase"),
+				inArray(followUpEmail.sentTo, recipientEmails),
+			),
+		);
+	const handledRecipients = new Set(priorSends.map((r) => r.sentTo));
+
+	for (const { organizationId, email } of candidates) {
+		if (isStopRequested()) {
+			break;
+		}
+		// Within-run guard: two orgs sharing a recipient both pass the cross-run
+		// check above before either send is recorded.
+		if (handledRecipients.has(email)) {
+			continue;
+		}
 		try {
-			const email = await getOrgRecipientEmail(organizationId);
-			if (!email) {
-				logger.warn("No email found for org, skipping no_purchase follow-up", {
-					organizationId,
-				});
-				continue;
-			}
 			await sendAndRecord(organizationId, "no_purchase", email);
+			handledRecipients.add(email);
 		} catch (error) {
 			logger.error(
 				`Error sending no_purchase follow-up for org ${organizationId}`,
@@ -308,7 +340,7 @@ async function processLowUsageEmails(): Promise<void> {
 		}
 		const organizationId = row.organization_id;
 		try {
-			const email = await getOrgRecipientEmail(organizationId);
+			const email = await resolveVerifiedOrgRecipient(organizationId);
 			if (!email) {
 				logger.warn("No email found for org, skipping low_usage follow-up", {
 					organizationId,
@@ -385,7 +417,7 @@ async function processNoRepurchaseEmails(): Promise<void> {
 		}
 		const organizationId = row.organization_id;
 		try {
-			const email = await getOrgRecipientEmail(organizationId);
+			const email = await resolveVerifiedOrgRecipient(organizationId);
 			if (!email) {
 				logger.warn(
 					"No email found for org, skipping no_repurchase follow-up",
@@ -442,8 +474,6 @@ The LLM Gateway Team`;
 
 	await sendFollowUpEmail({ to: opts.to, subject, text });
 }
-
-export { getOrgRecipientEmail };
 
 // ─── Main orchestrator ───────────────────────────────────────────────────────
 

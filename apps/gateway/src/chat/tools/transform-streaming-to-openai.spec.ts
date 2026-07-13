@@ -70,6 +70,66 @@ describe("transformStreamingToOpenai", () => {
 		expect(warn).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		{ type: "content_block_start", content_block: { type: "text", text: "" } },
+		{
+			type: "content_block_start",
+			content_block: { type: "thinking", thinking: "" },
+		},
+		{ type: "content_block_stop" },
+	])("drops Anthropic %s without warning", (chunk) => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"anthropic",
+			"claude-opus-4-8",
+			{ index: 0, ...chunk },
+			[],
+		);
+
+		expect(result).toBeNull();
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it.each([{ partial_json: "" }, { partial_json: '{"foo":' }])(
+		"maps Anthropic input_json_delta (%o) to tool_call arguments without warning",
+		({ partial_json }) => {
+			warn.mockClear();
+
+			const result = transformStreamingToOpenai(
+				"anthropic",
+				"claude-opus-4-8",
+				{
+					type: "content_block_delta",
+					index: 1,
+					delta: { type: "input_json_delta", partial_json },
+				},
+				[],
+			);
+
+			expect(result).toMatchObject({
+				object: "chat.completion.chunk",
+				model: "claude-opus-4-8",
+				choices: [
+					{
+						index: 0,
+						delta: {
+							tool_calls: [
+								{
+									index: 1,
+									function: { arguments: partial_json },
+								},
+							],
+							role: "assistant",
+						},
+						finish_reason: null,
+					},
+				],
+			});
+			expect(warn).not.toHaveBeenCalled();
+		},
+	);
+
 	it("ignores OpenAI keepalive events without warning", () => {
 		warn.mockClear();
 
@@ -154,6 +214,76 @@ describe("transformStreamingToOpenai", () => {
 					finish_reason: null,
 				},
 			],
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("maps AWS Bedrock messageStop refusal to content_filter", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"aws-bedrock",
+			"anthropic.claude-fable-5",
+			{
+				__aws_event_type: "messageStop",
+				stopReason: "refusal",
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			object: "chat.completion.chunk",
+			choices: [
+				{
+					index: 0,
+					delta: {},
+					finish_reason: "content_filter",
+				},
+			],
+		});
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("maps AWS Bedrock metadata cache creation details", () => {
+		warn.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"aws-bedrock",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			{
+				__aws_event_type: "metadata",
+				usage: {
+					inputTokens: 10,
+					cacheReadInputTokens: 0,
+					cacheWriteInputTokens: 1000,
+					cacheDetails: [
+						{ ttl: "1h", inputTokens: 700 },
+						{ ttl: "5m", inputTokens: 300 },
+					],
+					outputTokens: 1,
+					totalTokens: 1011,
+				},
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			object: "chat.completion.chunk",
+			model: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			usage: {
+				prompt_tokens: 1010,
+				completion_tokens: 1,
+				total_tokens: 1011,
+				prompt_tokens_details: {
+					cached_tokens: 0,
+					cache_write_tokens: 1000,
+					cache_creation_tokens: 1000,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 300,
+						ephemeral_1h_input_tokens: 700,
+					},
+				},
+			},
 		});
 		expect(warn).not.toHaveBeenCalled();
 	});

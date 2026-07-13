@@ -9,6 +9,7 @@ import { Button } from "@/lib/components/button";
 import { ShimmerButton } from "@/lib/components/shimmer-button";
 import { useAppConfig } from "@/lib/config";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
 import { providerLogoUrls } from "@llmgateway/shared/components";
 
 import { AnimatedGroup } from "./animated-group";
@@ -53,6 +54,7 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Nebius", providerId: "nebius" },
 	{ name: "Zai", providerId: "zai" },
 	{ name: "NanoGPT", providerId: "nanogpt" },
+	{ name: "Canopywave", providerId: "canopywave" },
 	{ name: "AWS Bedrock", providerId: "aws-bedrock" },
 	{ name: "Azure", providerId: "azure" },
 	{ name: "Inference.net", providerId: "inference.net" },
@@ -98,6 +100,33 @@ const providerIcons: Record<string, React.ReactNode> = {
 			🚅
 		</span>
 	),
+	Portkey: (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			fill="none"
+			viewBox="0 0 180 180"
+			className="size-5"
+			aria-hidden="true"
+		>
+			<path
+				fill="url(#portkey-hero-gradient)"
+				d="M109.063 7.5c14.782 0 28.37 7.992 35.766 20.851l23.12 40.191.346.614c7.159 12.942 7.078 28.784-.258 41.663l-23.179 40.68c-7.374 12.944-21.01 21.001-35.855 21.001H64.215c-14.95 0-28.669-8.17-36.004-21.26l-22.79-40.68c-7.256-12.951-7.227-28.838.082-41.759l22.738-40.19C35.598 15.604 49.266 7.5 64.156 7.5zM64.156 28.05c-7.392 0-14.312 4.021-18.088 10.696L23.33 78.936c-3.767 6.659-3.783 14.88-.044 21.556l22.797 40.687.178.314c3.803 6.531 10.647 10.457 17.953 10.457h44.788c7.37 0 14.274-3.997 18.057-10.639l23.173-40.681c3.842-6.743 3.825-15.098-.044-21.825l-23.113-40.197c-3.794-6.597-10.674-10.558-18.013-10.558zm25.44 22.11c4.268-3.54 10.597-3.037 14.256 1.172l25.171 28.956.223.263a14.81 14.81 0 0 1-.223 19.16l-25.171 28.957c-3.659 4.209-9.988 4.712-14.255 1.172l-.202-.172c-4.268-3.728-4.71-10.222-.991-14.499L110.284 90l-21.88-25.169c-3.718-4.277-3.277-10.771.99-14.5l.203-.17Z"
+			/>
+			<defs>
+				<linearGradient
+					id="portkey-hero-gradient"
+					x1="-92.51"
+					x2="194.256"
+					y1="52.188"
+					y2="216.739"
+					gradientUnits="userSpaceOnUse"
+				>
+					<stop offset=".173" stopColor="#00a3ff" />
+					<stop offset=".899" stopColor="#ff0f00" />
+				</linearGradient>
+			</defs>
+		</svg>
+	),
 };
 
 export function Hero({
@@ -142,43 +171,41 @@ export function Hero({
 								{/* Announcement badge - centered */}
 								<div className="mb-10 lg:mb-12 flex justify-center">
 									<AnimatedGroup variants={transitionVariants}>
-										<a
-											href="https://www.producthunt.com/products/devpass-by-llm-gateway"
-											target="_blank"
-											rel="noopener noreferrer"
-											className="group flex w-fit items-center gap-3 rounded-full border border-orange-500/40 bg-gradient-to-r from-orange-500 to-red-500 p-1 pl-4 shadow-md shadow-orange-500/20 transition-all duration-300 hover:shadow-orange-500/40"
+										<Link
+											href="/blog/soc2-type-ii"
+											className="hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
 										>
-											<span className="flex size-5 items-center justify-center rounded-full bg-white text-[11px] font-bold text-orange-500">
-												P
+											<span className="text-foreground text-sm">
+												LLM Gateway Is Now SOC 2 Type II Certified
 											</span>
-											<span className="text-sm font-medium text-white">
-												DevPass is live on Product Hunt — upvote us today
-											</span>
-											<span className="block h-4 w-0.5 border-l border-white/30" />
-											<div className="size-6 overflow-hidden rounded-full bg-white/15 duration-500 group-hover:bg-white/25">
+											<span className="dark:border-background block h-4 w-0.5 border-l bg-white dark:bg-zinc-700" />
+
+											<div className="bg-background group-hover:bg-muted size-6 overflow-hidden rounded-full duration-500">
 												<div className="flex w-12 -translate-x-1/2 duration-500 ease-in-out group-hover:translate-x-0">
 													<span className="flex size-6">
-														<ArrowRight className="m-auto size-3 text-white" />
+														<ArrowRight className="m-auto size-3" />
 													</span>
 													<span className="flex size-6">
-														<ArrowRight className="m-auto size-3 text-white" />
+														<ArrowRight className="m-auto size-3" />
 													</span>
 												</div>
 											</div>
-										</a>
+										</Link>
 									</AnimatedGroup>
 								</div>
 
 								{/* Centered hero content - optimized for conversion */}
 								<div className="text-center max-w-4xl mx-auto">
 									<AnimatedGroup variants={transitionVariants}>
-										<h1 className="text-balance text-2xl md:text-3xl lg:text-4xl font-medium tracking-tight text-foreground/80">
-											One API for every LLM. Any model, any provider.
+										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
+											LLM Gateway — One API for {MARKETING_STATS.providers}{" "}
+											providers, including OpenAI, Anthropic, and Google
 										</h1>
 										<p className="mt-4 md:mt-6 max-w-2xl mx-auto text-balance text-base md:text-lg text-muted-foreground">
 											Stop juggling API keys and provider dashboards. Route
-											requests to 210+ models, track costs in real-time, and
-											switch providers without changing your code.
+											requests across {MARKETING_STATS.models} models, track
+											costs in real-time, and switch providers without changing
+											your code.
 										</p>
 									</AnimatedGroup>
 
@@ -229,7 +256,7 @@ export function Hero({
 														clipRule="evenodd"
 													/>
 												</svg>
-												Free tier included
+												Bring your own keys — free forever
 											</span>
 											<span className="flex items-center gap-1.5">
 												<svg
@@ -264,16 +291,18 @@ export function Hero({
 										</div>
 
 										{/* Secondary CTA - De-emphasized */}
-										<Button
-											asChild
-											variant="ghost"
-											className="text-muted-foreground hover:text-foreground"
-										>
-											<a href={config.docsUrl ?? ""} target="_blank">
-												<span>View documentation</span>
-												<ChevronRight className="size-4" />
-											</a>
-										</Button>
+										{config.docsUrl ? (
+											<Button
+												asChild
+												variant="ghost"
+												className="text-muted-foreground hover:text-foreground"
+											>
+												<a href={config.docsUrl} target="_blank" rel="noopener">
+													<span>View documentation</span>
+													<ChevronRight className="size-4" />
+												</a>
+											</Button>
+										) : null}
 									</AnimatedGroup>
 								</div>
 							</div>
@@ -358,6 +387,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											sizes="(max-width: 1280px) 100vw, 1120px"
 											priority
 										/>
 										<Image
@@ -366,6 +396,7 @@ export function Hero({
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={2696}
 											height={1386}
+											sizes="(max-width: 1280px) 100vw, 1120px"
 											priority
 										/>
 									</div>

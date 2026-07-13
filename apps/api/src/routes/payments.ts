@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import Stripe from "stripe";
 import { z } from "zod";
 
+import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -20,20 +21,33 @@ import type {
 	ServerErrorStatusCode,
 } from "hono/utils/http-status";
 
-let _stripe: Stripe | null = null;
+export type StripeMode = "live" | "test";
 
-export function getStripe(): Stripe {
-	if (!_stripe) {
-		if (!process.env.STRIPE_SECRET_KEY) {
+const _stripe: Partial<Record<StripeMode, Stripe>> = {};
+
+/**
+ * Resolve the Stripe client for the given mode. `live` (default) uses
+ * `STRIPE_SECRET_KEY`; `test` uses `STRIPE_SECRET_KEY_TEST` (a Stripe sandbox
+ * secret on the same account), so LLM SDK developers can exercise the full
+ * top-up flow with test cards without a separate staging deployment.
+ */
+export function getStripe(mode: StripeMode = "live"): Stripe {
+	let client = _stripe[mode];
+	if (!client) {
+		const envVar =
+			mode === "test" ? "STRIPE_SECRET_KEY_TEST" : "STRIPE_SECRET_KEY";
+		const secret = process.env[envVar];
+		if (!secret) {
 			throw new Error(
-				"STRIPE_SECRET_KEY environment variable is required for Stripe operations",
+				`${envVar} environment variable is required for Stripe operations`,
 			);
 		}
-		_stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+		client = new Stripe(secret, {
 			apiVersion: "2025-04-30.basil",
 		});
+		_stripe[mode] = client;
 	}
-	return _stripe;
+	return client;
 }
 
 export const payments = new OpenAPIHono<ServerTypes>();
@@ -46,6 +60,25 @@ const creditTopUpAmountSchema = z
 		`Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`,
 	)
 	.max(CREDIT_TOP_UP_MAX_AMOUNT, "Maximum top-up amount is $5000.");
+
+/**
+ * Resolves the organization a payment operation should target.
+ *
+ * When an `organizationId` is provided (e.g. the user is acting within a
+ * non-default organization they switched to in the dashboard), it is looked up
+ * scoped to the user's memberships so a user can only ever target an org they
+ * belong to. When omitted, it falls back to the user's first organization for
+ * backward compatibility.
+ */
+async function findUserOrganization(userId: string, organizationId?: string) {
+	return await db.query.userOrganization.findFirst({
+		where: organizationId ? { userId, organizationId } : { userId },
+		with: {
+			organization: true,
+			user: true,
+		},
+	});
+}
 
 export async function isInternationalPaymentMethod(
 	stripePaymentMethodId: string,
@@ -67,6 +100,7 @@ const createPaymentIntent = createRoute({
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
 						stripePaymentMethodId: z.string().optional(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -105,16 +139,16 @@ payments.openapi(createPaymentIntent, async (c) => {
 		});
 	}
 
-	const { amount, stripePaymentMethodId } = c.req.valid("json");
+	const {
+		amount,
+		stripePaymentMethodId,
+		organizationId: requestedOrganizationId,
+	} = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -182,7 +216,18 @@ payments.openapi(createPaymentIntent, async (c) => {
 const createSetupIntent = createRoute({
 	method: "post",
 	path: "/create-setup-intent",
-	request: {},
+	request: {
+		body: {
+			required: false,
+			content: {
+				"application/json": {
+					schema: z.object({
+						organizationId: z.string().optional(),
+					}),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -214,14 +259,12 @@ payments.openapi(createSetupIntent, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const { organizationId: requestedOrganizationId } = c.req.valid("json") ?? {};
+
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -246,7 +289,11 @@ payments.openapi(createSetupIntent, async (c) => {
 const getPaymentMethods = createRoute({
 	method: "get",
 	path: "/payment-methods",
-	request: {},
+	request: {
+		query: z.object({
+			organizationId: z.string().optional(),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -281,14 +328,12 @@ payments.openapi(getPaymentMethods, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const { organizationId: requestedOrganizationId } = c.req.valid("query");
+
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -341,6 +386,7 @@ const setDefaultPaymentMethod = createRoute({
 				"application/json": {
 					schema: z.object({
 						paymentMethodId: z.string(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -369,16 +415,13 @@ payments.openapi(setDefaultPaymentMethod, async (c) => {
 		});
 	}
 
-	const { paymentMethodId } = c.req.valid("json");
+	const { paymentMethodId, organizationId: requestedOrganizationId } =
+		c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -435,6 +478,9 @@ const deletePaymentMethod = createRoute({
 		params: z.object({
 			id: z.string(),
 		}),
+		query: z.object({
+			organizationId: z.string().optional(),
+		}),
 	},
 	responses: {
 		200: {
@@ -459,16 +505,13 @@ payments.openapi(deletePaymentMethod, async (c) => {
 		});
 	}
 
-	const { id } = c.req.param();
+	const { id } = c.req.valid("param");
+	const { organizationId: requestedOrganizationId } = c.req.valid("query");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -542,6 +585,7 @@ const topUpWithSavedMethod = createRoute({
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
 						paymentMethodId: z.string(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -581,7 +625,12 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 	const {
 		amount,
 		paymentMethodId,
-	}: { amount: number; paymentMethodId: string } = c.req.valid("json");
+		organizationId: requestedOrganizationId,
+	}: {
+		amount: number;
+		paymentMethodId: string;
+		organizationId?: string;
+	} = c.req.valid("json");
 
 	const paymentMethod = await db.query.paymentMethod.findFirst({
 		where: {
@@ -595,14 +644,10 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (
 		!userOrganization ||
@@ -737,6 +782,7 @@ const createCheckoutSession = createRoute({
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
 						returnUrl: z.string().url().optional(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -772,16 +818,16 @@ payments.openapi(createCheckoutSession, async (c) => {
 		});
 	}
 
-	const { amount, returnUrl } = c.req.valid("json");
+	const {
+		amount,
+		returnUrl,
+		organizationId: requestedOrganizationId,
+	} = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -879,6 +925,7 @@ const calculateFeesRoute = createRoute({
 					schema: z.object({
 						amount: creditTopUpAmountSchema,
 						paymentMethodId: z.string().optional(),
+						organizationId: z.string().optional(),
 					}),
 				},
 			},
@@ -899,8 +946,7 @@ const calculateFeesRoute = createRoute({
 						bonusEnabled: z.boolean(),
 						bonusEligible: z.boolean(),
 						bonusIneligibilityReason: z.string().optional(),
-						bonusType: z.enum(["first_purchase", "second_topup"]).optional(),
-						secondTopupBonusExpiresInDays: z.number().optional(),
+						bonusType: z.enum(["first_purchase", "referral"]).optional(),
 					}),
 				},
 			},
@@ -921,17 +967,17 @@ payments.openapi(calculateFeesRoute, async (c) => {
 	const {
 		amount,
 		paymentMethodId,
-	}: { amount: number; paymentMethodId?: string } = c.req.valid("json");
+		organizationId: requestedOrganizationId,
+	}: {
+		amount: number;
+		paymentMethodId?: string;
+		organizationId?: string;
+	} = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-			user: true,
-		},
-	});
+	const userOrganization = await findUserOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
 
 	if (!userOrganization || !userOrganization.organization) {
 		throw new HTTPException(404, {
@@ -960,24 +1006,29 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		isInternational,
 	});
 
-	// Calculate bonus for first-time and second top-up credit purchases
+	// Calculate bonus for first-time credit purchases
 	let bonusAmount = 0;
 	let finalCreditAmount = amount;
 	let bonusEligible = false;
 	let bonusIneligibilityReason: string | undefined;
-	let bonusType: "first_purchase" | "second_topup" | undefined;
-	let secondTopupBonusExpiresInDays: number | undefined;
+	let bonusType: "first_purchase" | "referral" | undefined;
 
 	const firstBonusMultiplier = process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER
 		? parseFloat(process.env.FIRST_TIME_CREDIT_BONUS_MULTIPLIER)
 		: 0;
-	const secondBonusMultiplier = process.env.SECOND_TOPUP_BONUS_MULTIPLIER
-		? parseFloat(process.env.SECOND_TOPUP_BONUS_MULTIPLIER)
-		: 0;
 
 	const firstBonusEnabled = firstBonusMultiplier > 1;
-	const secondBonusEnabled = secondBonusMultiplier > 1;
-	const bonusEnabled = firstBonusEnabled || secondBonusEnabled;
+
+	// Referral signup bonus applies to the referred org's first top-up and takes
+	// precedence over the env-driven first-time bonus. Mirrors stripe.ts so the
+	// estimate matches the credits actually granted by the webhook.
+	const referralBonusAmount = await computeReferralBonus(
+		userOrganization.organization.id,
+		amount,
+	);
+	const referralBonusPossible = referralBonusAmount > 0;
+
+	const bonusEnabled = firstBonusEnabled || referralBonusPossible;
 
 	if (bonusEnabled) {
 		if (!userOrganization.user || !userOrganization.user.emailVerified) {
@@ -990,45 +1041,22 @@ payments.openapi(calculateFeesRoute, async (c) => {
 					status: { eq: "completed" },
 				},
 				orderBy: { createdAt: "asc" },
-				limit: 2,
+				limit: 1,
 			});
 
-			if (previousPurchases.length === 0 && firstBonusEnabled) {
+			if (previousPurchases.length === 0 && referralBonusPossible) {
+				bonusEligible = true;
+				bonusType = "referral";
+				bonusAmount = referralBonusAmount;
+				finalCreditAmount = amount + bonusAmount;
+			} else if (previousPurchases.length === 0 && firstBonusEnabled) {
 				bonusEligible = true;
 				bonusType = "first_purchase";
 				const potentialBonus = amount * (firstBonusMultiplier - 1);
 				const maxBonus = 50;
 				bonusAmount = Math.min(potentialBonus, maxBonus);
 				finalCreditAmount = amount + bonusAmount;
-			} else if (previousPurchases.length === 1 && secondBonusEnabled) {
-				const secondBonusWindowDays = Number(
-					process.env.SECOND_TOPUP_BONUS_WINDOW_DAYS ?? "30",
-				);
-				const secondBonusMax = Number(
-					process.env.SECOND_TOPUP_BONUS_MAX ?? "25",
-				);
-				const firstPurchaseDate = previousPurchases[0].createdAt;
-				const daysSinceFirst =
-					(Date.now() - firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24);
-
-				if (daysSinceFirst <= secondBonusWindowDays) {
-					bonusEligible = true;
-					bonusType = "second_topup";
-					const potentialBonus = amount * (secondBonusMultiplier - 1);
-					bonusAmount = Math.min(potentialBonus, secondBonusMax);
-					finalCreditAmount = amount + bonusAmount;
-					secondTopupBonusExpiresInDays = Math.ceil(
-						secondBonusWindowDays - daysSinceFirst,
-					);
-				} else {
-					bonusIneligibilityReason = "second_topup_window_expired";
-				}
-			} else if (previousPurchases.length >= 2) {
-				bonusIneligibilityReason = "already_purchased";
-			} else if (previousPurchases.length === 0 && !firstBonusEnabled) {
-				// No first-purchase bonus configured, but second might be
-				// (user hasn't purchased yet, so no second bonus either)
-			} else {
+			} else if (previousPurchases.length > 0) {
 				bonusIneligibilityReason = "already_purchased";
 			}
 		}
@@ -1043,6 +1071,5 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		bonusEligible,
 		bonusIneligibilityReason,
 		bonusType,
-		secondTopupBonusExpiresInDays,
 	});
 });

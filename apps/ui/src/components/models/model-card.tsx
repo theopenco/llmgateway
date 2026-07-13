@@ -58,6 +58,7 @@ function PriceCell({
 	discount,
 	unit,
 	formatPrice,
+	multiplier = 1,
 }: {
 	label: string;
 	price: string | null | undefined;
@@ -67,8 +68,13 @@ function PriceCell({
 		price: string | null | undefined,
 		discount?: string | null,
 	) => string | React.JSX.Element;
+	multiplier?: number;
 }) {
-	const formatted = formatPrice(price, discount);
+	const adjustedPrice =
+		price !== null && price !== undefined && multiplier !== 1
+			? String(Number(price) * multiplier)
+			: price;
+	const formatted = formatPrice(adjustedPrice, discount);
 	return (
 		<div className="text-center">
 			<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">
@@ -402,6 +408,7 @@ export function ModelCard({
 					<div className="mt-4 pt-4 border-t border-border/30">
 						<ModelCtaButton
 							modelId={`${groupedByProvider[0]?.providerId}/${model.id}`}
+							output={model.output}
 							onClick={(e) => e.stopPropagation()}
 						/>
 					</div>
@@ -491,6 +498,7 @@ export function ProviderSection({
 	copyToClipboard,
 	copiedModel,
 	isImageGen = false,
+	detailed = false,
 }: {
 	modelId: string;
 	providerInfo: ApiProvider;
@@ -502,14 +510,35 @@ export function ProviderSection({
 	formatPrice: (
 		price: string | null | undefined,
 		discount?: string | null,
+		align?: "center" | "end",
+		multiplier?: number,
 	) => string | React.JSX.Element;
 	copyToClipboard: (text: string) => void;
 	copiedModel: string | null;
 	isImageGen?: boolean;
+	detailed?: boolean;
 }) {
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
+	const [showMappingDetails, setShowMappingDetails] = useState(false);
+	const [selectedServiceTierId, setSelectedServiceTierId] =
+		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const hasMappingDetails =
+		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
+		(activeMapping.supportedParameters?.length ?? 0) > 0;
+	const supportedServiceTierIds = new Set(activeMapping.serviceTiers ?? []);
+	const serviceTiers = (providerInfo.serviceTiers ?? []).filter((tier) =>
+		supportedServiceTierIds.has(tier.id),
+	);
+	const activeServiceTierId =
+		selectedServiceTierId === "standard" ||
+		serviceTiers.some((tier) => tier.id === selectedServiceTierId)
+			? selectedServiceTierId
+			: "standard";
+	const serviceTierMultiplier =
+		serviceTiers.find((tier) => tier.id === activeServiceTierId)?.multiplier ??
+		1;
 	const providerModelId = activeMapping.region
 		? `${providerId}/${modelId}:${activeMapping.region}`
 		: `${providerId}/${modelId}`;
@@ -518,7 +547,7 @@ export function ProviderSection({
 		!isImageGen || showTokenPricing || !hasImageCostEstimate;
 
 	return (
-		<div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+		<div className="flex flex-1 flex-col rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
 			{/* Provider header */}
 			<div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border/30">
 				<div className="flex items-center gap-2 min-w-0">
@@ -540,6 +569,67 @@ export function ProviderSection({
 					)}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
+					{serviceTiers.length > 0 && (
+						<div
+							className="flex h-6 items-center rounded-md border border-border/50 bg-background/80 p-0.5"
+							aria-label="Service tier"
+						>
+							<button
+								type="button"
+								onClick={() => setSelectedServiceTierId("standard")}
+								className={cn(
+									"inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
+									activeServiceTierId === "standard"
+										? "bg-muted text-foreground shadow-sm"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								aria-pressed={activeServiceTierId === "standard"}
+								title="Standard pricing (1x)"
+							>
+								<span>Std</span>
+								<span
+									className={cn(
+										"text-[9px] font-medium",
+										activeServiceTierId === "standard"
+											? "text-foreground/65"
+											: "text-muted-foreground/70",
+									)}
+								>
+									1x
+								</span>
+							</button>
+							{serviceTiers.map((tier) => {
+								const isSelected = activeServiceTierId === tier.id;
+								return (
+									<button
+										key={tier.id}
+										type="button"
+										onClick={() => setSelectedServiceTierId(tier.id)}
+										className={cn(
+											"inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
+											isSelected
+												? "bg-muted text-foreground shadow-sm"
+												: "text-muted-foreground hover:text-foreground",
+										)}
+										aria-pressed={isSelected}
+										title={`${tier.name} (${tier.multiplier}x pricing)`}
+									>
+										<span>{tier.name}</span>
+										<span
+											className={cn(
+												"text-[9px] font-medium",
+												isSelected
+													? "text-foreground/65"
+													: "text-muted-foreground/70",
+											)}
+										>
+											{tier.multiplier}x
+										</span>
+									</button>
+								);
+							})}
+						</div>
+					)}
 					<ShareDropdown modelId={modelId} providerId={providerId} />
 					<Button
 						variant="ghost"
@@ -595,13 +685,23 @@ export function ProviderSection({
 			<div className="px-3 py-3 space-y-3">
 				{/* Context + deprecation info */}
 				<div className="flex items-center justify-between text-xs">
-					<span className="text-muted-foreground">
-						Context:{" "}
-						<span className="text-foreground font-medium">
-							{activeMapping.contextSize
-								? formatContextSize(activeMapping.contextSize)
-								: "—"}
+					<span className="flex items-center gap-3 text-muted-foreground">
+						<span>
+							Context:{" "}
+							<span className="text-foreground font-medium">
+								{activeMapping.contextSize
+									? formatContextSize(activeMapping.contextSize)
+									: "—"}
+							</span>
 						</span>
+						{activeMapping.quantization && (
+							<span>
+								Quant:{" "}
+								<span className="text-foreground font-medium uppercase">
+									{activeMapping.quantization}
+								</span>
+							</span>
+						)}
 					</span>
 					{activeMapping.discount && parseFloat(activeMapping.discount) > 0 && (
 						<Badge className="text-[10px] px-1.5 py-0 h-4 font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -670,7 +770,8 @@ export function ProviderSection({
 								resolutionKey = preferred[0];
 							}
 							if (requestPriceNum > 0 || outputCost > 0) {
-								perImage = requestPriceNum + outputCost;
+								perImage =
+									(requestPriceNum + outputCost) * serviceTierMultiplier;
 								if (resolutionKey) {
 									label = `Per image (${resolutionKey})`;
 								}
@@ -705,8 +806,54 @@ export function ProviderSection({
 						);
 					})()}
 
+				{/* Per-character pricing for character-billed speech models */}
+				{shouldShowTokenPricing &&
+					activeMapping.inputCharacterPrice &&
+					parseFloat(activeMapping.inputCharacterPrice) > 0 &&
+					(() => {
+						const discountNum = activeMapping.discount
+							? parseFloat(activeMapping.discount)
+							: 0;
+						const perThousandChars =
+							parseFloat(activeMapping.inputCharacterPrice!) *
+							1000 *
+							serviceTierMultiplier;
+						const formatChars = (value: number) =>
+							`$${parseFloat(value.toFixed(4))}`;
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+									Per Character Pricing
+								</div>
+								<div className="flex justify-between text-sm">
+									<span className="text-muted-foreground">Input text</span>
+									<span className="font-semibold tabular-nums">
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground mr-1 text-xs">
+													{formatChars(perThousandChars)}
+												</span>
+												<span className="text-green-600">
+													{formatChars(perThousandChars * (1 - discountNum))}
+												</span>
+											</>
+										) : (
+											formatChars(perThousandChars)
+										)}
+										<span className="text-muted-foreground/60 text-xs ml-0.5">
+											/1K chars
+										</span>
+									</span>
+								</div>
+							</div>
+						);
+					})()}
+
 				{/* Token pricing (hidden by default for image-gen models) */}
-				{!shouldShowTokenPricing ? null : activeMapping.perSecondPrice &&
+				{!shouldShowTokenPricing ||
+				(activeMapping.inputCharacterPrice &&
+					parseFloat(activeMapping.inputCharacterPrice) >
+						0) ? null : activeMapping.perSecondPrice &&
 				  Object.keys(activeMapping.perSecondPrice).length > 0 ? (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
@@ -756,33 +903,174 @@ export function ProviderSection({
 						</div>
 					</div>
 				) : (
-					<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
-						<div className="bg-background p-2">
-							<PriceCell
-								label="Input"
-								price={activeMapping.inputPrice}
-								discount={activeMapping.discount}
-								unit="/M tokens"
-								formatPrice={formatPrice}
-							/>
+					<div className="space-y-2">
+						<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
+							<div className="bg-background p-2">
+								<PriceCell
+									label="Input"
+									price={activeMapping.inputPrice}
+									discount={activeMapping.discount}
+									unit="/M tokens"
+									formatPrice={formatPrice}
+									multiplier={serviceTierMultiplier}
+								/>
+							</div>
+							<div className="bg-background p-2">
+								<PriceCell
+									label={detailed ? "Cache Read" : "Cached"}
+									price={activeMapping.cachedInputPrice}
+									discount={activeMapping.discount}
+									unit="/M tokens"
+									formatPrice={formatPrice}
+									multiplier={serviceTierMultiplier}
+								/>
+							</div>
+							<div className="bg-background p-2">
+								<PriceCell
+									label="Output"
+									price={activeMapping.outputPrice}
+									discount={activeMapping.discount}
+									unit="/M tokens"
+									formatPrice={formatPrice}
+									multiplier={serviceTierMultiplier}
+								/>
+							</div>
 						</div>
-						<div className="bg-background p-2">
-							<PriceCell
-								label="Cached"
-								price={activeMapping.cachedInputPrice}
-								discount={activeMapping.discount}
-								unit="/M tokens"
-								formatPrice={formatPrice}
-							/>
+						{activeMapping.ocrPagePrice !== null &&
+							activeMapping.ocrPagePrice !== undefined &&
+							Number(activeMapping.ocrPagePrice) > 0 && (
+								<div className="rounded-md bg-background border border-border/30 p-2 flex items-baseline justify-between">
+									<span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+										OCR
+									</span>
+									<span className="font-mono tabular-nums text-sm">
+										${(Number(activeMapping.ocrPagePrice) * 1000).toFixed(2)}
+										<span className="text-muted-foreground text-xs">
+											{" "}
+											/1K pages
+										</span>
+									</span>
+								</div>
+							)}
+						{detailed &&
+							(activeMapping.cacheWriteInputPrice ||
+								activeMapping.cacheWriteInputPrice1h) && (
+								<div className="grid grid-cols-2 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
+									<div className="bg-background p-2">
+										<PriceCell
+											label="Cache Write 5m"
+											price={activeMapping.cacheWriteInputPrice}
+											discount={activeMapping.discount}
+											unit="/M tokens"
+											formatPrice={formatPrice}
+											multiplier={serviceTierMultiplier}
+										/>
+									</div>
+									<div className="bg-background p-2">
+										<PriceCell
+											label="Cache Write 1h"
+											price={
+												activeMapping.cacheWriteInputPrice1h ??
+												activeMapping.cacheWriteInputPrice
+											}
+											discount={activeMapping.discount}
+											unit="/M tokens"
+											formatPrice={formatPrice}
+											multiplier={serviceTierMultiplier}
+										/>
+									</div>
+								</div>
+							)}
+						{detailed &&
+							activeMapping.outputAudioPrice !== null &&
+							activeMapping.outputAudioPrice !== undefined && (
+								<div className="rounded-md bg-background border border-border/30 p-2">
+									<PriceCell
+										label="Audio Output"
+										price={activeMapping.outputAudioPrice}
+										discount={activeMapping.discount}
+										unit="/M tokens"
+										formatPrice={formatPrice}
+										multiplier={serviceTierMultiplier}
+									/>
+								</div>
+							)}
+					</div>
+				)}
+
+				{/* Tiered pricing (if applicable) */}
+				{(activeMapping.pricingTiers?.length ?? 0) > 1 && (
+					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+							Tiered Pricing
 						</div>
-						<div className="bg-background p-2">
-							<PriceCell
-								label="Output"
-								price={activeMapping.outputPrice}
-								discount={activeMapping.discount}
-								unit="/M tokens"
-								formatPrice={formatPrice}
-							/>
+						<div className="space-y-2">
+							{(() => {
+								const hasCached = activeMapping.pricingTiers!.some(
+									(t) => t.cachedInputPrice,
+								);
+								return (
+									<>
+										<div
+											className={`grid ${hasCached ? "grid-cols-[1fr_1fr_1fr_1fr]" : "grid-cols-[1fr_1fr_1fr]"} gap-x-2 text-[10px] text-muted-foreground/60 text-right`}
+										>
+											<div />
+											<div>IN</div>
+											{hasCached && <div>CACHED</div>}
+											<div>OUT</div>
+										</div>
+										{activeMapping.pricingTiers!.map((tier, index) => {
+											const discountNum = activeMapping.discount
+												? parseFloat(activeMapping.discount)
+												: 0;
+											const prevTokens =
+												activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
+											const label =
+												tier.upToTokens === null
+													? `>${(prevTokens / 1000).toLocaleString()}K tokens`
+													: `≤${(tier.upToTokens / 1000).toLocaleString()}K tokens`;
+											return (
+												<div
+													key={index}
+													className={`grid ${hasCached ? "grid-cols-[1fr_1fr_1fr_1fr]" : "grid-cols-[1fr_1fr_1fr]"} gap-x-2 items-center text-xs`}
+												>
+													<span className="text-muted-foreground">{label}</span>
+													<div className="font-mono tabular-nums flex justify-end">
+														{formatPrice(
+															tier.inputPrice,
+															discountNum > 0 ? String(discountNum) : null,
+															"end",
+															serviceTierMultiplier,
+														)}
+													</div>
+													{hasCached && (
+														<div className="font-mono tabular-nums flex justify-end">
+															{tier.cachedInputPrice
+																? formatPrice(
+																		tier.cachedInputPrice,
+																		discountNum > 0
+																			? String(discountNum)
+																			: null,
+																		"end",
+																		serviceTierMultiplier,
+																	)
+																: "—"}
+														</div>
+													)}
+													<div className="font-mono tabular-nums flex justify-end">
+														{formatPrice(
+															tier.outputPrice,
+															discountNum > 0 ? String(discountNum) : null,
+															"end",
+															serviceTierMultiplier,
+														)}
+													</div>
+												</div>
+											);
+										})}
+									</>
+								);
+							})()}
 						</div>
 					</div>
 				)}
@@ -826,7 +1114,10 @@ export function ProviderSection({
 											Input
 										</div>
 										{entries.map(([res, tokensPerImage]) => {
-											const raw = tokensPerImage * imageInputPriceNum;
+											const raw =
+												tokensPerImage *
+												imageInputPriceNum *
+												serviceTierMultiplier;
 											const discounted = raw * (1 - discountNum);
 											return (
 												<div
@@ -866,6 +1157,8 @@ export function ProviderSection({
 											{formatPrice(
 												activeMapping.imageOutputPrice,
 												activeMapping.discount,
+												"end",
+												serviceTierMultiplier,
 											)}
 											<span className="text-muted-foreground/60">
 												/M tokens
@@ -895,7 +1188,10 @@ export function ProviderSection({
 											Output
 										</div>
 										{entries.map(([res, tokensPerImage]) => {
-											const raw = tokensPerImage * imageOutputPriceNum;
+											const raw =
+												tokensPerImage *
+												imageOutputPriceNum *
+												serviceTierMultiplier;
 											const discounted = raw * (1 - discountNum);
 											return (
 												<div
@@ -938,20 +1234,64 @@ export function ProviderSection({
 						{!isImageGen &&
 							activeMapping.requestPrice !== null &&
 							activeMapping.requestPrice !== undefined &&
-							parseFloat(activeMapping.requestPrice) > 0 && (
-								<span>
-									+ ${parseFloat(activeMapping.requestPrice).toFixed(3)}
-									<span className="text-muted-foreground/60"> per request</span>
-								</span>
-							)}
+							parseFloat(activeMapping.requestPrice) > 0 &&
+							(() => {
+								const original = parseFloat(activeMapping.requestPrice);
+								const discountNum = activeMapping.discount
+									? parseFloat(activeMapping.discount)
+									: 0;
+								return (
+									<span>
+										+{" "}
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground/60 mr-1">
+													${original.toFixed(3)}
+												</span>
+												<span className="text-green-600 font-semibold">
+													${(original * (1 - discountNum)).toFixed(3)}
+												</span>
+											</>
+										) : (
+											`$${original.toFixed(3)}`
+										)}
+										<span className="text-muted-foreground/60">
+											{" "}
+											per request
+										</span>
+									</span>
+								);
+							})()}
 						{activeMapping.webSearchPrice !== null &&
 							activeMapping.webSearchPrice !== undefined &&
-							parseFloat(activeMapping.webSearchPrice) > 0 && (
-								<span>
-									+ ${parseFloat(activeMapping.webSearchPrice).toFixed(3)}
-									<span className="text-muted-foreground/60"> per search</span>
-								</span>
-							)}
+							parseFloat(activeMapping.webSearchPrice) > 0 &&
+							(() => {
+								const original = parseFloat(activeMapping.webSearchPrice);
+								const discountNum = activeMapping.discount
+									? parseFloat(activeMapping.discount)
+									: 0;
+								return (
+									<span>
+										+{" "}
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground/60 mr-1">
+													${original.toFixed(3)}
+												</span>
+												<span className="text-green-600 font-semibold">
+													${(original * (1 - discountNum)).toFixed(3)}
+												</span>
+											</>
+										) : (
+											`$${original.toFixed(3)}`
+										)}
+										<span className="text-muted-foreground/60">
+											{" "}
+											per search
+										</span>
+									</span>
+								);
+							})()}
 					</div>
 				) : null}
 
@@ -976,6 +1316,72 @@ export function ProviderSection({
 							</>
 						)}
 					</button>
+				)}
+
+				{/* Reasoning efforts + supported parameters, collapsed by default */}
+				{hasMappingDetails && (
+					<>
+						{showMappingDetails && (
+							<div className="space-y-2.5">
+								{(activeMapping.reasoningEfforts?.length ?? 0) > 0 && (
+									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+											Reasoning Efforts
+										</div>
+										<div className="flex flex-wrap gap-1">
+											{activeMapping.reasoningEfforts!.map((effort) => (
+												<Badge
+													key={effort}
+													variant="outline"
+													className="text-[10px] px-1.5 py-0 h-4 font-mono text-muted-foreground"
+												>
+													{effort}
+												</Badge>
+											))}
+										</div>
+									</div>
+								)}
+								{(activeMapping.supportedParameters?.length ?? 0) > 0 && (
+									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+											Supported Parameters
+										</div>
+										<div className="flex flex-wrap gap-1">
+											{activeMapping.supportedParameters!.map((param) => (
+												<Badge
+													key={param}
+													variant="outline"
+													className="text-[10px] px-1.5 py-0 h-4 font-mono text-muted-foreground"
+												>
+													{param}
+												</Badge>
+											))}
+										</div>
+									</div>
+								)}
+							</div>
+						)}
+						<button
+							type="button"
+							className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+							onClick={(e) => {
+								e.stopPropagation();
+								setShowMappingDetails((v) => !v);
+							}}
+						>
+							{showMappingDetails ? (
+								<>
+									<ChevronUp className="h-3 w-3" />
+									Hide details
+								</>
+							) : (
+								<>
+									<ChevronDown className="h-3 w-3" />
+									Show details
+								</>
+							)}
+						</button>
+					</>
 				)}
 			</div>
 		</div>

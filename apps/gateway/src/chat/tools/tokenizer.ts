@@ -1,4 +1,8 @@
-import { estimateChatMessageTokens } from "@llmgateway/shared";
+import { logger } from "@llmgateway/logger";
+import {
+	estimateChatMessageTokens,
+	type TokenEstimateFallback,
+} from "@llmgateway/shared";
 
 /**
  * Converts a message content value (string, array of content parts, null, or
@@ -21,10 +25,26 @@ export function messageContentToString(
 /**
  * Rough length-based prompt-token estimate for a chat message array.
  *
- * Backed by the shared `estimateChatMessageTokens` helper, which only counts
- * text and ignores multimodal parts (image_url, file, etc.). Image input
- * billing is handled separately in costs.ts.
+ * Backed by the shared `estimateChatMessageTokens` helper. By default this
+ * counts text only and ignores multimodal parts (image_url, file, etc.) —
+ * image input is priced separately in costs.ts, so the billing-fallback
+ * callers must not include it here. Pass `modelId` to additionally count
+ * multimodal parts (using the model's per-image token table); this is used for
+ * routing decisions that should reflect large image payloads. See issue #2112.
  */
-export function encodeChatMessages(messages: any[]): number {
-	return estimateChatMessageTokens(messages);
+/**
+ * Logs when the multimodal estimate had to use a rough default, so unknown
+ * models/part types can be collected and the per-model token data improved
+ * over time (issue #2112).
+ */
+function warnOnFallbackEstimate(fallback: TokenEstimateFallback): void {
+	logger.warn("Multimodal token estimate fell back to a default", {
+		modelId: fallback.modelId,
+		imageParts: fallback.imageParts,
+		otherParts: fallback.otherParts,
+	});
+}
+
+export function encodeChatMessages(messages: any[], modelId?: string): number {
+	return estimateChatMessageTokens(messages, modelId, warnOnFallbackEstimate);
 }

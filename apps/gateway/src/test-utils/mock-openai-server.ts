@@ -2,6 +2,8 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
+import type { Context } from "hono";
+
 // Create a mock OpenAI API server
 export const mockOpenAIServer = new Hono();
 
@@ -327,7 +329,7 @@ function hasUserMessageTrigger(
 // Each test that relies on TRIGGER_FAIL_ONCE must call resetFailOnceCounter()
 // in its beforeEach to avoid cross-test interference.
 let failOnceCounter = 0;
-let currentMockServerUrl = "http://localhost:3001";
+let currentMockServerUrl = "";
 let videoCounter = 0;
 
 interface MockVideoJobState {
@@ -349,10 +351,13 @@ interface MockVideoJobState {
 		mimeType: string;
 		referenceType: string;
 	}>;
+	referenceVideoUrls?: string[];
 	imageUrls?: string[];
 	generationType?: string;
+	requestBody?: unknown;
 	size?: string;
 	duration?: number;
+	ratio?: string;
 	resolution?: string;
 	width?: number;
 	height?: number;
@@ -386,6 +391,13 @@ function getMockVideoSizeMetadata(size: unknown): {
 	height: number;
 } {
 	switch (size) {
+		case "848x480":
+			return {
+				size,
+				resolution: "480p",
+				width: 848,
+				height: 480,
+			};
 		case "720x1280":
 			return {
 				size,
@@ -568,19 +580,23 @@ function delay(ms: number): Promise<void> {
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
 
-	// Check if this request should trigger an error response
-	const shouldError = body.input?.some?.(
-		(msg: any) =>
-			msg.role === "user" && msg.content?.includes?.("TRIGGER_ERROR"),
-	);
+	// Get the user's message to include in the response. Used for both the error
+	// triggers below and the echoed assistant content. Responses-API input
+	// content is an array of parts, so extract the text rather than calling
+	// `.includes` on the raw content (which would miss array-form messages).
+	const userMessage = getResponsesApiUserMessage(body.input);
 
-	if (shouldError) {
+	// Check if this request should trigger an error response
+	const statusTrigger = extractStatusCodeTrigger(userMessage);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (userMessage.includes("TRIGGER_ERROR")) {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
-
-	// Get the user's message to include in the response
-	const userMessage = getResponsesApiUserMessage(body.input);
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -597,6 +613,9 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				object: "response",
 				created_at: Math.floor(Date.now() / 1000),
 				model: body.model ?? "gpt-5-nano",
+				...(typeof body.service_tier === "string"
+					? { service_tier: body.service_tier }
+					: {}),
 			};
 
 			await stream.writeSSE({
@@ -719,6 +738,9 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 			output_tokens: 20,
 			total_tokens: 30,
 		},
+		...(typeof body.service_tier === "string"
+			? { service_tier: body.service_tier }
+			: {}),
 		status: "completed",
 	};
 
@@ -763,6 +785,20 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 					type: "invalid_request_error",
 					param: "model",
 					code: "model_not_found",
+				},
+			});
+		}
+		// Subsequent requests succeed - fall through to normal response
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE_INVALID_KEY")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(400);
+			return c.json({
+				error: {
+					message: "API key not valid. Please pass a valid API key.",
+					type: "authentication_error",
+					param: null,
+					code: "invalid_api_key",
 				},
 			});
 		}
@@ -814,6 +850,11 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"ZERO_TOKENS",
 	);
+	const shouldReturnReasoning = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_REASONING",
+	);
+	const reasoningContent = "Let me think about this step by step.";
 	const shouldTruncateStream = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_TRUNCATED_STREAM",
@@ -838,6 +879,14 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		hasUserMessageTrigger(chatMessages, "TRIGGER_STREAM_FAIL_ONCE_NO_STATUS");
 
 	const assistantContent = `Hello! I received your message: "${userMessage}". This is a mock response from the test server.`;
+
+	// Honor the OpenAI `n` parameter for both streaming and non-streaming
+	// responses. Input tokens count once; completion tokens scale by n,
+	// mirroring upstream billing.
+	const requestedN =
+		typeof body.n === "number" && Number.isInteger(body.n) && body.n > 0
+			? body.n
+			: 1;
 
 	if (body.stream === true) {
 		return streamSSE(c, async (stream) => {
@@ -882,24 +931,25 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				}
 			}
 
-			await stream.writeSSE({
-				data: JSON.stringify({
-					id: "chatcmpl-123",
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: body.model ?? "gpt-4o-mini",
-					choices: [
-						{
-							index: 0,
-							delta: {
-								role: "assistant",
+			// Role chunks: one per choice index.
+			for (let index = 0; index < requestedN; index++) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-123",
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: body.model ?? "gpt-4o-mini",
+						choices: [
+							{
+								index,
+								delta: { role: "assistant" },
+								finish_reason: null,
 							},
-							finish_reason: null,
-						},
-					],
-				}),
-				id: String(eventId++),
-			});
+						],
+					}),
+					id: String(eventId++),
+				});
+			}
 
 			if (shouldReturnStreamedProviderError) {
 				await stream.writeSSE({
@@ -934,52 +984,97 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				return;
 			}
 
-			await stream.writeSSE({
-				data: JSON.stringify({
-					id: "chatcmpl-123",
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: body.model ?? "gpt-4o-mini",
-					choices: [
-						{
-							index: 0,
-							delta: {
-								content: assistantContent,
+			// Reasoning chunks (emitted before content, like real providers).
+			if (shouldReturnReasoning) {
+				for (let index = 0; index < requestedN; index++) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-123",
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: body.model ?? "gpt-4o-mini",
+							choices: [
+								{
+									index,
+									delta: { reasoning: reasoningContent },
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+				}
+			}
+
+			// Content chunks: one per choice index. For n > 1 each variant tags
+			// the content so the test can assert that no two choice streams
+			// were merged into one buffer.
+			for (let index = 0; index < requestedN; index++) {
+				const choiceContent =
+					requestedN > 1
+						? `${assistantContent} (variant ${index + 1})`
+						: assistantContent;
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-123",
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: body.model ?? "gpt-4o-mini",
+						choices: [
+							{
+								index,
+								delta: { content: choiceContent },
+								finish_reason: null,
 							},
-							finish_reason: null,
-						},
-					],
-				}),
-				id: String(eventId++),
-			});
+						],
+					}),
+					id: String(eventId++),
+				});
+			}
 
 			if (shouldTruncateStream) {
 				return;
 			}
 
-			await stream.writeSSE({
-				data: JSON.stringify({
-					id: "chatcmpl-123",
-					object: "chat.completion.chunk",
-					created: Math.floor(Date.now() / 1000),
-					model: body.model ?? "gpt-4o-mini",
-					choices: [
-						{
-							index: 0,
-							delta: {},
-							finish_reason: "stop",
-						},
-					],
-					usage: shouldReturnZeroTokens
-						? {
-								prompt_tokens: 0,
-								completion_tokens: 20,
-								total_tokens: 20,
-							}
-						: sampleChatCompletionResponse.usage,
-				}),
-				id: String(eventId++),
-			});
+			// Finish chunks: one per choice index. The last finish chunk also
+			// carries the shared usage object (input × 1, output × n) matching
+			// real OpenAI streaming behavior.
+			const baseUsage = sampleChatCompletionResponse.usage;
+			const streamingUsage = shouldReturnZeroTokens
+				? {
+						prompt_tokens: 0,
+						completion_tokens: 20 * requestedN,
+						total_tokens: 20 * requestedN,
+					}
+				: (() => {
+						const completionTokens = baseUsage.completion_tokens * requestedN;
+						return {
+							prompt_tokens: baseUsage.prompt_tokens,
+							completion_tokens: completionTokens,
+							total_tokens: baseUsage.prompt_tokens + completionTokens,
+						};
+					})();
+
+			for (let index = 0; index < requestedN; index++) {
+				const isLastChoice = index === requestedN - 1;
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-123",
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: body.model ?? "gpt-4o-mini",
+						choices: [
+							{
+								index,
+								delta: {},
+								finish_reason: "stop",
+							},
+						],
+						...(isLastChoice && { usage: streamingUsage }),
+					}),
+					id: String(eventId++),
+				});
+			}
 
 			if (shouldFinishWithoutDone) {
 				return;
@@ -993,25 +1088,122 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		});
 	}
 
-	// Create a custom response that includes the user's message
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then closes the socket before the body completes. The gateway's
+	// res.json() then throws undici's "terminated: other side closed"
+	// TypeError, exercising the non-streaming body-read failure path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_ABORT")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const abortedBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					return;
+				}
+				controller.error(new Error("simulated upstream socket close"));
+			},
+		});
+		return new Response(abortedBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then hangs forever without finishing it. The gateway's res.json()
+	// blocks waiting for the rest, letting a test abort the client mid-read to
+	// exercise the non-streaming body-read cancellation path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	// Simulate an upstream that returns a non-OK status (500) plus a partial
+	// error body, then hangs without finishing it. The gateway's res.text() on
+	// the error path blocks waiting for the rest, letting a test abort the
+	// client mid-read to exercise the non-streaming error-body cancellation
+	// path. The trigger deliberately avoids the "TRIGGER_ERROR" substring so the
+	// generic-error handler above doesn't short-circuit it.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingErrorBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingErrorBody, {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	const baseChoice = sampleChatCompletionResponse.choices[0];
+	const choices = Array.from({ length: requestedN }, (_, index) => ({
+		...baseChoice,
+		index,
+		message: {
+			role: "assistant",
+			content:
+				requestedN > 1
+					? `${assistantContent} (variant ${index + 1})`
+					: assistantContent,
+			...(shouldReturnReasoning && { reasoning: reasoningContent }),
+		},
+	}));
+
+	const baseUsage = sampleChatCompletionResponse.usage;
+	const usage = shouldReturnZeroTokens
+		? {
+				prompt_tokens: 0,
+				completion_tokens: 20 * requestedN,
+				total_tokens: 20 * requestedN,
+			}
+		: (() => {
+				const completionTokens = baseUsage.completion_tokens * requestedN;
+				return {
+					prompt_tokens: baseUsage.prompt_tokens,
+					completion_tokens: completionTokens,
+					total_tokens: baseUsage.prompt_tokens + completionTokens,
+				};
+			})();
+
 	const response = {
 		...sampleChatCompletionResponse,
-		choices: [
-			{
-				...sampleChatCompletionResponse.choices[0],
-				message: {
-					role: "assistant",
-					content: assistantContent,
-				},
-			},
-		],
-		usage: shouldReturnZeroTokens
-			? {
-					prompt_tokens: 0,
-					completion_tokens: 20,
-					total_tokens: 20,
-				}
-			: sampleChatCompletionResponse.usage,
+		choices,
+		usage,
 	};
 
 	return c.json(response);
@@ -1063,6 +1255,499 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v1/ocr", async (c) => {
+	const body = await c.req.json();
+	const document = body.document ?? {};
+	const documentUrl =
+		typeof document.document_url === "string"
+			? document.document_url
+			: typeof document.image_url === "string"
+				? document.image_url
+				: typeof document?.image_url?.url === "string"
+					? document.image_url.url
+					: "";
+
+	const statusTrigger = extractStatusCodeTrigger(documentUrl);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (documentUrl.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Allow tests to control the billed page count via the URL marker
+	// "PAGES_<n>"; default to a single page.
+	const pagesMatch = documentUrl.match(/PAGES_(\d+)/);
+	const pageCount = pagesMatch ? Number(pagesMatch[1]) : 1;
+
+	return c.json({
+		pages: Array.from({ length: pageCount }, (_, index) => ({
+			index,
+			markdown: `# Mock OCR page ${index}`,
+			images: [],
+			dimensions: { dpi: 200, height: 1024, width: 1024 },
+		})),
+		model: body.model ?? "mistral-ocr-latest",
+		document_annotation: null,
+		usage_info: { pages_processed: pageCount, doc_size_bytes: 12345 },
+	});
+});
+
+mockOpenAIServer.post("/v1/audio/speech", async (c) => {
+	const body = await c.req.json();
+	const input = typeof body.input === "string" ? body.input : "";
+
+	const statusTrigger = extractStatusCodeTrigger(input);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (input.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const format =
+		typeof body.response_format === "string" ? body.response_format : "mp3";
+	const contentTypes: Record<string, string> = {
+		mp3: "audio/mpeg",
+		opus: "audio/opus",
+		aac: "audio/aac",
+		flac: "audio/flac",
+		wav: "audio/wav",
+		pcm: "audio/pcm",
+	};
+	// Deterministic mock audio payload (not a real encoded stream).
+	const audio = Buffer.from("MOCK_OPENAI_AUDIO");
+
+	// gpt-4o-mini-tts requests stream_format=sse: emit audio deltas followed by a
+	// done event carrying token usage, mirroring OpenAI's SSE schema.
+	if (body.stream_format === "sse") {
+		const half = Math.ceil(audio.length / 2);
+		const delta1 = audio.subarray(0, half).toString("base64");
+		const delta2 = audio.subarray(half).toString("base64");
+		const usage = { input_tokens: 7, output_tokens: 42, total_tokens: 49 };
+		const sse =
+			`data: ${JSON.stringify({ type: "speech.audio.delta", audio: delta1 })}\n\n` +
+			`data: ${JSON.stringify({ type: "speech.audio.delta", audio: delta2 })}\n\n` +
+			`data: ${JSON.stringify({ type: "speech.audio.done", usage })}\n\n`;
+		return c.body(sse, 200, { "Content-Type": "text/event-stream" });
+	}
+
+	return c.body(audio, 200, {
+		"Content-Type": contentTypes[format] ?? "audio/mpeg",
+	});
+});
+
+// ElevenLabs text-to-speech: POST /v1/text-to-speech/{voice_id}?output_format=…
+// Returns the audio already encoded; the content type is derived from the
+// requested output_format query param.
+mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
+	const body = await c.req.json();
+	const text = typeof body.text === "string" ? body.text : "";
+
+	const statusTrigger = extractStatusCodeTrigger(text);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (text.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const outputFormat = c.req.query("output_format") ?? "mp3_44100_128";
+	const contentType = outputFormat.startsWith("wav")
+		? "audio/wav"
+		: outputFormat.startsWith("pcm")
+			? "audio/pcm"
+			: outputFormat.startsWith("opus")
+				? "audio/opus"
+				: "audio/mpeg";
+	const audio = Buffer.from("MOCK_ELEVENLABS_AUDIO");
+
+	return c.body(audio, 200, { "Content-Type": contentType });
+});
+
+mockOpenAIServer.post("/v1/embeddings", async (c) => {
+	const body = await c.req.json();
+	const inputs = Array.isArray(body.input) ? body.input : [body.input];
+	const combinedInput = inputs
+		.map((item: any) =>
+			typeof item === "string" ? item : JSON.stringify(item ?? null),
+		)
+		.join(" ");
+
+	const timeoutDelay = extractTimeoutDelay(combinedInput);
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
+
+	const statusTrigger = extractStatusCodeTrigger(combinedInput);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (combinedInput.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Any request authenticated with a key whose token contains EMBED_FAIL_KEY
+	// fails with 500 on every call. Unlike the global TRIGGER_FAIL_ONCE counter,
+	// this is keyed on the credential, so tests can mark one specific provider
+	// key as persistently unhealthy and verify health-aware key selection routes
+	// subsequent requests onto the other key.
+	const embeddingsAuthHeader = c.req.header("authorization") ?? "";
+	if (embeddingsAuthHeader.includes("EMBED_FAIL_KEY")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// First call with TRIGGER_FAIL_ONCE fails with 500, subsequent calls fall
+	// through to the success path. Lets embedding key-rotation tests verify
+	// that the gateway retries with another key after an upstream failure.
+	if (combinedInput.includes("TRIGGER_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json(sampleErrorResponse);
+		}
+	}
+
+	const requestedDimensions =
+		typeof body.dimensions === "number" && body.dimensions > 0
+			? body.dimensions
+			: 1536;
+	const isTokenArray =
+		Array.isArray(body.input) &&
+		body.input.length > 0 &&
+		body.input.every((item: unknown) => typeof item === "number");
+	const items =
+		Array.isArray(body.input) && !isTokenArray ? body.input.length : 1;
+	const data = Array.from({ length: items }, (_, index) => ({
+		object: "embedding",
+		index,
+		embedding: Array.from({ length: requestedDimensions }, (__, dim) => {
+			const base = dim % 2 === 0 ? 0.0023 : -0.0042;
+			const offset = index / 100000;
+			return base + offset;
+		}),
+	}));
+
+	const promptTokens = combinedInput.length || 1;
+
+	return c.json({
+		object: "list",
+		data,
+		model: body.model ?? "text-embedding-3-small",
+		usage: {
+			prompt_tokens: promptTokens,
+			total_tokens: promptTokens,
+		},
+	});
+});
+
+function buildGoogleEmbeddingValues(
+	text: string,
+	dimensions: number,
+	index: number,
+): number[] {
+	void text;
+	return Array.from({ length: dimensions }, (__, dim) => {
+		const base = dim % 2 === 0 ? 0.0011 : -0.0033;
+		const offset = index / 100000;
+		return base + offset;
+	});
+}
+
+// Mirror real Google behavior: gemini-embedding-2 returns usageMetadata,
+// gemini-embedding-001 does not. This lets us exercise both code paths.
+function googleReturnsUsageMetadata(modelName: string): boolean {
+	return modelName !== "gemini-embedding-001";
+}
+
+function googleTokensFor(text: string): number {
+	// Deliberately distinct from the gateway's ceil(chars/4) fallback so
+	// tests can detect when upstream usage is used vs. estimated.
+	return Math.max(1, Math.floor(text.length / 5));
+}
+
+function parseGoogleAiStudioPath(
+	path: string,
+): { modelName: string; action: string } | null {
+	const match = path.match(/^\/v1beta\/models\/([^/:]+):([^/]+)$/);
+	if (!match) {
+		return null;
+	}
+	return { modelName: match[1], action: match[2] };
+}
+
+async function handleGoogleEmbedContent(c: Context, modelName: string) {
+	const body = await c.req.json();
+	const text =
+		typeof body?.content?.parts?.[0]?.text === "string"
+			? body.content.parts[0].text
+			: "";
+	const statusTrigger = extractStatusCodeTrigger(text);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (text.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json({
+			error: {
+				code: 500,
+				message: "Internal server error",
+				status: "INTERNAL",
+			},
+		});
+	}
+	const dimensions =
+		typeof body?.outputDimensionality === "number" &&
+		body.outputDimensionality > 0
+			? body.outputDimensionality
+			: 3072;
+	const response: Record<string, unknown> = {
+		embedding: {
+			values: buildGoogleEmbeddingValues(text, dimensions, 0),
+		},
+	};
+	if (googleReturnsUsageMetadata(modelName)) {
+		response.usageMetadata = { promptTokenCount: googleTokensFor(text) };
+	}
+	return c.json(response);
+}
+
+async function handleGoogleBatchEmbedContents(c: Context, modelName: string) {
+	const body = await c.req.json();
+	const requests = Array.isArray(body?.requests) ? body.requests : [];
+	const combinedInput = requests
+		.map(
+			(req: any) =>
+				(typeof req?.content?.parts?.[0]?.text === "string"
+					? req.content.parts[0].text
+					: "") ?? "",
+		)
+		.join(" ");
+	const statusTrigger = extractStatusCodeTrigger(combinedInput);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (combinedInput.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json({
+			error: {
+				code: 500,
+				message: "Internal server error",
+				status: "INTERNAL",
+			},
+		});
+	}
+	const embeddings = requests.map((req: any, index: number) => {
+		const text =
+			typeof req?.content?.parts?.[0]?.text === "string"
+				? req.content.parts[0].text
+				: "";
+		const dimensions =
+			typeof req?.outputDimensionality === "number" &&
+			req.outputDimensionality > 0
+				? req.outputDimensionality
+				: 3072;
+		return {
+			values: buildGoogleEmbeddingValues(text, dimensions, index),
+		};
+	});
+	const response: Record<string, unknown> = { embeddings };
+	if (googleReturnsUsageMetadata(modelName)) {
+		response.usageMetadata = {
+			promptTokenCount: requests.reduce(
+				(sum: number, req: any) =>
+					sum +
+					googleTokensFor(
+						typeof req?.content?.parts?.[0]?.text === "string"
+							? req.content.parts[0].text
+							: "",
+					),
+				0,
+			),
+		};
+	}
+	return c.json(response);
+}
+
+async function handleGoogleGenerateContent(c: Context) {
+	const body = await c.req.json();
+	const shouldError = body.contents?.some?.((content: any) =>
+		content.parts?.some?.((part: any) =>
+			part.text?.includes?.("TRIGGER_ERROR"),
+		),
+	);
+	if (shouldError) {
+		c.status(500);
+		return c.json({
+			error: {
+				code: 500,
+				message: "Internal server error",
+				status: "INTERNAL",
+			},
+		});
+	}
+	// First call with TRIGGER_FAIL_ONCE fails with 500, subsequent calls
+	// succeed. Uses the shared failOnceCounter (reset via resetFailOnceCounter)
+	// so retry behavior can be exercised on the Gemini-format endpoint too.
+	const failOnce = body.contents?.some?.((content: any) =>
+		content.parts?.some?.((part: any) =>
+			part.text?.includes?.("TRIGGER_FAIL_ONCE"),
+		),
+	);
+	if (failOnce) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json({
+				error: {
+					code: 500,
+					message: "Internal server error (fail once)",
+					status: "INTERNAL",
+				},
+			});
+		}
+	}
+	// Speech generation: when the caller requests AUDIO output, return an
+	// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+	const responseModalities: string[] =
+		body.generationConfig?.responseModalities ?? [];
+	if (responseModalities.includes("AUDIO")) {
+		// 8 samples of 16-bit silence as a deterministic PCM payload.
+		const pcm = Buffer.alloc(16);
+		return c.json({
+			candidates: [
+				{
+					content: {
+						parts: [
+							{
+								inlineData: {
+									mimeType: "audio/L16;codec=pcm;rate=24000",
+									data: pcm.toString("base64"),
+								},
+							},
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					index: 0,
+				},
+			],
+			usageMetadata: {
+				promptTokenCount: 5,
+				candidatesTokenCount: 42,
+				totalTokenCount: 47,
+			},
+		});
+	}
+
+	const userMessage =
+		body.contents?.find?.((entry: any) => entry.role === "user")?.parts?.[0]
+			?.text ?? "";
+
+	const candidateCount =
+		typeof body.generationConfig?.candidateCount === "number"
+			? body.generationConfig.candidateCount
+			: 1;
+	if (candidateCount > 8 || candidateCount < 1) {
+		c.status(400);
+		return c.json({
+			error: {
+				code: 400,
+				message:
+					"* GenerateContentRequest.generation_config.candidate_count: candidate_count must be in the range [1, 8].\n",
+				status: "INVALID_ARGUMENT",
+			},
+		});
+	}
+	if (candidateCount > 1) {
+		// Mirror the real AI Studio quirk: candidate 0's parts contain its own
+		// output followed by a verbatim copy of every other candidate's parts,
+		// so tests exercise the gateway's de-duplication.
+		const variantPart = (i: number) => ({
+			text: `Google variant ${i + 1} for: "${userMessage}"`,
+		});
+		const candidates = Array.from({ length: candidateCount }, (_, i) => ({
+			content: {
+				parts:
+					i === 0
+						? [
+								variantPart(0),
+								...Array.from({ length: candidateCount - 1 }, (__, j) =>
+									variantPart(j + 1),
+								),
+							]
+						: [variantPart(i)],
+				role: "model",
+			},
+			finishReason: "STOP",
+			index: i,
+		}));
+		const candidatesTokenCount = 20 * candidateCount;
+		return c.json({
+			candidates,
+			usageMetadata: {
+				promptTokenCount: 10,
+				candidatesTokenCount,
+				totalTokenCount: 10 + candidatesTokenCount,
+			},
+		});
+	}
+
+	return c.json({
+		candidates: [
+			{
+				content: {
+					parts: [
+						{
+							text: `Hello! I received your message: "${userMessage}". This is a mock Google AI response.`,
+						},
+					],
+					role: "model",
+				},
+				finishReason: "STOP",
+				index: 0,
+			},
+		],
+		usageMetadata: {
+			promptTokenCount: 10,
+			candidatesTokenCount: 20,
+			totalTokenCount: 30,
+		},
+	});
+}
+
+mockOpenAIServer.post("/v1beta/models/:rest{.+}", async (c) => {
+	const parsed = parseGoogleAiStudioPath(c.req.path);
+	if (!parsed) {
+		c.status(404);
+		return c.json({ error: { code: 404, message: "Not found" } });
+	}
+	const { modelName, action } = parsed;
+	if (action === "embedContent") {
+		return await handleGoogleEmbedContent(c, modelName);
+	}
+	if (action === "batchEmbedContents") {
+		return await handleGoogleBatchEmbedContents(c, modelName);
+	}
+	if (action === "generateContent") {
+		return await handleGoogleGenerateContent(c);
+	}
+	c.status(404);
+	return c.json({ error: { code: 404, message: "Not found" } });
+});
+
 mockOpenAIServer.post("/v1/videos", async (c) => {
 	const contentType = c.req.header("content-type") ?? "";
 	const authorization = c.req.header("authorization") ?? "";
@@ -1112,6 +1797,45 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 				? Number(body.seconds)
 				: typeof body.seconds === "number"
 					? body.seconds
+					: 8,
+		resolution: videoSize.resolution,
+		width: videoSize.width,
+		height: videoSize.height,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json(job);
+});
+
+mockOpenAIServer.post("/v1/videos/generations", async (c) => {
+	const body = await c.req.json();
+	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as Parameters<typeof c.status>[0]);
+		return c.json(statusTrigger.errorResponse);
+	}
+	videoCounter++;
+	const id = `video_${videoCounter}`;
+	const videoSize = getMockVideoSizeMetadata(body.size);
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: body.model ?? "grok-imagine-video-1.5",
+		status: "queued",
+		progress: 0,
+		firstFrame: extractMockVideoImage(body.image),
+		size: videoSize.size,
+		duration:
+			typeof body.duration === "number"
+				? body.duration
+				: typeof body.duration === "string"
+					? Number(body.duration)
 					: 8,
 		resolution: videoSize.resolution,
 		width: videoSize.width,
@@ -1261,6 +1985,213 @@ mockOpenAIServer.post("/api/v1/jobs/createTask", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
+	const body = await c.req.json();
+	const content = Array.isArray(body.content) ? body.content : [];
+	const promptItem = content.find(
+		(item: unknown): item is { text: string } =>
+			!!item &&
+			typeof item === "object" &&
+			(item as Record<string, unknown>).type === "text",
+	);
+	const prompt =
+		promptItem && typeof promptItem.text === "string" ? promptItem.text : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	const parseFrameByRole = (role: string) => {
+		const item = content.find(
+			(entry: unknown): entry is Record<string, unknown> =>
+				!!entry &&
+				typeof entry === "object" &&
+				(entry as Record<string, unknown>).role === role,
+		);
+		const url =
+			item &&
+			typeof item.image_url === "object" &&
+			item.image_url !== null &&
+			typeof (item.image_url as Record<string, unknown>).url === "string"
+				? ((item.image_url as Record<string, unknown>).url as string)
+				: undefined;
+		if (!url) {
+			return undefined;
+		}
+		const match = url.match(/^data:([^;]+);base64,(.*)$/);
+		if (!match) {
+			return undefined;
+		}
+		return {
+			mimeType: match[1],
+			bytesBase64Encoded: match[2],
+		};
+	};
+
+	const referenceImages: Array<{
+		mimeType: string;
+		bytesBase64Encoded: string;
+		referenceType: string;
+	}> = [];
+	for (const entry of content) {
+		if (
+			!entry ||
+			typeof entry !== "object" ||
+			(entry as Record<string, unknown>).role !== "reference_image"
+		) {
+			continue;
+		}
+		const imageUrl = (entry as Record<string, unknown>).image_url;
+		const url =
+			typeof imageUrl === "object" &&
+			imageUrl !== null &&
+			typeof (imageUrl as Record<string, unknown>).url === "string"
+				? ((imageUrl as Record<string, unknown>).url as string)
+				: undefined;
+		const match = url?.match(/^data:([^;]+);base64,(.*)$/);
+		if (!match) {
+			continue;
+		}
+		referenceImages.push({
+			mimeType: match[1],
+			bytesBase64Encoded: match[2],
+			referenceType: "reference_image",
+		});
+	}
+
+	videoCounter++;
+	const id = `bytedance_task_${videoCounter}`;
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "seedance-2-0",
+		status: "queued",
+		progress: 0,
+		firstFrame: parseFrameByRole("first_frame"),
+		lastFrame: parseFrameByRole("last_frame"),
+		referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
+		resolution:
+			typeof body.resolution === "string" ? body.resolution : undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json({
+		id,
+		status: "queued",
+	});
+});
+
+mockOpenAIServer.post("/api/v1/model/uploadMedia", async (c) => {
+	const authHeader = c.req.header("Authorization");
+	if (!authHeader?.startsWith("Bearer ")) {
+		c.status(401);
+		return c.json({
+			error: {
+				message: "Unauthorized",
+			},
+		});
+	}
+
+	const formData = await c.req.formData();
+	const file = formData.get("file");
+	if (!(file instanceof File)) {
+		c.status(400);
+		return c.json({
+			error: {
+				message: "file is required",
+			},
+		});
+	}
+
+	videoCounter++;
+	const url = `${currentMockServerUrl}/uploads/atlascloud-media-${videoCounter}.png`;
+	if (videoCounter % 2 === 0) {
+		return c.json({
+			data: url,
+		});
+	}
+	return c.json({
+		data: {
+			temporary_url: url,
+		},
+	});
+});
+
+mockOpenAIServer.post("/api/v1/model/generateVideo", async (c) => {
+	const body = await c.req.json();
+	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	videoCounter++;
+	const id = `atlascloud_prediction_${videoCounter}`;
+	const videoSize =
+		body.aspect_ratio === "9:16"
+			? getMockVideoSizeMetadata("720x1280")
+			: getMockVideoSizeMetadata("1280x720");
+	const imageUrls = [
+		typeof body.image === "string" ? body.image : null,
+		typeof body.end_image === "string" ? body.end_image : null,
+		typeof body.image_url === "string" ? body.image_url : null,
+		typeof body.end_image_url === "string" ? body.end_image_url : null,
+		...(Array.isArray(body.reference_image_urls)
+			? body.reference_image_urls.filter(
+					(value: unknown): value is string => typeof value === "string",
+				)
+			: []),
+	].filter((value): value is string => value !== null);
+	const referenceVideoUrls = Array.isArray(body.reference_video_urls)
+		? body.reference_video_urls.filter(
+				(value: unknown): value is string => typeof value === "string",
+			)
+		: [];
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "atlascloud-video",
+		status: "queued",
+		progress: 0,
+		imageUrls,
+		referenceVideoUrls,
+		requestBody: body,
+		size: videoSize.size,
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		resolution: videoSize.resolution,
+		width: videoSize.width,
+		height: videoSize.height,
+		generateAudio:
+			typeof body.sound === "boolean"
+				? body.sound
+				: typeof body.audio === "boolean"
+					? body.audio
+					: undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json({
+		data: {
+			id,
+			status: "created",
+		},
+	});
+});
+
 mockOpenAIServer.post("/api/file-base64-upload", async (c) => {
 	const authHeader = c.req.header("Authorization");
 	if (!authHeader?.startsWith("Bearer ")) {
@@ -1294,265 +2225,394 @@ mockOpenAIServer.post("/api/file-base64-upload", async (c) => {
 	});
 });
 
-mockOpenAIServer.post(
-	"/v1/projects/:project/locations/:location/publishers/google/models/*",
-	async (c, next) => {
-		const vertexApiKey = c.req.query("key");
+const vertexPublisherModelHandler = async (
+	c: Context,
+	next: () => Promise<void>,
+) => {
+	const vertexApiKey = c.req.query("key");
+	const authHeader = c.req.header("authorization") ?? "";
+	const bearerToken = authHeader.toLowerCase().startsWith("bearer ")
+		? authHeader.slice(7).trim()
+		: "";
+	// :predict and :embedContent require an OAuth bearer (Vertex blocks API
+	// keys on PredictionService). Other actions like :predictLongRunning
+	// still accept the legacy ?key= query param.
+	const authorized =
+		vertexApiKey === "vertex-test-token" ||
+		vertexApiKey === "google-test-key" ||
+		bearerToken === "mock-oauth-access-token";
+	if (!authorized) {
+		c.status(401);
+		return c.json({
+			error: {
+				message: "Invalid Vertex credentials",
+			},
+		});
+	}
+
+	const modelPath = c.req.path.split("/models/")[1] ?? "";
+	const [modelName, action] = modelPath.split(":");
+
+	if (
+		action !== "predictLongRunning" &&
+		action !== "fetchPredictOperation" &&
+		action !== "predict" &&
+		action !== "embedContent"
+	) {
+		// Don't consume the request body — let another route handle it (e.g.
+		// :generateContent for chat tests).
+		return await next();
+	}
+
+	const body = await c.req.json();
+
+	if (action === "predictLongRunning") {
+		const prompt =
+			Array.isArray(body.instances) &&
+			body.instances[0] &&
+			typeof body.instances[0] === "object" &&
+			typeof (body.instances[0] as Record<string, unknown>).prompt === "string"
+				? ((body.instances[0] as Record<string, unknown>).prompt as string)
+				: "";
 		if (
-			vertexApiKey !== "vertex-test-token" &&
-			vertexApiKey !== "google-test-key"
+			prompt.includes("TRIGGER_STATUS_500_VERTEX_ONLY") ||
+			prompt.includes("TRIGGER_VERTEX_ONLY_500")
 		) {
-			c.status(401);
+			c.status(500);
+			return c.json(sample500ErrorResponse);
+		}
+		const statusTrigger = extractStatusCodeTrigger(prompt);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		videoCounter++;
+		const operationName = `projects/${c.req.param("project")}/locations/${c.req.param("location")}/publishers/google/models/${modelName}/operations/video_${videoCounter}`;
+		const parameters =
+			body.parameters && typeof body.parameters === "object"
+				? body.parameters
+				: {};
+		const videoSize = getMockVertexVideoSizeMetadata(
+			(parameters as Record<string, unknown>).resolution,
+			(parameters as Record<string, unknown>).aspectRatio,
+		);
+		const storageUri =
+			typeof (parameters as Record<string, unknown>).storageUri === "string"
+				? (parameters as Record<string, unknown>).storageUri
+				: undefined;
+		const instance =
+			Array.isArray(body.instances) &&
+			body.instances[0] &&
+			typeof body.instances[0] === "object"
+				? (body.instances[0] as Record<string, unknown>)
+				: null;
+		const firstFrame =
+			instance?.image && typeof instance.image === "object"
+				? (instance.image as Record<string, unknown>)
+				: null;
+		const lastFrame =
+			instance?.lastFrame && typeof instance.lastFrame === "object"
+				? (instance.lastFrame as Record<string, unknown>)
+				: null;
+		const referenceImages = Array.isArray(instance?.referenceImages)
+			? instance.referenceImages
+			: [];
+		const job: MockVideoJobState = {
+			id: operationName,
+			object: "video",
+			model: modelName || "veo-3.1-generate-preview",
+			status: "queued",
+			progress: 0,
+			firstFrame:
+				typeof firstFrame?.bytesBase64Encoded === "string" &&
+				firstFrame.bytesBase64Encoded.length > 0
+					? {
+							bytesBase64Encoded: firstFrame.bytesBase64Encoded,
+							mimeType:
+								typeof firstFrame.mimeType === "string" &&
+								firstFrame.mimeType.length > 0
+									? firstFrame.mimeType
+									: "image/png",
+						}
+					: undefined,
+			lastFrame:
+				typeof lastFrame?.bytesBase64Encoded === "string" &&
+				lastFrame.bytesBase64Encoded.length > 0
+					? {
+							bytesBase64Encoded: lastFrame.bytesBase64Encoded,
+							mimeType:
+								typeof lastFrame.mimeType === "string" &&
+								lastFrame.mimeType.length > 0
+									? lastFrame.mimeType
+									: "image/png",
+						}
+					: undefined,
+			referenceImages: referenceImages
+				.map((referenceImage) => {
+					if (
+						!referenceImage ||
+						typeof referenceImage !== "object" ||
+						!("image" in referenceImage)
+					) {
+						return null;
+					}
+
+					const image =
+						(referenceImage as Record<string, unknown>).image &&
+						typeof (referenceImage as Record<string, unknown>).image ===
+							"object"
+							? ((referenceImage as Record<string, unknown>).image as Record<
+									string,
+									unknown
+								>)
+							: null;
+					if (
+						typeof image?.bytesBase64Encoded !== "string" ||
+						image.bytesBase64Encoded.length === 0
+					) {
+						return null;
+					}
+
+					const referenceType =
+						typeof (referenceImage as Record<string, unknown>).referenceType ===
+						"string"
+							? ((referenceImage as Record<string, unknown>)
+									.referenceType as string)
+							: "asset";
+
+					return {
+						bytesBase64Encoded: image.bytesBase64Encoded,
+						mimeType:
+							typeof image.mimeType === "string" && image.mimeType.length > 0
+								? image.mimeType
+								: "image/png",
+						referenceType: referenceType.length > 0 ? referenceType : "asset",
+					};
+				})
+				.filter(
+					(
+						referenceImage,
+					): referenceImage is NonNullable<typeof referenceImage> =>
+						referenceImage !== null,
+				),
+			size: videoSize.size,
+			duration:
+				typeof (parameters as Record<string, unknown>).durationSeconds ===
+					"number" &&
+				Number.isFinite((parameters as Record<string, unknown>).durationSeconds)
+					? ((parameters as Record<string, unknown>).durationSeconds as number)
+					: 8,
+			generateAudio:
+				typeof (parameters as Record<string, unknown>).generateAudio ===
+				"boolean"
+					? ((parameters as Record<string, unknown>).generateAudio as boolean)
+					: true,
+			resolution: videoSize.resolution,
+			width: videoSize.width,
+			height: videoSize.height,
+			storageUri:
+				typeof storageUri === "string"
+					? `${storageUri.replace(/\/$/, "")}/output.mp4`
+					: undefined,
+			created_at: Math.floor(Date.now() / 1000),
+			completed_at: null,
+			expires_at: null,
+			error: null,
+		};
+
+		videoJobs.set(operationName, job);
+
+		return c.json({
+			name: operationName,
+			done: false,
+		});
+	}
+
+	if (action === "embedContent") {
+		const contentObj =
+			body.content && typeof body.content === "object"
+				? (body.content as Record<string, unknown>)
+				: {};
+		const parts = Array.isArray(contentObj.parts) ? contentObj.parts : [];
+		const text =
+			parts.length > 0 &&
+			typeof parts[0] === "object" &&
+			parts[0] !== null &&
+			typeof (parts[0] as Record<string, unknown>).text === "string"
+				? ((parts[0] as Record<string, unknown>).text as string)
+				: "";
+		const statusTrigger = extractStatusCodeTrigger(text);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		if (text.includes("TRIGGER_ERROR")) {
+			c.status(500);
 			return c.json({
 				error: {
-					message: "Invalid Vertex API key",
+					code: 500,
+					message: "Internal server error",
+					status: "INTERNAL",
+				},
+			});
+		}
+		const dimensions =
+			typeof body.outputDimensionality === "number" &&
+			body.outputDimensionality > 0
+				? (body.outputDimensionality as number)
+				: 3072;
+		const values = Array.from({ length: dimensions }, (_, dim) => {
+			const base = dim % 2 === 0 ? 0.0011 : -0.0033;
+			return base;
+		});
+		const tokenCount = Math.max(1, Math.floor(text.length / 5));
+		return c.json({
+			embedding: { values },
+			usageMetadata: { promptTokenCount: tokenCount },
+		});
+	}
+
+	if (action === "predict") {
+		const instances = Array.isArray(body.instances) ? body.instances : [];
+		const texts: string[] = instances.map((inst: unknown) => {
+			if (inst && typeof inst === "object") {
+				const content = (inst as Record<string, unknown>).content;
+				return typeof content === "string" ? content : "";
+			}
+			return "";
+		});
+		const firstText = texts[0] ?? "";
+		const statusTrigger = extractStatusCodeTrigger(firstText);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		if (firstText.includes("TRIGGER_ERROR")) {
+			c.status(500);
+			return c.json({
+				error: {
+					code: 500,
+					message: "Internal server error",
+					status: "INTERNAL",
+				},
+			});
+		}
+		const parameters =
+			body.parameters && typeof body.parameters === "object"
+				? (body.parameters as Record<string, unknown>)
+				: {};
+		const dimensions =
+			typeof parameters.outputDimensionality === "number" &&
+			parameters.outputDimensionality > 0
+				? (parameters.outputDimensionality as number)
+				: 3072;
+		const values = Array.from({ length: dimensions }, (_, dim) => {
+			const base = dim % 2 === 0 ? 0.0011 : -0.0033;
+			return base;
+		});
+		// Distinct from the gateway's ceil(chars/4) fallback so tests can
+		// detect when upstream token_count is used vs. estimated.
+		return c.json({
+			predictions: texts.map((text) => ({
+				embeddings: {
+					values,
+					statistics: {
+						truncated: false,
+						token_count: Math.max(1, Math.floor(text.length / 5)),
+					},
+				},
+			})),
+		});
+	}
+
+	if (action === "fetchPredictOperation") {
+		const operationName =
+			body && typeof body === "object" ? body.operationName : undefined;
+
+		if (typeof operationName !== "string" || operationName.length === 0) {
+			c.status(400);
+			return c.json({
+				error: {
+					message: "operationName is required",
 				},
 			});
 		}
 
-		const body = await c.req.json();
-		const modelPath = c.req.path.split("/models/")[1] ?? "";
-		const [modelName, action] = modelPath.split(":");
-
-		if (action !== "predictLongRunning" && action !== "fetchPredictOperation") {
-			return await next();
+		const job = videoJobs.get(operationName);
+		if (!job) {
+			c.status(404);
+			return c.json({
+				error: {
+					message: "Operation not found",
+				},
+			});
 		}
 
-		if (action === "predictLongRunning") {
-			const prompt =
-				Array.isArray(body.instances) &&
-				body.instances[0] &&
-				typeof body.instances[0] === "object" &&
-				typeof (body.instances[0] as Record<string, unknown>).prompt ===
-					"string"
-					? ((body.instances[0] as Record<string, unknown>).prompt as string)
-					: "";
-			if (
-				prompt.includes("TRIGGER_STATUS_500_VERTEX_ONLY") ||
-				prompt.includes("TRIGGER_VERTEX_ONLY_500")
-			) {
-				c.status(500);
-				return c.json(sample500ErrorResponse);
-			}
-			const statusTrigger = extractStatusCodeTrigger(prompt);
-			if (statusTrigger) {
-				c.status(statusTrigger.statusCode as any);
-				return c.json(statusTrigger.errorResponse);
-			}
-			videoCounter++;
-			const operationName = `projects/${c.req.param("project")}/locations/${c.req.param("location")}/publishers/google/models/${modelName}/operations/video_${videoCounter}`;
-			const parameters =
-				body.parameters && typeof body.parameters === "object"
-					? body.parameters
-					: {};
-			const videoSize = getMockVertexVideoSizeMetadata(
-				(parameters as Record<string, unknown>).resolution,
-				(parameters as Record<string, unknown>).aspectRatio,
-			);
-			const storageUri =
-				typeof (parameters as Record<string, unknown>).storageUri === "string"
-					? (parameters as Record<string, unknown>).storageUri
-					: undefined;
-			const instance =
-				Array.isArray(body.instances) &&
-				body.instances[0] &&
-				typeof body.instances[0] === "object"
-					? (body.instances[0] as Record<string, unknown>)
-					: null;
-			const firstFrame =
-				instance?.image && typeof instance.image === "object"
-					? (instance.image as Record<string, unknown>)
-					: null;
-			const lastFrame =
-				instance?.lastFrame && typeof instance.lastFrame === "object"
-					? (instance.lastFrame as Record<string, unknown>)
-					: null;
-			const referenceImages = Array.isArray(instance?.referenceImages)
-				? instance.referenceImages
-				: [];
-			const job: MockVideoJobState = {
-				id: operationName,
-				object: "video",
-				model: modelName || "veo-3.1-generate-preview",
-				status: "queued",
-				progress: 0,
-				firstFrame:
-					typeof firstFrame?.bytesBase64Encoded === "string" &&
-					firstFrame.bytesBase64Encoded.length > 0
-						? {
-								bytesBase64Encoded: firstFrame.bytesBase64Encoded,
-								mimeType:
-									typeof firstFrame.mimeType === "string" &&
-									firstFrame.mimeType.length > 0
-										? firstFrame.mimeType
-										: "image/png",
-							}
-						: undefined,
-				lastFrame:
-					typeof lastFrame?.bytesBase64Encoded === "string" &&
-					lastFrame.bytesBase64Encoded.length > 0
-						? {
-								bytesBase64Encoded: lastFrame.bytesBase64Encoded,
-								mimeType:
-									typeof lastFrame.mimeType === "string" &&
-									lastFrame.mimeType.length > 0
-										? lastFrame.mimeType
-										: "image/png",
-							}
-						: undefined,
-				referenceImages: referenceImages
-					.map((referenceImage) => {
-						if (
-							!referenceImage ||
-							typeof referenceImage !== "object" ||
-							!("image" in referenceImage)
-						) {
-							return null;
-						}
+		if (job.status === "failed") {
+			return c.json({
+				name: operationName,
+				done: true,
+				error: {
+					code: 13,
+					message: "Mock Vertex generation failed",
+				},
+			});
+		}
 
-						const image =
-							(referenceImage as Record<string, unknown>).image &&
-							typeof (referenceImage as Record<string, unknown>).image ===
-								"object"
-								? ((referenceImage as Record<string, unknown>).image as Record<
-										string,
-										unknown
-									>)
-								: null;
-						if (
-							typeof image?.bytesBase64Encoded !== "string" ||
-							image.bytesBase64Encoded.length === 0
-						) {
-							return null;
-						}
-
-						const referenceType =
-							typeof (referenceImage as Record<string, unknown>)
-								.referenceType === "string"
-								? ((referenceImage as Record<string, unknown>)
-										.referenceType as string)
-								: "asset";
-
-						return {
-							bytesBase64Encoded: image.bytesBase64Encoded,
-							mimeType:
-								typeof image.mimeType === "string" && image.mimeType.length > 0
-									? image.mimeType
-									: "image/png",
-							referenceType: referenceType.length > 0 ? referenceType : "asset",
-						};
-					})
-					.filter(
-						(
-							referenceImage,
-						): referenceImage is NonNullable<typeof referenceImage> =>
-							referenceImage !== null,
-					),
-				size: videoSize.size,
-				duration:
-					typeof (parameters as Record<string, unknown>).durationSeconds ===
-						"number" &&
-					Number.isFinite(
-						(parameters as Record<string, unknown>).durationSeconds,
-					)
-						? ((parameters as Record<string, unknown>)
-								.durationSeconds as number)
-						: 8,
-				generateAudio:
-					typeof (parameters as Record<string, unknown>).generateAudio ===
-					"boolean"
-						? ((parameters as Record<string, unknown>).generateAudio as boolean)
-						: true,
-				resolution: videoSize.resolution,
-				width: videoSize.width,
-				height: videoSize.height,
-				storageUri:
-					typeof storageUri === "string"
-						? `${storageUri.replace(/\/$/, "")}/output.mp4`
-						: undefined,
-				created_at: Math.floor(Date.now() / 1000),
-				completed_at: null,
-				expires_at: null,
-				error: null,
-			};
-
-			videoJobs.set(operationName, job);
-
+		if (job.status !== "completed") {
 			return c.json({
 				name: operationName,
 				done: false,
 			});
 		}
 
-		if (action === "fetchPredictOperation") {
-			const operationName =
-				body && typeof body === "object" ? body.operationName : undefined;
-
-			if (typeof operationName !== "string" || operationName.length === 0) {
-				c.status(400);
-				return c.json({
-					error: {
-						message: "operationName is required",
-					},
-				});
-			}
-
-			const job = videoJobs.get(operationName);
-			if (!job) {
-				c.status(404);
-				return c.json({
-					error: {
-						message: "Operation not found",
-					},
-				});
-			}
-
-			if (job.status === "failed") {
-				return c.json({
-					name: operationName,
-					done: true,
-					error: {
-						code: 13,
-						message: "Mock Vertex generation failed",
-					},
-				});
-			}
-
-			if (job.status !== "completed") {
-				return c.json({
-					name: operationName,
-					done: false,
-				});
-			}
-
-			return c.json({
-				name: operationName,
-				done: true,
-				response: {
-					videos: [
-						job.storageUri
-							? {
-									gcsUri: job.storageUri,
-									mimeType: "video/mp4",
-								}
-							: {
-									bytesBase64Encoded: Buffer.from(
-										`mock-video-${operationName}`,
-									).toString("base64"),
-									mimeType: "video/mp4",
-								},
-					],
-				},
-			});
-		}
-
-		c.status(404);
 		return c.json({
-			error: {
-				message: "Unsupported Google Vertex mock action",
+			name: operationName,
+			done: true,
+			response: {
+				videos: [
+					job.storageUri
+						? {
+								gcsUri: job.storageUri,
+								mimeType: "video/mp4",
+							}
+						: {
+								bytesBase64Encoded: Buffer.from(
+									`mock-video-${operationName}`,
+								).toString("base64"),
+								mimeType: "video/mp4",
+							},
+				],
 			},
 		});
-	},
+	}
+
+	c.status(404);
+	return c.json({
+		error: {
+			message: "Unsupported Google Vertex mock action",
+		},
+	});
+};
+
+mockOpenAIServer.post(
+	"/v1/projects/:project/locations/:location/publishers/google/models/*",
+	vertexPublisherModelHandler,
+);
+mockOpenAIServer.post(
+	"/v1beta1/projects/:project/locations/:location/publishers/google/models/*",
+	vertexPublisherModelHandler,
+);
+
+// Stub Vertex OAuth token endpoint. Test fixtures build a service-account
+// JSON whose token_uri points here, so the gateway's JWT-grant exchange
+// receives a fake access token instead of hitting Google.
+mockOpenAIServer.post("/mock-google-oauth/token", async (c) =>
+	c.json({
+		access_token: "mock-oauth-access-token",
+		token_type: "Bearer",
+		expires_in: 3600,
+	}),
 );
 
 mockOpenAIServer.get("/v1/videos/:id", async (c) => {
@@ -1711,6 +2771,36 @@ mockOpenAIServer.get("/api/v1/jobs/recordInfo", async (c) => {
 	});
 });
 
+mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
+	const id = c.req.param("id");
+	const job = videoJobs.get(id);
+	if (!job) {
+		c.status(404);
+		return c.json({
+			error: {
+				message: "prediction not found",
+			},
+		});
+	}
+
+	return c.json({
+		data: {
+			id,
+			status:
+				job.status === "queued"
+					? "created"
+					: job.status === "in_progress"
+						? "processing"
+						: job.status,
+			outputs:
+				job.status === "completed"
+					? [`${currentMockServerUrl}/mock-assets/${id}`]
+					: [],
+			error: job.status === "failed" ? job.error?.message : null,
+		},
+	});
+});
+
 mockOpenAIServer.get("/api/v1/veo/get-1080p-video", async (c) => {
 	const taskId = c.req.query("taskId");
 	if (!taskId) {
@@ -1863,57 +2953,6 @@ mockOpenAIServer.post(
 	},
 );
 
-// Handle Google AI Studio generateContent endpoint (Gemini models)
-mockOpenAIServer.post("/v1beta/models/:model\\:generateContent", async (c) => {
-	const body = await c.req.json();
-
-	// Check if this request should trigger an error response
-	const shouldError = body.contents?.some?.((content: any) =>
-		content.parts?.some?.((part: any) =>
-			part.text?.includes?.("TRIGGER_ERROR"),
-		),
-	);
-
-	if (shouldError) {
-		c.status(500);
-		return c.json({
-			error: {
-				code: 500,
-				message: "Internal server error",
-				status: "INTERNAL",
-			},
-		});
-	}
-
-	// Get the user's message
-	const userMessage =
-		body.contents?.find?.((c: any) => c.role === "user")?.parts?.[0]?.text ??
-		"";
-
-	// Return Google AI Studio format response
-	return c.json({
-		candidates: [
-			{
-				content: {
-					parts: [
-						{
-							text: `Hello! I received your message: "${userMessage}". This is a mock Google AI response.`,
-						},
-					],
-					role: "model",
-				},
-				finishReason: "STOP",
-				index: 0,
-			},
-		],
-		usageMetadata: {
-			promptTokenCount: 10,
-			candidatesTokenCount: 20,
-			totalTokenCount: 30,
-		},
-	});
-});
-
 mockOpenAIServer.post("/model/:model/converse", async (c) => {
 	const body = await c.req.json();
 	const userMessage = body.messages?.[0]?.content?.[0]?.text ?? "";
@@ -2004,20 +3043,25 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 
 let server: any = null;
 
-export function startMockServer(port = 3001): string {
-	if (server) {
-		return `http://localhost:${port}`;
-	}
+export function startMockServer(port = 0): Promise<string> {
+	return new Promise((resolve) => {
+		if (server) {
+			resolve(currentMockServerUrl);
+			return;
+		}
 
-	currentMockServerUrl = `http://localhost:${port}`;
-
-	server = serve({
-		fetch: mockOpenAIServer.fetch,
-		port,
+		server = serve(
+			{
+				fetch: mockOpenAIServer.fetch,
+				port,
+			},
+			(info) => {
+				currentMockServerUrl = `http://localhost:${info.port}`;
+				console.log(`Mock OpenAI server started on port ${info.port}`);
+				resolve(currentMockServerUrl);
+			},
+		);
 	});
-
-	console.log(`Mock OpenAI server started on port ${port}`);
-	return `http://localhost:${port}`;
 }
 
 export function stopMockServer() {

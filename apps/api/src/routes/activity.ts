@@ -2,7 +2,16 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getUserOrganizationIds } from "@/utils/authorization.js";
+import {
+	getUserProjectIds,
+	userHasProjectAccess,
+} from "@/utils/authorization.js";
+import {
+	bucketDate,
+	generateTimeSlots,
+	isValidTimeZone,
+	zonedTimeToUtc,
+} from "@/utils/timezone.js";
 
 import {
 	db,
@@ -12,8 +21,11 @@ import {
 	gte,
 	lte,
 	eq,
+	desc,
+	apiKey,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 } from "@llmgateway/db";
@@ -26,6 +38,17 @@ export const activity = new OpenAPIHono<ServerTypes>();
 const modelUsageSchema = z.object({
 	id: z.string(),
 	provider: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+});
+
+// Define the response schema for api-key-specific usage
+const apiKeyUsageSchema = z.object({
+	id: z.string(),
+	description: z.string(),
 	requestCount: z.number(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
@@ -48,6 +71,7 @@ const dailyActivitySchema = z.object({
 	requestCost: z.number(),
 	dataStorageCost: z.number(),
 	imageInputCost: z.number(),
+	audioInputCost: z.number(),
 	imageOutputCost: z.number(),
 	videoOutputCost: z.number(),
 	cachedInputCost: z.number(),
@@ -64,7 +88,58 @@ const dailyActivitySchema = z.object({
 	creditsDataStorageCost: z.number(),
 	apiKeysDataStorageCost: z.number(),
 	modelBreakdown: z.array(modelUsageSchema),
+	apiKeyBreakdown: z.array(apiKeyUsageSchema),
 });
+
+type ActivityRow = z.infer<typeof dailyActivitySchema>;
+
+function buildEmptyActivityRow(date: string): ActivityRow {
+	return {
+		date,
+		requestCount: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+		totalTokens: 0,
+		cost: 0,
+		inputCost: 0,
+		outputCost: 0,
+		requestCost: 0,
+		dataStorageCost: 0,
+		imageInputCost: 0,
+		audioInputCost: 0,
+		imageOutputCost: 0,
+		videoOutputCost: 0,
+		cachedInputCost: 0,
+		cacheWriteInputCost: 0,
+		errorCount: 0,
+		errorRate: 0,
+		cacheCount: 0,
+		cacheRate: 0,
+		discountSavings: 0,
+		creditsRequestCount: 0,
+		apiKeysRequestCount: 0,
+		creditsCost: 0,
+		apiKeysCost: 0,
+		creditsDataStorageCost: 0,
+		apiKeysDataStorageCost: 0,
+		modelBreakdown: [],
+		apiKeyBreakdown: [],
+	};
+}
+
+function padActivity(
+	rows: ActivityRow[],
+	startDate: Date,
+	endDate: Date,
+	isHourly: boolean,
+	timeZone: string,
+): ActivityRow[] {
+	const slots = generateTimeSlots(startDate, endDate, isHourly, timeZone);
+	const byDate = new Map(rows.map((r) => [r.date, r]));
+	return slots.map((slot) => byDate.get(slot) ?? buildEmptyActivityRow(slot));
+}
 
 // Define the route for getting activity data
 const getActivity = createRoute({
@@ -81,7 +156,13 @@ const getActivity = createRoute({
 			to: z.string().optional(),
 			projectId: z.string().optional(),
 			apiKeyId: z.string().optional(),
-			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d"]).optional(),
+			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
+			groupBy: z.enum(["model", "apiKey"]).optional(),
+			timezone: z
+				.string()
+				.max(64)
+				.refine(isValidTimeZone, { message: "Invalid IANA timezone" })
+				.optional(),
 		}),
 	},
 	responses: {
@@ -109,8 +190,10 @@ activity.openapi(getActivity, async (c) => {
 	}
 
 	// Get the query parameters
-	const { days, from, to, projectId, apiKeyId, timeRange } =
+	const { days, from, to, projectId, apiKeyId, timeRange, groupBy, timezone } =
 		c.req.valid("query");
+	const breakdownByApiKey = groupBy === "apiKey";
+	const timeZone = timezone ?? "UTC";
 
 	// Calculate the date range and granularity
 	let startDate: Date;
@@ -141,10 +224,14 @@ activity.openapi(getActivity, async (c) => {
 				startDate.setDate(startDate.getDate() - 30);
 				granularity = "daily";
 				break;
+			case "365d":
+				startDate.setDate(startDate.getDate() - 365);
+				granularity = "daily";
+				break;
 		}
 	} else if (from && to) {
-		startDate = new Date(from + "T00:00:00");
-		endDate = new Date(to + "T23:59:59.999");
+		startDate = zonedTimeToUtc(from + "T00:00:00.000", timeZone);
+		endDate = zonedTimeToUtc(to + "T23:59:59.999", timeZone);
 	} else {
 		const effectiveDays = days ?? 7;
 		endDate = new Date();
@@ -155,39 +242,27 @@ activity.openapi(getActivity, async (c) => {
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
 
-	// Get all organizations the user is a member of
-	const organizationIds = await getUserOrganizationIds(user.id);
+	// Projects the user can access (RBAC-aware: developers are limited to their
+	// granted projects).
+	const accessibleProjectIds = await getUserProjectIds(user.id);
 
-	if (!organizationIds.length) {
+	if (!accessibleProjectIds.length) {
 		return c.json({
 			activity: [],
 		});
 	}
 
-	// Get all projects associated with the user's organizations
-	const projects = await db.query.project.findMany({
-		where: {
-			organizationId: {
-				in: organizationIds,
-			},
-			status: {
-				ne: "deleted",
-			},
-			...(projectId ? { id: projectId } : {}),
-		},
-	});
-
-	if (!projects.length) {
-		return c.json({
-			activity: [],
-		});
-	}
-
-	const projectIds = projects.map((project) => project.id);
-
-	if (projectId && !projectIds.includes(projectId)) {
+	if (projectId && !accessibleProjectIds.includes(projectId)) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
+		});
+	}
+
+	const projectIds = projectId ? [projectId] : accessibleProjectIds;
+
+	if (!projectIds.length) {
+		return c.json({
+			activity: [],
 		});
 	}
 
@@ -196,11 +271,11 @@ activity.openapi(getActivity, async (c) => {
 		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${apiKeyHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				requestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -251,6 +326,10 @@ activity.openapi(getActivity, async (c) => {
 				imageInputCost:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageInputCost}), 0)`.as(
 						"imageInputCost",
+					),
+				audioInputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.audioInputCost}), 0)`.as(
+						"audioInputCost",
 					),
 				imageOutputCost:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageOutputCost}), 0)`.as(
@@ -310,27 +389,17 @@ activity.openapi(getActivity, async (c) => {
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp}`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp})`,
-			)
-			.orderBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp} ASC`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC`,
-			);
+			.groupBy(sql`1`)
+			.orderBy(sql`1 ASC`);
 
 		// Query model breakdown from apiKeyHourlyModelStats table
 		const modelBreakdowns = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${apiKeyHourlyModelStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${apiKeyHourlyModelStats.hourTimestamp})`.as(
-							"date",
-						),
+				date: bucketDate(
+					apiKeyHourlyModelStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				usedModel: apiKeyHourlyModelStats.usedModel,
 				usedProvider: apiKeyHourlyModelStats.usedProvider,
 				requestCount:
@@ -363,15 +432,9 @@ activity.openapi(getActivity, async (c) => {
 				),
 			)
 			.groupBy(
-				isHourly
-					? sql`${apiKeyHourlyModelStats.hourTimestamp}, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`
-					: sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}), ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
+				sql`1, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
 			)
-			.orderBy(
-				isHourly
-					? sql`${apiKeyHourlyModelStats.hourTimestamp} ASC, ${apiKeyHourlyModelStats.usedModel} ASC`
-					: sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}) ASC, ${apiKeyHourlyModelStats.usedModel} ASC`,
-			);
+			.orderBy(sql`1 ASC, ${apiKeyHourlyModelStats.usedModel} ASC`);
 
 		const modelBreakdownByDate = new Map<
 			string,
@@ -409,6 +472,7 @@ activity.openapi(getActivity, async (c) => {
 			const cacheCount = Number(day.cacheCount);
 			const discountSavings = Number(day.discountSavings);
 			const imageInputCost = Number(day.imageInputCost);
+			const audioInputCost = Number(day.audioInputCost);
 			const imageOutputCost = Number(day.imageOutputCost);
 			const videoOutputCost = Number(day.videoOutputCost);
 			const cachedInputCost = Number(day.cachedInputCost);
@@ -440,6 +504,7 @@ activity.openapi(getActivity, async (c) => {
 				requestCost,
 				dataStorageCost,
 				imageInputCost,
+				audioInputCost,
 				imageOutputCost,
 				videoOutputCost,
 				cachedInputCost,
@@ -456,11 +521,17 @@ activity.openapi(getActivity, async (c) => {
 				creditsDataStorageCost,
 				apiKeysDataStorageCost,
 				modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
+				apiKeyBreakdown: [],
 			};
 		});
 
+		const paddedActivity =
+			timeRange || (from && to)
+				? padActivity(activityData, startDate, endDate, isHourly, timeZone)
+				: activityData;
+
 		return c.json({
-			activity: activityData,
+			activity: paddedActivity,
 			...(timeRange ? { granularity } : {}),
 		});
 	}
@@ -469,11 +540,9 @@ activity.openapi(getActivity, async (c) => {
 	// Query aggregated data from projectHourlyStats table
 	const hourlyAggregates = await db
 		.select({
-			date: isHourly
-				? sql<string>`to_char(${projectHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-						"date",
-					)
-				: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, isHourly).as(
+				"date",
+			),
 			requestCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 					"requestCount",
@@ -520,6 +589,10 @@ activity.openapi(getActivity, async (c) => {
 			imageInputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.imageInputCost}), 0)`.as(
 					"imageInputCost",
+				),
+			audioInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.audioInputCost}), 0)`.as(
+					"audioInputCost",
 				),
 			imageOutputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.imageOutputCost}), 0)`.as(
@@ -582,86 +655,137 @@ activity.openapi(getActivity, async (c) => {
 				lte(projectHourlyStats.hourTimestamp, endDate),
 			),
 		)
-		.groupBy(
-			isHourly
-				? sql`${projectHourlyStats.hourTimestamp}`
-				: sql`DATE(${projectHourlyStats.hourTimestamp})`,
-		)
-		.orderBy(
-			isHourly
-				? sql`${projectHourlyStats.hourTimestamp} ASC`
-				: sql`DATE(${projectHourlyStats.hourTimestamp}) ASC`,
-		);
+		.groupBy(sql`1`)
+		.orderBy(sql`1 ASC`);
 
-	// Query model breakdown from projectHourlyModelStats table
-	const modelBreakdowns = await db
-		.select({
-			date: isHourly
-				? sql<string>`to_char(${projectHourlyModelStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-						"date",
-					)
-				: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
-						"date",
-					),
-			usedModel: projectHourlyModelStats.usedModel,
-			usedProvider: projectHourlyModelStats.usedProvider,
-			requestCount:
-				sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
-					"requestCount",
-				),
-			inputTokens:
-				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
-					"inputTokens",
-				),
-			outputTokens:
-				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
-					"outputTokens",
-				),
-			totalTokens:
-				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
-					"totalTokens",
-				),
-			cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
-				"cost",
-			),
-		})
-		.from(projectHourlyModelStats)
-		.where(
-			and(
-				inArray(projectHourlyModelStats.projectId, projectIds),
-				gte(projectHourlyModelStats.hourTimestamp, startDate),
-				lte(projectHourlyModelStats.hourTimestamp, endDate),
-			),
-		)
-		.groupBy(
-			isHourly
-				? sql`${projectHourlyModelStats.hourTimestamp}, ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`
-				: sql`DATE(${projectHourlyModelStats.hourTimestamp}), ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`,
-		)
-		.orderBy(
-			isHourly
-				? sql`${projectHourlyModelStats.hourTimestamp} ASC, ${projectHourlyModelStats.usedModel} ASC`
-				: sql`DATE(${projectHourlyModelStats.hourTimestamp}) ASC, ${projectHourlyModelStats.usedModel} ASC`,
-		);
-
-	// Create a map to organize model breakdowns by date
+	// Create a map to organize model breakdowns by date.
+	// Only query when not breaking down by api key — saves an aggregate scan
+	// for callers that opt into the api-key breakdown.
 	const modelBreakdownByDate = new Map<
 		string,
 		z.infer<typeof modelUsageSchema>[]
 	>();
-	for (const breakdown of modelBreakdowns) {
-		if (!modelBreakdownByDate.has(breakdown.date)) {
-			modelBreakdownByDate.set(breakdown.date, []);
+	if (!breakdownByApiKey) {
+		const modelBreakdowns = await db
+			.select({
+				date: bucketDate(
+					projectHourlyModelStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
+				usedModel: projectHourlyModelStats.usedModel,
+				usedProvider: projectHourlyModelStats.usedProvider,
+				requestCount:
+					sql<number>`COALESCE(SUM(${projectHourlyModelStats.requestCount}), 0)`.as(
+						"requestCount",
+					),
+				inputTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
+						"inputTokens",
+					),
+				outputTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
+						"outputTokens",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"totalTokens",
+					),
+				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
+					"cost",
+				),
+			})
+			.from(projectHourlyModelStats)
+			.where(
+				and(
+					inArray(projectHourlyModelStats.projectId, projectIds),
+					gte(projectHourlyModelStats.hourTimestamp, startDate),
+					lte(projectHourlyModelStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(
+				sql`1, ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`,
+			)
+			.orderBy(sql`1 ASC, ${projectHourlyModelStats.usedModel} ASC`);
+
+		for (const breakdown of modelBreakdowns) {
+			if (!modelBreakdownByDate.has(breakdown.date)) {
+				modelBreakdownByDate.set(breakdown.date, []);
+			}
+			modelBreakdownByDate.get(breakdown.date)!.push({
+				id: breakdown.usedModel || "unknown",
+				provider: breakdown.usedProvider || "unknown",
+				requestCount: Number(breakdown.requestCount),
+				inputTokens: Number(breakdown.inputTokens),
+				outputTokens: Number(breakdown.outputTokens),
+				totalTokens: Number(breakdown.totalTokens),
+				cost: Number(breakdown.cost),
+			});
 		}
-		modelBreakdownByDate.get(breakdown.date)!.push({
-			id: breakdown.usedModel || "unknown",
-			provider: breakdown.usedProvider || "unknown",
-			requestCount: Number(breakdown.requestCount),
-			inputTokens: Number(breakdown.inputTokens),
-			outputTokens: Number(breakdown.outputTokens),
-			totalTokens: Number(breakdown.totalTokens),
-			cost: Number(breakdown.cost),
-		});
+	}
+
+	// Query api key breakdown only when the caller asks for it.
+	const apiKeyBreakdownByDate = new Map<
+		string,
+		z.infer<typeof apiKeyUsageSchema>[]
+	>();
+	if (breakdownByApiKey) {
+		const apiKeyBreakdowns = await db
+			.select({
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
+				apiKeyId: apiKeyHourlyStats.apiKeyId,
+				description: apiKey.description,
+				requestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+						"requestCount",
+					),
+				inputTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+						"inputTokens",
+					),
+				outputTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+						"outputTokens",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"totalTokens",
+					),
+				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+			})
+			.from(apiKeyHourlyStats)
+			.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
+			.where(
+				and(
+					inArray(apiKeyHourlyStats.projectId, projectIds),
+					inArray(apiKey.keyType, ["user", "end_user_customer"]),
+					gte(apiKeyHourlyStats.hourTimestamp, startDate),
+					lte(apiKeyHourlyStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
+			.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
+
+		for (const breakdown of apiKeyBreakdowns) {
+			if (!apiKeyBreakdownByDate.has(breakdown.date)) {
+				apiKeyBreakdownByDate.set(breakdown.date, []);
+			}
+			apiKeyBreakdownByDate.get(breakdown.date)!.push({
+				id: breakdown.apiKeyId,
+				description: breakdown.description ?? "Deleted key",
+				requestCount: Number(breakdown.requestCount),
+				inputTokens: Number(breakdown.inputTokens),
+				outputTokens: Number(breakdown.outputTokens),
+				totalTokens: Number(breakdown.totalTokens),
+				cost: Number(breakdown.cost),
+			});
+		}
 	}
 
 	// Process hourly aggregates (summed to daily) and add calculated fields
@@ -679,6 +803,7 @@ activity.openapi(getActivity, async (c) => {
 		const requestCost = Number(day.requestCost);
 		const dataStorageCost = Number(day.dataStorageCost);
 		const imageInputCost = Number(day.imageInputCost);
+		const audioInputCost = Number(day.audioInputCost);
 		const imageOutputCost = Number(day.imageOutputCost);
 		const videoOutputCost = Number(day.videoOutputCost);
 		const cachedInputCost = Number(day.cachedInputCost);
@@ -711,6 +836,7 @@ activity.openapi(getActivity, async (c) => {
 			requestCost,
 			dataStorageCost,
 			imageInputCost,
+			audioInputCost,
 			imageOutputCost,
 			videoOutputCost,
 			cachedInputCost,
@@ -727,11 +853,151 @@ activity.openapi(getActivity, async (c) => {
 			creditsDataStorageCost,
 			apiKeysDataStorageCost,
 			modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
+			apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
 		};
 	});
 
+	const paddedActivity =
+		timeRange || (from && to)
+			? padActivity(activityData, startDate, endDate, isHourly, timeZone)
+			: activityData;
+
 	return c.json({
-		activity: activityData,
+		activity: paddedActivity,
 		...(timeRange ? { granularity } : {}),
+	});
+});
+
+// Response schema for per-source usage aggregation
+const sourceUsageSchema = z.object({
+	source: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+	lastUsedAt: z.string().nullable(),
+});
+
+// Aggregated source usage for a single project, read from the per-project
+// hourly source rollup. Powers the agents dashboard. Limited to 7d/30d ranges.
+const getSourceActivity = createRoute({
+	method: "get",
+	path: "/sources",
+	request: {
+		query: z.object({
+			projectId: z.string(),
+			timeRange: z.enum(["7d", "30d"]).optional(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						sources: z.array(sourceUsageSchema),
+					}),
+				},
+			},
+			description: "Aggregated usage grouped by source for a project",
+		},
+	},
+});
+
+activity.openapi(getSourceActivity, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { projectId, timeRange, from, to } = c.req.valid("query");
+
+	let startDate: Date;
+	let endDate: Date;
+	if (from && to) {
+		// Parse without a timezone suffix to match the sibling GET / handler.
+		startDate = new Date(from + "T00:00:00");
+		endDate = new Date(to + "T23:59:59.999");
+	} else {
+		endDate = new Date();
+		startDate = new Date();
+		startDate.setDate(startDate.getDate() - (timeRange === "30d" ? 30 : 7));
+	}
+
+	if (!(await userHasProjectAccess(user.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	const project = await db.query.project.findFirst({
+		where: {
+			id: projectId,
+			status: { ne: "deleted" },
+		},
+	});
+
+	if (!project) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+
+	const rows = await db
+		.select({
+			source: projectHourlySourceStats.source,
+			requestCount:
+				sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
+					"requestCount",
+				),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"outputTokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"totalTokens",
+				),
+			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
+				"cost",
+			),
+			lastUsedAt: sql<
+				string | null
+			>`to_char(MAX(${projectHourlySourceStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
+				"lastUsedAt",
+			),
+		})
+		.from(projectHourlySourceStats)
+		.where(
+			and(
+				eq(projectHourlySourceStats.projectId, projectId),
+				gte(projectHourlySourceStats.hourTimestamp, startDate),
+				lte(projectHourlySourceStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(projectHourlySourceStats.source)
+		.orderBy(desc(sql`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`));
+
+	return c.json({
+		sources: rows.map((r) => ({
+			source: r.source,
+			requestCount: Number(r.requestCount),
+			inputTokens: Number(r.inputTokens),
+			outputTokens: Number(r.outputTokens),
+			totalTokens: Number(r.totalTokens),
+			cost: Number(r.cost),
+			lastUsedAt: r.lastUsedAt
+				? new Date(r.lastUsedAt + "Z").toISOString()
+				: null,
+		})),
 	});
 });

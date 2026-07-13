@@ -36,7 +36,10 @@ function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 		"12h": "12h",
 		"24h": "24h",
 		"2d": "2d",
+		"3d": "3d",
 		"7d": "7d",
+		"30d": "30d",
+		"90d": "90d",
 	};
 	return map[pageWindow] ?? "24h";
 }
@@ -49,6 +52,7 @@ type MappingSortBy =
 	| "clientErrorsCount"
 	| "gatewayErrorsCount"
 	| "upstreamErrorsCount"
+	| "cost"
 	| "avgTimeToFirstToken"
 	| "updatedAt";
 
@@ -70,7 +74,7 @@ function SortableHeader({
 	pageWindow?: PageWindow;
 }) {
 	const isActive = currentSortBy === sortKey;
-	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
+	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
 	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}`;
@@ -99,6 +103,10 @@ function SortableHeader({
 
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);
+}
+
+function formatCost(n: number) {
+	return `$${n.toFixed(4)}`;
 }
 
 function formatPrice(price: string | null) {
@@ -172,9 +180,9 @@ function MappingRow({
 						>
 							{mapping.providerId}/{mapping.modelId}
 						</Link>
-						{mapping.modelName !== mapping.modelId && (
+						{mapping.externalId !== mapping.modelId && (
 							<p className="text-xs text-muted-foreground">
-								{mapping.modelName}
+								{mapping.externalId}
 							</p>
 						)}
 					</div>
@@ -197,6 +205,9 @@ function MappingRow({
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.logsCount)}
+				</TableCell>
+				<TableCell className="tabular-nums">
+					{formatCost(mapping.cost)}
 				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.errorsCount)}
@@ -246,7 +257,7 @@ function MappingRow({
 			{expanded && (
 				<TableRow>
 					<TableCell
-						colSpan={15}
+						colSpan={16}
 						className="p-4"
 						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 					>
@@ -300,6 +311,7 @@ export function MappingsTable({
 					<TableHead>Region</TableHead>
 					<TableHead>Status</TableHead>
 					{sh("Requests", "logsCount")}
+					{sh("Cost", "cost")}
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
 					{sh("Gateway", "gatewayErrorsCount")}
@@ -316,7 +328,7 @@ export function MappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={15}
+							colSpan={16}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No mappings found

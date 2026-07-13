@@ -1,181 +1,379 @@
+import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
+import { slugify } from "@/lib/slugify";
 
 import {
+	getProviderCountries,
 	models as modelDefinitions,
 	providers as providerDefinitions,
 } from "@llmgateway/models";
 
 import type { MetadataRoute } from "next";
 
+// Stable per-deploy timestamp. Using a single build-time date (instead of a
+// fresh `new Date()` per URL/request) keeps `lastModified` from reporting
+// "changed just now" on every crawl, which trains search engines to ignore it.
+const buildDate = new Date();
+
+// Most recent provider release date across the catalog. Used as the timeline
+// page's `lastModified` so it reflects real content freshness (a new model)
+// rather than the deploy time.
+const latestModelReleaseDate = (() => {
+	let latest = new Date(0);
+	for (const model of modelDefinitions) {
+		if ("releasedAt" in model && model.releasedAt) {
+			const date = new Date(model.releasedAt);
+			if (!Number.isNaN(date.getTime()) && date.getTime() > latest.getTime()) {
+				latest = date;
+			}
+		}
+	}
+	return latest.getTime() === 0 ? buildDate : latest;
+})();
+
+// Distinct release years across the catalog plus the latest release date within
+// each year, used to emit /timeline/{year} hub children. Using the per-year
+// latest release as `lastModified` keeps historical year pages from reporting a
+// change on every deploy.
+const timelineYears = (() => {
+	const latestByYear = new Map<number, Date>();
+	for (const model of modelDefinitions) {
+		if ("releasedAt" in model && model.releasedAt) {
+			const date = new Date(model.releasedAt);
+			if (Number.isNaN(date.getTime())) {
+				continue;
+			}
+			const year = date.getUTCFullYear();
+			const current = latestByYear.get(year);
+			if (!current || date.getTime() > current.getTime()) {
+				latestByYear.set(year, date);
+			}
+		}
+	}
+	return Array.from(latestByYear.entries())
+		.map(([year, lastModified]) => ({ year, lastModified }))
+		.sort((a, b) => b.year - a.year);
+})();
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	const baseUrl = "https://llmgateway.io";
 
-	const { allBlogs, allGuides, allChangelogs, allLegals, allMigrations } =
-		await import("content-collections");
+	const {
+		allBlogs,
+		allGuides,
+		allChangelogs,
+		allLegals,
+		allMigrations,
+		allUseCases,
+	} = await import("content-collections");
 
 	// Static pages
 	const staticPages: MetadataRoute.Sitemap = [
 		{
 			url: baseUrl,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 1,
 		},
 		{
 			url: `${baseUrl}/models`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "daily",
 			priority: 0.9,
 		},
 		{
 			url: `${baseUrl}/pricing`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.9,
 		},
 		{
 			url: `${baseUrl}/blog`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "daily",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/guides`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/changelog`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/providers`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/enterprise`,
-			lastModified: new Date(),
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/open-source`,
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/integrations`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/referrals`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.6,
 		},
 		{
 			url: `${baseUrl}/timeline`,
-			lastModified: new Date(),
-			changeFrequency: "monthly",
-			priority: 0.5,
+			lastModified: latestModelReleaseDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/brand`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.4,
 		},
 		{
 			url: `${baseUrl}/migration`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/reliability`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/ship`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/token-cost-calculator`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
+			url: `${baseUrl}/copilot-cost-calculator`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
+			url: `${baseUrl}/nano-banana-simulator/20`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.6,
+		},
+		{
+			url: `${baseUrl}/blog/category`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.5,
+		},
+		{
 			url: `${baseUrl}/models/compare`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/models/text`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/vision`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/reasoning`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/web-search`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/image-to-image`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/text-to-image`,
-			lastModified: new Date(),
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/video`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/embeddings`,
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/tools`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/models/discounted`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/models/roleplay`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/coding`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/creative-writing`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/translation`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/math`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/long-context`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/cheapest`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/open-source`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/mcp`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/agents`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/templates`,
-			lastModified: new Date(),
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/apps`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/compare/aws-bedrock`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/azure-ai-foundry`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/github-copilot`,
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/compare/litellm`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/compare/open-router`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/portkey`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/vercel-ai-gateway`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/use-cases`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
 		},
 	];
 
@@ -185,31 +383,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		// Main model page
 		modelPages.push({
 			url: `${baseUrl}/models/${encodeURIComponent(model.id)}`,
-			lastModified: new Date(),
+			lastModified: "releasedAt" in model ? model.releasedAt : buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		});
 
-		// Model uptime page
-		modelPages.push({
-			url: `${baseUrl}/models/${encodeURIComponent(model.id)}/uptime`,
-			lastModified: new Date(),
-			changeFrequency: "hourly",
-			priority: 0.7,
-		});
-
-		// Model + provider pages
-		const uniqueProviders = Array.from(
-			new Set(model.providers.map((p) => p.providerId)),
-		);
-		for (const providerId of uniqueProviders) {
-			modelPages.push({
-				url: `${baseUrl}/models/${encodeURIComponent(model.id)}/${encodeURIComponent(providerId)}`,
-				lastModified: new Date(),
-				changeFrequency: "weekly",
-				priority: 0.7,
-			});
-		}
+		// Model uptime pages and model+provider sub-pages are intentionally
+		// excluded from the sitemap: uptime pages are thin templates that
+		// inflate crawl budget (~300 URLs), and provider sub-pages canonicalize
+		// to the base model page. Google still discovers both via internal links.
 	}
 
 	// Provider pages
@@ -217,18 +399,37 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		.filter((provider) => provider.name !== "LLM Gateway")
 		.map((provider) => ({
 			url: `${baseUrl}/providers/${provider.id}`,
-			lastModified: new Date(),
+			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
+		}));
+
+	// Per-country provider pages
+	const providerCountryPages: MetadataRoute.Sitemap =
+		getProviderCountries().map((country) => ({
+			url: `${baseUrl}/providers/country/${country.code.toLowerCase()}`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.7,
 		}));
 
 	// Feature pages
 	const featurePages: MetadataRoute.Sitemap = features.map((feature) => ({
 		url: `${baseUrl}/features/${feature.slug}`,
-		lastModified: new Date(),
+		lastModified: buildDate,
 		changeFrequency: "monthly",
 		priority: 0.7,
 	}));
+
+	// Enterprise feature subpages
+	const enterpriseFeaturePages: MetadataRoute.Sitemap = enterpriseFeatures.map(
+		(feature) => ({
+			url: `${baseUrl}/enterprise/${feature.slug}`,
+			lastModified: buildDate,
+			changeFrequency: "monthly" as const,
+			priority: 0.8,
+		}),
+	);
 
 	// Blog pages
 	const blogPages: MetadataRoute.Sitemap = allBlogs
@@ -239,6 +440,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "monthly" as const,
 			priority: 0.6,
 		}));
+
+	// Blog category pages
+	const blogCategorySlugs = new Set<string>();
+	for (const blog of allBlogs) {
+		if (blog.draft) {
+			continue;
+		}
+		for (const category of blog.categories ?? []) {
+			blogCategorySlugs.add(slugify(category));
+		}
+	}
+	const blogCategoryPages: MetadataRoute.Sitemap = Array.from(
+		blogCategorySlugs,
+	).map((category) => ({
+		url: `${baseUrl}/blog/category/${encodeURIComponent(category)}`,
+		lastModified: buildDate,
+		changeFrequency: "weekly" as const,
+		priority: 0.5,
+	}));
 
 	// Guide pages
 	const guidePages: MetadataRoute.Sitemap = allGuides.map((guide) => ({
@@ -276,15 +496,41 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		}),
 	);
 
+	// Use case pages
+	const useCasePages: MetadataRoute.Sitemap = allUseCases
+		.filter((useCase) => !useCase.draft)
+		.map((useCase) => ({
+			url: `${baseUrl}/use-cases/${useCase.slug}`,
+			lastModified: new Date(useCase.date),
+			changeFrequency: "monthly" as const,
+			priority: 0.7,
+		}));
+
+	// Per-year timeline hub children (/timeline/{year})
+	const currentYear = buildDate.getFullYear();
+	const timelineYearPages: MetadataRoute.Sitemap = timelineYears.map(
+		({ year, lastModified }) => ({
+			url: `${baseUrl}/timeline/${year}`,
+			lastModified,
+			changeFrequency: year === currentYear ? "weekly" : "monthly",
+			priority: year === currentYear ? 0.7 : 0.6,
+		}),
+	);
+
 	return [
 		...staticPages,
+		...timelineYearPages,
 		...modelPages,
 		...providerPages,
+		...providerCountryPages,
 		...featurePages,
+		...enterpriseFeaturePages,
 		...blogPages,
+		...blogCategoryPages,
 		...guidePages,
 		...changelogPages,
 		...legalPages,
 		...migrationPages,
+		...useCasePages,
 	];
 }

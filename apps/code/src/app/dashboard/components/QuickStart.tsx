@@ -30,7 +30,6 @@ const TOOLS: ToolDef[] = [
 		id: "soulforge",
 		name: "SoulForge",
 		icon: SoulForgeIcon,
-		highlight: "−50%",
 	},
 	{ id: "autohand", name: "Autohand", icon: AutohandIcon },
 	{ id: "cline", name: "Cline", icon: ClineIcon },
@@ -66,7 +65,8 @@ function buildSnippets(apiKey: string): Record<ToolId, Snippet> {
 		soulforge: {
 			exports: [],
 			command: "soulforge",
-			comment: "# /keys, paste your LLM Gateway key — caches cut ~50% tokens",
+			comment:
+				"# inside: /keys → paste your DevPass key (or: soulforge --set-key llmgateway <key>)",
 		},
 		autohand: {
 			exports: [

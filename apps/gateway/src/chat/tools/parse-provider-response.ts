@@ -2,7 +2,11 @@ import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractBedrockCacheCreationDetails,
+} from "./extract-token-usage.js";
+import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import {
 	extractReasoningDetailsText,
 	splitReasoningFromTaggedContent,
@@ -21,6 +25,7 @@ export function parseProviderResponse(
 	messages: any[] = [],
 	supportsReasoning = true,
 	splitTaggedReasoning = false,
+	webSearchRequested = false,
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -35,6 +40,8 @@ export function parseProviderResponse(
 	let cacheCreation1hTokens: number | null = null;
 	let imageInputTokens: number | null = null;
 	let imageOutputTokens: number | null = null;
+	let audioInputTokens: number | null = null;
+	let cachedAudioInputTokens: number | null = null;
 	let toolResults = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
@@ -50,6 +57,46 @@ export function parseProviderResponse(
 
 	switch (usedProvider) {
 		case "aws-bedrock": {
+			if (Array.isArray(json.choices)) {
+				const allChoices = json.choices;
+				toolResults = allChoices[0]?.message?.tool_calls ?? null;
+
+				let aggregatedContent = "";
+				let aggregatedReasoning = "";
+				let hasContent = false;
+				let hasReasoning = false;
+				for (const choice of allChoices) {
+					const cContent = choice?.message?.content;
+					if (typeof cContent === "string") {
+						aggregatedContent += cContent;
+						hasContent = true;
+					}
+					const cReasoning =
+						choice?.message?.reasoning ??
+						choice?.message?.reasoning_content ??
+						extractReasoningDetailsText(choice?.message?.reasoning_details) ??
+						null;
+					if (typeof cReasoning === "string" && cReasoning.length > 0) {
+						aggregatedReasoning += cReasoning;
+						hasReasoning = true;
+					}
+				}
+
+				content = hasContent ? aggregatedContent : null;
+				reasoningContent = hasReasoning ? aggregatedReasoning : null;
+				finishReason = allChoices[0]?.finish_reason ?? null;
+				promptTokens = json.usage?.prompt_tokens ?? null;
+				completionTokens = json.usage?.completion_tokens ?? null;
+				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
+				totalTokens =
+					json.usage?.total_tokens ??
+					(promptTokens !== null && completionTokens !== null
+						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						: null);
+				break;
+			}
+
 			// AWS Bedrock Converse API format
 			// Response format: { output: { message: { content: [{text: "..."}], role: "assistant" }}, stopReason: "end_turn", usage: {...} }
 			const message = json.output?.message;
@@ -95,6 +142,11 @@ export function parseProviderResponse(
 				finishReason = "tool_calls";
 			} else if (stopReason === "content_filtered") {
 				finishReason = "content_filter";
+			} else if (stopReason === "refusal") {
+				// Anthropic-on-Bedrock safety-classifier refusal. Preserve the raw
+				// reason so downstream billing can skip charging an unbilled refusal
+				// (getUnifiedFinishReason maps it to content_filter for the log).
+				finishReason = "refusal";
 			} else {
 				finishReason = "stop"; // default fallback
 			}
@@ -104,14 +156,21 @@ export function parseProviderResponse(
 				const inputTokens = json.usage.inputTokens ?? 0;
 				const cacheReadTokens = json.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = json.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(json.usage);
 
 				// Total prompt tokens = regular input + cache read + cache write
 				promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 				completionTokens = json.usage.outputTokens ?? null;
+				// The Bedrock Converse API does not break out reasoning tokens; they
+				// are bundled into outputTokens (unlike the direct Anthropic API,
+				// which reports output_tokens_details.thinking_tokens). Reasoning
+				// *content* is still surfaced via the reasoningContent blocks above.
 				totalTokens = json.usage.totalTokens ?? null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheWriteTokens;
+				cacheCreation5mTokens = cacheDetails.cacheCreation5mTokens;
+				cacheCreation1hTokens = cacheDetails.cacheCreation1hTokens;
 			}
 
 			// Extract tool calls if present
@@ -129,7 +188,8 @@ export function parseProviderResponse(
 
 			break;
 		}
-		case "anthropic": {
+		case "anthropic":
+		case "vertex-anthropic": {
 			// Extract content and reasoning content from Anthropic response
 			const contentBlocks = json.content ?? [];
 			const textBlocks = contentBlocks.filter(
@@ -204,7 +264,14 @@ export function parseProviderResponse(
 				// Total prompt tokens = non-cached + cache creation + cache read
 				promptTokens = inputTokens + cacheCreation + cacheReadTokens;
 				completionTokens = json.usage.output_tokens ?? null;
-				reasoningTokens = json.usage.reasoning_output_tokens ?? null;
+				// Anthropic reports thinking tokens under
+				// `output_tokens_details.thinking_tokens` (adaptive thinking returns
+				// an encrypted thinking block with no text, so this is the only
+				// signal that reasoning happened). Keep the legacy field as a fallback.
+				reasoningTokens =
+					json.usage.output_tokens_details?.thinking_tokens ??
+					json.usage.reasoning_output_tokens ??
+					null;
 				// Cached tokens are the tokens read from cache (discount applies to these)
 				cachedTokens = cacheReadTokens;
 				cacheCreationTokens = cacheCreation;
@@ -252,10 +319,25 @@ export function parseProviderResponse(
 				finishReason = "content_filter";
 			}
 
-			// Extract content and reasoning content from Google response parts
-			const parts = json.candidates?.[0]?.content?.parts ?? [];
-			const contentParts = parts.filter((part: any) => !part.thought);
-			const reasoningParts = parts.filter((part: any) => part.thought);
+			// AI Studio duplicates the other candidates' parts into candidate 0
+			// when candidateCount > 1 — strip that before any extraction. Gated on
+			// the provider so clean responses (e.g. Vertex) are never touched.
+			const candidates = dedupeGoogleCandidateParts(
+				json.candidates ?? [],
+				usedProvider,
+			);
+
+			// Extract content and reasoning content from Google response parts.
+			// The log row only stores a single content/reasoning string, so for
+			// n > 1 we aggregate every candidate into the buffer — otherwise
+			// indices > 0 disappear from logs. Tool calls / images stay keyed
+			// to candidate 0, mirroring the OpenAI multi-choice behavior.
+			const parts = candidates[0]?.content?.parts ?? [];
+			const allParts = candidates.flatMap(
+				(candidate: any) => candidate?.content?.parts ?? [],
+			);
+			const contentParts = allParts.filter((part: any) => !part.thought);
+			const reasoningParts = allParts.filter((part: any) => part.thought);
 
 			const textContent = contentParts.map((part: any) => part.text).join("");
 			const thoughtContent = reasoningParts
@@ -390,6 +472,21 @@ export function parseProviderResponse(
 			reasoningTokens = json.usageMetadata?.thoughtsTokenCount ?? null;
 			// Extract cached tokens from Google's implicit caching
 			cachedTokens = json.usageMetadata?.cachedContentTokenCount ?? null;
+			if (Array.isArray(json.usageMetadata?.promptTokensDetails)) {
+				for (const detail of json.usageMetadata.promptTokensDetails) {
+					if (detail?.modality === "AUDIO" && detail.tokenCount) {
+						audioInputTokens = (audioInputTokens ?? 0) + detail.tokenCount;
+					}
+				}
+			}
+			if (Array.isArray(json.usageMetadata?.cacheTokensDetails)) {
+				for (const detail of json.usageMetadata.cacheTokensDetails) {
+					if (detail?.modality === "AUDIO" && detail.tokenCount) {
+						cachedAudioInputTokens =
+							(cachedAudioInputTokens ?? 0) + detail.tokenCount;
+					}
+				}
+			}
 
 			// Adjust for inconsistent Google API behavior where
 			// candidatesTokenCount may already include thoughtsTokenCount
@@ -468,6 +565,15 @@ export function parseProviderResponse(
 			if (finishReason === "end_turn") {
 				finishReason = "stop";
 			} else if (finishReason === "abort") {
+				logger.warn("Upstream sent abort finish_reason", {
+					provider: usedProvider,
+					model: usedModel,
+					responseModel: json.model,
+					responseId: json.id,
+					finishReason: json.choices?.[0]?.finish_reason,
+					nativeFinishReason: json.choices?.[0]?.native_finish_reason,
+					usage: json.usage,
+				});
 				finishReason = "canceled";
 			} else if (finishReason === "tool_use") {
 				finishReason = "tool_calls";
@@ -532,6 +638,17 @@ export function parseProviderResponse(
 					(promptTokens !== null && completionTokens !== null
 						? promptTokens + completionTokens + (reasoningTokens ?? 0)
 						: null);
+				// Alibaba uses Anthropic-style `cache_control: {type: "ephemeral"}` on
+				// the request, but reports usage in OpenAI shape with
+				// `cache_creation_input_tokens` nested under `prompt_tokens_details`.
+				// `prompt_tokens` already includes cache write/read tokens. Only a 5m
+				// TTL exists; write tokens bill at 1.25x.
+				const alibabaCacheCreation =
+					json.usage?.prompt_tokens_details?.cache_creation_input_tokens ?? 0;
+				if (alibabaCacheCreation > 0) {
+					cacheCreationTokens = alibabaCacheCreation;
+					cacheCreation5mTokens = alibabaCacheCreation;
+				}
 				if (json.choices?.[0]?.message?.images) {
 					images = json.choices[0].message.images;
 				}
@@ -646,6 +763,24 @@ export function parseProviderResponse(
 				}
 				break;
 			}
+			// Check if this is a Reve image generation response
+			// Format: { image: "base64...", version: "...", content_violation: false, ... }
+			if (usedProvider === "reve" && typeof json.image === "string") {
+				images = [
+					{
+						type: "image_url",
+						image_url: {
+							url: `data:image/png;base64,${json.image}`,
+						},
+					},
+				];
+				content = imageLabel;
+				finishReason = "stop";
+				promptTokens = 0;
+				completionTokens = 0;
+				totalTokens = 0;
+				break;
+			}
 			// Check if this is an OpenAI responses format (has output array instead of choices)
 			if (json.output && Array.isArray(json.output)) {
 				// OpenAI responses endpoint format
@@ -661,9 +796,15 @@ export function parseProviderResponse(
 					content = messageOutput.content[0].text;
 				}
 
-				// Extract reasoning content from summary
-				if (reasoningOutput?.summary?.[0]?.text) {
-					reasoningContent = reasoningOutput.summary[0].text;
+				// Extract reasoning content from summary (may hold multiple parts)
+				if (Array.isArray(reasoningOutput?.summary)) {
+					const summaryText = reasoningOutput.summary
+						.map((part: any) => part?.text ?? "")
+						.filter(Boolean)
+						.join("\n\n");
+					if (summaryText) {
+						reasoningContent = summaryText;
+					}
 				}
 
 				// Extract tool calls (if any) from the output array and transform to OpenAI format
@@ -702,6 +843,30 @@ export function parseProviderResponse(
 					json.usage?.output_tokens_details?.reasoning_tokens ?? null;
 				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
 				totalTokens = json.usage?.total_tokens ?? null;
+				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
+				// `cache_write_tokens` (a subset of input_tokens, like cached_tokens).
+				const responsesCacheWrite =
+					json.usage?.input_tokens_details?.cache_write_tokens ?? 0;
+				if (responsesCacheWrite > 0) {
+					cacheCreationTokens = responsesCacheWrite;
+				}
+
+				// Sakana Fugu bills the orchestration tokens consumed by its underlying
+				// agent pool on top of the user-visible input/output tokens. They are
+				// reported in the *_tokens_details and are real billable usage, so fold
+				// them into the prompt/completion (and cached) counts used for costing.
+				if (usedProvider === "sakana" && json.usage) {
+					const inDetails = json.usage.input_tokens_details ?? {};
+					const outDetails = json.usage.output_tokens_details ?? {};
+					promptTokens =
+						(promptTokens ?? 0) + (inDetails.orchestration_input_tokens ?? 0);
+					completionTokens =
+						(completionTokens ?? 0) +
+						(outDetails.orchestration_output_tokens ?? 0);
+					cachedTokens =
+						(cachedTokens ?? 0) +
+						(inDetails.orchestration_input_cached_tokens ?? 0);
+				}
 
 				// Count web_search_call items for pricing (each call is billed, not each citation)
 				const webSearchCalls = json.output.filter(
@@ -736,19 +901,50 @@ export function parseProviderResponse(
 					}
 				}
 			} else {
-				// Standard OpenAI chat completions format
-				toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
-				content = json.choices?.[0]?.message?.content ?? null;
-				// Extract reasoning content for reasoning-capable models
-				// Check both reasoning and reasoning_content (GLM models use reasoning_content)
-				reasoningContent =
-					json.choices?.[0]?.message?.reasoning ??
-					json.choices?.[0]?.message?.reasoning_content ??
-					extractReasoningDetailsText(
-						json.choices?.[0]?.message?.reasoning_details,
-					) ??
-					null;
-				finishReason = json.choices?.[0]?.finish_reason ?? null;
+				// Standard OpenAI chat completions format. The log row only
+				// stores a single content/reasoning string, so for n > 1 we
+				// aggregate every choice into the buffer — otherwise indices
+				// > 0 disappear from logs. Tool calls / images stay keyed to
+				// choice 0; tools combined with n > 1 streaming is rejected
+				// upstream and n > 1 with non-streaming tools is a niche.
+				const allChoices = Array.isArray(json.choices) ? json.choices : [];
+				toolResults = allChoices[0]?.message?.tool_calls ?? null;
+
+				let aggregatedContent = "";
+				let aggregatedReasoning = "";
+				let hasContent = false;
+				let hasReasoning = false;
+				for (const choice of allChoices) {
+					const cContent = choice?.message?.content;
+					if (typeof cContent === "string") {
+						aggregatedContent += cContent;
+						hasContent = true;
+					}
+					const cReasoning =
+						choice?.message?.reasoning ??
+						choice?.message?.reasoning_content ??
+						extractReasoningDetailsText(choice?.message?.reasoning_details) ??
+						null;
+					if (typeof cReasoning === "string" && cReasoning.length > 0) {
+						aggregatedReasoning += cReasoning;
+						hasReasoning = true;
+					}
+				}
+				content = hasContent ? aggregatedContent : null;
+				reasoningContent = hasReasoning ? aggregatedReasoning : null;
+				finishReason = allChoices[0]?.finish_reason ?? null;
+
+				if (finishReason === "abort") {
+					logger.warn("Upstream sent abort finish_reason", {
+						provider: usedProvider,
+						model: usedModel,
+						responseModel: json.model,
+						responseId: json.id,
+						finishReason: json.choices?.[0]?.finish_reason,
+						nativeFinishReason: json.choices?.[0]?.native_finish_reason,
+						usage: json.usage,
+					});
+				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
 				// Only for models that were failing tests: glm-4.5-airx and glm-4.5-flash
@@ -758,11 +954,11 @@ export function parseProviderResponse(
 					messages.length > 0
 				) {
 					const lastMessage = messages[messages.length - 1];
-					const modelName = json.model;
+					const externalId = json.model;
 
 					// Only apply to specific failing models and only when last message was a tool result
 					if (
-						(modelName === "glm-4.5-airx" || modelName === "glm-4.5-flash") &&
+						(externalId === "glm-4.5-airx" || externalId === "glm-4.5-flash") &&
 						lastMessage?.role === "tool"
 					) {
 						// Check if the response actually contains new tool calls that should be prevented
@@ -789,6 +985,13 @@ export function parseProviderResponse(
 					(promptTokens !== null && completionTokens !== null
 						? promptTokens + completionTokens + (reasoningTokens ?? 0)
 						: null);
+				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
+				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).
+				const chatCacheWrite =
+					json.usage?.prompt_tokens_details?.cache_write_tokens ?? 0;
+				if (chatCacheWrite > 0) {
+					cacheCreationTokens = chatCacheWrite;
+				}
 
 				// Extract images from OpenAI-format response (including Gemini via gateway)
 				if (json.choices?.[0]?.message?.images) {
@@ -838,6 +1041,8 @@ export function parseProviderResponse(
 								},
 							});
 						}
+					} else if (webSearchRequested) {
+						webSearchCount = 1;
 					}
 				}
 			}
@@ -873,6 +1078,8 @@ export function parseProviderResponse(
 		cacheCreation1hTokens,
 		imageInputTokens,
 		imageOutputTokens,
+		audioInputTokens,
+		cachedAudioInputTokens,
 		toolResults,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,

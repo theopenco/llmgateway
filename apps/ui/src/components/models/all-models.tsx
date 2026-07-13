@@ -31,10 +31,12 @@ import {
 	List,
 	Grid,
 	Bot,
+	Boxes,
 	Brain,
 	Sparkles,
 	PenTool,
 	Sliders,
+	Volume2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -68,6 +70,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
+import { applyCategoryFilter } from "@/lib/model-category-filters";
 import { cn, formatDeprecationDate } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -79,6 +82,7 @@ import type {
 	ApiModelProviderMapping,
 	ApiProvider,
 } from "@/lib/fetch-models";
+import type { ModelCategoryFilter } from "@/lib/model-category-filters";
 import type { StabilityLevel } from "@llmgateway/models";
 
 interface ModelWithProviders extends ApiModel {
@@ -94,15 +98,8 @@ interface AllModelsProps {
 	providers: ApiProvider[];
 	title?: string;
 	description?: string;
-	categoryFilter?:
-		| "text"
-		| "text-to-image"
-		| "image-to-image"
-		| "web-search"
-		| "vision"
-		| "reasoning"
-		| "tools"
-		| "discounted";
+	categoryFilter?: ModelCategoryFilter;
+	seoContent?: React.ReactNode;
 }
 
 type SortField =
@@ -194,6 +191,20 @@ function computeCapabilities(
 			icon: Video,
 			label: "Video Generation",
 			color: "text-violet-500",
+		});
+	}
+	if (model?.output?.includes("audio")) {
+		capabilities.push({
+			icon: Volume2,
+			label: "Speech Generation",
+			color: "text-rose-500",
+		});
+	}
+	if (model?.output?.includes("embedding")) {
+		capabilities.push({
+			icon: Boxes,
+			label: "Embeddings",
+			color: "text-indigo-500",
 		});
 	}
 	if (provider.webSearch) {
@@ -370,6 +381,28 @@ const ModelTableRow = React.memo(
 							</Tooltip>
 						) : (!row.provider.inputPrice ||
 								parseFloat(row.provider.inputPrice) === 0) &&
+						  row.provider.inputCharacterPrice &&
+						  parseFloat(row.provider.inputCharacterPrice) > 0 ? (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="text-sky-500 cursor-help">
+										$
+										{parseFloat(
+											(
+												parseFloat(row.provider.inputCharacterPrice) * 1000
+											).toFixed(4),
+										)}
+										/1K chars
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Per-character pricing (not per token)
+									</p>
+								</TooltipContent>
+							</Tooltip>
+						) : (!row.provider.inputPrice ||
+								parseFloat(row.provider.inputPrice) === 0) &&
 						  row.provider.requestPrice &&
 						  parseFloat(row.provider.requestPrice) > 0 ? (
 							<Tooltip>
@@ -412,8 +445,10 @@ const ModelTableRow = React.memo(
 							</Tooltip>
 						) : (!row.provider.outputPrice ||
 								parseFloat(row.provider.outputPrice) === 0) &&
-						  row.provider.requestPrice &&
-						  parseFloat(row.provider.requestPrice) > 0 ? (
+						  ((row.provider.requestPrice &&
+								parseFloat(row.provider.requestPrice) > 0) ||
+								(row.provider.inputCharacterPrice &&
+									parseFloat(row.provider.inputCharacterPrice) > 0)) ? (
 							<span className="text-muted-foreground">—</span>
 						) : (
 							formatPrice(row.provider.outputPrice, row.provider.discount)
@@ -506,38 +541,6 @@ const ModelTableRow = React.memo(
 
 const MODELS_PER_PAGE = 50;
 
-function applyCategoryFilter(
-	categoryFilter: AllModelsProps["categoryFilter"],
-	model: ApiModel,
-	providerDetails: ModelWithProviders["providerDetails"],
-): boolean {
-	switch (categoryFilter) {
-		case "text":
-			return !model.output?.includes("image");
-		case "text-to-image":
-			return model.output?.includes("image") === true;
-		case "image-to-image":
-			return (
-				model.output?.includes("image") === true &&
-				providerDetails.some((p) => p.provider.vision)
-			);
-		case "web-search":
-			return providerDetails.some((p) => p.provider.webSearch);
-		case "vision":
-			return providerDetails.some((p) => p.provider.vision);
-		case "reasoning":
-			return providerDetails.some((p) => p.provider.reasoning);
-		case "tools":
-			return providerDetails.some((p) => p.provider.tools);
-		case "discounted":
-			return providerDetails.some(
-				(p) => p.provider.discount && parseFloat(p.provider.discount) > 0,
-			);
-		default:
-			return true;
-	}
-}
-
 export function AllModels({
 	children,
 	models,
@@ -545,6 +548,7 @@ export function AllModels({
 	title,
 	description,
 	categoryFilter,
+	seoContent,
 }: AllModelsProps) {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -592,6 +596,8 @@ export function AllModels({
 			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
 			imageGeneration: searchParams.get("imageGeneration") === "true",
 			videoGeneration: searchParams.get("videoGeneration") === "true",
+			audioGeneration: searchParams.get("audioGeneration") === "true",
+			embedding: searchParams.get("embedding") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -671,7 +677,11 @@ export function AllModels({
 		// Apply category pre-filter if provided
 		const preFilteredModels = categoryFilter
 			? baseModels.filter((model) =>
-					applyCategoryFilter(categoryFilter, model, model.providerDetails),
+					applyCategoryFilter(
+						categoryFilter,
+						model,
+						model.providerDetails.map((p) => p.provider),
+					),
 				)
 			: baseModels;
 
@@ -850,6 +860,18 @@ export function AllModels({
 			if (
 				filters.capabilities.videoGeneration &&
 				!model.output?.includes("video")
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.audioGeneration &&
+				!model.output?.includes("audio")
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.embedding &&
+				!model.output?.includes("embedding")
 			) {
 				return false;
 			}
@@ -1422,6 +1444,20 @@ export function AllModels({
 				color: "text-violet-500",
 			});
 		}
+		if (model?.output?.includes("audio")) {
+			capabilities.push({
+				icon: Volume2,
+				label: "Speech Generation",
+				color: "text-rose-500",
+			});
+		}
+		if (model?.output?.includes("embedding")) {
+			capabilities.push({
+				icon: Boxes,
+				label: "Embeddings",
+				color: "text-indigo-500",
+			});
+		}
 		if (provider.webSearch) {
 			capabilities.push({
 				icon: Globe,
@@ -1446,6 +1482,8 @@ export function AllModels({
 				jsonOutputSchema: false,
 				imageGeneration: false,
 				videoGeneration: false,
+				audioGeneration: false,
+				embedding: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1470,6 +1508,8 @@ export function AllModels({
 			jsonOutputSchema: undefined,
 			imageGeneration: undefined,
 			videoGeneration: undefined,
+			audioGeneration: undefined,
+			embedding: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
@@ -1611,6 +1651,18 @@ export function AllModels({
 									label: "Video Gen",
 									icon: Video,
 									color: "text-violet-500",
+								},
+								{
+									key: "audioGeneration",
+									label: "Speech Gen",
+									icon: Volume2,
+									color: "text-rose-500",
+								},
+								{
+									key: "embedding",
+									label: "Embeddings",
+									icon: Boxes,
+									color: "text-indigo-500",
 								},
 								{
 									key: "webSearch",
@@ -2141,6 +2193,7 @@ export function AllModels({
 						</div>
 					</TooltipProvider>
 				</div>
+				{seoContent}
 			</main>
 			<Footer />
 		</div>

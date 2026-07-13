@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { redisClient } from "./redis.js";
 import {
 	SWR_PREFIX,
 	SWR_TABLE_INDEX_PREFIX,
+	SWR_THROTTLE_PREFIX,
 	getSwrStaleTtlSeconds,
 	invalidateSwrByTables,
 	swrWrap,
@@ -105,6 +106,72 @@ describe("swrWrap", () => {
 		expect(await redisClient.exists(`${SWR_TABLE_INDEX_PREFIX}table_a`)).toBe(
 			0,
 		);
+	});
+
+	it("throttles mirror rewrites for the same key within the window", async () => {
+		await swrWrap("test:key:throttle", ["table_a"], () =>
+			Promise.resolve({ v: 1 }),
+		);
+		expect(
+			await redisClient.get(`${SWR_PREFIX}test:key:throttle`),
+		).not.toBeNull();
+
+		// Drop the mirror, then call again within the throttle window. The fresh
+		// fetcher value is still returned, but the mirror is NOT rewritten.
+		await redisClient.del(`${SWR_PREFIX}test:key:throttle`);
+		const value = await swrWrap("test:key:throttle", ["table_a"], () =>
+			Promise.resolve({ v: 2 }),
+		);
+		expect(value).toEqual({ v: 2 });
+		expect(await redisClient.get(`${SWR_PREFIX}test:key:throttle`)).toBeNull();
+	});
+
+	it("releases the throttle slot so the next call retries when the mirror write fails", async () => {
+		const realPipeline = redisClient.pipeline.bind(redisClient);
+		const pipelineSpy = vi
+			.spyOn(redisClient, "pipeline")
+			.mockImplementationOnce(() => {
+				const pipeline = realPipeline();
+				vi.spyOn(pipeline, "exec").mockRejectedValueOnce(
+					new Error("redis write failed"),
+				);
+				return pipeline;
+			});
+
+		await swrWrap("test:key:relfail", ["table_a"], () =>
+			Promise.resolve({ v: 1 }),
+		);
+
+		// Write failed, so neither the mirror nor a lingering throttle marker
+		// should remain — the slot must be released for a retry.
+		expect(await redisClient.get(`${SWR_PREFIX}test:key:relfail`)).toBeNull();
+		expect(
+			await redisClient.get(`${SWR_THROTTLE_PREFIX}test:key:relfail`),
+		).toBeNull();
+
+		pipelineSpy.mockRestore();
+
+		// The next call (still within the window) now succeeds in writing the
+		// mirror instead of being suppressed by a stuck throttle marker.
+		await swrWrap("test:key:relfail", ["table_a"], () =>
+			Promise.resolve({ v: 2 }),
+		);
+		expect(
+			await redisClient.get(`${SWR_PREFIX}test:key:relfail`),
+		).not.toBeNull();
+	});
+
+	it("repopulates mirror on next fetch after invalidation despite throttle", async () => {
+		await swrWrap("test:key:reinv", ["table_a"], () =>
+			Promise.resolve({ v: 1 }),
+		);
+		await invalidateSwrByTables(["table_a"]);
+		expect(await redisClient.get(`${SWR_PREFIX}test:key:reinv`)).toBeNull();
+
+		await swrWrap("test:key:reinv", ["table_a"], () =>
+			Promise.resolve({ v: 2 }),
+		);
+		expect(await redisClient.get(`${SWR_PREFIX}test:key:reinv`)).not.toBeNull();
 	});
 
 	it("honors SWR_STALE_TTL_SECONDS env var", async () => {

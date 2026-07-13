@@ -9,9 +9,9 @@ export function isModelTrulyFree(modelInfo: ModelDefinition): boolean {
 	}
 	return !modelInfo.providers.some((provider) => {
 		const hasRequestPrice =
-			provider.requestPrice !== undefined && provider.requestPrice > 0;
+			provider.requestPrice !== undefined && Number(provider.requestPrice) > 0;
 		const hasPerSecondPrice = Object.values(provider.perSecondPrice ?? {}).some(
-			(price) => price > 0,
+			(price) => Number(price) > 0,
 		);
 		return hasRequestPrice || hasPerSecondPrice;
 	});

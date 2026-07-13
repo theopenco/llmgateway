@@ -1,4 +1,5 @@
 import { subDays, format } from "date-fns";
+import { redirect } from "next/navigation";
 
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { fetchServerData } from "@/lib/server-api";
@@ -16,7 +17,18 @@ export default async function Dashboard({
 		to?: string;
 	}>;
 }) {
-	const { projectId } = await params;
+	const { orgId, projectId } = await params;
+
+	// Project-scoped "developer" members don't get the project-wide dashboard —
+	// send them to their personal usage view.
+	const orgsData = await fetchServerData<{
+		organizations?: { id: string; role?: string }[];
+	}>("GET", "/orgs");
+	const role = orgsData?.organizations?.find((o) => o.id === orgId)?.role;
+	if (role === "developer") {
+		redirect(`/dashboard/${orgId}/${projectId}/me`);
+	}
+
 	const searchParamsData = searchParams ? await searchParams : {};
 
 	const today = new Date();

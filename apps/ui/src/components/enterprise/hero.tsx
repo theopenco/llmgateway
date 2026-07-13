@@ -35,17 +35,44 @@ function StatCard({
 	);
 }
 
-export function HeroEnterprise() {
+function toTickerStat(n: number): { value: number; suffix: string } {
+	if (n >= 1_000_000_000) {
+		return { value: Math.floor(n / 1_000_000_000), suffix: "B+" };
+	}
+	if (n >= 1_000_000) {
+		return { value: Math.floor(n / 1_000_000), suffix: "M+" };
+	}
+	if (n >= 1_000) {
+		return { value: Math.floor(n / 1_000), suffix: "K+" };
+	}
+	return { value: n, suffix: "" };
+}
+
+interface HeroEnterpriseProps {
+	totalTokens?: number;
+	totalRequests?: number;
+}
+
+export function HeroEnterprise({
+	totalTokens = 100_000_000_000,
+	totalRequests = 20_000_000,
+}: HeroEnterpriseProps = {}) {
+	const tokensStat = toTickerStat(totalTokens);
+	const requestsStat = toTickerStat(totalRequests);
+
 	return (
 		<section className="relative pt-32 pb-20 sm:pt-40 sm:pb-28">
 			<div className="container mx-auto px-4 sm:px-6 lg:px-8">
 				<div className="mx-auto max-w-4xl text-center">
-					<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-muted px-4 py-1.5">
+					<Link
+						href="/blog/soc2-type-ii"
+						className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-muted px-4 py-1.5 transition-colors hover:border-blue-500/50"
+					>
 						<span className="text-xs font-mono text-blue-500">ENTERPRISE</span>
 						<span className="text-xs text-muted-foreground">
-							Production-ready LLM infrastructure
+							SOC 2 Type II certified
 						</span>
-					</div>
+					</Link>
 					<h1 className="mb-6 text-4xl font-bold tracking-tight text-balance sm:text-6xl lg:text-7xl">
 						Enterprise LLM Gateway for mission-critical applications
 					</h1>
@@ -70,18 +97,26 @@ export function HeroEnterprise() {
 							<Link href="/signup">Explore The Product</Link>
 						</Button>
 					</div>
+					<p className="mt-5 text-sm text-muted-foreground">
+						Every enterprise plan starts with the 30-Day Production Pilot — live
+						traffic in week one, a decision gate at day 30.
+					</p>
 
 					<div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:gap-6">
-						<StatCard value={100} suffix="B+" label="Total Tokens Processed" />
 						<StatCard
-							value={20}
-							suffix="M"
+							value={tokensStat.value}
+							suffix={tokensStat.suffix}
+							label="Total Tokens Processed"
+						/>
+						<StatCard
+							value={requestsStat.value}
+							suffix={requestsStat.suffix}
 							label="Total Requests"
 							delay={0.1}
 						/>
 						<StatCard value={200} suffix="M" label="Daily Tokens" delay={0.2} />
 						<StatCard
-							value={50}
+							value={80}
 							suffix="K"
 							prefix="$"
 							label="Customer Savings"

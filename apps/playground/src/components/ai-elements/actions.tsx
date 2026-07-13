@@ -14,7 +14,10 @@ import type { ComponentProps } from "react";
 export type ActionsProps = ComponentProps<"div">;
 
 export const Actions = ({ className, children, ...props }: ActionsProps) => (
-	<div className={cn("flex items-center gap-1", className)} {...props}>
+	<div
+		className={cn("flex items-center gap-1 select-none", className)}
+		{...props}
+	>
 		{children}
 	</div>
 );

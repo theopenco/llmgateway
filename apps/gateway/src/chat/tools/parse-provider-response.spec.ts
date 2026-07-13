@@ -16,6 +16,40 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("parseProviderResponse", () => {
+	describe("zai web search", () => {
+		it("counts requested web search when the response omits result metadata", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: "Current news summary.",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"zai",
+				"glm-5.2",
+				json,
+				[],
+				true,
+				false,
+				true,
+			);
+
+			expect(result.content).toBe("Current news summary.");
+			expect(result.webSearchCount).toBe(1);
+		});
+	});
+
 	describe("google reasoning output", () => {
 		it("treats missing thought text as null when only thought signatures are returned", () => {
 			const json = {
@@ -55,7 +89,107 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("google multi-candidate (n > 1)", () => {
+		it("aggregates content across de-duplicated candidates and keys tool calls to candidate 0", () => {
+			// AI Studio quirk: candidate 0's parts also contain a copy of every
+			// other candidate's parts. The aggregate must count each candidate
+			// exactly once and tool calls must come from candidate 0 only.
+			const json = {
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{ text: "first thought", thought: true },
+								{ text: "Variant one." },
+								{
+									functionCall: {
+										name: "get_weather",
+										args: { city: "Paris" },
+									},
+								},
+								// duplicated copy of candidate 1's parts
+								{ text: "Variant two." },
+								{
+									functionCall: { name: "get_weather", args: { city: "Rome" } },
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+					{
+						content: {
+							role: "model",
+							parts: [
+								{ text: "Variant two." },
+								{
+									functionCall: { name: "get_weather", args: { city: "Rome" } },
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 1,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 10,
+					candidatesTokenCount: 20,
+					totalTokenCount: 30,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-2.5-flash",
+				json,
+			);
+
+			expect(result.content).toBe("Variant one.Variant two.");
+			expect(result.reasoningContent).toBe("first thought");
+			// Candidate 0's own tool call only — neither the duplicated copy
+			// nor candidate 1's own call belong to the choice-0 tool results.
+			expect(result.toolResults).toHaveLength(1);
+			expect(result.toolResults?.[0].function.name).toBe("get_weather");
+			expect(result.toolResults?.[0].function.arguments).toBe(
+				JSON.stringify({ city: "Paris" }),
+			);
+			expect(result.promptTokens).toBe(10);
+			expect(result.completionTokens).toBe(20);
+		});
+	});
+
 	describe("aws-bedrock cachedTokens", () => {
+		it("parses OpenAI-compatible Bedrock Mantle chat responses", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							content: "Hello from Grok",
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 12,
+					completion_tokens: 5,
+					total_tokens: 17,
+					prompt_tokens_details: {
+						cached_tokens: 3,
+					},
+				},
+			};
+
+			const result = parseProviderResponse("aws-bedrock", "xai.grok-4.3", json);
+
+			expect(result.content).toBe("Hello from Grok");
+			expect(result.finishReason).toBe("stop");
+			expect(result.promptTokens).toBe(12);
+			expect(result.completionTokens).toBe(5);
+			expect(result.totalTokens).toBe(17);
+			expect(result.cachedTokens).toBe(3);
+		});
+
 		it("returns cachedTokens as 0 when cacheReadInputTokens is 0", () => {
 			const json = {
 				output: {
@@ -82,6 +216,39 @@ describe("parseProviderResponse", () => {
 
 			expect(result.cachedTokens).toBe(0);
 			expect(result.promptTokens).toBe(150); // 100 + 0 + 50
+		});
+
+		it("extracts cache creation tokens from cacheDetails by TTL", () => {
+			const json = {
+				output: {
+					message: {
+						content: [{ text: "Hello" }],
+						role: "assistant",
+					},
+				},
+				stopReason: "end_turn",
+				usage: {
+					inputTokens: 100,
+					cacheReadInputTokens: 0,
+					cacheWriteInputTokens: 1000,
+					cacheDetails: [
+						{ ttl: "1h", inputTokens: 700 },
+						{ ttl: "5m", inputTokens: 300 },
+					],
+					outputTokens: 200,
+					totalTokens: 1300,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				json,
+			);
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(300);
+			expect(result.cacheCreation1hTokens).toBe(700);
 		});
 
 		it("returns cachedTokens with correct value when cacheReadInputTokens > 0", () => {
@@ -226,6 +393,49 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("refusal finish reason", () => {
+		it("preserves the raw 'refusal' stop reason for aws-bedrock", () => {
+			const json = {
+				output: {
+					message: { content: [], role: "assistant" },
+				},
+				stopReason: "refusal",
+				usage: {
+					inputTokens: 100,
+					outputTokens: 0,
+					totalTokens: 100,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				json,
+			);
+
+			expect(result.finishReason).toBe("refusal");
+		});
+
+		it("surfaces the raw 'refusal' stop_reason for anthropic", () => {
+			const json = {
+				content: [],
+				stop_reason: "refusal",
+				usage: {
+					input_tokens: 100,
+					output_tokens: 0,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-opus-4-8",
+				json,
+			);
+
+			expect(result.finishReason).toBe("refusal");
+		});
+	});
+
 	describe("anthropic cachedTokens", () => {
 		it("returns cachedTokens as 0 when cache_read_input_tokens is 0", () => {
 			const json = {
@@ -340,6 +550,128 @@ describe("parseProviderResponse", () => {
 			expect(result.cacheCreationTokens).toBe(400);
 			expect(result.cacheCreation5mTokens).toBeNull();
 			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+	});
+
+	describe("anthropic reasoning tokens", () => {
+		it("extracts thinking tokens from output_tokens_details.thinking_tokens", () => {
+			// Adaptive thinking (Opus 4.7+) returns an encrypted thinking block with
+			// empty text but reports the thinking token count under
+			// output_tokens_details.thinking_tokens.
+			const json = {
+				content: [
+					{ type: "thinking", thinking: "", signature: "abc" },
+					{ type: "text", text: "answer" },
+				],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 60,
+					output_tokens: 2928,
+					output_tokens_details: { thinking_tokens: 1502 },
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-opus-4-7",
+				json,
+			);
+
+			expect(result.content).toBe("answer");
+			expect(result.reasoningContent).toBe("");
+			expect(result.completionTokens).toBe(2928);
+			expect(result.reasoningTokens).toBe(1502);
+		});
+
+		it("falls back to legacy reasoning_output_tokens field", () => {
+			const json = {
+				content: [{ type: "text", text: "answer" }],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 10,
+					output_tokens: 100,
+					reasoning_output_tokens: 31,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"anthropic",
+				"claude-opus-4-6",
+				json,
+			);
+
+			expect(result.reasoningTokens).toBe(31);
+		});
+	});
+
+	describe("alibaba cache creation tokens", () => {
+		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 1500,
+					completion_tokens: 200,
+					total_tokens: 1700,
+					prompt_tokens_details: {
+						cache_creation_input_tokens: 1000,
+						cached_tokens: 0,
+					},
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen-plus", json);
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(1000);
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("leaves cache creation fields null when prompt_tokens_details is absent", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen-plus", json);
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+		});
+
+		it("ignores a stray top-level cache_creation_input_tokens (wrong shape)", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+					cache_creation_input_tokens: 999,
+				},
+			};
+
+			const result = parseProviderResponse("alibaba", "qwen-plus", json);
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
 		});
 	});
 

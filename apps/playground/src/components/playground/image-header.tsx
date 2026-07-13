@@ -2,7 +2,6 @@
 
 import { Plus, X } from "lucide-react";
 
-import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ModelSelector } from "@/components/model-selector";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -20,6 +19,7 @@ interface ImageHeaderProps {
 	onRemoveModel: (index: number) => void;
 	comparisonMode: boolean;
 	onComparisonModeChange: (enabled: boolean) => void;
+	hideCompare?: boolean;
 }
 
 export function ImageHeader({
@@ -31,6 +31,7 @@ export function ImageHeader({
 	onRemoveModel,
 	comparisonMode,
 	onComparisonModeChange,
+	hideCompare = false,
 }: ImageHeaderProps) {
 	return (
 		<header className="bg-background flex items-center border-b p-4">
@@ -87,34 +88,31 @@ export function ImageHeader({
 					</div>
 				)}
 			</div>
-			<div className="ml-3 flex items-center gap-3">
-				<div className="hidden items-center gap-2 md:flex">
-					<Label
-						htmlFor="comparison-mode-img"
-						className="text-muted-foreground text-xs"
-					>
-						Compare
-					</Label>
-					<Switch
-						id="comparison-mode-img"
-						checked={comparisonMode}
-						onCheckedChange={onComparisonModeChange}
-					/>
+			{(!hideCompare || comparisonMode) && (
+				<div className="ml-3 flex items-center gap-3">
+					<div className="hidden items-center gap-2 md:flex">
+						{hideCompare ? (
+							<span className="text-muted-foreground text-xs">
+								Comparison Mode
+							</span>
+						) : (
+							<>
+								<Label
+									htmlFor="comparison-mode-img"
+									className="text-muted-foreground text-xs"
+								>
+									Comparison Mode
+								</Label>
+								<Switch
+									id="comparison-mode-img"
+									checked={comparisonMode}
+									onCheckedChange={onComparisonModeChange}
+								/>
+							</>
+						)}
+					</div>
 				</div>
-				<ThemeToggle />
-				<a
-					href={
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3002/dashboard"
-							: "https://llmgateway.io/dashboard"
-					}
-					target="_blank"
-					rel="noopener noreferrer"
-					className="hidden sm:inline"
-				>
-					<span className="text-nowrap">Dashboard</span>
-				</a>
-			</div>
+			)}
 		</header>
 	);
 }

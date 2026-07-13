@@ -1,5 +1,17 @@
 import { ImageResponse } from "next/og";
 
+import { discountFraction } from "@/lib/discount";
+import { fetchModels } from "@/lib/fetch-models";
+import {
+	CHEAPEST_MAX_INPUT_PRICE_PER_M,
+	CHEAPEST_MAX_OUTPUT_PRICE_PER_M,
+	curatedCategoryModelIds,
+	isTextOutput,
+	LONG_CONTEXT_MIN_TOKENS,
+	OPEN_SOURCE_FAMILIES,
+	OPEN_SOURCE_MODEL_IDS,
+} from "@/lib/model-category-filters";
+
 import {
 	models as modelDefinitions,
 	type ModelDefinition,
@@ -18,7 +30,7 @@ interface CategoryOgConfig {
 	accentColor: string;
 	accentColorDim: string;
 	iconSvgPath: string;
-	countFilter: (model: ModelDefinition) => boolean;
+	countFilter?: (model: ModelDefinition) => boolean;
 }
 
 export const categoryConfigs: Record<string, CategoryOgConfig> = {
@@ -29,7 +41,10 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		accentColorDim: "#1E3A5F",
 		// Lucide "Type" icon path
 		iconSvgPath: "M4 7V4h16v3 M9 20h6 M12 4v16",
-		countFilter: (m) => !m.output?.includes("image"),
+		countFilter: (m) =>
+			!m.output?.includes("image") &&
+			!m.output?.includes("video") &&
+			!m.output?.includes("embedding"),
 	},
 	"text-to-image": {
 		title: "Text to Image",
@@ -52,6 +67,26 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		countFilter: (m) =>
 			m.output?.includes("image") === true &&
 			m.providers.some((p) => (p as ProviderModelMapping).vision),
+	},
+	video: {
+		title: "Video Generation",
+		subtitle: "Generate videos from text prompts",
+		accentColor: "#F43F5E",
+		accentColorDim: "#881337",
+		// Lucide "Video" icon path
+		iconSvgPath:
+			"M22 8l-6 4 6 4V8Z M14 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2Z",
+		countFilter: (m) => m.output?.includes("video") === true,
+	},
+	embedding: {
+		title: "Embeddings",
+		subtitle: "Vector embeddings for search and RAG",
+		accentColor: "#14B8A6",
+		accentColorDim: "#134E4A",
+		// Lucide "Boxes" icon path
+		iconSvgPath:
+			"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z M7 16.5l-4.74-2.85 M7 16.5l5-3 M7 16.5v5.17 M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z M17 16.5l-5-3 M17 16.5l4.74-2.85 M17 16.5v5.17 M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z M12 8L7.26 5.15 M12 8l4.74-2.85 M12 8v5.5",
+		countFilter: (m) => m.output?.includes("embedding") === true,
 	},
 	"web-search": {
 		title: "Web Search",
@@ -105,14 +140,124 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Percent" icon path
 		iconSvgPath:
 			"M19 5L5 19 M9 6.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z M20 17.5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z",
-		countFilter: (m) => {
-			const providers = m.providers as ProviderModelMapping[];
-			return providers.some((p) => p.discount && p.discount > 0);
-		},
+	},
+	roleplay: {
+		title: "Roleplay",
+		subtitle: "Character consistency and creative prose",
+		accentColor: "#D946EF",
+		accentColorDim: "#701A75",
+		// Lucide "Users" icon path
+		iconSvgPath:
+			"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+		countFilter: (m) => curatedCategoryModelIds.roleplay.has(m.id),
+	},
+	coding: {
+		title: "Coding",
+		subtitle: "Code generation and agentic coding models",
+		accentColor: "#6366F1",
+		accentColorDim: "#312E81",
+		// Lucide "Code" icon path
+		iconSvgPath: "m16 18 6-6-6-6 M8 6l-6 6 6 6",
+		countFilter: (m) => curatedCategoryModelIds.coding.has(m.id),
+	},
+	"creative-writing": {
+		title: "Creative Writing",
+		subtitle: "Long-form prose and narrative consistency",
+		accentColor: "#EAB308",
+		accentColorDim: "#713F12",
+		// Lucide "PenLine" icon path
+		iconSvgPath:
+			"M12 20h9 M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z",
+		countFilter: (m) => curatedCategoryModelIds["creative-writing"].has(m.id),
+	},
+	translation: {
+		title: "Translation",
+		subtitle: "Multilingual models for translation work",
+		accentColor: "#06B6D4",
+		accentColorDim: "#164E63",
+		// Lucide "Languages" icon path
+		iconSvgPath:
+			"M5 8l6 6 M4 14l6-6 2-3 M2 5h12 M7 2h1 M22 22l-5-10-5 10 M14 18h6",
+		countFilter: (m) => curatedCategoryModelIds.translation.has(m.id),
+	},
+	math: {
+		title: "Math",
+		subtitle: "Reasoning models for quantitative problems",
+		accentColor: "#84CC16",
+		accentColorDim: "#365314",
+		// Lucide "Calculator" icon path
+		iconSvgPath:
+			"M4 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z M8 6h8 M16 14v4 M16 10h.01 M12 10h.01 M8 10h.01 M12 14h.01 M8 14h.01 M12 18h.01 M8 18h.01",
+		countFilter: (m) => curatedCategoryModelIds.math.has(m.id),
+	},
+	"long-context": {
+		title: "Long Context",
+		subtitle: "Context windows from 200K to 2M tokens",
+		accentColor: "#F59E0B",
+		accentColorDim: "#78350F",
+		// Lucide "AlignLeft" icon path
+		iconSvgPath: "M21 6H3 M15 12H3 M17 18H3",
+		countFilter: (m) =>
+			isTextOutput(m.output) &&
+			m.providers.some(
+				(p) =>
+					((p as ProviderModelMapping).contextSize ?? 0) >=
+					LONG_CONTEXT_MIN_TOKENS,
+			),
+	},
+	cheapest: {
+		title: "Cheapest",
+		subtitle: "Low-cost models for high-volume workloads",
+		accentColor: "#10B981",
+		accentColorDim: "#064E3B",
+		// Lucide "DollarSign" icon path
+		iconSvgPath: "M12 2v20 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+		countFilter: (m) =>
+			isTextOutput(m.output) &&
+			(m.free === true ||
+				m.providers.some((p) => {
+					const mapping = p as ProviderModelMapping;
+					return (
+						mapping.inputPrice !== undefined &&
+						mapping.outputPrice !== undefined &&
+						parseFloat(mapping.inputPrice) * 1e6 <=
+							CHEAPEST_MAX_INPUT_PRICE_PER_M &&
+						parseFloat(mapping.outputPrice) * 1e6 <=
+							CHEAPEST_MAX_OUTPUT_PRICE_PER_M
+					);
+				})),
+	},
+	"open-source": {
+		title: "Open Source",
+		subtitle: "Open-weight models served through one API",
+		accentColor: "#94A3B8",
+		accentColorDim: "#334155",
+		// Lucide "Package" icon path
+		iconSvgPath:
+			"M7.5 4.27l9 5.15 M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z M3.3 7l8.7 5 8.7-5 M12 22V12",
+		countFilter: (m) =>
+			isTextOutput(m.output) &&
+			(OPEN_SOURCE_FAMILIES.has(m.family) || OPEN_SOURCE_MODEL_IDS.has(m.id)),
 	},
 };
 
-export function generateCategoryOgImage(categoryKey: string) {
+async function getCategoryModelCount(
+	categoryKey: string,
+	config: CategoryOgConfig,
+): Promise<number> {
+	if (categoryKey === "discounted") {
+		const models = await fetchModels();
+		return models.filter((model) =>
+			model.mappings.some((mapping) => discountFraction(mapping.discount) > 0),
+		).length;
+	}
+
+	return config.countFilter
+		? modelDefinitions.filter(config.countFilter).length
+		: 0;
+}
+
+export async function generateCategoryOgImage(categoryKey: string) {
 	const config = categoryConfigs[categoryKey];
 	if (!config) {
 		return new ImageResponse(
@@ -139,7 +284,7 @@ export function generateCategoryOgImage(categoryKey: string) {
 		);
 	}
 
-	const modelCount = modelDefinitions.filter(config.countFilter).length;
+	const modelCount = await getCategoryModelCount(categoryKey, config);
 
 	return new ImageResponse(
 		(

@@ -21,13 +21,14 @@ export function isExpectedUnknownFinishReason(
 	if (!finishReason) {
 		return false;
 	}
-	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
+	// Google's "OTHER" and "MALFORMED_RESPONSE" finish reasons are expected and
+	// map to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
-		finishReason === "OTHER"
+		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
 	) {
 		return true;
 	}
@@ -63,9 +64,17 @@ export function getUnifiedFinishReason(
 	if (finishReason === "llmgateway_content_filter") {
 		return UnifiedFinishReason.CONTENT_FILTER;
 	}
+	// Anthropic-family safety-classifier refusals surface as `stop_reason:
+	// "refusal"` across the direct API, Vertex, and Bedrock. Map it uniformly
+	// here so providers handled by the default branch below (e.g. aws-bedrock)
+	// classify refusals as content filtering rather than UNKNOWN.
+	if (finishReason === "refusal") {
+		return UnifiedFinishReason.CONTENT_FILTER;
+	}
 
 	switch (provider) {
 		case "anthropic":
+		case "vertex-anthropic":
 			if (finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;
 			}
@@ -87,11 +96,18 @@ export function getUnifiedFinishReason(
 		case "google-vertex":
 		case "quartz":
 			// Google finish reasons (original format, not mapped to OpenAI)
-			if (finishReason === "STOP") {
+			if (finishReason === "STOP" || finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
 			}
-			if (finishReason === "MAX_TOKENS") {
+			if (finishReason === "MAX_TOKENS" || finishReason === "length") {
 				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (
+				finishReason === "MALFORMED_FUNCTION_CALL" ||
+				finishReason === "UNEXPECTED_TOOL_CALL" ||
+				finishReason === "tool_calls"
+			) {
+				return UnifiedFinishReason.TOOL_CALLS;
 			}
 			if (
 				finishReason === "SAFETY" ||
@@ -109,7 +125,7 @@ export function getUnifiedFinishReason(
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
-			if (finishReason === "OTHER") {
+			if (finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE") {
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;
@@ -132,6 +148,21 @@ export function getUnifiedFinishReason(
 			}
 			if (finishReason === "error") {
 				return UnifiedFinishReason.UPSTREAM_ERROR;
+			}
+			break;
+		case "zai":
+		case "novita":
+			if (finishReason === "stop") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (finishReason === "length" || finishReason === "incomplete") {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (finishReason === "tool_calls") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
+			if (finishReason === "sensitive" || finishReason === "content_filter") {
+				return UnifiedFinishReason.CONTENT_FILTER;
 			}
 			break;
 		default: // OpenAI format (also used by inference.net and other providers)
@@ -160,6 +191,23 @@ export function isContentFilterFinishReason(
 	return (
 		getUnifiedFinishReason(finishReason, provider) ===
 		UnifiedFinishReason.CONTENT_FILTER
+	);
+}
+
+/**
+ * Whether the finish reason indicates the model stopped because it reached the
+ * token limit (e.g. a small `max_tokens`). With a tiny limit (such as
+ * `max_tokens: 1`) providers like Google can legitimately return no content at
+ * all, so an empty response with this finish reason is expected behavior, not an
+ * upstream error.
+ */
+export function isLengthLimitFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	return (
+		getUnifiedFinishReason(finishReason, provider) ===
+		UnifiedFinishReason.LENGTH_LIMIT
 	);
 }
 

@@ -1,5 +1,10 @@
 import { models, type ProviderModelMapping } from "./models.js";
-import { providers } from "./providers.js";
+import {
+	providers,
+	type ProviderDefinition,
+	type ProviderId,
+	type ServiceTier,
+} from "./providers.js";
 import { expandAllProviderRegions } from "./region-helpers.js";
 
 /**
@@ -67,4 +72,147 @@ export function getModelStreamingSupport(
 	// Fall back to provider-level streaming support
 	const providerInfo = providers.find((p) => p.id === providerId);
 	return providerInfo?.streaming === true;
+}
+
+function getProviderMappingForModel(
+	modelName: string,
+	providerId: string,
+	region?: string | null,
+): ProviderModelMapping | undefined {
+	const modelInfo = models.find((m) => m.id === modelName);
+	if (!modelInfo) {
+		return undefined;
+	}
+
+	const expandedProviders = expandAllProviderRegions(
+		modelInfo.providers as ProviderModelMapping[],
+	);
+	const providerEntries = expandedProviders.filter(
+		(p) => p.providerId === providerId,
+	);
+	const isBaseEntry = (p: ProviderModelMapping) =>
+		p.region === undefined || p.region === null;
+	const hasRegionalEntries = providerEntries.some((p) => !isBaseEntry(p));
+
+	if (region !== null && region !== undefined) {
+		const regionalEntry = providerEntries.find((p) => p.region === region);
+		if (regionalEntry) {
+			return regionalEntry;
+		}
+		if (!hasRegionalEntries) {
+			return providerEntries.find(isBaseEntry);
+		}
+		return undefined;
+	}
+
+	return providerEntries.find(isBaseEntry) ?? providerEntries[0];
+}
+
+export function getSupportedServiceTiers(
+	modelName: string,
+	providerId: string,
+	region?: string | null,
+): ServiceTier[] {
+	const providerDefinition = providers.find((p) => p.id === providerId);
+	const providerTiers = providerDefinition?.serviceTiers ?? [];
+	if (providerTiers.length === 0) {
+		return [];
+	}
+
+	const providerMapping = getProviderMappingForModel(
+		modelName,
+		providerId,
+		region,
+	);
+	const supportedTierIds = providerMapping?.serviceTiers;
+	if (!supportedTierIds || supportedTierIds.length === 0) {
+		return [];
+	}
+
+	const serviceTierRegions = providerMapping.serviceTierRegions;
+	if (serviceTierRegions && serviceTierRegions.length > 0) {
+		const effectiveRegion =
+			region ?? (serviceTierRegions.includes("global") ? "global" : undefined);
+		if (!effectiveRegion || !serviceTierRegions.includes(effectiveRegion)) {
+			return [];
+		}
+	}
+
+	const supportedTierIdSet = new Set(supportedTierIds);
+	return providerTiers
+		.filter((tier) => supportedTierIdSet.has(tier.id))
+		.map((tier) => ({
+			...tier,
+			multiplier:
+				providerMapping.serviceTierMultipliers?.[tier.id] ?? tier.multiplier,
+		}));
+}
+
+export function supportsServiceTier(
+	modelName: string,
+	providerId: string,
+	tierId: string | null | undefined,
+	region?: string | null,
+): boolean {
+	if (!tierId) {
+		return false;
+	}
+	return getSupportedServiceTiers(modelName, providerId, region).some(
+		(tier) => tier.id === tierId,
+	);
+}
+
+// OpenAI prompt_cache_retention="24h" eligibility per
+// https://developers.openai.com/api/docs/guides/prompt-caching.
+// gpt-5.5 and gpt-5.5-pro default to 24h and reject "in_memory"; the rest
+// accept either. Models not on this list only support "in_memory" caching.
+const OPENAI_EXTENDED_PROMPT_CACHE_MODELS = new Set<string>([
+	"gpt-5.5",
+	"gpt-5.5-pro",
+	"gpt-5.4",
+	"gpt-5.2",
+	"gpt-5.1-codex-max",
+	"gpt-5.1",
+	"gpt-5.1-codex",
+	"gpt-5.1-codex-mini",
+	"gpt-5.1-chat-latest",
+	"gpt-5",
+	"gpt-5-codex",
+	"gpt-4.1",
+]);
+
+export function supportsOpenAIExtendedPromptCache(modelName: string): boolean {
+	return OPENAI_EXTENDED_PROMPT_CACHE_MODELS.has(modelName);
+}
+
+// OpenAI explicit prompt caching (`prompt_cache_options` +
+// `prompt_cache_breakpoint` content markers) per
+// https://developers.openai.com/api/docs/guides/prompt-caching.
+// Only GPT-5.6 and later model families support these fields; older models
+// reject them with a 400, so they must only be forwarded for this list.
+const OPENAI_EXPLICIT_PROMPT_CACHE_MODELS = new Set<string>([
+	"gpt-5.6-sol",
+	"gpt-5.6-terra",
+	"gpt-5.6-luna",
+]);
+
+export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
+	return OPENAI_EXPLICIT_PROMPT_CACHE_MODELS.has(modelName);
+}
+
+/**
+ * Whether a provider is a "stealth" provider — one that has no default base URL
+ * and instead requires the base URL to be supplied via a `baseUrl` env var
+ * (`env.required.baseUrl`). Because the platform behind such a provider is
+ * undisclosed, users cannot self-configure a provider key for it (they can't
+ * know the endpoint), so these are hidden from the UI provider selector.
+ */
+export function isStealthProvider(
+	provider: ProviderId | ProviderDefinition,
+): boolean {
+	const def =
+		typeof provider === "string"
+			? providers.find((p) => p.id === provider)
+			: provider;
+	return Boolean(def?.env.required.baseUrl);
 }

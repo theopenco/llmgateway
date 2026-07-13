@@ -36,6 +36,7 @@ export async function loadProjectLogsAction(
 		model?: string;
 		source?: string;
 		unifiedFinishReason?: string;
+		hasError?: string;
 	},
 ) {
 	const $api = await createServerApiClient();
@@ -71,6 +72,56 @@ export async function giftCreditsToOrganization(
 	return { success: true };
 }
 
+export async function updateReferralBonus(
+	orgId: string,
+	body: { enabled: boolean; percent: number },
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/referral-bonus",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update referral bonus";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
+export async function manageOrganization(
+	orgId: string,
+	body: {
+		plan: "free" | "pro" | "enterprise";
+		seats: number | null;
+		apiKeyLimit: number | null;
+	},
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/manage",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update organization";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
 export async function setOrganizationStatus(
 	orgId: string,
 	status: "active" | "deleted",
@@ -92,6 +143,32 @@ export async function setOrganizationStatus(
 	}
 
 	return { success: true };
+}
+
+export async function blockOrganization(orgId: string): Promise<{
+	success: boolean;
+	error?: string;
+	cancelledSubscriptionIds?: string[];
+}> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST(
+		"/admin/organizations/{orgId}/block",
+		{
+			params: { path: { orgId } },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to block organization";
+		return { success: false, error: message };
+	}
+
+	return {
+		success: true,
+		cancelledSubscriptionIds: data.cancelledSubscriptionIds,
+	};
 }
 
 export async function getLogContent(logId: string): Promise<string | null> {
