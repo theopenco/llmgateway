@@ -27,8 +27,9 @@ export const metaModels = [
 				vision: true,
 				tools: true,
 				// Muse Spark's endpoint only accepts tool_choice="auto"; it rejects
-				// "required" and named function choices with invalid_request_error.
-				supportedToolChoices: ["auto", "none"],
+				// "none", "required", and named function choices with
+				// invalid_request_error (verified live)
+				supportedToolChoices: ["auto"],
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},

@@ -1240,7 +1240,8 @@ export const alibabaModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// novita rejects response_format json_object for this model (400)
+				jsonOutput: false,
 			},
 			{
 				providerId: "vertex-openai",
@@ -1286,9 +1287,6 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-max",
-				// Tool calling is unreliable on novita: forced tool_choice requests
-				// are rejected upstream with an invalid_request_error.
-				stability: "unstable",
 				inputPrice: "0.845e-6",
 				outputPrice: "3.38e-6",
 				requestPrice: "0",
@@ -1299,6 +1297,9 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// novita rejects tool_choice "required" and named function choices
+				// with invalid_request_error; "auto" and "none" work
+				supportedToolChoices: ["auto", "none"],
 			},
 		],
 	},
