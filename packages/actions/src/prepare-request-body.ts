@@ -1934,12 +1934,19 @@ export async function prepareRequestBody(
 			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
 			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
 			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
+			// Exception: disabling thinking corrupts GLM structured output
+			// (verified live: glm-4.5 emits tool calls as raw <tool_call> text,
+			// glm-4.6v-flashx appends a stray "End" token after JSON output), so
+			// for requests with tools or a response_format leave the provider
+			// default (enabled) rather than disabling.
 			if (supportsReasoning) {
 				const wantsThinking =
 					reasoning_effort !== undefined && reasoning_effort !== "minimal";
-				requestBody.thinking = {
-					type: wantsThinking ? "enabled" : "disabled",
-				};
+				if (wantsThinking || (!requestBody.tools && !response_format)) {
+					requestBody.thinking = {
+						type: wantsThinking ? "enabled" : "disabled",
+					};
+				}
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
 			if (sensitive_word_check) {

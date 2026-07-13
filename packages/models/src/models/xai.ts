@@ -245,6 +245,9 @@ export const xaiModels = [
 				maxOutput: 256000,
 				streaming: true,
 				vision: true,
+				// grok-4 always reasons and streams reasoning_content deltas;
+				// without this flag the gateway folds them into content
+				reasoning: true,
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
