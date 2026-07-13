@@ -705,6 +705,7 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
@@ -915,6 +916,7 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: [
