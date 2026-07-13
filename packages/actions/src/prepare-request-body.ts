@@ -3211,13 +3211,14 @@ export async function prepareRequestBody(
 		case "xiaomi": {
 			// Xiaomi expects tool message content as a plain string — flatten
 			// array content blocks to text, dropping image blocks.
-			requestBody.messages = requestBody.messages.map((m) =>
+			requestBody.messages = requestBody.messages.map((m: BaseMessage) =>
 				m.role === "tool" && Array.isArray(m.content)
 					? {
 							...m,
 							content: m.content
-								.filter((c) => c.type === "text" && c.text)
+								.filter(isTextContent)
 								.map((c) => c.text)
+								.filter(Boolean)
 								.join("\n"),
 						}
 					: m,
