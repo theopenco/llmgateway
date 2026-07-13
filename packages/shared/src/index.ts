@@ -52,6 +52,7 @@ export {
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
+	isPremiumUsedModel,
 	type ModelCategory,
 } from "./model-categories.js";
 
