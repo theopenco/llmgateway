@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { Agent, setGlobalDispatcher } from "undici";
 
 import { redisClient } from "@llmgateway/cache";
 import { closeDatabase, setQueryTags } from "@llmgateway/db";
@@ -9,11 +10,33 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 
 import { app } from "./app.js";
+import { getGatewayTimeoutMs } from "./lib/timeout-config.js";
 import { metricsApp } from "./metrics-app.js";
 
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 import type { Server } from "node:http";
+
+// Node's global fetch() (backed by undici) enforces its own default
+// headersTimeout/bodyTimeout of 300s for OUTBOUND requests, independent of
+// and shorter than the AbortSignal-based AI_TIMEOUT_MS/AI_STREAMING_TIMEOUT_MS
+// (600s/1200s default, see lib/timeout-config.ts) we use to bound provider
+// requests. Non-streaming provider calls (Chat Completions/Responses without
+// stream: true) send no response bytes until generation is complete, so a
+// deep reasoning response that legitimately takes longer than 5 minutes
+// (e.g. an OpenAI reasoning_effort of "xhigh"/"max") gets killed with
+// UND_ERR_HEADERS_TIMEOUT and retried from scratch, silently biasing observed
+// reasoning depth toward whichever attempt happens to finish inside undici's
+// undocumented 5-minute window. Raise the dispatcher ceiling above our own
+// configured timeout so createCombinedSignal/createStreamingCombinedSignal
+// remain the actual timeout authority.
+const outboundTimeoutMs = getGatewayTimeoutMs() + 60_000;
+setGlobalDispatcher(
+	new Agent({
+		headersTimeout: outboundTimeoutMs,
+		bodyTimeout: outboundTimeoutMs,
+	}),
+);
 
 const port = Number(process.env.PORT) || 4001;
 
