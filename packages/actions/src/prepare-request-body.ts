@@ -3208,6 +3208,51 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+		case "xiaomi": {
+			// Xiaomi expects tool message content as a plain string — flatten
+			// array content blocks to text, dropping image blocks.
+			requestBody.messages = requestBody.messages.map((m) =>
+				m.role === "tool" && Array.isArray(m.content)
+					? {
+							...m,
+							content: m.content
+								.filter((c) => c.type === "text" && c.text)
+								.map((c) => c.text)
+								.join("\n"),
+						}
+					: m,
+			);
+
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
 		default: {
 			if (stream) {
 				requestBody.stream_options = {
