@@ -101,6 +101,11 @@ import {
 	parsePlaygroundMessageMetadata,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import {
+	REASONING_EFFORT_LABELS,
+	type PlaygroundReasoningEffort,
+	type ReasoningEffortValue,
+} from "@/lib/reasoning-efforts";
 import { cn } from "@/lib/utils";
 
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
@@ -170,11 +175,10 @@ interface ChatUIProps {
 	status: ChatStatus;
 	stop: () => void;
 	regenerate: () => void;
-	reasoningEffort: "" | "minimal" | "low" | "medium" | "high";
-	setReasoningEffort: (
-		value: "" | "minimal" | "low" | "medium" | "high",
-	) => void;
+	reasoningEffort: PlaygroundReasoningEffort;
+	setReasoningEffort: (value: PlaygroundReasoningEffort) => void;
 	supportsReasoning: boolean;
+	reasoningEffortOptions: ReasoningEffortValue[];
 	imageAspectRatio:
 		| "auto"
 		| "1:1"
@@ -1013,6 +1017,7 @@ export const ChatUI = ({
 	reasoningEffort,
 	setReasoningEffort,
 	supportsReasoning,
+	reasoningEffortOptions,
 	imageAspectRatio,
 	setImageAspectRatio,
 	imageSize,
@@ -1847,15 +1852,12 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{supportsReasoning && (
+							{supportsReasoning && reasoningEffortOptions.length > 0 && (
 								<Select
 									value={reasoningEffort ? reasoningEffort : "off"}
 									onValueChange={(val) =>
 										setReasoningEffort(
-											val === "off"
-												? ""
-												: ((val as "minimal" | "low" | "medium" | "high") ??
-														""),
+											val === "off" ? "" : (val as ReasoningEffortValue),
 										)
 									}
 								>
@@ -1871,12 +1873,11 @@ export const ChatUI = ({
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="off">Auto</SelectItem>
-										{selectedModel.includes("gpt-5") && (
-											<SelectItem value="minimal">Minimal</SelectItem>
-										)}
-										<SelectItem value="low">Low</SelectItem>
-										<SelectItem value="medium">Medium</SelectItem>
-										<SelectItem value="high">High</SelectItem>
+										{reasoningEffortOptions.map((effort) => (
+											<SelectItem key={effort} value={effort}>
+												{REASONING_EFFORT_LABELS[effort]}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
 							)}

@@ -566,7 +566,14 @@ interface ChatRequestBody {
 		image_quality?: "auto" | "low" | "medium" | "high" | string;
 		n?: number;
 	};
-	reasoning_effort?: "minimal" | "low" | "medium" | "high";
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max";
 	web_search?: boolean;
 	mcp_servers?: McpServerConfig[];
 	is_image_gen?: boolean;
