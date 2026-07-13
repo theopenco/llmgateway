@@ -81,12 +81,20 @@ export async function ensureStripeCustomer(
 				};
 			}
 
-			const customer = await getStripe().customers.create({
-				email: organization.billingEmail,
-				metadata: {
-					organizationId,
+			// Deterministic idempotency key: if Stripe creates the customer but
+			// the surrounding DB transaction fails to commit, the retry returns
+			// the already-created customer instead of minting a duplicate.
+			const customer = await getStripe().customers.create(
+				{
+					email: organization.billingEmail,
+					metadata: {
+						organizationId,
+					},
 				},
-			});
+				{
+					idempotencyKey: `ensure-stripe-customer:${organizationId}`,
+				},
+			);
 
 			await tx
 				.update(tables.organization)
@@ -140,15 +148,23 @@ export async function ensureEndCustomerStripeCustomer(
 			return endCustomer.stripeCustomerId;
 		}
 
-		const customer = await getStripe(mode).customers.create({
-			email: endCustomer.email ?? undefined,
-			name: endCustomer.name ?? undefined,
-			metadata: {
-				endCustomerId,
-				projectId: endCustomer.projectId,
-				organizationId: endCustomer.organizationId,
+		// Deterministic idempotency key: if Stripe creates the customer but
+		// the surrounding DB transaction fails to commit, the retry returns
+		// the already-created customer instead of minting a duplicate.
+		const customer = await getStripe(mode).customers.create(
+			{
+				email: endCustomer.email ?? undefined,
+				name: endCustomer.name ?? undefined,
+				metadata: {
+					endCustomerId,
+					projectId: endCustomer.projectId,
+					organizationId: endCustomer.organizationId,
+				},
 			},
-		});
+			{
+				idempotencyKey: `ensure-end-customer-stripe-customer:${endCustomerId}`,
+			},
+		);
 
 		await tx
 			.update(tables.endCustomer)
