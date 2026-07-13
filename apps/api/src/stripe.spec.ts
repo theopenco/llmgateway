@@ -1,6 +1,8 @@
+import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import {
 	handleChargeRefunded,
@@ -8,12 +10,12 @@ import {
 	handlePaymentIntentFailed,
 	handleSubscriptionDeleted,
 	handleSubscriptionUpdated,
+	stripeRoutes,
 } from "./stripe.js";
 import { deleteAll } from "./testing.js";
 
 import type * as PaymentsModule from "./routes/payments.js";
 import type * as EmailModule from "./utils/email.js";
-import type Stripe from "stripe";
 
 const stripeMock = vi.hoisted(() => ({
 	refunds: { list: vi.fn() },
@@ -22,6 +24,7 @@ const stripeMock = vi.hoisted(() => ({
 	subscriptions: { retrieve: vi.fn() },
 	paymentIntents: { retrieve: vi.fn() },
 	paymentMethods: { retrieve: vi.fn() },
+	webhooks: { constructEvent: vi.fn() },
 }));
 
 vi.mock("./routes/payments.js", async (importOriginal) => {
@@ -1030,5 +1033,48 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.credits).toBe("0");
+	});
+});
+
+describe("webhook route — invalid signature", () => {
+	const realStripe = new Stripe("sk_test_dummy");
+
+	afterEach(() => {
+		stripeMock.webhooks.constructEvent.mockReset();
+	});
+
+	test("logs a warning and returns 400 for a bogus signature", async () => {
+		const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+		process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
+		// Defer to the real Stripe SDK so an actual
+		// StripeSignatureVerificationError is thrown, exercising the handler's
+		// instanceof branch rather than a hand-rolled error.
+		stripeMock.webhooks.constructEvent.mockImplementation(
+			(body: string, sig: string, secret: string) =>
+				realStripe.webhooks.constructEvent(body, sig, secret),
+		);
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		try {
+			const res = await stripeRoutes.request("/webhook", {
+				method: "POST",
+				headers: { "stripe-signature": "fake_signature" },
+				body: JSON.stringify({ type: "checkout.session.completed" }),
+			});
+
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("Invalid signature");
+			expect(warnSpy).toHaveBeenCalledWith(
+				"Ignoring Stripe webhook with invalid signature",
+				expect.objectContaining({ message: expect.any(String) }),
+			);
+		} finally {
+			warnSpy.mockRestore();
+			if (previousSecret === undefined) {
+				delete process.env.STRIPE_WEBHOOK_SECRET;
+			} else {
+				process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+			}
+		}
 	});
 });
