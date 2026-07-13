@@ -35,6 +35,20 @@ export type Model = (typeof models)[number]["id"];
 export type Price = string;
 
 /**
+ * Reasoning effort tiers accepted by the unified reasoning_effort parameter,
+ * in ascending order of effort. Which subset a given provider mapping
+ * actually supports is declared per mapping via `reasoningEfforts`.
+ */
+export type ReasoningEffort =
+	| "none"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max";
+
+/**
  * Pricing tier for models with context-length based pricing
  */
 export interface PricingTier {
@@ -415,12 +429,15 @@ export interface ProviderModelMapping {
 	 */
 	reasoningMode?: "enabled" | "adaptive";
 	/**
-	 * Whether this provider mapping natively accepts the `max` reasoning_effort
-	 * tier (e.g. OpenAI GPT-5.6 models). When unset, the gateway downgrades
-	 * `max` to `high` before forwarding. Anthropic mappings don't need this
-	 * flag — their request-body branches forward `max` natively.
+	 * Exact `reasoning_effort` values this provider mapping supports, in
+	 * ascending order of effort. Effort tiers differ per model generation
+	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
+	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
+	 * its own list. The gateway uses this to decide whether `max` can be
+	 * forwarded verbatim or must be downgraded to `high`. When unset, the
+	 * supported values are not (yet) declared for this mapping.
 	 */
-	maxReasoningEffort?: boolean;
+	reasoningEfforts?: ReasoningEffort[];
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */

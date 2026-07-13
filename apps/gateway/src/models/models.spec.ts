@@ -72,6 +72,49 @@ describe("Models API", () => {
 		}
 	});
 
+	test("GET /v1/models exposes reasoning_efforts on provider mappings that define them", async () => {
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		const sol = json.data.find((m: { id: string }) => m.id === "gpt-5.6-sol");
+		expect(sol).toBeDefined();
+		const openaiMapping = sol.providers.find(
+			(p: { providerId: string }) => p.providerId === "openai",
+		);
+		expect(openaiMapping.reasoning_efforts).toEqual([
+			"none",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		]);
+
+		const opus = json.data.find(
+			(m: { id: string }) => m.id === "claude-opus-4-7",
+		);
+		expect(opus).toBeDefined();
+		const anthropicMapping = opus.providers.find(
+			(p: { providerId: string }) => p.providerId === "anthropic",
+		);
+		expect(anthropicMapping.reasoning_efforts).toEqual([
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		]);
+
+		// Mappings without declared effort values must omit the field entirely.
+		const gpt4o = json.data.find((m: { id: string }) => m.id === "gpt-4o");
+		if (gpt4o) {
+			for (const p of gpt4o.providers) {
+				expect(p.reasoning_efforts).toBeUndefined();
+			}
+		}
+	});
+
 	test("GET /v1/models should exclude deactivated models by default", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);

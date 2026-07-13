@@ -996,7 +996,7 @@ export async function prepareRequestBody(
 	}
 
 	// `max` is the top effort tier (above `xhigh`). Mappings that natively
-	// accept it declare `maxReasoningEffort` (e.g. OpenAI GPT-5.6) and receive
+	// accept it list it in `reasoningEfforts` (e.g. OpenAI GPT-5.6) and receive
 	// it verbatim; every other mapping treats it as an alias for `high` (e.g.
 	// older OpenAI models, Google, DeepSeek). Anthropic-family branches use
 	// `reasoning_effort` directly and handle `max` natively, so they
@@ -1011,7 +1011,7 @@ export async function prepareRequestBody(
 		| "max"
 		| undefined =
 		reasoning_effort === "max" &&
-		providerMappingForOptions?.maxReasoningEffort !== true
+		!providerMappingForOptions?.reasoningEfforts?.includes("max")
 			? "high"
 			: reasoning_effort;
 

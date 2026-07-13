@@ -47,6 +47,9 @@ Add the `reasoning_effort` parameter directly to your request:
 	original GPT-5 models support `minimal`, while newer models (e.g.
 	`gpt-5.4-mini` and later) replace it with `none`. If you send an effort value
 	the target model doesn't support, OpenAI returns an `unsupported_value` error.
+	The exact values each provider mapping accepts are exposed as
+	`reasoning_efforts` on the [`/v1/models`](https://api.llmgateway.io/v1/models)
+	endpoint.
 </Callout>
 
 ```bash
