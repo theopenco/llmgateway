@@ -8,7 +8,7 @@ import {
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
-import { redisClient } from "./auth/config.js";
+import { redisClient as authRedisClient } from "./auth/config.js";
 import { app } from "./index.js";
 import {
 	sendInstallationBeacon,
@@ -132,7 +132,10 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		logger.info("Database connection closed");
 
 		logger.info("Closing Redis connections");
-		await redisClient.quit();
+		// Two distinct connections: the better-auth client (auth/config.ts) and
+		// the shared @llmgateway/cache client used by Drizzle's RedisCache, which
+		// closeRedisClient() drains before quitting.
+		await authRedisClient.quit();
 		await closeRedisClient();
 		logger.info("Redis connections closed");
 
