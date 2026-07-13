@@ -38,6 +38,11 @@ This repository always uses tabs for indentation.
 
 When you are done writing code features or bug fixes, ALWAYS commit your changes. If in doubt, commit any changes.
 
+### Documentation
+
+- NEVER hardcode a list of models, providers, provider countries/headquarters, or any other catalogue-derived enumeration into documentation (`apps/docs`), changelog entries, or marketing copy. These lists go stale the moment the catalogue changes and are annoying to keep in sync. Instead, link to the relevant live page that is generated from the catalogue (e.g. the [models page](https://llmgateway.io/models) or [providers page](https://llmgateway.io/providers)).
+- The ONLY exception is video generation and image generation models: their per-model requirements (supported sizes, durations, resolutions, etc.) are how users figure out how to call them, so listing those specific models and their constraints in the docs is acceptable and preferred there.
+
 ### Testing
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
@@ -216,6 +221,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - In `packages/models`, ALWAYS express per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, and any other per-token price field) using `e-6` notation so the coefficient reads directly as USD per million tokens (e.g. `"1.4e-6"` for $1.40/M — the exact number providers publish). Never use `e-3` or other exponents for per-token prices. This does NOT apply to `requestPrice`, which is a flat USD amount charged per request (e.g. `"0.035"`), nor to `perSecondPrice`.
 - No unnecessary code comments
 - Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
+- Security gating must be enforced server-side, never in the UI alone. Client-side gates (disabling a form, hiding a button, gating on `user.emailVerified`) are UX conveniences, not security boundaries — the underlying API endpoint must independently verify auth/verification/permissions and reject unauthorized requests. For example, the provider-listing form (`apps/ui/src/components/add-provider/add-provider-form.tsx`) is gated in the UI, but the real enforcement lives in the `POST /public/contact/provider` handler (`apps/api/src/routes/public-contact.ts`), which requires an authenticated, email-verified session and derives the stored email from the session rather than trusting the request body.
 
 ### Testing and Quality Assurance
 

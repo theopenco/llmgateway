@@ -94,14 +94,26 @@ export interface ProviderAdditionalLink {
  */
 export interface ProviderCompliancePolicy {
 	enabled: boolean;
+	/** Require a SOC 2 report of any type (Type 1 or Type 2). */
 	requireSoc2?: boolean;
+	/** Require specifically a SOC 2 Type 2 report (the stricter attestation). */
+	requireSoc2Type2?: boolean;
 	requireIso27001?: boolean;
+	/** Require either a SOC 2 Type 2 report or ISO 27001 certification. */
 	requireSoc2OrIso27001?: boolean;
 	requireGdpr?: boolean;
 	/** Require the provider to NOT train on API prompts (apiTraining === false). */
 	blockApiTraining?: boolean;
 	/** Require the provider to NOT log prompts (promptLogging === false). */
 	blockPromptLogging?: boolean;
+	/**
+	 * Restrict routing to providers headquartered in one of these ISO 3166-1
+	 * alpha-2 country codes. Empty/omitted means no country restriction. Only
+	 * codes present in the catalogue (see {@link getProviderCountries}) are
+	 * meaningful; a provider with an unknown or `null` headquarters is blocked
+	 * whenever this list is non-empty (fail-closed).
+	 */
+	allowedCountries?: string[];
 }
 
 export interface ProviderDefinition {
@@ -1525,12 +1537,15 @@ export function isProviderCompliant(
 	if (policy.requireSoc2 && !dataPolicy?.soc2) {
 		return false;
 	}
+	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
+		return false;
+	}
 	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
 		return false;
 	}
 	if (
 		policy.requireSoc2OrIso27001 &&
-		!(!!dataPolicy?.soc2 || dataPolicy?.iso27001 === true)
+		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
 	) {
 		return false;
 	}
@@ -1543,7 +1558,69 @@ export function isProviderCompliant(
 	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
 		return false;
 	}
+	if (
+		policy.allowedCountries &&
+		policy.allowedCountries.length > 0 &&
+		(!provider.headquarters ||
+			!policy.allowedCountries.includes(provider.headquarters))
+	) {
+		return false;
+	}
 	return true;
+}
+
+export interface ProviderCountry {
+	/** ISO 3166-1 alpha-2 country code */
+	code: string;
+	/** Human-readable country name */
+	name: string;
+	/** Unicode flag emoji derived from the country code */
+	flag: string;
+}
+
+/**
+ * English display names for the country codes that appear as provider
+ * headquarters in the catalogue. Kept intentionally small: the site only ever
+ * surfaces countries that are actually referenced by a provider definition.
+ * Every distinct `headquarters` value in {@link providers} MUST have an entry
+ * here — enforced by a unit test so new country additions can't ship without
+ * a display name.
+ */
+export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
+	US: "United States",
+	CN: "China",
+	NL: "Netherlands",
+	FR: "France",
+	JP: "Japan",
+};
+
+/** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */
+export function countryCodeToFlag(code: string): string {
+	return code
+		.toUpperCase()
+		.replace(/[^A-Z]/g, "")
+		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+/**
+ * Distinct provider-headquarters countries defined in the catalogue, sorted by
+ * name. This is the authoritative, closed set of countries the compliance
+ * country selector may offer.
+ */
+export function getProviderCountries(): ProviderCountry[] {
+	const codes = new Set<string>();
+	for (const provider of providers) {
+		if (provider.headquarters) {
+			codes.add(provider.headquarters);
+		}
+	}
+	return Array.from(codes)
+		.map((code) => ({
+			code,
+			name: PROVIDER_COUNTRY_NAMES[code] ?? code,
+			flag: countryCodeToFlag(code),
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

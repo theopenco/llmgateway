@@ -738,6 +738,94 @@ describe("api", () => {
 		expect(json.error.message).toContain("provider compliance policy");
 	});
 
+	test("/v1/chat/completions blocks providers outside the allowed countries", async () => {
+		// OpenAI is headquartered in the US, so an allowedCountries policy that only
+		// permits France removes it, leaving no provider for the pinned model.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, allowedCountries: ["FR"] },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-country-block",
+			token: "real-token-compliance-country-block",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-country-block",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-country-block",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello country!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
+	test("/v1/chat/completions allows providers within the allowed countries", async () => {
+		// OpenAI is headquartered in the US, so an allowedCountries policy that
+		// permits the US lets it through.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, allowedCountries: ["US"] },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-country-allow",
+			token: "real-token-compliance-country-allow",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-country-allow",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-country-allow",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello country!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-unsupported-service-tier",
