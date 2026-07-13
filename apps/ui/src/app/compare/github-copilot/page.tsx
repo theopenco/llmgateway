@@ -90,14 +90,12 @@ export async function generateMetadata() {
 				"Copilot bills chat and agents by usage-based AI Credits. LLM Gateway: zero token markup, hard budget caps, and 200+ models for any coding agent.",
 			type: "website",
 			url: "https://llmgateway.io/compare/github-copilot",
-			images: ["/opengraph.png?v=2"],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: "LLM Gateway vs GitHub Copilot — Costs Compared (2026)",
 			description:
 				"Copilot bills chat and agents by usage-based AI Credits. LLM Gateway: zero token markup, hard budget caps, and 200+ models for any coding agent.",
-			images: ["/opengraph.png?v=2"],
 		},
 	};
 }
