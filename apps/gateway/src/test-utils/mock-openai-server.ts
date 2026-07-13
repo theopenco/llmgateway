@@ -2029,6 +2029,37 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		};
 	};
 
+	const referenceImages: Array<{
+		mimeType: string;
+		bytesBase64Encoded: string;
+		referenceType: string;
+	}> = [];
+	for (const entry of content) {
+		if (
+			!entry ||
+			typeof entry !== "object" ||
+			(entry as Record<string, unknown>).role !== "reference_image"
+		) {
+			continue;
+		}
+		const imageUrl = (entry as Record<string, unknown>).image_url;
+		const url =
+			typeof imageUrl === "object" &&
+			imageUrl !== null &&
+			typeof (imageUrl as Record<string, unknown>).url === "string"
+				? ((imageUrl as Record<string, unknown>).url as string)
+				: undefined;
+		const match = url?.match(/^data:([^;]+);base64,(.*)$/);
+		if (!match) {
+			continue;
+		}
+		referenceImages.push({
+			mimeType: match[1],
+			bytesBase64Encoded: match[2],
+			referenceType: "reference_image",
+		});
+	}
+
 	videoCounter++;
 	const id = `bytedance_task_${videoCounter}`;
 	const job: MockVideoJobState = {
@@ -2039,6 +2070,7 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		progress: 0,
 		firstFrame: parseFrameByRole("first_frame"),
 		lastFrame: parseFrameByRole("last_frame"),
+		referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
 		duration: typeof body.duration === "number" ? body.duration : undefined,
 		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
 		resolution:
