@@ -307,7 +307,7 @@ export const completionsRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description:
-				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is the highest tier (above `xhigh`), supported by Anthropic models and OpenAI GPT-5.6 models. Values are forwarded to the provider as-is; sending a value the target model doesn't support results in a provider error. The exact values each provider mapping accepts are exposed as `reasoning_efforts` on `/v1/models`.",
+				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is the highest tier (above `xhigh`), supported by Anthropic models and OpenAI GPT-5.6 models. The gateway never downgrades effort tiers: providers that accept an effort parameter receive the value unchanged (an unsupported value results in a provider error), while providers that take a thinking budget instead (e.g. Anthropic, Google) translate each tier to a native budget. The exact values each provider mapping accepts are exposed as `reasoning_efforts` on `/v1/models`.",
 			example: "medium",
 		}),
 	reasoning: z
@@ -317,7 +317,7 @@ export const completionsRequestSchema = z.object({
 				.optional()
 				.openapi({
 					description:
-						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is the highest tier (above `xhigh`), supported by Anthropic models and OpenAI GPT-5.6 models. Values are forwarded to the provider as-is; unsupported values result in a provider error. See `reasoning_efforts` on `/v1/models` for the values each mapping accepts.",
+						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is the highest tier (above `xhigh`), supported by Anthropic models and OpenAI GPT-5.6 models. Tiers are never downgraded by the gateway: enum-based providers receive the value unchanged (unsupported values result in a provider error), while budget-based providers (e.g. Anthropic, Google) translate the tier to a native thinking budget. See `reasoning_efforts` on `/v1/models` for the values each mapping accepts.",
 					example: "medium",
 				}),
 			max_tokens: z.number().int().positive().optional().openapi({

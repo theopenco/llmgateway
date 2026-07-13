@@ -16,6 +16,19 @@ export const REASONING_EFFORT_ORDER: ReasoningEffortOption[] = [
 ];
 
 /**
+ * Generic effort options for models that don't declare their supported
+ * values in the catalog yet. Used for both rendering the selector and
+ * resetting a stale selection, so the two never disagree.
+ */
+export function getFallbackReasoningEffortOptions(
+	selectedModel: string,
+): ReasoningEffortOption[] {
+	return selectedModel.includes("gpt-5")
+		? ["minimal", "low", "medium", "high"]
+		: ["low", "medium", "high"];
+}
+
+/**
  * Union of the reasoning_effort values declared by the given provider
  * mappings, in ascending order of effort. Returns null when none of the
  * mappings declare their supported values, so callers can fall back to a

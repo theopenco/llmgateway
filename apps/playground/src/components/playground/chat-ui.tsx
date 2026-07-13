@@ -101,6 +101,7 @@ import {
 	parsePlaygroundMessageMetadata,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { getFallbackReasoningEffortOptions } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
 
 import type { ReasoningEffortOption } from "@/lib/fetch-models";
@@ -1888,11 +1889,7 @@ export const ChatUI = ({
 										<SelectItem value="off">Auto</SelectItem>
 										{(
 											reasoningEfforts ??
-											// Fallback for models that don't declare their
-											// supported efforts in the catalog yet.
-											((selectedModel.includes("gpt-5")
-												? ["minimal", "low", "medium", "high"]
-												: ["low", "medium", "high"]) as ReasoningEffortOption[])
+											getFallbackReasoningEffortOptions(selectedModel)
 										).map((effort) => (
 											<SelectItem key={effort} value={effort}>
 												{REASONING_EFFORT_LABELS[effort]}

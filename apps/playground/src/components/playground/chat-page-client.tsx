@@ -51,7 +51,10 @@ import {
 	getModelPreferenceCookie,
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
-import { getReasoningEffortOptions } from "@/lib/model-utils";
+import {
+	getFallbackReasoningEffortOptions,
+	getReasoningEffortOptions,
+} from "@/lib/model-utils";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -1889,20 +1892,19 @@ export default function ChatPageClient({
 		setText(value);
 	};
 
-	// Reset reasoning effort when switching to a non-reasoning model, or when
-	// the new model declares its supported efforts and the current value isn't
-	// among them.
+	// Reset reasoning effort when switching to a model that doesn't support
+	// it. The effective options mirror what the selector renders: the model's
+	// declared efforts, or the generic fallback set when undeclared.
 	useEffect(() => {
 		if (!reasoningEffort) {
 			return;
 		}
-		if (
-			!supportsReasoning ||
-			(reasoningEfforts && !reasoningEfforts.includes(reasoningEffort))
-		) {
+		const effortOptions =
+			reasoningEfforts ?? getFallbackReasoningEffortOptions(selectedModel);
+		if (!supportsReasoning || !effortOptions.includes(reasoningEffort)) {
 			setReasoningEffort("");
 		}
-	}, [supportsReasoning, reasoningEffort, reasoningEfforts]);
+	}, [supportsReasoning, reasoningEffort, reasoningEfforts, selectedModel]);
 
 	// Reset image size/quality only when the selected model changes and the
 	// current value is not valid for the new model. Including alibabaImageSize
@@ -2691,20 +2693,19 @@ function ExtraChatPanel({
 		return getReasoningEffortOptions(mapping ? [mapping] : []);
 	}, [models, selectedModel]);
 
-	// Reset reasoning effort when switching to a non-reasoning model, or when
-	// the new model declares its supported efforts and the current value isn't
-	// among them.
+	// Reset reasoning effort when switching to a model that doesn't support
+	// it. The effective options mirror what the selector renders: the model's
+	// declared efforts, or the generic fallback set when undeclared.
 	useEffect(() => {
 		if (!reasoningEffort) {
 			return;
 		}
-		if (
-			!supportsReasoning ||
-			(reasoningEfforts && !reasoningEfforts.includes(reasoningEffort))
-		) {
+		const effortOptions =
+			reasoningEfforts ?? getFallbackReasoningEffortOptions(selectedModel);
+		if (!supportsReasoning || !effortOptions.includes(reasoningEffort)) {
 			setReasoningEffort("");
 		}
-	}, [supportsReasoning, reasoningEffort, reasoningEfforts]);
+	}, [supportsReasoning, reasoningEffort, reasoningEfforts, selectedModel]);
 
 	const supportsWebSearch = useMemo(() => {
 		if (!selectedModel) {
