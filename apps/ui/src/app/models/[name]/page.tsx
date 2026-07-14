@@ -43,6 +43,7 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
+import { withDeployVersion } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -604,7 +605,9 @@ export async function generateMetadata({
 			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
-	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
+	const ogImageUrl = withDeployVersion(
+		`/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`,
+	);
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {

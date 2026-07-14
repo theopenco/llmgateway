@@ -3,6 +3,8 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { JsonLd } from "@/components/seo/json-ld";
 
+import { withDeployVersion } from "@llmgateway/shared/asset-version";
+
 import { allGuides } from "content-collections";
 
 export const metadata = {
@@ -10,6 +12,13 @@ export const metadata = {
 	description:
 		"Step-by-step guides for integrating LLM Gateway with Claude Code, Cursor, Cline, n8n, and more.",
 	openGraph: {
+		images: [
+			{
+				url: withDeployVersion("/guides/opengraph-image"),
+				width: 1200,
+				height: 630,
+			},
+		],
 		title: "Guides — Integrate with Claude Code, Cursor, Cline",
 		description:
 			"Step-by-step guides for integrating LLM Gateway with Claude Code, Cursor, Cline, n8n, and more.",

@@ -8,7 +8,10 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
-import { withAssetVersion } from "@llmgateway/shared/asset-version";
+import {
+	withAssetVersion,
+	withDeployVersion,
+} from "@llmgateway/shared/asset-version";
 
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
@@ -189,11 +192,19 @@ export async function generateMetadata({
 			description: guide.description ?? "LLM Gateway integration guide",
 			type: "article",
 			url: `https://llmgateway.io/guides/${guide.slug}`,
+			images: [
+				{
+					url: withDeployVersion(`/guides/${guide.slug}/opengraph-image`),
+					width: 1200,
+					height: 630,
+				},
+			],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: `${guide.title} - Guides | LLM Gateway`,
 			description: guide.description ?? "LLM Gateway integration guide",
+			images: [withDeployVersion(`/guides/${guide.slug}/opengraph-image`)],
 		},
 	};
 }

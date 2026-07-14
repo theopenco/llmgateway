@@ -20,6 +20,8 @@ import {
 	modelsForYear,
 } from "@/lib/timeline-data";
 
+import { withDeployVersion } from "@llmgateway/shared/asset-version";
+
 import type { Metadata } from "next";
 
 const BASE_URL = "https://llmgateway.io";
@@ -51,11 +53,19 @@ export async function generateMetadata({
 			description,
 			type: "website",
 			url: `${BASE_URL}/timeline/${year}`,
+			images: [
+				{
+					url: withDeployVersion(`/timeline/${year}/opengraph-image`),
+					width: 1200,
+					height: 630,
+				},
+			],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title,
 			description,
+			images: [withDeployVersion(`/timeline/${year}/opengraph-image`)],
 		},
 	};
 }

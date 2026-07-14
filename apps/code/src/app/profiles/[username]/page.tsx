@@ -8,6 +8,8 @@ import {
 } from "@/components/profile/ProfileView";
 import { fetchPublicProfile } from "@/lib/public-profile";
 
+import { withDeployVersion } from "@llmgateway/shared/asset-version";
+
 import type { Metadata } from "next";
 
 interface PageProps {
@@ -37,11 +39,25 @@ export async function generateMetadata({
 			description,
 			type: "profile",
 			url: `/profiles/${profile.username}`,
+			images: [
+				{
+					url: withDeployVersion(
+						`/profiles/${encodeURIComponent(profile.username ?? username)}/opengraph-image`,
+					),
+					width: 1200,
+					height: 630,
+				},
+			],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title,
 			description,
+			images: [
+				withDeployVersion(
+					`/profiles/${encodeURIComponent(profile.username ?? username)}/opengraph-image`,
+				),
+			],
 		},
 	};
 }

@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
-import { withAssetVersion } from "./asset-version.js";
+import { withAssetVersion, withDeployVersion } from "./asset-version.js";
 
 describe("withAssetVersion", () => {
 	const publicDir = mkdtempSync(path.join(tmpdir(), "asset-version-"));
@@ -51,5 +51,45 @@ describe("withAssetVersion", () => {
 		expect(withAssetVersion("/does-not-exist.png", publicDir)).toBe(
 			"/does-not-exist.png",
 		);
+	});
+});
+
+describe("withDeployVersion", () => {
+	const originalVersion = process.env.APP_VERSION;
+
+	afterEach(() => {
+		if (originalVersion === undefined) {
+			delete process.env.APP_VERSION;
+		} else {
+			process.env.APP_VERSION = originalVersion;
+		}
+	});
+
+	it("appends the deployment version as a query param", () => {
+		process.env.APP_VERSION = "v1.2.3";
+
+		expect(withDeployVersion("/providers/opengraph-image")).toBe(
+			"/providers/opengraph-image?v=v1.2.3",
+		);
+	});
+
+	it("URL-encodes the version", () => {
+		process.env.APP_VERSION = "feature/x";
+
+		expect(withDeployVersion("/og")).toBe("/og?v=feature%2Fx");
+	});
+
+	it("returns the URL unchanged without APP_VERSION", () => {
+		delete process.env.APP_VERSION;
+
+		expect(withDeployVersion("/providers/opengraph-image")).toBe(
+			"/providers/opengraph-image",
+		);
+	});
+
+	it("returns URLs with an existing query string unchanged", () => {
+		process.env.APP_VERSION = "v1.2.3";
+
+		expect(withDeployVersion("/og?v=1")).toBe("/og?v=1");
 	});
 });

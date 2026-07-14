@@ -6,6 +6,8 @@ import { AllModels } from "@/components/models/all-models";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
+import { withDeployVersion } from "@llmgateway/shared/asset-version";
+
 const CATEGORY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
 	{ href: "/models/coding", label: "Best models for coding" },
 	{ href: "/models/reasoning", label: "Reasoning models" },
@@ -35,6 +37,13 @@ export const metadata = {
 	description:
 		"Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size.",
 	openGraph: {
+		images: [
+			{
+				url: withDeployVersion("/models/opengraph-image"),
+				width: 1200,
+				height: 630,
+			},
+		],
 		title: "AI Models Directory — Compare 200+ LLM Models",
 		description:
 			"Browse and compare 200+ AI models from OpenAI, Anthropic, Google, and more. Filter by capabilities, pricing, and context size.",
@@ -42,6 +51,7 @@ export const metadata = {
 		url: "https://llmgateway.io/models",
 	},
 	twitter: {
+		images: [withDeployVersion("/models/opengraph-image")],
 		card: "summary_large_image",
 		title: "AI Models Directory — Compare 200+ LLM Models",
 		description:

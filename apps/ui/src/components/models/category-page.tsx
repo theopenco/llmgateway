@@ -11,10 +11,13 @@ import {
 } from "@/lib/model-category-content";
 import { applyCategoryFilter } from "@/lib/model-category-filters";
 
+import { withDeployVersion } from "@llmgateway/shared/asset-version";
+
 import type { Metadata } from "next";
 
 export function buildCategoryMetadata(slug: ModelCategorySlug): Metadata {
 	const content = modelCategoryContent[slug];
+	const ogImageUrl = withDeployVersion(`/models/${slug}/opengraph-image`);
 	return {
 		alternates: {
 			canonical: `https://llmgateway.io/models/${slug}`,
@@ -25,11 +28,13 @@ export function buildCategoryMetadata(slug: ModelCategorySlug): Metadata {
 			title: content.metaTitle,
 			description: content.metaDescription,
 			type: "website",
+			images: [{ url: ogImageUrl, width: 1200, height: 630 }],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: content.metaTitle,
 			description: content.metaDescription,
+			images: [ogImageUrl],
 		},
 	};
 }

@@ -7,6 +7,8 @@ import { notFound } from "next/navigation";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
+import { withDeployVersion } from "@llmgateway/shared/asset-version";
+
 import { allMigrations } from "content-collections";
 
 import type { Metadata } from "next";
@@ -140,11 +142,23 @@ export async function generateMetadata({
 			description: migration.description ?? "Migration guide for LLM Gateway",
 			type: "article",
 			url: `https://llmgateway.io/migration/${migration.slug}`,
+			images: [
+				{
+					url: withDeployVersion(
+						`/migration/${migration.slug}/opengraph-image`,
+					),
+					width: 1200,
+					height: 630,
+				},
+			],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: `${migration.title} - Migration Guides | LLM Gateway`,
 			description: migration.description ?? "Migration guide for LLM Gateway",
+			images: [
+				withDeployVersion(`/migration/${migration.slug}/opengraph-image`),
+			],
 		},
 	};
 }

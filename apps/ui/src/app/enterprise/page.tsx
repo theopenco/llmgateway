@@ -17,6 +17,8 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { Testimonials } from "@/components/landing/testimonials";
 import { fetchServerData } from "@/lib/server-api";
 
+import { withDeployVersion } from "@llmgateway/shared/asset-version";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -25,6 +27,13 @@ export const metadata: Metadata = {
 		"SOC 2 Type II LLM infrastructure with SAML SSO, audit logs, prompt-injection guardrails, per-project routing, and white-label chat for regulated teams.",
 	alternates: { canonical: "/enterprise" },
 	openGraph: {
+		images: [
+			{
+				url: withDeployVersion("/enterprise/opengraph-image"),
+				width: 1200,
+				height: 630,
+			},
+		],
 		title: "Enterprise LLM Gateway",
 		description:
 			"SAML SSO, audit logs, guardrails, per-project routing, and white-label chat for regulated teams putting LLMs in production.",
@@ -32,6 +41,7 @@ export const metadata: Metadata = {
 		url: "https://llmgateway.io/enterprise",
 	},
 	twitter: {
+		images: [withDeployVersion("/enterprise/opengraph-image")],
 		card: "summary_large_image",
 		title: "Enterprise LLM Gateway",
 		description:
