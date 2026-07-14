@@ -2468,12 +2468,16 @@ keysApi.openapi(updateIamRule, async (c) => {
 		apiKey.project.organization?.plan,
 	);
 
-	// Update the IAM rule
-	const [updatedRule] = await cdb
-		.update(tables.apiKeyIamRule)
-		.set(updateData)
-		.where(eq(tables.apiKeyIamRule.id, ruleId))
-		.returning();
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the rule unchanged.
+	let updatedRule = existingRule;
+	if (Object.keys(updateData).length > 0) {
+		[updatedRule] = await cdb
+			.update(tables.apiKeyIamRule)
+			.set(updateData)
+			.where(eq(tables.apiKeyIamRule.id, ruleId))
+			.returning();
+	}
 
 	if (!updatedRule) {
 		throw new HTTPException(404, {

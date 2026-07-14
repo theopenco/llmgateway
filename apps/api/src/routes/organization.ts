@@ -676,23 +676,29 @@ organization.openapi(updateOrganization, async (c) => {
 		updateData.autoTopUpAmount = autoTopUpAmount.toString();
 	}
 
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the org unchanged.
 	let updatedOrganization;
-	try {
-		[updatedOrganization] = await db
-			.update(tables.organization)
-			.set(updateData)
-			.where(eq(tables.organization.id, id))
-			.returning();
-	} catch (err) {
-		const code =
-			(err as { code?: string; cause?: { code?: string } })?.code ??
-			(err as { cause?: { code?: string } })?.cause?.code;
-		if (code === "23505" && normalizedSsoDomain) {
-			throw new HTTPException(409, {
-				message: "This domain is already configured by another organization.",
-			});
+	if (Object.keys(updateData).length === 0) {
+		updatedOrganization = userOrganization.organization!;
+	} else {
+		try {
+			[updatedOrganization] = await db
+				.update(tables.organization)
+				.set(updateData)
+				.where(eq(tables.organization.id, id))
+				.returning();
+		} catch (err) {
+			const code =
+				(err as { code?: string; cause?: { code?: string } })?.code ??
+				(err as { cause?: { code?: string } })?.cause?.code;
+			if (code === "23505" && normalizedSsoDomain) {
+				throw new HTTPException(409, {
+					message: "This domain is already configured by another organization.",
+				});
+			}
+			throw err;
 		}
-		throw err;
 	}
 
 	// Build changes metadata for audit log

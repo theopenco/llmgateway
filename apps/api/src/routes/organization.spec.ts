@@ -136,6 +136,25 @@ describe("organization route", () => {
 		).toBe(true);
 	});
 
+	test("PATCH /orgs/{id} with an empty body is a no-op", async () => {
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({}),
+		});
+
+		expect(response.status).toBe(200);
+
+		const body = (await response.json()) as {
+			organization: { id: string; name: string };
+		};
+		expect(body.organization.id).toBe("test-org-id");
+		expect(body.organization.name).toBe("Test Organization");
+	});
+
 	test("PATCH /orgs/{id} logs top-up setting changes separately from organization updates", async () => {
 		const response = await app.request("/orgs/test-org-id", {
 			method: "PATCH",
