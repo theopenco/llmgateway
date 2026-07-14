@@ -48,7 +48,7 @@ const plans: PlanContent[] = [
 		features: [
 			"Everything in Lite",
 			"Headroom for a full agent session every day",
-			"5× the frontier fair-use of Lite",
+			"More frontier fair-use headroom than Lite",
 			"Priority routing on flagship models",
 		],
 	},
