@@ -99,6 +99,34 @@ function toolChoiceModeOf(
 	return undefined;
 }
 
+/**
+ * Recursively remove `default` keywords from a JSON schema. Keys inside a
+ * `properties` map are property names, not schema keywords, so a property
+ * literally named "default" is preserved.
+ */
+function stripSchemaDefaults(
+	schema: unknown,
+	isPropertiesMap = false,
+): unknown {
+	if (Array.isArray(schema)) {
+		return schema.map((item) => stripSchemaDefaults(item));
+	}
+	if (schema && typeof schema === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(schema)) {
+			if (!isPropertiesMap && key === "default") {
+				continue;
+			}
+			out[key] = stripSchemaDefaults(
+				value,
+				!isPropertiesMap && key === "properties",
+			);
+		}
+		return out;
+	}
+	return schema;
+}
+
 function getProviderMapping(
 	modelDef: ModelDefinition | undefined,
 	usedProvider: ProviderId,
@@ -1900,6 +1928,24 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			// zai's glm-4.6 hangs indefinitely when a tool parameter schema
+			// contains a `default` keyword (verified live 2026-07-14). Defaults
+			// are advisory in JSON Schema, so strip them for all zai models.
+			if (Array.isArray(requestBody.tools)) {
+				requestBody.tools = requestBody.tools.map(
+					(tool: { function?: { parameters?: unknown } }) =>
+						tool?.function?.parameters
+							? {
+									...tool,
+									function: {
+										...tool.function,
+										parameters: stripSchemaDefaults(tool.function.parameters),
+									},
+								}
+							: tool,
+				);
 			}
 
 			// Add web search tool for ZAI
