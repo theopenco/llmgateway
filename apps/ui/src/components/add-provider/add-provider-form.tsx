@@ -199,7 +199,7 @@ export function AddProviderForm({
 							<Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
 							<p className="text-sm text-muted-foreground">
 								There is a{" "}
-								<span className="font-semibold text-foreground">$500</span> fee
+								<span className="font-semibold text-foreground">$1000</span> fee
 								to list a provider, collected securely via Stripe right after
 								you submit. It is refunded in full if we don't end up listing
 								your provider.
@@ -211,7 +211,7 @@ export function AddProviderForm({
 						<div className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
 							Payment was canceled, so your provider isn't queued for listing
 							yet. Your details were saved — submit the form again to retry the
-							$500 listing fee whenever you're ready.
+							$1000 listing fee whenever you're ready.
 						</div>
 					)}
 
@@ -225,7 +225,7 @@ export function AddProviderForm({
 									Payment received!
 								</h3>
 								<p className="text-muted-foreground">
-									Thanks — we've received your $500 listing fee and your
+									Thanks — we've received your $1000 listing fee and your
 									provider details. Our team will review your provider and
 									follow up. The fee is refunded in full if we don't end up
 									listing it.

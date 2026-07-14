@@ -694,7 +694,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 
 	const compliance = complianceSummary(validatedData);
 
-	// Create the Stripe checkout session for the $500 listing fee up front so the
+	// Create the Stripe checkout session for the $1000 listing fee up front so the
 	// payment link is returned to the client even if the confirmation email can't
 	// be sent. The fee is refunded in full if we don't end up listing the provider.
 	let checkoutUrl: string | null = null;
