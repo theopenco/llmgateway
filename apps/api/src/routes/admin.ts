@@ -9,9 +9,13 @@ import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import {
-	notDevpassFilter,
+	CHAT_PLAN_TX_TYPES,
+	DEV_PLAN_TX_TYPES,
+	firstRowPerInvoiceFilter,
+	LEGACY_DEV_PLAN_TX_TYPES,
 	notEndUserNonRevenueFilter,
 	notEndUserWalletFilter,
+	notPlanFilter,
 	paidTransactionFilter,
 } from "@/utils/devpass-filter.js";
 import {
@@ -96,6 +100,13 @@ const adminMetricsSchema = z.object({
 	totalGiftedCredits: z.number(),
 	totalBonusCredits: z.number(),
 	totalRefunds: z.number(),
+	// Gross revenue across all products (Stripe `amount`, i.e. before Stripe
+	// fees; refunds not netted out), split by product.
+	grossRevenue: z.number(),
+	grossCreditsRevenue: z.number(),
+	grossDevpassRevenue: z.number(),
+	grossChatPlansRevenue: z.number(),
+	grossProSubscriptionsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -622,8 +633,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	// Total revenue: completed credit-purchase rows — org credit top-ups AND
 	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
-	// creditAmount to exclude Stripe fees. Excludes gifts, DevPass subscription
-	// rows, and the non-revenue end-user rows (developer margin + funded bonus).
+	// creditAmount to exclude Stripe fees. Excludes gifts, all plan rows
+	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
+	// (developer margin + funded bonus).
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -636,7 +648,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
@@ -655,11 +667,11 @@ admin.openapi(getMetrics, async (c) => {
 	const totalOrganizations = Number(orgsRow?.count ?? 0);
 
 	// Total topped up (credits from completed credit-purchase transactions).
-	// Excludes DevPass virtual credits — those are granted per cycle and reset,
-	// so they would inflate the topped-up / unused-credits numbers — and all
-	// end-user wallet rows, which live in their own balance economy (their spend
-	// is not in `totalSpent`, so counting their top-ups would inflate unused
-	// credits).
+	// Excludes DevPass and Chat Plan virtual credits — those are granted per
+	// cycle and reset, so they would inflate the topped-up / unused-credits
+	// numbers — and all end-user wallet rows, which live in their own balance
+	// economy (their spend is not in `totalSpent`, so counting their top-ups
+	// would inflate unused credits).
 	const [toppedUpRow] = await db
 		.select({
 			value:
@@ -671,7 +683,7 @@ admin.openapi(getMetrics, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserWalletFilter,
 				transactionDateFilter,
 			),
@@ -680,7 +692,7 @@ admin.openapi(getMetrics, async (c) => {
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
 
 	// Total spent (usage cost from hourly stats). Excludes spend from projects
-	// belonging to orgs whose usage is/was on a DevPass plan, so the
+	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
 	// unusedCredits derivation (toppedUp - spent) only reflects the
 	// credit-purchase economy.
 	const [spentRow] = await db
@@ -703,11 +715,13 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				projectStatsDateFilter,
 				eq(tables.organization.devPlan, "none"),
+				eq(tables.organization.chatPlan, "none"),
 				sql`NOT EXISTS (
 					SELECT 1 FROM ${tables.transaction} t
 					WHERE t.organization_id = ${tables.organization.id}
 					AND (
 						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
+						OR t.type IN ('chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal')
 						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.kind} = 'devpass')
 					)
 				)`,
@@ -716,7 +730,7 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalSpent = Number(spentRow?.value ?? 0);
 
-	// Total processed (gross Stripe amounts from completed non-gift, non-DevPass transactions)
+	// Total processed (gross Stripe amounts from completed non-gift, non-plan transactions)
 	const [processedRow] = await db
 		.select({
 			value:
@@ -729,7 +743,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
@@ -799,6 +813,123 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalRefunds = Number(refundsRow?.value ?? 0);
 
+	// Gross revenue splits: actual dollars charged via Stripe (`amount`, so
+	// including Stripe fees), before netting refunds out.
+	//
+	// Credits: org credit top-ups + end-user wallet top-ups. Refund reversals
+	// are negative same-type rows, so only positive amounts count as gross.
+	const [grossCreditsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+
+	// DevPass: dev plan payments (+ legacy `subscription_*` rows on devpass
+	// orgs), deduplicated per Stripe invoice. Mirrors /admin/devpass/timeseries.
+	const [grossDevpassRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				transactionDateFilter,
+			),
+		);
+
+	const grossDevpassRevenue = Number(grossDevpassRow?.value ?? 0);
+
+	// Chat Plans: plan payments on chat orgs, deduplicated per Stripe invoice.
+	// Mirrors /admin/chat-plans/timeseries.
+	const [grossChatPlansRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "chat"),
+				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
+				transactionDateFilter,
+			),
+		);
+
+	const grossChatPlansRevenue = Number(grossChatPlansRow?.value ?? 0);
+
+	// Org Pro subscriptions: `subscription_*` rows on non-devpass orgs (the same
+	// legacy types double as DevPass rows on devpass orgs, counted above).
+	const [grossProSubsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				transactionDateFilter,
+			),
+		);
+
+	const grossProSubscriptionsRevenue = Number(grossProSubsRow?.value ?? 0);
+
+	const grossRevenue =
+		grossCreditsRevenue +
+		grossDevpassRevenue +
+		grossChatPlansRevenue +
+		grossProSubscriptionsRevenue;
+
 	const rawBalance = totalToppedUp - totalSpent;
 	const unusedCredits = Math.max(0, rawBalance);
 	const overage = Math.max(0, -rawBalance);
@@ -817,6 +948,11 @@ admin.openapi(getMetrics, async (c) => {
 		totalGiftedCredits,
 		totalBonusCredits,
 		totalRefunds,
+		grossRevenue,
+		grossCreditsRevenue,
+		grossDevpassRevenue,
+		grossChatPlansRevenue,
+		grossProSubscriptionsRevenue,
 	});
 });
 
@@ -906,7 +1042,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
@@ -929,7 +1065,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
@@ -972,7 +1108,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
@@ -991,7 +1127,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
@@ -10054,22 +10190,6 @@ const getDevpassUsage = createRoute({
 	},
 });
 
-const DEV_PLAN_TX_TYPES = [
-	"dev_plan_start",
-	"dev_plan_upgrade",
-	"dev_plan_downgrade",
-	"dev_plan_renewal",
-] as const;
-
-// Pre-rename rows for what is now a dev plan. The same `subscription_*` types
-// are STILL written today for non-personal org Pro subs, so always pair them
-// with `organization.kind = 'devpass'` to avoid counting org Pro revenue.
-const LEGACY_DEV_PLAN_TX_TYPES = [
-	"subscription_start",
-	"subscription_cancel",
-	"subscription_end",
-] as const;
-
 function tierPriceOf(tier: string): number {
 	if (tier === "lite" || tier === "pro" || tier === "max") {
 		return DEV_PLAN_PRICES[tier];
@@ -10254,23 +10374,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 					...DEV_PLAN_TX_TYPES,
 					...LEGACY_DEV_PLAN_TX_TYPES,
 				]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
@@ -10902,23 +11009,10 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 					...DEV_PLAN_TX_TYPES,
 					...LEGACY_DEV_PLAN_TX_TYPES,
 				]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -11333,23 +11427,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, allTimeRevenueTypes),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		);
 
@@ -11783,13 +11864,6 @@ const getChatPlansUsage = createRoute({
 	},
 });
 
-const CHAT_PLAN_TX_TYPES = [
-	"chat_plan_start",
-	"chat_plan_upgrade",
-	"chat_plan_downgrade",
-	"chat_plan_renewal",
-] as const;
-
 function chatTierPriceOf(tier: string): number {
 	if (tier === "starter" || tier === "plus" || tier === "pro") {
 		return CHAT_PLAN_PRICES[tier];
@@ -11958,22 +12032,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
@@ -12542,22 +12601,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -12959,22 +13003,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		);
 

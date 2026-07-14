@@ -3,6 +3,7 @@ import {
 	CircleDollarSign,
 	Gift,
 	PiggyBank,
+	TrendingUp,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -28,7 +29,7 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
 
-type Accent = "green" | "blue" | "purple" | "red" | "amber";
+type Accent = "green" | "blue" | "purple" | "red" | "amber" | "teal";
 
 const accentRing: Record<Accent, string> = {
 	green: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
@@ -36,6 +37,7 @@ const accentRing: Record<Accent, string> = {
 	purple: "border-violet-500/30 bg-violet-500/10 text-violet-400",
 	red: "border-red-500/30 bg-red-500/10 text-red-400",
 	amber: "border-amber-500/30 bg-amber-500/10 text-amber-400",
+	teal: "border-teal-500/30 bg-teal-500/10 text-teal-400",
 };
 
 function GroupedMetricCard({
@@ -161,7 +163,7 @@ export default async function Page({
 				</div>
 			</header>
 
-			<section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+			<section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
 				<GroupedMetricCard
 					label="Audience"
 					value={numberFormatter.format(metrics.totalSignups)}
@@ -184,11 +186,42 @@ export default async function Page({
 					]}
 				/>
 				<GroupedMetricCard
-					label="Revenue"
+					label="Total Revenue"
+					value={currencyFormatter.format(metrics.grossRevenue)}
+					subtitle="Gross, all products (before fees & refunds)"
+					icon={<TrendingUp className="h-4 w-4" />}
+					accent="teal"
+					stats={[
+						{
+							label: "Credits",
+							value: currencyFormatter.format(metrics.grossCreditsRevenue),
+						},
+						{
+							label: "DevPass",
+							value: currencyFormatter.format(metrics.grossDevpassRevenue),
+						},
+						{
+							label: "Chat plans",
+							value: currencyFormatter.format(metrics.grossChatPlansRevenue),
+						},
+						...(metrics.grossProSubscriptionsRevenue > 0
+							? [
+									{
+										label: "Pro subs",
+										value: currencyFormatter.format(
+											metrics.grossProSubscriptionsRevenue,
+										),
+									},
+								]
+							: []),
+					]}
+				/>
+				<GroupedMetricCard
+					label="Credits Revenue"
 					value={currencyFormatter.format(
 						metrics.totalRevenue - metrics.totalRefunds,
 					)}
-					subtitle="Net (excl. Stripe fees & refunds)"
+					subtitle="Net credits (excl. Stripe fees & refunds)"
 					icon={<CircleDollarSign className="h-4 w-4" />}
 					accent="green"
 					stats={[
