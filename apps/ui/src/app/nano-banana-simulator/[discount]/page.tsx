@@ -26,8 +26,20 @@ export async function generateMetadata({
 	const discount = parseDiscount(raw);
 
 	return {
-		title: "Nano Banana Pro Cost Simulator - LLM Gateway",
-		description: `See how much you save on Gemini 3 Pro image generation with LLM Gateway. ${discount}% savings compared to Google AI Studio direct pricing.`,
+		title: "Nano Banana Pro Cost Simulator",
+		description: `See how much you save on Gemini 3 Pro image generation with LLM Gateway. ${discount}% savings vs Google AI Studio pricing.`,
+		// All discount variants (1-99) render near-identical content, so they
+		// consolidate onto the default /20 page (the one the sitemap submits)
+		// instead of each declaring itself canonical.
+		alternates: {
+			canonical: "/nano-banana-simulator/20",
+		},
+		openGraph: {
+			title: "Nano Banana Pro Cost Simulator | LLM Gateway",
+			description: `See how much you save on Gemini 3 Pro image generation. ${discount}% savings vs Google AI Studio pricing.`,
+			url: `https://llmgateway.io/nano-banana-simulator/${discount}`,
+			type: "website",
+		},
 	};
 }
 

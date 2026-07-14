@@ -1,5 +1,7 @@
 export * from "./transform-anthropic-messages.js";
 export * from "./parse-data-url.js";
+export * from "./parse-tool-call-arguments.js";
+export * from "./request-error.js";
 export * from "./process-image-url.js";
 export * from "./transform-google-messages.js";
 export * from "./get-provider-headers.js";

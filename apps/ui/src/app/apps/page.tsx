@@ -12,11 +12,14 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Apps using LLM Gateway",
 	description:
-		"Browse coding agents and tools sending traffic through LLM Gateway, ranked by tokens processed. Claude Code, Cursor, Cline, OpenCode, Aider, Continue, and more.",
+		"Browse coding agents and tools on LLM Gateway, ranked by tokens. Claude Code, Cursor, Cline, OpenCode, Aider, and more.",
+	alternates: { canonical: "/apps" },
 	openGraph: {
 		title: "Apps using LLM Gateway",
 		description:
 			"Coding agents and tools running on LLM Gateway, ranked by tokens processed.",
+		url: "https://llmgateway.io/apps",
+		type: "website",
 	},
 };
 

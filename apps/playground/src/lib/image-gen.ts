@@ -83,6 +83,9 @@ export function getModelImageConfig(model: string) {
 
 	const isSeedream =
 		lower.includes("seedream") || lower.includes("bytedance/seedream");
+	// Seedream 5.0 Pro tops out at ~2K (no 4K preset at launch) and adds a 1K
+	// tier, unlike the other Seedream image models which run 2K/4K.
+	const isSeedreamPro = lower.includes("seedream-5-0-pro");
 
 	const isGemini31FlashImage = lower.includes("gemini-3.1-flash-image");
 	const isGemini31FlashLiteImage = lower.includes(
@@ -93,13 +96,15 @@ export function getModelImageConfig(model: string) {
 		? GPT_IMAGE_SIZES
 		: isReve
 			? (["2K"] as const)
-			: isSeedream
-				? (["2K", "4K"] as const)
-				: isGemini31FlashLiteImage
-					? (["1K"] as const)
-					: isGemini31FlashImage
-						? (["0.5K", "1K", "2K", "4K"] as const)
-						: (["1K", "2K", "4K"] as const);
+			: isSeedreamPro
+				? (["1K", "2K"] as const)
+				: isSeedream
+					? (["2K", "4K"] as const)
+					: isGemini31FlashLiteImage
+						? (["1K"] as const)
+						: isGemini31FlashImage
+							? (["0.5K", "1K", "2K", "4K"] as const)
+							: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = isGptImage
 		? "1024x1024"

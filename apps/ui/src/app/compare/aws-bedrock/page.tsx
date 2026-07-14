@@ -77,18 +77,20 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs AWS Bedrock — The Cloud-Neutral Alternative",
 		description:
-			"Compare LLM Gateway and Amazon Bedrock: 40+ providers behind one OpenAI-compatible API vs an AWS-hosted catalog. Keep Bedrock as a provider with 0% markup and add cross-cloud failover, caching, and cost analytics.",
+			"Compare 40+ providers behind one OpenAI-compatible API vs Amazon Bedrock. Keep Bedrock with 0% markup plus failover, caching, and cost analytics.",
+		alternates: { canonical: "/compare/aws-bedrock" },
 		openGraph: {
-			title: "LLM Gateway vs AWS Bedrock - Feature Comparison",
+			title: "LLM Gateway vs AWS Bedrock — Feature Comparison",
 			description:
-				"Compare LLM Gateway's cloud-neutral, open-source platform against Amazon Bedrock's AWS-hosted model catalog. Route to Bedrock and 40+ other providers from one API.",
+				"Cloud-neutral gateway vs AWS Bedrock. Route to Bedrock and 40+ providers from one API with failover and analytics.",
 			type: "website",
+			url: "https://llmgateway.io/compare/aws-bedrock",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs AWS Bedrock - Feature Comparison",
+			title: "LLM Gateway vs AWS Bedrock — Feature Comparison",
 			description:
-				"Compare LLM Gateway's cloud-neutral, open-source platform against Amazon Bedrock's AWS-hosted model catalog. Route to Bedrock and 40+ other providers from one API.",
+				"Cloud-neutral gateway vs AWS Bedrock. Route to Bedrock and 40+ providers from one API.",
 		},
 	};
 }

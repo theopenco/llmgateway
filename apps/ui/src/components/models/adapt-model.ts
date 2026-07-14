@@ -69,6 +69,7 @@ export function adaptProviderMapping(
 			streaming: p.streaming === "only" ? true : p.streaming,
 			vision: p.vision ?? null,
 			reasoning: p.reasoning ?? null,
+			reasoningEfforts: p.reasoningEfforts ?? null,
 			reasoningOutput: p.reasoningOutput ?? null,
 			reasoningMaxTokens: p.reasoningMaxTokens ?? null,
 			tools: p.tools ?? null,

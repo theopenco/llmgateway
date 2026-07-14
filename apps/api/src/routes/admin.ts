@@ -12,6 +12,7 @@ import {
 	notDevpassFilter,
 	notEndUserNonRevenueFilter,
 	notEndUserWalletFilter,
+	paidTransactionFilter,
 } from "@/utils/devpass-filter.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
@@ -107,6 +108,11 @@ const timeseriesDataPointSchema = z.object({
 	processed: z.number(),
 	refunds: z.number(),
 	net: z.number(),
+	// Per-day (non-cumulative) values. The cumulative series above start from a
+	// pre-range baseline, so clients cannot derive day-one deltas themselves.
+	dailySignups: z.number(),
+	dailyPaidCustomers: z.number(),
+	dailyNet: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -593,7 +599,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	const verifiedUsers = Number(verifiedRow?.count ?? 0);
 
-	// Paying customers: organizations with at least one completed transaction
+	// Paying customers: organizations with at least one completed payment
+	// transaction (credit purchase, dev/chat plan charge, or end-user top-up —
+	// gifts and bookkeeping rows don't count)
 	const [payingRow] = await db
 		.select({
 			count:
@@ -603,7 +611,11 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
+			and(
+				eq(tables.transaction.status, "completed"),
+				paidTransactionFilter,
+				transactionDateFilter,
+			),
 		);
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
@@ -1014,7 +1026,12 @@ admin.openapi(getTimeseries, async (c) => {
 					organizationId: tables.transaction.organizationId,
 				})
 				.from(tables.transaction)
-				.where(eq(tables.transaction.status, "completed"))
+				.where(
+					and(
+						eq(tables.transaction.status, "completed"),
+						paidTransactionFilter,
+					),
+				)
 				.groupBy(tables.transaction.organizationId)
 				.having(sql`MIN(${tables.transaction.createdAt}) < ${startDate}`)
 				.as("pre_range_orgs"),
@@ -1035,7 +1052,12 @@ admin.openapi(getTimeseries, async (c) => {
 					),
 				})
 				.from(tables.transaction)
-				.where(eq(tables.transaction.status, "completed"))
+				.where(
+					and(
+						eq(tables.transaction.status, "completed"),
+						paidTransactionFilter,
+					),
+				)
 				.groupBy(tables.transaction.organizationId)
 				.having(
 					and(
@@ -1083,6 +1105,9 @@ admin.openapi(getTimeseries, async (c) => {
 		processed: number;
 		refunds: number;
 		net: number;
+		dailySignups: number;
+		dailyPaidCustomers: number;
+		dailyNet: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
@@ -1101,7 +1126,8 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
 		const dailyProcessed = processedMap.get(dateStr) ?? 0;
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
-		cumulativePaid += newPaidMap.get(dateStr) ?? 0;
+		const dailyPaidCustomers = newPaidMap.get(dateStr) ?? 0;
+		cumulativePaid += dailyPaidCustomers;
 
 		totalSignups += dailySignups;
 		totalRevenue += dailyRevenue;
@@ -1116,6 +1142,9 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			dailySignups,
+			dailyPaidCustomers,
+			dailyNet: dailyRevenue - dailyRefunds,
 		});
 	}
 
@@ -9258,6 +9287,303 @@ admin.openapi(archiveContactSubmission, async (c) => {
 	return c.json({ success: true });
 });
 
+// ── Provider Listing Requests ─────────────────────────────────────────────────
+
+const providerListingRequestSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	providerName: z.string(),
+	email: z.string(),
+	url: z.string(),
+	country: z.string(),
+	complianceSoc2Type2: z.boolean(),
+	complianceIso27001: z.boolean(),
+	complianceGdpr: z.boolean(),
+	dataRetentionDays: z.number().nullable(),
+	trainsOnData: z.boolean().nullable(),
+	paymentStatus: z.enum(["unpaid", "paid", "refunded"]),
+	paidAt: z.string().nullable(),
+	ipAddress: z.string().nullable(),
+	userAgent: z.string().nullable(),
+	spamFilterStatus: z.string(),
+	rejectionReason: z.string().nullable(),
+	archivedAt: z.string().nullable(),
+});
+
+const providerListingRequestsListSchema = z.object({
+	requests: z.array(providerListingRequestSchema),
+	total: z.number(),
+});
+
+const providerListingRequestsSortBySchema = z.enum([
+	"createdAt",
+	"providerName",
+	"email",
+	"spamFilterStatus",
+]);
+
+const getProviderListingRequests = createRoute({
+	method: "get",
+	path: "/provider-listing-requests",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			search: z.string().optional(),
+			status: z
+				.enum(["pending", "rejected", "delivered", "delivery_failed"])
+				.optional(),
+			sortBy: providerListingRequestsSortBySchema
+				.default("createdAt")
+				.optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+			archived: z
+				.enum(["true", "false"])
+				.default("false")
+				.transform((v) => v === "true")
+				.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerListingRequestsListSchema.openapi({}),
+				},
+			},
+			description: "List of provider listing requests.",
+		},
+	},
+});
+
+admin.openapi(getProviderListingRequests, async (c) => {
+	const {
+		limit = 50,
+		offset = 0,
+		search,
+		status,
+		sortBy = "createdAt",
+		sortOrder = "desc",
+		archived = false,
+	} = c.req.valid("query");
+
+	const t = tables.providerListingRequest;
+
+	const conditions = [];
+	if (search) {
+		conditions.push(
+			or(
+				sql`${t.providerName} ILIKE ${"%" + search + "%"}`,
+				sql`${t.email} ILIKE ${"%" + search + "%"}`,
+				sql`${t.url} ILIKE ${"%" + search + "%"}`,
+				sql`${t.country} ILIKE ${"%" + search + "%"}`,
+			),
+		);
+	}
+	if (status) {
+		conditions.push(eq(t.spamFilterStatus, status));
+	}
+	conditions.push(archived ? isNotNull(t.archivedAt) : isNull(t.archivedAt));
+
+	const where = and(...conditions);
+
+	const sortColumn = {
+		createdAt: t.createdAt,
+		providerName: t.providerName,
+		email: t.email,
+		spamFilterStatus: t.spamFilterStatus,
+	}[sortBy];
+
+	const orderFn = sortOrder === "asc" ? asc : desc;
+
+	const [requests, countResult] = await Promise.all([
+		db
+			.select({
+				id: t.id,
+				createdAt: t.createdAt,
+				providerName: t.providerName,
+				email: t.email,
+				url: t.url,
+				country: t.country,
+				complianceSoc2Type2: t.complianceSoc2Type2,
+				complianceIso27001: t.complianceIso27001,
+				complianceGdpr: t.complianceGdpr,
+				dataRetentionDays: t.dataRetentionDays,
+				trainsOnData: t.trainsOnData,
+				paymentStatus: t.paymentStatus,
+				paidAt: t.paidAt,
+				ipAddress: t.ipAddress,
+				userAgent: t.userAgent,
+				spamFilterStatus: t.spamFilterStatus,
+				rejectionReason: t.rejectionReason,
+				archivedAt: t.archivedAt,
+			})
+			.from(t)
+			.where(where)
+			.orderBy(orderFn(sortColumn))
+			.limit(limit)
+			.offset(offset),
+		db
+			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(where),
+	]);
+
+	return c.json({
+		requests: requests.map((r) => ({
+			...r,
+			createdAt: r.createdAt.toISOString(),
+			paidAt: r.paidAt?.toISOString() ?? null,
+			archivedAt: r.archivedAt?.toISOString() ?? null,
+		})),
+		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
+const getProviderListingRequest = createRoute({
+	method: "get",
+	path: "/provider-listing-requests/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerListingRequestSchema.openapi({}),
+				},
+			},
+			description: "Single provider listing request.",
+		},
+	},
+});
+
+admin.openapi(getProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+	const t = tables.providerListingRequest;
+
+	const rows = await db
+		.select({
+			id: t.id,
+			createdAt: t.createdAt,
+			providerName: t.providerName,
+			email: t.email,
+			url: t.url,
+			country: t.country,
+			complianceSoc2Type2: t.complianceSoc2Type2,
+			complianceIso27001: t.complianceIso27001,
+			complianceGdpr: t.complianceGdpr,
+			dataRetentionDays: t.dataRetentionDays,
+			trainsOnData: t.trainsOnData,
+			paymentStatus: t.paymentStatus,
+			paidAt: t.paidAt,
+			ipAddress: t.ipAddress,
+			userAgent: t.userAgent,
+			spamFilterStatus: t.spamFilterStatus,
+			rejectionReason: t.rejectionReason,
+			archivedAt: t.archivedAt,
+		})
+		.from(t)
+		.where(eq(t.id, id))
+		.limit(1);
+
+	const request = rows[0];
+	if (!request) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	return c.json({
+		...request,
+		createdAt: request.createdAt.toISOString(),
+		paidAt: request.paidAt?.toISOString() ?? null,
+		archivedAt: request.archivedAt?.toISOString() ?? null,
+	});
+});
+
+const deleteProviderListingRequest = createRoute({
+	method: "delete",
+	path: "/provider-listing-requests/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Request deleted.",
+		},
+		404: {
+			description: "Request not found.",
+		},
+	},
+});
+
+admin.openapi(deleteProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const existing = await db.query.providerListingRequest.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (!existing) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	await db
+		.delete(tables.providerListingRequest)
+		.where(eq(tables.providerListingRequest.id, id));
+
+	return c.json({ success: true });
+});
+
+const archiveProviderListingRequest = createRoute({
+	method: "patch",
+	path: "/provider-listing-requests/{id}/archive",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ archived: z.boolean() }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Request archived/unarchived.",
+		},
+		404: {
+			description: "Request not found.",
+		},
+	},
+});
+
+admin.openapi(archiveProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+	const { archived } = c.req.valid("json");
+
+	const rows = await db
+		.update(tables.providerListingRequest)
+		.set({ archivedAt: archived ? new Date() : null })
+		.where(eq(tables.providerListingRequest.id, id))
+		.returning();
+
+	if (rows.length === 0) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	return c.json({ success: true });
+});
+
 // ── Archive Chat Support Conversation ────────────────────────────────────────
 
 const archiveChatSupportConversation = createRoute({
@@ -9489,6 +9815,7 @@ const devpassSubscriberSchema = z.object({
 	ownerName: z.string().nullable(),
 	ownerEmail: z.string().nullable(),
 	tier: devpassTierSchema,
+	pendingTier: devpassTierSchema.nullable(),
 	status: devpassStatusSchema,
 	hasPaymentIssue: z.boolean(),
 	creditsUsed: z.string(),
@@ -9648,6 +9975,7 @@ const getDevpassSubscriber = createRoute({
 const devpassTimeseriesPointSchema = z.object({
 	date: z.string(),
 	revenue: z.number(),
+	rawRevenue: z.number(),
 	cost: z.number(),
 	margin: z.number(),
 });
@@ -9656,6 +9984,7 @@ const devpassTimeseriesSchema = z.object({
 	data: z.array(devpassTimeseriesPointSchema),
 	totals: z.object({
 		revenue: z.number(),
+		rawRevenue: z.number(),
 		cost: z.number(),
 		margin: z.number(),
 	}),
@@ -10110,6 +10439,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			name: tables.organization.name,
 			billingEmail: tables.organization.billingEmail,
 			tier: tables.organization.devPlan,
+			pendingTier: tables.organization.devPlanPendingTier,
 			creditsUsed: tables.organization.devPlanCreditsUsed,
 			creditsLimit: tables.organization.devPlanCreditsLimit,
 			premiumCreditsUsed: tables.organization.devPlanPremiumCreditsUsed,
@@ -10425,6 +10755,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			ownerName: row.ownerName ?? null,
 			ownerEmail: row.ownerEmail ?? null,
 			tier,
+			pendingTier: row.pendingTier ?? null,
 			status,
 			hasPaymentIssue,
 			creditsUsed: String(row.creditsUsed),
@@ -10678,6 +11009,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	const data: Array<{
 		date: string;
 		revenue: number;
+		rawRevenue: number;
 		cost: number;
 		margin: number;
 	}> = [];
@@ -10696,15 +11028,20 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	);
 
 	let totalRevenue = 0;
+	let totalRawRevenue = 0;
 	let totalCost = 0;
 
+	// `rawRevenue` is the gross amount collected from dev plan payments that
+	// day; `revenue` nets refunds out of it. Margin stays net-based.
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
-		const revenue = (revenueMap.get(iso) ?? 0) - (refundMap.get(iso) ?? 0);
+		const rawRevenue = revenueMap.get(iso) ?? 0;
+		const revenue = rawRevenue - (refundMap.get(iso) ?? 0);
 		const cost = costMap.get(iso) ?? 0;
 		const margin = revenue - cost;
-		data.push({ date: iso, revenue, cost, margin });
+		data.push({ date: iso, revenue, rawRevenue, cost, margin });
 		totalRevenue += revenue;
+		totalRawRevenue += rawRevenue;
 		totalCost += cost;
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
 	}
@@ -10713,6 +11050,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		data,
 		totals: {
 			revenue: totalRevenue,
+			rawRevenue: totalRawRevenue,
 			cost: totalCost,
 			margin: totalRevenue - totalCost,
 		},
@@ -11086,6 +11424,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		ownerName: owner[0]?.userName ?? null,
 		ownerEmail: owner[0]?.userEmail ?? null,
 		tier: org.devPlan,
+		pendingTier: org.devPlanPendingTier ?? null,
 		status,
 		hasPaymentIssue,
 		creditsUsed: String(org.devPlanCreditsUsed),

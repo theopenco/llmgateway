@@ -24,6 +24,8 @@ import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
+import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
+import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
 import {
@@ -213,6 +215,20 @@ app.onError((error, c) => {
 			method: c.req.method,
 		});
 		return renderGatewayError(c, 499, "Client Closed Request");
+	}
+
+	// An upstream-side socket close (e.g. undici "terminated: other side
+	// closed" / ECONNRESET) that escaped the chat handler's own classification
+	// is an expected provider/client disconnect, not a gateway bug. Log it at
+	// warn to avoid raising server-error alerts.
+	if (isUpstreamTermination(error)) {
+		logger.warn("Upstream connection terminated", {
+			message: error instanceof Error ? error.message : String(error),
+			cause: extractErrorCause(error),
+			path: c.req.path,
+			method: c.req.method,
+		});
+		return renderGatewayError(c, 502, "Upstream connection terminated");
 	}
 
 	// For any other errors (non-HTTPException), return 500 Internal Server Error

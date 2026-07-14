@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import Footer from "@/components/landing/footer";
+import { slugify } from "@/lib/slugify";
 
 interface BlogItemImage {
 	src: string;
@@ -18,13 +19,6 @@ interface BlogItem {
 	summary: string;
 	categories?: string[];
 	image?: BlogItemImage;
-}
-
-function slugify(label: string) {
-	return label
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/(^-|-$)/g, "");
 }
 
 interface BlogListProps {
@@ -108,7 +102,7 @@ export function BlogList({
 									)}
 								</Link>
 								<div className="p-5 space-y-3">
-									<h3 className="text-xl font-semibold leading-tight">
+									<h2 className="text-xl font-semibold leading-tight">
 										<Link
 											href={`/blog/${entry.slug}`}
 											prefetch={true}
@@ -116,7 +110,7 @@ export function BlogList({
 										>
 											{entry.title}
 										</Link>
-									</h3>
+									</h2>
 									{entry?.categories && entry.categories.length > 0 && (
 										<div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
 											{entry.categories.map((cat) => (

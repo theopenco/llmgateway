@@ -1,10 +1,11 @@
 "use client";
 
-import { Code, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/ui/logo";
 import { useUser } from "@/hooks/useUser";
 import { useAppConfig } from "@/lib/config";
 
@@ -17,15 +18,22 @@ export function Header() {
 	return (
 		<header className="border-b border-border/50">
 			<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-				<Link href="/" className="flex items-center gap-2">
-					<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
-						<Code className="h-4 w-4" />
-					</div>
-					<span className="font-semibold text-lg">DevPass</span>
-					<span className="hidden sm:inline text-xs text-muted-foreground">
+				<div className="flex items-center gap-2">
+					<Link href="/" className="flex items-center gap-2">
+						<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
+							<Logo className="h-4 w-4" />
+						</div>
+						<span className="font-semibold text-lg">DevPass</span>
+					</Link>
+					<a
+						href={config.uiUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+					>
 						by LLM Gateway
-					</span>
-				</Link>
+					</a>
+				</div>
 
 				{/* Desktop nav */}
 				<div className="hidden sm:flex items-center gap-3">

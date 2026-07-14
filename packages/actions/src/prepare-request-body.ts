@@ -1,3 +1,5 @@
+import { createHash, createHmac } from "node:crypto";
+
 import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
@@ -12,37 +14,67 @@ import {
 	type OpenAIRequestBody,
 	type OpenAIResponsesRequestBody,
 	type OpenAIToolInput,
+	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type ProviderRequestBody,
+	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
+import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
+import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
 
+export { RequestError } from "./request-error.js";
+
 /**
- * Generic typed error for invalid client requests detected before we hit the
- * upstream provider (e.g. malformed message shapes). The gateway maps this to
- * the carried `statusCode` (default 400) and writes a client_error log row so
- * the rejected request still shows up in the user's activity history instead
- * of surfacing as a generic 500 with no log. Reuse this for any similar
- * pre-upstream request validation failure.
+ * Hash a caller session id before using it as an upstream `prompt_cache_key`
+ * so raw session ids (e.g. Claude Code session UUIDs from x-session-id /
+ * x-session-affinity) are never exposed to providers. Keyed with the gateway's
+ * API-key hash secret (GATEWAY_API_KEY_HASH_SECRET — required in production,
+ * dev fallback otherwise) so a provider cannot correlate the hash back to a
+ * known session id; the "prompt-cache-key:" prefix domain-separates these
+ * digests from API-key fingerprints computed with the same secret. The hash
+ * stays stable per session, which is all cache routing needs.
  */
-export class RequestError extends Error {
-	public readonly statusCode: number;
-	public constructor(message: string, statusCode = 400) {
-		super(message);
-		this.name = "RequestError";
-		this.statusCode = statusCode;
+export function hashSessionCacheKey(sessionId: string): string {
+	return createHmac("sha256", getApiKeyHashSecret())
+		.update(`prompt-cache-key:${sessionId}`)
+		.digest("hex")
+		.slice(0, 32);
+}
+
+/**
+ * Meta only routes prompt-cache lookups by `prompt_cache_key`: identical
+ * prefixes sent without a key land on different backends and report
+ * `cached_tokens: 0` every time (verified live), while the same requests with
+ * a stable key hit the cache once warm. Callers rarely send the key, so
+ * derive a stable per-conversation one from the conversation prefix — the
+ * first messages of an agent session are identical across its turns.
+ */
+export function deriveConversationCacheKey(
+	messages: BaseMessage[],
+): string | undefined {
+	if (!messages.length) {
+		return undefined;
 	}
+	const prefix = messages
+		.slice(0, 2)
+		.map((m) => ({ role: m.role, content: m.content }));
+	return createHash("sha256")
+		.update(JSON.stringify(prefix))
+		.digest("hex")
+		.slice(0, 32);
 }
 
 function getProviderMapping(
@@ -675,12 +707,19 @@ function transformContentForResponsesApi(content: any, role: string): any {
 	// Handle array content
 	if (Array.isArray(content)) {
 		return content.map((part: any) => {
+			// Carry OpenAI explicit prompt cache breakpoints (GPT-5.6+) through the
+			// content-type rewrite. Unsupported markers are already stripped before
+			// this transform runs, so anything still present must be forwarded.
+			const breakpoint =
+				part.prompt_cache_breakpoint !== undefined
+					? { prompt_cache_breakpoint: part.prompt_cache_breakpoint }
+					: undefined;
 			if (part.type === "text") {
 				// Transform "text" to "input_text" or "output_text" based on role
 				if (role === "assistant") {
-					return { type: "output_text", text: part.text };
+					return { type: "output_text", text: part.text, ...breakpoint };
 				}
-				return { type: "input_text", text: part.text };
+				return { type: "input_text", text: part.text, ...breakpoint };
 			}
 			if (part.type === "image_url") {
 				// Transform "image_url" to "input_image". The Responses API accepts
@@ -691,6 +730,7 @@ function transformContentForResponsesApi(content: any, role: string): any {
 				return {
 					type: "input_image",
 					image_url: imageUrl,
+					...breakpoint,
 				};
 			}
 			// Return other content types as-is (they may need additional handling)
@@ -891,6 +931,9 @@ export async function prepareRequestBody(
 	providerCacheControlEnabled = true,
 	n?: number,
 	service_tier?: "auto" | "default" | "flex" | "priority",
+	verbosity?: "low" | "medium" | "high",
+	prompt_cache_options?: PromptCacheOptions,
+	session_id?: string,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	const modelDef = models.find((m) => m.id === usedInternalModel);
@@ -928,18 +971,23 @@ export async function prepareRequestBody(
 		reasoning_effort = undefined;
 	}
 
-	// `max` is Anthropic's top effort tier (above `xhigh`). Providers without a
-	// native `max` level treat it as an alias for `high` (e.g. OpenAI, Google,
-	// DeepSeek). Anthropic-family branches use `reasoning_effort` directly and
-	// handle `max` natively, so they intentionally do not use this alias.
-	const genericReasoningEffort:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| undefined = reasoning_effort === "max" ? "high" : reasoning_effort;
+	// `verbosity` is only understood by OpenAI GPT-5+ models. Capability
+	// validation rejects unsupported pinned models upfront, but auto routing and
+	// retry fallbacks can still land on a mapping without verbosity support, so
+	// strip it here instead of forwarding an unknown parameter upstream.
+	if (
+		verbosity !== undefined &&
+		providerMappingForOptions?.verbosity !== true
+	) {
+		verbosity = undefined;
+	}
+
+	// Effort tiers are forwarded to the provider as-is — there is no
+	// downgrading of unsupported values (e.g. `max` on a model that tops out
+	// at `xhigh`). Providers reject unsupported values with a 4xx, and the
+	// values each mapping accepts are published as `reasoningEfforts` in the
+	// model catalog. Providers that take a thinking budget instead of an
+	// effort enum (Anthropic, Google) translate each tier to a budget below.
 
 	// Handle OpenAI / Azure image generation models (e.g. gpt-image-2)
 	if (
@@ -1354,6 +1402,39 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Strip OpenAI-style `prompt_cache_breakpoint` markers unless the resolved
+	// provider/model pair supports explicit prompt caching (OpenAI, GPT-5.6 and
+	// later families). OpenAI's older models and every other provider reject the
+	// unknown field with a 400. Also strip when the project opted out of
+	// provider cache writes — explicit breakpoints trigger cache writes billed
+	// at the 1.25x premium, same as Anthropic cache_control markers above.
+	const keepPromptCacheBreakpoints =
+		usedProvider === "openai" &&
+		supportsOpenAIExplicitPromptCache(usedInternalModel) &&
+		providerCacheControlEnabled;
+	if (!keepPromptCacheBreakpoints) {
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const newContent = m.content.map((part) => {
+				const asRecord = part as unknown as Record<string, unknown>;
+				if (
+					asRecord &&
+					typeof asRecord === "object" &&
+					asRecord.prompt_cache_breakpoint !== undefined
+				) {
+					mutated = true;
+					const { prompt_cache_breakpoint: _ignored, ...rest } = asRecord;
+					return rest as unknown as typeof part;
+				}
+				return part;
+			});
+			return mutated ? { ...m, content: newContent } : m;
+		});
+	}
+
 	// DeepSeek (and Moonshot) thinking-mode endpoints reject assistant messages
 	// containing tool_calls unless `reasoning_content` is present. OpenAI-compat
 	// clients usually drop reasoning between turns, so translate the OpenAI-style
@@ -1499,6 +1580,7 @@ export async function prepareRequestBody(
 	switch (usedProvider) {
 		case "azure":
 		case "sakana":
+		case "meta":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1537,23 +1619,30 @@ export async function prepareRequestBody(
 						? reasoning_effort === "xhigh" || reasoning_effort === "max"
 							? "xhigh"
 							: "high"
-						: (genericReasoningEffort ?? defaultEffort);
+						: (reasoning_effort ?? defaultEffort);
 
+				// Muse Spark reasons adaptively when effort is omitted and rejects
+				// "none", so only forward an effort the caller explicitly set.
 				const responsesBody: OpenAIResponsesRequestBody = {
 					model: usedExternalId,
 					input: transformedMessages,
-					reasoning: {
-						effort: responsesReasoningEffort,
-						summary: "detailed",
-					},
+					reasoning:
+						usedProvider === "meta"
+							? {
+									...(reasoning_effort !== undefined && {
+										effort: reasoning_effort,
+									}),
+									summary: "detailed",
+								}
+							: {
+									effort: responsesReasoningEffort,
+									summary: "detailed",
+								},
 				};
 
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
-					}
-					if (prompt_cache_key !== undefined) {
-						responsesBody.prompt_cache_key = prompt_cache_key;
 					}
 					if (
 						prompt_cache_retention !== undefined &&
@@ -1561,6 +1650,42 @@ export async function prepareRequestBody(
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
 					) {
 						responsesBody.prompt_cache_retention = prompt_cache_retention;
+					}
+					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
+						if (!providerCacheControlEnabled) {
+							// The project opted out of provider cache writes, but GPT-5.6
+							// implicit caching auto-writes (billed at 1.25x) on every
+							// request. Force explicit mode — with all breakpoint markers
+							// stripped above, this disables caching (and its write fees)
+							// entirely.
+							responsesBody.prompt_cache_options = { mode: "explicit" };
+						} else if (prompt_cache_options !== undefined) {
+							responsesBody.prompt_cache_options = prompt_cache_options;
+						}
+					}
+				}
+
+				// prompt_cache_key influences upstream cache-shard routing; only
+				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
+				// and Meta support it. Sakana does not document the field. Prefer
+				// the caller's explicit key, then the salted hash of the caller's
+				// session id, then (Meta only, where the key is required for hits
+				// at all) a key derived from the conversation prefix.
+				if (
+					usedProvider === "openai" ||
+					usedProvider === "azure" ||
+					usedProvider === "meta"
+				) {
+					const upstreamCacheKey =
+						prompt_cache_key ??
+						(session_id !== undefined
+							? hashSessionCacheKey(session_id)
+							: undefined) ??
+						(usedProvider === "meta"
+							? deriveConversationCacheKey(processedMessages)
+							: undefined);
+					if (upstreamCacheKey !== undefined) {
+						responsesBody.prompt_cache_key = upstreamCacheKey;
 					}
 				}
 
@@ -1632,6 +1757,13 @@ export async function prepareRequestBody(
 					}
 				}
 
+				if (verbosity !== undefined) {
+					responsesBody.text = {
+						...responsesBody.text,
+						verbosity,
+					};
+				}
+
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
@@ -1639,8 +1771,16 @@ export async function prepareRequestBody(
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
 					}
-					if (prompt_cache_key !== undefined) {
-						requestBody.prompt_cache_key = prompt_cache_key;
+					// Azure is intentionally excluded on this path: chat completions
+					// may hit a legacy deployment-based api-version that rejects
+					// unknown body fields, and the deployment type isn't known here.
+					const upstreamCacheKey =
+						prompt_cache_key ??
+						(session_id !== undefined
+							? hashSessionCacheKey(session_id)
+							: undefined);
+					if (upstreamCacheKey !== undefined) {
+						requestBody.prompt_cache_key = upstreamCacheKey;
 					}
 					if (
 						prompt_cache_retention !== undefined &&
@@ -1648,6 +1788,18 @@ export async function prepareRequestBody(
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
 					) {
 						requestBody.prompt_cache_retention = prompt_cache_retention;
+					}
+					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
+						if (!providerCacheControlEnabled) {
+							// The project opted out of provider cache writes, but GPT-5.6
+							// implicit caching auto-writes (billed at 1.25x) on every
+							// request. Force explicit mode — with all breakpoint markers
+							// stripped above, this disables caching (and its write fees)
+							// entirely.
+							requestBody.prompt_cache_options = { mode: "explicit" };
+						} else if (prompt_cache_options !== undefined) {
+							requestBody.prompt_cache_options = prompt_cache_options;
+						}
 					}
 				}
 
@@ -1728,8 +1880,11 @@ export async function prepareRequestBody(
 								? reasoning_effort
 								: "high";
 					} else {
-						requestBody.reasoning_effort = genericReasoningEffort;
+						requestBody.reasoning_effort = reasoning_effort;
 					}
+				}
+				if (verbosity !== undefined) {
+					requestBody.verbosity = verbosity;
 				}
 				if (n !== undefined && n > 1) {
 					requestBody.n = n;
@@ -2161,10 +2316,9 @@ export async function prepareRequestBody(
 				}
 				if (reasoning_effort !== undefined) {
 					const reasoningEffort =
-						genericReasoningEffort === "minimal" ||
-						genericReasoningEffort === "xhigh"
+						reasoning_effort === "minimal" || reasoning_effort === "xhigh"
 							? "low"
-							: genericReasoningEffort;
+							: reasoning_effort;
 					requestBody.reasoning = {
 						effort: reasoningEffort,
 					};
@@ -2375,7 +2529,7 @@ export async function prepareRequestBody(
 							toolUse: {
 								toolUseId: toolCall.id,
 								name: toolCall.function.name,
-								input: JSON.parse(toolCall.function.arguments),
+								input: parseToolCallArguments(toolCall),
 							},
 						});
 					});
@@ -2853,7 +3007,7 @@ export async function prepareRequestBody(
 						// Google maps this internally to thinkingLevel, so exact token control isn't guaranteed
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
 							reasoning_max_tokens;
-					} else if (genericReasoningEffort !== undefined) {
+					} else if (reasoning_effort !== undefined) {
 						const getThinkingBudget = (effort: string) => {
 							switch (effort) {
 								case "minimal":
@@ -2863,6 +3017,9 @@ export async function prepareRequestBody(
 								case "high":
 									return 24576;
 								case "xhigh":
+								case "max":
+									// Google has no tier above xhigh, so max shares its
+									// top thinking budget.
 									return 65536;
 								case "medium":
 								default:
@@ -2870,7 +3027,7 @@ export async function prepareRequestBody(
 							}
 						};
 						requestBody.generationConfig.thinkingConfig.thinkingBudget =
-							getThinkingBudget(genericReasoningEffort);
+							getThinkingBudget(reasoning_effort);
 					}
 				}
 			}
@@ -2993,7 +3150,7 @@ export async function prepareRequestBody(
 				requestBody.presence_penalty = presence_penalty;
 			}
 			if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = genericReasoningEffort;
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}
@@ -3035,6 +3192,52 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+			break;
+		}
+		case "xiaomi": {
+			// Xiaomi expects tool message content as a plain string — flatten
+			// array content blocks to text, dropping image blocks.
+			requestBody.messages = requestBody.messages.map((m: BaseMessage) =>
+				m.role === "tool" && Array.isArray(m.content)
+					? {
+							...m,
+							content: m.content
+								.filter(isTextContent)
+								.map((c) => c.text)
+								.filter(Boolean)
+								.join("\n"),
+						}
+					: m,
+			);
+
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}
@@ -3089,7 +3292,7 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = genericReasoningEffort;
+					requestBody.reasoning_effort = reasoning_effort;
 				}
 			}
 			if (usedProvider === "minimax" && supportsReasoning) {

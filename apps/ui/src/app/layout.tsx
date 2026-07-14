@@ -36,7 +36,7 @@ export const metadata: Metadata = {
 		template: "%s | LLM Gateway",
 	},
 	description:
-		"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface. Access OpenAI, Anthropic, Google, and 40+ providers through one API.",
+		"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified API.",
 	authors: [{ name: "LLM Gateway" }],
 	creator: "LLM Gateway",
 	publisher: "LLM Gateway",
@@ -63,7 +63,7 @@ export const metadata: Metadata = {
 	openGraph: {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
-			"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface. Access OpenAI, Anthropic, Google, and 40+ providers through one API.",
+			"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified API.",
 		images: ["/opengraph.png?v=2"],
 		type: "website",
 		url: "https://llmgateway.io",
@@ -74,7 +74,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
-			"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
+			"Route, manage, and analyze LLM requests across 40+ providers through one unified API.",
 		images: ["/opengraph.png?v=2"],
 		creator: "@llmgateway",
 	},
@@ -105,8 +105,8 @@ const organizationSchema = {
 	description:
 		"Route, manage, and analyze your LLM requests across multiple providers with a unified API interface.",
 	sameAs: [
-		"https://twitter.com/llmgateway",
-		"https://github.com/llmgateway/llmgateway",
+		"https://x.com/llmgateway",
+		"https://github.com/theopenco/llmgateway",
 	],
 	contactPoint: {
 		"@type": "ContactPoint",
@@ -134,7 +134,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.variable} ${geistMono.variable} ${plusJakarta.variable}`}
+			suppressHydrationWarning
+		>
 			<head>
 				<link rel="preconnect" href="https://internal.llmgateway.io" />
 				<link rel="preconnect" href="https://docs.llmgateway.io" />
@@ -153,9 +157,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body
-				className={`${inter.variable} ${geistMono.variable} ${plusJakarta.variable} min-h-screen antialiased`}
-			>
+			<body className="min-h-screen antialiased">
 				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>

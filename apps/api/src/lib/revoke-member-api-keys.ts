@@ -1,4 +1,4 @@
-import { and, db, eq, inArray, ne, tables } from "@llmgateway/db";
+import { and, cdb, db, eq, inArray, ne, tables } from "@llmgateway/db";
 
 /**
  * Revoke the API keys a member created within an organization.
@@ -32,7 +32,7 @@ export async function revokeMemberApiKeys(
 		return 0;
 	}
 
-	const revoked = await db
+	const revoked = await cdb
 		.update(tables.apiKey)
 		.set({ status: "deleted" })
 		.where(

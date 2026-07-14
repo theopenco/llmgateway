@@ -1,6 +1,6 @@
 "use client";
 
-import { format, subDays } from "date-fns";
+import { addDays, differenceInCalendarDays, format, subDays } from "date-fns";
 import {
 	CreditCard,
 	Zap,
@@ -19,6 +19,7 @@ import {
 	BookOpen,
 	FlaskConical,
 	MessageSquare,
+	Settings,
 	Wallet,
 	Gift,
 } from "lucide-react";
@@ -29,7 +30,6 @@ import { useEffect } from "react";
 import { CreateApiKeyDialog } from "@/components/api-keys/create-api-key-dialog";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
 import { CostBreakdownCard } from "@/components/dashboard/cost-breakdown-card";
-import { DevPassCard } from "@/components/dashboard/devpass-card";
 import { ErrorsReliabilityCard } from "@/components/dashboard/errors-reliability-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Overview } from "@/components/dashboard/overview";
@@ -49,21 +49,15 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/lib/components/select";
+import { Skeleton } from "@/lib/components/skeleton";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { cn } from "@/lib/utils";
 
 import type { ActivitT } from "@/types/activity";
 
 interface DashboardClientProps {
 	initialActivityData?: ActivitT;
-	initialDevPassCollapsed?: boolean;
 }
 
 function formatCredits(credits: number) {
@@ -73,10 +67,134 @@ function formatCredits(credits: number) {
 	});
 }
 
-export function DashboardClient({
-	initialActivityData,
-	initialDevPassCollapsed,
-}: DashboardClientProps) {
+function formatTokens(tokens: number) {
+	if (tokens >= 1_000_000) {
+		return `${(tokens / 1_000_000).toFixed(1)}M`;
+	}
+	if (tokens >= 1_000) {
+		return `${(tokens / 1_000).toFixed(1)}k`;
+	}
+	return tokens.toString();
+}
+
+function pctChange(current: number, previous: number): number | null {
+	if (previous <= 0) {
+		return null;
+	}
+	return ((current - previous) / previous) * 100;
+}
+
+const quickActions = [
+	{
+		href: "api-keys",
+		icon: Key,
+		label: "API Keys",
+	},
+	{
+		href: "provider-keys",
+		icon: KeyRound,
+		label: "Provider Keys",
+	},
+	{
+		href: "activity",
+		icon: Activity,
+		label: "Activity",
+	},
+	{
+		href: "usage",
+		icon: BarChart3,
+		label: "Usage & Metrics",
+	},
+	{
+		href: "model-usage",
+		icon: ChartColumnBig,
+		label: "Model Usage",
+	},
+	{
+		href: "settings",
+		icon: Settings,
+		label: "Settings",
+	},
+] as const;
+
+function QuickActionsCard({
+	buildUrl,
+	buildOrgUrl,
+	className,
+}: {
+	buildUrl: (path?: string) => string;
+	buildOrgUrl: (path?: string) => string;
+	className?: string;
+}) {
+	return (
+		<Card className={className}>
+			<CardHeader>
+				<CardTitle>Quick Actions</CardTitle>
+				<CardDescription>Jump straight to common tasks</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<div className="grid grid-cols-2 gap-2">
+					{quickActions.map((action) => (
+						<Link
+							key={action.href}
+							href={
+								action.href === "provider-keys"
+									? buildOrgUrl("org/provider-keys")
+									: buildUrl(action.href)
+							}
+							prefetch={true}
+							className="group flex items-center gap-3 rounded-lg border border-border/60 p-3 transition-colors hover:border-primary/40 hover:bg-accent/40"
+						>
+							<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground transition-colors group-hover:text-foreground">
+								<action.icon className="h-4 w-4" />
+							</div>
+							<span className="text-sm font-medium leading-tight">
+								{action.label}
+							</span>
+						</Link>
+					))}
+				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
+function StatCell({
+	icon: Icon,
+	label,
+	value,
+	sub,
+	isLoading,
+}: {
+	icon: React.ComponentType<{ className?: string }>;
+	label: string;
+	value: string;
+	sub?: string;
+	isLoading?: boolean;
+}) {
+	return (
+		<div className="min-w-0 lg:px-6 lg:first:pl-0 lg:last:pr-0">
+			<div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				<Icon className="h-3.5 w-3.5" />
+				<span className="truncate">{label}</span>
+			</div>
+			{isLoading ? (
+				<Skeleton className="mt-2 h-6 w-20" />
+			) : (
+				<p className="mt-1.5 truncate text-lg font-semibold tabular-nums">
+					{value}
+				</p>
+			)}
+			{isLoading ? (
+				<Skeleton className="mt-1.5 h-3 w-24" />
+			) : sub ? (
+				<p className="mt-0.5 truncate text-xs text-muted-foreground">{sub}</p>
+			) : null}
+		</div>
+	);
+}
+
+export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
@@ -85,6 +203,10 @@ export function DashboardClient({
 	const { from, to } = getDateRangeFromParams(searchParams);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
+
+	const rangeDays = differenceInCalendarDays(to, from) + 1;
+	const prevFrom = subDays(from, rangeDays);
+	const prevTo = subDays(from, 1);
 
 	// Get metric type from URL params, default to "costs"
 	const metricParam = searchParams.get("metric");
@@ -128,6 +250,29 @@ export function DashboardClient({
 		},
 	);
 
+	// Previous period of the same length, used for trend deltas on the KPI
+	// cards. Skipped for very long ranges (e.g. "All time") where a
+	// comparison window is meaningless.
+	const { data: prevData } = api.useQuery(
+		"get",
+		"/activity",
+		{
+			params: {
+				query: {
+					from: format(prevFrom, "yyyy-MM-dd"),
+					to: format(prevTo, "yyyy-MM-dd"),
+					timezone: getBrowserTimeZone(),
+					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+				},
+			},
+		},
+		{
+			enabled: !!selectedProject?.id && rangeDays <= 366,
+			refetchOnWindowFocus: false,
+			staleTime: 1000 * 60 * 5, // 5 minutes
+		},
+	);
+
 	// Get API keys data to check plan limits
 	const { data: apiKeysData } = api.useQuery(
 		"get",
@@ -154,6 +299,7 @@ export function DashboardClient({
 	};
 
 	const activityData = data?.activity ?? [];
+	const prevActivityData = prevData?.activity ?? [];
 
 	const totalRequests =
 		activityData.reduce((sum, day) => sum + day.requestCount, 0) ?? 0;
@@ -183,6 +329,46 @@ export function DashboardClient({
 		activityData.reduce((sum, day) => sum + day.cachedTokens, 0) ?? 0;
 	const totalCachedInputCost =
 		activityData.reduce((sum, day) => sum + day.cachedInputCost, 0) ?? 0;
+	const totalErrors =
+		activityData.reduce((sum, day) => sum + day.errorCount, 0) ?? 0;
+	const totalCached =
+		activityData.reduce((sum, day) => sum + day.cacheCount, 0) ?? 0;
+
+	const prevRequests = prevActivityData.reduce(
+		(sum, day) => sum + day.requestCount,
+		0,
+	);
+	const prevCost = prevActivityData.reduce((sum, day) => sum + day.cost, 0);
+	const prevSavings = prevActivityData.reduce(
+		(sum, day) => sum + day.discountSavings,
+		0,
+	);
+
+	const cacheHitRate =
+		totalRequests > 0 ? (totalCached / totalRequests) * 100 : 0;
+	const avgCostPerRequest = totalRequests > 0 ? totalCost / totalRequests : 0;
+
+	// Day-by-day series for the KPI sparklines, with missing days filled as 0.
+	const { requestsTrend, costTrend } = (() => {
+		if (rangeDays > 400) {
+			const sorted = [...activityData].sort((a, b) =>
+				a.date < b.date ? -1 : 1,
+			);
+			return {
+				requestsTrend: sorted.map((day) => day.requestCount),
+				costTrend: sorted.map((day) => day.cost),
+			};
+		}
+		const byDate = new Map(activityData.map((day) => [day.date, day]));
+		const requests: number[] = [];
+		const costs: number[] = [];
+		for (let i = 0; i < rangeDays; i++) {
+			const day = byDate.get(format(addDays(from, i), "yyyy-MM-dd"));
+			requests.push(day?.requestCount ?? 0);
+			costs.push(day?.cost ?? 0);
+		}
+		return { requestsTrend: requests, costTrend: costs };
+	})();
 
 	const { mostUsedModel, mostUsedProvider } = (() => {
 		const modelCostMap = new Map<string, { cost: number; provider: string }>();
@@ -208,44 +394,6 @@ export function DashboardClient({
 		}
 		return { mostUsedModel: topModel, mostUsedProvider: topProvider };
 	})();
-
-	const quickActions = [
-		{
-			href: "api-keys",
-			icon: Key,
-			label: "Manage API Keys",
-		},
-		{
-			href: "provider-keys",
-			icon: KeyRound,
-			label: "Provider Keys",
-		},
-		{
-			href: "activity",
-			icon: Activity,
-			label: "View Activity",
-		},
-		{
-			href: "usage",
-			icon: BarChart3,
-			label: "Usage & Metrics",
-		},
-		{
-			href: "model-usage",
-			icon: ChartColumnBig,
-			label: "Model Usage",
-		},
-	] as const;
-
-	const formatTokens = (tokens: number) => {
-		if (tokens >= 1_000_000) {
-			return `${(tokens / 1_000_000).toFixed(1)}M`;
-		}
-		if (tokens >= 1_000) {
-			return `${(tokens / 1_000).toFixed(1)}k`;
-		}
-		return tokens.toString();
-	};
 
 	const isInitialLoading = !selectedOrganization;
 
@@ -336,12 +484,18 @@ export function DashboardClient({
 
 				<ReferralBanner />
 
-				<DevPassCard defaultCollapsed={initialDevPassCollapsed} />
-
-				<DateRangePicker buildUrl={buildUrl} />
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+					<DateRangePicker buildUrl={buildUrl} />
+					{rangeDays <= 366 && (
+						<p className="text-xs text-muted-foreground">
+							Trends compare to {format(prevFrom, "MMM d")} –{" "}
+							{format(prevTo, "MMM d")}
+						</p>
+					)}
+				</div>
 
 				<div className="space-y-4">
-					<div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
 						<MetricCard
 							label="Organization Credits"
 							value={`$${
@@ -355,31 +509,24 @@ export function DashboardClient({
 						/>
 						<MetricCard
 							label="Total Requests"
-							value={isLoading ? "Loading..." : totalRequests.toLocaleString()}
+							value={totalRequests.toLocaleString()}
 							subtitle={
-								isLoading
-									? "–"
-									: `${format(from, "MMM d")} - ${format(to, "MMM d")}${
-											activityData.length > 0
-												? ` • ${(
-														activityData.reduce(
-															(sum, day) => sum + day.cacheRate,
-															0,
-														) / activityData.length
-													).toFixed(1)}% cached`
-												: ""
-										}`
+								totalRequests > 0
+									? `${cacheHitRate.toFixed(1)}% cache hit rate • ${totalErrors.toLocaleString()} errors`
+									: `${format(from, "MMM d")} – ${format(to, "MMM d")}`
 							}
 							icon={<Zap className="h-4 w-4" />}
 							accent="purple"
+							delta={pctChange(totalRequests, prevRequests)}
+							trend={requestsTrend}
+							isLoading={isLoading}
 						/>
 						<MetricCard
-							label="Total Cost"
-							value={isLoading ? "Loading..." : `$${totalCost.toFixed(2)}`}
+							label="Total Spend"
+							value={`$${totalCost.toFixed(2)}`}
 							subtitle={
-								isLoading
-									? "–"
-									: `${format(from, "MMM d")} - ${format(to, "MMM d")}${
+								totalRequests > 0
+									? `avg $${avgCostPerRequest.toFixed(4)} per request${
 											totalRequestCost > 0
 												? ` • $${totalRequestCost.toFixed(2)} requests`
 												: ""
@@ -388,75 +535,60 @@ export function DashboardClient({
 												? ` • $${totalDataStorageCost.toFixed(4)} storage`
 												: ""
 										}`
+									: `${format(from, "MMM d")} – ${format(to, "MMM d")}`
 							}
 							icon={<CircleDollarSign className="h-4 w-4" />}
-							accent="purple"
+							accent="blue"
+							delta={pctChange(totalCost, prevCost)}
+							trend={costTrend}
+							isLoading={isLoading}
 						/>
 						<MetricCard
 							label="Total Savings"
-							value={isLoading ? "Loading..." : `$${totalSavings.toFixed(4)}`}
-							subtitle={
-								isLoading
-									? "–"
-									: `Discounts from ${format(from, "MMM d")} - ${format(to, "MMM d")}`
-							}
+							value={`$${totalSavings.toFixed(4)}`}
+							subtitle="Discounts this period"
 							icon={<TrendingDown className="h-4 w-4" />}
 							accent="green"
-						/>
-						<MetricCard
-							label="Input Tokens & Cost"
-							value={
-								isLoading
-									? "Loading..."
-									: `${formatTokens(totalInputTokens)} • $${totalInputCost.toFixed(2)}`
-							}
-							subtitle={isLoading ? "–" : "Prompt tokens and associated cost"}
-							icon={<ArrowDownToLine className="h-4 w-4" />}
-							accent="blue"
-						/>
-						<MetricCard
-							label="Output Tokens & Cost"
-							value={
-								isLoading
-									? "Loading..."
-									: `${formatTokens(totalOutputTokens)} • $${totalOutputCost.toFixed(2)}`
-							}
-							subtitle={
-								isLoading ? "–" : "Completion tokens and associated cost"
-							}
-							icon={<ArrowUpFromLine className="h-4 w-4" />}
-							accent="purple"
-						/>
-						<MetricCard
-							label="Cached Tokens & Cost"
-							value={
-								isLoading
-									? "Loading..."
-									: `${formatTokens(totalCachedTokens)} • $${totalCachedInputCost.toFixed(2)}`
-							}
-							subtitle={
-								isLoading
-									? "–"
-									: "Tokens and cost served from cache (if supported)"
-							}
-							icon={<Server className="h-4 w-4" />}
-							accent="green"
-							tooltip="Cached input tokens are already included in the Input Tokens & Cost total above. This card breaks them out so you can see how much of the input was served from cache."
-						/>
-						<MetricCard
-							label="Most Used Model"
-							value={isLoading ? "Loading..." : mostUsedModel || "—"}
-							subtitle={
-								isLoading
-									? "–"
-									: mostUsedProvider
-										? `Provider: ${mostUsedProvider}`
-										: `${format(from, "MMM d")} - ${format(to, "MMM d")}`
-							}
-							icon={<Crown className="h-4 w-4" />}
-							accent="blue"
+							delta={pctChange(totalSavings, prevSavings)}
+							isLoading={isLoading}
 						/>
 					</div>
+
+					<Card>
+						<CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 lg:grid-cols-4 lg:gap-0 lg:divide-x lg:divide-border/60">
+							<StatCell
+								icon={ArrowDownToLine}
+								label="Input tokens"
+								value={formatTokens(totalInputTokens)}
+								sub={`$${totalInputCost.toFixed(2)} spend`}
+								isLoading={isLoading}
+							/>
+							<StatCell
+								icon={ArrowUpFromLine}
+								label="Output tokens"
+								value={formatTokens(totalOutputTokens)}
+								sub={`$${totalOutputCost.toFixed(2)} spend`}
+								isLoading={isLoading}
+							/>
+							<StatCell
+								icon={Server}
+								label="Cached tokens"
+								value={formatTokens(totalCachedTokens)}
+								sub={`$${totalCachedInputCost.toFixed(2)} • included in input`}
+								isLoading={isLoading}
+							/>
+							<StatCell
+								icon={Crown}
+								label="Top model"
+								value={mostUsedModel || "—"}
+								sub={
+									mostUsedProvider ? `via ${mostUsedProvider}` : "No usage yet"
+								}
+								isLoading={isLoading}
+							/>
+						</CardContent>
+					</Card>
+
 					{!isLoading && totalRequests < 5 ? (
 						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
 							{(() => {
@@ -623,64 +755,42 @@ export function DashboardClient({
 									</Card>
 								);
 							})()}
-							<Card className="min-w-0 lg:col-span-3">
-								<CardHeader>
-									<CardTitle>Quick Actions</CardTitle>
-									<CardDescription>
-										Common tasks you might want to perform
-									</CardDescription>
-								</CardHeader>
-								<CardContent className="space-y-2">
-									{quickActions.map((action) => (
-										<Button
-											key={action.href}
-											asChild
-											variant="outline"
-											className="w-full justify-start"
-										>
-											<Link
-												href={
-													action.href === "provider-keys"
-														? buildOrgUrl("org/provider-keys")
-														: buildUrl(action.href)
-												}
-												prefetch={true}
-											>
-												<action.icon className="mr-2 h-4 w-4" />
-												{action.label}
-											</Link>
-										</Button>
-									))}
-								</CardContent>
-							</Card>
+							<QuickActionsCard
+								buildUrl={buildUrl}
+								buildOrgUrl={buildOrgUrl}
+								className="min-w-0 lg:col-span-3"
+							/>
 						</div>
 					) : (
 						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
 							<Card className="min-w-0 lg:col-span-4">
 								<CardHeader>
-									<div className="flex items-start justify-between">
-										<div className="flex-1">
+									<div className="flex flex-wrap items-start justify-between gap-3">
+										<div>
 											<CardTitle>Usage Overview</CardTitle>
 											<CardDescription>
 												{metric === "costs"
-													? "Provider pricing for reference"
-													: "Total Requests"}
-												{selectedProject && (
-													<span className="block mt-1 text-sm">
-														Filtered by project: {selectedProject.name}
-													</span>
-												)}
+													? "Daily inference spend (provider list price)"
+													: "Daily request volume"}
 											</CardDescription>
 										</div>
-										<Select value={metric} onValueChange={updateMetricInUrl}>
-											<SelectTrigger className="w-[140px]">
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="costs">Costs</SelectItem>
-												<SelectItem value="requests">Requests</SelectItem>
-											</SelectContent>
-										</Select>
+										<div className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5">
+											{(["costs", "requests"] as const).map((option) => (
+												<button
+													key={option}
+													type="button"
+													onClick={() => updateMetricInUrl(option)}
+													className={cn(
+														"rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+														metric === option
+															? "bg-background text-foreground shadow-sm"
+															: "text-muted-foreground hover:text-foreground",
+													)}
+												>
+													{option}
+												</button>
+											))}
+										</div>
 									</div>
 								</CardHeader>
 								<CardContent className="pl-2">
@@ -691,36 +801,11 @@ export function DashboardClient({
 									/>
 								</CardContent>
 							</Card>
-							<Card className="min-w-0 lg:col-span-3">
-								<CardHeader>
-									<CardTitle>Quick Actions</CardTitle>
-									<CardDescription>
-										Common tasks you might want to perform
-									</CardDescription>
-								</CardHeader>
-								<CardContent className="space-y-2">
-									{quickActions.map((action) => (
-										<Button
-											key={action.href}
-											asChild
-											variant="outline"
-											className="w-full justify-start"
-										>
-											<Link
-												href={
-													action.href === "provider-keys"
-														? buildOrgUrl("org/provider-keys")
-														: buildUrl(action.href)
-												}
-												prefetch={true}
-											>
-												<action.icon className="mr-2 h-4 w-4" />
-												{action.label}
-											</Link>
-										</Button>
-									))}
-								</CardContent>
-							</Card>
+							<QuickActionsCard
+								buildUrl={buildUrl}
+								buildOrgUrl={buildOrgUrl}
+								className="min-w-0 lg:col-span-3"
+							/>
 						</div>
 					)}
 

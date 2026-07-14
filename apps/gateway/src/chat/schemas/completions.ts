@@ -25,6 +25,15 @@ export const completionsRequestSchema = z.object({
 										ttl: z.enum(["5m", "1h"]).optional(),
 									})
 									.optional(),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional()
+									.openapi({
+										description:
+											"OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later). Ends a cacheable prefix when the request sets prompt_cache_options.mode to 'explicit'. Stripped for providers/models without explicit prompt caching support.",
+									}),
 							}),
 							z.object({
 								type: z.literal("image_url"),
@@ -32,6 +41,11 @@ export const completionsRequestSchema = z.object({
 									url: z.string(),
 									detail: z.enum(["low", "high", "auto"]).optional(),
 								}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 							z.object({
 								type: z.literal("input_audio"),
@@ -52,6 +66,11 @@ export const completionsRequestSchema = z.object({
 										"webm",
 									]),
 								}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 							z.object({
 								type: z.literal("file"),
@@ -71,6 +90,11 @@ export const completionsRequestSchema = z.object({
 										message:
 											"file.file_data or file.file_id is required for file content",
 									}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 						]),
 					),
@@ -211,6 +235,19 @@ export const completionsRequestSchema = z.object({
 				"OpenAI prompt cache retention policy. OpenAI supports in_memory and 24h for eligible models.",
 			example: "24h",
 		}),
+	prompt_cache_options: z
+		.object({
+			mode: z.enum(["implicit", "explicit"]).optional(),
+			ttl: z.enum(["30m"]).optional(),
+		})
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI explicit prompt caching options (GPT-5.6 and later). mode 'implicit' (default) places an automatic cache breakpoint at the latest message; 'explicit' caches only content parts marked with prompt_cache_breakpoint. Only forwarded for OpenAI models that support explicit prompt caching.",
+			example: { mode: "explicit" },
+		}),
 	user: z
 		.string()
 		.nullable()
@@ -270,7 +307,7 @@ export const completionsRequestSchema = z.object({
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
 			description:
-				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is the highest tier and is honored natively by Anthropic models (above `xhigh`); providers without a `max` tier treat it as `high`.",
+				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is the highest tier (above `xhigh`), supported by Anthropic models and OpenAI GPT-5.6 models. The gateway never downgrades effort tiers: providers that accept an effort parameter receive the value unchanged (an unsupported value results in a provider error), while providers that take a thinking budget instead (e.g. Anthropic, Google) translate each tier to a native budget. The exact values each provider mapping accepts are exposed as `reasoning_efforts` on `/v1/models`.",
 			example: "medium",
 		}),
 	reasoning: z
@@ -280,7 +317,7 @@ export const completionsRequestSchema = z.object({
 				.optional()
 				.openapi({
 					description:
-						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is the highest tier (honored natively by Anthropic, above `xhigh`); providers without a `max` tier treat it as `high`.",
+						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is the highest tier (above `xhigh`), supported by Anthropic models and OpenAI GPT-5.6 models. Tiers are never downgraded by the gateway: enum-based providers receive the value unchanged (unsupported values result in a provider error), while budget-based providers (e.g. Anthropic, Google) translate the tier to a native thinking budget. See `reasoning_efforts` on `/v1/models` for the values each mapping accepts.",
 					example: "medium",
 				}),
 			max_tokens: z.number().int().positive().optional().openapi({
@@ -303,6 +340,16 @@ export const completionsRequestSchema = z.object({
 			description:
 				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
 			example: "medium",
+		}),
+	verbosity: z
+		.enum(["low", "medium", "high"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Controls how detailed the model's responses are. Only supported by OpenAI GPT-5 and later models; requests to models without verbosity support return a 400 error.",
+			example: "low",
 		}),
 	service_tier: z
 		.enum(["auto", "default", "flex", "priority"])

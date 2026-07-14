@@ -77,18 +77,20 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs Azure AI Foundry — The Cloud-Neutral Alternative",
 		description:
-			"Compare LLM Gateway and Azure AI Foundry: 40+ providers behind one OpenAI-compatible API vs an Azure-hosted catalog with deployments and quotas. Keep Azure as a provider with 0% markup and add cross-cloud failover, caching, and cost analytics.",
+			"Compare 40+ providers behind one OpenAI-compatible API vs Azure AI Foundry. Keep Azure with 0% markup plus failover, caching, and cost analytics.",
+		alternates: { canonical: "/compare/azure-ai-foundry" },
 		openGraph: {
-			title: "LLM Gateway vs Azure AI Foundry - Feature Comparison",
+			title: "LLM Gateway vs Azure AI Foundry — Feature Comparison",
 			description:
-				"Compare LLM Gateway's cloud-neutral, open-source platform against Azure AI Foundry's Azure-hosted model catalog. Route to Azure and 40+ other providers from one API.",
+				"Cloud-neutral gateway vs Azure AI Foundry. Route to Azure and 40+ providers from one API with failover and analytics.",
 			type: "website",
+			url: "https://llmgateway.io/compare/azure-ai-foundry",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs Azure AI Foundry - Feature Comparison",
+			title: "LLM Gateway vs Azure AI Foundry — Feature Comparison",
 			description:
-				"Compare LLM Gateway's cloud-neutral, open-source platform against Azure AI Foundry's Azure-hosted model catalog. Route to Azure and 40+ other providers from one API.",
+				"Cloud-neutral gateway vs Azure AI Foundry. Route to Azure and 40+ providers from one API.",
 		},
 	};
 }

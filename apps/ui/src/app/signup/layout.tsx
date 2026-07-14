@@ -7,6 +7,7 @@ export const metadata: Metadata = {
 	title: "Sign Up",
 	description:
 		"Create your free LLM Gateway account. Get instant access to 200+ AI models from OpenAI, Anthropic, Google, and more through one API key.",
+	robots: { index: false, follow: false },
 };
 
 export default function SignupLayout({ children }: { children: ReactNode }) {

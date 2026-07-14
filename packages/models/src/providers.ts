@@ -72,7 +72,11 @@ export interface ProviderDataPolicy {
 	consumerTraining: boolean | null;
 	promptLogging: boolean | null;
 	retentionPeriod?: string | null;
-	soc2?: boolean | null;
+	/**
+	 * SOC 2 report type the provider holds: `1` for Type 1, `2` for Type 2.
+	 * `null`/omitted means the provider is not SOC 2 certified.
+	 */
+	soc2?: 1 | 2 | null;
 	iso27001?: boolean | null;
 	gdpr?: boolean | null;
 }
@@ -90,14 +94,26 @@ export interface ProviderAdditionalLink {
  */
 export interface ProviderCompliancePolicy {
 	enabled: boolean;
+	/** Require a SOC 2 report of any type (Type 1 or Type 2). */
 	requireSoc2?: boolean;
+	/** Require specifically a SOC 2 Type 2 report (the stricter attestation). */
+	requireSoc2Type2?: boolean;
 	requireIso27001?: boolean;
+	/** Require either a SOC 2 Type 2 report or ISO 27001 certification. */
 	requireSoc2OrIso27001?: boolean;
 	requireGdpr?: boolean;
 	/** Require the provider to NOT train on API prompts (apiTraining === false). */
 	blockApiTraining?: boolean;
 	/** Require the provider to NOT log prompts (promptLogging === false). */
 	blockPromptLogging?: boolean;
+	/**
+	 * Restrict routing to providers headquartered in one of these ISO 3166-1
+	 * alpha-2 country codes. Empty/omitted means no country restriction. Only
+	 * codes present in the catalogue (see {@link getProviderCountries}) are
+	 * meaningful; a provider with an unknown or `null` headquarters is blocked
+	 * whenever this list is non-empty (fail-closed).
+	 */
+	allowedCountries?: string[];
 }
 
 export interface ProviderDefinition {
@@ -171,7 +187,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: false,
+			soc2: null,
 			iso27001: false,
 			gdpr: false,
 		},
@@ -200,7 +216,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -245,7 +261,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -294,7 +310,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "55 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -391,7 +407,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -434,7 +450,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -468,7 +484,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -547,7 +563,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -575,7 +591,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -602,7 +618,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -733,7 +749,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: "varies by service; Enterprise ZDR available",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 		additionalLinks: [
@@ -847,7 +863,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -886,7 +902,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -923,7 +939,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -1005,7 +1021,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -1033,7 +1049,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 		},
 	},
@@ -1060,7 +1076,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -1078,11 +1094,21 @@ export const providers: ProviderDefinition[] = [
 		streaming: true,
 		cancellation: true,
 		color: "#10b981",
-		website: "https://canopywave.io",
+		website: "https://canopywave.com",
 		statusPageUrl: null,
 		announcement: null,
-		termsUrl: "https://canopywave.io/terms",
-		privacyPolicyUrl: "https://canopywave.io/privacy",
+		termsUrl: "https://canopywave.com/terms",
+		privacyPolicyUrl: "https://canopywave.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 1,
+			iso27001: false,
+			gdpr: false,
+		},
 	},
 	{
 		id: "inference.net",
@@ -1108,7 +1134,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 		},
 	},
 	{
@@ -1135,7 +1161,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 		},
 	},
 	{
@@ -1232,7 +1258,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: false,
 			retentionPeriod: "24 hours",
-			soc2: true,
+			soc2: 2,
 		},
 		additionalLinks: [
 			{
@@ -1293,6 +1319,50 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+	},
+	{
+		id: "meta",
+		name: "Meta",
+		description:
+			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_META_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0668E1",
+		website: "https://dev.meta.ai",
+		statusPageUrl: null,
+		announcement: null,
+		apiKeyInstructions:
+			"Create an API key in the API keys tab of the Meta Model API dashboard.",
+		learnMore: "https://dev.meta.ai/docs/getting-started/authentication",
+		termsUrl: "https://dev.meta.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.facebook.com/privacy/policy/",
+		headquarters: "US",
+		dataPolicy: {
+			// Paid (pay-as-you-go) services are never trained on; only the free
+			// unpaid tier may be used for training per the Data Commitments page.
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: null,
+			iso27001: null,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Data Commitments",
+				link: "https://dev.meta.ai/legal/commitments",
+			},
+			{
+				desc: "Acceptable Use Policy",
+				link: "https://dev.meta.ai/legal/acceptable-use-policy",
+			},
+		],
 	},
 	{
 		id: "sakana",
@@ -1394,7 +1464,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -1449,7 +1519,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 			iso27001: false,
 			gdpr: true,
 		},
@@ -1490,7 +1560,10 @@ export function isProviderCompliant(
 		return true;
 	}
 	const dataPolicy = provider.dataPolicy;
-	if (policy.requireSoc2 && dataPolicy?.soc2 !== true) {
+	if (policy.requireSoc2 && !dataPolicy?.soc2) {
+		return false;
+	}
+	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
 		return false;
 	}
 	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
@@ -1498,7 +1571,7 @@ export function isProviderCompliant(
 	}
 	if (
 		policy.requireSoc2OrIso27001 &&
-		!(dataPolicy?.soc2 === true || dataPolicy?.iso27001 === true)
+		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
 	) {
 		return false;
 	}
@@ -1511,7 +1584,69 @@ export function isProviderCompliant(
 	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
 		return false;
 	}
+	if (
+		policy.allowedCountries &&
+		policy.allowedCountries.length > 0 &&
+		(!provider.headquarters ||
+			!policy.allowedCountries.includes(provider.headquarters))
+	) {
+		return false;
+	}
 	return true;
+}
+
+export interface ProviderCountry {
+	/** ISO 3166-1 alpha-2 country code */
+	code: string;
+	/** Human-readable country name */
+	name: string;
+	/** Unicode flag emoji derived from the country code */
+	flag: string;
+}
+
+/**
+ * English display names for the country codes that appear as provider
+ * headquarters in the catalogue. Kept intentionally small: the site only ever
+ * surfaces countries that are actually referenced by a provider definition.
+ * Every distinct `headquarters` value in {@link providers} MUST have an entry
+ * here — enforced by a unit test so new country additions can't ship without
+ * a display name.
+ */
+export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
+	US: "United States",
+	CN: "China",
+	NL: "Netherlands",
+	FR: "France",
+	JP: "Japan",
+};
+
+/** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */
+export function countryCodeToFlag(code: string): string {
+	return code
+		.toUpperCase()
+		.replace(/[^A-Z]/g, "")
+		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+/**
+ * Distinct provider-headquarters countries defined in the catalogue, sorted by
+ * name. This is the authoritative, closed set of countries the compliance
+ * country selector may offer.
+ */
+export function getProviderCountries(): ProviderCountry[] {
+	const codes = new Set<string>();
+	for (const provider of providers) {
+		if (provider.headquarters) {
+			codes.add(provider.headquarters);
+		}
+	}
+	return Array.from(codes)
+		.map((code) => ({
+			code,
+			name: PROVIDER_COUNTRY_NAMES[code] ?? code,
+			flag: countryCodeToFlag(code),
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

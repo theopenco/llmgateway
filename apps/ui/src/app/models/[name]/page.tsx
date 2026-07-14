@@ -33,11 +33,7 @@ import {
 	perMillion,
 } from "@/lib/discount";
 import { fetchModelDiscounts } from "@/lib/fetch-models";
-import {
-	buildRatingSchema,
-	digitalOfferFields,
-	type ModelRatingsData,
-} from "@/lib/rating-schema";
+import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -174,7 +170,7 @@ export default async function ModelPage({ params }: PageProps) {
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: modelProviders.length,
 			availability: "https://schema.org/InStock",
-			...digitalOfferFields,
+			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 		},
 		category: "AI/ML API Service",
 		...buildRatingSchema(ratingsData),
@@ -289,70 +285,70 @@ export default async function ModelPage({ params }: PageProps) {
 								).toLocaleString()}{" "}
 								context
 							</div>
-							<div>
-								Starting at{" "}
-								{(() => {
-									const inputPrices = modelProviders
-										.filter((p) => p.inputPrice)
-										.map((p) => ({
-											price: applyDiscount(
-												perMillion(p.inputPrice)!,
-												p.discount,
-											),
-											originalPrice: perMillion(p.inputPrice)!,
-											discount: p.discount,
-										}));
-									if (inputPrices.length === 0) {
-										return "Free";
-									}
-									const minPrice = Math.min(...inputPrices.map((p) => p.price));
-									const minPriceItem = inputPrices.find(
-										(p) => p.price === minPrice,
-									);
-									return Number(minPriceItem?.discount ?? "0") > 0
-										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
-										: `$${minPrice.toFixed(2)}/M`;
-								})()}{" "}
-								input tokens
-								{modelProviders.some(
-									(p) => (p.pricingTiers?.length ?? 0) > 1,
-								) && (
-									<span className="text-muted-foreground/70"> (tiered)</span>
-								)}
-							</div>
-							<div>
-								Starting at{" "}
-								{(() => {
-									const outputPrices = modelProviders
-										.filter((p) => p.outputPrice)
-										.map((p) => ({
-											price: applyDiscount(
-												perMillion(p.outputPrice)!,
-												p.discount,
-											),
-											originalPrice: perMillion(p.outputPrice)!,
-											discount: p.discount,
-										}));
-									if (outputPrices.length === 0) {
-										return "Free";
-									}
-									const minPrice = Math.min(
-										...outputPrices.map((p) => p.price),
-									);
-									const minPriceItem = outputPrices.find(
-										(p) => p.price === minPrice,
-									);
-									return Number(minPriceItem?.discount ?? "0") > 0
-										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
-										: `$${minPrice.toFixed(2)}/M`;
-								})()}{" "}
-								output tokens
-								{modelProviders.some(
-									(p) => (p.pricingTiers?.length ?? 0) > 1,
-								) && (
-									<span className="text-muted-foreground/70"> (tiered)</span>
-								)}
-							</div>
+							{modelProviders.some((p) => p.inputPrice) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const inputPrices = modelProviders
+											.filter((p) => p.inputPrice)
+											.map((p) => ({
+												price: applyDiscount(
+													perMillion(p.inputPrice)!,
+													p.discount,
+												),
+												originalPrice: perMillion(p.inputPrice)!,
+												discount: p.discount,
+											}));
+										const minPrice = Math.min(
+											...inputPrices.map((p) => p.price),
+										);
+										const minPriceItem = inputPrices.find(
+											(p) => p.price === minPrice,
+										);
+										return Number(minPriceItem?.discount ?? "0") > 0
+											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
+											: `$${minPrice.toFixed(2)}/M`;
+									})()}{" "}
+									input tokens
+									{modelProviders.some(
+										(p) => (p.pricingTiers?.length ?? 0) > 1,
+									) && (
+										<span className="text-muted-foreground/70"> (tiered)</span>
+									)}
+								</div>
+							)}
+							{modelProviders.some((p) => p.outputPrice) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const outputPrices = modelProviders
+											.filter((p) => p.outputPrice)
+											.map((p) => ({
+												price: applyDiscount(
+													perMillion(p.outputPrice)!,
+													p.discount,
+												),
+												originalPrice: perMillion(p.outputPrice)!,
+												discount: p.discount,
+											}));
+										const minPrice = Math.min(
+											...outputPrices.map((p) => p.price),
+										);
+										const minPriceItem = outputPrices.find(
+											(p) => p.price === minPrice,
+										);
+										return Number(minPriceItem?.discount ?? "0") > 0
+											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
+											: `$${minPrice.toFixed(2)}/M`;
+									})()}{" "}
+									output tokens
+									{modelProviders.some(
+										(p) => (p.pricingTiers?.length ?? 0) > 1,
+									) && (
+										<span className="text-muted-foreground/70"> (tiered)</span>
+									)}
+								</div>
+							)}
 							{modelProviders.some((p) => p.imageOutputPrice !== undefined) && (
 								<div>
 									Starting at{" "}
@@ -601,9 +597,11 @@ export async function generateMetadata({
 	}
 
 	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
+	const pitch = `Use ${model.name ?? model.id} via one OpenAI-compatible API with live per-token pricing across providers.`;
 	const description =
-		model.description ??
-		`Compare ${model.name ?? model.id} pricing across providers, with its context window, capabilities, and one OpenAI-compatible API.`;
+		model.description && model.description.length + pitch.length <= 250
+			? `${model.description} ${pitch}`
+			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
