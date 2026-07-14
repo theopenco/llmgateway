@@ -442,6 +442,7 @@ export const googleModels = [
 				contextSize: 1048576,
 				maxOutput: 65535,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
