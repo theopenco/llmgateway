@@ -285,7 +285,9 @@ export function processStreamChunk(
 	if (delta.reasoning) {
 		if (!state.reasoningStarted) {
 			state.reasoningStarted = true;
-			state.reasoningOutputIndex = state.outputItemIndex;
+			// Claim the reasoning slot immediately so later tool calls and the
+			// message get their own indices instead of reusing this one.
+			state.reasoningOutputIndex = state.outputItemIndex++;
 			events.push(
 				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
@@ -303,11 +305,6 @@ export function processStreamChunk(
 
 	// Handle tool_calls delta
 	if (delta.tool_calls) {
-		// If reasoning was streamed but tool calls arrive (no content), close reasoning index
-		if (state.reasoningStarted && !state.outputItemStarted) {
-			state.outputItemIndex++;
-		}
-
 		for (const tc of delta.tool_calls) {
 			const existing = state.toolCalls.get(tc.index);
 			if (!existing) {
@@ -356,10 +353,6 @@ export function processStreamChunk(
 	if (delta.content) {
 		if (!state.outputItemStarted) {
 			state.outputItemStarted = true;
-			// If reasoning was streamed, close it first
-			if (state.reasoningStarted) {
-				state.outputItemIndex++;
-			}
 			// Claim this slot and advance so a later tool call gets its own
 			// output_index instead of reusing the message's.
 			state.messageOutputIndex = state.outputItemIndex++;
