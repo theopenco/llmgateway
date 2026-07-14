@@ -284,32 +284,6 @@ export const bytedanceModels = [
 		],
 	},
 	{
-		id: "glm-5-2",
-		name: "GLM-5.2 (260617)",
-		description:
-			"ByteDance-hosted GLM-5.2 flagship text model with tunable reasoning, strong coding, and 1M context for long-horizon tasks",
-		family: "bytedance",
-		releasedAt: new Date("2026-06-17"),
-		providers: [
-			{
-				providerId: "bytedance",
-				externalId: "glm-5-2-260617",
-				inputPrice: "1.4e-6",
-				cachedInputPrice: "0.26e-6",
-				outputPrice: "4.4e-6",
-				requestPrice: "0",
-				contextSize: 1024000,
-				maxOutput: 128000,
-				streaming: true,
-				reasoning: true,
-				vision: false,
-				tools: true,
-				jsonOutput: true,
-				healStreamingJsonOutput: true,
-			},
-		],
-	},
-	{
 		id: "seedream-4-5",
 		name: "Seedream 4.5",
 		description:

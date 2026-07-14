@@ -77,13 +77,13 @@ function PriceCell({
 	const formatted = formatPrice(adjustedPrice, discount);
 	return (
 		<div className="text-center">
-			<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">
+			<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
 				{label}
 			</div>
 			<div className="font-semibold text-foreground text-sm tabular-nums">
 				{formatted}
 			</div>
-			<div className="text-[10px] text-muted-foreground/50">{unit}</div>
+			<div className="text-[10px] text-muted-foreground">{unit}</div>
 		</div>
 	);
 }
@@ -258,9 +258,9 @@ export function ModelCard({
 					<div className="mb-4">
 						<div className="flex items-start justify-between gap-3 mb-2">
 							<div className="min-w-0 flex-1">
-								<h3 className="text-lg font-bold text-foreground tracking-tight truncate">
+								<h2 className="text-lg font-bold text-foreground tracking-tight truncate">
 									{model.name ?? model.id}
-								</h3>
+								</h2>
 							</div>
 							<div className="flex items-center gap-1.5 shrink-0">
 								{shouldShowStabilityWarning(model.stability) && (
@@ -498,6 +498,7 @@ export function ProviderSection({
 	copyToClipboard,
 	copiedModel,
 	isImageGen = false,
+	detailed = false,
 }: {
 	modelId: string;
 	providerInfo: ApiProvider;
@@ -515,12 +516,17 @@ export function ProviderSection({
 	copyToClipboard: (text: string) => void;
 	copiedModel: string | null;
 	isImageGen?: boolean;
+	detailed?: boolean;
 }) {
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
+	const [showMappingDetails, setShowMappingDetails] = useState(false);
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
 	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const hasMappingDetails =
+		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
+		(activeMapping.supportedParameters?.length ?? 0) > 0;
 	const supportedServiceTierIds = new Set(activeMapping.serviceTiers ?? []);
 	const serviceTiers = (providerInfo.serviceTiers ?? []).filter((tier) =>
 		supportedServiceTierIds.has(tier.id),
@@ -586,7 +592,7 @@ export function ProviderSection({
 										"text-[9px] font-medium",
 										activeServiceTierId === "standard"
 											? "text-foreground/65"
-											: "text-muted-foreground/70",
+											: "text-muted-foreground",
 									)}
 								>
 									1x
@@ -614,7 +620,7 @@ export function ProviderSection({
 												"text-[9px] font-medium",
 												isSelected
 													? "text-foreground/65"
-													: "text-muted-foreground/70",
+													: "text-muted-foreground",
 											)}
 										>
 											{tier.multiplier}x
@@ -778,7 +784,7 @@ export function ProviderSection({
 						return (
 							<div className="rounded-md bg-muted/40 border border-border/30 p-3">
 								<div className="flex items-center justify-between gap-2">
-									<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+									<div className="text-[10px] uppercase tracking-wider text-muted-foreground">
 										{label}
 									</div>
 									<div className="font-semibold tabular-nums text-sm">
@@ -816,7 +822,7 @@ export function ProviderSection({
 							`$${parseFloat(value.toFixed(4))}`;
 						return (
 							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-								<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 									Per Character Pricing
 								</div>
 								<div className="flex justify-between text-sm">
@@ -834,7 +840,7 @@ export function ProviderSection({
 										) : (
 											formatChars(perThousandChars)
 										)}
-										<span className="text-muted-foreground/60 text-xs ml-0.5">
+										<span className="text-muted-foreground text-xs ml-0.5">
 											/1K chars
 										</span>
 									</span>
@@ -850,7 +856,7 @@ export function ProviderSection({
 						0) ? null : activeMapping.perSecondPrice &&
 				  Object.keys(activeMapping.perSecondPrice).length > 0 ? (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 							Per Second Pricing
 						</div>
 						<div className="space-y-1">
@@ -866,7 +872,7 @@ export function ProviderSection({
 											</span>
 											<span className="font-semibold tabular-nums">
 												${defaultVideo} – ${defaultAudio}
-												<span className="text-muted-foreground/60 text-xs ml-0.5">
+												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
 											</span>
@@ -880,7 +886,7 @@ export function ProviderSection({
 											<span className="text-muted-foreground">Default</span>
 											<span className="font-semibold tabular-nums">
 												${defaultPrice}
-												<span className="text-muted-foreground/60 text-xs ml-0.5">
+												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
 											</span>
@@ -911,7 +917,7 @@ export function ProviderSection({
 							</div>
 							<div className="bg-background p-2">
 								<PriceCell
-									label="Cached"
+									label={detailed ? "Cache Read" : "Cached"}
 									price={activeMapping.cachedInputPrice}
 									discount={activeMapping.discount}
 									unit="/M tokens"
@@ -934,7 +940,7 @@ export function ProviderSection({
 							activeMapping.ocrPagePrice !== undefined &&
 							Number(activeMapping.ocrPagePrice) > 0 && (
 								<div className="rounded-md bg-background border border-border/30 p-2 flex items-baseline justify-between">
-									<span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+									<span className="text-[10px] uppercase tracking-wider text-muted-foreground">
 										OCR
 									</span>
 									<span className="font-mono tabular-nums text-sm">
@@ -946,13 +952,56 @@ export function ProviderSection({
 									</span>
 								</div>
 							)}
+						{detailed &&
+							(activeMapping.cacheWriteInputPrice ||
+								activeMapping.cacheWriteInputPrice1h) && (
+								<div className="grid grid-cols-2 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
+									<div className="bg-background p-2">
+										<PriceCell
+											label="Cache Write 5m"
+											price={activeMapping.cacheWriteInputPrice}
+											discount={activeMapping.discount}
+											unit="/M tokens"
+											formatPrice={formatPrice}
+											multiplier={serviceTierMultiplier}
+										/>
+									</div>
+									<div className="bg-background p-2">
+										<PriceCell
+											label="Cache Write 1h"
+											price={
+												activeMapping.cacheWriteInputPrice1h ??
+												activeMapping.cacheWriteInputPrice
+											}
+											discount={activeMapping.discount}
+											unit="/M tokens"
+											formatPrice={formatPrice}
+											multiplier={serviceTierMultiplier}
+										/>
+									</div>
+								</div>
+							)}
+						{detailed &&
+							activeMapping.outputAudioPrice !== null &&
+							activeMapping.outputAudioPrice !== undefined && (
+								<div className="rounded-md bg-background border border-border/30 p-2">
+									<PriceCell
+										label="Audio Output"
+										price={activeMapping.outputAudioPrice}
+										discount={activeMapping.discount}
+										unit="/M tokens"
+										formatPrice={formatPrice}
+										multiplier={serviceTierMultiplier}
+									/>
+								</div>
+							)}
 					</div>
 				)}
 
 				{/* Tiered pricing (if applicable) */}
 				{(activeMapping.pricingTiers?.length ?? 0) > 1 && (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 							Tiered Pricing
 						</div>
 						<div className="space-y-2">
@@ -963,7 +1012,7 @@ export function ProviderSection({
 								return (
 									<>
 										<div
-											className={`grid ${hasCached ? "grid-cols-[1fr_1fr_1fr_1fr]" : "grid-cols-[1fr_1fr_1fr]"} gap-x-2 text-[10px] text-muted-foreground/60 text-right`}
+											className={`grid ${hasCached ? "grid-cols-[1fr_1fr_1fr_1fr]" : "grid-cols-[1fr_1fr_1fr]"} gap-x-2 text-[10px] text-muted-foreground text-right`}
 										>
 											<div />
 											<div>IN</div>
@@ -1031,7 +1080,7 @@ export function ProviderSection({
 					activeMapping.imageOutputTokensByResolution ??
 					activeMapping.imageOutputPrice) && (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 							{activeMapping.imageOutputTokensByResolution
 								? "Image Pricing (est. per image)"
 								: "Image Pricing"}
@@ -1111,9 +1160,7 @@ export function ProviderSection({
 												"end",
 												serviceTierMultiplier,
 											)}
-											<span className="text-muted-foreground/60">
-												/M tokens
-											</span>
+											<span className="text-muted-foreground">/M tokens</span>
 										</div>
 									</div>
 								</div>
@@ -1196,7 +1243,7 @@ export function ProviderSection({
 										+{" "}
 										{discountNum > 0 ? (
 											<>
-												<span className="line-through text-muted-foreground/60 mr-1">
+												<span className="line-through text-muted-foreground mr-1">
 													${original.toFixed(3)}
 												</span>
 												<span className="text-green-600 font-semibold">
@@ -1206,10 +1253,7 @@ export function ProviderSection({
 										) : (
 											`$${original.toFixed(3)}`
 										)}
-										<span className="text-muted-foreground/60">
-											{" "}
-											per request
-										</span>
+										<span className="text-muted-foreground"> per request</span>
 									</span>
 								);
 							})()}
@@ -1226,7 +1270,7 @@ export function ProviderSection({
 										+{" "}
 										{discountNum > 0 ? (
 											<>
-												<span className="line-through text-muted-foreground/60 mr-1">
+												<span className="line-through text-muted-foreground mr-1">
 													${original.toFixed(3)}
 												</span>
 												<span className="text-green-600 font-semibold">
@@ -1236,10 +1280,7 @@ export function ProviderSection({
 										) : (
 											`$${original.toFixed(3)}`
 										)}
-										<span className="text-muted-foreground/60">
-											{" "}
-											per search
-										</span>
+										<span className="text-muted-foreground"> per search</span>
 									</span>
 								);
 							})()}
@@ -1267,6 +1308,72 @@ export function ProviderSection({
 							</>
 						)}
 					</button>
+				)}
+
+				{/* Reasoning efforts + supported parameters, collapsed by default */}
+				{hasMappingDetails && (
+					<>
+						{showMappingDetails && (
+							<div className="space-y-2.5">
+								{(activeMapping.reasoningEfforts?.length ?? 0) > 0 && (
+									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+											Reasoning Efforts
+										</div>
+										<div className="flex flex-wrap gap-1">
+											{activeMapping.reasoningEfforts!.map((effort) => (
+												<Badge
+													key={effort}
+													variant="outline"
+													className="text-[10px] px-1.5 py-0 h-4 font-mono text-muted-foreground"
+												>
+													{effort}
+												</Badge>
+											))}
+										</div>
+									</div>
+								)}
+								{(activeMapping.supportedParameters?.length ?? 0) > 0 && (
+									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+											Supported Parameters
+										</div>
+										<div className="flex flex-wrap gap-1">
+											{activeMapping.supportedParameters!.map((param) => (
+												<Badge
+													key={param}
+													variant="outline"
+													className="text-[10px] px-1.5 py-0 h-4 font-mono text-muted-foreground"
+												>
+													{param}
+												</Badge>
+											))}
+										</div>
+									</div>
+								)}
+							</div>
+						)}
+						<button
+							type="button"
+							className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+							onClick={(e) => {
+								e.stopPropagation();
+								setShowMappingDetails((v) => !v);
+							}}
+						>
+							{showMappingDetails ? (
+								<>
+									<ChevronUp className="h-3 w-3" />
+									Hide details
+								</>
+							) : (
+								<>
+									<ChevronDown className="h-3 w-3" />
+									Show details
+								</>
+							)}
+						</button>
+					</>
 				)}
 			</div>
 		</div>

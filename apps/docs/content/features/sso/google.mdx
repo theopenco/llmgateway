@@ -1,0 +1,97 @@
+---
+title: Google Workspace
+description: Let members of your Google Workspace domain auto-join your organization when they sign in with Google — no SAML app or SCIM required.
+icon: Google
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Google Workspace
+
+Google Workspace works differently from the SAML providers: employees already sign in to LLM Gateway with the standard **Sign in with Google** button using their Workspace-managed Google account. Instead of registering a SAML application, you configure an **auto-join email domain** — anyone who signs in with a Google account on that domain is added to your organization automatically.
+
+<Callout type="info">
+	Google Workspace auto-join requires the **Enterprise** plan and is configured
+	by an organization **owner** or **admin**. See the [SSO
+	overview](/features/sso) for the other connection types.
+</Callout>
+
+## How it works
+
+1. An admin sets the organization's auto-join domain (e.g. `acme.com`) on the **SSO** page.
+2. A user signs in (or signs up) with **Sign in with Google** using their `@acme.com` Workspace account.
+3. LLM Gateway matches the verified email domain and adds them to the organization with the **developer** role.
+4. The user receives an email letting them know they've been added.
+
+This applies to **new signups and existing users** alike — an existing LLM Gateway user on your domain joins the organization on their next Google sign-in. Members are never added twice, and members you've already invited are unaffected.
+
+<Callout type="info">
+	Auto-join is **just-in-time provisioning**: users join when they sign in.
+	Google Workspace does not support SCIM provisioning to custom apps, so there
+	is no directory sync — removing someone from your Workspace does not remove
+	them from the organization. Offboard members on the **Team** page.
+</Callout>
+
+## Setting it up
+
+<Steps>
+<Step>
+### Open the SSO page
+
+In the dashboard, go to your organization's **SSO** page and find the **Connections** card.
+
+</Step>
+
+<Step>
+### Add a Google Workspace connection
+
+Under **Add a connection**, choose **Google Workspace** as the identity provider. There are no SAML URLs or certificates to exchange — only your email domain.
+
+</Step>
+
+<Step>
+### Enter your email domain
+
+Enter the corporate domain your Workspace accounts use, e.g. `acme.com`, and click **Enable auto-join**.
+
+- Only **one domain** per organization.
+- A domain can be claimed by **only one organization** — if another organization already uses it, you'll get a conflict error.
+- **Consumer email domains** (`gmail.com`, `outlook.com`, `yahoo.com`, …) are rejected.
+
+</Step>
+
+<Step>
+### Verify with a test account
+
+Sign in with a Google account on your domain that isn't yet a member. After signing in, it should appear on the **Team** page with the **developer** role, and receive a notification email.
+
+</Step>
+</Steps>
+
+## Managing the connection
+
+The Google Workspace connection appears as a card in the **Connections** list:
+
+- **Edit** the domain with the pencil icon — existing members are unaffected; the new domain applies to future sign-ins.
+- **Remove** the connection to stop auto-joining. Existing members stay in the organization.
+
+Auto-joined members get the **developer** role and receive the organization's **Default project access** selection, exactly like SSO/SCIM-provisioned members. Promote them or adjust project access on the **Team** page if they need more.
+
+## What's not available with Google Workspace
+
+With a Google-only setup, the **Directory sync (SCIM)** and **Group role mapping** cards on the SSO page are disabled:
+
+- **SCIM** — Google Workspace doesn't support SCIM provisioning for custom apps, so there's no directory sync to configure.
+- **Group role mapping** — role mappings apply to groups pushed via SCIM, so they can't take effect either. Auto-joined members always start as **developer**.
+
+**Default project access** works as usual and applies to auto-joined members.
+
+## Interaction with SAML and Require SSO
+
+An organization has **one connection** for now — either a SAML connection or Google Workspace auto-join. To switch providers, remove the existing connection first.
+
+For context on why they don't mix: a SAML connection's **Require SSO** toggle blocks password, social, **and Google** sign-in for its domains, so Google sign-in would be rejected before auto-join could run. Pick the model that fits:
+
+- **Google Workspace auto-join** — zero IdP setup, members use the Google button, join on first sign-in.
+- **SAML with Require SSO** — stricter control (blocks all non-SSO sign-in), needs a SAML app in your IdP. Google Workspace can also act as a SAML 2.0 IdP via a custom SAML app if you need enforcement; use the **Other (SAML 2.0)** connection type for that.

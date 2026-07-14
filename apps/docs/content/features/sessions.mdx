@@ -54,6 +54,16 @@ Session stickiness is **on by default**. Enterprise projects can turn it off per
 	available, since the prompt-cache savings typically outweigh the difference.
 </Callout>
 
+## Upstream prompt-cache routing
+
+Some providers use an OpenAI-style `prompt_cache_key` to route requests to the cache shard that already holds your prompt prefix — without it, repeat requests can land on different backends and miss the cache entirely (Meta requires it for cache hits in practice; OpenAI and Azure use it to improve hit rates under load).
+
+When a request has a session id and you didn't send a `prompt_cache_key` yourself, LLMGateway forwards a **keyed hash** (HMAC-SHA256 with a gateway-side secret) of the session id as the `prompt_cache_key` to providers that support it (currently OpenAI, Azure, and Meta). Hashing means your raw session ids are never exposed to providers; the hash is stable per session, which is all cache routing needs. A `prompt_cache_key` you set explicitly takes precedence and is forwarded as-is on those same surfaces.
+
+On provider surfaces that don't support the field, no key is sent at all — whether derived or explicit. This currently applies to Sakana (the field is not part of its API) and to Azure chat-completions requests, which can be served by legacy deployment-based API versions that reject unknown body fields; Azure requests on the Responses API always carry the key. Providers not listed above use different caching mechanisms (for example Anthropic `cache_control` breakpoints or Google implicit caching), so the `prompt_cache_key` doesn't apply to them either.
+
+For Meta, requests without any session id still get a cache key derived from the conversation's first messages, so multi-turn conversations hit Meta's prompt cache even when no session signal is present.
+
 ## Observing sessions in the activity log
 
 Every request is logged with its resolved session id. In the dashboard **Activity** view you can:

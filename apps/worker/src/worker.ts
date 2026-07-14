@@ -292,6 +292,21 @@ async function releaseLock(key: string): Promise<void> {
 	await db.delete(tables.lock).where(eq(tables.lock.key, key));
 }
 
+async function recordAutoTopUpFailure(org: {
+	id: string;
+	paymentFailureCount: number | null;
+	paymentFailureStartedAt: Date | null;
+}): Promise<void> {
+	await db
+		.update(tables.organization)
+		.set({
+			paymentFailureCount: (org.paymentFailureCount ?? 0) + 1,
+			lastPaymentFailureAt: new Date(),
+			paymentFailureStartedAt: org.paymentFailureStartedAt ?? new Date(),
+		})
+		.where(eq(tables.organization.id, org.id));
+}
+
 export async function processAutoTopUp(): Promise<void> {
 	const lockAcquired = await acquireLock(AUTO_TOPUP_LOCK_KEY);
 	if (!lockAcquired) {
@@ -484,6 +499,24 @@ export async function processAutoTopUp(): Promise<void> {
 					const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
 						defaultPaymentMethod.stripePaymentMethodId,
 					);
+
+					const paymentMethodCustomer =
+						typeof stripePaymentMethod.customer === "string"
+							? stripePaymentMethod.customer
+							: (stripePaymentMethod.customer?.id ?? null);
+
+					// A payment method can only be charged against the customer it
+					// is attached to; a mismatch (e.g. from a historical duplicate
+					// Stripe customer) would be rejected on every attempt, so track
+					// the failure for backoff/auto-disable instead of charging.
+					if (paymentMethodCustomer !== org.stripeCustomerId) {
+						logger.error(
+							`Default payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id} is attached to Stripe customer ${paymentMethodCustomer}, but the organization's Stripe customer is ${org.stripeCustomerId}; skipping auto top-up`,
+						);
+						await recordAutoTopUpFailure(org);
+						continue;
+					}
+
 					const country = stripePaymentMethod.card?.country;
 					isInternational = Boolean(country) && country !== "US";
 				} catch (err) {
@@ -586,6 +619,13 @@ export async function processAutoTopUp(): Promise<void> {
 						);
 					} else {
 						logger.error(`Stripe error for organization ${org.id}`, errObj);
+					}
+					// A rejected paymentIntents.create never produces a
+					// payment_intent.payment_failed webhook (unlike card declines),
+					// so record the failure here or backoff/auto-disable never
+					// engage and the same doomed charge retries every cycle.
+					if (stripeError instanceof Stripe.errors.StripeInvalidRequestError) {
+						await recordAutoTopUpFailure(org);
 					}
 					// Mark transaction as failed
 					await db

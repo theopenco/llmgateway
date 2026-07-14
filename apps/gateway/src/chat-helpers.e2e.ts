@@ -510,6 +510,10 @@ export const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
 );
 
+export const verbosityModels = testModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
+);
+
 export const streamingReasoningModels = reasoningModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => {
 		// Check model-level streaming first, then fall back to provider-level

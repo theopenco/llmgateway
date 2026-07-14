@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
-import { cn } from "@/lib/utils";
+import { cn, formatUsageRatio } from "@/lib/utils";
 
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 import type { paths } from "@/lib/api/v1";
@@ -87,6 +87,7 @@ export default function ActivePlanChangeTier({
 					const isScheduled = pendingTier === plan.tier;
 					const isUpgrade = plan.price > currentPrice;
 					const isPending = subscribingTier === plan.tier;
+					const ratioLabel = formatUsageRatio(plan.usage, plan.price);
 
 					return (
 						<div
@@ -131,7 +132,9 @@ export default function ActivePlanChangeTier({
 								<span className="text-sm text-muted-foreground">/mo</span>
 							</div>
 							<div className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground">
-								<ArrowRight className="h-3 w-3" />${plan.usage} in usage
+								<span className="rounded-full bg-foreground/10 px-2 py-0.5 font-semibold tabular-nums text-foreground">
+									{ratioLabel} usage value
+								</span>
 							</div>
 							{isScheduled ? (
 								<p className="mt-auto text-xs text-muted-foreground">

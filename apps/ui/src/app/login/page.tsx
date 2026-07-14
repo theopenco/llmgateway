@@ -20,7 +20,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { getAuthErrorMessage } from "@/lib/auth-errors";
 import { Button } from "@/lib/components/button";
@@ -68,10 +68,13 @@ export default function Login() {
 			: "/dashboard";
 	});
 
+	const { isAuthenticated } = useSessionStatus();
+
 	useUser({
 		redirectTo: redirectTarget,
 		redirectWhen: "authenticated",
 		checkOnboarding: true,
+		enabled: isAuthenticated,
 	});
 
 	useEffect(() => {

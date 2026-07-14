@@ -20,7 +20,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
@@ -117,7 +117,8 @@ function getTextFromParts(message: UIMessage): string {
 export function ChatSupport() {
 	const fetchClient = useFetchClient();
 	const queryClient = useQueryClient();
-	const { user } = useUser();
+	const { isAuthenticated } = useSessionStatus();
+	const { user } = useUser({ enabled: isAuthenticated });
 	const [isOpen, setIsOpen] = useState(false);
 	const [hasUnread, setHasUnread] = useState(false);
 	const [text, setText] = useState("");

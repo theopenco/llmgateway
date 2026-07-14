@@ -637,13 +637,20 @@ export async function calculateCosts(
 		.plus(audioInputCost ?? 0);
 
 	// For Google models, completionTokens already includes reasoning tokens
-	// (merged during extraction). For other providers, add reasoning separately.
-	const isGoogleProvider =
+	// (merged during extraction). The same holds for OpenAI-style Responses API
+	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
+	// reasoning — their `reasoning_tokens` detail is informational only. For
+	// remaining providers, add reasoning separately.
+	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
 		provider === "google-vertex" ||
-		provider === "quartz";
-	const totalOutputTokens = isGoogleProvider
+		provider === "quartz" ||
+		provider === "openai" ||
+		provider === "azure" ||
+		provider === "sakana" ||
+		provider === "meta";
+	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 

@@ -63,9 +63,9 @@ export function RevenueChart({
 }) {
 	const dailyData = useMemo(
 		() =>
-			data.map((point, index) => ({
+			data.map((point) => ({
 				date: point.date,
-				dailyNet: point.net - (index > 0 ? data[index - 1].net : 0),
+				dailyNet: point.dailyNet,
 			})),
 		[data],
 	);
@@ -74,15 +74,15 @@ export function RevenueChart({
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-					<CardTitle>Revenue</CardTitle>
+					<CardTitle>Credits Revenue</CardTitle>
 					<CardDescription>
 						Cumulative processed, revenue (after fees), and net (after fees &
-						refunds)
+						refunds) for credit purchases
 					</CardDescription>
 				</div>
 				<div className="flex">
 					<div className="flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left sm:border-l sm:border-t-0 sm:px-8 sm:py-6">
-						<span className="text-xs text-muted-foreground">Total Revenue</span>
+						<span className="text-xs text-muted-foreground">Net Revenue</span>
 						<span className="text-lg font-bold leading-none sm:text-3xl">
 							{currencyFormatter.format(totalNet)}
 						</span>

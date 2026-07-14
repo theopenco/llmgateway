@@ -19,18 +19,27 @@ Provider compliance policies let you guarantee that requests are only ever route
 
 Enable a policy under **Settings → Compliance** in the dashboard and toggle the requirements you need:
 
-| Requirement                | A provider is allowed when…         |
-| -------------------------- | ----------------------------------- |
-| **SOC 2 (Type 2)**         | it holds a SOC 2 certification      |
-| **ISO 27001**              | it holds an ISO 27001 certification |
-| **SOC 2 or ISO 27001**     | it holds either SOC 2 or ISO 27001  |
-| **GDPR compliant**         | it is GDPR compliant                |
-| **No training on prompts** | it does not train on API prompts    |
-| **No prompt logging**      | it does not log prompts             |
+| Requirement                   | A provider is allowed when…                        |
+| ----------------------------- | -------------------------------------------------- |
+| **SOC 2 (Type 1 or 2)**       | it holds a SOC 2 report of any type                |
+| **SOC 2 Type 2**              | it holds a SOC 2 Type 2 report specifically        |
+| **ISO 27001**                 | it holds an ISO 27001 certification                |
+| **SOC 2 Type 2 or ISO 27001** | it holds either a SOC 2 Type 2 report or ISO 27001 |
+| **GDPR compliant**            | it is GDPR compliant                               |
+| **No training on prompts**    | it does not train on API prompts                   |
+| **No prompt logging**         | it does not log prompts                            |
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
 The settings page shows a live preview of which providers are allowed and which are blocked under the current policy, so you can see the impact before saving.
+
+## Provider headquarters
+
+Beyond certifications, you can restrict routing by the country a provider is headquartered in. The **Provider Headquarters** card presents a country selector, and requests are only routed to providers based in a selected country.
+
+The selector only offers countries that are referenced by a provider in the catalogue — browse the [providers directory](https://llmgateway.io/providers) to see the current set and each provider's headquarters. Selecting no country applies no location restriction. The country filter is also fail-closed: when at least one country is selected, a provider whose headquarters is unknown is treated as non-compliant.
+
+The country filter composes with the certification and data-policy requirements above — a provider must satisfy all active requirements to be allowed.
 
 ## Enforcement
 

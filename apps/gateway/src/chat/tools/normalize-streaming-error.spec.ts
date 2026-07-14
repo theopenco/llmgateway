@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeStreamingError } from "./normalize-streaming-error.js";
+import {
+	isUpstreamTermination,
+	normalizeStreamingError,
+} from "./normalize-streaming-error.js";
 
 describe("normalizeStreamingError", () => {
 	it("classifies terminated undici stream reads as upstream termination", () => {
@@ -105,5 +108,40 @@ describe("normalizeStreamingError", () => {
 
 		expect(normalized.log.details.responseText).not.toBe("[object Object]");
 		expect(normalized.client.message).not.toContain("[object Object]");
+	});
+});
+
+describe("isUpstreamTermination", () => {
+	it("detects a bare undici terminated TypeError", () => {
+		expect(isUpstreamTermination(new TypeError("terminated"))).toBe(true);
+	});
+
+	it("detects an upstream socket close via the cause chain", () => {
+		const socketCloseError = new Error("other side closed") as Error & {
+			code?: string;
+		};
+		socketCloseError.name = "SocketError";
+		socketCloseError.code = "UND_ERR_SOCKET";
+
+		const error = new TypeError("terminated", { cause: socketCloseError });
+
+		expect(isUpstreamTermination(error)).toBe(true);
+	});
+
+	it("detects ECONNRESET surfaced through the cause chain", () => {
+		const reset = new Error("read ECONNRESET") as Error & { code?: string };
+		reset.code = "ECONNRESET";
+
+		expect(
+			isUpstreamTermination(new Error("fetch failed", { cause: reset })),
+		).toBe(true);
+	});
+
+	it("does not flag genuine gateway-side errors", () => {
+		expect(
+			isUpstreamTermination(new SyntaxError("Unexpected end of JSON input")),
+		).toBe(false);
+		expect(isUpstreamTermination("terminated")).toBe(false);
+		expect(isUpstreamTermination(undefined)).toBe(false);
 	});
 });

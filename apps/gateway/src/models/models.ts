@@ -56,6 +56,19 @@ const modelSchema = z.object({
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
 			reasoning: z.boolean(),
+			reasoning_efforts: z
+				.array(
+					z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
+				)
+				.optional()
+				.openapi({
+					description:
+						"Exact reasoning_effort values this provider mapping accepts, in ascending order of effort. Omitted when the supported values are not declared for the mapping.",
+				}),
+			min_cacheable_tokens: z.number().optional().openapi({
+				description:
+					"Minimum prompt length (in tokens) the provider requires before a prompt-cache write can occur. cache_control markers on shorter prompts are accepted but silently not cached by the provider.",
+			}),
 			stability: z
 				.enum(["stable", "beta", "unstable", "experimental"])
 				.optional(),
@@ -256,6 +269,8 @@ modelsApi.openapi(listModels, async (c) => {
 						tools: provider.tools ?? false,
 						parallelToolCalls: provider.parallelToolCalls ?? false,
 						reasoning: provider.reasoning ?? false,
+						reasoning_efforts: provider.reasoningEfforts,
+						min_cacheable_tokens: provider.minCacheableTokens,
 						stability: provider.stability ?? model.stability,
 					};
 				}),

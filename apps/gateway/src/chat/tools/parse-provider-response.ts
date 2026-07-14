@@ -574,7 +574,9 @@ export function parseProviderResponse(
 					nativeFinishReason: json.choices?.[0]?.native_finish_reason,
 					usage: json.usage,
 				});
-				finishReason = "canceled";
+				// "abort" is an upstream-initiated interruption, not a client
+				// cancellation, so it counts as an upstream error.
+				finishReason = "upstream_error";
 			} else if (finishReason === "tool_use") {
 				finishReason = "tool_calls";
 			}
@@ -796,9 +798,15 @@ export function parseProviderResponse(
 					content = messageOutput.content[0].text;
 				}
 
-				// Extract reasoning content from summary
-				if (reasoningOutput?.summary?.[0]?.text) {
-					reasoningContent = reasoningOutput.summary[0].text;
+				// Extract reasoning content from summary (may hold multiple parts)
+				if (Array.isArray(reasoningOutput?.summary)) {
+					const summaryText = reasoningOutput.summary
+						.map((part: any) => part?.text ?? "")
+						.filter(Boolean)
+						.join("\n\n");
+					if (summaryText) {
+						reasoningContent = summaryText;
+					}
 				}
 
 				// Extract tool calls (if any) from the output array and transform to OpenAI format
@@ -837,6 +845,13 @@ export function parseProviderResponse(
 					json.usage?.output_tokens_details?.reasoning_tokens ?? null;
 				cachedTokens = json.usage?.input_tokens_details?.cached_tokens ?? null;
 				totalTokens = json.usage?.total_tokens ?? null;
+				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
+				// `cache_write_tokens` (a subset of input_tokens, like cached_tokens).
+				const responsesCacheWrite =
+					json.usage?.input_tokens_details?.cache_write_tokens ?? 0;
+				if (responsesCacheWrite > 0) {
+					cacheCreationTokens = responsesCacheWrite;
+				}
 
 				// Sakana Fugu bills the orchestration tokens consumed by its underlying
 				// agent pool on top of the user-visible input/output tokens. They are
@@ -931,6 +946,9 @@ export function parseProviderResponse(
 						nativeFinishReason: json.choices?.[0]?.native_finish_reason,
 						usage: json.usage,
 					});
+					// "abort" is an upstream-initiated interruption, not a client
+					// cancellation, so it counts as an upstream error.
+					finishReason = "upstream_error";
 				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
@@ -972,6 +990,13 @@ export function parseProviderResponse(
 					(promptTokens !== null && completionTokens !== null
 						? promptTokens + completionTokens + (reasoningTokens ?? 0)
 						: null);
+				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
+				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).
+				const chatCacheWrite =
+					json.usage?.prompt_tokens_details?.cache_write_tokens ?? 0;
+				if (chatCacheWrite > 0) {
+					cacheCreationTokens = chatCacheWrite;
+				}
 
 				// Extract images from OpenAI-format response (including Gemini via gateway)
 				if (json.choices?.[0]?.message?.images) {

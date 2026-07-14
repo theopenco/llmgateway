@@ -23,6 +23,7 @@ import {
 	type ModelDefinition,
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
+	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type Provider,
 	type ProviderRequestBody,
@@ -86,6 +87,12 @@ export interface ProviderContext {
 	top_p: number | undefined;
 	frequency_penalty: number | undefined;
 	presence_penalty: number | undefined;
+	/**
+	 * Parameters dropped because the selected mapping's supportedParameters
+	 * doesn't include them. Merged into routingMetadata.strippedParameters so
+	 * retry fallbacks keep the logged metadata accurate.
+	 */
+	strippedParameters: string[];
 	headers: Record<string, string>;
 	usedRegion: string | undefined;
 }
@@ -118,6 +125,8 @@ export interface ProviderContextOptions {
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;
 	prompt_cache_retention: PromptCacheRetention | undefined;
+	prompt_cache_options: PromptCacheOptions | undefined;
+	session_id: string | undefined;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -140,6 +149,7 @@ export interface ProviderContextOptions {
 	n?: number;
 	providerCacheControlEnabled: boolean;
 	service_tier?: "auto" | "default" | "flex" | "priority";
+	verbosity?: "low" | "medium" | "high";
 }
 
 interface ProjectInfo {
@@ -532,29 +542,35 @@ export async function resolveProviderContext(
 	let frequency_penalty = originalParams.frequency_penalty;
 	let presence_penalty = originalParams.presence_penalty;
 
+	const strippedParameters: string[] = [];
 	if (providerMappingForSelected) {
 		const supported = providerMappingForSelected.supportedParameters;
 		if (supported && supported.length > 0) {
 			if (temperature !== undefined && !supported.includes("temperature")) {
 				temperature = undefined;
+				strippedParameters.push("temperature");
 			}
 			if (top_p !== undefined && !supported.includes("top_p")) {
 				top_p = undefined;
+				strippedParameters.push("top_p");
 			}
 			if (
 				frequency_penalty !== undefined &&
 				!supported.includes("frequency_penalty")
 			) {
 				frequency_penalty = undefined;
+				strippedParameters.push("frequency_penalty");
 			}
 			if (
 				presence_penalty !== undefined &&
 				!supported.includes("presence_penalty")
 			) {
 				presence_penalty = undefined;
+				strippedParameters.push("presence_penalty");
 			}
 			if (max_tokens !== undefined && !supported.includes("max_tokens")) {
 				max_tokens = undefined;
+				strippedParameters.push("max_tokens");
 			}
 		}
 	}
@@ -643,6 +659,9 @@ export async function resolveProviderContext(
 		options.providerCacheControlEnabled,
 		options.n,
 		options.service_tier,
+		options.verbosity,
+		options.prompt_cache_options,
+		options.session_id,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -728,6 +747,7 @@ export async function resolveProviderContext(
 		top_p,
 		frequency_penalty,
 		presence_penalty,
+		strippedParameters,
 		headers,
 		usedRegion,
 	};

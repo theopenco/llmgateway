@@ -60,6 +60,88 @@ export function shouldRetryAlternateKey(
 }
 
 /**
+ * Fixed delay before a same-key retry. Cross-provider fallback switches to a
+ * different upstream and retries immediately, but a same-key retry re-hits
+ * the upstream that just failed — a short pause gives transient faults a
+ * moment to clear instead of immediately adding pressure. The added latency
+ * is acceptable since the upstream is already slow or erroring.
+ */
+export const SAME_KEY_RETRY_DELAY_MS = 1000;
+
+export function sameKeyRetryDelay(): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, SAME_KEY_RETRY_DELAY_MS);
+	});
+}
+
+/**
+ * Determines whether a failed request should be retried against the same
+ * env-var key. This fires only when there is nowhere else to go: the model
+ * resolves to a single provider (`hasOtherProvider` is false) and that
+ * provider has a single env-var key (so the alternate-key path yields
+ * nothing). It covers both direct-provider requests (`openai/gpt-4o`) and
+ * auto-routed requests where only one provider is available — in both the
+ * scored provider list contains just the one provider. When other providers
+ * exist, cross-provider fallback handles retries instead and this stays off.
+ *
+ * Bounded by `maxRetries` (the resolved routing-config retry budget): with the
+ * default of 2 this allows up to 2 same-key retries (3 attempts total); 0
+ * disables same-key retries.
+ *
+ * Unlike cross-provider fallback — where a deterministic failure on one
+ * provider (bad credentials, unknown model, out of funds) can legitimately
+ * succeed on another — retrying the *same* key against the *same* provider
+ * only helps for transient faults. Deterministic failures are excluded:
+ * gateway_error (auth/config/payment) and all 4xx responses — the identical
+ * request on the identical key will almost certainly fail the same way
+ * (and re-firing a 429 would amplify rate-limit pressure). BYOK/custom
+ * providers (envVarName unset) are also excluded.
+ */
+export function shouldRetrySameKey(opts: {
+	usedProvider: string;
+	errorType: string;
+	statusCode?: number;
+	envVarName: string | undefined;
+	envKeyCount: number;
+	hasOtherProvider: boolean;
+	retryCount: number;
+	maxRetries: number;
+}): boolean {
+	if (opts.retryCount >= opts.maxRetries) {
+		return false;
+	}
+	if (opts.hasOtherProvider) {
+		return false;
+	}
+	if (opts.usedProvider === "custom" || opts.usedProvider === "llmgateway") {
+		return false;
+	}
+	if (!opts.envVarName) {
+		return false;
+	}
+	if (opts.envKeyCount !== 1) {
+		return false;
+	}
+	if (!isRetryableErrorType(opts.errorType)) {
+		return false;
+	}
+	// Deterministic on the same key: auth/config/payment failures.
+	if (opts.errorType === "gateway_error") {
+		return false;
+	}
+	// Any 4xx is deterministic for the identical request on the identical
+	// key — it will almost certainly fail the same way on a retry.
+	if (
+		opts.statusCode !== undefined &&
+		opts.statusCode >= 400 &&
+		opts.statusCode < 500
+	) {
+		return false;
+	}
+	return true;
+}
+
+/**
  * Determines whether a failed request should be retried with a different provider.
  * Only retries when no specific provider was requested, the error is retryable,
  * retry count hasn't been exceeded, and alternative providers are available.

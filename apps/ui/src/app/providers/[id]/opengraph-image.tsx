@@ -9,6 +9,7 @@ import {
 	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
+	XAIIconStatic,
 } from "@llmgateway/shared/components";
 
 export const size = {
@@ -61,7 +62,9 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 					? AWSBedrockIconStatic
 					: provider.id === "google-ai-studio"
 						? GoogleStudioAIIconStatic
-						: getProviderIcon(provider.id);
+						: provider.id === "xai"
+							? XAIIconStatic
+							: getProviderIcon(provider.id);
 
 		// Count how many models this provider offers
 		const supportedModels = modelDefinitions.filter((model) =>

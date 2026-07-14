@@ -77,6 +77,9 @@ const modelProviderMappingSchema = z.object({
 	audio: z.boolean().nullable(),
 	document: z.boolean().nullable(),
 	reasoning: z.boolean().nullable(),
+	reasoningEfforts: z
+		.array(z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]))
+		.nullable(),
 	reasoningOutput: z.string().nullable(),
 	tools: z.boolean().nullable(),
 	jsonOutput: z.boolean().nullable(),
@@ -236,6 +239,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			return {
 				...mapping,
 				discount: getGlobalDiscount(mapping.providerId, model.id),
+				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
 				audio: sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				imageOutputPrice:

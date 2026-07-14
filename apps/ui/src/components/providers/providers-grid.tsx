@@ -6,13 +6,16 @@ import {
 	ExternalLink,
 	Gauge,
 	MapPin,
+	Plus,
 	Search,
 	ShieldCheck,
 	Zap,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardDescription,
@@ -30,8 +33,12 @@ import {
 import { useApi } from "@/lib/fetch-client";
 
 import {
+	countryCodeToFlag,
+	getProviderCountries,
+	isProviderCompliant,
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type ProviderCompliancePolicy,
 	type ProviderId,
 } from "@llmgateway/models";
 import { providerLogoUrls } from "@llmgateway/shared/components";
@@ -67,8 +74,22 @@ const baseProviders = providerDefinitions.filter(
 	(p) => p.name !== "LLM Gateway" && p.id !== "custom",
 );
 
-const totalModels = modelDefinitions.length;
-const totalProviders = baseProviders.length;
+const PROVIDER_COUNTRIES = getProviderCountries();
+
+type ComplianceFilterKey =
+	| "requireSoc2"
+	| "requireIso27001"
+	| "requireGdpr"
+	| "blockApiTraining"
+	| "blockPromptLogging";
+
+const COMPLIANCE_FILTERS: { key: ComplianceFilterKey; label: string }[] = [
+	{ key: "requireSoc2", label: "SOC 2" },
+	{ key: "requireIso27001", label: "ISO 27001" },
+	{ key: "requireGdpr", label: "GDPR" },
+	{ key: "blockApiTraining", label: "No training" },
+	{ key: "blockPromptLogging", label: "No logging" },
+];
 
 function formatTtft(ms: number | null | undefined): string {
 	if (ms === null || ms === undefined) {
@@ -122,11 +143,52 @@ function speedBadge(ttft: number | null | undefined) {
 	};
 }
 
-export function ProvidersGrid() {
+interface ProvidersGridProps {
+	/** When set, only providers headquartered in this ISO 3166-1 alpha-2 code are shown. */
+	countryCode?: string;
+	/** Overrides the default page heading. */
+	heading?: string;
+	/** Overrides the default page subheading. */
+	subheading?: string;
+}
+
+export function ProvidersGrid({
+	countryCode,
+	heading,
+	subheading,
+}: ProvidersGridProps = {}) {
 	const router = useRouter();
 	const api = useApi();
 	const [search, setSearch] = useState("");
 	const [sort, setSort] = useState<SortKey>("popular");
+	const [country, setCountry] = useState<string>("all");
+	const [reqs, setReqs] = useState<Set<ComplianceFilterKey>>(new Set());
+
+	const toggleReq = (key: ComplianceFilterKey) => {
+		setReqs((prev) => {
+			const next = new Set(prev);
+			if (next.has(key)) {
+				next.delete(key);
+			} else {
+				next.add(key);
+			}
+			return next;
+		});
+	};
+
+	const visibleProviders = useMemo(
+		() =>
+			countryCode
+				? baseProviders.filter((p) => p.headquarters === countryCode)
+				: baseProviders,
+		[countryCode],
+	);
+
+	const totalProviders = visibleProviders.length;
+	const totalModels = visibleProviders.reduce(
+		(sum, p) => sum + (modelCounts[p.id] || 0),
+		0,
+	);
 
 	const { data: statsData } = api.useQuery(
 		"get",
@@ -164,7 +226,7 @@ export function ProvidersGrid() {
 	const filteredAndSorted = useMemo(() => {
 		const query = search.trim().toLowerCase();
 
-		const enriched = baseProviders.map((provider) => {
+		const enriched = visibleProviders.map((provider) => {
 			const stats = statsByProvider.get(provider.id);
 			return {
 				...provider,
@@ -173,14 +235,28 @@ export function ProvidersGrid() {
 			};
 		});
 
+		const compliancePolicy: ProviderCompliancePolicy = { enabled: true };
+		reqs.forEach((key) => {
+			compliancePolicy[key] = true;
+		});
+		const activeCountry =
+			countryCode ?? (country === "all" ? undefined : country);
+		if (activeCountry) {
+			compliancePolicy.allowedCountries = [activeCountry];
+		}
+		const complianceFiltered =
+			reqs.size > 0 || activeCountry
+				? enriched.filter((p) => isProviderCompliant(p, compliancePolicy))
+				: enriched;
+
 		const filtered = query
-			? enriched.filter(
+			? complianceFiltered.filter(
 					(p) =>
 						p.name.toLowerCase().includes(query) ||
 						p.id.toLowerCase().includes(query) ||
 						(p.description?.toLowerCase().includes(query) ?? false),
 				)
-			: enriched;
+			: complianceFiltered;
 
 		const sortValue = (
 			n: number | null | undefined,
@@ -211,15 +287,25 @@ export function ProvidersGrid() {
 			default:
 				return [...filtered].sort((a, b) => b.modelsCount - a.modelsCount);
 		}
-	}, [search, sort, statsByProvider]);
+	}, [
+		search,
+		sort,
+		statsByProvider,
+		visibleProviders,
+		country,
+		reqs,
+		countryCode,
+	]);
 
 	return (
 		<div className="container mx-auto px-4 pt-60 pb-8">
 			<header className="text-center mb-12">
-				<h1 className="text-4xl font-bold tracking-tight mb-4">AI Providers</h1>
+				<h1 className="text-4xl font-bold tracking-tight mb-4">
+					{heading ?? "AI Providers"}
+				</h1>
 				<p className="text-xl text-muted-foreground mb-6 max-w-3xl mx-auto">
-					Access {totalModels} models from {totalProviders} leading AI providers
-					through our unified API
+					{subheading ??
+						`Access ${totalModels} models from ${totalProviders} leading AI providers through our unified API`}
 				</p>
 				<div className="flex justify-center gap-8 text-sm text-muted-foreground">
 					<div className="flex items-center gap-2">
@@ -251,6 +337,12 @@ export function ProvidersGrid() {
 					/>
 				</div>
 				<div className="flex items-center gap-2">
+					<Button asChild variant="outline">
+						<Link href="/add-provider">
+							<Plus className="h-4 w-4" />
+							Add Provider
+						</Link>
+					</Button>
 					<span className="text-sm text-muted-foreground hidden sm:inline">
 						Sort by
 					</span>
@@ -269,10 +361,68 @@ export function ProvidersGrid() {
 				</div>
 			</div>
 
+			<div className="mb-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+				{!countryCode && (
+					<div className="flex items-center gap-2">
+						<span className="text-sm text-muted-foreground">Headquarters</span>
+						<Select value={country} onValueChange={setCountry}>
+							<SelectTrigger className="w-[190px]">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All countries</SelectItem>
+								{PROVIDER_COUNTRIES.map((c) => (
+									<SelectItem key={c.code} value={c.code}>
+										{c.flag} {c.name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				)}
+				<div className="flex flex-wrap items-center gap-2">
+					<span className="text-sm text-muted-foreground">Compliance</span>
+					{COMPLIANCE_FILTERS.map((filter) => {
+						const active = reqs.has(filter.key);
+						return (
+							<button
+								key={filter.key}
+								type="button"
+								aria-pressed={active}
+								onClick={() => toggleReq(filter.key)}
+								className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+									active
+										? "border-primary bg-primary/10 text-primary"
+										: "border-border/60 text-muted-foreground hover:bg-muted"
+								}`}
+							>
+								<ShieldCheck className="h-3.5 w-3.5" />
+								{filter.label}
+							</button>
+						);
+					})}
+					{(reqs.size > 0 || country !== "all") && (
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={() => {
+								setReqs(new Set());
+								setCountry("all");
+							}}
+						>
+							Clear
+						</Button>
+					)}
+				</div>
+			</div>
+
 			{filteredAndSorted.length === 0 ? (
 				<div className="rounded-xl border border-dashed py-16 text-center">
 					<p className="text-muted-foreground">
-						No providers match "{search}". Try a different search term.
+						{search.trim()
+							? `No providers match "${search}"`
+							: "No providers match the selected filters"}
+						. Try adjusting your search or filters.
 					</p>
 				</div>
 			) : (
@@ -357,10 +507,17 @@ export function ProvidersGrid() {
 										</div>
 										<div className="flex flex-wrap items-center justify-end gap-1.5">
 											{provider.headquarters && (
-												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
+												<Link
+													href={`/providers/country/${provider.headquarters.toLowerCase()}`}
+													onClick={(e) => e.stopPropagation()}
+													className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+												>
+													<span className="leading-none">
+														{countryCodeToFlag(provider.headquarters)}
+													</span>
 													<MapPin className="h-3 w-3" />
 													{provider.headquarters}
-												</span>
+												</Link>
 											)}
 											{provider.dataPolicy?.apiTraining === false && (
 												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">

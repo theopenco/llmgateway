@@ -3,6 +3,7 @@ import { features } from "@/lib/features";
 import { slugify } from "@/lib/slugify";
 
 import {
+	getProviderCountries,
 	models as modelDefinitions,
 	providers as providerDefinitions,
 } from "@llmgateway/models";
@@ -171,6 +172,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.9,
 		},
 		{
+			url: `${baseUrl}/copilot-cost-calculator`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
 			url: `${baseUrl}/nano-banana-simulator/20`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",
@@ -333,6 +340,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/compare/github-copilot`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
 			url: `${baseUrl}/compare/litellm`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",
@@ -389,6 +402,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
+		}));
+
+	// Per-country provider pages
+	const providerCountryPages: MetadataRoute.Sitemap =
+		getProviderCountries().map((country) => ({
+			url: `${baseUrl}/providers/country/${country.code.toLowerCase()}`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.7,
 		}));
 
 	// Feature pages
@@ -500,6 +522,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...timelineYearPages,
 		...modelPages,
 		...providerPages,
+		...providerCountryPages,
 		...featurePages,
 		...enterpriseFeaturePages,
 		...blogPages,

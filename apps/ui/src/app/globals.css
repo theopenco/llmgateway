@@ -235,3 +235,40 @@
 @utility bg-surface-elevated {
 	background-color: var(--surface-elevated);
 }
+
+@keyframes hero-enter {
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+		filter: blur(12px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+		filter: blur(0);
+	}
+}
+
+/*
+ * CSS-driven hero entrance. Unlike the JS-driven motion variants, these paint
+ * the SSR HTML immediately (no hydration gate), which keeps FCP/LCP fast.
+ */
+@utility animate-hero-enter {
+	animation: hero-enter 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+	@media (prefers-reduced-motion: reduce) {
+		animation: none;
+	}
+}
+
+@utility hero-enter-delay-1 {
+	animation-delay: 0.15s;
+}
+
+@utility hero-enter-delay-2 {
+	animation-delay: 0.3s;
+}
+
+@utility hero-enter-delay-3 {
+	animation-delay: 0.45s;
+}

@@ -1,5 +1,4 @@
 import { RecentLogs } from "@/components/activity/recent-logs";
-import { Card, CardContent } from "@/lib/components/card";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -96,21 +95,19 @@ export default async function ActivityPage({
 	return (
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
-				<h2 className="text-3xl font-bold tracking-tight">Activity Logs</h2>
-				<p>Your recent API requests and system events</p>
-				<div className="space-y-4">
-					<Card>
-						<CardContent>
-							<RecentLogs
-								initialData={initialLogsData ?? undefined}
-								providerOptions={providerOptions}
-								modelOptions={modelOptions}
-								projectId={projectId}
-								orgId={orgId}
-							/>
-						</CardContent>
-					</Card>
+				<div>
+					<h2 className="text-3xl font-bold tracking-tight">Activity Logs</h2>
+					<p className="mt-1 text-sm text-muted-foreground">
+						Your recent API requests and system events
+					</p>
 				</div>
+				<RecentLogs
+					initialData={initialLogsData ?? undefined}
+					providerOptions={providerOptions}
+					modelOptions={modelOptions}
+					projectId={projectId}
+					orgId={orgId}
+				/>
 			</div>
 		</div>
 	);

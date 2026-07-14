@@ -7,8 +7,7 @@ import { getAdminOrganizationIds } from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { invalidateSwrByTables } from "@llmgateway/cache";
-import { db, eq, getTableName, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
@@ -17,8 +16,6 @@ import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
 
 export const keysProvider = new OpenAPIHono<ServerTypes>();
-
-const providerKeyTableName = getTableName(tables.providerKey);
 
 // Create a schema for provider key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
@@ -342,7 +339,7 @@ keysProvider.openapi(create, async (c) => {
 
 	// Use the user-provided token
 	// Create the provider key
-	const [providerKey] = await db
+	const [providerKey] = await cdb
 		.insert(tables.providerKey)
 		.values({
 			token: userToken,
@@ -365,10 +362,6 @@ keysProvider.openapi(create, async (c) => {
 			hasCustomBaseUrl: !!baseUrl,
 		},
 	});
-
-	// The gateway caches provider keys via SWR; invalidate so a newly added key
-	// is usable immediately.
-	await invalidateSwrByTables([providerKeyTableName]);
 
 	return c.json({
 		providerKey: {
@@ -570,7 +563,7 @@ keysProvider.openapi(deleteKey, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.update(tables.providerKey)
 		.set({
 			status: "deleted",
@@ -587,10 +580,6 @@ keysProvider.openapi(deleteKey, async (c) => {
 			provider: providerKey.provider,
 		},
 	});
-
-	// The gateway caches provider keys via SWR; invalidate so a deleted key
-	// stops being used immediately.
-	await invalidateSwrByTables([providerKeyTableName]);
 
 	return c.json({
 		message: "Provider key deleted successfully",
@@ -714,7 +703,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	// Update the provider key
-	const [updatedProviderKey] = await db
+	const [updatedProviderKey] = await cdb
 		.update(tables.providerKey)
 		.set(updates)
 		.where(eq(tables.providerKey.id, id))
@@ -746,9 +735,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 				changes,
 			},
 		});
-		// The gateway caches provider keys (incl. customModelsOnly) via SWR;
-		// invalidate so status/restriction changes take effect promptly.
-		await invalidateSwrByTables([providerKeyTableName]);
 	}
 
 	return c.json({

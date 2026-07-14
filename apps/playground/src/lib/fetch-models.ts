@@ -13,6 +13,15 @@ export interface ApiProvider {
 	status: "active" | "inactive";
 }
 
+export type ReasoningEffortOption =
+	| "none"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max";
+
 export interface ApiModelProviderMapping {
 	id: string;
 	createdAt: string;
@@ -37,6 +46,7 @@ export interface ApiModelProviderMapping {
 	audio: boolean | null;
 	document: boolean | null;
 	reasoning: boolean | null;
+	reasoningEfforts: ReasoningEffortOption[] | null;
 	reasoningOutput: string | null;
 	tools: boolean | null;
 	jsonOutput: boolean | null;

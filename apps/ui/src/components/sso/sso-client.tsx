@@ -14,6 +14,7 @@ import { useState } from "react";
 
 import { ProjectMultiSelect } from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { Alert, AlertDescription } from "@/lib/components/alert";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -100,7 +101,9 @@ function samlEndpoints(apiUrl: string, providerId: string) {
 
 // Field labels for the two SP URLs, annotated with only the selected IdP's own
 // naming so admins aren't shown terms for a vendor they aren't using.
-function endpointLabels(providerType: "" | "okta" | "entra" | "generic") {
+function endpointLabels(
+	providerType: "" | "okta" | "entra" | "generic" | "google",
+) {
 	switch (providerType) {
 		case "okta":
 			return {
@@ -131,6 +134,24 @@ function splitDomains(domain: string): string[] {
 
 function formatDomains(domain: string): string {
 	return splitDomains(domain).join(", ");
+}
+
+// openapi-fetch rejects with the parsed error body ({ message }), not an Error
+// instance — surface the server's message (e.g. the 409 duplicate-domain
+// conflict) instead of a generic fallback.
+function errorMessage(error: unknown, fallback: string): string {
+	if (error instanceof Error && error.message) {
+		return error.message;
+	}
+	if (
+		error &&
+		typeof error === "object" &&
+		"message" in error &&
+		typeof (error as { message?: unknown }).message === "string"
+	) {
+		return (error as { message: string }).message;
+	}
+	return fallback;
 }
 
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
@@ -164,7 +185,7 @@ export function SsoClient() {
 	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
 	const [providerType, setProviderType] = useState<
-		"" | "okta" | "entra" | "generic"
+		"" | "okta" | "entra" | "generic" | "google"
 	>("");
 	const [providerId, setProviderId] = useState("");
 	// Track whether the admin has hand-edited the slug so we keep suggesting one
@@ -182,6 +203,10 @@ export function SsoClient() {
 		providerId: string;
 		value: string;
 	} | null>(null);
+	// Edit buffer for the Google Workspace auto-join domain. `null` = dialog
+	// closed. Kept separate from `domainEdit` — Google auto-join is a single
+	// domain stored on the organization, not a SAML connection.
+	const [googleEdit, setGoogleEdit] = useState<string | null>(null);
 	const [groupName, setGroupName] = useState("");
 	const [role, setRole] = useState<"owner" | "admin" | "developer">(
 		"developer",
@@ -204,9 +229,10 @@ export function SsoClient() {
 	// recommended `<org-slug>-<provider>` format until the admin overrides it; must
 	// stay a-z0-9 and globally unique.
 	const orgSlug = slugify(selectedOrganization?.name ?? "");
+	const isSamlType = providerType !== "" && providerType !== "google";
 	const providerSuffix = providerType === "generic" ? "saml" : providerType;
 	const suggestedSlug =
-		orgSlug && providerType ? `${orgSlug}-${providerSuffix}` : "";
+		orgSlug && isSamlType ? `${orgSlug}-${providerSuffix}` : "";
 	const effectiveSlug = (providerIdEdited ? providerId : suggestedSlug).trim();
 	const preview = samlEndpoints(apiUrl, effectiveSlug);
 	const providerLabel =
@@ -258,6 +284,15 @@ export function SsoClient() {
 	const createMapping = api.useMutation("post", "/sso/role-mappings");
 	const deleteMapping = api.useMutation("delete", "/sso/role-mappings/{id}");
 	const saveDefaultProjects = api.useMutation("put", "/sso/default-projects");
+	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
+		onSuccess: () => {
+			// The auto-join domain lives on the organization, which the dashboard
+			// reads from the /orgs list query.
+			void queryClient.refetchQueries({
+				queryKey: api.queryOptions("get", "/orgs").queryKey,
+			});
+		},
+	});
 
 	function invalidateProviders() {
 		void queryClient.invalidateQueries({
@@ -402,6 +437,10 @@ export function SsoClient() {
 		if (!providerType) {
 			return;
 		}
+		if (providerType === "google") {
+			await handleSaveGoogleDomain(domain);
+			return;
+		}
 		try {
 			await registerMutation.mutateAsync({
 				body: {
@@ -446,6 +485,28 @@ export function SsoClient() {
 			invalidateProviders();
 		} catch {
 			toast({ title: "Failed to delete connection", variant: "destructive" });
+		}
+	}
+
+	async function handleSaveGoogleDomain(value: string) {
+		try {
+			await updateOrganization.mutateAsync({
+				params: { path: { id: organizationId } },
+				body: { ssoAutoJoinDomain: value.trim() || null },
+			});
+			toast({
+				title: value.trim()
+					? "Google Workspace auto-join enabled"
+					: "Google Workspace auto-join disabled",
+			});
+			setProviderType("");
+			setDomain("");
+			setGoogleEdit(null);
+		} catch (error) {
+			toast({
+				title: errorMessage(error, "Failed to save Google Workspace auto-join"),
+				variant: "destructive",
+			});
 		}
 	}
 
@@ -512,23 +573,45 @@ export function SsoClient() {
 	const scim = scimQuery.data;
 	const mappings = mappingsQuery.data?.mappings ?? [];
 
+	// Google Workspace auto-join is stored on the organization, not as a SAML
+	// connection. It rides on the "Sign in with Google" button, so a SAML
+	// connection with Require SSO on the same domain blocks it entirely.
+	const googleDomain = selectedOrganization.ssoAutoJoinDomain ?? null;
+	const enforcedSamlDomains = new Set(
+		providers
+			.filter((provider) => provider.enforced)
+			.flatMap((provider) =>
+				splitDomains(provider.domain).map((d) => d.toLowerCase()),
+			),
+	);
+	const googleDomainBlocked =
+		!!googleDomain && enforcedSamlDomains.has(googleDomain.toLowerCase());
+	// Google Workspace can't SCIM-provision custom apps, and group role mapping
+	// rides on SCIM-pushed groups — with a Google-only setup both are inert, so
+	// their cards render disabled with an explanation instead of dead controls.
+	const googleOnly = !!googleDomain && providers.length === 0;
+	// One connection per organization for now — SAML or Google Workspace.
+	const hasConnection = providers.length > 0 || !!googleDomain;
+
 	return (
 		<div className="flex flex-col space-y-6 p-4 pt-6 md:p-8">
 			<div>
 				<h2 className="text-3xl font-bold tracking-tight">SSO</h2>
 				<p className="text-muted-foreground">
 					Connect Okta, Microsoft Entra ID, or any SAML 2.0 identity provider so
-					members sign in with SSO, and enable SCIM so users are provisioned
-					automatically.
+					members sign in with SSO, enable SCIM so users are provisioned
+					automatically, or let Google Workspace users auto-join by email
+					domain.
 				</p>
 			</div>
 
 			<Card>
 				<CardHeader>
-					<CardTitle>SAML connections</CardTitle>
+					<CardTitle>Connections</CardTitle>
 					<CardDescription>
 						Users whose email matches a connection&apos;s domain can sign in via
-						your identity provider.
+						your identity provider — or, with a Google Workspace connection,
+						auto-join this organization when signing in with Google.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-6">
@@ -614,7 +697,71 @@ export function SsoClient() {
 						</div>
 					)}
 
-					{providers.length === 0 && (
+					{googleDomain && (
+						<div className="space-y-3 rounded-lg border p-4">
+							<div className="flex items-start justify-between gap-4">
+								<div className="space-y-1.5">
+									<p className="font-medium">Google Workspace</p>
+									<div className="flex flex-wrap items-center gap-1.5">
+										<span className="text-sm text-muted-foreground">
+											Auto-join domain:
+										</span>
+										<Badge variant="secondary">{googleDomain}</Badge>
+										<Button
+											variant="ghost"
+											size="icon"
+											className="h-6 w-6"
+											onClick={() => setGoogleEdit(googleDomain)}
+										>
+											<Pencil className="h-3.5 w-3.5" />
+											<span className="sr-only">Edit auto-join domain</span>
+										</Button>
+									</div>
+								</div>
+								<Button
+									variant="outline"
+									size="icon"
+									onClick={() =>
+										setConfirmAction({
+											title: "Remove Google Workspace auto-join?",
+											description: `New sign-ins with Google accounts on ${googleDomain} will no longer join this organization automatically. Existing members are unaffected.`,
+											actionLabel: "Remove auto-join",
+											run: () => handleSaveGoogleDomain(""),
+										})
+									}
+									disabled={updateOrganization.isPending}
+								>
+									<Trash2 className="h-4 w-4" />
+									<span className="sr-only">Remove auto-join</span>
+								</Button>
+							</div>
+							<p className="text-sm text-muted-foreground">
+								Anyone signing in with a Google account on this domain is added
+								to this organization as a <strong>developer</strong> and
+								notified by email. No IdP setup needed — it uses the standard
+								“Sign in with Google” button.
+							</p>
+							{googleDomainBlocked && (
+								<Alert variant="destructive">
+									<AlertDescription>
+										A SAML connection with <strong>Require SSO</strong> covers{" "}
+										<strong>{googleDomain}</strong>, which blocks Google sign-in
+										for that domain — auto-join will never trigger. Disable
+										Require SSO or remove this auto-join domain.
+									</AlertDescription>
+								</Alert>
+							)}
+						</div>
+					)}
+
+					{hasConnection && (
+						<p className="text-sm text-muted-foreground">
+							One connection per organization for now — remove the existing
+							connection to switch providers.
+						</p>
+					)}
+
+					{!hasConnection && (
 						<form onSubmit={handleRegister} className="space-y-6 border-t pt-6">
 							<div className="space-y-4">
 								<p className="text-sm font-medium">Add a connection</p>
@@ -623,7 +770,9 @@ export function SsoClient() {
 									<Select
 										value={providerType}
 										onValueChange={(value) =>
-											setProviderType(value as "okta" | "entra" | "generic")
+											setProviderType(
+												value as "okta" | "entra" | "generic" | "google",
+											)
 										}
 									>
 										<SelectTrigger id="sso-type">
@@ -633,10 +782,37 @@ export function SsoClient() {
 											<SelectItem value="okta">Okta</SelectItem>
 											<SelectItem value="entra">Microsoft Entra ID</SelectItem>
 											<SelectItem value="generic">Other (SAML 2.0)</SelectItem>
+											<SelectItem value="google">Google Workspace</SelectItem>
 										</SelectContent>
 									</Select>
+									{providerType === "google" && (
+										<p className="text-sm text-muted-foreground">
+											Google Workspace doesn&apos;t need a SAML app or SCIM:
+											members sign in with the standard “Sign in with Google”
+											button, and anyone on your email domain joins this
+											organization automatically as a <strong>developer</strong>
+											.
+										</p>
+									)}
 								</div>
-								{providerType && (
+								{providerType === "google" && (
+									<div className="space-y-2">
+										<Label htmlFor="google-domain">Email domain</Label>
+										<Input
+											id="google-domain"
+											placeholder="acme.com"
+											value={domain}
+											onChange={(e) => setDomain(e.target.value)}
+											required
+										/>
+										<p className="text-sm text-muted-foreground">
+											A single corporate domain — consumer email domains
+											(gmail.com, outlook.com, …) are not allowed, and a domain
+											can only be claimed by one organization.
+										</p>
+									</div>
+								)}
+								{isSamlType && (
 									<div className="grid gap-4 md:grid-cols-2">
 										<div className="space-y-2">
 											<div className="flex items-center gap-1.5">
@@ -724,7 +900,15 @@ export function SsoClient() {
 								)}
 							</div>
 
-							{providerType && effectiveSlug && (
+							{providerType === "google" && (
+								<Button type="submit" disabled={updateOrganization.isPending}>
+									{updateOrganization.isPending
+										? "Enabling..."
+										: "Enable auto-join"}
+								</Button>
+							)}
+
+							{isSamlType && effectiveSlug && (
 								<div className="space-y-3 rounded-lg border bg-muted/30 p-4">
 									<div>
 										<p className="text-sm font-medium">
@@ -747,7 +931,7 @@ export function SsoClient() {
 								</div>
 							)}
 
-							{providerType && (
+							{isSamlType && (
 								<div className="space-y-4">
 									<p className="text-sm font-medium">
 										2. Paste back what {providerLabel} gives you
@@ -802,147 +986,154 @@ export function SsoClient() {
 				</CardContent>
 			</Card>
 
-			<Card>
+			<Card className={googleOnly ? "opacity-60" : undefined}>
 				<CardHeader>
 					<CardTitle>Directory sync (SCIM)</CardTitle>
 					<CardDescription>
-						Generate a SCIM token and configure it in your identity provider
-						(Okta or Microsoft Entra ID) to provision and deprovision members of
-						this organization automatically.
+						{googleOnly
+							? "Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
+							: "Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."}
 					</CardDescription>
 				</CardHeader>
-				<CardContent className="space-y-4">
-					{scim && <ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />}
-					<div className="flex items-center gap-3">
-						<Button
-							onClick={() => {
-								if (scim?.configured) {
-									setConfirmAction({
-										title: "Rotate SCIM token?",
-										description:
-											"The current token stops working immediately. Directory provisioning will fail until you update your identity provider with the new token.",
-										actionLabel: "Rotate token",
-										run: handleGenerateScim,
-									});
-								} else {
-									void handleGenerateScim();
-								}
-							}}
-							disabled={generateScim.isPending}
-						>
-							{scim?.configured ? "Rotate SCIM token" : "Generate SCIM token"}
-						</Button>
-						{scim?.configured && (
-							<Button
-								variant="outline"
-								onClick={() =>
-									setConfirmAction({
-										title: "Revoke SCIM token?",
-										description:
-											"Directory provisioning stops working immediately. You'll need to generate a new token and update your identity provider to resume it.",
-										actionLabel: "Revoke token",
-										run: handleRevokeScim,
-									})
-								}
-								disabled={revokeScim.isPending}
-							>
-								Revoke
-							</Button>
+				{!googleOnly && (
+					<CardContent className="space-y-4">
+						{scim && (
+							<ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />
 						)}
-					</div>
-					{scim?.configured && (
-						<p className="text-sm text-muted-foreground">
-							A SCIM token is active for this organization
-							{scim.maskedToken ? ` (${scim.maskedToken})` : ""}. Rotating
-							replaces it — update your identity provider with the new token.
-						</p>
-					)}
-				</CardContent>
+						<div className="flex items-center gap-3">
+							<Button
+								onClick={() => {
+									if (scim?.configured) {
+										setConfirmAction({
+											title: "Rotate SCIM token?",
+											description:
+												"The current token stops working immediately. Directory provisioning will fail until you update your identity provider with the new token.",
+											actionLabel: "Rotate token",
+											run: handleGenerateScim,
+										});
+									} else {
+										void handleGenerateScim();
+									}
+								}}
+								disabled={generateScim.isPending}
+							>
+								{scim?.configured ? "Rotate SCIM token" : "Generate SCIM token"}
+							</Button>
+							{scim?.configured && (
+								<Button
+									variant="outline"
+									onClick={() =>
+										setConfirmAction({
+											title: "Revoke SCIM token?",
+											description:
+												"Directory provisioning stops working immediately. You'll need to generate a new token and update your identity provider to resume it.",
+											actionLabel: "Revoke token",
+											run: handleRevokeScim,
+										})
+									}
+									disabled={revokeScim.isPending}
+								>
+									Revoke
+								</Button>
+							)}
+						</div>
+						{scim?.configured && (
+							<p className="text-sm text-muted-foreground">
+								A SCIM token is active for this organization
+								{scim.maskedToken ? ` (${scim.maskedToken})` : ""}. Rotating
+								replaces it — update your identity provider with the new token.
+							</p>
+						)}
+					</CardContent>
+				)}
 			</Card>
 
-			<Card>
+			<Card className={googleOnly ? "opacity-60" : undefined}>
 				<CardHeader>
 					<CardTitle>Group role mapping</CardTitle>
 					<CardDescription>
-						Map an IdP group (pushed via SCIM) to an organization role. Members
-						receive the highest-ranked role among their groups; unmapped members
-						default to Developer. Owners are never automatically demoted.
+						{googleOnly
+							? "Not available for the Google Workspace connection — role mappings rely on groups pushed via SCIM. Auto-joined members get the developer role; change roles on the Team page."
+							: "Map an IdP group (pushed via SCIM) to an organization role. Members receive the highest-ranked role among their groups; unmapped members default to Developer. Owners are never automatically demoted."}
 					</CardDescription>
 				</CardHeader>
-				<CardContent className="space-y-6">
-					{mappings.length > 0 && (
-						<div className="divide-y rounded-lg border">
-							{mappings.map((mapping) => (
-								<div
-									key={mapping.id}
-									className="flex items-center justify-between gap-4 p-3"
-								>
-									<div className="text-sm">
-										<span className="font-medium">{mapping.groupName}</span>
-										<span className="text-muted-foreground"> → </span>
-										<span className="capitalize">{mapping.role}</span>
-									</div>
-									<Button
-										variant="outline"
-										size="icon"
-										onClick={() => handleDeleteMapping(mapping.id)}
-										disabled={deleteMapping.isPending}
+				{!googleOnly && (
+					<CardContent className="space-y-6">
+						{mappings.length > 0 && (
+							<div className="divide-y rounded-lg border">
+								{mappings.map((mapping) => (
+									<div
+										key={mapping.id}
+										className="flex items-center justify-between gap-4 p-3"
 									>
-										<Trash2 className="h-4 w-4" />
-										<span className="sr-only">Delete mapping</span>
-									</Button>
-								</div>
-							))}
-						</div>
-					)}
+										<div className="text-sm">
+											<span className="font-medium">{mapping.groupName}</span>
+											<span className="text-muted-foreground"> → </span>
+											<span className="capitalize">{mapping.role}</span>
+										</div>
+										<Button
+											variant="outline"
+											size="icon"
+											onClick={() => handleDeleteMapping(mapping.id)}
+											disabled={deleteMapping.isPending}
+										>
+											<Trash2 className="h-4 w-4" />
+											<span className="sr-only">Delete mapping</span>
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
 
-					<form
-						onSubmit={handleCreateMapping}
-						className="flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-end"
-					>
-						<div className="flex-1 space-y-2">
-							<Label htmlFor="mapping-group">IdP group name</Label>
-							<Input
-								id="mapping-group"
-								placeholder="Engineering Admins"
-								value={groupName}
-								onChange={(e) => setGroupName(e.target.value)}
-								required
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="mapping-role">Role</Label>
-							<Select
-								value={role}
-								onValueChange={(value) =>
-									setRole(value as "owner" | "admin" | "developer")
-								}
-							>
-								<SelectTrigger id="mapping-role" className="sm:w-40">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="developer">Developer</SelectItem>
-									<SelectItem value="admin">Admin</SelectItem>
-									<SelectItem value="owner">Owner</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-						<Button type="submit" disabled={createMapping.isPending}>
-							Add mapping
-						</Button>
-					</form>
-				</CardContent>
+						<form
+							onSubmit={handleCreateMapping}
+							className="flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-end"
+						>
+							<div className="flex-1 space-y-2">
+								<Label htmlFor="mapping-group">IdP group name</Label>
+								<Input
+									id="mapping-group"
+									placeholder="Engineering Admins"
+									value={groupName}
+									onChange={(e) => setGroupName(e.target.value)}
+									required
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="mapping-role">Role</Label>
+								<Select
+									value={role}
+									onValueChange={(value) =>
+										setRole(value as "owner" | "admin" | "developer")
+									}
+								>
+									<SelectTrigger id="mapping-role" className="sm:w-40">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="developer">Developer</SelectItem>
+										<SelectItem value="admin">Admin</SelectItem>
+										<SelectItem value="owner">Owner</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<Button type="submit" disabled={createMapping.isPending}>
+								Add mapping
+							</Button>
+						</form>
+					</CardContent>
+				)}
 			</Card>
 
 			<Card>
 				<CardHeader>
 					<CardTitle>Default project access</CardTitle>
 					<CardDescription>
-						Projects that members provisioned via SSO/SCIM get access to when
-						they first sign in. Only affects the <strong>developer</strong> role
-						— owners and admins can always access every project. Existing
-						members are unchanged; this applies to newly provisioned users.
+						Projects that members provisioned via SSO/SCIM/Google auto-join get
+						access to when they first sign in. Only affects the{" "}
+						<strong>developer</strong> role — owners and admins can always
+						access every project. Existing members are unchanged; this applies
+						to newly provisioned users.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
@@ -1022,6 +1213,58 @@ export function SsoClient() {
 							</Button>
 							<Button type="submit" disabled={updateProvider.isPending}>
 								{updateProvider.isPending ? "Saving..." : "Save"}
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog
+				open={googleEdit !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setGoogleEdit(null);
+					}
+				}}
+			>
+				<DialogContent className="sm:max-w-[500px]">
+					<form
+						onSubmit={(e) => {
+							e.preventDefault();
+							if (googleEdit !== null) {
+								void handleSaveGoogleDomain(googleEdit);
+							}
+						}}
+						className="space-y-4"
+					>
+						<DialogHeader>
+							<DialogTitle>Edit auto-join domain</DialogTitle>
+							<DialogDescription>
+								Users signing in with a Google account on this domain auto-join
+								the organization as a developer. Existing members are unaffected
+								by changes.
+							</DialogDescription>
+						</DialogHeader>
+						<div className="space-y-2">
+							<Label htmlFor="google-edit-domain">Email domain</Label>
+							<Input
+								id="google-edit-domain"
+								placeholder="acme.com"
+								value={googleEdit ?? ""}
+								onChange={(e) => setGoogleEdit(e.target.value)}
+								required
+							/>
+						</div>
+						<DialogFooter>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => setGoogleEdit(null)}
+							>
+								Cancel
+							</Button>
+							<Button type="submit" disabled={updateOrganization.isPending}>
+								{updateOrganization.isPending ? "Saving..." : "Save"}
 							</Button>
 						</DialogFooter>
 					</form>

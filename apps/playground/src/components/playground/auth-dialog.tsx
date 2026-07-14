@@ -45,7 +45,7 @@ const FEATURES: Feature[] = [
 	{
 		icon: MessageSquare,
 		title: "Chat",
-		description: "GPT, Claude, Gemini & 280+ models — switch mid-conversation",
+		description: "GPT, Claude, Gemini & 200+ models — switch mid-conversation",
 	},
 	{
 		icon: ImagePlus,
@@ -83,7 +83,7 @@ export function AuthDialog({
 	open,
 	returnUrl,
 	title = "Every model and studio — in one place",
-	description = "Chat, images, video, canvas and group chat across 280+ models. Free to start — no credit card required.",
+	description = "Chat, images, video, canvas and group chat across 200+ models. Free to start — no credit card required.",
 }: AuthDialogProps) {
 	if (!open) {
 		return null;

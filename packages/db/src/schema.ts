@@ -221,6 +221,11 @@ export const organization = pgTable(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Enterprise Google SSO auto-join. When set, users signing in via Google
+		// with a verified email at this domain are auto-added to the org as
+		// "developer". Stored lowercase, no leading "@". Unique so a domain can
+		// only be claimed by one organization.
+		ssoAutoJoinDomain: text(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -259,11 +264,13 @@ export const organization = pgTable(
 		devPlanCreditsFrozen: boolean().notNull().default(false),
 		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
-		// Stripe current_period_start of the cycle in which the last tier change
-		// was claimed. A tier change atomically advances this to the current cycle
-		// start only if it hasn't been claimed yet, enforcing one change per cycle
-		// without a read-then-write race.
-		devPlanLastTierChangeCycleStart: timestamp(),
+		// Lease held while a dev plan upgrade request is in flight, guarding
+		// against a double charge from racing requests (e.g. a double-clicked
+		// confirm). Claimed atomically before any Stripe call and cleared when the
+		// request completes (success or failure). A lease leaked by a request that
+		// died mid-flight expires after a staleness window, so it can never block
+		// upgrades until the next billing cycle.
+		devPlanTierChangeClaimedAt: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
 		devPlanExpiresAt: timestamp(),
@@ -334,6 +341,11 @@ export const organization = pgTable(
 		// active fingerprints.
 		uniqueIndex("organization_chat_plan_card_fingerprint_uidx").on(
 			table.chatPlanCardFingerprint,
+		),
+		// A given SSO auto-join domain can only be claimed by one organization.
+		// NULLs are distinct in Postgres, so this only constrains configured domains.
+		uniqueIndex("organization_sso_auto_join_domain_uidx").on(
+			table.ssoAutoJoinDomain,
 		),
 	],
 );
@@ -603,6 +615,54 @@ export const enterpriseContactSubmission = pgTable(
 		check(
 			"enterprise_contact_submission_deployment_check",
 			sql`${table.deployment} IS NULL OR ${table.deployment} IN ('self_host', 'cloud', 'not_sure')`,
+		),
+	],
+);
+
+export const providerListingRequest = pgTable(
+	"provider_listing_request",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerName: text().notNull(),
+		email: text().notNull(),
+		url: text().notNull(),
+		country: text().notNull(),
+		complianceSoc2Type2: boolean().notNull().default(false),
+		complianceIso27001: boolean().notNull().default(false),
+		complianceGdpr: boolean().notNull().default(false),
+		dataRetentionDays: integer(),
+		trainsOnData: boolean(),
+		paymentStatus: text({
+			enum: ["unpaid", "paid", "refunded"],
+		})
+			.notNull()
+			.default("unpaid"),
+		stripeCheckoutSessionId: text(),
+		paidAt: timestamp(),
+		honeypot: text(),
+		clientTimestampMs: text(),
+		ipAddress: text(),
+		userAgent: text(),
+		spamFilterStatus: text({
+			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+		})
+			.notNull()
+			.default("pending"),
+		rejectionReason: text(),
+		archivedAt: timestamp(),
+	},
+	(table) => [
+		index("provider_listing_request_created_at_idx").on(table.createdAt),
+		index("provider_listing_request_email_idx").on(table.email),
+		index("provider_listing_request_status_idx").on(table.spamFilterStatus),
+		check(
+			"provider_listing_request_payment_status_check",
+			sql`${table.paymentStatus} IN ('unpaid', 'paid', 'refunded')`,
 		),
 	],
 );
@@ -1378,6 +1438,8 @@ export const log = pgTable(
 		reasoningTokens: decimal(),
 		cachedTokens: decimal(),
 		cacheWriteTokens: decimal(),
+		cacheWrite5mTokens: decimal(),
+		cacheWrite1hTokens: decimal(),
 		messages: json(),
 		temperature: real(),
 		maxTokens: integer(),
@@ -1469,6 +1531,11 @@ export const log = pgTable(
 				apiKeyHash?: string;
 				logId?: string;
 			}>;
+			filteredProviders?: Array<{
+				providerId: string;
+				reasons: string[];
+			}>;
+			strippedParameters?: string[];
 		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
@@ -2694,6 +2761,7 @@ export const auditLogActions = [
 	"organization.delete",
 	"organization.block",
 	"organization.manage",
+	"organization.sso_auto_join.update",
 	// Project
 	"project.create",
 	"project.update",
@@ -2706,6 +2774,7 @@ export const auditLogActions = [
 	"team_member.invite",
 	"team_member.invite_accept",
 	"team_member.invite_revoke",
+	"team_member.auto_join",
 	// API Key
 	"api_key.create",
 	"api_key.roll",
@@ -2739,6 +2808,7 @@ export const auditLogActions = [
 	"payment.credit_topup",
 	"payment.auto_topup.update",
 	"payment.auto_topup.disable",
+	"payment.self_refund",
 	// Credits
 	"credits.gift",
 	// Referral

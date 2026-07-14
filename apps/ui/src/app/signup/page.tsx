@@ -12,7 +12,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { getAuthErrorMessage } from "@/lib/auth-errors";
 import { Button } from "@/lib/components/button";
@@ -63,10 +63,13 @@ export default function Signup() {
 
 	const formSchema = createFormSchema(config.hosted);
 
+	const { isAuthenticated } = useSessionStatus();
+
 	useUser({
 		redirectTo: "/dashboard",
 		redirectWhen: "authenticated",
 		checkOnboarding: true,
+		enabled: isAuthenticated,
 	});
 
 	useEffect(() => {

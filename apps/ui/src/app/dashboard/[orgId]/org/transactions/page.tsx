@@ -13,6 +13,19 @@ interface Transaction {
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
 	description: string | null;
+	refund?: {
+		eligible: boolean;
+		reason?:
+			| "unsupported_type"
+			| "not_completed"
+			| "already_refunded"
+			| "window_expired"
+			| "not_owner"
+			| "not_latest_purchase"
+			| "plan_inactive"
+			| "credits_frozen"
+			| "usage_exceeded";
+	};
 }
 
 interface TransactionsData {

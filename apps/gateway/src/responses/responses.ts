@@ -261,8 +261,9 @@ responses.post("/", async (c) => {
 
 	// Convert tools format: Responses API has name/description/parameters at top level,
 	// chat completions nests under function.
-	// Only forward user-defined function tools to chat completions.
-	// Built-in tool types (web_search, computer_use, code_interpreter, shell, etc.)
+	// web_search passes through unchanged — the chat completions layer resolves
+	// it to the provider's native web search / grounding.
+	// Other built-in tool types (computer_use, code_interpreter, shell, etc.)
 	// are OpenAI-native capabilities that cannot be proxied through the gateway's
 	// provider routing, so they are dropped here.
 	const tools = req.tools
@@ -276,6 +277,9 @@ responses.post("/", async (c) => {
 						parameters: tool.parameters,
 					},
 				};
+			}
+			if (tool.type === "web_search") {
+				return tool;
 			}
 			return null;
 		})
@@ -324,14 +328,23 @@ responses.post("/", async (c) => {
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
 	}
+	if (req.text?.verbosity !== undefined) {
+		chatRequest.verbosity = req.text.verbosity;
+	}
 	if (req.prompt_cache_key !== undefined) {
 		chatRequest.prompt_cache_key = req.prompt_cache_key;
 	}
 	if (req.prompt_cache_retention !== undefined) {
 		chatRequest.prompt_cache_retention = req.prompt_cache_retention;
 	}
+	if (req.prompt_cache_options !== undefined) {
+		chatRequest.prompt_cache_options = req.prompt_cache_options;
+	}
 	if (req.routing !== undefined) {
 		chatRequest.routing = req.routing;
+	}
+	if (req.service_tier !== undefined) {
+		chatRequest.service_tier = req.service_tier;
 	}
 	if (response_format) {
 		chatRequest.response_format = response_format;

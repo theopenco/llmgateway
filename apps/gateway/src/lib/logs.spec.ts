@@ -23,6 +23,15 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps upstream 'abort' to upstream error regardless of provider", () => {
+		expect(getUnifiedFinishReason("abort", "minimax")).toBe(
+			UnifiedFinishReason.UPSTREAM_ERROR,
+		);
+		expect(getUnifiedFinishReason("abort", "novita")).toBe(
+			UnifiedFinishReason.UPSTREAM_ERROR,
+		);
+	});
+
 	it("maps Anthropic finish reasons correctly", () => {
 		expect(getUnifiedFinishReason("stop_sequence", "anthropic")).toBe(
 			UnifiedFinishReason.COMPLETED,

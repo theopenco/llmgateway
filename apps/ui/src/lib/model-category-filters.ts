@@ -190,6 +190,12 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"qwen3.6-35b-a3b",
 ]);
 
+// Proprietary models whose family is otherwise open-source (e.g. Meta's
+// API-only Muse Spark models alongside the open Llama family)
+export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
+	"muse-spark-1.1",
+]);
+
 export function isTextOutput(output: string[] | null | undefined): boolean {
 	return (
 		!output?.includes("image") &&
@@ -256,6 +262,7 @@ export function applyCategoryFilter(
 		case "open-source":
 			return (
 				isTextOutput(model.output) &&
+				!CLOSED_SOURCE_MODEL_IDS.has(model.id) &&
 				(OPEN_SOURCE_FAMILIES.has(model.family) ||
 					OPEN_SOURCE_MODEL_IDS.has(model.id))
 			);

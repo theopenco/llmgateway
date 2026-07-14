@@ -102,6 +102,9 @@ export interface RoutingMetadata {
 		contentFilterProvider?: boolean;
 		// Set when the provider was excluded because the gateway content filter matched
 		excludedByContentFilter?: boolean;
+		// Set when hybrid keyed-provider preference demoted this credits-backed
+		// candidate; kept in the scores as a last-resort retry target
+		hybrid_demoted?: boolean;
 	}>;
 	// Optional fields for low-uptime fallback routing
 	originalProvider?: string;
@@ -129,6 +132,13 @@ export interface RoutingMetadata {
 		apiKeyHash?: string;
 		logId?: string;
 	}>;
+	// Provider mappings that were filtered out because they don't support requested params/features
+	filteredProviders?: Array<{
+		providerId: string;
+		reasons: string[];
+	}>;
+	// Parameters that were stripped from the request because the selected provider doesn't support them
+	strippedParameters?: string[];
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {
