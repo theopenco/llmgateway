@@ -1366,6 +1366,13 @@
       "when": 1783897295946,
       "tag": "1783897295_migrate_require_soc2_to_type2",
       "breakpoints": true
+    },
+    {
+      "idx": 195,
+      "version": "8",
+      "when": 1783966863248,
+      "tag": "1783966863_amazing_paper_doll",
+      "breakpoints": true
     }
   ]
 }

@@ -167,12 +167,12 @@ describe("dev plan tier changes", () => {
 		expect(res.status).toBe(409);
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 
-		// The per-cycle claim is released when the change aborts before Stripe, so
-		// the user isn't locked out of retrying this cycle.
+		// The lease is released when the change aborts before Stripe, so the user
+		// isn't locked out of retrying.
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
-		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 	});
 
 	it("charges the full price, resets usage, and grants full new-tier credits", async () => {
@@ -240,6 +240,8 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanExpiresAt).toEqual(
 			new Date((nowSeconds + THIRTY_DAYS) * 1000),
 		);
+		// The completed upgrade released the lease.
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 
 		const transaction = await db.query.transaction.findFirst({
 			where: {
@@ -313,14 +315,14 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanCreditsLimit).toBe("237");
 	});
 
-	it("blocks a concurrent duplicate upgrade for the same period", async () => {
-		// A double-clicked confirm: the current Stripe period was already claimed
-		// (marker at the period start), so the second request is rejected before any
-		// Stripe call, preventing a second full-price charge and cycle reset.
-		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
+	it("blocks a duplicate upgrade while another is in flight", async () => {
+		// A double-clicked confirm: another request holds a fresh upgrade lease, so
+		// the second request is rejected before any Stripe call, preventing a
+		// second full-price charge and cycle reset.
+		const leaseClaimedAt = new Date(nowSeconds * 1000);
 		await db
 			.update(tables.organization)
-			.set({ devPlanLastTierChangeCycleStart: claimedCycleStart })
+			.set({ devPlanTierChangeClaimedAt: leaseClaimedAt })
 			.where(eq(tables.organization.id, ORG_ID));
 
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
@@ -346,10 +348,65 @@ describe("dev plan tier changes", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlan).toBe("lite");
-		// A rejected attempt must not release the existing claim.
-		expect(org?.devPlanLastTierChangeCycleStart?.getTime()).toBe(
-			claimedCycleStart.getTime(),
+		// A rejected attempt must not release the lease held by the in-flight
+		// upgrade.
+		expect(org?.devPlanTierChangeClaimedAt?.getTime()).toBe(
+			leaseClaimedAt.getTime(),
 		);
+	});
+
+	it("re-claims a stale lease leaked by a request that never finished", async () => {
+		// A prior upgrade attempt took the lease but died before completing or
+		// releasing (crash, restart). The lease is well past the staleness window,
+		// so a retry treats it as abandoned and the upgrade goes through instead of
+		// 409ing indefinitely.
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanTierChangeClaimedAt: new Date((nowSeconds - 1200) * 1000),
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade" },
+			},
+			items: {
+				data: [
+					{ id: "si_dev_plan", current_period_end: nowSeconds + THIRTY_DAYS },
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		// The completed upgrade released the lease.
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 	});
 
 	it("rejects a tier change on an already-ended subscription", async () => {
@@ -375,12 +432,12 @@ describe("dev plan tier changes", () => {
 		expect(res.status).toBe(409);
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 
-		// The change aborted before claiming the cycle, so nothing is persisted.
+		// The change aborted before taking the lease, so nothing is persisted.
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlan).toBe("lite");
-		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 	});
 
 	it("self-heals an ended subscription on resume instead of failing", async () => {
@@ -491,17 +548,16 @@ describe("dev plan tier changes", () => {
 		expect(transaction?.type).toBe("dev_plan_downgrade");
 	});
 
-	it("allows a downgrade even after an upgrade already claimed the cycle", async () => {
-		// An upgrade earlier this cycle set the double-charge-guard marker. That must
-		// not block a downgrade, which only schedules the lower tier for renewal.
+	it("allows a downgrade even while an upgrade lease is held", async () => {
+		// An in-flight upgrade holds the lease. That must not block a downgrade,
+		// which only schedules the lower tier for renewal and never claims it.
 		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
-		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
 		await db
 			.update(tables.organization)
 			.set({
 				devPlan: "pro",
 				devPlanCreditsLimit: "237",
-				devPlanLastTierChangeCycleStart: claimedCycleStart,
+				devPlanTierChangeClaimedAt: new Date(nowSeconds * 1000),
 			})
 			.where(eq(tables.organization.id, ORG_ID));
 

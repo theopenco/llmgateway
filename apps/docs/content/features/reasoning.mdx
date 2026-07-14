@@ -193,6 +193,53 @@ If you specify `reasoning.max_tokens` for a model that doesn't support it, you'l
 }
 ```
 
+## Controlling Response Verbosity
+
+For OpenAI GPT-5 and later models, you can control how detailed the model's final answer is with the top-level `verbosity` parameter. This is independent of `reasoning_effort`: `reasoning_effort` controls how much the model thinks, while `verbosity` controls how much it writes in its response.
+
+Accepted values:
+
+- `low` - Concise responses with minimal elaboration
+- `medium` - Balanced level of detail
+- `high` - Detailed, thorough responses
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain how a hash map works."
+      }
+    ],
+    "verbosity": "low"
+  }'
+```
+
+<Callout type="info">
+	`verbosity` is only supported by OpenAI GPT-5 and later models. You can check
+	which model mappings accept it via the
+	[`/v1/models`](https://api.llmgateway.io/v1/models) endpoint. It can be
+	combined freely with `reasoning_effort` or the `reasoning` object.
+</Callout>
+
+### Error Handling
+
+If you specify `verbosity` for a model that doesn't support it, you'll receive a `400` error:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support the verbosity parameter. Remove the verbosity parameter or use a model that supports it (OpenAI GPT-5 and later).",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
 ## Streaming Reasoning Content
 
 When streaming is enabled, reasoning content will be streamed as part of the response chunks:

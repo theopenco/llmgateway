@@ -1,6 +1,8 @@
+import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import {
 	handleChargeRefunded,
@@ -8,20 +10,21 @@ import {
 	handlePaymentIntentFailed,
 	handleSubscriptionDeleted,
 	handleSubscriptionUpdated,
+	stripeRoutes,
 } from "./stripe.js";
 import { deleteAll } from "./testing.js";
 
 import type * as PaymentsModule from "./routes/payments.js";
 import type * as EmailModule from "./utils/email.js";
-import type Stripe from "stripe";
 
 const stripeMock = vi.hoisted(() => ({
 	refunds: { list: vi.fn() },
 	invoices: { list: vi.fn() },
 	invoicePayments: { list: vi.fn() },
-	subscriptions: { retrieve: vi.fn() },
+	subscriptions: { retrieve: vi.fn(), cancel: vi.fn() },
 	paymentIntents: { retrieve: vi.fn() },
 	paymentMethods: { retrieve: vi.fn() },
+	webhooks: { constructEvent: vi.fn() },
 }));
 
 vi.mock("./routes/payments.js", async (importOriginal) => {
@@ -800,6 +803,7 @@ describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", 
 function makeChargeRefundedEvent(overrides: {
 	paymentIntentId: string;
 	customer: string;
+	refunded?: boolean;
 }): Stripe.ChargeRefundedEvent {
 	return {
 		id: "evt_test_charge_refunded",
@@ -809,6 +813,8 @@ function makeChargeRefundedEvent(overrides: {
 				id: "ch_test_refund_001",
 				payment_intent: overrides.paymentIntentId,
 				customer: overrides.customer,
+				// true when the charge is fully refunded; false for a partial refund.
+				refunded: overrides.refunded ?? false,
 				// Current Stripe API versions omit the invoice link on the charge.
 				invoice: null,
 			},
@@ -884,6 +890,80 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.credits).toBe("0");
+	});
+
+	test("cancels the subscription on a full dev plan refund", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_devpass_refund",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanStripeSubscriptionId: SUB_ID,
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "79",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: "in_devpass_refund",
+		});
+
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_devpass_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_devpass_refund", amount: 7900, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_devpass_refund",
+				customer: "cus_devpass_refund",
+				refunded: true,
+			}),
+		);
+
+		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledWith(SUB_ID);
+	});
+
+	test("does not cancel the subscription on a partial dev plan refund", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_devpass_refund",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanStripeSubscriptionId: SUB_ID,
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "79",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: "in_devpass_refund",
+		});
+
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_devpass_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_devpass_partial", amount: 1000, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_devpass_refund",
+				customer: "cus_devpass_refund",
+				refunded: false,
+			}),
+		);
+
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
 	});
 
 	test("does not double-record when the same refund is delivered twice", async () => {
@@ -1030,5 +1110,48 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.credits).toBe("0");
+	});
+});
+
+describe("webhook route — invalid signature", () => {
+	const realStripe = new Stripe("sk_test_dummy");
+
+	afterEach(() => {
+		stripeMock.webhooks.constructEvent.mockReset();
+	});
+
+	test("logs a warning and returns 400 for a bogus signature", async () => {
+		const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+		process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
+		// Defer to the real Stripe SDK so an actual
+		// StripeSignatureVerificationError is thrown, exercising the handler's
+		// instanceof branch rather than a hand-rolled error.
+		stripeMock.webhooks.constructEvent.mockImplementation(
+			(body: string, sig: string, secret: string) =>
+				realStripe.webhooks.constructEvent(body, sig, secret),
+		);
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		try {
+			const res = await stripeRoutes.request("/webhook", {
+				method: "POST",
+				headers: { "stripe-signature": "fake_signature" },
+				body: JSON.stringify({ type: "checkout.session.completed" }),
+			});
+
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("Invalid signature");
+			expect(warnSpy).toHaveBeenCalledWith(
+				"Ignoring Stripe webhook with invalid signature",
+				expect.objectContaining({ message: expect.any(String) }),
+			);
+		} finally {
+			warnSpy.mockRestore();
+			if (previousSecret === undefined) {
+				delete process.env.STRIPE_WEBHOOK_SECRET;
+			} else {
+				process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+			}
+		}
 	});
 });

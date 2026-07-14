@@ -1,10 +1,22 @@
 "use client";
 
 import { format } from "date-fns";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/lib/components/alert-dialog";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -14,8 +26,28 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/lib/components/tooltip";
 import { useToast } from "@/lib/components/use-toast";
 import { useFetchClient } from "@/lib/fetch-client";
+
+interface RefundEligibility {
+	eligible: boolean;
+	reason?:
+		| "unsupported_type"
+		| "not_completed"
+		| "already_refunded"
+		| "window_expired"
+		| "not_owner"
+		| "not_latest_purchase"
+		| "plan_inactive"
+		| "credits_frozen"
+		| "usage_exceeded";
+}
 
 interface Transaction {
 	id: string;
@@ -31,6 +63,122 @@ interface Transaction {
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
 	description: string | null;
+	refund?: RefundEligibility;
+}
+
+const REFUND_INELIGIBILITY_COPY: Record<
+	NonNullable<RefundEligibility["reason"]>,
+	string
+> = {
+	unsupported_type: "This transaction cannot be refunded",
+	not_completed: "Only completed payments can be refunded",
+	already_refunded: "This purchase has already been refunded",
+	window_expired: "Refunds are available for 14 days after purchase",
+	not_owner: "Only the organization owner can request a refund",
+	not_latest_purchase: "Only your most recent purchase can be self-refunded",
+	plan_inactive: "The plan for this payment is no longer active",
+	credits_frozen: "Refunds are unavailable while credits are frozen",
+	usage_exceeded: "More than 10% of these credits have been used",
+};
+
+function RefundButton({
+	orgId,
+	transaction,
+}: {
+	orgId: string;
+	transaction: Transaction;
+}) {
+	const fetchClient = useFetchClient();
+	const router = useRouter();
+	const { toast } = useToast();
+	const [loading, setLoading] = useState(false);
+
+	const refund = transaction.refund;
+	if (!refund) {
+		return null;
+	}
+
+	async function handleRefund() {
+		setLoading(true);
+		try {
+			const { response } = await fetchClient.POST(
+				"/orgs/{id}/transactions/{transactionId}/refund",
+				{
+					params: { path: { id: orgId, transactionId: transaction.id } },
+				},
+			);
+			if (!response.ok) {
+				throw new Error("Refund request failed");
+			}
+			toast({
+				title: "Refund processing",
+				description:
+					"Your refund has been submitted and will appear in your transaction history shortly.",
+			});
+			router.refresh();
+		} catch {
+			toast({
+				title: "Could not process refund",
+				description: "Please try again later or contact support.",
+				variant: "destructive",
+			});
+		} finally {
+			setLoading(false);
+		}
+	}
+
+	if (!refund.eligible) {
+		return (
+			<TooltipProvider>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						{/* span wrapper so the tooltip works on a disabled button */}
+						<span tabIndex={0}>
+							<Button variant="outline" size="sm" disabled>
+								<Undo2 className="h-4 w-4" />
+								Refund
+							</Button>
+						</span>
+					</TooltipTrigger>
+					<TooltipContent>
+						{REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"]}
+					</TooltipContent>
+				</Tooltip>
+			</TooltipProvider>
+		);
+	}
+
+	return (
+		<AlertDialog>
+			<AlertDialogTrigger asChild>
+				<Button variant="outline" size="sm" disabled={loading}>
+					{loading ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Undo2 className="h-4 w-4" />
+					)}
+					Refund
+				</Button>
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Refund this purchase?</AlertDialogTitle>
+					<AlertDialogDescription>
+						${Number(transaction.amount ?? 0).toFixed(2)} will be refunded to
+						your original payment method and{" "}
+						{Number(transaction.creditAmount ?? 0).toFixed(2)} credits will be
+						removed from your balance. This cannot be undone.
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>Cancel</AlertDialogCancel>
+					<AlertDialogAction onClick={handleRefund}>
+						Request refund
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
 }
 
 interface TransactionsData {
@@ -50,6 +198,18 @@ function isInvoiceable(transaction: Transaction): boolean {
 
 function isRefund(type: Transaction["type"]): boolean {
 	return type === "credit_refund";
+}
+
+// Refunds move money back to the customer, so show the paid amount as negative
+// — matching the already-signed Credits column. The stored `amount` stays
+// positive (it feeds invoice/credit-note generation).
+function paidAmountDisplay(transaction: Transaction): string {
+	if (transaction.amount === null) {
+		return "—";
+	}
+	return isRefund(transaction.type)
+		? `-${transaction.amount}`
+		: transaction.amount;
 }
 
 function InvoiceDownloadButton({
@@ -187,7 +347,7 @@ function TransactionCard({
 					{transaction.amount && (
 						<div>
 							<p className="text-muted-foreground text-xs">Total Paid</p>
-							<p className="font-medium">{transaction.amount}</p>
+							<p className="font-medium">{paidAmountDisplay(transaction)}</p>
 						</div>
 					)}
 				</div>
@@ -199,9 +359,10 @@ function TransactionCard({
 					</div>
 				)}
 
-				{isInvoiceable(transaction) && (
-					<div className="pt-1">
+				{(isInvoiceable(transaction) || transaction.refund) && (
+					<div className="pt-1 flex gap-2">
 						<InvoiceDownloadButton orgId={orgId} transaction={transaction} />
+						<RefundButton orgId={orgId} transaction={transaction} />
 					</div>
 				)}
 			</div>
@@ -310,7 +471,7 @@ export function TransactionsClient({
 													{transaction.creditAmount ?? "—"}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
-													{transaction.amount ?? "—"}
+													{paidAmountDisplay(transaction)}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
 													<Badge
@@ -329,11 +490,17 @@ export function TransactionsClient({
 													{transaction.description ?? "—"}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap text-right">
-													{isInvoiceable(transaction) ? (
-														<InvoiceDownloadButton
-															orgId={orgId}
-															transaction={transaction}
-														/>
+													{isInvoiceable(transaction) || transaction.refund ? (
+														<div className="flex justify-end gap-2">
+															<InvoiceDownloadButton
+																orgId={orgId}
+																transaction={transaction}
+															/>
+															<RefundButton
+																orgId={orgId}
+																transaction={transaction}
+															/>
+														</div>
 													) : (
 														"—"
 													)}

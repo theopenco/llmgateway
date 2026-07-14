@@ -38,6 +38,7 @@
 		"ai": "6.0.27",
 		"bcrypt-ts": "8.0.0",
 		"better-auth": "1.6.23",
+		"decimal.js": "10.5.0",
 		"disposable-email-domains-js": "1.20.0",
 		"dotenv": "17.4.2",
 		"drizzle-zod": "0.8.3",

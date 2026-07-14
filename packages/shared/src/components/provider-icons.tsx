@@ -489,6 +489,22 @@ export const XAIIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+// Square-viewBox variant for OG images: satori stretches an SVG to the given
+// width/height without preserving aspect ratio, so the wide wordmark is
+// letterboxed inside a square viewBox instead.
+export const XAIIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 759 759" {...props}>
+		<g transform="translate(-674.5,-154.1)" fill="currentColor">
+			<path d="M1433.19 388.934C1345.69 396.068 1001.73 438.71 763.235 678.467H674.732L684.62 668.612C734.53 620.395 955.373 416.045 1433.19 388.668V388.934Z" />
+			<path d="M1133.66 678.467H1064.29L927.618 578.979C940.213 571.058 952.888 563.515 965.603 556.33L1133.66 678.467Z" />
+			<path d="M1022.8 678.468H953.463L932.43 663.169H814.998C823.265 655.828 831.635 648.702 840.092 641.784H902.996L870.444 618.106C882.079 609.448 893.843 601.155 905.701 593.211L1022.8 678.468Z" />
+			<path d="M770.433 495.02L823.901 533.876C810.594 541.712 798.139 549.468 786.514 557.055L701.158 494.986L770.433 495.02Z" />
+		</g>
+	</svg>
+);
+
 // Moonshot Icon
 export const MoonshotIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,

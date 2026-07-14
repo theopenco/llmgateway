@@ -27,28 +27,15 @@ import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
+import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
+import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
 
-/**
- * Generic typed error for invalid client requests detected before we hit the
- * upstream provider (e.g. malformed message shapes). The gateway maps this to
- * the carried `statusCode` (default 400) and writes a client_error log row so
- * the rejected request still shows up in the user's activity history instead
- * of surfacing as a generic 500 with no log. Reuse this for any similar
- * pre-upstream request validation failure.
- */
-export class RequestError extends Error {
-	public readonly statusCode: number;
-	public constructor(message: string, statusCode = 400) {
-		super(message);
-		this.name = "RequestError";
-		this.statusCode = statusCode;
-	}
-}
+export { RequestError } from "./request-error.js";
 
 /**
  * Hash a caller session id before using it as an upstream `prompt_cache_key`
@@ -2542,7 +2529,7 @@ export async function prepareRequestBody(
 							toolUse: {
 								toolUseId: toolCall.id,
 								name: toolCall.function.name,
-								input: JSON.parse(toolCall.function.arguments),
+								input: parseToolCallArguments(toolCall),
 							},
 						});
 					});
@@ -3205,6 +3192,52 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+			break;
+		}
+		case "xiaomi": {
+			// Xiaomi expects tool message content as a plain string — flatten
+			// array content blocks to text, dropping image blocks.
+			requestBody.messages = requestBody.messages.map((m: BaseMessage) =>
+				m.role === "tool" && Array.isArray(m.content)
+					? {
+							...m,
+							content: m.content
+								.filter(isTextContent)
+								.map((c) => c.text)
+								.filter(Boolean)
+								.join("\n"),
+						}
+					: m,
+			);
+
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}

@@ -4,6 +4,7 @@ import {
 	EditIcon,
 	KeyIcon,
 	MoreHorizontal,
+	PencilIcon,
 	PlusIcon,
 	RefreshCwIcon,
 	Shield,
@@ -63,6 +64,7 @@ import { ApiKeyLimitsDialog } from "./api-key-limits-dialog";
 import { formatApiKeyExpiry } from "./api-key-ttl-fields";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
 import { ReactivateApiKeyDialog } from "./reactivate-api-key-dialog";
+import { RenameApiKeyDialog } from "./rename-api-key-dialog";
 import { RollApiKeyDialog } from "./roll-api-key-dialog";
 
 import type { ApiKey, Project } from "@/lib/types";
@@ -94,6 +96,7 @@ export function ApiKeysList({
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
 	const [reactivateKey, setReactivateKey] = useState<ApiKey | null>(null);
 	const [rollKey, setRollKey] = useState<ApiKey | null>(null);
+	const [renameKey, setRenameKey] = useState<ApiKey | null>(null);
 
 	const getIamRulesUrl = (keyId: string) =>
 		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}/iam` as Route;
@@ -149,6 +152,9 @@ export function ApiKeysList({
 
 	const { mutateAsync: rollKeyAsync, isPending: isRollPending } =
 		api.useMutation("post", "/keys/api/{id}/roll");
+
+	const { mutateAsync: renameKeyAsync, isPending: isRenamePending } =
+		api.useMutation("patch", "/keys/api/{id}");
 
 	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 	const activeKeys = allKeys.filter((key) => key.status === "active");
@@ -351,6 +357,36 @@ export function ApiKeysList({
 				variant: "destructive",
 			});
 			return undefined;
+		}
+	};
+
+	const handleRename = async (description: string) => {
+		if (!renameKey) {
+			return;
+		}
+
+		try {
+			await renameKeyAsync({
+				params: {
+					path: { id: renameKey.id },
+				},
+				body: {
+					description,
+				},
+			});
+
+			invalidateApiKeys();
+			setRenameKey(null);
+
+			toast({
+				title: "API Key Renamed",
+				description: "The API key has been renamed.",
+			});
+		} catch {
+			toast({
+				title: "Failed to rename API key.",
+				variant: "destructive",
+			});
 		}
 	};
 
@@ -711,6 +747,10 @@ export function ApiKeysList({
 											{key.description !== "Auto-generated playground key" && (
 												<>
 													<DropdownMenuSeparator />
+													<DropdownMenuItem onClick={() => setRenameKey(key)}>
+														<PencilIcon className="mr-2 h-4 w-4" />
+														Rename Key
+													</DropdownMenuItem>
 													<DropdownMenuItem onClick={() => toggleStatus(key)}>
 														{key.status === "active"
 															? "Deactivate"
@@ -967,6 +1007,18 @@ export function ApiKeysList({
 				}}
 				onConfirm={handleRoll}
 				isPending={isRollPending}
+			/>
+
+			<RenameApiKeyDialog
+				apiKey={renameKey}
+				open={renameKey !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRenameKey(null);
+					}
+				}}
+				onConfirm={handleRename}
+				isPending={isRenamePending}
 			/>
 		</>
 	);
