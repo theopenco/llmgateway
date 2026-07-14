@@ -25,6 +25,23 @@ export const minimaxModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "together-ai",
+				externalId: "MiniMaxAI/MiniMax-M3",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 524288,
+				maxOutput: 131072,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 	{
@@ -68,6 +85,9 @@ export const minimaxModels = [
 				jsonOutput: true,
 			},
 			{
+				// Together AI deprecates this serverless model on 2026-07-27,
+				// recommending MiniMaxAI/MiniMax-M3 as the replacement.
+				deactivatedAt: new Date("2026-07-27"),
 				providerId: "together-ai",
 				externalId: "MiniMaxAI/MiniMax-M2.7",
 				inputPrice: "0.3e-6",
