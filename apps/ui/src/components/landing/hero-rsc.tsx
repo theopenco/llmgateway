@@ -1,5 +1,3 @@
-import { fetchModels, fetchProviders } from "@/lib/fetch-models";
-
 import { GitHubStars } from "./github-stars";
 import { Hero } from "./hero";
 import { allMigrations } from "content-collections";
@@ -12,7 +10,6 @@ export const HeroRSC = async ({
 	sticky?: boolean;
 }) => {
 	if (navbarOnly) {
-		// Skip fetching models/providers/migrations for navbar-only mode
 		return (
 			<Hero navbarOnly sticky={sticky}>
 				<GitHubStars />
@@ -20,10 +17,9 @@ export const HeroRSC = async ({
 		);
 	}
 
-	const [models, providers] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
-	]);
+	// Models/providers are intentionally not fetched here: serializing the full
+	// catalogue into the RSC payload added ~2MB to the landing page HTML. The
+	// navbar's ModelSearch lazily fetches them client-side when opened.
 	const migrations = allMigrations.map((m) => ({
 		slug: m.slug,
 		title: m.title,
@@ -31,13 +27,7 @@ export const HeroRSC = async ({
 	}));
 
 	return (
-		<Hero
-			navbarOnly={navbarOnly}
-			sticky={sticky}
-			migrations={migrations}
-			models={models}
-			providers={providers}
-		>
+		<Hero navbarOnly={navbarOnly} sticky={sticky} migrations={migrations}>
 			<GitHubStars />
 		</Hero>
 	);

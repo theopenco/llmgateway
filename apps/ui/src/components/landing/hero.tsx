@@ -12,32 +12,9 @@ import { useAppConfig } from "@/lib/config";
 import { MARKETING_STATS } from "@llmgateway/shared";
 import { providerLogoUrls } from "@llmgateway/shared/components";
 
-import { AnimatedGroup } from "./animated-group";
 import { Navbar } from "./navbar";
 
-import type { Variants } from "@/components/motion-wrapper";
-import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { ProviderId } from "@llmgateway/models";
-
-const transitionVariants: { item: Variants } = {
-	item: {
-		hidden: {
-			opacity: 0,
-			filter: "blur(12px)",
-			y: 12,
-		},
-		visible: {
-			opacity: 1,
-			filter: "blur(0px)",
-			y: 0,
-			transition: {
-				type: "spring" as const,
-				bounce: 0.3,
-				duration: 1.5,
-			},
-		},
-	},
-};
 
 // Provider logos configuration
 const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
@@ -134,23 +111,17 @@ export function Hero({
 	sticky = true,
 	children,
 	migrations = [],
-	models,
-	providers,
 }: {
 	navbarOnly?: boolean;
 	sticky?: boolean;
 	children: React.ReactNode;
 	migrations?: MigrationData[];
-	models?: ApiModel[];
-	providers?: ApiProvider[];
 }) {
 	const config = useAppConfig();
 
 	return (
 		<>
-			<Navbar sticky={sticky} models={models} providers={providers}>
-				{children}
-			</Navbar>
+			<Navbar sticky={sticky}>{children}</Navbar>
 			{!navbarOnly && (
 				<main className="overflow-hidden">
 					<div
@@ -170,7 +141,7 @@ export function Hero({
 							<div className="mx-auto max-w-7xl px-6">
 								{/* Announcement badge - centered */}
 								<div className="mb-10 lg:mb-12 flex justify-center">
-									<AnimatedGroup variants={transitionVariants}>
+									<div className="animate-hero-enter">
 										<Link
 											href="/blog/soc2-type-ii"
 											className="hover:bg-background dark:hover:border-t-border bg-muted group flex w-fit items-center gap-4 rounded-full border p-1 pl-4 shadow-md shadow-black/5 transition-all duration-300 dark:border-t-white/5 dark:shadow-zinc-950"
@@ -191,12 +162,12 @@ export function Hero({
 												</div>
 											</div>
 										</Link>
-									</AnimatedGroup>
+									</div>
 								</div>
 
 								{/* Centered hero content - optimized for conversion */}
 								<div className="text-center max-w-4xl mx-auto">
-									<AnimatedGroup variants={transitionVariants}>
+									<div className="animate-hero-enter">
 										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
 											LLM Gateway — One API for {MARKETING_STATS.providers}{" "}
 											providers, including OpenAI, Anthropic, and Google
@@ -207,23 +178,10 @@ export function Hero({
 											costs in real-time, and switch providers without changing
 											your code.
 										</p>
-									</AnimatedGroup>
+									</div>
 
 									{/* Primary CTA - Maximum prominence */}
-									<AnimatedGroup
-										variants={{
-											container: {
-												visible: {
-													transition: {
-														staggerChildren: 0.05,
-														delayChildren: 0.5,
-													},
-												},
-											},
-											...transitionVariants,
-										}}
-										className="mt-8 md:mt-10 flex flex-col items-center gap-6"
-									>
+									<div className="animate-hero-enter hero-enter-delay-1 mt-8 md:mt-10 flex flex-col items-center gap-6">
 										{/* Primary CTA - ShimmerButton with glow */}
 										<div className="relative">
 											{/* Outer glow ring */}
@@ -303,25 +261,13 @@ export function Hero({
 												</a>
 											</Button>
 										) : null}
-									</AnimatedGroup>
+									</div>
 								</div>
 							</div>
 
 							{/* Migration guides section */}
 							{migrations.length > 0 && (
-								<AnimatedGroup
-									variants={{
-										container: {
-											visible: {
-												transition: {
-													staggerChildren: 0.05,
-													delayChildren: 0.6,
-												},
-											},
-										},
-										...transitionVariants,
-									}}
-								>
+								<div className="animate-hero-enter hero-enter-delay-2">
 									<div className="mx-auto mt-10 max-w-4xl px-6">
 										<p className="mb-4 text-center text-sm text-muted-foreground">
 											Switching from another provider?
@@ -359,49 +305,41 @@ export function Hero({
 											</Link>
 										</div>
 									</div>
-								</AnimatedGroup>
+								</div>
 							)}
 
-							<AnimatedGroup
-								variants={{
-									container: {
-										visible: {
-											transition: {
-												staggerChildren: 0.05,
-												delayChildren: 0.75,
-											},
-										},
-									},
-									...transitionVariants,
-								}}
-							>
+							<div className="animate-hero-enter hero-enter-delay-3">
 								<div className="relative -mr-56 mt-8 overflow-hidden px-2 sm:mr-0 sm:mt-12 md:mt-20">
 									<div
 										aria-hidden
 										className="bg-linear-to-b to-background absolute inset-0 z-10 from-transparent from-35%"
 									/>
 									<div className="inset-shadow-2xs ring-background dark:inset-shadow-white/20 bg-background relative mx-auto max-w-6xl overflow-hidden rounded-2xl border p-4 shadow-lg shadow-zinc-950/15 ring-1">
+										{/*
+										 * Both theme variants stay in the DOM (CSS decides which
+										 * shows). Default lazy loading means the display:none one
+										 * is never downloaded, and neither competes with the LCP
+										 * headline for bandwidth.
+										 */}
 										<Image
-											className="bg-background aspect-15/8 relative hidden rounded-2xl dark:block"
+											className="bg-background aspect-[3022/1650] relative hidden rounded-2xl dark:block"
 											src="/new-hero.png"
 											alt="LLM Gateway dashboard showing analytics and API usage"
-											width={2696}
-											height={1386}
+											width={3022}
+											height={1650}
 											sizes="(max-width: 1280px) 100vw, 1120px"
-											priority
 										/>
 										<Image
-											className="z-2 border-border/25 aspect-15/8 relative rounded-2xl border dark:hidden"
+											className="z-2 border-border/25 aspect-[3022/1656] relative rounded-2xl border dark:hidden"
 											src="/new-hero-light.png"
 											alt="LLM Gateway dashboard showing analytics and API usage"
-											width={2696}
-											height={1386}
+											width={3022}
+											height={1656}
 											sizes="(max-width: 1280px) 100vw, 1120px"
-											priority
 										/>
 									</div>
 								</div>
-							</AnimatedGroup>
+							</div>
 						</div>
 					</section>
 					<section className="bg-background pb-16 pt-16 md:pb-32">

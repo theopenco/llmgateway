@@ -77,13 +77,13 @@ function PriceCell({
 	const formatted = formatPrice(adjustedPrice, discount);
 	return (
 		<div className="text-center">
-			<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">
+			<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
 				{label}
 			</div>
 			<div className="font-semibold text-foreground text-sm tabular-nums">
 				{formatted}
 			</div>
-			<div className="text-[10px] text-muted-foreground/50">{unit}</div>
+			<div className="text-[10px] text-muted-foreground">{unit}</div>
 		</div>
 	);
 }
@@ -258,9 +258,9 @@ export function ModelCard({
 					<div className="mb-4">
 						<div className="flex items-start justify-between gap-3 mb-2">
 							<div className="min-w-0 flex-1">
-								<h3 className="text-lg font-bold text-foreground tracking-tight truncate">
+								<h2 className="text-lg font-bold text-foreground tracking-tight truncate">
 									{model.name ?? model.id}
-								</h3>
+								</h2>
 							</div>
 							<div className="flex items-center gap-1.5 shrink-0">
 								{shouldShowStabilityWarning(model.stability) && (
@@ -592,7 +592,7 @@ export function ProviderSection({
 										"text-[9px] font-medium",
 										activeServiceTierId === "standard"
 											? "text-foreground/65"
-											: "text-muted-foreground/70",
+											: "text-muted-foreground",
 									)}
 								>
 									1x
@@ -620,7 +620,7 @@ export function ProviderSection({
 												"text-[9px] font-medium",
 												isSelected
 													? "text-foreground/65"
-													: "text-muted-foreground/70",
+													: "text-muted-foreground",
 											)}
 										>
 											{tier.multiplier}x
@@ -784,7 +784,7 @@ export function ProviderSection({
 						return (
 							<div className="rounded-md bg-muted/40 border border-border/30 p-3">
 								<div className="flex items-center justify-between gap-2">
-									<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+									<div className="text-[10px] uppercase tracking-wider text-muted-foreground">
 										{label}
 									</div>
 									<div className="font-semibold tabular-nums text-sm">
@@ -822,7 +822,7 @@ export function ProviderSection({
 							`$${parseFloat(value.toFixed(4))}`;
 						return (
 							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-								<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 									Per Character Pricing
 								</div>
 								<div className="flex justify-between text-sm">
@@ -840,7 +840,7 @@ export function ProviderSection({
 										) : (
 											formatChars(perThousandChars)
 										)}
-										<span className="text-muted-foreground/60 text-xs ml-0.5">
+										<span className="text-muted-foreground text-xs ml-0.5">
 											/1K chars
 										</span>
 									</span>
@@ -856,7 +856,7 @@ export function ProviderSection({
 						0) ? null : activeMapping.perSecondPrice &&
 				  Object.keys(activeMapping.perSecondPrice).length > 0 ? (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 							Per Second Pricing
 						</div>
 						<div className="space-y-1">
@@ -872,7 +872,7 @@ export function ProviderSection({
 											</span>
 											<span className="font-semibold tabular-nums">
 												${defaultVideo} – ${defaultAudio}
-												<span className="text-muted-foreground/60 text-xs ml-0.5">
+												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
 											</span>
@@ -886,7 +886,7 @@ export function ProviderSection({
 											<span className="text-muted-foreground">Default</span>
 											<span className="font-semibold tabular-nums">
 												${defaultPrice}
-												<span className="text-muted-foreground/60 text-xs ml-0.5">
+												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
 											</span>
@@ -940,7 +940,7 @@ export function ProviderSection({
 							activeMapping.ocrPagePrice !== undefined &&
 							Number(activeMapping.ocrPagePrice) > 0 && (
 								<div className="rounded-md bg-background border border-border/30 p-2 flex items-baseline justify-between">
-									<span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+									<span className="text-[10px] uppercase tracking-wider text-muted-foreground">
 										OCR
 									</span>
 									<span className="font-mono tabular-nums text-sm">
@@ -1001,7 +1001,7 @@ export function ProviderSection({
 				{/* Tiered pricing (if applicable) */}
 				{(activeMapping.pricingTiers?.length ?? 0) > 1 && (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 							Tiered Pricing
 						</div>
 						<div className="space-y-2">
@@ -1012,7 +1012,7 @@ export function ProviderSection({
 								return (
 									<>
 										<div
-											className={`grid ${hasCached ? "grid-cols-[1fr_1fr_1fr_1fr]" : "grid-cols-[1fr_1fr_1fr]"} gap-x-2 text-[10px] text-muted-foreground/60 text-right`}
+											className={`grid ${hasCached ? "grid-cols-[1fr_1fr_1fr_1fr]" : "grid-cols-[1fr_1fr_1fr]"} gap-x-2 text-[10px] text-muted-foreground text-right`}
 										>
 											<div />
 											<div>IN</div>
@@ -1080,7 +1080,7 @@ export function ProviderSection({
 					activeMapping.imageOutputTokensByResolution ??
 					activeMapping.imageOutputPrice) && (
 					<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-						<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+						<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 							{activeMapping.imageOutputTokensByResolution
 								? "Image Pricing (est. per image)"
 								: "Image Pricing"}
@@ -1160,9 +1160,7 @@ export function ProviderSection({
 												"end",
 												serviceTierMultiplier,
 											)}
-											<span className="text-muted-foreground/60">
-												/M tokens
-											</span>
+											<span className="text-muted-foreground">/M tokens</span>
 										</div>
 									</div>
 								</div>
@@ -1245,7 +1243,7 @@ export function ProviderSection({
 										+{" "}
 										{discountNum > 0 ? (
 											<>
-												<span className="line-through text-muted-foreground/60 mr-1">
+												<span className="line-through text-muted-foreground mr-1">
 													${original.toFixed(3)}
 												</span>
 												<span className="text-green-600 font-semibold">
@@ -1255,10 +1253,7 @@ export function ProviderSection({
 										) : (
 											`$${original.toFixed(3)}`
 										)}
-										<span className="text-muted-foreground/60">
-											{" "}
-											per request
-										</span>
+										<span className="text-muted-foreground"> per request</span>
 									</span>
 								);
 							})()}
@@ -1275,7 +1270,7 @@ export function ProviderSection({
 										+{" "}
 										{discountNum > 0 ? (
 											<>
-												<span className="line-through text-muted-foreground/60 mr-1">
+												<span className="line-through text-muted-foreground mr-1">
 													${original.toFixed(3)}
 												</span>
 												<span className="text-green-600 font-semibold">
@@ -1285,10 +1280,7 @@ export function ProviderSection({
 										) : (
 											`$${original.toFixed(3)}`
 										)}
-										<span className="text-muted-foreground/60">
-											{" "}
-											per search
-										</span>
+										<span className="text-muted-foreground"> per search</span>
 									</span>
 								);
 							})()}
@@ -1325,7 +1317,7 @@ export function ProviderSection({
 							<div className="space-y-2.5">
 								{(activeMapping.reasoningEfforts?.length ?? 0) > 0 && (
 									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-										<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 											Reasoning Efforts
 										</div>
 										<div className="flex flex-wrap gap-1">
@@ -1343,7 +1335,7 @@ export function ProviderSection({
 								)}
 								{(activeMapping.supportedParameters?.length ?? 0) > 0 && (
 									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-										<div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
 											Supported Parameters
 										</div>
 										<div className="flex flex-wrap gap-1">

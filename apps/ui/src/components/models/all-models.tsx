@@ -1533,7 +1533,7 @@ export function AllModels({
 				<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
 					{/* Categories */}
 					<div className="space-y-3">
-						<h3 className="font-medium text-sm">Use Case</h3>
+						<div className="font-medium text-sm">Use Case</div>
 						<Select
 							value={filters.category}
 							onValueChange={(value) => {
@@ -1595,7 +1595,7 @@ export function AllModels({
 
 					{/* Capabilities */}
 					<div className="space-y-3">
-						<h3 className="font-medium text-sm">Capabilities</h3>
+						<div className="font-medium text-sm">Capabilities</div>
 						<div className="flex flex-wrap gap-2">
 							{[
 								{
@@ -1714,7 +1714,7 @@ export function AllModels({
 					</div>
 
 					<div className="space-y-3">
-						<h3 className="font-medium text-sm">Provider</h3>
+						<div className="font-medium text-sm">Provider</div>
 						<Select
 							value={filters.selectedProvider}
 							onValueChange={(value) => {
@@ -1751,7 +1751,7 @@ export function AllModels({
 					</div>
 
 					<div className="space-y-3">
-						<h3 className="font-medium text-sm">Input Price ($/M tokens)</h3>
+						<div className="font-medium text-sm">Input Price ($/M tokens)</div>
 						<div className="space-y-2">
 							<Input
 								placeholder="Min price"
@@ -1785,7 +1785,7 @@ export function AllModels({
 					</div>
 
 					<div className="space-y-3">
-						<h3 className="font-medium text-sm">Output Price ($/M tokens)</h3>
+						<div className="font-medium text-sm">Output Price ($/M tokens)</div>
 						<div className="space-y-2">
 							<Input
 								placeholder="Min price"
@@ -1819,7 +1819,7 @@ export function AllModels({
 					</div>
 
 					<div className="space-y-3">
-						<h3 className="font-medium text-sm">Context Size (tokens)</h3>
+						<div className="font-medium text-sm">Context Size (tokens)</div>
 						<div className="space-y-2">
 							<Input
 								placeholder="Min size (e.g., 128000)"
