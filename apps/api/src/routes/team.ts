@@ -26,6 +26,18 @@ export const team = new OpenAPIHono<ServerTypes>();
 
 const roleSchema = z.enum(["owner", "admin", "developer"]);
 
+// Default team-member seat cap per plan tier. An explicit `organization.seats`
+// override (set by admins) always takes precedence over these defaults.
+export function resolveSeatLimit(
+	plan: string | null | undefined,
+	seats: number | null | undefined,
+): number {
+	if (seats !== null && seats !== undefined) {
+		return seats;
+	}
+	return plan === "enterprise" ? 100 : 5;
+}
+
 const periodDurationUnitSchema = z.enum(apiKeyPeriodDurationUnits);
 
 const memberBudgetSchema = z.object({
@@ -319,6 +331,8 @@ const getMembers = createRoute({
 						members: z.array(teamMemberSchema).openapi({}),
 						// The org-wide default developer budget (owner/admin only).
 						defaultDeveloperBudget: memberBudgetSchema.nullable(),
+						// Effective team-member seat cap (plan default or admin override).
+						seatLimit: z.number().int(),
 					}),
 				},
 			},
@@ -387,19 +401,20 @@ team.openapi(getMembers, async (c) => {
 		? await computeMemberSpend(organizationId, members)
 		: new Map<string, z.infer<typeof memberSpendSchema>>();
 
-	const org = isPrivileged
-		? await db.query.organization.findFirst({
-				where: { id: { eq: organizationId } },
-				columns: {
-					defaultDeveloperMaxApiKeys: true,
-					defaultDeveloperUsageLimit: true,
-					defaultDeveloperPeriodUsageLimit: true,
-					defaultDeveloperPeriodUsageDurationValue: true,
-					defaultDeveloperPeriodUsageDurationUnit: true,
-				},
-			})
-		: null;
-	const orgDefaults = orgDefaultsFrom(org);
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: {
+			plan: true,
+			seats: true,
+			defaultDeveloperMaxApiKeys: true,
+			defaultDeveloperUsageLimit: true,
+			defaultDeveloperPeriodUsageLimit: true,
+			defaultDeveloperPeriodUsageDurationValue: true,
+			defaultDeveloperPeriodUsageDurationUnit: true,
+		},
+	});
+	const orgDefaults = orgDefaultsFrom(isPrivileged ? org : null);
+	const seatLimit = resolveSeatLimit(org?.plan, org?.seats);
 
 	return c.json({
 		members: members.map((m) => ({
@@ -425,6 +440,7 @@ team.openapi(getMembers, async (c) => {
 		defaultDeveloperBudget: isPrivileged
 			? defaultBudgetFrom(orgDefaults)
 			: null,
+		seatLimit,
 	});
 });
 
@@ -605,8 +621,10 @@ team.openapi(addMember, async (c) => {
 		},
 	});
 
-	const memberLimit =
-		userOrganization.organization?.plan === "enterprise" ? 100 : 5;
+	const memberLimit = resolveSeatLimit(
+		userOrganization.organization?.plan,
+		userOrganization.organization?.seats,
+	);
 
 	if (currentMembers.length >= memberLimit) {
 		throw new HTTPException(403, {

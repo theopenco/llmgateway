@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { useMyMemberBudget } from "@/hooks/useTeam";
 import { Button } from "@/lib/components/button";
 import {
 	Dialog,
@@ -18,6 +19,7 @@ import {
 	ApiKeyLimitFields,
 	buildApiKeyLimitPayload,
 	createApiKeyLimitFormValue,
+	validateApiKeyLimitPayloadWithinMemberBudget,
 	type ApiKeyLimitPayload,
 } from "./api-key-limit-fields";
 
@@ -28,16 +30,20 @@ interface ApiKeyLimitsDialogProps {
 	apiKey: ApiKey;
 	children: React.ReactNode;
 	onSubmit: (payload: ApiKeyLimitPayload) => Promise<void> | void;
+	organizationId: string;
 }
 
 export function ApiKeyLimitsDialog({
 	apiKey,
 	children,
 	onSubmit,
+	organizationId,
 }: ApiKeyLimitsDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [value, setValue] = useState(() => createApiKeyLimitFormValue(apiKey));
+	const { data: memberBudgetData } = useMyMemberBudget(organizationId);
+	const memberBudget = memberBudgetData?.budget ?? null;
 
 	useEffect(() => {
 		if (!open) {
@@ -65,6 +71,15 @@ export function ApiKeyLimitsDialog({
 							return;
 						}
 
+						const budgetError = validateApiKeyLimitPayloadWithinMemberBudget(
+							payload,
+							memberBudget,
+						);
+						if (budgetError) {
+							toast({ title: budgetError, variant: "destructive" });
+							return;
+						}
+
 						setIsSubmitting(true);
 						try {
 							await onSubmit(payload);
@@ -88,6 +103,7 @@ export function ApiKeyLimitsDialog({
 							idPrefix={`api-key-limit-${apiKey.id}`}
 							value={value}
 							onChange={setValue}
+							memberBudget={memberBudget}
 						/>
 					</div>
 					<DialogFooter className="pt-8">

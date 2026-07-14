@@ -3860,6 +3860,106 @@ describe("api", () => {
 		expect(Number(cachedLog?.promptTokens)).toBeGreaterThan(0);
 	});
 
+	// Non-streaming responses are cached in OpenAI format, so the stored
+	// finish_reason is normalized (e.g. "stop"). The cache-hit log must classify
+	// it using the OpenAI mapping, not the upstream provider's native format —
+	// anthropic never emits "stop", so mapping against "anthropic" would resolve
+	// to UNKNOWN and log a spurious "Unknown finish reason encountered" error.
+	test("/v1/chat/completions cached anthropic response classifies finish reason", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-cache-anthropic",
+			token: "real-token-cache-anthropic",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-cache-anthropic",
+			token: "sk-test-key",
+			provider: "anthropic",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/messages`)) {
+					return new Response(
+						JSON.stringify({
+							id: "msg_cache",
+							type: "message",
+							role: "assistant",
+							model: "claude-opus-4-8",
+							content: [{ type: "text", text: "Cached anthropic reply" }],
+							stop_reason: "end_turn",
+							stop_sequence: null,
+							usage: { input_tokens: 100, output_tokens: 20 },
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		const body = JSON.stringify({
+			model: "anthropic/claude-opus-4-8",
+			messages: [{ role: "user", content: "Cache this anthropic response!" }],
+		});
+
+		const makeRequest = () =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-cache-anthropic",
+					"x-no-fallback": "true",
+				},
+				body,
+			});
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			// First request primes the cache (setCache is a no-op under NODE_ENV=test).
+			process.env.NODE_ENV = "development";
+			const firstRes = await makeRequest();
+			expect(firstRes.status).toBe(200);
+			process.env.NODE_ENV = originalNodeEnv;
+
+			// Second identical request is served entirely from the gateway cache.
+			const secondRes = await makeRequest();
+			expect(secondRes.status).toBe(200);
+			const secondJson = await secondRes.json();
+			expect(secondJson.choices[0].finish_reason).toBe("stop");
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+			fetchSpy.mockRestore();
+		}
+
+		const logs = await waitForLogs(2);
+		const cachedLog = logs.find((log) => log.cached);
+		expect(cachedLog).toBeTruthy();
+		// The cache stores the OpenAI-normalized "stop"; it must classify as
+		// completed rather than the UNKNOWN it would resolve to under anthropic.
+		expect(cachedLog?.finishReason).toBe("stop");
+		expect(cachedLog?.unifiedFinishReason).toBe("completed");
+	});
+
 	// test for model with multiple providers (llama-3.3-70b-instruct)
 	test.skip("/v1/chat/completions with model that has multiple providers", async () => {
 		await db.insert(tables.apiKey).values({

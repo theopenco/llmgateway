@@ -948,7 +948,7 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
+			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},

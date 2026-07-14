@@ -30,7 +30,6 @@ export {
 	getDevPlanCreditsLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getRemainingPremiumWeeklyAllowance,
-	getProratedCreditDelta,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
 
@@ -101,6 +100,14 @@ export { selectLoadBalancedItem } from "./load-balance.js";
 export { MARKETING_STATS } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";
+
+export {
+	validateApiKeyLimitsWithinMemberBudget,
+	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
+	type ApiKeyLimitConstraints,
+	type ApiKeyPeriodDurationUnitValue,
+	type MemberBudgetShape,
+} from "./member-budget-limits.js";
 
 export {
 	estimateChatMessageTokens,

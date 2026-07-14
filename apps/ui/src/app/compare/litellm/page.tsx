@@ -31,6 +31,11 @@ const liteLlmFaqs: CompareFaqItem[] = [
 		answer:
 			"Yes. Real-time cost and latency analytics, automatic provider routing and fallback, budgets and spend controls, and prompt caching are built in — no extra setup required.",
 	},
+	{
+		question: "What are the best LiteLLM alternatives?",
+		answer:
+			"LLM Gateway is the most complete LiteLLM alternative: open source, self-hostable, and available as a managed cloud with zero markup on your own keys. Other options teams evaluate include OpenRouter (managed, no self-hosting), Bifrost (self-hosted Go proxy), and Portkey (enterprise governance).",
+	},
 ];
 
 export default function CompareLiteLLMPage() {

@@ -217,10 +217,20 @@ export default function Login() {
 		// native passkey/biometric prompt after the SSO redirect.
 		WebAuthnAbortService.cancelCeremony();
 		try {
+			const origin = location.protocol + "//" + location.host;
+			// Carry the validated `?redirect=` target through the error path too, so a
+			// failed SSO attempt returns to /login with the intended destination and a
+			// retry still lands the user there.
+			const errorUrl = new URL("/login", origin);
+			if (redirectTarget !== "/dashboard") {
+				errorUrl.searchParams.set("redirect", redirectTarget);
+			}
 			const res = await signIn.sso({
 				email: parsed.data,
-				callbackURL: location.protocol + "//" + location.host + "/dashboard",
-				errorCallbackURL: location.protocol + "//" + location.host + "/login",
+				// Honor the same validated `?redirect=` target as the other sign-in
+				// methods so SSO users also land on their intended post-login route.
+				callbackURL: origin + redirectTarget,
+				errorCallbackURL: errorUrl.toString(),
 			});
 			if (res?.error) {
 				toast({
@@ -230,6 +240,11 @@ export default function Login() {
 					variant: "destructive",
 				});
 			}
+		} catch (error: unknown) {
+			toast({
+				title: (error as Error)?.message || "Failed to sign in with SSO",
+				variant: "destructive",
+			});
 		} finally {
 			setIsLoading(false);
 		}

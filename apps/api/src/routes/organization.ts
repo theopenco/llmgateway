@@ -57,6 +57,10 @@ const organizationSchema = z.object({
 	credits: z.string(),
 	plan: z.enum(["free", "pro", "enterprise"]),
 	planExpiresAt: z.date().nullable(),
+	// Manual seat-limit override; null = use the plan default.
+	seats: z.number().nullable(),
+	// Manual API-key-limit override; null = use the plan default.
+	apiKeyLimit: z.number().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -115,6 +119,7 @@ const projectSchema = z.object({
 	paymentsSdkEnabled: z.boolean(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
+	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
 });
 
@@ -177,6 +182,7 @@ const transactionSchema = z.object({
 		"end_user_margin_accrual",
 		"end_user_refund",
 		"end_user_margin_payout",
+		"end_user_bonus",
 	]),
 	amount: z.string().nullable(),
 	creditAmount: z.string().nullable(),

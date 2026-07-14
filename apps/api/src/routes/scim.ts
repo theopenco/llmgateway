@@ -3,10 +3,12 @@ import { Hono } from "hono";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
 	and,
+	count,
 	db,
 	eq,
 	tables,
@@ -290,41 +292,87 @@ function parseEqFilter(
 scim.get("/Users", async (c) => {
 	const orgId = c.get("scimOrgId");
 	const startIndex = Math.max(1, Number(c.req.query("startIndex")) || 1);
-	const count = Math.min(200, Math.max(0, Number(c.req.query("count")) || 100));
+	const perPage = Math.min(
+		200,
+		Math.max(0, Number(c.req.query("count")) || 100),
+	);
 	const filter = c.req.query("filter");
 	const emailFilter = parseEqFilter(filter, "userName");
 	const externalIdFilter = parseEqFilter(filter, "externalId");
 
+	// IdPs poll with an `eq` filter to check whether a specific user already
+	// exists; resolve that with a single targeted lookup instead of scanning the
+	// whole directory.
+	if (emailFilter) {
+		// Resolve the user by email (provisioned emails are stored lowercased),
+		// then confirm they belong to this org — filtering must key off the email,
+		// not an arbitrary member row.
+		const user = await db.query.user.findFirst({
+			where: { email: { eq: emailFilter.toLowerCase() } },
+			columns: { id: true, email: true, name: true },
+		});
+		const membership = user ? await getMembership(user.id, orgId) : null;
+		const resources =
+			user && membership
+				? [toScimUser(user, true, membership.scimExternalId)]
+				: [];
+		return scimJson({
+			schemas: [SCHEMA_LIST],
+			totalResults: resources.length,
+			startIndex,
+			itemsPerPage: resources.length,
+			Resources: resources,
+		});
+	}
+
+	if (externalIdFilter) {
+		const membership = await db.query.userOrganization.findFirst({
+			where: {
+				organizationId: { eq: orgId },
+				scimExternalId: { eq: externalIdFilter },
+			},
+			columns: { scimExternalId: true },
+			with: { user: { columns: { id: true, email: true, name: true } } },
+		});
+		const resources = membership?.user
+			? [toScimUser(membership.user, true, membership.scimExternalId)]
+			: [];
+		return scimJson({
+			schemas: [SCHEMA_LIST],
+			totalResults: resources.length,
+			startIndex,
+			itemsPerPage: resources.length,
+			Resources: resources,
+		});
+	}
+
+	const [{ total }] = await db
+		.select({ total: count() })
+		.from(tables.userOrganization)
+		.where(eq(tables.userOrganization.organizationId, orgId));
+
 	const memberships = await db.query.userOrganization.findMany({
 		where: { organizationId: { eq: orgId } },
-		columns: { id: true, scimExternalId: true },
-		with: {
-			user: { columns: { id: true, email: true, name: true } },
-		},
+		columns: { scimExternalId: true },
+		with: { user: { columns: { id: true, email: true, name: true } } },
+		orderBy: { createdAt: "asc" },
+		limit: perPage,
+		offset: startIndex - 1,
 	});
 
-	let rows = memberships
+	const rows = memberships
 		.filter((m) => m.user)
 		.map((m) => ({
 			user: m.user as ScimUserRow,
 			externalId: m.scimExternalId,
 		}));
 
-	if (emailFilter) {
-		const needle = emailFilter.toLowerCase();
-		rows = rows.filter((r) => r.user.email.toLowerCase() === needle);
-	} else if (externalIdFilter) {
-		rows = rows.filter((r) => r.externalId === externalIdFilter);
-	}
-
-	const page = rows.slice(startIndex - 1, startIndex - 1 + count);
-
 	return scimJson({
 		schemas: [SCHEMA_LIST],
-		totalResults: rows.length,
+		totalResults: total,
 		startIndex,
-		itemsPerPage: page.length,
-		Resources: page.map((r) => toScimUser(r.user, true, r.externalId)),
+		itemsPerPage: rows.length,
+		Resources: rows.map((r) => toScimUser(r.user, true, r.externalId)),
 	});
 });
 
@@ -337,12 +385,14 @@ scim.get("/Users/:id", async (c) => {
 		columns: { id: true, email: true, name: true },
 	});
 
-	if (!user) {
+	// Scope to the token's org: a user outside this org isn't a resource this
+	// token can see, so don't leak their email/name.
+	const membership = user ? await getMembership(user.id, orgId) : null;
+	if (!user || !membership) {
 		return scimError(404, "User not found");
 	}
 
-	const membership = await getMembership(user.id, orgId);
-	return scimJson(toScimUser(user, !!membership, membership?.scimExternalId));
+	return scimJson(toScimUser(user, true, membership.scimExternalId));
 });
 
 interface ScimUserPayload {
@@ -426,30 +476,38 @@ scim.post("/Users", async (c) => {
 		// sign-in instead.
 	}
 
-	const [membership] = await db
-		.insert(tables.userOrganization)
-		.values({
-			userId: user.id,
-			organizationId: orgId,
-			role: "developer",
-			scimExternalId: payload.externalId ?? null,
-		})
-		.returning({ id: tables.userOrganization.id });
+	// Okta can create a user with `active: false` (a staged/suspended
+	// assignment). Since deactivation is modeled by removing org membership, an
+	// inactive create must not grant membership (and thus SSO eligibility) until
+	// a later activation.
+	const active =
+		payload.active === undefined ? true : parseScimBoolean(payload.active);
+	if (active) {
+		const [membership] = await db
+			.insert(tables.userOrganization)
+			.values({
+				userId: user.id,
+				organizationId: orgId,
+				role: "developer",
+				scimExternalId: payload.externalId ?? null,
+			})
+			.returning({ id: tables.userOrganization.id });
 
-	await grantDefaultProjects(membership.id, orgId);
+		await grantDefaultProjects(membership.id, orgId);
 
-	await logScimAudit(c, {
-		action: "scim.user.provision",
-		resourceType: "scim_user",
-		resourceId: user.id,
-		targetUser: user,
-		metadata: { resourceName: user.email },
-	});
+		await logScimAudit(c, {
+			action: "scim.user.provision",
+			resourceType: "scim_user",
+			resourceId: user.id,
+			targetUser: user,
+			metadata: { resourceName: user.email },
+		});
 
-	// Apply any role mapping in case the user is already referenced by a group.
-	await recomputeUserRole(c, user.id, orgId);
+		// Apply any role mapping in case the user is already referenced by a group.
+		await recomputeUserRole(c, user.id, orgId);
+	}
 
-	return scimJson(toScimUser(user, true, payload.externalId), 201);
+	return scimJson(toScimUser(user, active, payload.externalId), 201);
 });
 
 // Grant a freshly-created membership the org's default project access. Owners/
@@ -470,7 +528,39 @@ async function grantDefaultProjects(
 		.onConflictDoNothing();
 }
 
-async function removeMembership(userId: string, organizationId: string) {
+// Returns true when the membership was removed, false when it was skipped
+// (last owner) so callers don't record a deactivation that didn't happen.
+async function removeMembership(
+	userId: string,
+	organizationId: string,
+): Promise<boolean> {
+	// Mirror the team-removal guard: never let SCIM deprovisioning delete the
+	// org's last owner, which would leave nobody able to manage billing, SSO or
+	// team settings. Skip (rather than error) so the IdP sync doesn't loop.
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: organizationId },
+		},
+		columns: { role: true },
+	});
+	if (membership?.role === "owner") {
+		const owners = await db.query.userOrganization.findMany({
+			where: {
+				organizationId: { eq: organizationId },
+				role: { eq: "owner" },
+			},
+			columns: { id: true },
+		});
+		if (owners.length <= 1) {
+			logger.warn("SCIM: refusing to remove the last owner", {
+				organizationId,
+				userId,
+			});
+			return false;
+		}
+	}
+
 	await db
 		.delete(tables.userOrganization)
 		.where(
@@ -482,6 +572,7 @@ async function removeMembership(userId: string, organizationId: string) {
 	// Revoke the deprovisioned member's API keys so access actually stops; the
 	// gateway does not re-check org membership on each request.
 	await revokeMemberApiKeys(userId, organizationId);
+	return true;
 }
 
 // Returns true when a new org membership was created (the member was
@@ -514,89 +605,32 @@ async function ensureMembership(
 	return false;
 }
 
-type OrgRole = "owner" | "admin" | "developer";
-const ROLE_RANK: Record<OrgRole, number> = {
-	developer: 1,
-	admin: 2,
-	owner: 3,
-};
-
-// Recompute an org member's role from their SCIM group memberships and the
-// org's group->role mappings. The highest-precedence mapped role wins; the
-// default is `developer`. Owners are never auto-demoted — owner is only ever
-// assigned manually (or by an explicit owner mapping), so an admin who set up
-// SSO can't be locked out by a group that maps to a lower role.
+// Recompute an org member's role from their SCIM group→role mappings (shared
+// with the SSO management routes) and, when it actually changes the role, log
+// the transition against the SCIM request context.
 async function recomputeUserRole(
 	c: Context<ScimVars>,
 	userId: string,
 	organizationId: string,
 ) {
-	const membership = await db.query.userOrganization.findFirst({
-		where: {
-			userId: { eq: userId },
-			organizationId: { eq: organizationId },
+	const change = await applyUserRole(userId, organizationId);
+	if (!change) {
+		return;
+	}
+
+	const target = await db.query.user.findFirst({
+		where: { id: { eq: userId } },
+		columns: { id: true, email: true },
+	});
+	await logScimAudit(c, {
+		action: "scim.user.role_change",
+		resourceType: "scim_user",
+		resourceId: userId,
+		targetUser: target ?? { id: userId },
+		metadata: {
+			changes: { role: { old: change.old, new: change.new } },
 		},
-		columns: { id: true, role: true },
 	});
-	if (!membership) {
-		return;
-	}
-
-	const groupMemberships = await db.query.scimGroupMember.findMany({
-		where: { userId: { eq: userId } },
-		columns: { scimGroupId: true },
-	});
-	const groupIds = groupMemberships.map((m) => m.scimGroupId);
-
-	let mappedRole: OrgRole = "developer";
-	if (groupIds.length) {
-		const groups = await db.query.scimGroup.findMany({
-			where: {
-				id: { in: groupIds },
-				organizationId: { eq: organizationId },
-			},
-			columns: { displayName: true },
-		});
-		const names = groups.map((g) => g.displayName);
-		if (names.length) {
-			const mappings = await db.query.ssoRoleMapping.findMany({
-				where: {
-					organizationId: { eq: organizationId },
-					groupName: { in: names },
-				},
-				columns: { role: true },
-			});
-			for (const mapping of mappings) {
-				if (ROLE_RANK[mapping.role] > ROLE_RANK[mappedRole]) {
-					mappedRole = mapping.role;
-				}
-			}
-		}
-	}
-
-	if (membership.role === "owner" && ROLE_RANK[mappedRole] < ROLE_RANK.owner) {
-		return;
-	}
-	if (membership.role !== mappedRole) {
-		await db
-			.update(tables.userOrganization)
-			.set({ role: mappedRole })
-			.where(eq(tables.userOrganization.id, membership.id));
-
-		const target = await db.query.user.findFirst({
-			where: { id: { eq: userId } },
-			columns: { id: true, email: true },
-		});
-		await logScimAudit(c, {
-			action: "scim.user.role_change",
-			resourceType: "scim_user",
-			resourceId: userId,
-			targetUser: target ?? { id: userId },
-			metadata: {
-				changes: { role: { old: membership.role, new: mappedRole } },
-			},
-		});
-	}
 }
 
 scim.put("/Users/:id", async (c) => {
@@ -617,6 +651,40 @@ scim.put("/Users/:id", async (c) => {
 		return scimError(404, "User not found");
 	}
 
+	const active =
+		payload.active === undefined ? true : parseScimBoolean(payload.active);
+
+	// Deactivation targets an existing member; reject unknown users so a token
+	// can't probe or mutate users outside its org.
+	if (!active) {
+		if (!(await isMember(user.id, orgId))) {
+			return scimError(404, "User not found");
+		}
+		if (await removeMembership(user.id, orgId)) {
+			await logScimAudit(c, {
+				action: "scim.user.deactivate",
+				resourceType: "scim_user",
+				resourceId: user.id,
+				targetUser: user,
+				metadata: { resourceName: user.email },
+			});
+		}
+		return scimJson(toScimUser(user, false));
+	}
+
+	// Activation provisions (or keeps) membership in this org — only then is it
+	// safe to mutate the shared user row, so a foreign token can't rename users
+	// in other orgs.
+	if (await ensureMembership(user.id, orgId, payload.externalId)) {
+		await logScimAudit(c, {
+			action: "scim.user.activate",
+			resourceType: "scim_user",
+			resourceId: user.id,
+			targetUser: user,
+			metadata: { resourceName: user.email },
+		});
+	}
+
 	const oldName = user.name;
 	const name = resolveName(payload);
 	if (name && name !== user.name) {
@@ -634,31 +702,12 @@ scim.put("/Users/:id", async (c) => {
 		});
 	}
 
-	const active =
-		payload.active === undefined ? true : parseScimBoolean(payload.active);
-	if (active) {
-		if (await ensureMembership(user.id, orgId, payload.externalId)) {
-			await logScimAudit(c, {
-				action: "scim.user.activate",
-				resourceType: "scim_user",
-				resourceId: user.id,
-				targetUser: user,
-				metadata: { resourceName: user.email },
-			});
-		}
-	} else if (await isMember(user.id, orgId)) {
-		await removeMembership(user.id, orgId);
-		await logScimAudit(c, {
-			action: "scim.user.deactivate",
-			resourceType: "scim_user",
-			resourceId: user.id,
-			targetUser: user,
-			metadata: { resourceName: user.email },
-		});
-	}
+	// Reactivation via ensureMembership creates a fresh `developer` membership;
+	// re-apply group mappings so a user in an admin/owner group isn't downgraded.
+	await recomputeUserRole(c, user.id, orgId);
 
-	const membership = active ? await getMembership(user.id, orgId) : null;
-	return scimJson(toScimUser(user, active, membership?.scimExternalId));
+	const membership = await getMembership(user.id, orgId);
+	return scimJson(toScimUser(user, true, membership?.scimExternalId));
 });
 
 interface ScimPatchOp {
@@ -713,6 +762,12 @@ scim.patch("/Users/:id", async (c) => {
 		}
 	}
 
+	// A PATCH that neither targets a member nor activates one shouldn't reveal
+	// the user to a foreign token.
+	if (!wasMember && !active) {
+		return scimError(404, "User not found");
+	}
+
 	if (active) {
 		if (await ensureMembership(user.id, orgId)) {
 			await logScimAudit(c, {
@@ -723,15 +778,18 @@ scim.patch("/Users/:id", async (c) => {
 				metadata: { resourceName: user.email },
 			});
 		}
+		// New/reactivated membership defaults to `developer`; re-apply mappings.
+		await recomputeUserRole(c, user.id, orgId);
 	} else if (wasMember) {
-		await removeMembership(user.id, orgId);
-		await logScimAudit(c, {
-			action: "scim.user.deactivate",
-			resourceType: "scim_user",
-			resourceId: user.id,
-			targetUser: user,
-			metadata: { resourceName: user.email },
-		});
+		if (await removeMembership(user.id, orgId)) {
+			await logScimAudit(c, {
+				action: "scim.user.deactivate",
+				resourceType: "scim_user",
+				resourceId: user.id,
+				targetUser: user,
+				metadata: { resourceName: user.email },
+			});
+		}
 	}
 
 	const membership = active ? await getMembership(user.id, orgId) : null;
@@ -752,14 +810,15 @@ scim.delete("/Users/:id", async (c) => {
 	}
 
 	if (await isMember(user.id, orgId)) {
-		await removeMembership(user.id, orgId);
-		await logScimAudit(c, {
-			action: "scim.user.deprovision",
-			resourceType: "scim_user",
-			resourceId: user.id,
-			targetUser: user,
-			metadata: { resourceName: user.email },
-		});
+		if (await removeMembership(user.id, orgId)) {
+			await logScimAudit(c, {
+				action: "scim.user.deprovision",
+				resourceType: "scim_user",
+				resourceId: user.id,
+				targetUser: user,
+				metadata: { resourceName: user.email },
+			});
+		}
 	}
 	return new Response(null, { status: 204 });
 });
@@ -812,11 +871,10 @@ async function addGroupMembers(
 	userIds: string[],
 ) {
 	for (const userId of userIds) {
-		const exists = await db.query.user.findFirst({
-			where: { id: { eq: userId } },
-			columns: { id: true },
-		});
-		if (!exists) {
+		// Only add users who belong to this org: a token for one org must not add
+		// another org's user to a group (which would then leak their email via
+		// toScimGroup).
+		if (!(await isMember(userId, orgId))) {
 			continue;
 		}
 		const present = await db.query.scimGroupMember.findFirst({
@@ -833,6 +891,36 @@ async function addGroupMembers(
 		}
 		await recomputeUserRole(c, userId, orgId);
 	}
+}
+
+// Role mappings match on group displayName, so renaming a group changes which
+// mapping (if any) its members resolve to. Recompute every current member.
+async function recomputeGroupMembers(
+	c: Context<ScimVars>,
+	groupId: string,
+	orgId: string,
+) {
+	for (const userId of await groupMemberUserIds(groupId)) {
+		await recomputeUserRole(c, userId, orgId);
+	}
+}
+
+// displayName must stay unique within an org: role mappings key off it, so a
+// duplicate would make the mapped role for that name ambiguous. `excludeId`
+// skips the group being renamed.
+async function displayNameTaken(
+	orgId: string,
+	displayName: string,
+	excludeId?: string,
+): Promise<boolean> {
+	const existing = await db.query.scimGroup.findFirst({
+		where: {
+			organizationId: { eq: orgId },
+			displayName: { eq: displayName },
+		},
+		columns: { id: true },
+	});
+	return !!existing && existing.id !== excludeId;
 }
 
 async function removeGroupMembers(
@@ -882,29 +970,51 @@ function memberValues(members: { value?: string }[] | undefined): string[] {
 scim.get("/Groups", async (c) => {
 	const orgId = c.get("scimOrgId");
 	const startIndex = Math.max(1, Number(c.req.query("startIndex")) || 1);
-	const count = Math.min(200, Math.max(0, Number(c.req.query("count")) || 100));
+	const perPage = Math.min(
+		200,
+		Math.max(0, Number(c.req.query("count")) || 100),
+	);
 	const filter = c.req.query("filter");
 	const nameMatch = filter?.match(/displayName\s+eq\s+"([^"]+)"/i);
 
-	let groups = await db.query.scimGroup.findMany({
+	// Okta resolves a group by displayName before pushing membership; answer that
+	// with a single targeted lookup rather than scanning every group.
+	if (nameMatch) {
+		const group = await db.query.scimGroup.findFirst({
+			where: {
+				organizationId: { eq: orgId },
+				displayName: { eq: nameMatch[1] },
+			},
+			columns: { id: true, displayName: true, externalId: true },
+		});
+		return scimJson({
+			schemas: [SCHEMA_LIST],
+			totalResults: group ? 1 : 0,
+			startIndex,
+			itemsPerPage: group ? 1 : 0,
+			Resources: group ? [await toScimGroup(group)] : [],
+		});
+	}
+
+	const [{ total }] = await db
+		.select({ total: count() })
+		.from(tables.scimGroup)
+		.where(eq(tables.scimGroup.organizationId, orgId));
+
+	const groups = await db.query.scimGroup.findMany({
 		where: { organizationId: { eq: orgId } },
 		columns: { id: true, displayName: true, externalId: true },
 		orderBy: { createdAt: "desc" },
+		limit: perPage,
+		offset: startIndex - 1,
 	});
-
-	if (nameMatch) {
-		const needle = nameMatch[1].toLowerCase();
-		groups = groups.filter((g) => g.displayName.toLowerCase() === needle);
-	}
-
-	const page = groups.slice(startIndex - 1, startIndex - 1 + count);
 
 	return scimJson({
 		schemas: [SCHEMA_LIST],
-		totalResults: groups.length,
+		totalResults: total,
 		startIndex,
-		itemsPerPage: page.length,
-		Resources: await Promise.all(page.map((g) => toScimGroup(g))),
+		itemsPerPage: groups.length,
+		Resources: await Promise.all(groups.map((g) => toScimGroup(g))),
 	});
 });
 
@@ -931,14 +1041,7 @@ scim.post("/Groups", async (c) => {
 		return scimError(400, "displayName is required");
 	}
 
-	const existing = await db.query.scimGroup.findFirst({
-		where: {
-			organizationId: { eq: orgId },
-			displayName: { eq: payload.displayName },
-		},
-		columns: { id: true },
-	});
-	if (existing) {
+	if (await displayNameTaken(orgId, payload.displayName)) {
 		return scimError(409, "Group already exists");
 	}
 
@@ -987,7 +1090,10 @@ scim.put("/Groups/:id", async (c) => {
 	}
 
 	if (payload.displayName) {
-		await renameGroup(c, group, payload.displayName);
+		const conflict = await renameGroup(c, group, payload.displayName);
+		if (conflict) {
+			return conflict;
+		}
 	}
 
 	await replaceGroupMembers(c, group.id, orgId, memberValues(payload.members));
@@ -1016,13 +1122,19 @@ function patchMemberValues(value: unknown): string[] {
 	return [];
 }
 
+// Renames a group after checking displayName uniqueness. Returns a 409 SCIM
+// error Response when the target name is taken, otherwise null.
 async function renameGroup(
 	c: Context<ScimVars>,
 	group: ScimGroupRow,
 	displayName: string,
-) {
+): Promise<Response | null> {
 	if (displayName === group.displayName) {
-		return;
+		return null;
+	}
+	const orgId = c.get("scimOrgId");
+	if (await displayNameTaken(orgId, displayName, group.id)) {
+		return scimError(409, "A group with this displayName already exists");
 	}
 	const oldName = group.displayName;
 	await db
@@ -1039,6 +1151,9 @@ async function renameGroup(
 			changes: { displayName: { old: oldName, new: displayName } },
 		},
 	});
+	// A rename changes which mapping current members resolve to; recompute them.
+	await recomputeGroupMembers(c, group.id, orgId);
+	return null;
 }
 
 scim.patch("/Groups/:id", async (c) => {
@@ -1091,18 +1206,24 @@ scim.patch("/Groups/:id", async (c) => {
 					patchMemberValues(op.value),
 				);
 			} else if (path === "displayName" && typeof op.value === "string") {
-				await renameGroup(c, group, op.value);
+				const conflict = await renameGroup(c, group, op.value);
+				if (conflict) {
+					return conflict;
+				}
 			} else if (
 				op.value &&
 				typeof op.value === "object" &&
 				"displayName" in op.value &&
 				typeof (op.value as { displayName: unknown }).displayName === "string"
 			) {
-				await renameGroup(
+				const conflict = await renameGroup(
 					c,
 					group,
 					(op.value as { displayName: string }).displayName,
 				);
+				if (conflict) {
+					return conflict;
+				}
 			}
 		}
 	}
