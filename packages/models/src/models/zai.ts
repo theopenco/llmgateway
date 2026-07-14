@@ -867,6 +867,9 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.7-flash",
+				// embercloud rate-limits this model on every request (429 even for
+				// single spaced-out calls, verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.06e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
