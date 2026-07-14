@@ -226,6 +226,17 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 32768,
 				reasoning: true,
+				// Moonshot thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -235,6 +246,7 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -357,6 +369,17 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Moonshot thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -366,6 +389,7 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -456,6 +480,9 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Thinking is always on for kimi-k2.7-code; `thinking.type:
+				// "disabled"` errors upstream, so `none`/`minimal` are not offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -465,6 +492,7 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -487,11 +515,19 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Thinking is always on for kimi-k2.7-code-highspeed; `thinking.type:
+				// "disabled"` errors upstream, so `none`/`minimal` are not offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				streaming: true,
 				vision: true,
 				tools: true,
 				jsonOutput: false,
-				supportedParameters: ["max_tokens", "tools", "tool_choice"],
+				supportedParameters: [
+					"max_tokens",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
