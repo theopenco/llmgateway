@@ -4,6 +4,8 @@ import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { slugify } from "@/lib/slugify";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import { allBlogs } from "content-collections";
 
 import type { Metadata } from "next";
@@ -99,7 +101,7 @@ export async function generateMetadata({
 			description,
 			url: `https://llmgateway.io/blog/category/${slug}`,
 			type: "website",
-			images: ["/opengraph.png?v=2"],
+			images: [withAssetVersion("/opengraph.png")],
 		},
 	};
 }

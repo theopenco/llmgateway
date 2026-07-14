@@ -4,6 +4,8 @@ import { CALCULATOR_FAQ } from "@/components/token-cost-calculator/faq-data";
 import { TokenCostCalculatorClient } from "@/components/token-cost-calculator/token-cost-calculator-client";
 import { TokenCostCalculatorContent } from "@/components/token-cost-calculator/token-cost-calculator-content";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import type { Metadata } from "next";
 
 const PAGE_URL = "https://llmgateway.io/token-cost-calculator";
@@ -35,14 +37,14 @@ export const metadata: Metadata = {
 		title: "LLM Token Cost Calculator & Tokenizer | LLM Gateway",
 		description:
 			"Paste a prompt to count tokens, then compare cost across GPT-5, Claude, Gemini, and 200+ models at zero markup.",
-		images: [{ url: "/opengraph.png?v=1" }],
+		images: [{ url: withAssetVersion("/opengraph.png") }],
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: "LLM Token Cost Calculator & Tokenizer | LLM Gateway",
 		description:
 			"Count your prompt's exact tokens and compare the cost across 200+ LLMs with LLM Gateway.",
-		images: ["/opengraph.png?v=1"],
+		images: [withAssetVersion("/opengraph.png")],
 	},
 };
 

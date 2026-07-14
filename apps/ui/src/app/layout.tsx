@@ -3,6 +3,8 @@ import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import "./globals.css";
 
 import type { Metadata } from "next";
@@ -64,7 +66,7 @@ export const metadata: Metadata = {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
 			"Route, manage, and analyze LLM requests across OpenAI, Anthropic, Google, and 40+ providers through one unified API.",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 		type: "website",
 		url: "https://llmgateway.io",
 		siteName: "LLM Gateway",
@@ -75,7 +77,7 @@ export const metadata: Metadata = {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
 			"Route, manage, and analyze LLM requests across 40+ providers through one unified API.",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 		creator: "@llmgateway",
 	},
 	robots: {

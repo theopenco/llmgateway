@@ -3,6 +3,8 @@ import { Inter, Geist_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import "./globals.css";
 
 import type { Metadata } from "next";
@@ -48,7 +50,7 @@ export const metadata: Metadata = {
 		title: "AI Playground — Chat with 200+ Models (GPT, Claude, Gemini)",
 		description:
 			"Test and compare 200+ AI models from one account. Chat, generate images and videos, and run multi-model group chats — pay-as-you-go.",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 		type: "website",
 		url: "https://chat.llmgateway.io",
 		siteName: "LLM Gateway Playground",
@@ -59,7 +61,7 @@ export const metadata: Metadata = {
 		title: "AI Playground — Chat with 200+ Models (GPT, Claude, Gemini)",
 		description:
 			"Test and compare 200+ AI models from one account. Chat, generate images and videos, and run multi-model group chats — pay-as-you-go.",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 		creator: "@llmgateway",
 	},
 };

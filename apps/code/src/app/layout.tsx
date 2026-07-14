@@ -4,6 +4,8 @@ import { GoogleTag } from "@/components/google-tag";
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import "./globals.css";
 
 import type { Metadata } from "next";
@@ -55,7 +57,7 @@ export const metadata: Metadata = {
 		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
 			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool.",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 		type: "website",
 		url: "https://devpass.llmgateway.io",
 		siteName: "DevPass by LLM Gateway",
@@ -66,7 +68,7 @@ export const metadata: Metadata = {
 		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
 			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 200+ models.",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 		creator: "@llmgateway",
 	},
 };

@@ -3,6 +3,8 @@ import { Download } from "lucide-react";
 import { Card } from "@/lib/components/card";
 import Logo from "@/lib/icons/Logo";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -11,7 +13,7 @@ export const metadata: Metadata = {
 		"Download official LLM Gateway logos, marks, and brand assets. SVG files in light and dark variants, plus usage guidelines for partners.",
 	openGraph: {
 		title: "Brand Assets — Logos & Guidelines | LLM Gateway",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 		description:
 			"Download official LLM Gateway logos, marks, and brand assets. SVG files in light and dark variants.",
 		type: "website",

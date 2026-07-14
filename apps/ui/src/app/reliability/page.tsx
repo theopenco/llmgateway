@@ -6,6 +6,8 @@ import { ReliabilityFailover } from "@/components/reliability/failover";
 import { ReliabilityFeatures } from "@/components/reliability/features";
 import { ReliabilityHero } from "@/components/reliability/hero";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -15,7 +17,7 @@ export const metadata: Metadata = {
 	alternates: { canonical: "/reliability" },
 	openGraph: {
 		title: "Reliability & 99.9999% Uptime | LLM Gateway",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 		description:
 			"Automatic failover across providers, real-time health monitoring, and intelligent routing. Never go down, even when your providers do.",
 		url: "https://llmgateway.io/reliability",

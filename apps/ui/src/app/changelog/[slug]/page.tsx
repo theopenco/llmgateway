@@ -8,6 +8,8 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
 import type { Changelog } from "content-collections";
@@ -60,7 +62,7 @@ export default async function ChangelogEntryPage({
 				"@type": "ImageObject",
 				url: entry.image.src.startsWith("http")
 					? entry.image.src
-					: `https://llmgateway.io${entry.image.src}`,
+					: `https://llmgateway.io${withAssetVersion(entry.image.src)}`,
 				width: entry.image.width,
 				height: entry.image.height,
 			},
@@ -200,13 +202,13 @@ export async function generateMetadata({
 			images: entry.image
 				? [
 						{
-							url: entry.image.src,
+							url: withAssetVersion(entry.image.src),
 							width: entry.image.width ?? 800,
 							height: entry.image.height ?? 400,
 							alt: entry.image.alt ?? entry.title,
 						},
 					]
-				: ["/opengraph.png"],
+				: [withAssetVersion("/opengraph.png")],
 		},
 		twitter: {
 			card: "summary_large_image",

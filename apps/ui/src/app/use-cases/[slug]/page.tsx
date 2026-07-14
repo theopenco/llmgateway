@@ -9,6 +9,8 @@ import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import { allUseCases } from "content-collections";
 
 import type { UseCase } from "content-collections";
@@ -46,7 +48,7 @@ export async function generateMetadata({
 			description: entry.description,
 			type: "article",
 			url: `${BASE_URL}/use-cases/${entry.slug}`,
-			images: ["/opengraph.png"],
+			images: [withAssetVersion("/opengraph.png")],
 		},
 		twitter: {
 			card: "summary_large_image",

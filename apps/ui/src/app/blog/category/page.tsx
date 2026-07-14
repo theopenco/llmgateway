@@ -3,6 +3,8 @@ import Link from "next/link";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { slugify } from "@/lib/slugify";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import { allBlogs } from "content-collections";
 
 import type { Metadata } from "next";
@@ -18,7 +20,7 @@ export const metadata: Metadata = {
 			"Browse LLM Gateway blog posts by category — product updates, tutorials, deep-dives, and more.",
 		url: "https://llmgateway.io/blog/category",
 		type: "website",
-		images: ["/opengraph.png?v=2"],
+		images: [withAssetVersion("/opengraph.png")],
 	},
 };
 

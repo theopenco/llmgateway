@@ -23,6 +23,8 @@ import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
 import { features, getFeatureBySlug } from "@/lib/features";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import type { Metadata } from "next";
 
 interface PageProps {
@@ -85,7 +87,7 @@ export default async function FeaturePage({ params }: PageProps) {
 		name: feature.title,
 		description: feature.longDescription,
 		url: `https://llmgateway.io/features/${slug}`,
-		image: "https://llmgateway.io/opengraph.png?v=1",
+		image: `https://llmgateway.io${withAssetVersion("/opengraph.png")}`,
 		isPartOf: {
 			"@type": "WebSite",
 			name: "LLM Gateway",

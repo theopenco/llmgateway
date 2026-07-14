@@ -4,6 +4,8 @@ import Link from "next/link";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import { allUseCases } from "content-collections";
 
 import type { UseCase } from "content-collections";
@@ -20,7 +22,7 @@ export const metadata: Metadata = {
 			"Coding agents, AI support, RAG, and cost optimization on one API for 200+ models with fallback, caching, and analytics.",
 		type: "website",
 		url: "https://llmgateway.io/use-cases",
-		images: ["/opengraph.png"],
+		images: [withAssetVersion("/opengraph.png")],
 	},
 };
 

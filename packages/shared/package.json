@@ -29,6 +29,10 @@
 			"types": "./dist/api-key-hash.d.ts",
 			"import": "./dist/api-key-hash.js"
 		},
+		"./asset-version": {
+			"types": "./dist/asset-version.d.ts",
+			"import": "./dist/asset-version.js"
+		},
 		"./routing-config": {
 			"types": "./dist/routing-config.d.ts",
 			"import": "./dist/routing-config.js"

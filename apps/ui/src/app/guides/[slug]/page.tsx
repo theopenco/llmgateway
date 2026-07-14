@@ -8,6 +8,8 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
+import { withAssetVersion } from "@llmgateway/shared/asset-version";
+
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
 import type { Guide } from "content-collections";
@@ -58,7 +60,7 @@ export default async function GuidePage({ params }: GuidePageProps) {
 				"@type": "ImageObject",
 				url: guide.image.src.startsWith("http")
 					? guide.image.src
-					: `https://llmgateway.io${guide.image.src}`,
+					: `https://llmgateway.io${withAssetVersion(guide.image.src)}`,
 				width: guide.image.width,
 				height: guide.image.height,
 			},
