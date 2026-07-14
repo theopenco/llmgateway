@@ -121,10 +121,17 @@ describe(
 		// POST /keys/provider, so exclude them from the happy-path table (their
 		// rejection is asserted separately below). Otherwise a CI-provided stealth
 		// key (e.g. LLM_GRANITE_API_KEY) would make the 200 expectation fail.
+		// vertex-anthropic / vertex-openai are excluded too: their env credential
+		// is a GCP service-account JSON, and key validation sends the token as a
+		// Bearer header without the SA -> OAuth exchange, so validation can never
+		// succeed for them (BYOK for these providers is env-credential only).
 		const testProviders = providers
 			.filter(
 				(provider) =>
-					provider.id !== "llmgateway" && !isStealthProvider(provider),
+					provider.id !== "llmgateway" &&
+					provider.id !== "vertex-anthropic" &&
+					provider.id !== "vertex-openai" &&
+					!isStealthProvider(provider),
 			)
 			.map((provider) => ({
 				providerId: provider.id,
