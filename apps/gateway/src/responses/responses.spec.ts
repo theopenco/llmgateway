@@ -964,6 +964,50 @@ describe("streaming conversion", () => {
 		expect(types).toEqual(["reasoning", "function_call", "function_call"]);
 	});
 
+	it("emits annotation events with the message's output_index", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		const contentEvents = processStreamChunk(
+			{ choices: [{ delta: { content: "According to the docs" } }] },
+			state,
+		);
+		const annotationEvents = processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							annotations: [
+								{
+									type: "url_citation",
+									url_citation: {
+										url: "https://example.com",
+										title: "Example",
+										start_index: 0,
+										end_index: 10,
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+
+		const msgAdded = JSON.parse(
+			contentEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "message",
+			)!.data,
+		);
+		const annAdded = JSON.parse(
+			annotationEvents.find(
+				(e) => e.event === "response.output_text.annotation.added",
+			)!.data,
+		);
+		expect(annAdded.output_index).toBe(msgAdded.output_index);
+	});
+
 	it("maps length finish_reason to incomplete status in streaming", () => {
 		const state = createStreamingState("gpt-4o-mini");
 		processStreamChunk(

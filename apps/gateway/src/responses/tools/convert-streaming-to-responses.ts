@@ -409,7 +409,7 @@ export function processStreamChunk(
 					emitEvent(state, "response.output_text.annotation.added", {
 						type: "response.output_text.annotation.added",
 						item_id: state.messageId,
-						output_index: state.outputItemIndex,
+						output_index: state.messageOutputIndex,
 						content_index: 0,
 						annotation_index: annotationIndex,
 						annotation,
