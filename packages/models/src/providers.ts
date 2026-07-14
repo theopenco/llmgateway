@@ -1618,6 +1618,7 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
+	AU: "Australia",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */
