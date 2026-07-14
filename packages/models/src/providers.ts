@@ -1152,7 +1152,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#1a1a2e",
 		website: "https://scx.ai",
-		statusPageUrl: "https://status.scx.ai",
+		statusPageUrl: null,
 		announcement: null,
 		termsUrl: "https://scx.ai/terms",
 		privacyPolicyUrl: "https://scx.ai/privacy",
