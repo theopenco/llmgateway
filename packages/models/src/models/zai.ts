@@ -150,9 +150,27 @@ export const zaiModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				// novita's glm-5.1 reasons adaptively and omits reasoning_content
+				// for simple prompts; no parameter forces it on
+				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// novita disables thinking when reasoning_effort is forwarded
+				// (empty reasoning_content); omitting it reasons by default, so
+				// exclude reasoning_effort here (verified live 2026-07-14)
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"tool_choice",
+				],
 			},
 			{
 				providerId: "together-ai",
@@ -314,6 +332,8 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-5",
+				// embercloud reasoning requests time out repeatedly in e2e
+				stability: "unstable",
 				inputPrice: "0.72e-6",
 				outputPrice: "2.3e-6",
 				cachedInputPrice: "0.144e-6",
@@ -750,6 +770,8 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.7",
+				// embercloud reasoning requests time out repeatedly in e2e
+				stability: "unstable",
 				inputPrice: "0.38e-6",
 				outputPrice: "1.98e-6",
 				cachedInputPrice: "0.19e-6",
@@ -921,6 +943,9 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				// zai hangs indefinitely on tool_choice "required" and named
+				// function choices for glm-4.6 (verified live 2026-07-14)
+				supportedToolChoices: ["auto", "none"],
 				webSearch: true,
 				webSearchPrice: "0.01", // $0.01 per search
 				jsonOutput: true,
