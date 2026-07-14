@@ -454,6 +454,12 @@ const providerFormSchema = z.object({
 		.min(2, "Provider name must be at least 2 characters"),
 	email: z.string().email("Invalid email address"),
 	url: z.string().url("Please enter a valid URL"),
+	termsUrl: z.string().url("Please enter a valid terms of service URL"),
+	privacyUrl: z.string().url("Please enter a valid privacy policy URL"),
+	statusPageUrl: z
+		.string()
+		.url("Please enter a valid status page URL")
+		.optional(),
 	country: z.string().min(1, "Please select a country"),
 	complianceSoc2Type2: z.boolean().optional().default(false),
 	complianceIso27001: z.boolean().optional().default(false),
@@ -590,6 +596,9 @@ publicContact.openapi(submitProviderContact, async (c) => {
 				providerName: validatedData.providerName,
 				email,
 				url: validatedData.url,
+				termsUrl: validatedData.termsUrl,
+				privacyUrl: validatedData.privacyUrl,
+				statusPageUrl: validatedData.statusPageUrl ?? null,
 				country: validatedData.country,
 				complianceSoc2Type2: validatedData.complianceSoc2Type2,
 				complianceIso27001: validatedData.complianceIso27001,
@@ -676,7 +685,7 @@ publicContact.openapi(submitProviderContact, async (c) => {
 		);
 	}
 
-	const contentToCheck = `${validatedData.providerName} ${validatedData.url}`;
+	const contentToCheck = `${validatedData.providerName} ${validatedData.url} ${validatedData.termsUrl} ${validatedData.privacyUrl} ${validatedData.statusPageUrl ?? ""}`;
 	if (checkForSpam(contentToCheck)) {
 		await updateProviderRequestStatus(
 			submission.id,
@@ -777,6 +786,25 @@ publicContact.openapi(submitProviderContact, async (c) => {
 					</div>
 
 					<div class="field">
+						<div class="label">Terms of Service:</div>
+						<div class="value">${escapeHtml(validatedData.termsUrl)}</div>
+					</div>
+
+					<div class="field">
+						<div class="label">Privacy Policy:</div>
+						<div class="value">${escapeHtml(validatedData.privacyUrl)}</div>
+					</div>
+
+					${
+						validatedData.statusPageUrl
+							? `<div class="field">
+						<div class="label">Status Page:</div>
+						<div class="value">${escapeHtml(validatedData.statusPageUrl)}</div>
+					</div>`
+							: ""
+					}
+
+					<div class="field">
 						<div class="label">HQ Country:</div>
 						<div class="value">${escapeHtml(validatedData.country)}</div>
 					</div>
@@ -839,6 +867,9 @@ publicContact.openapi(submitProviderContact, async (c) => {
 		providerName: validatedData.providerName,
 		email,
 		url: validatedData.url,
+		termsUrl: validatedData.termsUrl,
+		privacyUrl: validatedData.privacyUrl,
+		statusPageUrl: validatedData.statusPageUrl ?? null,
 		country: validatedData.country,
 		compliance,
 		dataRetentionDays: validatedData.dataRetentionDays,

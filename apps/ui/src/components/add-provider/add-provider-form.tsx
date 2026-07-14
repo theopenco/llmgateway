@@ -55,6 +55,13 @@ const providerFormSchema = z.object({
 		.min(2, "Provider name must be at least 2 characters"),
 	email: z.string().email("Invalid email address"),
 	url: z.string().url("Please enter a valid URL"),
+	termsUrl: z.string().url("Please enter a valid terms of service URL"),
+	privacyUrl: z.string().url("Please enter a valid privacy policy URL"),
+	statusPageUrl: z
+		.string()
+		.url("Please enter a valid status page URL")
+		.optional()
+		.or(z.literal("")),
 	country: z.string().min(1, "Please select a country"),
 	complianceSoc2Type2: z.boolean(),
 	complianceIso27001: z.boolean(),
@@ -100,6 +107,9 @@ export function AddProviderForm({
 			providerName: "",
 			email: "",
 			url: "",
+			termsUrl: "",
+			privacyUrl: "",
+			statusPageUrl: "",
 			country: "",
 			complianceSoc2Type2: false,
 			complianceIso27001: false,
@@ -149,7 +159,12 @@ export function AddProviderForm({
 		});
 		setIsSubmitting(true);
 		try {
-			const result = await submitProvider.mutateAsync({ body: data });
+			const result = await submitProvider.mutateAsync({
+				body: {
+					...data,
+					statusPageUrl: data.statusPageUrl || undefined,
+				},
+			});
 
 			if (result.success) {
 				posthog.capture("provider_request_success", {
@@ -491,6 +506,74 @@ export function AddProviderForm({
 											)}
 										/>
 									</div>
+
+									<div className="grid gap-6 sm:grid-cols-2">
+										<FormField
+											control={form.control}
+											name="termsUrl"
+											render={({ field }) => (
+												<FormItem>
+													<FormLabel>
+														Terms of Service URL{" "}
+														<span className="text-destructive">*</span>
+													</FormLabel>
+													<FormControl>
+														<Input
+															type="url"
+															placeholder="https://acme.ai/terms"
+															{...field}
+															className="bg-background h-11"
+														/>
+													</FormControl>
+													<FormMessage />
+												</FormItem>
+											)}
+										/>
+
+										<FormField
+											control={form.control}
+											name="privacyUrl"
+											render={({ field }) => (
+												<FormItem>
+													<FormLabel>
+														Privacy Policy URL{" "}
+														<span className="text-destructive">*</span>
+													</FormLabel>
+													<FormControl>
+														<Input
+															type="url"
+															placeholder="https://acme.ai/privacy"
+															{...field}
+															className="bg-background h-11"
+														/>
+													</FormControl>
+													<FormMessage />
+												</FormItem>
+											)}
+										/>
+									</div>
+
+									<FormField
+										control={form.control}
+										name="statusPageUrl"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Status Page URL</FormLabel>
+												<FormControl>
+													<Input
+														type="url"
+														placeholder="https://status.acme.ai"
+														{...field}
+														className="bg-background h-11"
+													/>
+												</FormControl>
+												<FormDescription>
+													Optional — link to your public status page.
+												</FormDescription>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
 
 									<FormItem>
 										<FormLabel>Compliance</FormLabel>

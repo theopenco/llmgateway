@@ -334,6 +334,9 @@ export async function notifyProviderContact(args: {
 	providerName: string;
 	email: string;
 	url: string;
+	termsUrl: string;
+	privacyUrl: string;
+	statusPageUrl?: string | null;
 	country: string;
 	compliance: string;
 	dataRetentionDays: number;
@@ -344,6 +347,9 @@ export async function notifyProviderContact(args: {
 		providerName,
 		email,
 		url,
+		termsUrl,
+		privacyUrl,
+		statusPageUrl,
 		country,
 		compliance,
 		dataRetentionDays,
@@ -362,6 +368,11 @@ export async function notifyProviderContact(args: {
 						{ name: "Provider", value: providerName, inline: true },
 						{ name: "Email", value: email, inline: true },
 						{ name: "URL", value: url, inline: false },
+						{ name: "Terms of Service", value: termsUrl, inline: false },
+						{ name: "Privacy Policy", value: privacyUrl, inline: false },
+						...(statusPageUrl
+							? [{ name: "Status Page", value: statusPageUrl, inline: false }]
+							: []),
 						{ name: "HQ Country", value: country, inline: true },
 						{
 							name: "Data Retention",
