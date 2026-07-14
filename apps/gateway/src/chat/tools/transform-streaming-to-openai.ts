@@ -8,6 +8,7 @@ import {
 	extractBedrockCacheCreationDetails,
 } from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+import { buildEncryptedReasoningDetail } from "./reasoning-details.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
@@ -850,15 +851,10 @@ export function transformStreamingToOpenai(
 							typeof doneItem.encrypted_content === "string" &&
 							doneItem.encrypted_content.length > 0
 								? [
-										{
-											type: "reasoning.encrypted",
-											data: doneItem.encrypted_content,
-											...(typeof doneItem.id === "string" && {
-												id: doneItem.id,
-											}),
-											format: "openai-responses-v1",
-											index: data.output_index ?? 0,
-										},
+										buildEncryptedReasoningDetail(
+											doneItem,
+											data.output_index ?? 0,
+										),
 									]
 								: null;
 						transformedData = {

@@ -633,6 +633,36 @@ describe("convertChatResponseToResponses", () => {
 		);
 	});
 
+	it("excludes foreign-format encrypted details from encrypted_content", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						content: "The answer is 42",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "foreign-blob",
+								id: "rs_foreign",
+								format: "anthropic-claude-v1",
+								index: 0,
+							},
+						],
+					},
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 50, total_tokens: 60 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.5");
+
+		expect(
+			result.output.some((o) => (o as any).encrypted_content !== undefined),
+		).toBe(false);
+	});
+
 	it("strips encrypted_content via stripEncryptedReasoningContent", () => {
 		const output = [
 			{
@@ -1000,6 +1030,101 @@ describe("streaming conversion", () => {
 		expect(storedReasoning!.encrypted_content).toBe("gAAAA-encrypted-blob");
 	});
 
+	it("keeps added/done lifecycles consistent per encrypted reasoning item", () => {
+		const state = createStreamingState("gpt-5.5");
+		// Summary text first: added is deferred until the upstream id arrives.
+		const summaryEvents = processStreamChunk(
+			{ choices: [{ delta: { reasoning: "thinking..." } }] },
+			state,
+		);
+		expect(
+			summaryEvents.some((e) => e.event === "response.output_item.added"),
+		).toBe(false);
+
+		// Two encrypted reasoning items arrive, each with its own upstream id.
+		const addedEvents = [
+			...processStreamChunk(
+				{
+					choices: [
+						{
+							delta: {
+								reasoning_details: [
+									{
+										type: "reasoning.encrypted",
+										data: "blob-1",
+										id: "rs_up1",
+										format: "openai-responses-v1",
+									},
+									{
+										type: "reasoning.encrypted",
+										data: "blob-2",
+										id: "rs_up2",
+										format: "openai-responses-v1",
+									},
+									// Foreign formats must not become encrypted_content items.
+									{
+										type: "reasoning.encrypted",
+										data: "foreign-blob",
+										id: "rs_foreign",
+										format: "anthropic-claude-v1",
+									},
+								],
+							},
+						},
+					],
+				},
+				state,
+			),
+			...processStreamChunk(
+				{ choices: [{ delta: { content: "Hello" } }] },
+				state,
+			),
+		]
+			.filter((e) => e.event === "response.output_item.added")
+			.map((e) => JSON.parse(e.data));
+
+		const doneEvents = createCompletionEvents(state, true)
+			.filter((e) => e.event === "response.output_item.done")
+			.map((e) => JSON.parse(e.data));
+
+		const addedReasoning = addedEvents.filter(
+			(e) => e.item.type === "reasoning",
+		);
+		const doneReasoning = doneEvents.filter((e) => e.item.type === "reasoning");
+
+		// One added and one done per item, agreeing on id and output_index.
+		expect(
+			addedReasoning.map((e) => ({ id: e.item.id, index: e.output_index })),
+		).toEqual([
+			{ id: "rs_up1", index: 0 },
+			{ id: "rs_up2", index: 1 },
+		]);
+		expect(
+			doneReasoning.map((e) => ({ id: e.item.id, index: e.output_index })),
+		).toEqual([
+			{ id: "rs_up1", index: 0 },
+			{ id: "rs_up2", index: 1 },
+		]);
+		expect(doneReasoning[0]!.item.encrypted_content).toBe("blob-1");
+		expect(doneReasoning[1]!.item.encrypted_content).toBe("blob-2");
+		// Summary text rides on the first item only.
+		expect(doneReasoning[0]!.item.summary[0].text).toBe("thinking...");
+		expect(doneReasoning[1]!.item.summary).toEqual([]);
+
+		// The message item follows the reasoning items in both event streams
+		// and the terminal output array.
+		const addedMessage = addedEvents.find((e) => e.item.type === "message");
+		const doneMessage = doneEvents.find((e) => e.item.type === "message");
+		expect(addedMessage!.output_index).toBe(2);
+		expect(doneMessage!.output_index).toBe(2);
+		const stored = buildFinalOutputItems(state);
+		expect(stored.map((o) => o.type)).toEqual([
+			"reasoning",
+			"reasoning",
+			"message",
+		]);
+	});
+
 	it("starts the reasoning item from an encrypted-only delta (no summary text)", () => {
 		const state = createStreamingState("gpt-5.5");
 		const events = processStreamChunk(
@@ -1012,6 +1137,7 @@ describe("streaming conversion", () => {
 									type: "reasoning.encrypted",
 									data: "gAAAA-blob",
 									id: "rs_upstream",
+									format: "openai-responses-v1",
 								},
 							],
 						},

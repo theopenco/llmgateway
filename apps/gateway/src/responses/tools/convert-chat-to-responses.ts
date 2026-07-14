@@ -274,11 +274,15 @@ export function convertChatResponseToResponses(
 	// attached as `encrypted_content` so the reasoning can be replayed on later
 	// turns; the caller strips them from the wire response unless the request
 	// asked for them via include:["reasoning.encrypted_content"].
+	// Only OpenAI-Responses-shaped payloads qualify: `encrypted_content` items
+	// are replayed upstream as OpenAI encrypted reasoning, so a foreign format
+	// (e.g. "anthropic-claude-v1") must not be relabeled by ending up here.
 	const encryptedDetails = (message?.reasoning_details ?? []).filter(
 		(detail) =>
 			detail.type === "reasoning.encrypted" &&
 			typeof detail.data === "string" &&
-			(detail.data as string).length > 0,
+			(detail.data as string).length > 0 &&
+			detail.format === "openai-responses-v1",
 	);
 	if (encryptedDetails.length > 0) {
 		encryptedDetails.forEach((detail, index) => {

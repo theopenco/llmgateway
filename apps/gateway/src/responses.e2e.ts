@@ -270,6 +270,21 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			expect(secondRes.status).toBe(200);
 			const text = getOutputText(secondJson);
 			expect(text.toLowerCase()).toContain("ada");
+
+			// Prove the encrypted reasoning item actually reached the upstream
+			// request unchanged (the answer alone could come from the replayed
+			// plaintext input).
+			const secondLog = await validateLogByRequestId(secondRequestId);
+			const upstreamRequest = secondLog.upstreamRequest as {
+				input?: Array<{ type?: string; encrypted_content?: string }>;
+			} | null;
+			const upstreamReasoning = (upstreamRequest?.input ?? []).find(
+				(item) => item.type === "reasoning",
+			);
+			expect(upstreamReasoning).toBeDefined();
+			expect(upstreamReasoning!.encrypted_content).toBe(
+				reasoningItem.encrypted_content,
+			);
 		},
 	);
 

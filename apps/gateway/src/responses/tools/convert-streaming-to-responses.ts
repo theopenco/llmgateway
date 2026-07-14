@@ -19,7 +19,15 @@ interface StreamingState {
 	reasoningId: string;
 	fullContent: string[];
 	fullReasoning: string[];
-	encryptedReasoning: Array<{ data: string; id?: string }>;
+	// Reasoning output items announced via response.output_item.added. Each
+	// entry's id/outputIndex are reused verbatim by the matching
+	// response.output_item.done event and the final output array, so the
+	// streaming lifecycle stays consistent per item.
+	reasoningItems: Array<{
+		id: string;
+		outputIndex: number;
+		encryptedData?: string;
+	}>;
 	annotations: Record<string, unknown>[];
 	reasoningStarted: boolean;
 	finishReason: string | null;
@@ -78,7 +86,7 @@ export function createStreamingState(
 		reasoningId: `rs_${shortid(24)}`,
 		fullContent: [],
 		fullReasoning: [],
-		encryptedReasoning: [],
+		reasoningItems: [],
 		annotations: [],
 		reasoningStarted: false,
 		finishReason: null,
@@ -281,67 +289,64 @@ export function processStreamChunk(
 		return events;
 	}
 
-	// Handle reasoning delta
+	// Handle reasoning delta. The output_item.added event is deferred until the
+	// item's real id is known (it arrives with the encrypted payload) or until
+	// the next output item starts — see flushPendingReasoningItem. Emitting it
+	// eagerly with a generated id would make the later done event (which must
+	// carry the upstream id for stateless replay) disagree with it.
 	if (delta.reasoning) {
-		if (!state.reasoningStarted) {
-			state.reasoningStarted = true;
-			events.push(
-				emitEvent(state, "response.output_item.added", {
-					type: "response.output_item.added",
-					output_index: state.outputItemIndex,
-					item: {
-						type: "reasoning",
-						id: state.reasoningId,
-						summary: [],
-					},
-				}),
-			);
-		}
+		state.reasoningStarted = true;
 		state.fullReasoning.push(delta.reasoning);
 	}
 
 	// Capture encrypted reasoning payloads ("reasoning.encrypted" entries) so
-	// the completed reasoning output item can carry encrypted_content for
+	// the completed reasoning output items can carry encrypted_content for
 	// stateless replay. They arrive as a single delta when the provider's
 	// reasoning item completes, possibly before any summary text was streamed.
+	// Each payload is its own output item with its own id and output_index.
+	// Foreign formats are dropped: encrypted_content is replayed upstream as
+	// OpenAI encrypted reasoning, so only openai-responses-v1 payloads qualify.
 	if (delta.reasoning_details?.length) {
 		for (const detail of delta.reasoning_details) {
 			if (
 				detail.type === "reasoning.encrypted" &&
 				typeof detail.data === "string" &&
-				detail.data.length > 0
+				detail.data.length > 0 &&
+				detail.format === "openai-responses-v1"
 			) {
-				if (!state.reasoningStarted) {
-					state.reasoningStarted = true;
-					if (typeof detail.id === "string" && detail.id) {
-						state.reasoningId = detail.id;
-					}
-					events.push(
-						emitEvent(state, "response.output_item.added", {
-							type: "response.output_item.added",
-							output_index: state.outputItemIndex,
-							item: {
-								type: "reasoning",
-								id: state.reasoningId,
-								summary: [],
-							},
-						}),
-					);
-				}
-				state.encryptedReasoning.push({
-					data: detail.data,
-					...(typeof detail.id === "string" && detail.id && { id: detail.id }),
+				state.reasoningStarted = true;
+				const id =
+					typeof detail.id === "string" && detail.id
+						? detail.id
+						: state.reasoningItems.length === 0
+							? state.reasoningId
+							: `rs_${shortid(24)}`;
+				const outputIndex = state.outputItemIndex++;
+				state.reasoningItems.push({
+					id,
+					outputIndex,
+					encryptedData: detail.data,
 				});
+				events.push(
+					emitEvent(state, "response.output_item.added", {
+						type: "response.output_item.added",
+						output_index: outputIndex,
+						item: {
+							type: "reasoning",
+							id,
+							summary: [],
+						},
+					}),
+				);
 			}
 		}
 	}
 
 	// Handle tool_calls delta
 	if (delta.tool_calls) {
-		// If reasoning was streamed but tool calls arrive (no content), close reasoning index
-		if (state.reasoningStarted && !state.outputItemStarted) {
-			state.outputItemIndex++;
-		}
+		// If reasoning was streamed without an encrypted payload, announce and
+		// close its item before tool-call items claim the next output indexes.
+		flushPendingReasoningItem(state, events);
 
 		for (const tc of delta.tool_calls) {
 			const existing = state.toolCalls.get(tc.index);
@@ -391,10 +396,8 @@ export function processStreamChunk(
 	if (delta.content) {
 		if (!state.outputItemStarted) {
 			state.outputItemStarted = true;
-			// If reasoning was streamed, close it first
-			if (state.reasoningStarted) {
-				state.outputItemIndex++;
-			}
+			// If reasoning was streamed, announce and close its item first
+			flushPendingReasoningItem(state, events);
 
 			events.push(
 				emitEvent(state, "response.output_item.added", {
@@ -496,11 +499,40 @@ export function processStreamChunk(
 }
 
 /**
- * Build the reasoning output items for the final output array. Each captured
- * encrypted reasoning payload becomes its own reasoning item (mirroring the
- * provider's items, with their original ids when known); the aggregated
- * summary text rides on the first item. Without encrypted payloads a single
- * summary-only item is produced.
+ * Announce the summary-only reasoning item when reasoning text was streamed
+ * but no encrypted payload (which would have carried the item's real id and
+ * claimed an output index) ever arrived. Called before the next output item
+ * starts and again at completion, so every reasoning item gets exactly one
+ * response.output_item.added with the same id/output_index its done event and
+ * the final output array will use. No-op once any reasoning item exists.
+ */
+function flushPendingReasoningItem(
+	state: StreamingState,
+	events: SSEEvent[],
+): void {
+	if (!state.reasoningStarted || state.reasoningItems.length > 0) {
+		return;
+	}
+	const outputIndex = state.outputItemIndex++;
+	state.reasoningItems.push({ id: state.reasoningId, outputIndex });
+	events.push(
+		emitEvent(state, "response.output_item.added", {
+			type: "response.output_item.added",
+			output_index: outputIndex,
+			item: {
+				type: "reasoning",
+				id: state.reasoningId,
+				summary: [],
+			},
+		}),
+	);
+}
+
+/**
+ * Build the reasoning output items for the final output array, mirroring
+ * state.reasoningItems (one item per captured encrypted payload, with their
+ * original ids when known); the aggregated summary text rides on the first
+ * item. Without encrypted payloads a single summary-only item is produced.
  */
 function buildReasoningOutputItems(
 	state: StreamingState,
@@ -514,14 +546,18 @@ function buildReasoningOutputItems(
 			text: state.fullReasoning.join(""),
 		},
 	];
-	if (state.encryptedReasoning.length === 0) {
+	if (state.reasoningItems.length === 0) {
+		// Pending summary-only item not yet flushed; mirror what
+		// flushPendingReasoningItem will announce.
 		return [{ type: "reasoning", id: state.reasoningId, summary }];
 	}
-	return state.encryptedReasoning.map((entry, index) => ({
+	return state.reasoningItems.map((entry, index) => ({
 		type: "reasoning",
-		id: entry.id ?? (index === 0 ? state.reasoningId : `rs_${shortid(24)}`),
+		id: entry.id,
 		summary: index === 0 ? summary : [],
-		encrypted_content: entry.data,
+		...(entry.encryptedData !== undefined && {
+			encrypted_content: entry.encryptedData,
+		}),
 	}));
 }
 
@@ -577,20 +613,26 @@ export function createCompletionEvents(
 ): SSEEvent[] {
 	const events: SSEEvent[] = [];
 
-	// Close the reasoning item(s) if started. Encrypted payloads are only put
-	// on the wire when the request asked for them.
+	// A reasoning-only stream (summary text, no encrypted payload, no
+	// content/tool items) never triggered a flush; announce the item now so
+	// its done event below has a matching added.
+	flushPendingReasoningItem(state, events);
+
+	// Close the reasoning item(s) if started, reusing each item's own
+	// output_index from its added event. Encrypted payloads are only put on
+	// the wire when the request asked for them.
 	const reasoningItems = includeEncryptedReasoning
 		? buildReasoningOutputItems(state)
 		: stripEncryptedReasoningContent(buildReasoningOutputItems(state));
-	for (const item of reasoningItems) {
+	reasoningItems.forEach((item, index) => {
 		events.push(
 			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
-				output_index: 0,
+				output_index: state.reasoningItems[index]?.outputIndex ?? index,
 				item,
 			}),
 		);
-	}
+	});
 
 	// Close content part if started
 	if (state.contentPartStarted) {

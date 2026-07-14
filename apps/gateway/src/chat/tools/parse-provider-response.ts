@@ -8,6 +8,7 @@ import {
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import {
+	buildEncryptedReasoningDetail,
 	extractReasoningDetailsText,
 	splitReasoningFromTaggedContent,
 } from "./reasoning-details.js";
@@ -811,23 +812,18 @@ export function parseProviderResponse(
 				// Collect encrypted reasoning payloads (returned when the upstream
 				// request sets store:false + include:["reasoning.encrypted_content"])
 				// so clients can replay them on later turns to preserve reasoning
-				// without stored responses.
-				const encryptedReasoningItems = json.output.filter(
-					(item: any) =>
+				// without stored responses. Each detail keeps its item's position
+				// in json.output as its index.
+				const encryptedReasoningDetails = json.output.flatMap(
+					(item: any, index: number) =>
 						item.type === "reasoning" &&
 						typeof item.encrypted_content === "string" &&
-						item.encrypted_content.length > 0,
+						item.encrypted_content.length > 0
+							? [buildEncryptedReasoningDetail(item, index)]
+							: [],
 				);
-				if (encryptedReasoningItems.length > 0) {
-					reasoningDetails = encryptedReasoningItems.map(
-						(item: any, index: number) => ({
-							type: "reasoning.encrypted",
-							data: item.encrypted_content,
-							...(typeof item.id === "string" && { id: item.id }),
-							format: "openai-responses-v1",
-							index,
-						}),
-					);
+				if (encryptedReasoningDetails.length > 0) {
+					reasoningDetails = encryptedReasoningDetails;
 				}
 
 				// Extract tool calls (if any) from the output array and transform to OpenAI format

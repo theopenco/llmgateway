@@ -17,6 +17,7 @@ import {
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type ProviderRequestBody,
+	type ReasoningDetail,
 	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
@@ -790,20 +791,35 @@ function transformContentForResponsesApi(content: any, role: string): any {
  * Only OpenAI-Responses-shaped payloads are forwarded — opaque blobs from a
  * different provider/format would be rejected upstream.
  */
-function extractEncryptedReasoningItems(msg: any): any[] {
+interface OpenAIResponsesReasoningItem {
+	type: "reasoning";
+	id?: string;
+	summary: unknown[];
+	encrypted_content: string;
+}
+
+function isEncryptedReasoningDetail(
+	detail: ReasoningDetail,
+): detail is ReasoningDetail & { data: string } {
+	return (
+		detail !== null &&
+		typeof detail === "object" &&
+		detail.type === "reasoning.encrypted" &&
+		typeof detail.data === "string" &&
+		detail.data.length > 0 &&
+		(detail.format === undefined || detail.format === "openai-responses-v1")
+	);
+}
+
+function extractEncryptedReasoningItems(
+	msg: BaseMessage,
+): OpenAIResponsesReasoningItem[] {
 	if (msg.role !== "assistant" || !Array.isArray(msg.reasoning_details)) {
 		return [];
 	}
-	const items: any[] = [];
+	const items: OpenAIResponsesReasoningItem[] = [];
 	for (const detail of msg.reasoning_details) {
-		if (
-			detail &&
-			typeof detail === "object" &&
-			detail.type === "reasoning.encrypted" &&
-			typeof detail.data === "string" &&
-			detail.data.length > 0 &&
-			(detail.format === undefined || detail.format === "openai-responses-v1")
-		) {
+		if (isEncryptedReasoningDetail(detail)) {
 			items.push({
 				type: "reasoning",
 				...(typeof detail.id === "string" && { id: detail.id }),
@@ -1531,11 +1547,11 @@ export async function prepareRequestBody(
 	// it, and strict providers reject unknown message fields, so strip it from
 	// every path except the Responses API transform above.
 	processedMessages = processedMessages.map((m) => {
-		if ((m as any).reasoning_details === undefined) {
+		if (m.reasoning_details === undefined) {
 			return m;
 		}
-		const { reasoning_details: _ignored, ...rest } = m as any;
-		return rest as typeof m;
+		const { reasoning_details: _ignored, ...rest } = m;
+		return rest;
 	});
 
 	// Start with a base structure that can be modified for each provider
