@@ -510,6 +510,15 @@ export const embeddingModels = models
 			(provider: ProviderModelMapping) => provider.embeddings === true,
 		),
 	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
 	.flatMap((model) => {
 		const testCases = [];
 		const expandedProviders = expandAllProviderRegions(
@@ -559,6 +568,11 @@ export const embeddingModels = models
 				) {
 					continue;
 				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
 			}
 
 			testCases.push({
