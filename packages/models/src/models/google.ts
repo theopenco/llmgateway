@@ -993,8 +993,6 @@ export const googleModels = [
 				reasoning: true,
 				reasoningEfforts: ["minimal", "high"],
 				reasoningMaxTokens: true,
-				// upstream rejects thinking budgets above the "high" tier
-				reasoningEfforts: ["none", "minimal", "low", "medium", "high"],
 				// upstream rejects responseMimeType application/json (400)
 				jsonOutput: false,
 				jsonOutputSchema: false,
