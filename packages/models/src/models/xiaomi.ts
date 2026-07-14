@@ -35,6 +35,7 @@ export const xiaomiModels = [
 		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
+				deactivatedAt: new Date("2026-06-30"),
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2-pro",
 				inputPrice: "1e-6",
@@ -85,6 +86,7 @@ export const xiaomiModels = [
 		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
+				deactivatedAt: new Date("2026-06-30"),
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2-omni",
 				inputPrice: "0.4e-6",

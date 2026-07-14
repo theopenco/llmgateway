@@ -1,10 +1,28 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
+import {
+	ChevronLeft,
+	ChevronRight,
+	Download,
+	Loader2,
+	Undo2,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
@@ -73,6 +91,108 @@ function InvoiceDownloadButton({ invoice }: { invoice: Invoice }) {
 			)}
 			<span className="sr-only sm:not-sr-only">Invoice</span>
 		</Button>
+	);
+}
+
+const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
+	unsupported_type: "This payment cannot be refunded",
+	not_completed: "Only completed payments can be refunded",
+	already_refunded: "This payment has already been refunded",
+	window_expired: "Refunds are available for 14 days after purchase",
+	not_owner: "Only the organization owner can request a refund",
+	not_latest_purchase: "Only your most recent payment can be self-refunded",
+	plan_inactive: "Your DevPass is no longer active",
+	credits_frozen: "Refunds are unavailable while credits are frozen",
+	usage_exceeded: "More than 10% of this period's credits have been used",
+};
+
+function RefundButton({ invoice }: { invoice: Invoice }) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	const refundMutation = api.useMutation(
+		"post",
+		"/dev-plans/invoices/{invoiceId}/refund",
+		{
+			onSuccess: () => {
+				toast.success(
+					"Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
+				);
+				void queryClient.invalidateQueries({
+					predicate: (query) => {
+						const key = query.queryKey;
+						return (
+							Array.isArray(key) &&
+							(key[1] === "/dev-plans/invoices" ||
+								key[1] === "/dev-plans/status")
+						);
+					},
+				});
+			},
+			onError: () => {
+				toast.error(
+					"Could not process the refund. Please try again later or contact support.",
+				);
+			},
+		},
+	);
+
+	const refund = invoice.refund;
+	if (!refund) {
+		return null;
+	}
+
+	if (!refund.eligible) {
+		return (
+			<span
+				title={
+					REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"] ??
+					"This payment cannot be refunded"
+				}
+			>
+				<Button variant="outline" size="sm" disabled>
+					<Undo2 className="h-4 w-4" />
+					<span className="sr-only sm:not-sr-only">Refund</span>
+				</Button>
+			</span>
+		);
+	}
+
+	return (
+		<AlertDialog>
+			<AlertDialogTrigger asChild>
+				<Button variant="outline" size="sm" disabled={refundMutation.isPending}>
+					{refundMutation.isPending ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Undo2 className="h-4 w-4" />
+					)}
+					<span className="sr-only sm:not-sr-only">Refund</span>
+				</Button>
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Refund this payment?</AlertDialogTitle>
+					<AlertDialogDescription>
+						{formatAmount(invoice.amount, invoice.currency)} will be refunded to
+						your payment method and your DevPass will be cancelled immediately.
+						This cannot be undone.
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>Keep my DevPass</AlertDialogCancel>
+					<AlertDialogAction
+						onClick={() =>
+							refundMutation.mutate({
+								params: { path: { invoiceId: invoice.id } },
+							})
+						}
+					>
+						Refund and cancel
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
 
@@ -174,10 +294,11 @@ export default function DevPassInvoices() {
 							<span className="text-xs sm:hidden">Credits </span>
 							{formatCredits(invoice.creditAmount)}
 						</div>
-						<div className="col-span-2 mt-1 flex justify-end sm:col-span-1 sm:mt-0">
+						<div className="col-span-2 mt-1 flex justify-end gap-2 sm:col-span-1 sm:mt-0">
 							{isInvoiceable(invoice) && (
 								<InvoiceDownloadButton invoice={invoice} />
 							)}
+							<RefundButton invoice={invoice} />
 						</div>
 					</div>
 				))}

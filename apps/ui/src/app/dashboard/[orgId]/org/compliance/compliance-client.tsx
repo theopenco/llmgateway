@@ -23,6 +23,7 @@ import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import {
+	getProviderCountries,
 	isProviderCompliant,
 	providers,
 	type ProviderCompliancePolicy,
@@ -64,7 +65,14 @@ function ProviderChip({
 	);
 }
 
-type RequirementKey = Exclude<keyof ProviderCompliancePolicy, "enabled">;
+type RequirementKey =
+	| "requireSoc2"
+	| "requireSoc2Type2"
+	| "requireIso27001"
+	| "requireSoc2OrIso27001"
+	| "requireGdpr"
+	| "blockApiTraining"
+	| "blockPromptLogging";
 
 const REQUIREMENTS: {
 	key: RequirementKey;
@@ -73,8 +81,15 @@ const REQUIREMENTS: {
 }[] = [
 	{
 		key: "requireSoc2",
-		name: "SOC 2 (Type 2)",
-		description: "Only allow providers that hold a SOC 2 certification.",
+		name: "SOC 2 (Type 1 or 2)",
+		description:
+			"Only allow providers that hold a SOC 2 report of any type (Type 1 or Type 2).",
+	},
+	{
+		key: "requireSoc2Type2",
+		name: "SOC 2 Type 2",
+		description:
+			"Only allow providers that hold a SOC 2 Type 2 report (the stricter attestation).",
 	},
 	{
 		key: "requireIso27001",
@@ -83,9 +98,9 @@ const REQUIREMENTS: {
 	},
 	{
 		key: "requireSoc2OrIso27001",
-		name: "SOC 2 or ISO 27001",
+		name: "SOC 2 Type 2 or ISO 27001",
 		description:
-			"Allow providers that hold either a SOC 2 or ISO 27001 certification.",
+			"Allow providers that hold either a SOC 2 Type 2 report or an ISO 27001 certification.",
 	},
 	{
 		key: "requireGdpr",
@@ -105,6 +120,8 @@ const REQUIREMENTS: {
 ];
 
 const DEFAULT_POLICY: ProviderCompliancePolicy = { enabled: false };
+
+const PROVIDER_COUNTRIES = getProviderCountries();
 
 export function ComplianceClient() {
 	const params = useParams();
@@ -172,6 +189,16 @@ export function ComplianceClient() {
 	const canManage =
 		selectedOrganization?.plan === "enterprise" &&
 		(currentUserRole === "owner" || currentUserRole === "admin");
+
+	const toggleCountry = (code: string) => {
+		setPolicy((p) => {
+			const current = p.allowedCountries ?? [];
+			const next = current.includes(code)
+				? current.filter((c) => c !== code)
+				: [...current, code];
+			return { ...p, allowedCountries: next.length > 0 ? next : undefined };
+		});
+	};
 
 	const handleSave = async () => {
 		try {
@@ -291,6 +318,53 @@ export function ComplianceClient() {
 								</div>
 							</div>
 						))}
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
+						<CardTitle>Provider Headquarters</CardTitle>
+						<CardDescription>
+							Restrict routing to providers headquartered in the selected
+							countries. Leave all unselected to allow any country.
+						</CardDescription>
+					</CardHeader>
+					<CardContent
+						className={
+							policy.enabled
+								? undefined
+								: "opacity-60 pointer-events-none select-none"
+						}
+					>
+						<div className="flex flex-wrap gap-2">
+							{PROVIDER_COUNTRIES.map((country) => {
+								const selected =
+									policy.allowedCountries?.includes(country.code) ?? false;
+								return (
+									<button
+										key={country.code}
+										type="button"
+										disabled={!policy.enabled}
+										aria-pressed={selected}
+										onClick={() => toggleCountry(country.code)}
+										className={cn(
+											"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+											selected
+												? "border-primary bg-primary/10 text-primary"
+												: "border-border text-muted-foreground hover:bg-muted",
+										)}
+									>
+										<span className="text-base leading-none">
+											{country.flag}
+										</span>
+										<span>{country.name}</span>
+										{selected ? (
+											<Check className="h-3.5 w-3.5 shrink-0" />
+										) : null}
+									</button>
+								);
+							})}
+						</div>
 					</CardContent>
 				</Card>
 

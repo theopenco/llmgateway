@@ -1,12 +1,29 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
@@ -59,6 +76,15 @@ function formatAmount(amount: string | null, currency: string): string {
 		return `$${value.toFixed(2)}`;
 	}
 	return `${value.toFixed(2)} ${currency}`;
+}
+
+// Refunds move money back to the customer, so show the amount as negative in the
+// history. The stored `amount` stays positive (it feeds invoice generation).
+function amountCell(transaction: Transaction): string {
+	const formatted = formatAmount(transaction.amount, transaction.currency);
+	return isRefund(transaction.type) && transaction.amount !== null
+		? `-${formatted}`
+		: formatted;
 }
 
 function InvoiceDownloadButton({
@@ -120,6 +146,131 @@ function InvoiceDownloadButton({
 			)}
 			<span className="sr-only sm:not-sr-only">{label}</span>
 		</Button>
+	);
+}
+
+const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
+	unsupported_type: "This payment cannot be refunded",
+	not_completed: "Only completed payments can be refunded",
+	already_refunded: "This payment has already been refunded",
+	window_expired: "Refunds are available for 14 days after purchase",
+	not_owner: "Only the organization owner can request a refund",
+	not_latest_purchase: "Only your most recent payment can be self-refunded",
+	plan_inactive: "The plan for this payment is no longer active",
+	credits_frozen: "Refunds are unavailable while credits are frozen",
+	usage_exceeded: "More than 10% of these credits have been used",
+};
+
+function isPlanPayment(type: Transaction["type"]): boolean {
+	return type === "chat_plan_start" || type === "chat_plan_renewal";
+}
+
+function RefundButton({
+	orgId,
+	transaction,
+}: {
+	orgId: string;
+	transaction: Transaction;
+}) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	const refundMutation = api.useMutation(
+		"post",
+		"/orgs/{id}/transactions/{transactionId}/refund",
+		{
+			onSuccess: () => {
+				toast.success(
+					isPlanPayment(transaction.type)
+						? "Refund processing. Your chat plan has been cancelled and the refund will arrive within a few business days."
+						: "Refund processing. It will appear in your billing history shortly.",
+				);
+				void queryClient.invalidateQueries({
+					predicate: (query) => {
+						const key = query.queryKey;
+						return (
+							Array.isArray(key) &&
+							(key[1] === "/orgs/{id}/transactions" ||
+								key[1] === "/chat-plans/status")
+						);
+					},
+				});
+			},
+			onError: () => {
+				toast.error(
+					"Could not process the refund. Please try again later or contact support.",
+				);
+			},
+		},
+	);
+
+	const refund = transaction.refund;
+	if (!refund) {
+		return null;
+	}
+
+	if (!refund.eligible) {
+		return (
+			<TooltipProvider>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						{/* span wrapper so the tooltip works on a disabled button */}
+						<span tabIndex={0}>
+							<Button variant="outline" size="sm" disabled>
+								<Undo2 className="h-4 w-4" />
+								<span className="sr-only sm:not-sr-only">Refund</span>
+							</Button>
+						</span>
+					</TooltipTrigger>
+					<TooltipContent>
+						{REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"] ??
+							"This payment cannot be refunded"}
+					</TooltipContent>
+				</Tooltip>
+			</TooltipProvider>
+		);
+	}
+
+	return (
+		<AlertDialog>
+			<AlertDialogTrigger asChild>
+				<Button variant="outline" size="sm" disabled={refundMutation.isPending}>
+					{refundMutation.isPending ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<Undo2 className="h-4 w-4" />
+					)}
+					<span className="sr-only sm:not-sr-only">Refund</span>
+				</Button>
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Refund this payment?</AlertDialogTitle>
+					<AlertDialogDescription>
+						{formatAmount(transaction.amount, transaction.currency)} will be
+						refunded to your payment method.{" "}
+						{isPlanPayment(transaction.type)
+							? "Your chat plan will be cancelled immediately. "
+							: "The purchased credits will be removed from your balance. "}
+						This cannot be undone.
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>Cancel</AlertDialogCancel>
+					<AlertDialogAction
+						onClick={() =>
+							refundMutation.mutate({
+								params: {
+									path: { id: orgId, transactionId: transaction.id },
+								},
+							})
+						}
+					>
+						Request refund
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
 
@@ -188,15 +339,16 @@ export function ChatBillingHistory() {
 							<span className="text-xs text-muted-foreground sm:hidden">
 								Amount{" "}
 							</span>
-							{formatAmount(transaction.amount, transaction.currency)}
+							{amountCell(transaction)}
 						</div>
-						<div className="col-span-2 mt-1 flex justify-end sm:col-span-1 sm:mt-0">
+						<div className="col-span-2 mt-1 flex justify-end gap-2 sm:col-span-1 sm:mt-0">
 							{isInvoiceable(transaction) && (
 								<InvoiceDownloadButton
 									orgId={orgId}
 									transaction={transaction}
 								/>
 							)}
+							<RefundButton orgId={orgId} transaction={transaction} />
 						</div>
 					</div>
 				))}

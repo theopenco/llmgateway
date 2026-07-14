@@ -49,6 +49,9 @@ export interface ApiModelProviderMapping {
 	streaming: boolean;
 	vision: boolean | null;
 	reasoning: boolean | null;
+	reasoningEfforts?:
+		| ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[]
+		| null;
 	reasoningOutput: string | null;
 	reasoningMaxTokens: boolean | null;
 	tools: boolean | null;

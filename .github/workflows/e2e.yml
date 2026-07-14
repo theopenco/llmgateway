@@ -142,3 +142,10 @@ jobs:
           find ./e2e-results -name "*.blob" -exec mv {} .vitest-reports/ \;
           # Merge reports - this will fail if tests failed, providing the final status
           pnpm vitest run -c vitest/vitest.e2e.config.mts --merge-reports
+
+      - name: Fail if any e2e-shards matrix job did not succeed
+        if: always() && needs.e2e-shards.result != 'success'
+        run: |
+          echo "e2e-shards result was '${{ needs.e2e-shards.result }}', expected 'success'."
+          echo "At least one shard failed to run (e.g. before it could produce results), so the merged report above is incomplete."
+          exit 1

@@ -53,7 +53,8 @@ export async function validateFreeModelUsage(
 		}
 
 		throw new HTTPException(429, {
-			message: "Rate limit exceeded for free models. Please try again later.",
+			message:
+				"Rate limit exceeded for free models. Please try again later or use paid models.",
 		});
 	}
 }

@@ -2,6 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	computeSelfRefundEligibility,
+	executeSelfRefund,
+	isSelfRefundCandidateType,
+} from "@/lib/self-refund.js";
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
@@ -40,6 +45,28 @@ import type { ServerTypes } from "@/vars.js";
 import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
+
+// How long an unreleased tier-change lease is honored before a retry may take
+// it over. Well above the Stripe SDK's request timeout (80s per attempt), so a
+// lease this old cannot still have an upgrade charge in flight.
+const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
+
+// A failed release is swallowed: the lease then simply expires via the
+// staleness window instead of blocking upgrades until renewal.
+async function releaseTierChangeLease(organizationId: string) {
+	await db
+		.update(tables.organization)
+		.set({ devPlanTierChangeClaimedAt: null })
+		.where(eq(tables.organization.id, organizationId))
+		.catch((releaseError) => {
+			logger.error(
+				"Failed to release dev plan tier-change lease",
+				releaseError instanceof Error
+					? releaseError
+					: new Error(String(releaseError)),
+			);
+		});
+}
 
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
@@ -996,10 +1023,10 @@ devPlans.openapi(changeTier, async (c) => {
 
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
 
-	// Tracks whether this request won the atomic per-cycle claim, so a failure
-	// after the claim can release it (a declined charge shouldn't burn the user's
-	// one change for the cycle).
-	let claimedCycleThisCall = false;
+	// Tracks whether this request won the upgrade lease, so only the winning
+	// request releases it — a request that lost the claim race must not clear a
+	// lease still held by the in-flight upgrade.
+	let claimedLeaseThisCall = false;
 
 	try {
 		const subscription =
@@ -1050,7 +1077,6 @@ devPlans.openapi(changeTier, async (c) => {
 		// branch below sets devPlanPendingTier back to null). Only block scheduling
 		// *another* downgrade while one is already pending — to revert to the
 		// current tier the user uses the dedicated cancel-downgrade action.
-		const cycleStart = new Date(subscriptionItem.current_period_start * 1000);
 		if (personalOrg.devPlanPendingTier && !isUpgrade) {
 			throw new HTTPException(409, {
 				message:
@@ -1061,38 +1087,48 @@ devPlans.openapi(changeTier, async (c) => {
 		// Guard UPGRADES against a double charge. An upgrade resets the billing
 		// cycle and charges the full new-tier price, so two racing requests (e.g. a
 		// double-clicked confirm) would each start a fresh cycle and charge again.
-		// Claim the current Stripe period atomically *before* any Stripe call: a
-		// single conditional UPDATE advances the marker to this cycle's period start
-		// only if it hasn't been claimed yet (NULL or an earlier cycle). Both racing
-		// requests read the same pre-reset period start, so only one wins the claim;
-		// the other gets 409. After the anchor reset a legitimate next upgrade sees a
-		// newer period start and is allowed. Downgrades are exempt: they only
-		// schedule the lower tier for renewal (no charge), so an earlier upgrade must
-		// not block a later downgrade.
+		// Take a lease atomically *before* any Stripe call: a single conditional
+		// UPDATE stamps the claim time only if no lease is held, so of two racing
+		// requests only one wins and the other gets 409. The lease is released when
+		// the request completes (success or failure); if the request dies without
+		// releasing (process crash or restart mid-flight), the lease expires after
+		// the staleness window — far above the Stripe SDK's request timeout, so a
+		// lease that old cannot still have a charge in flight — and a retry
+		// re-claims it. A re-submit after a completed upgrade is not this guard's
+		// job: it is rejected by the "Already on <tier> plan" check above.
+		// Downgrades are exempt: they only schedule the lower tier for renewal (no
+		// charge), so an in-flight upgrade must not block a later downgrade.
 		if (isUpgrade) {
+			const staleClaimBefore = new Date(
+				Date.now() - STALE_TIER_CHANGE_CLAIM_MS,
+			);
 			const claimed = await db
 				.update(tables.organization)
-				.set({ devPlanLastTierChangeCycleStart: cycleStart })
+				.set({ devPlanTierChangeClaimedAt: new Date() })
 				.where(
 					and(
 						eq(tables.organization.id, personalOrg.id),
 						or(
-							isNull(tables.organization.devPlanLastTierChangeCycleStart),
+							isNull(tables.organization.devPlanTierChangeClaimedAt),
 							lt(
-								tables.organization.devPlanLastTierChangeCycleStart,
-								cycleStart,
+								tables.organization.devPlanTierChangeClaimedAt,
+								staleClaimBefore,
 							),
 						),
 					),
 				)
 				.returning({ id: tables.organization.id });
 			if (claimed.length === 0) {
+				logger.warn("Dev plan upgrade denied: lease already held", {
+					organizationId: personalOrg.id,
+					claimedAt: personalOrg.devPlanTierChangeClaimedAt?.toISOString(),
+				});
 				throw new HTTPException(409, {
 					message:
-						"An upgrade is already being processed. Please try again in a moment.",
+						"An upgrade is already being processed. Please try again in a few minutes.",
 				});
 			}
-			claimedCycleThisCall = true;
+			claimedLeaseThisCall = true;
 		}
 
 		// Upgrades charge the full new-tier price today; downgrades are deferred to
@@ -1282,30 +1318,19 @@ devPlans.openapi(changeTier, async (c) => {
 			},
 		});
 
+		if (claimedLeaseThisCall) {
+			await releaseTierChangeLease(personalOrg.id);
+		}
+
 		return c.json({
 			success: true,
 		});
 	} catch (error) {
-		// Release the per-cycle claim if we won it but the change didn't complete,
-		// so a transient failure (e.g. a declined upgrade charge) doesn't lock the
-		// user out of changing tiers until renewal. Restores the prior marker value
-		// read before the claim.
-		if (claimedCycleThisCall) {
-			await db
-				.update(tables.organization)
-				.set({
-					devPlanLastTierChangeCycleStart:
-						personalOrg.devPlanLastTierChangeCycleStart,
-				})
-				.where(eq(tables.organization.id, personalOrg.id))
-				.catch((rollbackError) => {
-					logger.error(
-						"Failed to release dev plan tier-change cycle claim after error",
-						rollbackError instanceof Error
-							? rollbackError
-							: new Error(String(rollbackError)),
-					);
-				});
+		// Release the lease if we won it but the change didn't complete, so a
+		// transient failure (e.g. a declined upgrade charge) doesn't block retries
+		// for the full staleness window.
+		if (claimedLeaseThisCall) {
+			await releaseTierChangeLease(personalOrg.id);
 		}
 		if (error instanceof HTTPException) {
 			throw error;
@@ -2002,6 +2027,24 @@ const getInvoices = createRoute({
 								currency: z.string(),
 								status: z.enum(["pending", "completed", "failed"]),
 								description: z.string().nullable(),
+								refund: z
+									.object({
+										eligible: z.boolean(),
+										reason: z
+											.enum([
+												"unsupported_type",
+												"not_completed",
+												"already_refunded",
+												"window_expired",
+												"not_owner",
+												"not_latest_purchase",
+												"plan_inactive",
+												"credits_frozen",
+												"usage_exceeded",
+											])
+											.optional(),
+									})
+									.optional(),
 							}),
 						),
 					}),
@@ -2024,28 +2067,134 @@ devPlans.openapi(getInvoices, async (c) => {
 		return c.json({ invoices: [] });
 	}
 
+	// Eligibility needs the full transaction list (refund rows, ordering across
+	// types); the dev-plan billing events are filtered out of it for display.
 	const transactions = await db.query.transaction.findMany({
 		where: {
 			organizationId: { eq: personalOrg.id },
-			type: { in: ["dev_plan_start", "dev_plan_renewal", "dev_plan_upgrade"] },
 		},
 		orderBy: {
 			createdAt: "desc",
 		},
 	});
 
-	const invoices = transactions.map((t) => ({
-		id: t.id,
-		type: t.type as "dev_plan_start" | "dev_plan_renewal" | "dev_plan_upgrade",
-		date: t.createdAt.toISOString(),
-		amount: t.amount,
-		creditAmount: t.creditAmount,
-		currency: t.currency,
-		status: t.status,
-		description: t.description,
-	}));
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+
+	const invoices = transactions
+		.filter((t) =>
+			["dev_plan_start", "dev_plan_renewal", "dev_plan_upgrade"].includes(
+				t.type,
+			),
+		)
+		.map((t) => ({
+			id: t.id,
+			type: t.type as
+				| "dev_plan_start"
+				| "dev_plan_renewal"
+				| "dev_plan_upgrade",
+			date: t.createdAt.toISOString(),
+			amount: t.amount,
+			creditAmount: t.creditAmount,
+			currency: t.currency,
+			status: t.status,
+			description: t.description,
+			refund: isSelfRefundCandidateType(t.type)
+				? computeSelfRefundEligibility({
+						organization: personalOrg,
+						role: membership?.role,
+						transactions,
+						transaction: t,
+					})
+				: undefined,
+		}));
 
 	return c.json({ invoices });
+});
+
+// Self-service refund for a DevPass billing event. Only the first (or latest)
+// barely-used payment qualifies; refunding also cancels the DevPass
+// immediately. See lib/self-refund.ts for the eligibility rules.
+const selfRefundInvoice = createRoute({
+	method: "post",
+	path: "/invoices/{invoiceId}/refund",
+	request: {
+		params: z.object({
+			invoiceId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.literal("refund_processing"),
+						stripeRefundId: z.string(),
+					}),
+				},
+			},
+			description:
+				"Refund created; the DevPass is cancelled immediately and bookkeeping is applied when Stripe confirms via webhook",
+		},
+	},
+});
+
+devPlans.openapi(selfRefundInvoice, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { invoiceId } = c.req.param();
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, { message: "No DevPass organization found" });
+	}
+
+	const transactions = await db.query.transaction.findMany({
+		where: {
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+	const transaction = transactions.find((t) => t.id === invoiceId);
+	if (!transaction) {
+		throw new HTTPException(404, { message: "Invoice not found" });
+	}
+
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+
+	const eligibility = computeSelfRefundEligibility({
+		organization: personalOrg,
+		role: membership?.role,
+		transactions,
+		transaction,
+	});
+	if (!eligibility.eligible) {
+		throw new HTTPException(400, {
+			message: `This payment is not eligible for a self-service refund: ${eligibility.reason}`,
+		});
+	}
+
+	const { stripeRefundId } = await executeSelfRefund({
+		organization: personalOrg,
+		transaction,
+		userId: user.id,
+	});
+
+	return c.json({
+		status: "refund_processing" as const,
+		stripeRefundId,
+	});
 });
 
 // Download a PDF invoice for a single DevPass billing event. Billing details

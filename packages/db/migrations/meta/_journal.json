@@ -1352,6 +1352,27 @@
       "when": 1783628504658,
       "tag": "1783628504_milky_quasar",
       "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "8",
+      "when": 1783804568986,
+      "tag": "1783804568_chilly_dracula",
+      "breakpoints": true
+    },
+    {
+      "idx": 194,
+      "version": "8",
+      "when": 1783897295946,
+      "tag": "1783897295_migrate_require_soc2_to_type2",
+      "breakpoints": true
+    },
+    {
+      "idx": 195,
+      "version": "8",
+      "when": 1783966863248,
+      "tag": "1783966863_amazing_paper_doll",
+      "breakpoints": true
     }
   ]
 }

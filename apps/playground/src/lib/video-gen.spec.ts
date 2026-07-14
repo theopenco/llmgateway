@@ -40,6 +40,7 @@ function makeMapping(
 		audio: null,
 		document: null,
 		reasoning: null,
+		reasoningEfforts: null,
 		reasoningOutput: null,
 		tools: null,
 		jsonOutput: null,

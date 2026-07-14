@@ -389,32 +389,46 @@ async function persistMessage(
 	}
 }
 
+// The endpoint is public and unauthenticated, so the body is fully untrusted.
+// A UIMessage's `parts` array is required by both getTextFromUIMessage and the
+// AI SDK's convertToModelMessages downstream, so validate the whole shape up
+// front and reject anything malformed instead of crashing deeper in the flow.
+const chatSupportMessageSchema = z.object({
+	id: z.string().optional(),
+	role: z.string(),
+	parts: z.array(z.object({ type: z.string() }).passthrough()),
+	metadata: z.unknown().optional(),
+});
+
+const chatSupportRequestSchema = z.object({
+	// Longer histories are allowed now that conversations persist across
+	// sessions, but only the most recent messages are fed to the model to bound
+	// token usage (see MAX_CONTEXT_MESSAGES below).
+	messages: z
+		.array(chatSupportMessageSchema)
+		.min(1, "Missing messages")
+		.max(100, "Too many messages in conversation"),
+	name: z.string().max(200).optional(),
+	email: z.string().max(320).optional(),
+	clientId: z.string().min(1).max(64),
+});
+
 export const publicChatSupport = new Hono<ServerTypes>();
 
 publicChatSupport.post("/", async (c) => {
 	const ipAddress = extractClientIP(c) ?? "unknown";
 
-	const body = await c.req.json<{
-		messages: UIMessage[];
-		name?: string;
-		email?: string;
-		clientId?: string;
-	}>();
-	const { messages, name, email, clientId } = body;
-
-	if (!clientId || typeof clientId !== "string" || clientId.length > 64) {
-		return c.json({ error: "Missing or invalid clientId" }, 400);
+	const parsed = chatSupportRequestSchema.safeParse(
+		await c.req.json().catch(() => null),
+	);
+	if (!parsed.success) {
+		return c.json(
+			{ error: parsed.error.issues[0]?.message ?? "Invalid request body" },
+			400,
+		);
 	}
-
-	if (!messages || !Array.isArray(messages) || messages.length === 0) {
-		return c.json({ error: "Missing messages" }, 400);
-	}
-
-	// Allow longer histories now that conversations persist across sessions, but
-	// only feed the most recent messages to the model to bound token usage.
-	if (messages.length > 100) {
-		return c.json({ error: "Too many messages in conversation" }, 400);
-	}
+	const { name, email, clientId } = parsed.data;
+	const messages = parsed.data.messages as unknown as UIMessage[];
 
 	// Checked only after validation so malformed requests can't consume the
 	// per-identifier buckets — or worse, trip the global breaker for free.

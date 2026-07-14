@@ -134,7 +134,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.variable} ${geistMono.variable} ${plusJakarta.variable}`}
+			suppressHydrationWarning
+		>
 			<head>
 				<link rel="preconnect" href="https://internal.llmgateway.io" />
 				<link rel="preconnect" href="https://docs.llmgateway.io" />
@@ -153,9 +157,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body
-				className={`${inter.variable} ${geistMono.variable} ${plusJakarta.variable} min-h-screen antialiased`}
-			>
+			<body className="min-h-screen antialiased">
 				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>

@@ -215,7 +215,8 @@ const anthropicRequestSchema = z.object({
 		.object({
 			// Matches the chat completions reasoning-effort enum. Claude Code emits
 			// the full range (including `xhigh` and `max`), so accept all of them;
-			// `max` is normalized to `high` downstream for client compatibility.
+			// tiers are never downgraded — downstream they map onto Anthropic's
+			// native thinking controls (adaptive effort or a budget).
 			effort: z
 				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 				.optional(),
@@ -681,11 +682,16 @@ anthropic.openapi(messages, async (c) => {
 	// Get user-agent for forwarding
 	const userAgent = c.req.header("User-Agent") ?? "";
 
-	// Sticky-routing session id: prefer an explicit header, otherwise derive it
-	// from Anthropic's metadata.user_id (Claude Code embeds the session id here)
-	// and forward it to the chat completions endpoint, which routes on it.
+	// Sticky-routing session id: prefer an explicit header (x-session-id, or the
+	// session-affinity/session-id headers coding agents such as pi attach),
+	// otherwise derive it from Anthropic's metadata.user_id (Claude Code embeds
+	// the session id here) and forward it to the chat completions endpoint, which
+	// routes on it.
 	const sessionId =
 		c.req.header("x-session-id")?.trim() ||
+		c.req.header("x-session-affinity")?.trim() ||
+		c.req.header("session_id")?.trim() ||
+		c.req.header("session-id")?.trim() ||
 		extractAnthropicSessionId(anthropicRequest.metadata?.user_id);
 
 	// Make internal request to the existing chat completions endpoint using app.request()

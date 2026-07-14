@@ -25,6 +25,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			priority: 0.9,
 		},
 		{
+			url: `${baseUrl}/claude-code-alternative`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
 			url: `${baseUrl}/guides`,
 			lastModified: new Date(),
 			changeFrequency: "weekly",
