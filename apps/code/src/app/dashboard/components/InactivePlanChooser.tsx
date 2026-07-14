@@ -3,6 +3,7 @@
 import { Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { formatUsageRatio } from "@/lib/utils";
 
 import BillingDetailsDialog from "./BillingDetailsDialog";
 
@@ -23,10 +24,7 @@ export default function InactivePlanChooser({
 		<div className="space-y-8">
 			<div className="grid gap-5 md:grid-cols-3 max-w-4xl mx-auto">
 				{plans.map((plan) => {
-					const ratio = plan.usage / plan.price;
-					const ratioLabel = Number.isInteger(ratio)
-						? `${ratio}`
-						: ratio.toFixed(1);
+					const ratioLabel = formatUsageRatio(plan.usage, plan.price);
 					return (
 						<div
 							key={plan.tier}
@@ -57,12 +55,12 @@ export default function InactivePlanChooser({
 							</div>
 							<div className="mb-5 flex items-center gap-1.5 text-sm">
 								<span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-semibold tabular-nums">
-									{ratioLabel}× usage value
+									{ratioLabel} usage value
 								</span>
 							</div>
 							<ul className="mb-6 flex-1 space-y-2.5">
 								{[
-									`${ratioLabel}× your payment in model usage`,
+									`${ratioLabel} your payment in model usage`,
 									"All 200+ models",
 									"Resets monthly",
 								].map((feature) => (

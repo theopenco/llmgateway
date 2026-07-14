@@ -7,6 +7,7 @@ import Link from "next/link";
 import { CodeCTATracker, CodePlanTracker } from "@/components/LandingTracker";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
+import { formatUsageRatio } from "@/lib/utils";
 
 import {
 	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
@@ -75,10 +76,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 			<div className="grid items-stretch gap-6 md:grid-cols-3">
 				{plans.map((plan, idx) => {
 					const monthlyPrice = DEV_PLAN_PRICES[plan.tier];
-					const ratio = credits[plan.tier] / monthlyPrice;
-					const ratioLabel = Number.isInteger(ratio)
-						? `${ratio}`
-						: ratio.toFixed(1);
+					const ratioLabel = formatUsageRatio(credits[plan.tier], monthlyPrice);
 					const perDay = (monthlyPrice / 30).toFixed(2);
 					const revealDelay = idx * 0.08;
 
@@ -138,10 +136,10 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 							<div className="mb-5 flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] p-4">
 								<span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 font-mono text-xs font-bold tabular-nums text-white dark:bg-emerald-500 dark:text-emerald-950">
 									<Zap className="h-3 w-3" strokeWidth={2.5} />
-									{ratioLabel}× usage
+									{ratioLabel} usage
 								</span>
 								<p className="text-xs leading-relaxed text-muted-foreground">
-									Worth {ratioLabel}× what you pay in model usage, metered at
+									Worth {ratioLabel} what you pay in model usage, metered at
 									provider list rates.
 								</p>
 							</div>

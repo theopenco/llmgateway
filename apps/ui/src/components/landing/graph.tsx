@@ -58,7 +58,6 @@ export function Graph() {
 		useRef<HTMLDivElement>(null),
 		useRef<HTMLDivElement>(null),
 		useRef<HTMLDivElement>(null),
-		useRef<HTMLDivElement>(null),
 	];
 
 	const OpenAIIcon = ProviderIcons.openai;
@@ -85,7 +84,7 @@ export function Graph() {
 		{
 			href: "/providers",
 			label: "View all providers",
-			icon: <DotsHorizontalIcon />,
+			icon: <DotsHorizontalIcon className="w-6 h-6 object-contain" />,
 		},
 		{
 			href: "/providers/deepseek",
@@ -180,7 +179,7 @@ export function Graph() {
 								<div className="relative group">
 									<Tooltip>
 										<TooltipTrigger>
-											<Circle ref={rightRefs[6]}>
+											<Circle ref={rightRefs[5]}>
 												<HelpCircle className="text-muted-foreground dark:text-neutral-400" />
 											</Circle>
 										</TooltipTrigger>

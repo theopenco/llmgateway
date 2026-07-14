@@ -15,7 +15,7 @@ import { CodeCTATracker } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
-import { formatUsd } from "@/lib/utils";
+import { formatUsageRatio, formatUsd } from "@/lib/utils";
 
 import {
 	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
@@ -127,17 +127,12 @@ const productSchema = {
 	},
 };
 
-function usageRatioLabel(credits: number, price: number) {
-	const ratio = credits / price;
-	return Number.isInteger(ratio) ? `${ratio}×` : `${ratio.toFixed(1)}×`;
-}
-
 const usageRows: UsageRow[] = [
 	{
 		label: "Usage value (metered at provider rates)",
-		lite: `${usageRatioLabel(liteCredits, DEV_PLAN_PRICES.lite)} what you pay`,
-		pro: `${usageRatioLabel(proCredits, DEV_PLAN_PRICES.pro)} what you pay`,
-		max: `${usageRatioLabel(maxCredits, DEV_PLAN_PRICES.max)} what you pay`,
+		lite: `${formatUsageRatio(liteCredits, DEV_PLAN_PRICES.lite)} what you pay`,
+		pro: `${formatUsageRatio(proCredits, DEV_PLAN_PRICES.pro)} what you pay`,
+		max: `${formatUsageRatio(maxCredits, DEV_PLAN_PRICES.max)} what you pay`,
 		emphasis: true,
 	},
 	{
