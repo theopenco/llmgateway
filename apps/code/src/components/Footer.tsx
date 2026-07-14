@@ -1,13 +1,16 @@
 "use client";
 
-import { Code, GithubIcon } from "lucide-react";
+import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Logo } from "@/components/ui/logo";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { MARKETING_STATS } from "@llmgateway/shared";
 
 function Newsletter() {
 	const [email, setEmail] = useState("");
@@ -114,10 +117,18 @@ export function Footer() {
 					<div>
 						<Link href="/" className="flex items-center gap-2">
 							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
-								<Code className="h-4 w-4" />
+								<Logo className="h-4 w-4" />
 							</div>
 							<span className="font-semibold">DevPass</span>
 						</Link>
+						<a
+							href={config.uiUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground transition-colors"
+						>
+							by LLM Gateway — one API for {MARKETING_STATS.models} models
+						</a>
 						<div className="flex items-center gap-3 mt-4">
 							<a
 								href={config.githubUrl}
