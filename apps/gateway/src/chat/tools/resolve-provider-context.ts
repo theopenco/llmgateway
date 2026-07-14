@@ -5,9 +5,9 @@ import {
 	findCustomProviderKey,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
-import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
+	getGcpServiceAccountAccessToken,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -694,7 +694,7 @@ export async function resolveProviderContext(
 		const fullSaJson = providerKey
 			? usedToken
 			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
-		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+		usedToken = await getGcpServiceAccountAccessToken(fullSaJson);
 	}
 
 	// --- Headers ---

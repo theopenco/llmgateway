@@ -90,12 +90,12 @@ import {
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
-import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
 	applyGoogleServiceTier,
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
+	getGcpServiceAccountAccessToken,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -4977,7 +4977,7 @@ chat.openapi(completions, async (c) => {
 	// splits a JSON credential on its inner commas, so the selected entry is
 	// used as-is (whether it came from a provider key or the env var).
 	if (usedProvider === "vertex-openai") {
-		usedToken = await getVertexOpenAIAccessToken(usedToken);
+		usedToken = await getGcpServiceAccountAccessToken(usedToken);
 	}
 
 	const contentFilterBlocked =

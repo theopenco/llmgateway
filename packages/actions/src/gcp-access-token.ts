@@ -10,7 +10,7 @@ interface ServiceAccountKey {
 	project_id: string;
 }
 
-const REDIS_KEY_PREFIX = "gcp:vertex-openai:access_token";
+const REDIS_KEY_PREFIX = "gcp:service-account:access_token";
 const TTL_SECONDS = 50 * 60;
 const TTL_MS = TTL_SECONDS * 1000;
 
@@ -31,7 +31,7 @@ function parseServiceAccount(json: string): ServiceAccountKey | null {
 		return JSON.parse(json) as ServiceAccountKey;
 	} catch (err) {
 		logger.error(
-			"Failed to parse Vertex OpenAI service account JSON",
+			"Failed to parse GCP service account JSON",
 			err instanceof Error ? err : new Error(String(err)),
 		);
 		return null;
@@ -95,13 +95,13 @@ function cacheKey(sa: ServiceAccountKey): string {
 	return `${REDIS_KEY_PREFIX}:${hash}`;
 }
 
-export async function getVertexOpenAIAccessToken(
+export async function getGcpServiceAccountAccessToken(
 	serviceAccountJson: string,
 ): Promise<string> {
 	const sa = parseServiceAccount(serviceAccountJson);
 	if (!sa) {
 		throw new Error(
-			"Invalid LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON — must be valid service account JSON",
+			"Invalid GCP service account key — must be valid service account JSON",
 		);
 	}
 
@@ -121,7 +121,7 @@ export async function getVertexOpenAIAccessToken(
 		}
 	} catch (err) {
 		logger.warn(
-			"Redis read failed for Vertex OpenAI token",
+			"Redis read failed for GCP service account token",
 			err instanceof Error ? err : new Error(String(err)),
 		);
 	}
@@ -132,14 +132,14 @@ export async function getVertexOpenAIAccessToken(
 		await redisClient.set(key, token, "EX", TTL_SECONDS);
 	} catch (err) {
 		logger.warn(
-			"Redis write failed for Vertex OpenAI token",
+			"Redis write failed for GCP service account token",
 			err instanceof Error ? err : new Error(String(err)),
 		);
 	}
 	return token;
 }
 
-export function getVertexOpenAIProjectId(
+export function getGcpServiceAccountProjectId(
 	serviceAccountJson: string,
 ): string | null {
 	const sa = parseServiceAccount(serviceAccountJson);

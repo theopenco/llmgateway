@@ -1414,6 +1414,9 @@ importers:
 
   packages/actions:
     dependencies:
+      '@llmgateway/cache':
+        specifier: workspace:*
+        version: link:../cache
       '@llmgateway/db':
         specifier: workspace:*
         version: link:../db
