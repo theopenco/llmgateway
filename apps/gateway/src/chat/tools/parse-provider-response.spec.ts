@@ -393,6 +393,28 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("openai-format finish reason mapping", () => {
+		it("maps 'abort' finish reason to 'canceled' for minimax", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "abort",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("minimax", "MiniMax-M3", json);
+
+			expect(result.finishReason).toBe("canceled");
+		});
+	});
+
 	describe("refusal finish reason", () => {
 		it("preserves the raw 'refusal' stop reason for aws-bedrock", () => {
 			const json = {

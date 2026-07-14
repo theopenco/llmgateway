@@ -944,6 +944,7 @@ export function parseProviderResponse(
 						nativeFinishReason: json.choices?.[0]?.native_finish_reason,
 						usage: json.usage,
 					});
+					finishReason = "canceled";
 				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios

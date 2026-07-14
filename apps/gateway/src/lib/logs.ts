@@ -49,6 +49,13 @@ export function getUnifiedFinishReason(
 	if (finishReason === "canceled") {
 		return UnifiedFinishReason.CANCELED;
 	}
+	// Some OpenAI-compatible providers (e.g. MiniMax) emit "abort" when
+	// generation is interrupted upstream. The response/streaming transforms
+	// normalize it to "canceled" for clients, but the streaming log path
+	// records the provider's raw finish reason, so classify it here too.
+	if (finishReason === "abort") {
+		return UnifiedFinishReason.CANCELED;
+	}
 	if (finishReason === "gateway_error") {
 		return UnifiedFinishReason.GATEWAY_ERROR;
 	}

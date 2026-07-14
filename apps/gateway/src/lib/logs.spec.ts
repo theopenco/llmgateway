@@ -23,6 +23,15 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
+	it("maps 'abort' to canceled regardless of provider", () => {
+		expect(getUnifiedFinishReason("abort", "minimax")).toBe(
+			UnifiedFinishReason.CANCELED,
+		);
+		expect(getUnifiedFinishReason("abort", "novita")).toBe(
+			UnifiedFinishReason.CANCELED,
+		);
+	});
+
 	it("maps Anthropic finish reasons correctly", () => {
 		expect(getUnifiedFinishReason("stop_sequence", "anthropic")).toBe(
 			UnifiedFinishReason.COMPLETED,
