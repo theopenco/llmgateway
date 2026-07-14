@@ -23,12 +23,12 @@ describe("getUnifiedFinishReason", () => {
 		);
 	});
 
-	it("maps 'abort' to canceled regardless of provider", () => {
+	it("maps upstream 'abort' to upstream error regardless of provider", () => {
 		expect(getUnifiedFinishReason("abort", "minimax")).toBe(
-			UnifiedFinishReason.CANCELED,
+			UnifiedFinishReason.UPSTREAM_ERROR,
 		);
 		expect(getUnifiedFinishReason("abort", "novita")).toBe(
-			UnifiedFinishReason.CANCELED,
+			UnifiedFinishReason.UPSTREAM_ERROR,
 		);
 	});
 

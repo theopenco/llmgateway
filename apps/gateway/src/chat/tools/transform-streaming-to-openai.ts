@@ -1392,7 +1392,9 @@ export function transformStreamingToOpenai(
 					model: usedModel,
 					chunk: data,
 				});
-				transformedData.choices[0].finish_reason = "canceled";
+				// "abort" is an upstream-initiated interruption, not a client
+				// cancellation, so it counts as an upstream error.
+				transformedData.choices[0].finish_reason = "upstream_error";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "tool_use") {
 				transformedData.choices[0].finish_reason = "tool_calls";
 			}

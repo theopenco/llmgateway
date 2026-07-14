@@ -352,7 +352,7 @@ describe("parseProviderResponse", () => {
 	});
 
 	describe("novita finish reason mapping", () => {
-		it("maps 'abort' finish reason to 'canceled'", () => {
+		it("maps 'abort' finish reason to 'upstream_error'", () => {
 			const json = {
 				choices: [
 					{
@@ -369,7 +369,7 @@ describe("parseProviderResponse", () => {
 
 			const result = parseProviderResponse("novita", "glm-4", json);
 
-			expect(result.finishReason).toBe("canceled");
+			expect(result.finishReason).toBe("upstream_error");
 		});
 
 		it("maps 'end_turn' finish reason to 'stop'", () => {
@@ -394,7 +394,7 @@ describe("parseProviderResponse", () => {
 	});
 
 	describe("openai-format finish reason mapping", () => {
-		it("maps 'abort' finish reason to 'canceled' for minimax", () => {
+		it("maps 'abort' finish reason to 'upstream_error' for minimax", () => {
 			const json = {
 				choices: [
 					{
@@ -411,7 +411,7 @@ describe("parseProviderResponse", () => {
 
 			const result = parseProviderResponse("minimax", "MiniMax-M3", json);
 
-			expect(result.finishReason).toBe("canceled");
+			expect(result.finishReason).toBe("upstream_error");
 		});
 	});
 
