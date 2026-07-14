@@ -381,13 +381,75 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result[2]!.role).toBe("tool");
 	});
 
-	it("drops buffered reasoning when no assistant item follows it", () => {
+	it("preserves the phase of a folded trailing assistant message", () => {
+		const input = [
+			{
+				type: "function_call" as const,
+				call_id: "call_123",
+				name: "get_weather",
+				arguments: '{"location": "SF"}',
+			},
+			{
+				type: "message" as const,
+				role: "assistant" as const,
+				phase: "commentary" as const,
+				content: [{ type: "output_text" as const, text: "Checking..." }],
+			},
+			{
+				type: "function_call_output" as const,
+				call_id: "call_123",
+				output: '{"temp": 72}',
+			},
+		] as unknown[];
+		const result = convertResponsesInputToMessages(
+			input as Parameters<typeof convertResponsesInputToMessages>[0],
+		);
+		expect(result).toHaveLength(2);
+		expect(result[0]!.role).toBe("assistant");
+		expect(result[0]!.tool_calls).toHaveLength(1);
+		expect(result[0]!.content).toBe("Checking...");
+		expect(result[0]!.phase).toBe("commentary");
+		expect(result[1]!.role).toBe("tool");
+	});
+
+	it("emits an assistant carrier for encrypted reasoning followed by a user item (incomplete prior turn)", () => {
 		const input = [
 			{
 				type: "reasoning",
 				id: "rs_orphan",
 				summary: [{ type: "summary_text", text: "stale thinking" }],
 				encrypted_content: "gAAAA-stale",
+			},
+			{ role: "user" as const, content: "New question" },
+			{ role: "assistant" as const, content: "Answer" },
+		] as unknown[];
+		const result = convertResponsesInputToMessages(
+			input as Parameters<typeof convertResponsesInputToMessages>[0],
+		);
+		expect(result).toHaveLength(3);
+		expect(result[0]!.role).toBe("assistant");
+		expect(result[0]!.content).toBeNull();
+		expect(result[0]!.reasoning_details).toEqual([
+			{
+				type: "reasoning.encrypted",
+				data: "gAAAA-stale",
+				id: "rs_orphan",
+				format: "openai-responses-v1",
+				index: 0,
+			},
+		]);
+		expect(result[1]!.role).toBe("user");
+		expect(result[2]!.role).toBe("assistant");
+		expect(result[2]!.reasoning).toBeUndefined();
+		expect(result[2]!.reasoning_details).toBeUndefined();
+	});
+
+	it("drops buffered text-only reasoning when no assistant item follows it", () => {
+		const input = [
+			{
+				type: "reasoning",
+				id: "rs_orphan",
+				summary: [{ type: "summary_text", text: "stale thinking" }],
 			},
 			{ role: "user" as const, content: "New question" },
 			{ role: "assistant" as const, content: "Answer" },
@@ -568,6 +630,198 @@ describe("convertChatResponseToResponses", () => {
 		const result = convertChatResponseToResponses(chatResponse, "gpt-4o-mini");
 
 		expect(result.status).toBe("incomplete");
+	});
+
+	it("sets status to incomplete on incomplete finish_reason (Responses API upstream truncation)", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: null },
+					finish_reason: "incomplete",
+				},
+			],
+			usage: {
+				prompt_tokens: 10,
+				completion_tokens: 16,
+				total_tokens: 26,
+			},
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.4");
+
+		expect(result.status).toBe("incomplete");
+		expect(result.incomplete_details).toEqual({
+			reason: "max_output_tokens",
+		});
+		expect(result.completed_at).toBeNull();
+	});
+
+	it("sets status to incomplete with content_filter reason on content_filter finish_reason", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: "partial" },
+					finish_reason: "content_filter",
+				},
+			],
+			usage: {
+				prompt_tokens: 10,
+				completion_tokens: 5,
+				total_tokens: 15,
+			},
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-4o-mini");
+
+		expect(result.status).toBe("incomplete");
+		expect(result.incomplete_details).toEqual({ reason: "content_filter" });
+	});
+
+	it("emits pre-tool commentary before function_call items when marked", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						content: "Let me check the weather.",
+						phase: "commentary",
+						content_before_tool_calls: true,
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+						],
+					},
+					finish_reason: "tool_calls",
+				},
+			],
+			usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.6");
+
+		expect(result.output.map((o) => o.type)).toEqual([
+			"message",
+			"function_call",
+		]);
+		expect(result.output[0]!.phase).toBe("commentary");
+	});
+
+	it("emits the message after function_call items by default", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						content: "Done.",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+						],
+					},
+					finish_reason: "tool_calls",
+				},
+			],
+			usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.6");
+
+		expect(result.output.map((o) => o.type)).toEqual([
+			"function_call",
+			"message",
+		]);
+	});
+
+	it("reports the effective reasoning.context and never echoes auto", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+		};
+
+		// Effective value from the provider wins over the requested one.
+		const effective = convertChatResponseToResponses(
+			{ ...chatResponse, reasoning_context: "all_turns" },
+			"gpt-5.6",
+			undefined,
+			{ reasoning: { effort: "high", context: "auto" } },
+		);
+		expect(effective.reasoning?.context).toBe("all_turns");
+
+		// Requested "auto" without an effective value is omitted.
+		const auto = convertChatResponseToResponses(
+			chatResponse,
+			"gpt-5.6",
+			undefined,
+			{ reasoning: { effort: "high", context: "auto" } },
+		);
+		expect(auto.reasoning?.context).toBeUndefined();
+	});
+
+	it("accepts reasoning.context auto in the request schema", () => {
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.6",
+			input: "hello",
+			reasoning: { context: "auto" },
+		});
+		expect(result.success).toBe(true);
+		expect(result.data?.reasoning?.context).toBe("auto");
+	});
+
+	it("echoes reasoning.context from the request", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: { role: "assistant", content: "Hi" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+		};
+
+		const result = convertChatResponseToResponses(
+			chatResponse,
+			"gpt-5.6",
+			undefined,
+			{ reasoning: { effort: "high", context: "current_turn" } },
+		);
+
+		expect(result.reasoning).toEqual({
+			effort: "high",
+			summary: null,
+			context: "current_turn",
+		});
+	});
+
+	it("preserves the assistant-message phase on message output items", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						content: "The answer is 42",
+						phase: "final_answer",
+					},
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.6");
+
+		const messageOutput = result.output.find((o) => o.type === "message");
+		expect(messageOutput?.phase).toBe("final_answer");
 	});
 
 	it("includes reasoning output when present", () => {
@@ -948,7 +1202,7 @@ describe("streaming conversion", () => {
 		expect(JSON.parse(fcDone!.data).item.name).toBe("get_weather");
 	});
 
-	it("maps length finish_reason to incomplete status in streaming", () => {
+	it("maps length finish_reason to a response.incomplete terminal event in streaming", () => {
 		const state = createStreamingState("gpt-4o-mini");
 		processStreamChunk(
 			{ choices: [{ delta: { content: "Hello" }, finish_reason: "length" }] },
@@ -956,9 +1210,159 @@ describe("streaming conversion", () => {
 		);
 
 		const events = createCompletionEvents(state);
-		const completedEvent = events.find((e) => e.event === "response.completed");
-		const completedData = JSON.parse(completedEvent!.data);
-		expect(completedData.response.status).toBe("incomplete");
+		expect(
+			events.find((e) => e.event === "response.completed"),
+		).toBeUndefined();
+		const terminalEvent = events.find((e) => e.event === "response.incomplete");
+		expect(terminalEvent).toBeDefined();
+		const terminalData = JSON.parse(terminalEvent!.data);
+		expect(terminalData.type).toBe("response.incomplete");
+		expect(terminalData.response.status).toBe("incomplete");
+	});
+
+	it("maps incomplete finish_reason (Responses API upstream) to a response.incomplete terminal event", () => {
+		const state = createStreamingState("gpt-5.4");
+		processStreamChunk(
+			{ choices: [{ delta: {}, finish_reason: "incomplete" }] },
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const terminalEvent = events.find((e) => e.event === "response.incomplete");
+		expect(terminalEvent).toBeDefined();
+		const terminalData = JSON.parse(terminalEvent!.data);
+		expect(terminalData.response.status).toBe("incomplete");
+		expect(terminalData.response.incomplete_details).toEqual({
+			reason: "max_output_tokens",
+		});
+	});
+
+	it("keeps stable output indices and order for pre-tool commentary followed by a tool call", () => {
+		const state = createStreamingState("gpt-5.6");
+		const addedEvents: Array<{ type: string; index: number }> = [];
+
+		const collect = (events: Array<{ event: string; data: string }>) => {
+			for (const e of events) {
+				if (e.event === "response.output_item.added") {
+					const parsed = JSON.parse(e.data);
+					addedEvents.push({
+						type: parsed.item.type,
+						index: parsed.output_index,
+					});
+				}
+			}
+		};
+
+		collect(
+			processStreamChunk(
+				{
+					choices: [{ delta: { role: "assistant", phase: "commentary" } }],
+				},
+				state,
+			),
+		);
+		collect(
+			processStreamChunk(
+				{ choices: [{ delta: { content: "Let me check." } }] },
+				state,
+			),
+		);
+		collect(
+			processStreamChunk(
+				{
+					choices: [
+						{
+							delta: {
+								tool_calls: [
+									{
+										index: 0,
+										id: "call_1",
+										function: { name: "get_weather", arguments: "{}" },
+									},
+								],
+							},
+						},
+					],
+				},
+				state,
+			),
+		);
+		processStreamChunk(
+			{ choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+			state,
+		);
+
+		// Each item claims its own index, in stream order.
+		expect(addedEvents).toEqual([
+			{ type: "message", index: 0 },
+			{ type: "function_call", index: 1 },
+		]);
+
+		const events = createCompletionEvents(state);
+		const messageDone = events.find(
+			(e) =>
+				e.event === "response.output_item.done" &&
+				JSON.parse(e.data).item.type === "message",
+		);
+		// The done event reuses the index from the added event.
+		expect(JSON.parse(messageDone!.data).output_index).toBe(0);
+
+		// Final output preserves the stream order: commentary before the call.
+		const finalOutput = buildFinalOutputItems(state);
+		expect(finalOutput.map((o) => o.type)).toEqual([
+			"message",
+			"function_call",
+		]);
+		expect(finalOutput[0]!.phase).toBe("commentary");
+	});
+
+	it("reports the effective reasoning.context from the terminal chunk in streaming", () => {
+		const state = createStreamingState("gpt-5.6", undefined, {
+			reasoning: { effort: "high", context: "auto" },
+		});
+		processStreamChunk({ choices: [{ delta: { content: "Hi" } }] }, state);
+		processStreamChunk(
+			{
+				choices: [{ delta: {}, finish_reason: "stop" }],
+				reasoning_context: "current_turn",
+			},
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const completedData = JSON.parse(
+			events.find((e) => e.event === "response.completed")!.data,
+		);
+		expect(completedData.response.reasoning.context).toBe("current_turn");
+	});
+
+	it("echoes the assistant-message phase on streamed message items", () => {
+		const state = createStreamingState("gpt-5.6");
+		processStreamChunk(
+			{ choices: [{ delta: { role: "assistant", phase: "final_answer" } }] },
+			state,
+		);
+		processStreamChunk({ choices: [{ delta: { content: "Hello" } }] }, state);
+		processStreamChunk(
+			{ choices: [{ delta: {}, finish_reason: "stop" }] },
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const messageDone = events.find(
+			(e) =>
+				e.event === "response.output_item.done" &&
+				JSON.parse(e.data).item.type === "message",
+		);
+		expect(messageDone).toBeDefined();
+		expect(JSON.parse(messageDone!.data).item.phase).toBe("final_answer");
+		const completedData = JSON.parse(
+			events.find((e) => e.event === "response.completed")!.data,
+		);
+		const messageOutput = completedData.response.output.find(
+			(o: { type: string }) => o.type === "message",
+		);
+		expect(messageOutput.phase).toBe("final_answer");
 	});
 
 	it("captures encrypted reasoning deltas and gates them on the include opt-in", () => {

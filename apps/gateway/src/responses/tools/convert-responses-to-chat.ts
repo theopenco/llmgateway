@@ -15,6 +15,7 @@ interface ChatMessage {
 	tool_call_id?: string;
 	reasoning?: string;
 	reasoning_details?: Array<Record<string, unknown>>;
+	phase?: "commentary" | "final_answer";
 }
 
 interface PendingReasoning {
@@ -138,6 +139,7 @@ export function convertResponsesInputToMessages(
 			// Fold trailing assistant message content (if any) into this same
 			// assistant message rather than emitting it as a separate message.
 			let foldedContent: string | null = null;
+			let foldedPhase: ChatMessage["phase"];
 			while (i < input.length) {
 				const next = input[i] as Record<string, unknown> | undefined;
 				if (
@@ -149,6 +151,9 @@ export function convertResponsesInputToMessages(
 					if (text) {
 						foldedContent = (foldedContent ?? "") + text;
 					}
+					if (next.phase === "commentary" || next.phase === "final_answer") {
+						foldedPhase = next.phase;
+					}
 					i++;
 					continue;
 				}
@@ -159,6 +164,7 @@ export function convertResponsesInputToMessages(
 				role: "assistant",
 				content: foldedContent,
 				tool_calls: toolCalls,
+				...(foldedPhase ? { phase: foldedPhase } : {}),
 				...takePendingReasoning(pendingReasoning),
 			});
 			continue;
@@ -190,6 +196,7 @@ export function convertResponsesInputToMessages(
 		// Regular message items
 		const msg = item as {
 			role: string;
+			phase?: "commentary" | "final_answer";
 			content?: string | Array<Record<string, unknown>> | null;
 			name?: string;
 			tool_calls?: Array<{
@@ -207,16 +214,27 @@ export function convertResponsesInputToMessages(
 				: (msg.role as ChatMessage["role"]);
 
 		// Reasoning belongs to the assistant items directly following it. A
-		// non-assistant message means the buffered reasoning has no owner —
-		// drop it rather than mis-attach it to a later turn.
+		// non-assistant message means the prior turn ended with reasoning only
+		// (e.g. it hit max_output_tokens before emitting a message). Emit an
+		// assistant carrier message so encrypted payloads are still replayed
+		// upstream; reasoning text alone has no replayable value and is dropped.
 		if (role !== "assistant") {
-			takePendingReasoning(pendingReasoning);
+			if (pendingReasoning.details.length > 0) {
+				messages.push({
+					role: "assistant",
+					content: null,
+					...takePendingReasoning(pendingReasoning),
+				});
+			} else {
+				takePendingReasoning(pendingReasoning);
+			}
 		}
 
 		const chatMsg: ChatMessage = {
 			role,
 			content: convertContent(msg.content),
 			...(role === "assistant" ? takePendingReasoning(pendingReasoning) : {}),
+			...(role === "assistant" && msg.phase ? { phase: msg.phase } : {}),
 		};
 
 		if (msg.name) {

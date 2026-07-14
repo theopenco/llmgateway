@@ -1771,6 +1771,12 @@ export async function processLogQueue(): Promise<number> {
 					toolChoice: _toolChoice,
 					toolResults: _toolResults,
 					responsesApiData: _responsesApiData,
+					// Debug payloads (x-debug) contain full request/response bodies
+					// and must not survive a metadata-only retention policy.
+					rawRequest: _rawRequest,
+					rawResponse: _rawResponse,
+					upstreamRequest: _upstreamRequest,
+					upstreamResponse: _upstreamResponse,
 					...metadataOnly
 				} = data;
 				return metadataOnly;

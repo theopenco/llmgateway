@@ -31,6 +31,9 @@ export function parseProviderResponse(
 	let content = null;
 	let reasoningContent = null;
 	let reasoningDetails: ReasoningDetail[] | null = null;
+	let messagePhase: string | null = null;
+	let messageBeforeToolCalls: boolean | null = null;
+	let reasoningContext: string | null = null;
 	let finishReason = null;
 	let promptTokens = null;
 	let completionTokens = null;
@@ -798,6 +801,36 @@ export function parseProviderResponse(
 					content = messageOutput.content[0].text;
 				}
 
+				// Preserve the assistant-message phase (e.g. "final_answer") so
+				// clients can replay it in stateless Responses history.
+				if (typeof messageOutput?.phase === "string") {
+					messagePhase = messageOutput.phase;
+				}
+
+				// Capture the effective reasoning context the provider applied
+				// (current_turn/all_turns) so the Responses layer can report it.
+				if (
+					json.reasoning?.context === "current_turn" ||
+					json.reasoning?.context === "all_turns"
+				) {
+					reasoningContext = json.reasoning.context;
+				}
+
+				// Record whether the message item preceded the first function_call
+				// (pre-tool commentary) so the Responses converter can rebuild the
+				// output array in the provider's original item order.
+				{
+					const messageIdx = json.output.findIndex(
+						(item: any) => item.type === "message",
+					);
+					const firstFunctionCallIdx = json.output.findIndex(
+						(item: any) => item.type === "function_call",
+					);
+					if (messageIdx !== -1 && firstFunctionCallIdx !== -1) {
+						messageBeforeToolCalls = messageIdx < firstFunctionCallIdx;
+					}
+				}
+
 				// Extract reasoning content from summary (may hold multiple parts)
 				if (Array.isArray(reasoningOutput?.summary)) {
 					const summaryText = reasoningOutput.summary
@@ -851,6 +884,13 @@ export function parseProviderResponse(
 					} else {
 						finishReason = "stop";
 					}
+				} else if (json.status === "incomplete") {
+					// Mirror the streaming path: surface content-filter truncation
+					// distinctly; everything else (max_output_tokens) is "incomplete".
+					finishReason =
+						json.incomplete_details?.reason === "content_filter"
+							? "content_filter"
+							: "incomplete";
 				} else {
 					finishReason = json.status;
 				}
@@ -1087,6 +1127,9 @@ export function parseProviderResponse(
 		content,
 		reasoningContent,
 		reasoningDetails,
+		messagePhase,
+		messageBeforeToolCalls,
+		reasoningContext,
 		finishReason,
 		promptTokens,
 		completionTokens,

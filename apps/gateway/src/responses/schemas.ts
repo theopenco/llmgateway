@@ -212,6 +212,7 @@ export const responsesRequestSchema = z.object({
 				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 				.optional(),
 			summary: z.enum(["detailed", "auto"]).optional(),
+			context: z.enum(["auto", "current_turn", "all_turns"]).optional(),
 		})
 		.nullable()
 		.optional()

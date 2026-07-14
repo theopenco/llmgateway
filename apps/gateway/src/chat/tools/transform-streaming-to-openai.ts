@@ -825,7 +825,15 @@ export function transformStreamingToOpenai(
 								choices: [
 									{
 										index: 0,
-										delta: { role: "assistant" },
+										delta: {
+											role: "assistant",
+											// Surface the assistant-message phase so the Responses
+											// translator (and stateless clients) can preserve it.
+											...(item?.type === "message" &&
+												typeof item.phase === "string" && {
+													phase: item.phase,
+												}),
+										},
 										finish_reason: null,
 									},
 								],
@@ -871,6 +879,11 @@ export function transformStreamingToOpenai(
 										...(encryptedReasoning && {
 											reasoning_details: encryptedReasoning,
 										}),
+										...(data.type === "response.output_item.done" &&
+											doneItem?.type === "message" &&
+											typeof doneItem.phase === "string" && {
+												phase: doneItem.phase,
+											}),
 									},
 									finish_reason: null,
 								},
@@ -1059,6 +1072,9 @@ export function transformStreamingToOpenai(
 							...(typeof data.response?.service_tier === "string" && {
 								service_tier: data.response.service_tier,
 							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
+							}),
 						};
 						break;
 					}
@@ -1103,6 +1119,9 @@ export function transformStreamingToOpenai(
 							usage,
 							...(typeof data.response?.service_tier === "string" && {
 								service_tier: data.response.service_tier,
+							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
 							}),
 						};
 						break;

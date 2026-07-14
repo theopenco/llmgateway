@@ -20,12 +20,17 @@ interface ChatCompletionsResponse {
 			}>;
 			reasoning?: string | null;
 			reasoning_details?: Array<Record<string, unknown>>;
+			phase?: string | null;
+			content_before_tool_calls?: boolean;
 			refusal?: string | null;
 			annotations?: Array<Record<string, unknown>>;
 		};
 		finish_reason?: string | null;
 	}>;
 	service_tier?: string | null;
+	// Effective reasoning context the provider applied (current_turn/all_turns),
+	// surfaced by the gateway's chat layer for Responses-API upstreams.
+	reasoning_context?: string;
 	usage?: {
 		prompt_tokens?: number;
 		completion_tokens?: number;
@@ -120,7 +125,11 @@ export interface ResponsesApiResponse {
 	frequency_penalty: number;
 	top_logprobs: number;
 	temperature: number;
-	reasoning: { effort: string | null; summary: string | null } | null;
+	reasoning: {
+		effort: string | null;
+		summary: string | null;
+		context?: string;
+	} | null;
 	usage: ResponsesApiUsage | null;
 	max_output_tokens: number | null;
 	max_tool_calls: number | null;
@@ -150,7 +159,11 @@ export interface ResponsesEchoRequest {
 	frequency_penalty?: number;
 	top_logprobs?: number;
 	temperature?: number;
-	reasoning?: { effort?: string | null; summary?: string | null } | null;
+	reasoning?: {
+		effort?: string | null;
+		summary?: string | null;
+		context?: string | null;
+	} | null;
 	max_output_tokens?: number;
 	max_tool_calls?: number;
 	store?: boolean;
@@ -231,6 +244,24 @@ function resolveServedServiceTier(
 }
 
 /**
+ * Resolve the reasoning context to report on a response: the effective mode
+ * the provider applied when known, otherwise the requested value ("auto"
+ * resolves upstream to current_turn/all_turns, so it is never reported).
+ * Returns a spreadable `{ context }` fragment or undefined to omit the field.
+ */
+export function resolveReasoningContext(
+	effectiveContext: string | undefined,
+	requestedContext: string | null | undefined,
+): { context: string } | undefined {
+	const context =
+		effectiveContext ??
+		(requestedContext && requestedContext !== "auto"
+			? requestedContext
+			: undefined);
+	return context ? { context } : undefined;
+}
+
+/**
  * Normalize chat-completions-style annotations to the Responses API shape:
  * chat nests citation fields under `url_citation`, the Responses API flattens
  * them onto the annotation object.
@@ -307,6 +338,42 @@ export function convertChatResponseToResponses(
 		});
 	}
 
+	// Build message output. Skip if content is empty/whitespace-only — many
+	// providers return content: "" alongside tool_calls, and emitting an empty
+	// message item pollutes stored conversations: on replay via
+	// previous_response_id it becomes a stray assistant message that separates
+	// the tool_calls assistant from its tool result, causing strict providers
+	// (deepseek, bytedance, aws-bedrock, kimi, etc.) to reject the request.
+	let messageItem: ResponsesApiOutput | null = null;
+	if (
+		message?.content !== null &&
+		message?.content !== undefined &&
+		message.content.trim() !== ""
+	) {
+		messageItem = {
+			type: "message",
+			id: `msg_${shortid(24)}`,
+			role: "assistant",
+			content: [
+				{
+					type: "output_text",
+					text: message.content,
+					annotations: normalizeAnnotationsToResponses(message.annotations),
+				},
+			],
+			...(message.phase ? { phase: message.phase } : {}),
+			status: "completed",
+		};
+	}
+
+	// Pre-tool commentary (a message item the provider emitted before the
+	// first function_call) keeps its original position; otherwise the message
+	// follows the function calls, matching the provider's emission order.
+	if (messageItem && message?.content_before_tool_calls) {
+		output.push(messageItem);
+		messageItem = null;
+	}
+
 	// Add function calls if present
 	if (message?.tool_calls && message.tool_calls.length > 0) {
 		for (const toolCall of message.tool_calls) {
@@ -321,38 +388,24 @@ export function convertChatResponseToResponses(
 		}
 	}
 
-	// Add message output. Skip if content is empty/whitespace-only — many
-	// providers return content: "" alongside tool_calls, and emitting an empty
-	// message item pollutes stored conversations: on replay via
-	// previous_response_id it becomes a stray assistant message that separates
-	// the tool_calls assistant from its tool result, causing strict providers
-	// (deepseek, bytedance, aws-bedrock, kimi, etc.) to reject the request.
-	if (
-		message?.content !== null &&
-		message?.content !== undefined &&
-		message.content.trim() !== ""
-	) {
-		const contentParts: Array<Record<string, unknown>> = [
-			{
-				type: "output_text",
-				text: message.content,
-				annotations: normalizeAnnotationsToResponses(message.annotations),
-			},
-		];
-
-		output.push({
-			type: "message",
-			id: `msg_${shortid(24)}`,
-			role: "assistant",
-			content: contentParts,
-			status: "completed",
-		});
+	if (messageItem) {
+		output.push(messageItem);
 	}
 
-	// Map finish_reason to status
+	// Map finish_reason to status. Providers served via the OpenAI Responses
+	// API surface truncation as finish_reason "incomplete" (from the upstream
+	// response status) rather than "length".
 	let status: "completed" | "incomplete" | "failed" = "completed";
-	if (choice?.finish_reason === "length") {
+	let incompleteReason: string | null = null;
+	if (
+		choice?.finish_reason === "length" ||
+		choice?.finish_reason === "incomplete"
+	) {
 		status = "incomplete";
+		incompleteReason = "max_output_tokens";
+	} else if (choice?.finish_reason === "content_filter") {
+		status = "incomplete";
+		incompleteReason = "content_filter";
 	}
 
 	const usage: ResponsesApiUsage = {
@@ -385,7 +438,9 @@ export function convertChatResponseToResponses(
 		completed_at: status === "completed" ? created : null,
 		status,
 		incomplete_details:
-			status === "incomplete" ? { reason: "max_output_tokens" } : null,
+			status === "incomplete" && incompleteReason
+				? { reason: incompleteReason }
+				: null,
 		model: chatResponse.model ?? requestedModel,
 		previous_response_id: request?.previous_response_id ?? null,
 		instructions: request?.instructions ?? null,
@@ -406,6 +461,12 @@ export function convertChatResponseToResponses(
 		reasoning: {
 			effort: request?.reasoning?.effort ?? null,
 			summary: request?.reasoning?.summary ?? null,
+			// Report the effective mode the provider applied; fall back to the
+			// requested value ("auto" resolves upstream, so it is never echoed).
+			...(resolveReasoningContext(
+				chatResponse.reasoning_context,
+				request?.reasoning?.context,
+			) ?? {}),
 		},
 		usage,
 		max_output_tokens: request?.max_output_tokens ?? null,

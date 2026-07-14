@@ -3,6 +3,7 @@ import { shortid } from "@llmgateway/db";
 import {
 	normalizeAnnotationsToResponses,
 	normalizeEchoedTools,
+	resolveReasoningContext,
 	stripEncryptedReasoningContent,
 } from "./convert-chat-to-responses.js";
 
@@ -15,6 +16,11 @@ interface StreamingState {
 	outputItemIndex: number;
 	contentPartStarted: boolean;
 	outputItemStarted: boolean;
+	// Output index reserved by the message item when it is announced. Reserving
+	// (rather than reading outputItemIndex at event time) keeps the index stable
+	// when later items (e.g. tool calls after pre-tool commentary) claim the
+	// next indices.
+	messageOutputIndex?: number;
 	messageId: string;
 	reasoningId: string;
 	fullContent: string[];
@@ -30,6 +36,9 @@ interface StreamingState {
 	}>;
 	annotations: Record<string, unknown>[];
 	reasoningStarted: boolean;
+	// OpenAI Responses assistant-message phase (e.g. "final_answer"), surfaced
+	// by the streaming translator as a delta field and echoed on message items.
+	messagePhase?: string;
 	finishReason: string | null;
 	sequenceNumber: number;
 	toolCalls: Map<
@@ -44,6 +53,9 @@ interface StreamingState {
 	>;
 	request?: ResponsesEchoRequest;
 	servedServiceTier?: string;
+	// Effective reasoning context the provider applied, surfaced by the
+	// streaming translator on the terminal chunk.
+	usedReasoningContext?: string;
 	usage: {
 		input_tokens: number;
 		output_tokens: number;
@@ -137,7 +149,14 @@ function buildResponsePayload(
 		completed_at: status === "completed" ? state.createdAt : null,
 		status,
 		incomplete_details:
-			status === "incomplete" ? { reason: "max_output_tokens" } : null,
+			status === "incomplete"
+				? {
+						reason:
+							state.finishReason === "content_filter"
+								? "content_filter"
+								: "max_output_tokens",
+					}
+				: null,
 		model: state.model,
 		previous_response_id: req?.previous_response_id ?? null,
 		instructions: req?.instructions ?? null,
@@ -156,6 +175,10 @@ function buildResponsePayload(
 		reasoning: {
 			effort: req?.reasoning?.effort ?? null,
 			summary: req?.reasoning?.summary ?? null,
+			...(resolveReasoningContext(
+				state.usedReasoningContext,
+				req?.reasoning?.context,
+			) ?? {}),
 		},
 		usage,
 		max_output_tokens: req?.max_output_tokens ?? null,
@@ -213,6 +236,12 @@ export function processStreamChunk(
 	// rather than the requested one. OpenAI chunks carry a top-level
 	// service_tier; other providers surface it via the gateway's final usage
 	// chunk metadata (used_service_tier null there means downgraded to standard).
+	// Capture the effective reasoning context the provider applied (surfaced by
+	// the streaming translator on the terminal chunk).
+	if (typeof chunk.reasoning_context === "string") {
+		state.usedReasoningContext = chunk.reasoning_context;
+	}
+
 	if (typeof chunk.service_tier === "string") {
 		state.servedServiceTier = chunk.service_tier;
 	} else {
@@ -231,6 +260,7 @@ export function processStreamChunk(
 					content?: string | null;
 					reasoning?: string | null;
 					reasoning_details?: Array<Record<string, unknown>>;
+					phase?: string;
 					annotations?: Array<Record<string, unknown>>;
 					tool_calls?: Array<{
 						index: number;
@@ -287,6 +317,12 @@ export function processStreamChunk(
 			}
 		}
 		return events;
+	}
+
+	// Capture the assistant-message phase (surfaced by the streaming translator
+	// from the upstream message output item) so message items can echo it.
+	if (typeof delta.phase === "string" && delta.phase) {
+		state.messagePhase = delta.phase;
 	}
 
 	// Handle reasoning delta. The output_item.added event is deferred until the
@@ -399,15 +435,19 @@ export function processStreamChunk(
 			// If reasoning was streamed, announce and close its item first
 			flushPendingReasoningItem(state, events);
 
+			// Reserve this item's output index so later items (e.g. tool calls
+			// following pre-tool commentary) don't claim the same index.
+			state.messageOutputIndex = state.outputItemIndex++;
 			events.push(
 				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
-					output_index: state.outputItemIndex,
+					output_index: state.messageOutputIndex,
 					item: {
 						type: "message",
 						id: state.messageId,
 						role: "assistant",
 						content: [],
+						...(state.messagePhase ? { phase: state.messagePhase } : {}),
 						status: "in_progress",
 					},
 				}),
@@ -420,7 +460,7 @@ export function processStreamChunk(
 				emitEvent(state, "response.content_part.added", {
 					type: "response.content_part.added",
 					item_id: state.messageId,
-					output_index: state.outputItemIndex,
+					output_index: state.messageOutputIndex,
 					content_index: 0,
 					part: { type: "output_text", text: "", annotations: [] },
 				}),
@@ -432,7 +472,7 @@ export function processStreamChunk(
 			emitEvent(state, "response.output_text.delta", {
 				type: "response.output_text.delta",
 				item_id: state.messageId,
-				output_index: state.outputItemIndex,
+				output_index: state.messageOutputIndex,
 				content_index: 0,
 				delta: delta.content,
 			}),
@@ -451,7 +491,7 @@ export function processStreamChunk(
 					emitEvent(state, "response.output_text.annotation.added", {
 						type: "response.output_text.annotation.added",
 						item_id: state.messageId,
-						output_index: state.outputItemIndex,
+						output_index: state.messageOutputIndex,
 						content_index: 0,
 						annotation_index: annotationIndex,
 						annotation,
@@ -570,38 +610,53 @@ function buildReasoningOutputItems(
 export function buildFinalOutputItems(
 	state: StreamingState,
 ): Record<string, unknown>[] {
-	const output: Record<string, unknown>[] = [
-		...buildReasoningOutputItems(state),
-	];
+	// Order items by the output index each claimed when it was announced, so
+	// the final array preserves the stream order (e.g. pre-tool commentary
+	// messages stay before the function calls that followed them).
+	const indexed: Array<{ index: number; item: Record<string, unknown> }> = [];
+
+	buildReasoningOutputItems(state).forEach((item, i) => {
+		indexed.push({
+			index: state.reasoningItems[i]?.outputIndex ?? i,
+			item,
+		});
+	});
 
 	for (const tc of state.toolCalls.values()) {
-		output.push({
-			type: "function_call",
-			id: tc.id,
-			call_id: tc.callId,
-			name: tc.name,
-			arguments: tc.arguments,
-			status: "completed",
+		indexed.push({
+			index: tc.outputIndex,
+			item: {
+				type: "function_call",
+				id: tc.id,
+				call_id: tc.callId,
+				name: tc.name,
+				arguments: tc.arguments,
+				status: "completed",
+			},
 		});
 	}
 
 	if (state.fullContent.length > 0) {
-		output.push({
-			type: "message",
-			id: state.messageId,
-			role: "assistant",
-			content: [
-				{
-					type: "output_text",
-					text: state.fullContent.join(""),
-					annotations: state.annotations,
-				},
-			],
-			status: "completed",
+		indexed.push({
+			index: state.messageOutputIndex ?? Number.MAX_SAFE_INTEGER,
+			item: {
+				type: "message",
+				id: state.messageId,
+				role: "assistant",
+				content: [
+					{
+						type: "output_text",
+						text: state.fullContent.join(""),
+						annotations: state.annotations,
+					},
+				],
+				...(state.messagePhase ? { phase: state.messagePhase } : {}),
+				status: "completed",
+			},
 		});
 	}
 
-	return output;
+	return indexed.sort((a, b) => a.index - b.index).map((entry) => entry.item);
 }
 
 /**
@@ -640,7 +695,7 @@ export function createCompletionEvents(
 			emitEvent(state, "response.output_text.done", {
 				type: "response.output_text.done",
 				item_id: state.messageId,
-				output_index: state.outputItemIndex,
+				output_index: state.messageOutputIndex,
 				content_index: 0,
 				text: state.fullContent.join(""),
 			}),
@@ -649,7 +704,7 @@ export function createCompletionEvents(
 			emitEvent(state, "response.content_part.done", {
 				type: "response.content_part.done",
 				item_id: state.messageId,
-				output_index: state.outputItemIndex,
+				output_index: state.messageOutputIndex,
 				content_index: 0,
 				part: {
 					type: "output_text",
@@ -665,7 +720,7 @@ export function createCompletionEvents(
 		events.push(
 			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
-				output_index: state.outputItemIndex,
+				output_index: state.messageOutputIndex,
 				item: {
 					type: "message",
 					id: state.messageId,
@@ -677,6 +732,7 @@ export function createCompletionEvents(
 							annotations: state.annotations,
 						},
 					],
+					...(state.messagePhase ? { phase: state.messagePhase } : {}),
 					status: "completed",
 				},
 			}),
@@ -701,9 +757,15 @@ export function createCompletionEvents(
 		);
 	}
 
-	// Map finish_reason to status
+	// Map finish_reason to status. Providers served via the OpenAI Responses
+	// API surface truncation as finish_reason "incomplete" (from the upstream
+	// response status) rather than "length".
 	let status: "completed" | "incomplete" | "failed" = "completed";
-	if (state.finishReason === "length") {
+	if (
+		state.finishReason === "length" ||
+		state.finishReason === "incomplete" ||
+		state.finishReason === "content_filter"
+	) {
 		status = "incomplete";
 	}
 
@@ -713,9 +775,13 @@ export function createCompletionEvents(
 		? fullOutput
 		: stripEncryptedReasoningContent(fullOutput);
 
+	// A truncated response must terminate with response.incomplete, not
+	// response.completed (the payload status alone is not enough per the spec).
+	const terminalEvent =
+		status === "incomplete" ? "response.incomplete" : "response.completed";
 	events.push(
-		emitEvent(state, "response.completed", {
-			type: "response.completed",
+		emitEvent(state, terminalEvent, {
+			type: terminalEvent,
 			response: buildResponsePayload(state, { status, output }),
 		}),
 	);

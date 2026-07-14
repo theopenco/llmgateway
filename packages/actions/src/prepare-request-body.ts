@@ -807,7 +807,10 @@ function isEncryptedReasoningDetail(
 		detail.type === "reasoning.encrypted" &&
 		typeof detail.data === "string" &&
 		detail.data.length > 0 &&
-		(detail.format === undefined || detail.format === "openai-responses-v1")
+		// Require the explicit provenance tag the gateway stamps on every
+		// payload it emits — an untagged blob could be a foreign format that
+		// must not be relabeled as OpenAI encrypted reasoning.
+		detail.format === "openai-responses-v1"
 	);
 }
 
@@ -896,21 +899,45 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		// Replay encrypted reasoning from prior turns ahead of the assistant
 		// items it preceded, mirroring the item order the Responses API emits.
 		if (msg.role === "assistant") {
-			items.push(...extractEncryptedReasoningItems(msg));
+			const reasoningItems = extractEncryptedReasoningItems(msg);
+			items.push(...reasoningItems);
+			// A reasoning-only carrier (a prior turn that ended before emitting a
+			// message, e.g. on max_output_tokens) has no message to emit — the
+			// reasoning items above are the whole turn.
+			if (
+				reasoningItems.length > 0 &&
+				(msg.content === null || msg.content === undefined) &&
+				(!msg.tool_calls || msg.tool_calls.length === 0)
+			) {
+				continue;
+			}
 		}
 
-		// Assistant messages with tool_calls: emit the message, then function_call items
+		// Assistant messages with tool_calls: emit function_call items and the
+		// message in the provider's original order. By default the message
+		// follows the function calls (matching the order the Responses API
+		// emits and convertResponsesInputToMessages folded from); pre-tool
+		// commentary marked with content_before_tool_calls goes first.
 		if (
 			msg.role === "assistant" &&
 			msg.tool_calls &&
 			msg.tool_calls.length > 0
 		) {
-			// Emit assistant message content if present (preserve empty strings)
-			if (msg.content !== null && msg.content !== undefined) {
-				items.push({
-					role: "assistant",
-					content: transformContentForResponsesApi(msg.content, "assistant"),
-				});
+			// Assistant message content, if present (preserve empty strings)
+			const messageItem =
+				msg.content !== null && msg.content !== undefined
+					? {
+							role: "assistant",
+							content: transformContentForResponsesApi(
+								msg.content,
+								"assistant",
+							),
+							...(msg.phase ? { phase: msg.phase } : {}),
+						}
+					: null;
+
+			if (messageItem && msg.content_before_tool_calls) {
+				items.push(messageItem);
 			}
 
 			// Emit each tool call as a separate function_call item
@@ -926,6 +953,10 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 					name: toolCall.function?.name,
 				});
 			}
+
+			if (messageItem && !msg.content_before_tool_calls) {
+				items.push(messageItem);
+			}
 			continue;
 		}
 
@@ -937,6 +968,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		items.push({
 			role: msg.role,
 			content: transformContentForResponsesApi(msg.content, msg.role),
+			...(msg.role === "assistant" && msg.phase ? { phase: msg.phase } : {}),
 		});
 	}
 
@@ -1003,6 +1035,7 @@ export async function prepareRequestBody(
 	verbosity?: "low" | "medium" | "high",
 	prompt_cache_options?: PromptCacheOptions,
 	session_id?: string,
+	reasoning_context?: "auto" | "current_turn" | "all_turns",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	const modelDef = models.find((m) => m.id === usedInternalModel);
@@ -1543,15 +1576,36 @@ export async function prepareRequestBody(
 	const messagesWithReasoningDetails = processedMessages;
 
 	// `reasoning_details` is the gateway's carrier for opaque reasoning payloads
-	// (e.g. OpenAI encrypted reasoning). No chat-completions upstream understands
-	// it, and strict providers reject unknown message fields, so strip it from
-	// every path except the Responses API transform above.
-	processedMessages = processedMessages.map((m) => {
-		if (m.reasoning_details === undefined) {
-			return m;
+	// (e.g. OpenAI encrypted reasoning); `phase` and `content_before_tool_calls`
+	// are OpenAI Responses assistant-message markers. No chat-completions
+	// upstream understands them, and strict providers reject unknown message
+	// fields, so strip them from every path except the Responses API transform
+	// above. An assistant message that carried only reasoning (no
+	// content/tool_calls — an incomplete prior turn replayed for the Responses
+	// API) becomes empty here, so drop it.
+	processedMessages = processedMessages.flatMap((m) => {
+		if (
+			m.reasoning_details === undefined &&
+			m.phase === undefined &&
+			m.content_before_tool_calls === undefined
+		) {
+			return [m];
 		}
-		const { reasoning_details: _ignored, ...rest } = m;
-		return rest;
+		const {
+			reasoning_details: reasoningDetails,
+			phase: _phase,
+			content_before_tool_calls: _contentBeforeToolCalls,
+			...rest
+		} = m;
+		if (
+			reasoningDetails !== undefined &&
+			m.role === "assistant" &&
+			(m.content === null || m.content === undefined) &&
+			(!m.tool_calls || m.tool_calls.length === 0)
+		) {
+			return [];
+		}
+		return [rest];
 	});
 
 	// Start with a base structure that can be modified for each provider
@@ -1723,6 +1777,13 @@ export async function prepareRequestBody(
 							: {
 									effort: responsesReasoningEffort,
 									summary: "detailed",
+									// reasoning.context is only documented on OpenAI's
+									// Responses API surface; other providers reject
+									// unknown reasoning fields.
+									...(reasoning_context !== undefined &&
+										(usedProvider === "openai" || usedProvider === "azure") && {
+											context: reasoning_context,
+										}),
 								},
 				};
 
