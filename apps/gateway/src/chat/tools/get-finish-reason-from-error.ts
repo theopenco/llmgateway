@@ -73,6 +73,14 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
+	// Aggregator providers (e.g. embercloud) report transient failures of THEIR
+	// upstreams as a 400 "Temporary routing error (400)." — a provider-side
+	// failure, not a client error, so classify as upstream_error so the request
+	// can be retried with another provider instead of passing the 400 through.
+	if (errorText && /temporary routing error/i.test(errorText)) {
+		return "upstream_error";
+	}
+
 	// Some providers return a bare "Not Found" body on non-404 status codes when
 	// the model/endpoint mapping is wrong on our side. Treat as gateway_error so
 	// the request can be retried with another provider.

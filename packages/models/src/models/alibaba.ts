@@ -1742,6 +1742,9 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3.5-397B-A17B",
+				// Intermittent 404 "The model does not exist" in production
+				// (~57% success rate observed 2026-07-14)
+				deactivatedAt: new Date("2026-07-14"),
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
 				requestPrice: "0",

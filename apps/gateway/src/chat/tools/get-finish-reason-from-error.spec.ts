@@ -17,6 +17,15 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(404)).toBe("upstream_error");
 	});
 
+	it("returns upstream_error for 400 temporary routing errors", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Temporary routing error (400).","type":"upstream_error","code":400}}',
+			),
+		).toBe("upstream_error");
+	});
+
 	it("returns gateway_error for 402 insufficient balance", () => {
 		expect(getFinishReasonFromError(402)).toBe("gateway_error");
 		expect(
