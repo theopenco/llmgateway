@@ -330,11 +330,11 @@ export function Hero({
 											sizes="(max-width: 1280px) 100vw, 1120px"
 										/>
 										<Image
-											className="z-2 border-border/25 aspect-[3022/1656] relative rounded-2xl border dark:hidden"
+											className="z-2 border-border/25 aspect-[3022/1650] relative rounded-2xl border dark:hidden"
 											src="/new-hero-light.png"
 											alt="LLM Gateway dashboard showing analytics and API usage"
 											width={3022}
-											height={1656}
+											height={1650}
 											sizes="(max-width: 1280px) 100vw, 1120px"
 										/>
 									</div>
