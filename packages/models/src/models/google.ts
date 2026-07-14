@@ -1061,6 +1061,10 @@ export const googleModels = [
 				webSearch: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+				// AI Studio's json_object mode emits a stray trailing brace (and
+				// sometimes prose) after the JSON — Vertex is unaffected
+				// (verified live 2026-07-14)
+				healStreamingJsonOutput: true,
 			},
 			{
 				providerId: "google-vertex",

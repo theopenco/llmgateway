@@ -12529,7 +12529,11 @@ chat.openapi(completions, async (c) => {
 				response_format?.type === "json_object") ||
 			(usesAwsBedrockConverse() && response_format?.type === "json_object") ||
 			usedProvider === "novita" ||
-			splitTaggedReasoning);
+			splitTaggedReasoning ||
+			// Mappings flagged for JSON healing emit malformed JSON-mode output in
+			// non-streaming responses too (e.g. AI Studio's gemini-3.5-flash
+			// appends a stray closing brace), so honor the flag here as well.
+			healStreamingJsonOutput);
 
 	if (shouldHealNonStreaming && content) {
 		const healingResult = healJsonResponse(content);

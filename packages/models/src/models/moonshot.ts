@@ -384,6 +384,10 @@ export const moonshotModels = [
 			{
 				providerId: "canopywave",
 				externalId: "moonshotai/kimi-k2.6",
+				// canopywave's kimi-k2.6 deployment 503s on every request ("No
+				// available prefill workers") while other models on the same key
+				// work (verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.5e-6",
 				cachedInputPrice: "0.1e-6",
 				outputPrice: "2.8e-6",
