@@ -574,7 +574,9 @@ export function parseProviderResponse(
 					nativeFinishReason: json.choices?.[0]?.native_finish_reason,
 					usage: json.usage,
 				});
-				finishReason = "canceled";
+				// "abort" is an upstream-initiated interruption, not a client
+				// cancellation, so it counts as an upstream error.
+				finishReason = "upstream_error";
 			} else if (finishReason === "tool_use") {
 				finishReason = "tool_calls";
 			}
@@ -944,6 +946,9 @@ export function parseProviderResponse(
 						nativeFinishReason: json.choices?.[0]?.native_finish_reason,
 						usage: json.usage,
 					});
+					// "abort" is an upstream-initiated interruption, not a client
+					// cancellation, so it counts as an upstream error.
+					finishReason = "upstream_error";
 				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
