@@ -5,7 +5,7 @@ import { PricingBreakdown } from "@/components/nano-banana-simulator/pricing-bre
 import { SimulatorCta } from "@/components/nano-banana-simulator/simulator-cta";
 import { SimulatorHero } from "@/components/nano-banana-simulator/simulator-hero";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -41,15 +41,7 @@ export async function generateMetadata({
 			description: `See how much you save on Gemini 3 Pro image generation. ${discount}% savings vs Google AI Studio pricing.`,
 			url: `https://llmgateway.io/nano-banana-simulator/${discount}`,
 			type: "website",
-			images: [
-				{
-					url: withDeployVersion(
-						`/nano-banana-simulator/${discount}/opengraph-image`,
-					),
-					width: 1200,
-					height: 630,
-				},
-			],
+			images: [versionedOgImage(`/nano-banana-simulator/${discount}`)],
 		},
 	};
 }

@@ -12,7 +12,7 @@ import { SwitchIn60 } from "@/components/SwitchIn60";
 import { Button } from "@/components/ui/button";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import { allComparisons } from "content-collections";
 
@@ -59,19 +59,13 @@ export async function generateMetadata({
 			description: entry.description,
 			type: "article",
 			url: `${BASE_URL}/compare/${entry.slug}`,
-			images: [
-				{
-					url: withDeployVersion(`/compare/${entry.slug}/opengraph-image`),
-					width: 1200,
-					height: 630,
-				},
-			],
+			images: [versionedOgImage(`/compare/${entry.slug}`)],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: entry.metaTitle ?? entry.title,
 			description: entry.description,
-			images: [withDeployVersion(`/compare/${entry.slug}/opengraph-image`)],
+			images: [versionedOgImage(`/compare/${entry.slug}`)],
 		},
 	};
 }

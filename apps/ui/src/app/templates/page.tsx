@@ -5,7 +5,7 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { TemplateCards } from "@/components/templates/template-cards";
 import { Button } from "@/lib/components/button";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -14,13 +14,7 @@ export const metadata: Metadata = {
 	description:
 		"Production-ready templates to jumpstart your AI applications — image generation, chatbots, end-user monetization, and more.",
 	openGraph: {
-		images: [
-			{
-				url: withDeployVersion("/templates/opengraph-image"),
-				width: 1200,
-				height: 630,
-			},
-		],
+		images: [versionedOgImage("/templates")],
 		title: "AI App Templates — Production-Ready Starters",
 		description:
 			"Production-ready templates to jumpstart your AI applications — image generation, chatbots, end-user monetization, and more.",

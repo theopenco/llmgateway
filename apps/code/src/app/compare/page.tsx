@@ -5,7 +5,7 @@ import { BrandTile } from "@/components/brand-logos";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import { allComparisons } from "content-collections";
 
@@ -18,13 +18,7 @@ export const metadata: Metadata = {
 		"How DevPass compares to Cursor, OpenCode, FirePass, the z.ai GLM Coding Plan, and Alibaba's Qwen plan. Pricing, model catalogs, and limits side by side.",
 	alternates: { canonical: "/compare" },
 	openGraph: {
-		images: [
-			{
-				url: withDeployVersion("/compare/opengraph-image"),
-				width: 1200,
-				height: 630,
-			},
-		],
+		images: [versionedOgImage("/compare")],
 		title: "DevPass vs the Alternatives — Coding Plan Comparisons",
 		description:
 			"How DevPass compares to Cursor, OpenCode, FirePass, z.ai and Alibaba Qwen. Pricing, models, and limits side by side.",

@@ -5,7 +5,7 @@ import { FaceOff, ThemTile, UsTile } from "@/components/compare/logo-faceoff";
 import { Button } from "@/components/ui/button";
 import { comparisons, US } from "@/lib/comparisons";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -15,13 +15,7 @@ export const metadata: Metadata = {
 		"Compare LLM Gateway Chat to ChatGPT, Claude, Gemini, Poe, Perplexity and OpenRouter — every frontier model on one $19/mo subscription.",
 	alternates: { canonical: "/compare" },
 	openGraph: {
-		images: [
-			{
-				url: withDeployVersion("/compare/opengraph-image"),
-				width: 1200,
-				height: 630,
-			},
-		],
+		images: [versionedOgImage("/compare")],
 		title: "Compare LLM Gateway Chat — vs ChatGPT, Claude, Gemini & more",
 		description:
 			"One subscription, every frontier model. See how LLM Gateway Chat stacks up against the AI chat apps you're evaluating.",
@@ -29,7 +23,7 @@ export const metadata: Metadata = {
 		url: "https://chat.llmgateway.io/compare",
 	},
 	twitter: {
-		images: [withDeployVersion("/compare/opengraph-image")],
+		images: [versionedOgImage("/compare")],
 		card: "summary_large_image",
 		title: "Compare LLM Gateway Chat — vs ChatGPT, Claude, Gemini & more",
 		description:

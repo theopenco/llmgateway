@@ -8,7 +8,7 @@ import {
 } from "@/components/profile/ProfileView";
 import { fetchPublicProfile } from "@/lib/public-profile";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -40,13 +40,9 @@ export async function generateMetadata({
 			type: "profile",
 			url: `/profiles/${profile.username}`,
 			images: [
-				{
-					url: withDeployVersion(
-						`/profiles/${encodeURIComponent(profile.username ?? username)}/opengraph-image`,
-					),
-					width: 1200,
-					height: 630,
-				},
+				versionedOgImage(
+					`/profiles/${encodeURIComponent(profile.username ?? username)}`,
+				),
 			],
 		},
 		twitter: {
@@ -54,8 +50,8 @@ export async function generateMetadata({
 			title,
 			description,
 			images: [
-				withDeployVersion(
-					`/profiles/${encodeURIComponent(profile.username ?? username)}/opengraph-image`,
+				versionedOgImage(
+					`/profiles/${encodeURIComponent(profile.username ?? username)}`,
 				),
 			],
 		},

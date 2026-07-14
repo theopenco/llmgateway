@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
-import { withAssetVersion, withDeployVersion } from "./asset-version.js";
+import {
+	versionedOgImage,
+	withAssetVersion,
+	withDeployVersion,
+} from "./asset-version.js";
 
 describe("withAssetVersion", () => {
 	const publicDir = mkdtempSync(path.join(tmpdir(), "asset-version-"));
@@ -91,5 +95,15 @@ describe("withDeployVersion", () => {
 		process.env.APP_VERSION = "v1.2.3";
 
 		expect(withDeployVersion("/og?v=1")).toBe("/og?v=1");
+	});
+
+	it("versionedOgImage builds a versioned 1200x630 descriptor", () => {
+		process.env.APP_VERSION = "v1.2.3";
+
+		expect(versionedOgImage("/providers")).toEqual({
+			url: "/providers/opengraph-image?v=v1.2.3",
+			width: 1200,
+			height: 630,
+		});
 	});
 });

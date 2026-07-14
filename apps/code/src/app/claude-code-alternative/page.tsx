@@ -15,7 +15,7 @@ import {
 	getDevPlanCreditsLimit,
 	MARKETING_STATS,
 } from "@llmgateway/shared";
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -30,20 +30,14 @@ export const metadata: Metadata = {
 	description: DESCRIPTION,
 	alternates: { canonical: PAGE_PATH },
 	openGraph: {
-		images: [
-			{
-				url: withDeployVersion("/claude-code-alternative/opengraph-image"),
-				width: 1200,
-				height: 630,
-			},
-		],
+		images: [versionedOgImage("/claude-code-alternative")],
 		title: TITLE,
 		description: DESCRIPTION,
 		type: "article",
 		url: `${BASE_URL}${PAGE_PATH}`,
 	},
 	twitter: {
-		images: [withDeployVersion("/claude-code-alternative/opengraph-image")],
+		images: [versionedOgImage("/claude-code-alternative")],
 		card: "summary_large_image",
 		title: TITLE,
 		description: DESCRIPTION,

@@ -43,7 +43,7 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -605,8 +605,8 @@ export async function generateMetadata({
 			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
-	const ogImageUrl = withDeployVersion(
-		`/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`,
+	const ogImage = versionedOgImage(
+		`/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}`,
 	);
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
@@ -621,20 +621,13 @@ export async function generateMetadata({
 			description,
 			type: "website",
 			url: canonical,
-			images: [
-				{
-					url: ogImageUrl,
-					width: 1200,
-					height: 630,
-					alt: `${model.name ?? model.id} model card`,
-				},
-			],
+			images: [{ ...ogImage, alt: `${model.name ?? model.id} model card` }],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title,
 			description,
-			images: [ogImageUrl],
+			images: [ogImage],
 		},
 	};
 }

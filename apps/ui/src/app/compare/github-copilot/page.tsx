@@ -3,7 +3,7 @@ import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonGitHubCopilot } from "@/components/landing/comparison-github-copilot";
 import Footer from "@/components/landing/footer";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -87,13 +87,7 @@ export async function generateMetadata() {
 			"Copilot now bills chat and agents by usage-based AI Credits. Compare it with LLM Gateway: zero token markup, hard budget caps, prompt caching, and 200+ models for any coding agent.",
 		alternates: { canonical: "/compare/github-copilot" },
 		openGraph: {
-			images: [
-				{
-					url: withDeployVersion("/compare/github-copilot/opengraph-image"),
-					width: 1200,
-					height: 630,
-				},
-			],
+			images: [versionedOgImage("/compare/github-copilot")],
 			title: "LLM Gateway vs GitHub Copilot — Costs Compared (2026)",
 			description:
 				"Copilot bills chat and agents by usage-based AI Credits. LLM Gateway: zero token markup, hard budget caps, and 200+ models for any coding agent.",
@@ -101,7 +95,7 @@ export async function generateMetadata() {
 			url: "https://llmgateway.io/compare/github-copilot",
 		},
 		twitter: {
-			images: [withDeployVersion("/compare/github-copilot/opengraph-image")],
+			images: [versionedOgImage("/compare/github-copilot")],
 			card: "summary_large_image",
 			title: "LLM Gateway vs GitHub Copilot — Costs Compared (2026)",
 			description:

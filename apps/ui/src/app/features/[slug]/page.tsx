@@ -25,7 +25,7 @@ import { features, getFeatureBySlug } from "@/lib/features";
 
 import {
 	withAssetVersion,
-	withDeployVersion,
+	versionedOgImage,
 } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
@@ -295,9 +295,7 @@ export async function generateMetadata({
 
 	const title = feature.title;
 	const description = feature.description;
-	const ogImageUrl = withDeployVersion(
-		`/features/${feature.slug}/opengraph-image`,
-	);
+	const ogImage = versionedOgImage(`/features/${feature.slug}`);
 
 	return {
 		title,
@@ -310,13 +308,13 @@ export async function generateMetadata({
 			description,
 			type: "website",
 			url: `https://llmgateway.io/features/${feature.slug}`,
-			images: [{ url: ogImageUrl, width: 1200, height: 630 }],
+			images: [ogImage],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title,
 			description,
-			images: [ogImageUrl],
+			images: [ogImage],
 		},
 	};
 }

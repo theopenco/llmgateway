@@ -12,7 +12,7 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type {
 	ApiModel,
@@ -279,13 +279,7 @@ export async function generateMetadata({
 			type: "website",
 			url: `https://llmgateway.io/providers/${provider.id}`,
 			images: [
-				{
-					url: withDeployVersion(
-						`/providers/${encodeURIComponent(provider.id)}/opengraph-image`,
-					),
-					width: 1200,
-					height: 630,
-				},
+				versionedOgImage(`/providers/${encodeURIComponent(provider.id)}`),
 			],
 		},
 		twitter: {
@@ -293,9 +287,7 @@ export async function generateMetadata({
 			title: `${provider.name} API — Models & Pricing | LLM Gateway`,
 			description,
 			images: [
-				withDeployVersion(
-					`/providers/${encodeURIComponent(provider.id)}/opengraph-image`,
-				),
+				versionedOgImage(`/providers/${encodeURIComponent(provider.id)}`),
 			],
 		},
 	};

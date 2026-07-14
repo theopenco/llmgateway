@@ -12,7 +12,7 @@ import {
 	US,
 } from "@/lib/comparisons";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -42,19 +42,13 @@ export async function generateMetadata({
 			description: comparison.metaDescription,
 			type: "article",
 			url: `https://chat.llmgateway.io${canonical}`,
-			images: [
-				{
-					url: withDeployVersion(`${canonical}/opengraph-image`),
-					width: 1200,
-					height: 630,
-				},
-			],
+			images: [versionedOgImage(`${canonical}`)],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: comparison.metaTitle,
 			description: comparison.metaDescription,
-			images: [withDeployVersion(`${canonical}/opengraph-image`)],
+			images: [versionedOgImage(`${canonical}`)],
 		},
 	};
 }

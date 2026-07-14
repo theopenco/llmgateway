@@ -35,7 +35,7 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -503,8 +503,8 @@ export async function generateMetadata({
 	const title = `${model.name ?? model.id} on ${providerName}`;
 	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
-	const ogImageUrl = withDeployVersion(
-		`/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`,
+	const ogImage = versionedOgImage(
+		`/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`,
 	);
 
 	return {
@@ -520,9 +520,7 @@ export async function generateMetadata({
 			url: canonical,
 			images: [
 				{
-					url: ogImageUrl,
-					width: 1200,
-					height: 630,
+					...ogImage,
 					alt: `${model.name ?? model.id} on ${providerName} model card`,
 				},
 			],
@@ -531,7 +529,7 @@ export async function generateMetadata({
 			card: "summary_large_image",
 			title,
 			description,
-			images: [ogImageUrl],
+			images: [ogImage],
 		},
 	};
 }

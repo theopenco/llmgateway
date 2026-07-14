@@ -4,7 +4,7 @@ import { ProvidersGrid } from "@/components/providers/providers-grid";
 import { JsonLd } from "@/components/seo/json-ld";
 
 import { providers as providerDefinitions } from "@llmgateway/models";
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -14,13 +14,7 @@ export const metadata: Metadata = {
 		"Browse 40+ LLM providers on LLM Gateway — OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, xAI, and more. One API for all of them.",
 	alternates: { canonical: "/providers" },
 	openGraph: {
-		images: [
-			{
-				url: withDeployVersion("/providers/opengraph-image"),
-				width: 1200,
-				height: 630,
-			},
-		],
+		images: [versionedOgImage("/providers")],
 		title: "LLM Providers | LLM Gateway",
 		description:
 			"Browse 40+ LLM providers on LLM Gateway — OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, xAI, and more.",

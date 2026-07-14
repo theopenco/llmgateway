@@ -10,7 +10,7 @@ import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 } from "@llmgateway/models";
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -146,19 +146,13 @@ export async function generateMetadata({
 			description,
 			type: "website",
 			url: `https://llmgateway.io${canonical}`,
-			images: [
-				{
-					url: withDeployVersion("/providers/opengraph-image"),
-					width: 1200,
-					height: 630,
-				},
-			],
+			images: [versionedOgImage("/providers")],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title: `AI Providers in ${country.name} | LLM Gateway`,
 			description,
-			images: [withDeployVersion("/providers/opengraph-image")],
+			images: [versionedOgImage("/providers")],
 		},
 	};
 }

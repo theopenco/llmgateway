@@ -27,7 +27,7 @@ import {
 	expandAllProviderRegions,
 	type ModelDefinition,
 } from "@llmgateway/models";
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -382,8 +382,8 @@ export async function generateMetadata({
 
 	const canonical = `/models/${encodeURIComponent(decodedName)}/uptime`;
 	const primaryProvider = model.providers[0]?.providerId || "default";
-	const ogImageUrl = withDeployVersion(
-		`/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`,
+	const ogImage = versionedOgImage(
+		`/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}`,
 	);
 
 	return {
@@ -406,20 +406,13 @@ export async function generateMetadata({
 			description,
 			type: "website",
 			url: canonical,
-			images: [
-				{
-					url: ogImageUrl,
-					width: 1200,
-					height: 630,
-					alt: `${modelLabel} uptime status`,
-				},
-			],
+			images: [{ ...ogImage, alt: `${modelLabel} uptime status` }],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title,
 			description,
-			images: [ogImageUrl],
+			images: [ogImage],
 		},
 		robots: {
 			index: true,

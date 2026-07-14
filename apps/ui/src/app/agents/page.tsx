@@ -2,7 +2,7 @@ import { AgentCards } from "@/components/agents/agent-cards";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -12,13 +12,7 @@ export const metadata: Metadata = {
 		"Pre-built tool-calling AI agents ready to integrate — weather, search, and more, powered by LLM Gateway.",
 	alternates: { canonical: "/agents" },
 	openGraph: {
-		images: [
-			{
-				url: withDeployVersion("/agents/opengraph-image"),
-				width: 1200,
-				height: 630,
-			},
-		],
+		images: [versionedOgImage("/agents")],
 		title: "AI Agents — Pre-built Tool-Calling Agents",
 		description:
 			"Pre-built tool-calling AI agents ready to integrate — weather, search, and more, powered by LLM Gateway.",

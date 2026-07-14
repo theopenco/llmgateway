@@ -2,7 +2,7 @@ import dynamic from "next/dynamic";
 
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 const IntegrationCards = dynamic(() =>
 	import("@/components/integrations/integration-cards").then(
@@ -16,13 +16,7 @@ export const metadata = {
 	description:
 		"Connect LLM Gateway with your favorite tools. Integrate with Claude Code, Cursor, Cline, n8n, and more.",
 	openGraph: {
-		images: [
-			{
-				url: withDeployVersion("/integrations/opengraph-image"),
-				width: 1200,
-				height: 630,
-			},
-		],
+		images: [versionedOgImage("/integrations")],
 		title: "Integrations — Claude Code, Cursor, Cline, n8n",
 		description:
 			"Connect LLM Gateway with your favorite tools. Integrate with Claude Code, Cursor, Cline, n8n, and more.",

@@ -3,7 +3,7 @@ import Link from "next/link";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { Metadata } from "next";
 
@@ -13,13 +13,7 @@ export const metadata: Metadata = {
 		"Clone a production-ready AI template, connect to 200+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
 	alternates: { canonical: "/ship" },
 	openGraph: {
-		images: [
-			{
-				url: withDeployVersion("/ship/opengraph-image"),
-				width: 1200,
-				height: 630,
-			},
-		],
+		images: [versionedOgImage("/ship")],
 		title: "Ship an AI App in 10 Minutes | LLM Gateway",
 		description:
 			"Clone a production-ready AI template, connect to 200+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",

@@ -23,6 +23,26 @@ export function withDeployVersion(url: string): string {
 }
 
 /**
+ * Builds the OpenGraph/Twitter image descriptor for a page's
+ * `opengraph-image` route, deploy-versioned via withDeployVersion. All
+ * dynamically generated OG images share the standard 1200x630 card size,
+ * so pages only pass their own path:
+ *
+ *   openGraph: { images: [versionedOgImage("/providers")] }
+ */
+export function versionedOgImage(pagePath: string): {
+	url: string;
+	width: number;
+	height: number;
+} {
+	return {
+		url: withDeployVersion(`${pagePath}/opengraph-image`),
+		width: 1200,
+		height: 630,
+	};
+}
+
+/**
  * Appends a content-hash query param (`?v=<hash>`) to a root-relative URL of
  * an asset in the app's `public/` directory, so browsers and social-media
  * crawlers automatically re-fetch the asset whenever its file content

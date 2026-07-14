@@ -7,7 +7,7 @@ import { Logo } from "@/components/ui/logo";
 import { getConfig } from "@/lib/config-server";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
 
-import { withDeployVersion } from "@llmgateway/shared/asset-version";
+import { versionedOgImage } from "@llmgateway/shared/asset-version";
 
 import type { UIMessage } from "ai";
 import type { Metadata } from "next";
@@ -173,25 +173,13 @@ export async function generateMetadata({
 			url,
 			type: "article",
 			siteName: "LLM Gateway Playground",
-			images: [
-				{
-					url: withDeployVersion(
-						`/share/${encodeURIComponent(shareId)}/opengraph-image`,
-					),
-					width: 1200,
-					height: 630,
-				},
-			],
+			images: [versionedOgImage(`/share/${encodeURIComponent(shareId)}`)],
 		},
 		twitter: {
 			card: "summary_large_image",
 			title,
 			description,
-			images: [
-				withDeployVersion(
-					`/share/${encodeURIComponent(shareId)}/opengraph-image`,
-				),
-			],
+			images: [versionedOgImage(`/share/${encodeURIComponent(shareId)}`)],
 		},
 	};
 }
