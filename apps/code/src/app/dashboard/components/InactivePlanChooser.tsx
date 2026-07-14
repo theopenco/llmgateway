@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -23,6 +23,10 @@ export default function InactivePlanChooser({
 		<div className="space-y-8">
 			<div className="grid gap-5 md:grid-cols-3 max-w-4xl mx-auto">
 				{plans.map((plan) => {
+					const ratio = plan.usage / plan.price;
+					const ratioLabel = Number.isInteger(ratio)
+						? `${ratio}`
+						: ratio.toFixed(1);
 					return (
 						<div
 							key={plan.tier}
@@ -52,13 +56,13 @@ export default function InactivePlanChooser({
 								<span className="text-sm text-muted-foreground">/mo</span>
 							</div>
 							<div className="mb-5 flex items-center gap-1.5 text-sm">
-								<ArrowRight className="h-3 w-3 text-muted-foreground" />
-								<span className="font-medium">${plan.usage}</span>
-								<span className="text-muted-foreground">in usage</span>
+								<span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-semibold tabular-nums">
+									{ratioLabel}× usage value
+								</span>
 							</div>
 							<ul className="mb-6 flex-1 space-y-2.5">
 								{[
-									`$${plan.usage} model usage`,
+									`${ratioLabel}× your payment in model usage`,
 									"All 200+ models",
 									"Resets monthly",
 								].map((feature) => (

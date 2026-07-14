@@ -127,18 +127,17 @@ const productSchema = {
 	},
 };
 
+function usageRatioLabel(credits: number, price: number) {
+	const ratio = credits / price;
+	return Number.isInteger(ratio) ? `${ratio}×` : `${ratio.toFixed(1)}×`;
+}
+
 const usageRows: UsageRow[] = [
 	{
-		label: "You pay",
-		lite: `${formatUsd(DEV_PLAN_PRICES.lite)}/mo`,
-		pro: `${formatUsd(DEV_PLAN_PRICES.pro)}/mo`,
-		max: `${formatUsd(DEV_PLAN_PRICES.max)}/mo`,
-	},
-	{
-		label: "Model usage at provider rates",
-		lite: `${formatUsd(liteCredits)}/mo`,
-		pro: `${formatUsd(proCredits)}/mo`,
-		max: `${formatUsd(maxCredits)}/mo`,
+		label: "Usage value (metered at provider rates)",
+		lite: `${usageRatioLabel(liteCredits, DEV_PLAN_PRICES.lite)} what you pay`,
+		pro: `${usageRatioLabel(proCredits, DEV_PLAN_PRICES.pro)} what you pay`,
+		max: `${usageRatioLabel(maxCredits, DEV_PLAN_PRICES.max)} what you pay`,
 		emphasis: true,
 	},
 	{

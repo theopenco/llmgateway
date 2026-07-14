@@ -87,6 +87,10 @@ export default function ActivePlanChangeTier({
 					const isScheduled = pendingTier === plan.tier;
 					const isUpgrade = plan.price > currentPrice;
 					const isPending = subscribingTier === plan.tier;
+					const ratio = plan.usage / plan.price;
+					const ratioLabel = Number.isInteger(ratio)
+						? `${ratio}`
+						: ratio.toFixed(1);
 
 					return (
 						<div
@@ -131,7 +135,9 @@ export default function ActivePlanChangeTier({
 								<span className="text-sm text-muted-foreground">/mo</span>
 							</div>
 							<div className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground">
-								<ArrowRight className="h-3 w-3" />${plan.usage} in usage
+								<span className="rounded-full bg-foreground/10 px-2 py-0.5 font-semibold tabular-nums text-foreground">
+									{ratioLabel}× usage value
+								</span>
 							</div>
 							{isScheduled ? (
 								<p className="mt-auto text-xs text-muted-foreground">
