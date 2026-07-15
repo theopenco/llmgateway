@@ -1463,6 +1463,10 @@ export const log = pgTable(
 		responseFormat: json(),
 		hasError: boolean().default(false),
 		errorDetails: json().$type<z.infer<typeof errorDetails>>(),
+		// Raw upstream error for stealth providers, whose public-facing
+		// errorDetails are redacted to hide the underlying platform. Internal
+		// only: must never be exposed through public API routes or the UI.
+		internalErrorDetails: json().$type<z.infer<typeof errorDetails>>(),
 		cost: real(),
 		inputCost: real(),
 		outputCost: real(),
