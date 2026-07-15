@@ -65,20 +65,20 @@ const faqData: FaqItem[] = [
 	{
 		question: "What happens if I hit my monthly limit?",
 		answer:
-			"Requests pause until your allowance resets at the start of the next billing cycle. You can upgrade to a higher tier at any time for an immediate, prorated boost to your available usage.",
+			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: you pay the new tier's full price, your billing cycle restarts, and you get the new tier's full monthly allowance immediately.",
 		content: (
 			<>
 				Requests pause until your allowance resets at the start of the next
-				billing cycle. You can{" "}
-				<strong>upgrade to a higher tier at any time</strong> for an immediate,
-				prorated boost to your available usage.
+				billing cycle. Or <strong>upgrade to a higher tier at any time</strong>:
+				you pay the new tier&apos;s full price, your billing cycle restarts, and
+				you get the new tier&apos;s full monthly allowance immediately.
 			</>
 		),
 	},
 	{
 		question: "Can I change plans anytime?",
 		answer:
-			"Yes. Upgrade or downgrade whenever you like — changes are prorated and take effect immediately. There's no lock-in and no cancellation fee.",
+			"Yes. Upgrades take effect immediately: you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away (unspent credits from the old cycle don't carry over). Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
 	},
 	{
 		question: "Do I need a subscription, or is there pay-as-you-go?",
@@ -133,7 +133,7 @@ const faqData: FaqItem[] = [
 	{
 		question: "Can I get a refund?",
 		answer:
-			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. Plan changes are prorated, and there's no cancellation fee.",
+			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. There's no cancellation fee.",
 		content: (
 			<>
 				Yes — DevPass comes with a <strong>first-month guarantee</strong>.
@@ -142,8 +142,7 @@ const faqData: FaqItem[] = [
 					contact@llmgateway.io
 				</Link>
 				: we&apos;ll refund your first month minus the usage you consumed at
-				provider rates. Plan changes are prorated, and there&apos;s no
-				cancellation fee.
+				provider rates. There&apos;s no cancellation fee.
 			</>
 		),
 	},

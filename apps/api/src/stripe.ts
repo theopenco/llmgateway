@@ -3374,12 +3374,12 @@ export async function handleInvoicePaymentSucceeded(event: {
 		isDevPlanSubscription && invoice.billing_reason === "subscription_update";
 
 	// Same billing-reason gate as dev plans: only reset chat plan credits on a
-	// true cycle renewal, not on mid-cycle tier-change proration invoices.
+	// true cycle renewal, not on mid-cycle tier-change invoices.
 	const isChatPlanRenewal =
 		isChatPlanSubscription && invoice.billing_reason === "subscription_cycle";
-	// Mid-cycle chat plan tier change: the change-tier endpoint charges the
-	// prorated upgrade with `always_invoice`, which Stripe bills as a
-	// `subscription_update` invoice.
+	// Mid-cycle chat plan tier upgrade: the change-tier endpoint resets the
+	// billing cycle (`billing_cycle_anchor: "now"`) and charges the full
+	// new-tier price, which Stripe bills as a `subscription_update` invoice.
 	const isChatPlanUpgradeInvoice =
 		isChatPlanSubscription && invoice.billing_reason === "subscription_update";
 
@@ -3804,30 +3804,55 @@ export async function handleInvoicePaymentSucceeded(event: {
 			`Skipping non-renewal dev plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
 		);
 	} else if (isChatPlanUpgradeInvoice) {
-		// Invoice from a mid-cycle chat plan upgrade. The change-tier endpoint
-		// already applied the new tier/limit synchronously; this webhook records
-		// the charge and emails the invoice. onConflictDoNothing on the unique
-		// stripeInvoiceId index keeps it idempotent against Stripe retries, so the
-		// row and email are produced at most once. Credits are left untouched — an
-		// upgrade must not reset the cycle's usage.
-		const creditsLimit = getChatPlanCreditsLimit(
-			organization.chatPlan as ChatPlanTier,
-		);
-		const [upgradeTransaction] = await db
-			.insert(tables.transaction)
-			.values({
-				organizationId,
-				type: "chat_plan_upgrade",
-				amount: (invoice.amount_paid / 100).toString(),
-				creditAmount: creditsLimit.toString(),
-				currency: invoice.currency.toUpperCase(),
-				status: "completed",
-				stripePaymentIntentId: (invoice as any).payment_intent,
-				stripeInvoiceId: invoice.id,
-				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} upgrade`,
-			})
-			.onConflictDoNothing()
-			.returning();
+		// Immediate invoice from a mid-cycle chat plan upgrade. The change-tier
+		// endpoint normally applies the fresh-cycle reset synchronously (new tier's
+		// full allowance, usage zeroed), so by the time this webhook arrives the
+		// org is already on the new tier and credits must be left untouched —
+		// re-zeroing usage here would grant free usage for anything consumed since
+		// the endpoint ran. If that process died after Stripe collected payment but
+		// before the local update, the org is still on the old tier: reproduce the
+		// same fresh-cycle reset here, reading the target tier from the
+		// subscription metadata the update set. The old cycle's unused credits are
+		// discarded, never rolled over. onConflictDoNothing on the unique
+		// stripeInvoiceId index keeps the row, email, and fallback reset at-most-
+		// once against Stripe retries.
+		const upgradeSubscription =
+			await getStripe().subscriptions.retrieve(subscriptionId);
+		const toTier = (upgradeSubscription.metadata?.chatPlan ??
+			organization.chatPlan) as ChatPlanTier;
+		const creditsLimit = getChatPlanCreditsLimit(toTier);
+
+		const upgradeTransaction = await db.transaction(async (tx) => {
+			const [created] = await tx
+				.insert(tables.transaction)
+				.values({
+					organizationId,
+					type: "chat_plan_upgrade",
+					amount: (invoice.amount_paid / 100).toString(),
+					creditAmount: creditsLimit.toString(),
+					currency: invoice.currency.toUpperCase(),
+					status: "completed",
+					stripePaymentIntentId: (invoice as any).payment_intent,
+					stripeInvoiceId: invoice.id,
+					description: `Chat Plan ${toTier.toUpperCase()} upgrade`,
+				})
+				.onConflictDoNothing()
+				.returning();
+
+			if (created && organization.chatPlan !== toTier) {
+				await tx
+					.update(tables.organization)
+					.set({
+						chatPlan: toTier,
+						chatPlanCreditsLimit: creditsLimit.toString(),
+						chatPlanCreditsUsed: "0",
+						chatPlanBillingCycleStart: new Date(),
+					})
+					.where(eq(tables.organization.id, organizationId));
+			}
+
+			return created;
+		});
 
 		if (upgradeTransaction) {
 			try {
@@ -3841,7 +3866,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 					...billingDetails,
 					lineItems: [
 						{
-							description: `Chat Plan ${organization.chatPlan?.toUpperCase()} upgrade`,
+							description: `Chat Plan ${toTier.toUpperCase()} upgrade`,
 							amount: invoice.amount_paid / 100,
 						},
 					],
@@ -3854,7 +3879,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				);
 			}
 			logger.info(
-				`Recorded chat plan upgrade invoice for organization ${organizationId}; credits used left unchanged`,
+				`Recorded chat plan upgrade invoice for organization ${organizationId}`,
 			);
 		} else {
 			logger.info(
