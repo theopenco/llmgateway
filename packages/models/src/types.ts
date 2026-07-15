@@ -4,6 +4,15 @@
 
 import type { ProviderId } from "./providers.js";
 
+/**
+ * OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later families).
+ * Placed on a content part to end a cacheable prefix when the request uses
+ * `prompt_cache_options.mode: "explicit"`.
+ */
+export interface PromptCacheBreakpoint {
+	mode?: "explicit";
+}
+
 // Base content types
 export interface TextContent {
 	type: "text";
@@ -12,6 +21,7 @@ export interface TextContent {
 		type: "ephemeral";
 		ttl?: "5m" | "1h";
 	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
 export interface ImageUrlContent {
@@ -20,6 +30,7 @@ export interface ImageUrlContent {
 		url: string;
 		detail?: "low" | "high" | "auto";
 	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
 export interface ImageContent {
@@ -49,6 +60,7 @@ export interface InputAudioContent {
 			| "pcm"
 			| "webm";
 	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
 export interface FileContent {
@@ -58,6 +70,7 @@ export interface FileContent {
 		file_data?: string;
 		file_id?: string;
 	};
+	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
 
 export interface ToolUseContent {
@@ -208,6 +221,17 @@ export type ToolChoiceType =
 
 export type PromptCacheRetention = "in_memory" | "24h";
 
+/**
+ * OpenAI explicit prompt caching controls (GPT-5.6 and later families).
+ * `mode: "explicit"` disables the automatic breakpoint on the latest message
+ * and caches only content parts carrying a `prompt_cache_breakpoint` marker.
+ * `ttl` currently only supports "30m" upstream.
+ */
+export interface PromptCacheOptions {
+	mode?: "implicit" | "explicit";
+	ttl?: "30m";
+}
+
 export type AnthropicToolChoice =
 	| "auto"
 	| "any"
@@ -235,6 +259,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	tool_choice?: ToolChoiceType;
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
+	prompt_cache_options?: PromptCacheOptions;
 	response_format?: {
 		type: "text" | "json_object" | "json_schema";
 		json_schema?: {
@@ -247,7 +272,15 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 	stream_options?: {
 		include_usage: boolean;
 	};
-	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max";
+	verbosity?: "low" | "medium" | "high";
 	n?: number;
 	extra_body?: Record<string, unknown>;
 }
@@ -276,8 +309,9 @@ export interface OpenAIResponsesRequestBody {
 	service_tier?: "auto" | "default" | "flex" | "priority";
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
+	prompt_cache_options?: PromptCacheOptions;
 	reasoning: {
-		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "detailed";
 	};
 	tools?: Array<{
@@ -291,7 +325,7 @@ export interface OpenAIResponsesRequestBody {
 	temperature?: number;
 	max_output_tokens?: number;
 	text?: {
-		format:
+		format?:
 			| { type: "text" }
 			| { type: "json_object" }
 			| {
@@ -300,6 +334,7 @@ export interface OpenAIResponsesRequestBody {
 					schema: Record<string, unknown>;
 					strict?: boolean;
 			  };
+		verbosity?: "low" | "medium" | "high";
 	};
 }
 

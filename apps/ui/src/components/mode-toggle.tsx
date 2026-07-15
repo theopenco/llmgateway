@@ -42,6 +42,7 @@ export function ModeToggle({ className }: { className?: string }) {
 				<DropdownMenuItem onClick={() => setTheme("system")}>
 					<ComputerIcon className="mr-2 size-4" />
 					<span>System</span>
+					<span className="ml-auto text-xs text-muted-foreground">Default</span>
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>

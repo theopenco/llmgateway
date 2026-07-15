@@ -9,9 +9,9 @@ import type { Metadata } from "next";
 const PAGE_URL = "https://llmgateway.io/token-cost-calculator";
 
 export const metadata: Metadata = {
-	title: "LLM Token Cost Calculator & Tokenizer — Compare AI Pricing",
+	title: "LLM Token Cost Calculator & Tokenizer",
 	description:
-		"Free LLM token counter and cost calculator. Paste any prompt to count its exact tokens with a real tokenizer, then compare what it costs on GPT-5, GPT-4o, Claude, Gemini, and 200+ models — at LLM Gateway's cheapest-provider rate with zero markup.",
+		"Free LLM token counter and cost calculator. Count tokens with a real tokenizer, then compare costs on GPT-5, Claude, Gemini, and 200+ models.",
 	keywords: [
 		"LLM token cost calculator",
 		"token counter",
@@ -32,16 +32,16 @@ export const metadata: Metadata = {
 	openGraph: {
 		type: "website",
 		url: PAGE_URL,
-		title: "LLM Token Cost Calculator & Tokenizer — Compare AI Pricing",
+		title: "LLM Token Cost Calculator & Tokenizer | LLM Gateway",
 		description:
-			"Paste a prompt to count its exact tokens, then compare the cost across GPT-5, Claude, Gemini, and 200+ models at LLM Gateway's cheapest-provider rate.",
+			"Paste a prompt to count tokens, then compare cost across GPT-5, Claude, Gemini, and 200+ models at zero markup.",
 		images: [{ url: "/opengraph.png?v=1" }],
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "LLM Token Cost Calculator & Tokenizer — Compare AI Pricing",
+		title: "LLM Token Cost Calculator & Tokenizer | LLM Gateway",
 		description:
-			"Count your prompt's exact tokens and compare the cost across 200+ LLMs, then see how much you save with LLM Gateway.",
+			"Count your prompt's exact tokens and compare the cost across 200+ LLMs with LLM Gateway.",
 		images: ["/opengraph.png?v=1"],
 	},
 };

@@ -20,6 +20,28 @@ export const notDevpassFilter = sql`${tables.transaction.type} NOT IN (${sql.joi
 	sql`, `,
 )})`;
 
+// Transaction types that represent an actual customer payment: org credit
+// purchases, dev/chat plan charges (start/upgrade/renewal — cancel, end and
+// downgrade rows are bookkeeping, not payments), legacy subscriptions, and
+// end-user wallet top-ups. Used to count "paid customers", so gifts, refunds
+// and margin bookkeeping never qualify an org as paying.
+export const paidTransactionTypes = [
+	"credit_topup",
+	"subscription_start",
+	"dev_plan_start",
+	"dev_plan_upgrade",
+	"dev_plan_renewal",
+	"chat_plan_start",
+	"chat_plan_upgrade",
+	"chat_plan_renewal",
+	"end_user_topup",
+] as const;
+
+export const paidTransactionFilter = sql`${tables.transaction.type} IN (${sql.join(
+	paidTransactionTypes.map((t) => sql`${t}`),
+	sql`, `,
+)})`;
+
 // All LLM SDK end-user wallet transaction types. These belong to the separate
 // end-user wallet economy (their own balances, not organization.credits), so
 // they are excluded from the org credit-purchase "topped up / unused credits"

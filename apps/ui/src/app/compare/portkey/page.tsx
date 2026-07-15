@@ -77,18 +77,20 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs Portkey — The Open Portkey Alternative",
 		description:
-			"Compare LLM Gateway's fully open-source platform, automatic provider routing, image and video generation, and transparent pricing against Portkey's gateway and LLMOps suite. See why teams pick LLM Gateway as their Portkey alternative.",
+			"Compare open-source routing, image and video generation, and transparent pricing vs Portkey's gateway and LLMOps suite.",
+		alternates: { canonical: "/compare/portkey" },
 		openGraph: {
-			title: "LLM Gateway vs Portkey - Feature Comparison",
+			title: "LLM Gateway vs Portkey — Feature Comparison",
 			description:
-				"Compare LLM Gateway's fully open-source platform, automatic provider routing, and transparent pricing against Portkey's gateway and LLMOps suite.",
+				"Open-source routing and transparent pricing vs Portkey's gateway and LLMOps suite.",
 			type: "website",
+			url: "https://llmgateway.io/compare/portkey",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs Portkey - Feature Comparison",
+			title: "LLM Gateway vs Portkey — Feature Comparison",
 			description:
-				"Compare LLM Gateway's fully open-source platform, automatic provider routing, and transparent pricing against Portkey's gateway and LLMOps suite.",
+				"Open-source routing and transparent pricing vs Portkey's gateway and LLMOps suite.",
 		},
 	};
 }

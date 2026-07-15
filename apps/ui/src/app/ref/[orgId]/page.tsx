@@ -33,7 +33,10 @@ export async function generateMetadata({
 	const info = await fetchReferralInfo(orgId);
 
 	if (!info) {
-		return { title: "Join LLM Gateway" };
+		return {
+			title: "Join LLM Gateway",
+			robots: { index: false, follow: false },
+		};
 	}
 
 	const title = `${info.name} invited you to join LLM Gateway`;
@@ -44,6 +47,7 @@ export async function generateMetadata({
 	return {
 		title,
 		description,
+		robots: { index: false, follow: false },
 		openGraph: { title, description, type: "website" },
 		twitter: { card: "summary_large_image", title, description },
 	};

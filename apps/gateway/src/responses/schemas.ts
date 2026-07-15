@@ -1,15 +1,24 @@
 import { z } from "@hono/zod-openapi";
 
+// OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later).
+const promptCacheBreakpointSchema = z
+	.object({
+		mode: z.enum(["explicit"]).optional(),
+	})
+	.optional();
+
 const responseInputContentSchema = z.union([
 	z.object({
 		type: z.literal("input_text"),
 		text: z.string(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 	z.object({
 		type: z.literal("input_image"),
 		image_url: z.string().optional(),
 		file_id: z.string().optional(),
 		detail: z.enum(["low", "high", "auto", "original"]).optional(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 	z.object({
 		type: z.literal("input_file"),
@@ -18,6 +27,7 @@ const responseInputContentSchema = z.union([
 		file_url: z.string().optional(),
 		filename: z.string().optional(),
 		detail: z.enum(["low", "high"]).optional(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 ]);
 
@@ -38,6 +48,7 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("text"),
 						text: z.string(),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
 						type: z.literal("image_url"),
@@ -45,6 +56,7 @@ const messageItemSchema = z.object({
 							url: z.string(),
 							detail: z.enum(["low", "high", "auto"]).optional(),
 						}),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 				]),
 			),
@@ -127,7 +139,20 @@ export const responsesRequestSchema = z.object({
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val)),
+	prompt_cache_options: z
+		.object({
+			mode: z.enum(["implicit", "explicit"]).optional(),
+			ttl: z.enum(["30m"]).optional(),
+		})
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	routing: z.enum(["auto", "price", "throughput", "latency"]).optional(),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	temperature: z
 		.number()
 		.nullable()
@@ -160,6 +185,8 @@ export const responsesRequestSchema = z.object({
 						.optional(),
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
+					allowed_domains: z.array(z.string()).optional(),
+					blocked_domains: z.array(z.string()).optional(),
 				}),
 				// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
 				z.record(z.any()),
@@ -183,8 +210,7 @@ export const responsesRequestSchema = z.object({
 		.object({
 			effort: z
 				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
-				.optional()
-				.transform((val) => (val === "max" ? "high" : val)),
+				.optional(),
 			summary: z.enum(["detailed", "auto"]).optional(),
 		})
 		.nullable()

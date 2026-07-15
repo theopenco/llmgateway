@@ -270,7 +270,7 @@ export default function LandingPage() {
 								allowance and the weekly fair-use cap on premium models.
 							</p>
 						</div>
-						<PricingPlans credits={credits} />
+						<PricingPlans credits={credits} paygoUrl={config.uiUrl} />
 
 						{/* Price check — ledger note */}
 						<div className="mx-auto mt-12 max-w-2xl rounded-2xl border border-dashed p-6 sm:p-8">
@@ -278,6 +278,16 @@ export default function LandingPage() {
 								Price check
 							</p>
 							<dl className="space-y-3 font-mono text-sm">
+								<div className="flex items-baseline justify-between gap-4">
+									<dt className="text-muted-foreground">API pay-as-you-go</dt>
+									<dd className="text-right tabular-nums">
+										$29{" "}
+										<span className="text-muted-foreground">
+											→ $29 of usage
+										</span>
+									</dd>
+								</div>
+								<div className="border-t border-dashed" />
 								<div className="flex items-baseline justify-between gap-4">
 									<dt className="text-muted-foreground">Cursor Pro</dt>
 									<dd className="text-right tabular-nums">
@@ -299,7 +309,7 @@ export default function LandingPage() {
 								</div>
 							</dl>
 							<p className="mt-5 text-sm leading-relaxed text-muted-foreground">
-								Roughly 3× the usage value of a Cursor plan — in whatever editor
+								Same dollars, 3× the metered usage — in whatever editor or agent
 								you already use.
 							</p>
 							<CodeCTATracker cta="compare_cursor" location="pricing">

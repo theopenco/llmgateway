@@ -264,12 +264,12 @@ export default function OpenSourcePage() {
 export async function generateMetadata() {
 	const title = "Open Source LLM Gateway — Self-Hostable AI API Gateway";
 	const description =
-		"LLM Gateway is an open source, self-hostable LLM API gateway. Route 200+ models across 40+ providers through one OpenAI-compatible endpoint under AGPLv3 — or use the managed service.";
+		"Open-source, self-hostable LLM API gateway. Route 200+ models across 40+ providers via one OpenAI-compatible endpoint under AGPLv3.";
 	return {
 		title,
 		description,
 		alternates: {
-			canonical: "https://llmgateway.io/open-source",
+			canonical: "/open-source",
 		},
 		openGraph: {
 			title,

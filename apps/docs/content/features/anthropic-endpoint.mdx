@@ -125,3 +125,33 @@ The endpoint returns responses in Anthropic's message format:
 	}
 }
 ```
+
+### Prompt Caching
+
+For Claude models, `cache_control` markers on `system` and message content blocks are forwarded to the provider unchanged, including the optional `ttl` (`5m` or `1h`):
+
+```json
+{
+	"model": "claude-sonnet-4-6",
+	"max_tokens": 100,
+	"system": [
+		{
+			"type": "text",
+			"text": "<several thousand tokens of stable instructions...>",
+			"cache_control": { "type": "ephemeral" }
+		}
+	],
+	"messages": [{ "role": "user", "content": "Hello!" }]
+}
+```
+
+Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input_tokens` (tokens written to the cache this request, billed at the write premium), `usage.cache_read_input_tokens` (tokens served from cache at the discounted rate), and `usage.cache_creation` (the per-TTL write breakdown).
+
+<Callout type="warning">
+	Each Claude model has a minimum cacheable prompt length (4,096 tokens on
+	current-generation models such as Opus 4.5+, Sonnet 5, and Haiku 4.5). A
+	`cache_control` marker on a shorter prompt is accepted but silently not cached
+	— both cache usage fields stay `0`. See [Provider Cache
+	Control](/features/caching/provider-cache-control) for the per-model
+	thresholds and details.
+</Callout>

@@ -60,6 +60,8 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.2-codex",
 		"gpt-5.1-codex",
 		"gpt-5.1-codex-mini",
+		"gpt-5.6-sol",
+		"gpt-5.6-terra",
 		"gpt-5.5",
 		"gpt-5.4",
 		"gemini-pro-latest",
@@ -93,6 +95,7 @@ export const curatedCategoryModelIds: Record<
 		"kimi-k2.5",
 		"kimi-k2.6",
 		"kimi-k2",
+		"gpt-5.6-sol",
 		"gpt-5.5",
 		"gpt-5-chat-latest",
 		"gemini-pro-latest",
@@ -109,6 +112,8 @@ export const curatedCategoryModelIds: Record<
 		"gemini-3.1-pro-preview",
 		"gemini-2.5-flash",
 		"gemini-2.5-flash-lite",
+		"gpt-5.6-terra",
+		"gpt-5.6-luna",
 		"gpt-5.4",
 		"gpt-5.4-mini",
 		"claude-sonnet-5",
@@ -123,6 +128,7 @@ export const curatedCategoryModelIds: Record<
 		"kimi-k2.6",
 	]),
 	math: new Set([
+		"gpt-5.6-sol",
 		"gpt-5.5-pro",
 		"gpt-5.5",
 		"gpt-5.4-pro",
@@ -182,6 +188,12 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"qwen2-5-vl-32b-instruct",
 	"qwen3.5-9b",
 	"qwen3.6-35b-a3b",
+]);
+
+// Proprietary models whose family is otherwise open-source (e.g. Meta's
+// API-only Muse Spark models alongside the open Llama family)
+export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
+	"muse-spark-1.1",
 ]);
 
 export function isTextOutput(output: string[] | null | undefined): boolean {
@@ -250,6 +262,7 @@ export function applyCategoryFilter(
 		case "open-source":
 			return (
 				isTextOutput(model.output) &&
+				!CLOSED_SOURCE_MODEL_IDS.has(model.id) &&
 				(OPEN_SOURCE_FAMILIES.has(model.family) ||
 					OPEN_SOURCE_MODEL_IDS.has(model.id))
 			);

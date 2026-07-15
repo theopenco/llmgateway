@@ -54,18 +54,20 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs OpenRouter — Feature Comparison",
 		description:
-			"Compare LLM Gateway's advanced routing, analytics, and cost optimization features against OpenRouter's basic proxy service. See why developers choose our unified API gateway for production LLM applications.",
+			"Compare routing, analytics, and cost optimization vs OpenRouter. See why teams choose a unified API gateway for production LLMs.",
+		alternates: { canonical: "/compare/open-router" },
 		openGraph: {
-			title: "LLM Gateway vs OpenRouter - Feature Comparison",
+			title: "LLM Gateway vs OpenRouter — Feature Comparison",
 			description:
-				"Compare LLM Gateway's advanced routing, analytics, and cost optimization features against OpenRouter's basic proxy service. See why developers choose our unified API gateway for production LLM applications.",
+				"Compare routing, analytics, and cost optimization vs OpenRouter. See why teams choose a unified API gateway for production LLMs.",
 			type: "website",
+			url: "https://llmgateway.io/compare/open-router",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs OpenRouter - Feature Comparison",
+			title: "LLM Gateway vs OpenRouter — Feature Comparison",
 			description:
-				"Compare LLM Gateway's advanced routing, analytics, and cost optimization features against OpenRouter's basic proxy service.",
+				"Compare routing, analytics, and cost optimization vs OpenRouter for production LLMs.",
 		},
 	};
 }

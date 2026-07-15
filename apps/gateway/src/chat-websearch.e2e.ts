@@ -121,6 +121,71 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 		},
 	);
 
+	test.each(webSearchModels)(
+		"web search responses api $model",
+		{ timeout: 300000 }, // Increase timeout for web search
+		async ({ model }) => {
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: model,
+					input:
+						"Search the web for the latest news about artificial intelligence from today. What are the top stories?",
+					tools: [
+						{
+							type: "web_search",
+						},
+					],
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode) {
+				console.log(
+					"web search responses api response:",
+					JSON.stringify(json, null, 2),
+				);
+			}
+
+			expect(res.status).toBe(200);
+			expect(json).toHaveProperty("output");
+			expect(Array.isArray(json.output)).toBe(true);
+
+			const message = json.output.find(
+				(item: { type: string }) => item.type === "message",
+			);
+			expect(message).toBeDefined();
+			const text = (message.content ?? [])
+				.filter(
+					(c: { type: string; text?: string }) => c.type === "output_text",
+				)
+				.map((c: { text?: string }) => c.text ?? "")
+				.join("");
+			expect(text.length).toBeGreaterThan(0);
+
+			// Validate logs
+			const log = await validateLogByRequestId(requestId);
+
+			// Verify web search was used and cost is tracked
+			expect(log).toHaveProperty("webSearchCost");
+			expect(typeof log.webSearchCost).toBe("number");
+			expect(log.webSearchCost).toBeGreaterThan(0);
+
+			if (logMode) {
+				console.log(
+					`Web search was used for ${model} via responses api, cost: ${log.webSearchCost}`,
+				);
+			}
+		},
+	);
+
 	test.each(streamingWebSearchModels)(
 		"web search streaming $model",
 		{ timeout: 180000 }, // Increase timeout for web search

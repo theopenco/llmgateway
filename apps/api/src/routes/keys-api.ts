@@ -380,12 +380,15 @@ const listApiKeysQuerySchema = z.object({
 	}),
 });
 
-// Schema for updating an API key status
+// Schema for updating an API key status and/or metadata
 const updateApiKeyStatusSchema = z.object({
-	status: z.enum(["active", "inactive"]),
+	status: z.enum(["active", "inactive"]).optional(),
 	expiresAt: z.string().datetime().nullable().optional().openapi({
 		description:
 			"ISO 8601 timestamp when the key expires (TTL). Required to reactivate a key whose TTL has already passed; pass null to remove the TTL. Omit to leave the existing expiry unchanged.",
+	}),
+	description: z.string().trim().min(1).max(255).optional().openapi({
+		description: "New display name for the API key. Omit to leave unchanged.",
 	}),
 });
 
@@ -698,7 +701,10 @@ keysApi.openapi(deletePlatformKey, async (c) => {
 		platformKey.projectId,
 	);
 
-	await db
+	// Delete through the cached client so onMutate busts the gateway's cached
+	// token lookups; otherwise the deleted key keeps authenticating until the
+	// cache expires.
+	await cdb
 		.update(tables.apiKey)
 		.set({
 			status: "deleted",
@@ -1431,7 +1437,10 @@ keysApi.openapi(deleteKey, async (c) => {
 		});
 	}
 
-	await db
+	// Delete through the cached client so onMutate busts the gateway's cached
+	// token lookups; otherwise the deleted key keeps authenticating until the
+	// cache expires.
+	await cdb
 		.update(tables.apiKey)
 		.set({
 			status: "deleted",
@@ -1519,7 +1528,11 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status, expiresAt: expiresAtInput } = c.req.valid("json");
+	const {
+		status,
+		expiresAt: expiresAtInput,
+		description: descriptionInput,
+	} = c.req.valid("json");
 
 	// Get the user's projects
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -1571,11 +1584,37 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	if (
+		status === undefined &&
+		expiresAtInput === undefined &&
+		descriptionInput === undefined
+	) {
+		throw new HTTPException(400, {
+			message: "No changes provided",
+		});
+	}
+
 	// Prevent deactivation of the auto-generated playground key
 	if (isPlaygroundApiKey(apiKey) && status === "inactive") {
 		throw new HTTPException(403, {
 			message:
 				"Cannot deactivate the playground API key. This key is required for the playground to function.",
+		});
+	}
+
+	// Renaming the auto-generated playground key would break the UI's lookup
+	// of it by its fixed description.
+	if (isPlaygroundApiKey(apiKey) && descriptionInput !== undefined) {
+		throw new HTTPException(403, {
+			message: "Cannot rename the playground API key.",
+		});
+	}
+
+	// A regular key must not take on the reserved playground description,
+	// or it would collide with the playground key's fixed-description lookup.
+	if (descriptionInput === PLAYGROUND_API_KEY_DESCRIPTION) {
+		throw new HTTPException(403, {
+			message: "This name is reserved for the playground API key.",
 		});
 	}
 
@@ -1615,22 +1654,31 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	// Update the API key status
-	const [updatedApiKey] = await db
+	// Update through the cached client so its onMutate invalidates the gateway's
+	// cached token lookups (Drizzle cache + SWR mirror) for the api_key table.
+	// Otherwise a deactivated key keeps authenticating (and a reactivated one
+	// stays rejected) until the cache expires, so the change is not instant.
+	const [updatedApiKey] = await cdb
 		.update(tables.apiKey)
 		.set({
-			status,
+			...(status !== undefined ? { status } : {}),
 			...(expiresAtProvided ? { expiresAt: nextExpiresAt } : {}),
+			...(descriptionInput !== undefined
+				? { description: descriptionInput }
+				: {}),
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
-	const statusChanged = apiKey.status !== status;
+	const statusChanged = status !== undefined && apiKey.status !== status;
 	const expiryChanged =
 		expiresAtProvided &&
 		(apiKey.expiresAt?.getTime() ?? null) !==
 			(nextExpiresAt?.getTime() ?? null);
+	const descriptionChanged =
+		descriptionInput !== undefined && apiKey.description !== descriptionInput;
 
-	if (statusChanged || expiryChanged) {
+	if (statusChanged || expiryChanged || descriptionChanged) {
 		const changes: Record<string, { old: unknown; new: unknown }> = {};
 		if (statusChanged) {
 			changes.status = { old: apiKey.status, new: status };
@@ -1639,6 +1687,12 @@ keysApi.openapi(updateStatus, async (c) => {
 			changes.expiresAt = {
 				old: apiKey.expiresAt?.toISOString() ?? null,
 				new: nextExpiresAt?.toISOString() ?? null,
+			};
+		}
+		if (descriptionChanged) {
+			changes.description = {
+				old: apiKey.description,
+				new: descriptionInput,
 			};
 		}
 
@@ -1656,7 +1710,10 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	return c.json({
-		message: `API key status updated to ${status}`,
+		message:
+			status !== undefined
+				? `API key status updated to ${status}`
+				: "API key updated",
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
 			maskedToken: maskToken(updatedApiKey.token),
@@ -1997,8 +2054,9 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 
 	const periodConfigChanged = hasPeriodConfigChanged(apiKey, nextLimitConfig);
 
-	// Update the API key usage limit
-	const [updatedApiKey] = await db
+	// Update the API key usage limit through the cached client so onMutate busts
+	// the gateway's cached token lookup and the new limits take effect instantly.
+	const [updatedApiKey] = await cdb
 		.update(tables.apiKey)
 		.set({
 			usageLimit: nextLimitConfig.usageLimit,

@@ -4,6 +4,7 @@ import { reportKeyError, resetKeyHealth } from "@/lib/api-key-health.js";
 import { resetRoundRobinCounters } from "@/lib/round-robin-env.js";
 
 import {
+	getEnvKeyCount,
 	getProviderEnv,
 	getServiceTierIneligibleEnvIndices,
 	hasServiceTierEligibleEnvCredential,
@@ -76,6 +77,42 @@ describe("getProviderEnv", () => {
 
 		expect(gpt4Selection.configIndex).toBe(1);
 		expect(claudeSelection.configIndex).toBe(0);
+	});
+});
+
+describe("getEnvKeyCount", () => {
+	const envVar = "LLM_TEST_ENV_KEY_COUNT";
+
+	afterEach(() => {
+		delete process.env.LLM_TEST_ENV_KEY_COUNT;
+	});
+
+	it("returns 0 when the env var name is undefined", () => {
+		expect(getEnvKeyCount(undefined)).toBe(0);
+	});
+
+	it("returns 0 when the env var is unset or empty", () => {
+		delete process.env.LLM_TEST_ENV_KEY_COUNT;
+		expect(getEnvKeyCount(envVar)).toBe(0);
+		process.env.LLM_TEST_ENV_KEY_COUNT = "";
+		expect(getEnvKeyCount(envVar)).toBe(0);
+	});
+
+	it("counts a single key", () => {
+		process.env.LLM_TEST_ENV_KEY_COUNT = "sk-only";
+		expect(getEnvKeyCount(envVar)).toBe(1);
+	});
+
+	it("counts comma-separated keys", () => {
+		process.env.LLM_TEST_ENV_KEY_COUNT = "sk-a,sk-b,sk-c";
+		expect(getEnvKeyCount(envVar)).toBe(3);
+	});
+
+	it("ignores whitespace and empty segments from trailing commas", () => {
+		process.env.LLM_TEST_ENV_KEY_COUNT = " sk-a , sk-b ,";
+		expect(getEnvKeyCount(envVar)).toBe(2);
+		process.env.LLM_TEST_ENV_KEY_COUNT = ",,";
+		expect(getEnvKeyCount(envVar)).toBe(0);
 	});
 });
 

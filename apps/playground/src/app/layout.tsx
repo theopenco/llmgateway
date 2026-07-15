@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 		template: "%s | LLM Gateway Playground",
 	},
 	description:
-		"Test and compare 200+ AI models from one account. Chat with GPT, Claude, Gemini, generate images and videos, and run multi-model group chats — pay-as-you-go with a single balance.",
+		"Test and compare 200+ AI models from one account. Chat with GPT, Claude, and Gemini, generate images and video, and run multi-model group chats.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
@@ -98,7 +98,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.variable} ${geistMono.variable}`}
+			suppressHydrationWarning
+		>
 			<head>
 				<script
 					type="application/ld+json"
@@ -115,7 +119,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body className={`${inter.variable} ${geistMono.variable} antialiased`}>
+			<body className="antialiased">
 				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>

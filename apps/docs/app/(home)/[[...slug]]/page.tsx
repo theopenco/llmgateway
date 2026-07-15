@@ -12,6 +12,8 @@ import posthog from "posthog-js";
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { EnterpriseCTA } from "@/components/enterprise-cta";
 import { Feedback } from "@/components/feedback";
+import { JsonLd } from "@/components/json-ld";
+import { docsBaseUrl } from "@/lib/base-url";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
@@ -30,17 +32,29 @@ export async function generateMetadata({
 		notFound();
 	}
 
+	const path = page.url === "/" ? "" : page.url;
+	const canonicalUrl = `${docsBaseUrl}${path}`;
 	const image = ["/docs-og", ...slug, "image.png"].join("/");
 
 	return {
-		metadataBase: new URL(process.env.DOCS_URL ?? "https://docs.llmgateway.io"),
+		metadataBase: new URL(docsBaseUrl),
 		title: page.data.title,
 		description: page.data.description,
+		alternates: {
+			canonical: canonicalUrl,
+		},
 		openGraph: {
+			title: page.data.title,
+			description: page.data.description,
+			url: canonicalUrl,
 			images: image,
+			type: "article",
+			siteName: "LLM Gateway Docs",
 		},
 		twitter: {
 			card: "summary_large_image",
+			title: page.data.title,
+			description: page.data.description,
 			images: image,
 		},
 	};
@@ -68,6 +82,26 @@ export default async function Page(props: {
 
 	const MDXContent = page.data.body;
 
+	const path = page.url === "/" ? "" : page.url;
+	const techArticleSchema = {
+		"@context": "https://schema.org",
+		"@type": "TechArticle",
+		headline: page.data.title,
+		description: page.data.description,
+		url: `${docsBaseUrl}${path}`,
+		...(time ? { dateModified: new Date(time).toISOString() } : {}),
+		author: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+		publisher: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+	};
+
 	return (
 		<DocsPage
 			toc={page.data.toc}
@@ -78,6 +112,7 @@ export default async function Page(props: {
 			}}
 			lastUpdate={time ? new Date(time) : new Date()}
 		>
+			<JsonLd data={techArticleSchema} />
 			<nav
 				aria-label="Page actions"
 				className="flex flex-row gap-2 items-center border-b pt-2 pb-6"

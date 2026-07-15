@@ -4,7 +4,7 @@ slug: ai-customer-support
 date: 2026-06-02
 title: AI customer support
 metaTitle: "LLM Gateway for AI Customer Support & Chatbots"
-description: "Build AI support agents and chatbots that stay up. Route across providers with automatic fallback, cache common answers, and see cost per conversation — through one OpenAI-compatible API."
+description: "Build AI support agents and chatbots that stay up. Route across providers with automatic fallback, cache common answers, and track cost per conversation."
 headline: "Support bots that don't go down when a provider does — with caching and per-conversation cost visibility."
 summary: "Run reliable support agents on any model, with automatic failover, response caching for common questions, and cost tracking per conversation."
 benefits:

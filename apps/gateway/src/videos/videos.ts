@@ -229,7 +229,13 @@ const videoImageInputSchema = z
 		},
 	});
 
-const videoReferenceImagesSchema = z.array(videoImageInputSchema).min(1).max(3);
+const SEEDANCE_2_MAX_REFERENCE_IMAGES = 9;
+const DEFAULT_MAX_REFERENCE_IMAGES = 3;
+
+const videoReferenceImagesSchema = z
+	.array(videoImageInputSchema)
+	.min(1)
+	.max(SEEDANCE_2_MAX_REFERENCE_IMAGES);
 
 const referenceVideoUrlSchema = z
 	.string()
@@ -340,7 +346,7 @@ const createVideoRequestSchema = z
 		image: videoImageInputSchema.optional(),
 		reference_images: videoReferenceImagesSchema.optional().openapi({
 			description:
-				"One to three reference images for provider-specific asset or material-guided video generation.",
+				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.0 models accept up to 9; other providers accept up to 3.",
 			example: [
 				{
 					image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
@@ -917,7 +923,8 @@ function isSoraVideoModelName(externalId: string): boolean {
 function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
-		externalId === "dreamina-seedance-2-0-fast-260128"
+		externalId === "dreamina-seedance-2-0-fast-260128" ||
+		externalId === "dreamina-seedance-2-0-mini-260615"
 	);
 }
 
@@ -1008,7 +1015,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
@@ -1066,7 +1073,11 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast)",
+					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
+				);
+			} else if (inputImageCount > SEEDANCE_2_MAX_REFERENCE_IMAGES) {
+				reasons.push(
+					`Seedance 2.0 supports at most ${SEEDANCE_2_MAX_REFERENCE_IMAGES} reference images`,
 				);
 			}
 
@@ -1082,6 +1093,12 @@ function getVideoProviderConstraintReasons(
 		if (referenceAudioCount > 0) {
 			reasons.push(
 				"reference audio is currently only supported on bytedance Seedance 2.0 models",
+			);
+		}
+
+		if (inputImageCount > DEFAULT_MAX_REFERENCE_IMAGES) {
+			reasons.push(
+				`this provider mapping supports at most ${DEFAULT_MAX_REFERENCE_IMAGES} reference images`,
 			);
 		}
 
@@ -3560,7 +3577,11 @@ async function createBytedanceVideoJob(
 
 	if (isDreaminaModel) {
 		upstreamRequest.resolution =
-			videoSize.resolution === "1080p" ? "1080p" : "720p";
+			videoSize.resolution === "1080p"
+				? "1080p"
+				: videoSize.resolution === "480p"
+					? "480p"
+					: "720p";
 	}
 
 	const upstreamUrl = joinUrl(

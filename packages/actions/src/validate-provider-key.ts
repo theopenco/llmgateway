@@ -15,6 +15,29 @@ import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
+/**
+ * Pick the cheapest candidate among the newer half of the provider's releases,
+ * so key validation uses a cheap but current model instead of an outdated one
+ * that happens to be the cheapest. The cutoff is the median release date of
+ * the dated candidates, i.e. relative to the provider's own catalog rather
+ * than any absolute age threshold. Candidates without a release date are
+ * treated as old; they only win when fewer than two candidates are dated.
+ */
+export function pickCheapestRecentModel<
+	T extends { price: number; releasedAt?: Date },
+>(candidates: T[]): T | undefined {
+	const byPrice = [...candidates].sort((a, b) => a.price - b.price);
+	const dated = byPrice.filter((c) => c.releasedAt !== undefined);
+	if (dated.length < 2) {
+		return byPrice[0];
+	}
+	const releaseTimes = dated
+		.map((c) => c.releasedAt!.getTime())
+		.sort((a, b) => a - b);
+	const medianReleaseTime = releaseTimes[Math.floor(releaseTimes.length / 2)];
+	return dated.find((c) => c.releasedAt!.getTime() >= medianReleaseTime);
+}
+
 export function getValidationModel(
 	provider: ProviderId,
 	providerKeyOptions?: ProviderKeyOptions,
@@ -37,73 +60,75 @@ export function getValidationModel(
 
 	const currentDate = new Date();
 	const collectModels = (restrictToRegion: boolean) =>
-		models
-			.flatMap((model) => {
-				const providerMapping = model.providers.find(
-					(p) => p.providerId === provider,
-				) as ProviderModelMapping | undefined;
-				if (!providerMapping) {
+		models.flatMap((model) => {
+			const providerMapping = model.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			if (!providerMapping) {
+				return [];
+			}
+
+			// If a region is selected, only consider models available in that region
+			if (restrictToRegion && selectedRegion && providerMapping.regions) {
+				if (!providerMapping.regions.some((r) => r.id === selectedRegion)) {
 					return [];
 				}
+			}
 
-				// If a region is selected, only consider models available in that region
-				if (restrictToRegion && selectedRegion && providerMapping.regions) {
-					if (!providerMapping.regions.some((r) => r.id === selectedRegion)) {
-						return [];
-					}
-				}
+			const providerStability =
+				"stability" in providerMapping
+					? (providerMapping.stability as string | undefined)
+					: undefined;
+			const modelStability =
+				"stability" in model
+					? (model.stability as string | undefined)
+					: undefined;
+			const effectiveStability = providerStability ?? modelStability;
+			const isStable =
+				effectiveStability !== "unstable" &&
+				effectiveStability !== "experimental";
 
-				const providerStability =
-					"stability" in providerMapping
-						? (providerMapping.stability as string | undefined)
-						: undefined;
-				const modelStability =
-					"stability" in model
-						? (model.stability as string | undefined)
-						: undefined;
-				const effectiveStability = providerStability ?? modelStability;
-				const isStable =
-					effectiveStability !== "unstable" &&
-					effectiveStability !== "experimental";
+			const isDeprecated =
+				providerMapping.deprecatedAt &&
+				currentDate >= providerMapping.deprecatedAt;
+			const isDeactivated =
+				providerMapping.deactivatedAt &&
+				currentDate >= providerMapping.deactivatedAt;
 
-				const isDeprecated =
-					providerMapping.deprecatedAt &&
-					currentDate >= providerMapping.deprecatedAt;
-				const isDeactivated =
-					providerMapping.deactivatedAt &&
-					currentDate >= providerMapping.deactivatedAt;
+			if (
+				!isStable ||
+				isDeprecated ||
+				isDeactivated ||
+				providerMapping.imageGenerations ||
+				providerMapping.videoGenerations ||
+				providerMapping.embeddings ||
+				providerMapping.speechGenerations ||
+				providerMapping.ocr
+			) {
+				return [];
+			}
 
-				if (
-					!isStable ||
-					isDeprecated ||
-					isDeactivated ||
-					providerMapping.imageGenerations ||
-					providerMapping.videoGenerations ||
-					providerMapping.embeddings ||
-					providerMapping.speechGenerations ||
-					providerMapping.ocr
-				) {
-					return [];
-				}
+			const hasPricing =
+				providerMapping.inputPrice !== undefined &&
+				providerMapping.outputPrice !== undefined;
+			const inputPrice = Number(providerMapping.inputPrice ?? "0");
+			const outputPrice = Number(providerMapping.outputPrice ?? "0");
+			const averagePrice = hasPricing
+				? (inputPrice + outputPrice) / 2
+				: Number.MAX_VALUE;
 
-				const hasPricing =
-					providerMapping.inputPrice !== undefined &&
-					providerMapping.outputPrice !== undefined;
-				const inputPrice = Number(providerMapping.inputPrice ?? "0");
-				const outputPrice = Number(providerMapping.outputPrice ?? "0");
-				const averagePrice = hasPricing
-					? (inputPrice + outputPrice) / 2
-					: Number.MAX_VALUE;
-
-				return [
-					{
-						modelId: model.id,
-						externalId: providerMapping.externalId,
-						price: averagePrice,
-					},
-				];
-			})
-			.sort((a, b) => a.price - b.price);
+			return [
+				{
+					modelId: model.id,
+					externalId: providerMapping.externalId,
+					price: averagePrice,
+					releasedAt:
+						"releasedAt" in model
+							? (model.releasedAt as Date | undefined)
+							: undefined,
+				},
+			];
+		});
 
 	// Prefer a model available in the selected region. If none is declared for
 	// that region (e.g. a data-residency AWS region that no model lists), fall
@@ -113,7 +138,7 @@ export function getValidationModel(
 		? regionModels
 		: collectModels(false);
 
-	const best = providerModels[0];
+	const best = pickCheapestRecentModel(providerModels);
 	return best ? { modelId: best.modelId, externalId: best.externalId } : null;
 }
 

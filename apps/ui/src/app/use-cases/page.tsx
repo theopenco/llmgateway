@@ -10,14 +10,14 @@ import type { UseCase } from "content-collections";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Use Cases — What You Can Build with LLM Gateway",
+	title: "Use Cases — What You Can Build",
 	description:
-		"Coding agents, AI customer support, RAG and document Q&A, and AI cost optimization — see how teams build on LLM Gateway's one API for 200+ models, with fallback, caching and analytics.",
+		"Coding agents, AI support, RAG, and cost optimization — build on one API for 200+ models with fallback, caching, and analytics.",
 	alternates: { canonical: "/use-cases" },
 	openGraph: {
 		title: "Use Cases — What You Can Build with LLM Gateway",
 		description:
-			"Coding agents, AI customer support, RAG, and cost optimization on one API for 200+ models with fallback, caching and analytics.",
+			"Coding agents, AI support, RAG, and cost optimization on one API for 200+ models with fallback, caching, and analytics.",
 		type: "website",
 		url: "https://llmgateway.io/use-cases",
 		images: ["/opengraph.png"],

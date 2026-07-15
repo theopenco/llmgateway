@@ -9,10 +9,13 @@ export const metadata: Metadata = {
 	title: "Ship an AI App in 10 Minutes",
 	description:
 		"Clone a production-ready AI template, connect to 200+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
+	alternates: { canonical: "/ship" },
 	openGraph: {
 		title: "Ship an AI App in 10 Minutes | LLM Gateway",
 		description:
 			"Clone a production-ready AI template, connect to 200+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
+		url: "https://llmgateway.io/ship",
+		type: "website",
 	},
 };
 

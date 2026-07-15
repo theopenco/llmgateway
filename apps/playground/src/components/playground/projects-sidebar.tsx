@@ -16,8 +16,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
-import { useCallback } from "react";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
@@ -79,12 +77,6 @@ export function ProjectsSidebar({
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
-	const { theme, setTheme, systemTheme } = useTheme();
-
-	const currentTheme = theme === "system" ? systemTheme : theme;
-	const toggleTheme = useCallback(() => {
-		setTheme(currentTheme === "dark" ? "light" : "dark");
-	}, [currentTheme, setTheme]);
 
 	const isMac = useSidebarShortcut("j", onCreateOpen);
 
@@ -332,10 +324,7 @@ export function ProjectsSidebar({
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
 									className="justify-between gap-3"
-									onSelect={(event) => {
-										event.preventDefault();
-										toggleTheme();
-									}}
+									onSelect={(event) => event.preventDefault()}
 								>
 									<span>Theme</span>
 									<div

@@ -138,6 +138,7 @@ export function getProviderHeaders(
 		case "perplexity":
 		case "novita":
 		case "moonshot":
+		case "meta":
 		case "alibaba":
 		case "nebius":
 		case "zai":

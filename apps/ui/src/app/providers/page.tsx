@@ -10,11 +10,14 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "LLM Providers",
 	description:
-		"Browse 40+ LLM providers available through LLM Gateway — OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, xAI, and more. One API for all of them.",
+		"Browse 40+ LLM providers on LLM Gateway — OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, xAI, and more. One API for all of them.",
+	alternates: { canonical: "/providers" },
 	openGraph: {
-		title: "LLM Providers - LLM Gateway",
+		title: "LLM Providers | LLM Gateway",
 		description:
-			"Browse 40+ LLM providers available through LLM Gateway — OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, xAI, and more.",
+			"Browse 40+ LLM providers on LLM Gateway — OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, xAI, and more.",
+		url: "https://llmgateway.io/providers",
+		type: "website",
 	},
 };
 

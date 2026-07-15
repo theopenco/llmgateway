@@ -13,9 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
-import { useCallback } from "react";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
@@ -102,11 +100,6 @@ export function CanvasSidebar({
 	const orgIdParam = searchParams.get("orgId");
 	const withOrg = (path: string) =>
 		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
-	const { theme, setTheme, systemTheme } = useTheme();
-	const currentTheme = theme === "system" ? systemTheme : theme;
-	const toggleTheme = useCallback(() => {
-		setTheme(currentTheme === "dark" ? "light" : "dark");
-	}, [currentTheme, setTheme]);
 
 	const isAuthenticated = !!user;
 
@@ -339,10 +332,7 @@ export function CanvasSidebar({
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
 									className="justify-between gap-3"
-									onSelect={(event) => {
-										event.preventDefault();
-										toggleTheme();
-									}}
+									onSelect={(event) => event.preventDefault()}
 								>
 									<span>Theme</span>
 									<div

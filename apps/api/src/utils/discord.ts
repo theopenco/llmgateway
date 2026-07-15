@@ -126,6 +126,47 @@ export async function notifyCreditsPurchased(
 	});
 }
 
+export async function notifyRefund(
+	email: string,
+	name: string | null | undefined,
+	refundAmount: number,
+	product: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Refund Processed",
+				color: 0xf97316, // Orange
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Product",
+						value: product,
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: `$${refundAmount.toFixed(2)}`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyDevPlanSubscribed(
 	email: string,
 	name: string | null | undefined,
@@ -279,6 +320,63 @@ export async function notifyEnterpriseContact(args: {
 							? [{ name: "IP Address", value: ipAddress, inline: true }]
 							: []),
 						{ name: "Message", value: truncatedMessage, inline: false },
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_ENTERPRISE_NOTIFICATION_URL ??
+			process.env.DISCORD_NOTIFICATION_URL,
+	);
+}
+
+export async function notifyProviderContact(args: {
+	providerName: string;
+	email: string;
+	url: string;
+	country: string;
+	compliance: string;
+	dataRetentionDays: number;
+	trainsOnData: boolean;
+	ipAddress?: string | null;
+}): Promise<void> {
+	const {
+		providerName,
+		email,
+		url,
+		country,
+		compliance,
+		dataRetentionDays,
+		trainsOnData,
+		ipAddress,
+	} = args;
+
+	await sendDiscordNotification(
+		{
+			content: "🧩 New provider listing request.",
+			embeds: [
+				{
+					title: "Provider Listing Request",
+					color: 0x8b5cf6, // Purple
+					fields: [
+						{ name: "Provider", value: providerName, inline: true },
+						{ name: "Email", value: email, inline: true },
+						{ name: "URL", value: url, inline: false },
+						{ name: "HQ Country", value: country, inline: true },
+						{
+							name: "Data Retention",
+							value: `${dataRetentionDays} days`,
+							inline: true,
+						},
+						{
+							name: "Trains on Data",
+							value: trainsOnData ? "Yes" : "No",
+							inline: true,
+						},
+						{ name: "Compliance", value: compliance, inline: false },
+						...(ipAddress
+							? [{ name: "IP Address", value: ipAddress, inline: true }]
+							: []),
 					],
 					timestamp: new Date().toISOString(),
 				},

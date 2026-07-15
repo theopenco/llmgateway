@@ -22,6 +22,7 @@ export const providerLogoUrls: Partial<
 	xai: ProviderIcons.xai,
 	deepseek: ProviderIcons.deepseek,
 	perplexity: ProviderIcons.perplexity,
+	meta: ProviderIcons.meta,
 	moonshot: ProviderIcons.moonshot,
 	novita: ProviderIcons.novita,
 	alibaba: ProviderIcons.alibaba,

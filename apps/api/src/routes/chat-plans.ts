@@ -528,20 +528,26 @@ chatPlans.openapi(changeTier, async (c) => {
 		if (error instanceof HTTPException) {
 			throw error;
 		}
-		logger.error(
-			"Stripe chat plan tier change error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		// A declined card / required invoice payment is an expected user-facing
+		// outcome, not a server fault: surface it as a 402 and log at warn — never
+		// error — to avoid noisy alerts for declined cards.
 		const errCode =
 			typeof error === "object" && error !== null && "code" in error
 				? String((error as { code?: unknown }).code)
 				: undefined;
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
+			logger.warn("Chat plan tier change payment declined", {
+				code: errCode,
+			});
 			throw new HTTPException(402, {
 				message:
 					"Upgrade payment could not be collected. Update your payment method and try again.",
 			});
 		}
+		logger.error(
+			"Stripe chat plan tier change error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw new HTTPException(500, {
 			message: "Failed to change chat plan tier",
 		});

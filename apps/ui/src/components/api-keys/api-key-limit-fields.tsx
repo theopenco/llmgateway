@@ -361,10 +361,13 @@ export function ApiKeyLimitFields({
 					Current period usage resets when the configured window elapses.
 				</div>
 				{value.periodUsageLimitEnabled && (
-					<div className="grid gap-3 md:grid-cols-[1fr_132px_132px]">
+					<div className="grid items-end gap-3 md:grid-cols-[1fr_132px_132px]">
 						<div className="space-y-2">
-							<Label htmlFor={`${idPrefix}-period-limit`}>
-								Recurring usage limit
+							<Label
+								className="whitespace-nowrap"
+								htmlFor={`${idPrefix}-period-limit`}
+							>
+								Limit
 							</Label>
 							<div className="relative">
 								<span className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
@@ -399,30 +402,32 @@ export function ApiKeyLimitFields({
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor={`${idPrefix}-duration-unit`}>Unit</Label>
-							<Select
-								value={value.periodUsageDurationUnit}
-								onValueChange={(nextValue) =>
-									updateValue(
-										"periodUsageDurationUnit",
-										nextValue as ApiKeyPeriodDurationUnit,
-									)
-								}
-							>
-								<SelectTrigger
-									id={`${idPrefix}-duration-unit`}
-									className="w-full"
+							<div>
+								<Select
+									value={value.periodUsageDurationUnit}
+									onValueChange={(nextValue) =>
+										updateValue(
+											"periodUsageDurationUnit",
+											nextValue as ApiKeyPeriodDurationUnit,
+										)
+									}
 								>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{apiKeyPeriodDurationUnits.map((unit) => (
-										<SelectItem key={unit} value={unit}>
-											{unit[0]?.toUpperCase()}
-											{unit.slice(1)}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+									<SelectTrigger
+										id={`${idPrefix}-duration-unit`}
+										className="w-full"
+									>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{apiKeyPeriodDurationUnits.map((unit) => (
+											<SelectItem key={unit} value={unit}>
+												{unit[0]?.toUpperCase()}
+												{unit.slice(1)}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
 						</div>
 					</div>
 				)}

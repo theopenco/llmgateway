@@ -13,6 +13,7 @@ import { DateRangePicker } from "@/components/date-range-picker";
 import { RevenueChart } from "@/components/revenue-chart";
 import { SignupsChart } from "@/components/signups-chart";
 import { Button } from "@/components/ui/button";
+import { resolveDateRangeFromSearchParams } from "@/lib/date-range";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -122,8 +123,7 @@ export default async function Page({
 	await requireSession();
 
 	const params = await searchParams;
-	const from = typeof params.from === "string" ? params.from : undefined;
-	const to = typeof params.to === "string" ? params.to : undefined;
+	const { from, to } = resolveDateRangeFromSearchParams(params);
 
 	const $api = await createServerApiClient();
 	const [metricsRes, timeseriesRes] = await Promise.all([
