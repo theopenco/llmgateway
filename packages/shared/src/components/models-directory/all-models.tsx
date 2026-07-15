@@ -274,6 +274,8 @@ const ModelTableRow = React.memo(
 										onToggleExpand();
 									}}
 									className="p-0.5 hover:bg-muted rounded"
+									aria-label="Toggle additional pricing details"
+									aria-expanded={isExpanded}
 								>
 									{isExpanded ? (
 										<ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -941,7 +943,9 @@ export function AllModels({
 			}
 			if (
 				filters.capabilities.discounted &&
-				!model.providerDetails.some((p) => p.provider.discount)
+				!model.providerDetails.some(
+					(p) => p.provider.discount && parseFloat(p.provider.discount) > 0,
+				)
 			) {
 				return false;
 			}
@@ -1041,8 +1045,8 @@ export function AllModels({
 				return bDate - aDate; // Descending (newest first)
 			}
 
-			let aValue: any;
-			let bValue: any;
+			let aValue: string | number;
+			let bValue: string | number;
 
 			switch (sortField) {
 				case "provider":
@@ -1162,12 +1166,15 @@ export function AllModels({
 				}
 
 				const hasAdditionalPricing =
-					provider.webSearch ??
+					provider.webSearch === true ||
 					(provider.requestPrice !== null &&
 						provider.requestPrice !== undefined &&
-						parseFloat(provider.requestPrice) > 0) ??
+						parseFloat(provider.requestPrice) > 0) ||
 					(provider.perSecondPrice !== null &&
-						provider.perSecondPrice !== undefined);
+						provider.perSecondPrice !== undefined &&
+						Object.values(provider.perSecondPrice).some(
+							(price) => parseFloat(price) > 0,
+						));
 
 				rows.push({
 					model,
@@ -2150,6 +2157,14 @@ export function AllModels({
 											>
 												{[
 													searchQuery ? 1 : 0,
+													filters.category && filters.category !== "all"
+														? 1
+														: 0,
+													filters.tier && filters.tier !== "all" ? 1 : 0,
+													filters.selectedProvider &&
+													filters.selectedProvider !== "all"
+														? 1
+														: 0,
 													Object.values(filters.capabilities).filter(Boolean)
 														.length,
 													[

@@ -18,7 +18,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { Language } from "prism-react-renderer";
-import type { CSSProperties } from "react";
 
 interface ModelCodeExampleDialogProps {
 	modelId: string;
@@ -192,12 +191,6 @@ const { text } = await generateText({
 									tokens,
 									getLineProps,
 									getTokenProps,
-								}: {
-									className: string;
-									style: CSSProperties;
-									tokens: any[];
-									getLineProps: (props: any) => any;
-									getTokenProps: (props: any) => any;
 								}) => (
 									<pre
 										className={cn(
@@ -206,11 +199,11 @@ const { text } = await generateText({
 										)}
 										style={style}
 									>
-										{tokens.map((line: any, i: number) => {
+										{tokens.map((line, i) => {
 											const lineProps = getLineProps({ line });
 											return (
 												<div key={i} {...lineProps}>
-													{line.map((token: any, key: number) => {
+													{line.map((token, key) => {
 														const tokenProps = getTokenProps({ token });
 														return <span key={key} {...tokenProps} />;
 													})}

@@ -7,6 +7,7 @@ import {
 	Check,
 	ChevronDown,
 	ChevronUp,
+	Gem,
 	Globe,
 	Linkedin,
 	Share2,
@@ -161,8 +162,12 @@ export function ModelCard({
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 	const [showAllProviders, setShowAllProviders] = useState(false);
 
-	const copyToClipboard = (text: string) => {
-		void navigator.clipboard.writeText(text);
+	const copyToClipboard = async (text: string) => {
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch {
+			return;
+		}
 		setCopiedModel(text);
 		setTimeout(() => setCopiedModel(null), 2000);
 	};
@@ -257,6 +262,13 @@ export function ModelCard({
 			<Card
 				className="group relative overflow-hidden border border-border/50 bg-background hover:border-border transition-all duration-200 cursor-pointer py-0"
 				onClick={goToModel}
+				role="link"
+				tabIndex={0}
+				onKeyDown={(e) => {
+					if (e.target === e.currentTarget && e.key === "Enter") {
+						goToModel();
+					}
+				}}
 			>
 				{/* Subtle top accent line */}
 				<div className="h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
@@ -290,6 +302,12 @@ export function ModelCard({
 							>
 								{model.family}
 							</Badge>
+							{model.premium && (
+								<Badge className="text-[10px] px-2 py-0.5 font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+									<Gem className="h-2.5 w-2.5" />
+									Premium
+								</Badge>
+							)}
 							{bestDiscount > 0 && (
 								<Badge className="text-[10px] px-2 py-0.5 font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
 									{Math.round(bestDiscount * 100)}% off
@@ -321,7 +339,7 @@ export function ModelCard({
 							className="h-6 w-6 p-0 shrink-0 text-muted-foreground/60 hover:text-foreground hover:bg-transparent"
 							onClick={(e) => {
 								e.stopPropagation();
-								copyToClipboard(model.id);
+								void copyToClipboard(model.id);
 							}}
 							title="Copy model ID"
 						>
@@ -454,7 +472,11 @@ function ShareDropdown({
 				<DropdownMenuItem
 					onClick={async (e) => {
 						e.stopPropagation();
-						await navigator.clipboard.writeText(shareUrl);
+						try {
+							await navigator.clipboard.writeText(shareUrl);
+						} catch {
+							return;
+						}
 						setUrlCopied(true);
 						setTimeout(() => setUrlCopied(false), 2000);
 					}}

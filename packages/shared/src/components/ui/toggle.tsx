@@ -36,7 +36,7 @@ const Toggle = ({
 	...props
 }: React.ComponentPropsWithoutRef<typeof TogglePrimitive.Root> &
 	VariantProps<typeof toggleVariants> & {
-		ref?: React.RefObject<React.ElementRef<typeof TogglePrimitive.Root> | null>;
+		ref?: React.Ref<React.ElementRef<typeof TogglePrimitive.Root>>;
 	}) => (
 	<TogglePrimitive.Root
 		ref={ref}
