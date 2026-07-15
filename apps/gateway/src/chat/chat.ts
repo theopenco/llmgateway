@@ -2435,11 +2435,8 @@ chat.openapi(completions, async (c) => {
 			message: `Image generation is not available for coding plans. Coding plans only include text-based inference.`,
 		});
 	}
-
-	// Coding plans only allow models/provider mappings with cached input pricing.
-	// The model-level check denies models with no cached mapping at all.
-	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
-	// model qualifies as coding overall but the named mapping itself is uncached.
+	// Coding plans only allow models with cached input pricing. The toggle lifts
+	// this restriction so any model from any provider is available.
 	const isDevPlanRestricted = Boolean(
 		isDevPlan && !organization?.devPlanAllowAllModels,
 	);
@@ -2459,27 +2456,26 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// Provider-targeting model strings (`provider/model`, `custom/model`) are
-	// never allowed on dev plans — only canonical root model ids. This is
-	// independent of allow-all-models: that flag only relaxes the model-level
-	// coding/cached-input restrictions below, it does not unlock direct or
-	// custom provider routing.
-	if (isDevPlan) {
-		if (
-			requestedProvider &&
-			requestedProvider !== "llmgateway" &&
-			requestedProvider !== "custom"
-		) {
+	// Provider-targeting model strings (`provider/model`) are restricted on
+	// dev plans that haven't enabled allow-all-models. Users who toggle
+	// "Enable access beyond the curated coding model list" accept the cost
+	// implications of bypassing smart routing and provider curation.
+	if (isDevPlanRestricted) {
+		if (requestedProvider && requestedProvider !== "llmgateway") {
 			throw new HTTPException(403, {
-				message: `Direct provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
+				message: `Direct provider routing is not available on restricted coding plans. Enable "access beyond the curated coding model list" in your dashboard settings, or use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix.`,
 			});
 		}
+	}
 
-		if (requestedProvider === "custom") {
-			throw new HTTPException(403, {
-				message: `Custom provider routing is not available on coding plans. Use the root model id (e.g. \`${modelInfo.id}\`) without a provider prefix and let the gateway handle routing.`,
-			});
-		}
+	// Custom provider routing (`custom/model`) is not a supported LLMGateway
+	// feature — it requires a real provider prefix from the models catalog
+	// (e.g. `deepseek/deepseek-v4-flash`, `anthropic/claude-sonnet-5`).
+	// This is independent of the allow-all-models toggle.
+	if (isDevPlan && requestedProvider === "custom") {
+		throw new HTTPException(403, {
+			message: `Custom provider routing is not supported. Use an existing provider prefix from the models catalog (e.g. \`deepseek/deepseek-v4-flash\`) or the root model id without a prefix.`,
+		});
 	}
 
 	if (isDevPlanRestricted) {

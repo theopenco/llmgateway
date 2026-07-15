@@ -297,16 +297,18 @@ export default function DevPlanSettings({
 
 					{advancedOpen && (
 						<div className="border-t p-5 space-y-4">
-							<div className="flex items-center justify-between gap-4">
-								<div className="space-y-0.5">
+							<div className="flex items-start justify-between gap-4">
+								<div className="space-y-1">
 									<Label
 										htmlFor="allow-all-models"
-										className="text-sm font-medium"
+										className="text-sm font-semibold"
 									>
 										Allow all models
 									</Label>
 									<p className="text-xs text-muted-foreground">
-										Enable access beyond the curated coding model list
+										Use any model from any provider, including provider-prefixed
+										IDs (e.g. <code>deepseek/deepseek-v4-flash</code>
+										). Prompt caching and cost predictability may be lost.
 									</p>
 								</div>
 								<Switch
@@ -318,16 +320,17 @@ export default function DevPlanSettings({
 							</div>
 
 							{allowAllModels && (
-								<div className="flex gap-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3.5">
-									<AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
-									<p className="text-xs leading-relaxed text-muted-foreground">
-										<span className="font-medium text-yellow-600 dark:text-yellow-400">
+								<div className="flex gap-3 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+									<AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+									<div className="text-xs text-muted-foreground space-y-1">
+										<p className="font-semibold text-amber-600 dark:text-amber-400">
 											Prompt caching may not be available.
-										</span>{" "}
-										Coding models are selected because they support prompt
-										caching, which reduces costs and latency. Non-curated models
-										may cost more.
-									</p>
+										</p>
+										<p>
+											Non-curated models and uncached providers may cost
+											significantly more. You are responsible for the costs.
+										</p>
+									</div>
 								</div>
 							)}
 
