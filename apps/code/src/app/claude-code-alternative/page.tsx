@@ -439,8 +439,8 @@ export default function ClaudeCodeAlternativePage() {
 							Keep the CLI. Swap the subscription.
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. Switch tiers any
-							time, prorated.
+							Start on Pro — most developers ship from there. Upgrade any time
+							and your new allowance kicks in instantly.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<GetDevPassButton
