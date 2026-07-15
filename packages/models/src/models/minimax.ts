@@ -85,8 +85,10 @@ export const minimaxModels = [
 			{
 				providerId: "scx-ai",
 				externalId: "MiniMax-M2.7",
-				inputPrice: "0.68e-6",
-				outputPrice: "3.2e-6",
+				// 0.68 AUD / 3.20 AUD per 1M tokens at 0.692662 AUD/USD
+				inputPrice: "0.471e-6",
+				cachedInputPrice: "0.07065e-6",
+				outputPrice: "2.2165e-6",
 				requestPrice: "0",
 				contextSize: 196608,
 				maxOutput: 196608,
