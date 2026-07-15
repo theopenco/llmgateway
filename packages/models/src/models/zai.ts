@@ -111,6 +111,23 @@ export const zaiModels = [
 				jsonOutput: true,
 				healStreamingJsonOutput: true,
 			},
+			{
+				providerId: "alibaba",
+				externalId: "glm-5.2",
+				inputPrice: "1.4e-6",
+				// implicit cache hits bill at 20% of the input price
+				cachedInputPrice: "0.28e-6",
+				outputPrice: "4.4e-6",
+				regions: [{ id: "singapore" }],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
