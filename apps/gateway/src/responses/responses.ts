@@ -339,6 +339,9 @@ responses.post("/", async (c) => {
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
 	}
+	if (req.reasoning?.context) {
+		chatRequest.reasoning = { context: req.reasoning.context };
+	}
 	if (req.text?.verbosity !== undefined) {
 		chatRequest.verbosity = req.text.verbosity;
 	}
@@ -518,6 +521,9 @@ responses.post("/", async (c) => {
 								instructions: req.instructions,
 								model: req.model,
 								status: completedResponse?.status ?? "completed",
+								incomplete_details:
+									completedResponse?.incomplete_details ?? null,
+								reasoning: completedResponse?.reasoning ?? null,
 								usage: completedResponse?.usage,
 								created_at: completedResponse?.created_at,
 							},
@@ -629,6 +635,8 @@ responses.post("/", async (c) => {
 					| "completed"
 					| "incomplete"
 					| "failed",
+				incomplete_details: responsesResponse.incomplete_details,
+				reasoning: responsesResponse.reasoning,
 				usage: (responsesResponse.usage ?? undefined) as
 					| Record<string, unknown>
 					| undefined,
@@ -952,7 +960,9 @@ responses.get("/:response_id", async (c) => {
 		completed_at: status === "completed" ? createdAt : null,
 		status,
 		incomplete_details:
-			status === "incomplete" ? { reason: "max_output_tokens" } : null,
+			status === "incomplete"
+				? (stored.incomplete_details ?? { reason: "max_output_tokens" })
+				: null,
 		model: stored.model,
 		previous_response_id: null,
 		instructions: stored.instructions ?? null,
@@ -972,7 +982,7 @@ responses.get("/:response_id", async (c) => {
 		frequency_penalty: 0,
 		top_logprobs: 0,
 		temperature: 1,
-		reasoning: { effort: null, summary: null },
+		reasoning: stored.reasoning ?? { effort: null, summary: null },
 		usage,
 		max_output_tokens: null,
 		max_tool_calls: null,

@@ -9,6 +9,12 @@ export interface StoredResponseData {
 	instructions?: string;
 	model: string;
 	status: "completed" | "incomplete" | "failed";
+	incomplete_details?: { reason: string } | null;
+	reasoning?: {
+		effort: string | null;
+		summary: string | null;
+		context?: string;
+	} | null;
 	usage?: Record<string, unknown>;
 	created_at?: number;
 }
@@ -226,6 +232,12 @@ export async function getStoredResponse(
 			instructions?: string;
 			model?: string;
 			status?: "completed" | "incomplete" | "failed";
+			incomplete_details?: { reason: string } | null;
+			reasoning?: {
+				effort: string | null;
+				summary: string | null;
+				context?: string;
+			} | null;
 			usage?: Record<string, unknown>;
 			created_at?: number;
 		};
@@ -237,6 +249,8 @@ export async function getStoredResponse(
 			instructions: data.instructions,
 			model: data.model ?? "",
 			status: data.status ?? "completed",
+			incomplete_details: data.incomplete_details ?? null,
+			reasoning: data.reasoning ?? null,
 			usage: data.usage,
 			created_at: data.created_at,
 		};

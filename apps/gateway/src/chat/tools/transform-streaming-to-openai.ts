@@ -8,6 +8,7 @@ import {
 	extractBedrockCacheCreationDetails,
 } from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+import { buildEncryptedReasoningDetail } from "./reasoning-details.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
@@ -824,7 +825,20 @@ export function transformStreamingToOpenai(
 								choices: [
 									{
 										index: 0,
-										delta: { role: "assistant" },
+										delta: {
+											role: "assistant",
+											// Mark the start of each upstream message output item so
+											// the Responses translator can preserve exact item
+											// boundaries (e.g. two commentary messages split by a
+											// tool call), along with the item's phase.
+											...(item?.type === "message" && {
+												message_start: true,
+											}),
+											...(item?.type === "message" &&
+												typeof item.phase === "string" && {
+													phase: item.phase,
+												}),
+										},
 										finish_reason: null,
 									},
 								],
@@ -850,15 +864,10 @@ export function transformStreamingToOpenai(
 							typeof doneItem.encrypted_content === "string" &&
 							doneItem.encrypted_content.length > 0
 								? [
-										{
-											type: "reasoning.encrypted",
-											data: doneItem.encrypted_content,
-											...(typeof doneItem.id === "string" && {
-												id: doneItem.id,
-											}),
-											format: "openai-responses-v1",
-											index: data.output_index ?? 0,
-										},
+										buildEncryptedReasoningDetail(
+											doneItem,
+											data.output_index ?? 0,
+										),
 									]
 								: null;
 						transformedData = {
@@ -875,6 +884,11 @@ export function transformStreamingToOpenai(
 										...(encryptedReasoning && {
 											reasoning_details: encryptedReasoning,
 										}),
+										...(data.type === "response.output_item.done" &&
+											doneItem?.type === "message" &&
+											typeof doneItem.phase === "string" && {
+												phase: doneItem.phase,
+											}),
 									},
 									finish_reason: null,
 								},
@@ -1063,6 +1077,9 @@ export function transformStreamingToOpenai(
 							...(typeof data.response?.service_tier === "string" && {
 								service_tier: data.response.service_tier,
 							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
+							}),
 						};
 						break;
 					}
@@ -1107,6 +1124,9 @@ export function transformStreamingToOpenai(
 							usage,
 							...(typeof data.response?.service_tier === "string" && {
 								service_tier: data.response.service_tier,
+							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
 							}),
 						};
 						break;

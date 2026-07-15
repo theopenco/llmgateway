@@ -17,6 +17,7 @@ import {
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type ProviderRequestBody,
+	type ReasoningDetail,
 	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
@@ -790,20 +791,38 @@ function transformContentForResponsesApi(content: any, role: string): any {
  * Only OpenAI-Responses-shaped payloads are forwarded — opaque blobs from a
  * different provider/format would be rejected upstream.
  */
-function extractEncryptedReasoningItems(msg: any): any[] {
+interface OpenAIResponsesReasoningItem {
+	type: "reasoning";
+	id?: string;
+	summary: unknown[];
+	encrypted_content: string;
+}
+
+function isEncryptedReasoningDetail(
+	detail: ReasoningDetail,
+): detail is ReasoningDetail & { data: string } {
+	return (
+		detail !== null &&
+		typeof detail === "object" &&
+		detail.type === "reasoning.encrypted" &&
+		typeof detail.data === "string" &&
+		detail.data.length > 0 &&
+		// Require the explicit provenance tag the gateway stamps on every
+		// payload it emits — an untagged blob could be a foreign format that
+		// must not be relabeled as OpenAI encrypted reasoning.
+		detail.format === "openai-responses-v1"
+	);
+}
+
+function extractEncryptedReasoningItems(
+	msg: BaseMessage,
+): OpenAIResponsesReasoningItem[] {
 	if (msg.role !== "assistant" || !Array.isArray(msg.reasoning_details)) {
 		return [];
 	}
-	const items: any[] = [];
+	const items: OpenAIResponsesReasoningItem[] = [];
 	for (const detail of msg.reasoning_details) {
-		if (
-			detail &&
-			typeof detail === "object" &&
-			detail.type === "reasoning.encrypted" &&
-			typeof detail.data === "string" &&
-			detail.data.length > 0 &&
-			(detail.format === undefined || detail.format === "openai-responses-v1")
-		) {
+		if (isEncryptedReasoningDetail(detail)) {
 			items.push({
 				type: "reasoning",
 				...(typeof detail.id === "string" && { id: detail.id }),
@@ -880,25 +899,76 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		// Replay encrypted reasoning from prior turns ahead of the assistant
 		// items it preceded, mirroring the item order the Responses API emits.
 		if (msg.role === "assistant") {
-			items.push(...extractEncryptedReasoningItems(msg));
+			const reasoningItems = extractEncryptedReasoningItems(msg);
+			items.push(...reasoningItems);
+			// A reasoning-only carrier (a prior turn that ended before emitting a
+			// message, e.g. on max_output_tokens) has no message to emit — the
+			// reasoning items above are the whole turn.
+			if (
+				reasoningItems.length > 0 &&
+				(msg.content === null || msg.content === undefined) &&
+				(!msg.tool_calls || msg.tool_calls.length === 0)
+			) {
+				continue;
+			}
 		}
 
-		// Assistant messages with tool_calls: emit the message, then function_call items
+		// Assistant messages with tool_calls: emit function_call items and the
+		// message(s) in the provider's original order. Separate phased message
+		// items (message_items) are replayed individually, interleaved with the
+		// calls per their preceding_tool_calls position; otherwise the single
+		// message follows the function calls by default (matching the order the
+		// Responses API emits and convertResponsesInputToMessages folded from),
+		// with pre-tool commentary marked via content_before_tool_calls going
+		// first.
 		if (
 			msg.role === "assistant" &&
 			msg.tool_calls &&
 			msg.tool_calls.length > 0
 		) {
-			// Emit assistant message content if present (preserve empty strings)
-			if (msg.content !== null && msg.content !== undefined) {
-				items.push({
-					role: "assistant",
-					content: transformContentForResponsesApi(msg.content, "assistant"),
+			const toolCallCount = msg.tool_calls.length;
+			const messageItems: Array<{
+				precedingToolCalls: number;
+				item: Record<string, unknown>;
+			}> = [];
+			if (Array.isArray(msg.message_items) && msg.message_items.length > 0) {
+				for (const item of msg.message_items) {
+					messageItems.push({
+						precedingToolCalls: item.preceding_tool_calls ?? toolCallCount,
+						item: {
+							role: "assistant",
+							content: transformContentForResponsesApi(item.text, "assistant"),
+							...(item.phase ? { phase: item.phase } : {}),
+						},
+					});
+				}
+			} else if (msg.content !== null && msg.content !== undefined) {
+				// Single assistant message content (preserve empty strings)
+				messageItems.push({
+					precedingToolCalls: msg.content_before_tool_calls ? 0 : toolCallCount,
+					item: {
+						role: "assistant",
+						content: transformContentForResponsesApi(msg.content, "assistant"),
+						...(msg.phase ? { phase: msg.phase } : {}),
+					},
 				});
 			}
 
-			// Emit each tool call as a separate function_call item
-			for (const toolCall of msg.tool_calls) {
+			let nextMessage = 0;
+			const emitMessagesUpTo = (callsEmitted: number) => {
+				while (
+					nextMessage < messageItems.length &&
+					messageItems[nextMessage]!.precedingToolCalls <= callsEmitted
+				) {
+					items.push(messageItems[nextMessage]!.item);
+					nextMessage++;
+				}
+			};
+
+			// Emit each tool call as a separate function_call item, with any
+			// message items restored to their original positions between them.
+			msg.tool_calls.forEach((toolCall: any, callIndex: number) => {
+				emitMessagesUpTo(callIndex);
 				items.push({
 					type: "function_call",
 					call_id: toolCall.id,
@@ -908,6 +978,24 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 				pendingCalls.push({
 					callId: toolCall.id,
 					name: toolCall.function?.name,
+				});
+			});
+			emitMessagesUpTo(Number.MAX_SAFE_INTEGER);
+			continue;
+		}
+
+		// Assistant messages carrying separate phased message items but no tool
+		// calls: replay each item individually.
+		if (
+			msg.role === "assistant" &&
+			Array.isArray(msg.message_items) &&
+			msg.message_items.length > 0
+		) {
+			for (const item of msg.message_items) {
+				items.push({
+					role: "assistant",
+					content: transformContentForResponsesApi(item.text, "assistant"),
+					...(item.phase ? { phase: item.phase } : {}),
 				});
 			}
 			continue;
@@ -921,6 +1009,7 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		items.push({
 			role: msg.role,
 			content: transformContentForResponsesApi(msg.content, msg.role),
+			...(msg.role === "assistant" && msg.phase ? { phase: msg.phase } : {}),
 		});
 	}
 
@@ -987,6 +1076,7 @@ export async function prepareRequestBody(
 	verbosity?: "low" | "medium" | "high",
 	prompt_cache_options?: PromptCacheOptions,
 	session_id?: string,
+	reasoning_context?: "auto" | "current_turn" | "all_turns",
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	const modelDef = models.find((m) => m.id === usedInternalModel);
@@ -1527,15 +1617,38 @@ export async function prepareRequestBody(
 	const messagesWithReasoningDetails = processedMessages;
 
 	// `reasoning_details` is the gateway's carrier for opaque reasoning payloads
-	// (e.g. OpenAI encrypted reasoning). No chat-completions upstream understands
-	// it, and strict providers reject unknown message fields, so strip it from
-	// every path except the Responses API transform above.
-	processedMessages = processedMessages.map((m) => {
-		if ((m as any).reasoning_details === undefined) {
-			return m;
+	// (e.g. OpenAI encrypted reasoning); `phase` and `content_before_tool_calls`
+	// are OpenAI Responses assistant-message markers. No chat-completions
+	// upstream understands them, and strict providers reject unknown message
+	// fields, so strip them from every path except the Responses API transform
+	// above. An assistant message that carried only reasoning (no
+	// content/tool_calls — an incomplete prior turn replayed for the Responses
+	// API) becomes empty here, so drop it.
+	processedMessages = processedMessages.flatMap((m) => {
+		if (
+			m.reasoning_details === undefined &&
+			m.phase === undefined &&
+			m.content_before_tool_calls === undefined &&
+			m.message_items === undefined
+		) {
+			return [m];
 		}
-		const { reasoning_details: _ignored, ...rest } = m as any;
-		return rest as typeof m;
+		const {
+			reasoning_details: reasoningDetails,
+			phase: _phase,
+			content_before_tool_calls: _contentBeforeToolCalls,
+			message_items: _messageItems,
+			...rest
+		} = m;
+		if (
+			reasoningDetails !== undefined &&
+			m.role === "assistant" &&
+			(m.content === null || m.content === undefined) &&
+			(!m.tool_calls || m.tool_calls.length === 0)
+		) {
+			return [];
+		}
+		return [rest];
 	});
 
 	// Start with a base structure that can be modified for each provider
@@ -1707,6 +1820,13 @@ export async function prepareRequestBody(
 							: {
 									effort: responsesReasoningEffort,
 									summary: "detailed",
+									// reasoning.context is only documented on OpenAI's
+									// Responses API surface; other providers reject
+									// unknown reasoning fields.
+									...(reasoning_context !== undefined &&
+										(usedProvider === "openai" || usedProvider === "azure") && {
+											context: reasoning_context,
+										}),
 								},
 				};
 

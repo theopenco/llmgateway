@@ -121,6 +121,24 @@ export interface BaseMessage {
 	reasoning?: string;
 	reasoning_content?: string;
 	reasoning_details?: ReasoningDetail[];
+	// OpenAI Responses assistant-message phase, replayed upstream on the
+	// Responses API path and stripped for chat-completions upstreams.
+	phase?: "commentary" | "final_answer";
+	// Marks assistant content that preceded the message's tool calls (pre-tool
+	// commentary), so Responses API replay preserves the original item order.
+	// Stripped for chat-completions upstreams.
+	content_before_tool_calls?: boolean;
+	// Separate phased assistant message items (e.g. commentary + final_answer)
+	// emitted by OpenAI Responses API models in one turn. `preceding_tool_calls`
+	// is how many of the message's tool calls came before the item, so the
+	// exact interleaving can be reconstructed. Replayed upstream as individual
+	// message items; stripped for chat-completions upstreams (the concatenated
+	// `content` carries the text there).
+	message_items?: Array<{
+		text: string;
+		phase?: "commentary" | "final_answer";
+		preceding_tool_calls?: number;
+	}>;
 }
 
 // Provider-specific message formats
@@ -323,6 +341,7 @@ export interface OpenAIResponsesRequestBody {
 	reasoning: {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "detailed";
+		context?: "auto" | "current_turn" | "all_turns";
 	};
 	tools?: Array<{
 		type: "function";
