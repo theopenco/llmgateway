@@ -22,6 +22,7 @@ const publicUserSchema = z.object({
 	isAdmin: z.boolean(),
 	username: z.string().nullable(),
 	profilePublic: z.boolean(),
+	profileHidePicture: z.boolean(),
 	bio: z.string().nullable(),
 	githubUsername: z.string().nullable(),
 	xUsername: z.string().nullable(),
@@ -81,6 +82,7 @@ function toPublicUser(
 		isAdmin,
 		username: userRecord.username,
 		profilePublic: userRecord.profilePublic,
+		profileHidePicture: userRecord.profileHidePicture,
 		bio: userRecord.bio,
 		githubUsername: userRecord.githubUsername,
 		xUsername: userRecord.xUsername,
@@ -167,6 +169,7 @@ const updateUserSchema = z.object({
 		.nullable()
 		.optional(),
 	profilePublic: z.boolean().optional(),
+	profileHidePicture: z.boolean().optional(),
 	bio: z.string().max(280).nullable().optional(),
 	githubUsername: z.string().max(100).nullable().optional(),
 	xUsername: z.string().max(100).nullable().optional(),

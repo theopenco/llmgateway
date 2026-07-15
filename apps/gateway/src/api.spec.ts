@@ -1034,6 +1034,135 @@ describe("api", () => {
 		expect(json.metadata?.used_service_tier).toBeUndefined();
 	});
 
+	test("/v1/chat/completions applies the dev-plan default flex service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-default",
+			token: "real-token-devplan-flex-default",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-default",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+		// No service_tier on the request — the org-level DevPass setting should
+		// route it to flex processing on the flex-capable openai mapping.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-default",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.5",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.service_tier).toBe("flex");
+		// The tier came from the org default, not the request, so only the
+		// used tier is surfaced.
+		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		expect(json.metadata?.used_service_tier).toBe("flex");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBeNull();
+		expect(logs[0].usedServiceTier).toBe("flex");
+	});
+
+	test("/v1/chat/completions lets an explicit service_tier win over the dev-plan default", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-override",
+			token: "real-token-devplan-flex-override",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-override",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-override",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.5",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.service_tier).toBe("priority");
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+	});
+
+	test("/v1/chat/completions skips the dev-plan flex default for models without flex support", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-unsupported",
+			token: "real-token-devplan-flex-unsupported",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-unsupported",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({
+			devPlan: "pro",
+			allowAllModels: true,
+			serviceTier: "flex",
+		});
+
+		// gpt-4o has no flex-capable mapping — the default must fall back to
+		// standard processing instead of failing the request.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-unsupported",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		expect(json.metadata?.used_service_tier).toBeUndefined();
+	});
+
 	test("/v1/chat/completions streams service tier in the final usage chunk", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-service-tier-stream",

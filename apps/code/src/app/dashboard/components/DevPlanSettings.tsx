@@ -31,14 +31,23 @@ const ROUTING_OPTIONS: Array<{
 	{ value: "latency", label: "Lowest latency", allowed: false },
 ];
 
+type ServiceTier = "default" | "flex";
+
+const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
+	{ value: "default", label: "Standard (recommended)" },
+	{ value: "flex", label: "Flex" },
+];
+
 interface DevPlanSettingsProps {
 	devPlanAllowAllModels: boolean;
+	devPlanServiceTier: ServiceTier;
 	retentionLevel: "retain" | "none";
 	defaultRoutingStrategy: RoutingStrategy;
 }
 
 export default function DevPlanSettings({
 	devPlanAllowAllModels: initialAllowAllModels,
+	devPlanServiceTier: initialServiceTier,
 	retentionLevel: initialRetentionLevel,
 	defaultRoutingStrategy: initialRoutingStrategy,
 }: DevPlanSettingsProps) {
@@ -56,6 +65,10 @@ export default function DevPlanSettings({
 		initialRoutingStrategy,
 	);
 	const [isUpdatingRouting, setIsUpdatingRouting] = useState(false);
+
+	const [serviceTier, setServiceTier] =
+		useState<ServiceTier>(initialServiceTier);
+	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
 
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -107,6 +120,31 @@ export default function DevPlanSettings({
 			toast.error("Failed to update routing strategy");
 		} finally {
 			setIsUpdatingRouting(false);
+		}
+	};
+
+	const handleServiceTierChange = async (value: string) => {
+		const tier = value as ServiceTier;
+		if (tier !== "default" && tier !== "flex") {
+			return;
+		}
+		const previous = serviceTier;
+		setServiceTier(tier);
+		setIsUpdatingServiceTier(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { devPlanServiceTier: tier },
+			});
+			toast.success(
+				tier === "flex"
+					? "Requests default to flex processing"
+					: "Requests default to standard processing",
+			);
+		} catch {
+			setServiceTier(previous);
+			toast.error("Failed to update service tier");
+		} finally {
+			setIsUpdatingServiceTier(false);
 		}
 	};
 
@@ -172,6 +210,46 @@ export default function DevPlanSettings({
 										value={option.value}
 										disabled={!option.allowed}
 									>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				</div>
+
+				<div className="rounded-xl border p-5 space-y-4">
+					<div className="flex items-center justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label htmlFor="service-tier" className="text-sm font-medium">
+								Default service tier
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Flex processing costs less and saves your plan credits, but
+								responses may be slower during peak demand. Only applied for
+								models that support it — everything else stays on standard
+								processing.{" "}
+								<a
+									href="https://docs.llmgateway.io/features/service-tiers"
+									target="_blank"
+									rel="noreferrer"
+									className="underline underline-offset-2"
+								>
+									Learn more
+								</a>
+							</p>
+						</div>
+						<Select
+							value={serviceTier}
+							onValueChange={handleServiceTierChange}
+							disabled={isUpdatingServiceTier}
+						>
+							<SelectTrigger id="service-tier" size="sm" className="w-[180px]">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{SERVICE_TIER_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
 								))}

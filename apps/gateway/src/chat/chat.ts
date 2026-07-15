@@ -1396,12 +1396,16 @@ chat.openapi(completions, async (c) => {
 		image_config,
 		effort,
 		verbosity,
-		service_tier,
 		web_search,
 		plugins,
 		n,
 		user,
 	} = validationResult.data;
+
+	// Mutable: dev-plan (DevPass) orgs can configure a default service tier in
+	// their dashboard settings, which is applied below when the request itself
+	// doesn't specify one.
+	let service_tier = validationResult.data.service_tier;
 
 	// The processing tier the client explicitly requested (flex / priority).
 	// Null when no premium tier was requested. Stored on every log alongside the
@@ -1970,6 +1974,78 @@ chat.openapi(completions, async (c) => {
 		allModelProviders = filterHybridRegions(allModelProviders);
 	}
 
+	// Fetch organization for coding model restriction check and credit validation
+	let organization = await findOrganizationById(project.organizationId);
+
+	if (!organization) {
+		throw new HTTPException(500, {
+			message: "Could not find organization",
+		});
+	}
+
+	if (organization.status === "deleted") {
+		throw new HTTPException(410, {
+			message: "Organization has been disabled and is no longer accessible",
+		});
+	}
+
+	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
+	// further below — orgs backing end-user wallets are always regular
+	// PAYG/credits orgs, never dev-plan orgs, so it cannot affect the dev-plan
+	// service-tier default applied here.
+	const isDevPlan = Boolean(
+		organization?.kind === "devpass" && organization.devPlan !== "none",
+	);
+
+	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
+	// their dashboard settings to save on plan credits. Applied softly, and only
+	// when the request itself doesn't specify a service_tier: the tier kicks in
+	// only if at least one candidate mapping supports flex AND has a credential
+	// that reaches the provider's real upstream (mirroring the service-tier key
+	// eligibility enforced below), so requests to models without flex support
+	// stay on standard processing instead of failing the explicit-tier
+	// validation and eligibility checks below.
+	if (
+		isDevPlan &&
+		organization.devPlanServiceTier === "flex" &&
+		service_tier === undefined
+	) {
+		const orgKeysForDefaultTier = await findActiveProviderKeys(
+			project.organizationId,
+		);
+		const providerHasEligibleTierCredential = (providerId: string): boolean => {
+			const hasCompliantDbKey = orgKeysForDefaultTier.some(
+				(key) =>
+					key.provider === providerId &&
+					providerKeyBaseUrlSupportsServiceTier(
+						providerId as Provider,
+						key.baseUrl,
+					),
+			);
+			if (project.mode === "api-keys") {
+				return hasCompliantDbKey;
+			}
+			return (
+				hasCompliantDbKey ||
+				hasServiceTierEligibleEnvCredential(providerId as Provider)
+			);
+		};
+		const supportsDefaultFlex = modelInfo.providers.some(
+			(mapping) =>
+				providerMatchesRequestedProvider(mapping, requestedProvider) &&
+				mappingSupportsRequestedServiceTier(
+					modelInfo.id,
+					mapping,
+					"flex",
+					configIndex,
+				) &&
+				providerHasEligibleTierCredential(mapping.providerId),
+		);
+		if (supportsDefaultFlex) {
+			service_tier = "flex";
+		}
+	}
+
 	if (isRequestedServiceTier(service_tier)) {
 		const serviceTierCandidateProviders = modelInfo.providers.filter(
 			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
@@ -2105,21 +2181,6 @@ chat.openapi(completions, async (c) => {
 		allModelProviders = allModelProviders.filter(supportsRequestedTier);
 	}
 
-	// Fetch organization for coding model restriction check and credit validation
-	let organization = await findOrganizationById(project.organizationId);
-
-	if (!organization) {
-		throw new HTTPException(500, {
-			message: "Could not find organization",
-		});
-	}
-
-	if (organization.status === "deleted") {
-		throw new HTTPException(410, {
-			message: "Organization has been disabled and is no longer accessible",
-		});
-	}
-
 	// End-user session: present the wallet balance as the organization's credits
 	// so all downstream credit-gating evaluates the wallet, not the developer's
 	// org. The real organization.credits row is never touched — the worker debits
@@ -2127,10 +2188,6 @@ chat.openapi(completions, async (c) => {
 	if (endUserWallet) {
 		organization = withWalletCredits(organization, endUserWallet);
 	}
-
-	const isDevPlan = Boolean(
-		organization?.kind === "devpass" && organization.devPlan !== "none",
-	);
 
 	// A routing strategy only has meaning for multi-provider model-id routing.
 	// If the request also pins a specific provider (e.g. `openai/gpt-4o` or a
