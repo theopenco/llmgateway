@@ -128,6 +128,17 @@ export interface BaseMessage {
 	// commentary), so Responses API replay preserves the original item order.
 	// Stripped for chat-completions upstreams.
 	content_before_tool_calls?: boolean;
+	// Separate phased assistant message items (e.g. commentary + final_answer)
+	// emitted by OpenAI Responses API models in one turn. `preceding_tool_calls`
+	// is how many of the message's tool calls came before the item, so the
+	// exact interleaving can be reconstructed. Replayed upstream as individual
+	// message items; stripped for chat-completions upstreams (the concatenated
+	// `content` carries the text there).
+	message_items?: Array<{
+		text: string;
+		phase?: "commentary" | "final_answer";
+		preceding_tool_calls?: number;
+	}>;
 }
 
 // Provider-specific message formats

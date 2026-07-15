@@ -12842,6 +12842,16 @@ chat.openapi(completions, async (c) => {
 	) {
 		transformedResponse.choices[0].message.content_before_tool_calls = true;
 	}
+	// Surface separate phased assistant message items (e.g. commentary and
+	// final_answer) so the Responses layer can rebuild every original item.
+	if (
+		parsedResponse.messageItems &&
+		parsedResponse.messageItems.length > 0 &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.message_items =
+			parsedResponse.messageItems;
+	}
 	// Surface the effective reasoning context the provider applied so the
 	// Responses layer reports the served mode rather than echoing the request.
 	if (parsedResponse.reasoningContext) {

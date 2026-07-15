@@ -9,21 +9,36 @@ import {
 
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
 
+// One assistant message output item in the stream. Providers may emit several
+// per turn (e.g. a commentary message before tool calls and a final_answer
+// message after); each keeps its own id, phase, text, and the output index it
+// reserved when announced, so indices stay stable and no item is collapsed.
+interface MessageItemState {
+	id: string;
+	outputIndex: number;
+	phase?: string;
+	parts: string[];
+	contentPartStarted: boolean;
+	annotations: Record<string, unknown>[];
+}
+
 interface StreamingState {
 	responseId: string;
 	model: string;
 	createdAt: number;
 	outputItemIndex: number;
-	contentPartStarted: boolean;
-	outputItemStarted: boolean;
-	// Output index reserved by the message item when it is announced. Reserving
-	// (rather than reading outputItemIndex at event time) keeps the index stable
-	// when later items (e.g. tool calls after pre-tool commentary) claim the
-	// next indices.
-	messageOutputIndex?: number;
+	// Assistant message items in stream order; the last entry is the one
+	// currently receiving content deltas.
+	messageItems: MessageItemState[];
+	// Set when a new message item was announced (via the translator's
+	// message_start boundary marker or a phase change) but has not started
+	// streaming content yet; the item is created on its first content delta.
+	pendingNewMessage?: boolean;
+	// Phase announced (via a delta) for a message item that has not started
+	// streaming content yet.
+	pendingMessagePhase?: string;
 	messageId: string;
 	reasoningId: string;
-	fullContent: string[];
 	fullReasoning: string[];
 	// Reasoning output items announced via response.output_item.added. Each
 	// entry's id/outputIndex are reused verbatim by the matching
@@ -34,11 +49,7 @@ interface StreamingState {
 		outputIndex: number;
 		encryptedData?: string;
 	}>;
-	annotations: Record<string, unknown>[];
 	reasoningStarted: boolean;
-	// OpenAI Responses assistant-message phase (e.g. "final_answer"), surfaced
-	// by the streaming translator as a delta field and echoed on message items.
-	messagePhase?: string;
 	finishReason: string | null;
 	sequenceNumber: number;
 	toolCalls: Map<
@@ -92,14 +103,11 @@ export function createStreamingState(
 		model,
 		createdAt: Math.floor(Date.now() / 1000),
 		outputItemIndex: 0,
-		contentPartStarted: false,
-		outputItemStarted: false,
+		messageItems: [],
 		messageId: `msg_${shortid(24)}`,
 		reasoningId: `rs_${shortid(24)}`,
-		fullContent: [],
 		fullReasoning: [],
 		reasoningItems: [],
-		annotations: [],
 		reasoningStarted: false,
 		finishReason: null,
 		sequenceNumber: 0,
@@ -175,10 +183,7 @@ function buildResponsePayload(
 		reasoning: {
 			effort: req?.reasoning?.effort ?? null,
 			summary: req?.reasoning?.summary ?? null,
-			...(resolveReasoningContext(
-				state.usedReasoningContext,
-				req?.reasoning?.context,
-			) ?? {}),
+			...(resolveReasoningContext(state.usedReasoningContext) ?? {}),
 		},
 		usage,
 		max_output_tokens: req?.max_output_tokens ?? null,
@@ -261,6 +266,7 @@ export function processStreamChunk(
 					reasoning?: string | null;
 					reasoning_details?: Array<Record<string, unknown>>;
 					phase?: string;
+					message_start?: boolean;
 					annotations?: Array<Record<string, unknown>>;
 					tool_calls?: Array<{
 						index: number;
@@ -319,10 +325,34 @@ export function processStreamChunk(
 		return events;
 	}
 
+	// The translator marks the start of each upstream message output item with
+	// a message_start boundary. A boundary after content has streamed means a
+	// NEW message item begins (created lazily on its first content delta) —
+	// this preserves exact item boundaries even when consecutive messages
+	// share the same phase (e.g. two commentary items split by a tool call).
+	if (delta.message_start === true) {
+		const current = state.messageItems[state.messageItems.length - 1];
+		if (current && current.parts.length > 0) {
+			state.pendingNewMessage = true;
+			state.pendingMessagePhase = undefined;
+		}
+	}
+
 	// Capture the assistant-message phase (surfaced by the streaming translator
-	// from the upstream message output item) so message items can echo it.
+	// from each upstream message output item). As a fallback for streams
+	// without boundary markers, a phase that differs from the current message
+	// item's phase after content has streamed also starts a new item.
 	if (typeof delta.phase === "string" && delta.phase) {
-		state.messagePhase = delta.phase;
+		const current = state.messageItems[state.messageItems.length - 1];
+		if (!current || state.pendingNewMessage) {
+			state.pendingMessagePhase = delta.phase;
+		} else if (current.phase === undefined) {
+			// Late phase for the item already streaming (or announced).
+			current.phase = delta.phase;
+		} else if (current.phase !== delta.phase) {
+			state.pendingNewMessage = true;
+			state.pendingMessagePhase = delta.phase;
+		}
 	}
 
 	// Handle reasoning delta. The output_item.added event is deferred until the
@@ -430,73 +460,96 @@ export function processStreamChunk(
 
 	// Handle content delta
 	if (delta.content) {
-		if (!state.outputItemStarted) {
-			state.outputItemStarted = true;
+		let current = state.messageItems[state.messageItems.length - 1];
+		// Start a new message item on first content, or when a boundary marker
+		// (or differing phase) announced that a new message item begins.
+		if (!current || state.pendingNewMessage) {
 			// If reasoning was streamed, announce and close its item first
 			flushPendingReasoningItem(state, events);
 
-			// Reserve this item's output index so later items (e.g. tool calls
-			// following pre-tool commentary) don't claim the same index.
-			state.messageOutputIndex = state.outputItemIndex++;
+			current = {
+				// Keep the pre-generated id for the first message item so it is
+				// stable from response.created onward.
+				id:
+					state.messageItems.length === 0
+						? state.messageId
+						: `msg_${shortid(24)}`,
+				// Reserve this item's output index so later items (e.g. tool calls
+				// following pre-tool commentary) don't claim the same index.
+				outputIndex: state.outputItemIndex++,
+				...(state.pendingMessagePhase
+					? { phase: state.pendingMessagePhase }
+					: {}),
+				parts: [],
+				contentPartStarted: false,
+				annotations: [],
+			};
+			state.messageItems.push(current);
+			state.pendingNewMessage = false;
+			state.pendingMessagePhase = undefined;
 			events.push(
 				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
-					output_index: state.messageOutputIndex,
+					output_index: current.outputIndex,
 					item: {
 						type: "message",
-						id: state.messageId,
+						id: current.id,
 						role: "assistant",
 						content: [],
-						...(state.messagePhase ? { phase: state.messagePhase } : {}),
+						...(current.phase ? { phase: current.phase } : {}),
 						status: "in_progress",
 					},
 				}),
 			);
 		}
 
-		if (!state.contentPartStarted) {
-			state.contentPartStarted = true;
+		if (!current.contentPartStarted) {
+			current.contentPartStarted = true;
 			events.push(
 				emitEvent(state, "response.content_part.added", {
 					type: "response.content_part.added",
-					item_id: state.messageId,
-					output_index: state.messageOutputIndex,
+					item_id: current.id,
+					output_index: current.outputIndex,
 					content_index: 0,
 					part: { type: "output_text", text: "", annotations: [] },
 				}),
 			);
 		}
 
-		state.fullContent.push(delta.content);
+		current.parts.push(delta.content);
 		events.push(
 			emitEvent(state, "response.output_text.delta", {
 				type: "response.output_text.delta",
-				item_id: state.messageId,
-				output_index: state.messageOutputIndex,
+				item_id: current.id,
+				output_index: current.outputIndex,
 				content_index: 0,
 				delta: delta.content,
 			}),
 		);
 	}
 
-	// Handle annotations delta (url citations from native web search)
+	// Handle annotations delta (url citations from native web search); they
+	// attach to the message item currently receiving content.
 	if (delta.annotations?.length) {
-		for (const annotation of normalizeAnnotationsToResponses(
-			delta.annotations,
-		)) {
-			const annotationIndex = state.annotations.length;
-			state.annotations.push(annotation);
-			if (state.contentPartStarted) {
-				events.push(
-					emitEvent(state, "response.output_text.annotation.added", {
-						type: "response.output_text.annotation.added",
-						item_id: state.messageId,
-						output_index: state.messageOutputIndex,
-						content_index: 0,
-						annotation_index: annotationIndex,
-						annotation,
-					}),
-				);
+		const current = state.messageItems[state.messageItems.length - 1];
+		if (current) {
+			for (const annotation of normalizeAnnotationsToResponses(
+				delta.annotations,
+			)) {
+				const annotationIndex = current.annotations.length;
+				current.annotations.push(annotation);
+				if (current.contentPartStarted) {
+					events.push(
+						emitEvent(state, "response.output_text.annotation.added", {
+							type: "response.output_text.annotation.added",
+							item_id: current.id,
+							output_index: current.outputIndex,
+							content_index: 0,
+							annotation_index: annotationIndex,
+							annotation,
+						}),
+					);
+				}
 			}
 		}
 	}
@@ -636,21 +689,24 @@ export function buildFinalOutputItems(
 		});
 	}
 
-	if (state.fullContent.length > 0) {
+	for (const message of state.messageItems) {
+		if (message.parts.length === 0) {
+			continue;
+		}
 		indexed.push({
-			index: state.messageOutputIndex ?? Number.MAX_SAFE_INTEGER,
+			index: message.outputIndex,
 			item: {
 				type: "message",
-				id: state.messageId,
+				id: message.id,
 				role: "assistant",
 				content: [
 					{
 						type: "output_text",
-						text: state.fullContent.join(""),
-						annotations: state.annotations,
+						text: message.parts.join(""),
+						annotations: message.annotations,
 					},
 				],
-				...(state.messagePhase ? { phase: state.messagePhase } : {}),
+				...(message.phase ? { phase: message.phase } : {}),
 				status: "completed",
 			},
 		});
@@ -689,50 +745,50 @@ export function createCompletionEvents(
 		);
 	});
 
-	// Close content part if started
-	if (state.contentPartStarted) {
-		events.push(
-			emitEvent(state, "response.output_text.done", {
-				type: "response.output_text.done",
-				item_id: state.messageId,
-				output_index: state.messageOutputIndex,
-				content_index: 0,
-				text: state.fullContent.join(""),
-			}),
-		);
-		events.push(
-			emitEvent(state, "response.content_part.done", {
-				type: "response.content_part.done",
-				item_id: state.messageId,
-				output_index: state.messageOutputIndex,
-				content_index: 0,
-				part: {
-					type: "output_text",
-					text: state.fullContent.join(""),
-					annotations: state.annotations,
-				},
-			}),
-		);
-	}
-
-	// Close output item if started
-	if (state.outputItemStarted) {
+	// Close each message item that streamed (text done, part done, item done),
+	// reusing the id/output_index from its added event.
+	for (const message of state.messageItems) {
+		const text = message.parts.join("");
+		if (message.contentPartStarted) {
+			events.push(
+				emitEvent(state, "response.output_text.done", {
+					type: "response.output_text.done",
+					item_id: message.id,
+					output_index: message.outputIndex,
+					content_index: 0,
+					text,
+				}),
+			);
+			events.push(
+				emitEvent(state, "response.content_part.done", {
+					type: "response.content_part.done",
+					item_id: message.id,
+					output_index: message.outputIndex,
+					content_index: 0,
+					part: {
+						type: "output_text",
+						text,
+						annotations: message.annotations,
+					},
+				}),
+			);
+		}
 		events.push(
 			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
-				output_index: state.messageOutputIndex,
+				output_index: message.outputIndex,
 				item: {
 					type: "message",
-					id: state.messageId,
+					id: message.id,
 					role: "assistant",
 					content: [
 						{
 							type: "output_text",
-							text: state.fullContent.join(""),
-							annotations: state.annotations,
+							text,
+							annotations: message.annotations,
 						},
 					],
-					...(state.messagePhase ? { phase: state.messagePhase } : {}),
+					...(message.phase ? { phase: message.phase } : {}),
 					status: "completed",
 				},
 			}),

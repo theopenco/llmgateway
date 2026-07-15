@@ -22,6 +22,11 @@ interface ChatCompletionsResponse {
 			reasoning_details?: Array<Record<string, unknown>>;
 			phase?: string | null;
 			content_before_tool_calls?: boolean;
+			message_items?: Array<{
+				text: string;
+				phase?: string;
+				preceding_tool_calls?: number;
+			}>;
 			refusal?: string | null;
 			annotations?: Array<Record<string, unknown>>;
 		};
@@ -244,21 +249,18 @@ function resolveServedServiceTier(
 }
 
 /**
- * Resolve the reasoning context to report on a response: the effective mode
- * the provider applied when known, otherwise the requested value ("auto"
- * resolves upstream to current_turn/all_turns, so it is never reported).
+ * Resolve the reasoning context to report on a response. The field is defined
+ * as the mode the model actually used, so it is only emitted from a validated
+ * upstream effective value — never echoed from the request (a provider may
+ * ignore the setting entirely).
  * Returns a spreadable `{ context }` fragment or undefined to omit the field.
  */
 export function resolveReasoningContext(
 	effectiveContext: string | undefined,
-	requestedContext: string | null | undefined,
 ): { context: string } | undefined {
-	const context =
-		effectiveContext ??
-		(requestedContext && requestedContext !== "auto"
-			? requestedContext
-			: undefined);
-	return context ? { context } : undefined;
+	return effectiveContext === "current_turn" || effectiveContext === "all_turns"
+		? { context: effectiveContext }
+		: undefined;
 }
 
 /**
@@ -338,59 +340,96 @@ export function convertChatResponseToResponses(
 		});
 	}
 
-	// Build message output. Skip if content is empty/whitespace-only — many
-	// providers return content: "" alongside tool_calls, and emitting an empty
-	// message item pollutes stored conversations: on replay via
+	// Build message output. Providers may emit several phased assistant
+	// message items (e.g. commentary and a final_answer); each is rebuilt as
+	// its own item with its phase and exact position among the function calls
+	// (via preceding_tool_calls), reconstructing the original interleaving —
+	// including a commentary between two calls. Otherwise a single message
+	// item is built from `content` — skipped if empty/whitespace-only, since
+	// many providers return content: "" alongside tool_calls, and emitting an
+	// empty message item pollutes stored conversations: on replay via
 	// previous_response_id it becomes a stray assistant message that separates
 	// the tool_calls assistant from its tool result, causing strict providers
 	// (deepseek, bytedance, aws-bedrock, kimi, etc.) to reject the request.
-	let messageItem: ResponsesApiOutput | null = null;
-	if (
+	const toolCalls = message?.tool_calls ?? [];
+	const messageItems: Array<{
+		precedingToolCalls: number;
+		text: string;
+		phase?: string;
+	}> = [];
+	if (message?.message_items && message.message_items.length > 0) {
+		for (const item of message.message_items) {
+			messageItems.push({
+				precedingToolCalls: item.preceding_tool_calls ?? toolCalls.length,
+				text: item.text,
+				...(item.phase ? { phase: item.phase } : {}),
+			});
+		}
+	} else if (
 		message?.content !== null &&
 		message?.content !== undefined &&
 		message.content.trim() !== ""
 	) {
-		messageItem = {
-			type: "message",
-			id: `msg_${shortid(24)}`,
-			role: "assistant",
-			content: [
-				{
-					type: "output_text",
-					text: message.content,
-					annotations: normalizeAnnotationsToResponses(message.annotations),
-				},
-			],
+		messageItems.push({
+			precedingToolCalls: message.content_before_tool_calls
+				? 0
+				: toolCalls.length,
+			text: message.content,
 			...(message.phase ? { phase: message.phase } : {}),
-			status: "completed",
-		};
+		});
 	}
 
-	// Pre-tool commentary (a message item the provider emitted before the
-	// first function_call) keeps its original position; otherwise the message
-	// follows the function calls, matching the provider's emission order.
-	if (messageItem && message?.content_before_tool_calls) {
-		output.push(messageItem);
-		messageItem = null;
-	}
+	const buildMessageItem = (
+		item: { text: string; phase?: string },
+		isLast: boolean,
+	): ResponsesApiOutput => ({
+		type: "message",
+		id: `msg_${shortid(24)}`,
+		role: "assistant",
+		content: [
+			{
+				type: "output_text",
+				text: item.text,
+				// Annotations aren't attributable to a specific item on the chat
+				// surface; keep them on the last (final) message.
+				annotations: isLast
+					? normalizeAnnotationsToResponses(message?.annotations)
+					: [],
+			},
+		],
+		...(item.phase ? { phase: item.phase } : {}),
+		status: "completed",
+	});
 
-	// Add function calls if present
-	if (message?.tool_calls && message.tool_calls.length > 0) {
-		for (const toolCall of message.tool_calls) {
-			output.push({
-				type: "function_call",
-				id: `fc_${shortid(24)}`,
-				call_id: toolCall.id,
-				name: toolCall.function.name,
-				arguments: toolCall.function.arguments,
-				status: "completed",
-			});
+	// Interleave messages and function calls back into their original order.
+	let nextMessage = 0;
+	const emitMessagesUpTo = (callsEmitted: number) => {
+		while (
+			nextMessage < messageItems.length &&
+			messageItems[nextMessage]!.precedingToolCalls <= callsEmitted
+		) {
+			output.push(
+				buildMessageItem(
+					messageItems[nextMessage]!,
+					nextMessage === messageItems.length - 1,
+				),
+			);
+			nextMessage++;
 		}
-	}
+	};
 
-	if (messageItem) {
-		output.push(messageItem);
-	}
+	toolCalls.forEach((toolCall, callIndex) => {
+		emitMessagesUpTo(callIndex);
+		output.push({
+			type: "function_call",
+			id: `fc_${shortid(24)}`,
+			call_id: toolCall.id,
+			name: toolCall.function.name,
+			arguments: toolCall.function.arguments,
+			status: "completed",
+		});
+	});
+	emitMessagesUpTo(Number.MAX_SAFE_INTEGER);
 
 	// Map finish_reason to status. Providers served via the OpenAI Responses
 	// API surface truncation as finish_reason "incomplete" (from the upstream
@@ -461,12 +500,9 @@ export function convertChatResponseToResponses(
 		reasoning: {
 			effort: request?.reasoning?.effort ?? null,
 			summary: request?.reasoning?.summary ?? null,
-			// Report the effective mode the provider applied; fall back to the
-			// requested value ("auto" resolves upstream, so it is never echoed).
-			...(resolveReasoningContext(
-				chatResponse.reasoning_context,
-				request?.reasoning?.context,
-			) ?? {}),
+			// Only the validated effective mode the provider applied is reported;
+			// the requested value is never echoed.
+			...(resolveReasoningContext(chatResponse.reasoning_context) ?? {}),
 		},
 		usage,
 		max_output_tokens: request?.max_output_tokens ?? null,

@@ -827,8 +827,13 @@ export function transformStreamingToOpenai(
 										index: 0,
 										delta: {
 											role: "assistant",
-											// Surface the assistant-message phase so the Responses
-											// translator (and stateless clients) can preserve it.
+											// Mark the start of each upstream message output item so
+											// the Responses translator can preserve exact item
+											// boundaries (e.g. two commentary messages split by a
+											// tool call), along with the item's phase.
+											...(item?.type === "message" && {
+												message_start: true,
+											}),
 											...(item?.type === "message" &&
 												typeof item.phase === "string" && {
 													phase: item.phase,

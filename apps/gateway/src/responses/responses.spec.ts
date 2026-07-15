@@ -778,7 +778,150 @@ describe("convertChatResponseToResponses", () => {
 		expect(result.data?.reasoning?.context).toBe("auto");
 	});
 
-	it("echoes reasoning.context from the request", () => {
+	it("rebuilds separate phased message items in their original order", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						content: "Checking the weather.\n\nIt is sunny.",
+						message_items: [
+							{
+								text: "Checking the weather.",
+								phase: "commentary",
+								preceding_tool_calls: 0,
+							},
+							{
+								text: "It is sunny.",
+								phase: "final_answer",
+								preceding_tool_calls: 1,
+							},
+						],
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+						],
+					},
+					finish_reason: "tool_calls",
+				},
+			],
+			usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.6");
+
+		expect(result.output.map((o) => o.type)).toEqual([
+			"message",
+			"function_call",
+			"message",
+		]);
+		expect(result.output[0]!.phase).toBe("commentary");
+		expect(
+			(result.output[0]!.content as Array<{ text: string }>)[0]!.text,
+		).toBe("Checking the weather.");
+		expect(result.output[2]!.phase).toBe("final_answer");
+		expect(
+			(result.output[2]!.content as Array<{ text: string }>)[0]!.text,
+		).toBe("It is sunny.");
+	});
+
+	it("reconstructs messages interleaved between multiple tool calls", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						content: "Commentary A\n\nCommentary B",
+						message_items: [
+							{
+								text: "Commentary A",
+								phase: "commentary",
+								preceding_tool_calls: 0,
+							},
+							{
+								text: "Commentary B",
+								phase: "commentary",
+								preceding_tool_calls: 1,
+							},
+						],
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: { name: "tool_one", arguments: "{}" },
+							},
+							{
+								id: "call_2",
+								type: "function",
+								function: { name: "tool_two", arguments: "{}" },
+							},
+						],
+					},
+					finish_reason: "tool_calls",
+				},
+			],
+			usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.6");
+
+		expect(
+			result.output.map((o) =>
+				o.type === "function_call"
+					? (o.name as string)
+					: (o.content as Array<{ text: string }>)[0]!.text,
+			),
+		).toEqual(["Commentary A", "tool_one", "Commentary B", "tool_two"]);
+	});
+
+	it("keeps a single message positioned between two tool calls", () => {
+		const chatResponse = {
+			choices: [
+				{
+					message: {
+						role: "assistant",
+						content: "Between the calls.",
+						message_items: [
+							{
+								text: "Between the calls.",
+								phase: "commentary",
+								preceding_tool_calls: 1,
+							},
+						],
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: { name: "tool_one", arguments: "{}" },
+							},
+							{
+								id: "call_2",
+								type: "function",
+								function: { name: "tool_two", arguments: "{}" },
+							},
+						],
+					},
+					finish_reason: "tool_calls",
+				},
+			],
+			usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+		};
+
+		const result = convertChatResponseToResponses(chatResponse, "gpt-5.6");
+
+		expect(
+			result.output.map((o) =>
+				o.type === "function_call"
+					? (o.name as string)
+					: (o.content as Array<{ text: string }>)[0]!.text,
+			),
+		).toEqual(["tool_one", "Between the calls.", "tool_two"]);
+	});
+
+	it("never reports a requested context the provider did not confirm", () => {
 		const chatResponse = {
 			choices: [
 				{
@@ -789,18 +932,16 @@ describe("convertChatResponseToResponses", () => {
 			usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
 		};
 
+		// No upstream effective value (e.g. a non-OpenAI model that ignored the
+		// setting): the requested value must not be echoed as if applied.
 		const result = convertChatResponseToResponses(
 			chatResponse,
-			"gpt-5.6",
+			"claude-sonnet-5",
 			undefined,
 			{ reasoning: { effort: "high", context: "current_turn" } },
 		);
 
-		expect(result.reasoning).toEqual({
-			effort: "high",
-			summary: null,
-			context: "current_turn",
-		});
+		expect(result.reasoning).toEqual({ effort: "high", summary: null });
 	});
 
 	it("preserves the assistant-message phase on message output items", () => {
@@ -1314,6 +1455,202 @@ describe("streaming conversion", () => {
 			"function_call",
 		]);
 		expect(finalOutput[0]!.phase).toBe("commentary");
+	});
+
+	it("emits separate message items for commentary and final_answer phases in streaming", () => {
+		const state = createStreamingState("gpt-5.6");
+		const events: Array<{ event: string; data: string }> = [];
+
+		events.push(
+			...processStreamChunk(
+				{ choices: [{ delta: { role: "assistant", phase: "commentary" } }] },
+				state,
+			),
+			...processStreamChunk(
+				{ choices: [{ delta: { content: "Checking the weather." } }] },
+				state,
+			),
+			...processStreamChunk(
+				{
+					choices: [
+						{
+							delta: {
+								tool_calls: [
+									{
+										index: 0,
+										id: "call_1",
+										function: { name: "get_weather", arguments: "{}" },
+									},
+								],
+							},
+						},
+					],
+				},
+				state,
+			),
+			...processStreamChunk(
+				{
+					choices: [{ delta: { role: "assistant", phase: "final_answer" } }],
+				},
+				state,
+			),
+			...processStreamChunk(
+				{ choices: [{ delta: { content: "It is sunny." } }] },
+				state,
+			),
+			...processStreamChunk(
+				{ choices: [{ delta: {}, finish_reason: "stop" }] },
+				state,
+			),
+			...createCompletionEvents(state),
+		);
+
+		const added = events
+			.filter((e) => e.event === "response.output_item.added")
+			.map((e) => JSON.parse(e.data))
+			.map((d) => ({
+				type: d.item.type,
+				index: d.output_index,
+				phase: d.item.phase,
+			}));
+		expect(added).toEqual([
+			{ type: "message", index: 0, phase: "commentary" },
+			{ type: "function_call", index: 1, phase: undefined },
+			{ type: "message", index: 2, phase: "final_answer" },
+		]);
+
+		// Each message item closes with its own id/index/text.
+		const messageDones = events
+			.filter(
+				(e) =>
+					e.event === "response.output_item.done" &&
+					JSON.parse(e.data).item.type === "message",
+			)
+			.map((e) => JSON.parse(e.data));
+		expect(messageDones).toHaveLength(2);
+		expect(messageDones[0]!.output_index).toBe(0);
+		expect(messageDones[0]!.item.phase).toBe("commentary");
+		expect(messageDones[0]!.item.content[0].text).toBe("Checking the weather.");
+		expect(messageDones[1]!.output_index).toBe(2);
+		expect(messageDones[1]!.item.phase).toBe("final_answer");
+		expect(messageDones[1]!.item.content[0].text).toBe("It is sunny.");
+		expect(messageDones[0]!.item.id).not.toBe(messageDones[1]!.item.id);
+
+		// Final output keeps both items in stream order.
+		const finalOutput = buildFinalOutputItems(state);
+		expect(finalOutput.map((o) => ({ type: o.type, phase: o.phase }))).toEqual([
+			{ type: "message", phase: "commentary" },
+			{ type: "function_call", phase: undefined },
+			{ type: "message", phase: "final_answer" },
+		]);
+	});
+
+	it("keeps same-phase messages split by a tool call as separate streamed items", () => {
+		const state = createStreamingState("gpt-5.6");
+		const events: Array<{ event: string; data: string }> = [];
+
+		// Simulates the translator's chunks for:
+		// commentary A -> function_call 1 -> commentary B -> function_call 2
+		events.push(
+			...processStreamChunk(
+				{
+					choices: [
+						{
+							delta: {
+								role: "assistant",
+								message_start: true,
+								phase: "commentary",
+							},
+						},
+					],
+				},
+				state,
+			),
+			...processStreamChunk(
+				{ choices: [{ delta: { content: "Commentary A" } }] },
+				state,
+			),
+			...processStreamChunk(
+				{
+					choices: [
+						{
+							delta: {
+								tool_calls: [
+									{
+										index: 0,
+										id: "call_1",
+										function: { name: "tool_one", arguments: "{}" },
+									},
+								],
+							},
+						},
+					],
+				},
+				state,
+			),
+			...processStreamChunk(
+				{
+					choices: [
+						{
+							delta: {
+								role: "assistant",
+								message_start: true,
+								phase: "commentary",
+							},
+						},
+					],
+				},
+				state,
+			),
+			...processStreamChunk(
+				{ choices: [{ delta: { content: "Commentary B" } }] },
+				state,
+			),
+			...processStreamChunk(
+				{
+					choices: [
+						{
+							delta: {
+								tool_calls: [
+									{
+										index: 1,
+										id: "call_2",
+										function: { name: "tool_two", arguments: "{}" },
+									},
+								],
+							},
+						},
+					],
+				},
+				state,
+			),
+			...processStreamChunk(
+				{ choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+				state,
+			),
+		);
+
+		const added = events
+			.filter((e) => e.event === "response.output_item.added")
+			.map((e) => JSON.parse(e.data))
+			.map((d) => ({ type: d.item.type, index: d.output_index }));
+		expect(added).toEqual([
+			{ type: "message", index: 0 },
+			{ type: "function_call", index: 1 },
+			{ type: "message", index: 2 },
+			{ type: "function_call", index: 3 },
+		]);
+
+		const finalOutput = buildFinalOutputItems(state);
+		expect(
+			finalOutput.map((o) =>
+				o.type === "function_call"
+					? (o.name as string)
+					: (o.content as Array<{ text: string }>)[0]!.text,
+			),
+		).toEqual(["Commentary A", "tool_one", "Commentary B", "tool_two"]);
+		expect(finalOutput[0]!.phase).toBe("commentary");
+		expect(finalOutput[2]!.phase).toBe("commentary");
 	});
 
 	it("reports the effective reasoning.context from the terminal chunk in streaming", () => {

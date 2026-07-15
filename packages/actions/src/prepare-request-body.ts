@@ -914,34 +914,61 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		}
 
 		// Assistant messages with tool_calls: emit function_call items and the
-		// message in the provider's original order. By default the message
-		// follows the function calls (matching the order the Responses API
-		// emits and convertResponsesInputToMessages folded from); pre-tool
-		// commentary marked with content_before_tool_calls goes first.
+		// message(s) in the provider's original order. Separate phased message
+		// items (message_items) are replayed individually, interleaved with the
+		// calls per their preceding_tool_calls position; otherwise the single
+		// message follows the function calls by default (matching the order the
+		// Responses API emits and convertResponsesInputToMessages folded from),
+		// with pre-tool commentary marked via content_before_tool_calls going
+		// first.
 		if (
 			msg.role === "assistant" &&
 			msg.tool_calls &&
 			msg.tool_calls.length > 0
 		) {
-			// Assistant message content, if present (preserve empty strings)
-			const messageItem =
-				msg.content !== null && msg.content !== undefined
-					? {
+			const toolCallCount = msg.tool_calls.length;
+			const messageItems: Array<{
+				precedingToolCalls: number;
+				item: Record<string, unknown>;
+			}> = [];
+			if (Array.isArray(msg.message_items) && msg.message_items.length > 0) {
+				for (const item of msg.message_items) {
+					messageItems.push({
+						precedingToolCalls: item.preceding_tool_calls ?? toolCallCount,
+						item: {
 							role: "assistant",
-							content: transformContentForResponsesApi(
-								msg.content,
-								"assistant",
-							),
-							...(msg.phase ? { phase: msg.phase } : {}),
-						}
-					: null;
-
-			if (messageItem && msg.content_before_tool_calls) {
-				items.push(messageItem);
+							content: transformContentForResponsesApi(item.text, "assistant"),
+							...(item.phase ? { phase: item.phase } : {}),
+						},
+					});
+				}
+			} else if (msg.content !== null && msg.content !== undefined) {
+				// Single assistant message content (preserve empty strings)
+				messageItems.push({
+					precedingToolCalls: msg.content_before_tool_calls ? 0 : toolCallCount,
+					item: {
+						role: "assistant",
+						content: transformContentForResponsesApi(msg.content, "assistant"),
+						...(msg.phase ? { phase: msg.phase } : {}),
+					},
+				});
 			}
 
-			// Emit each tool call as a separate function_call item
-			for (const toolCall of msg.tool_calls) {
+			let nextMessage = 0;
+			const emitMessagesUpTo = (callsEmitted: number) => {
+				while (
+					nextMessage < messageItems.length &&
+					messageItems[nextMessage]!.precedingToolCalls <= callsEmitted
+				) {
+					items.push(messageItems[nextMessage]!.item);
+					nextMessage++;
+				}
+			};
+
+			// Emit each tool call as a separate function_call item, with any
+			// message items restored to their original positions between them.
+			msg.tool_calls.forEach((toolCall: any, callIndex: number) => {
+				emitMessagesUpTo(callIndex);
 				items.push({
 					type: "function_call",
 					call_id: toolCall.id,
@@ -952,10 +979,24 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 					callId: toolCall.id,
 					name: toolCall.function?.name,
 				});
-			}
+			});
+			emitMessagesUpTo(Number.MAX_SAFE_INTEGER);
+			continue;
+		}
 
-			if (messageItem && !msg.content_before_tool_calls) {
-				items.push(messageItem);
+		// Assistant messages carrying separate phased message items but no tool
+		// calls: replay each item individually.
+		if (
+			msg.role === "assistant" &&
+			Array.isArray(msg.message_items) &&
+			msg.message_items.length > 0
+		) {
+			for (const item of msg.message_items) {
+				items.push({
+					role: "assistant",
+					content: transformContentForResponsesApi(item.text, "assistant"),
+					...(item.phase ? { phase: item.phase } : {}),
+				});
 			}
 			continue;
 		}
@@ -1587,7 +1628,8 @@ export async function prepareRequestBody(
 		if (
 			m.reasoning_details === undefined &&
 			m.phase === undefined &&
-			m.content_before_tool_calls === undefined
+			m.content_before_tool_calls === undefined &&
+			m.message_items === undefined
 		) {
 			return [m];
 		}
@@ -1595,6 +1637,7 @@ export async function prepareRequestBody(
 			reasoning_details: reasoningDetails,
 			phase: _phase,
 			content_before_tool_calls: _contentBeforeToolCalls,
+			message_items: _messageItems,
 			...rest
 		} = m;
 		if (

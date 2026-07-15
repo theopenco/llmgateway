@@ -115,6 +115,141 @@ describe("parseProviderResponse", () => {
 
 			expect(result.reasoningDetails).toBeNull();
 		});
+
+		it("preserves every phased message item instead of only the first", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						phase: "commentary",
+						content: [{ type: "output_text", text: "Checking the weather." }],
+					},
+					{
+						type: "function_call",
+						id: "fc_1",
+						call_id: "call_1",
+						name: "get_weather",
+						arguments: "{}",
+					},
+					{
+						type: "message",
+						id: "msg_2",
+						role: "assistant",
+						phase: "final_answer",
+						content: [{ type: "output_text", text: "It is sunny." }],
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.6", json);
+
+			// Chat surface keeps all text; structure lives in messageItems.
+			expect(result.content).toBe("Checking the weather.\n\nIt is sunny.");
+			expect(result.messageItems).toEqual([
+				{
+					text: "Checking the weather.",
+					phase: "commentary",
+					preceding_tool_calls: 0,
+				},
+				{
+					text: "It is sunny.",
+					phase: "final_answer",
+					preceding_tool_calls: 1,
+				},
+			]);
+			expect(result.messagePhase).toBeNull();
+		});
+
+		it("records the exact position of each message among multiple tool calls", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						phase: "commentary",
+						content: [{ type: "output_text", text: "Commentary A" }],
+					},
+					{
+						type: "function_call",
+						id: "fc_1",
+						call_id: "call_1",
+						name: "tool_one",
+						arguments: "{}",
+					},
+					{
+						type: "message",
+						id: "msg_2",
+						role: "assistant",
+						phase: "commentary",
+						content: [{ type: "output_text", text: "Commentary B" }],
+					},
+					{
+						type: "function_call",
+						id: "fc_2",
+						call_id: "call_2",
+						name: "tool_two",
+						arguments: "{}",
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.6", json);
+
+			expect(result.messageItems).toEqual([
+				{ text: "Commentary A", phase: "commentary", preceding_tool_calls: 0 },
+				{ text: "Commentary B", phase: "commentary", preceding_tool_calls: 1 },
+			]);
+		});
+
+		it("keeps the position of a single message between two tool calls", () => {
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "function_call",
+						id: "fc_1",
+						call_id: "call_1",
+						name: "tool_one",
+						arguments: "{}",
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						phase: "commentary",
+						content: [{ type: "output_text", text: "Between the calls." }],
+					},
+					{
+						type: "function_call",
+						id: "fc_2",
+						call_id: "call_2",
+						name: "tool_two",
+						arguments: "{}",
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.6", json);
+
+			expect(result.messageItems).toEqual([
+				{
+					text: "Between the calls.",
+					phase: "commentary",
+					preceding_tool_calls: 1,
+				},
+			]);
+		});
 	});
 
 	describe("google reasoning output", () => {

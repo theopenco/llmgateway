@@ -149,6 +149,19 @@ export const completionsRequestSchema = z.object({
 				description:
 					"Marks assistant content that preceded the message's tool calls (pre-tool commentary on OpenAI Responses API models), so replay preserves the original item order. Stripped for other providers.",
 			}),
+			message_items: z
+				.array(
+					z.object({
+						text: z.string(),
+						phase: z.enum(["commentary", "final_answer"]).optional(),
+						preceding_tool_calls: z.number().int().nonnegative().optional(),
+					}),
+				)
+				.optional()
+				.openapi({
+					description:
+						"Separate phased assistant message items (e.g. commentary and final_answer) emitted by OpenAI Responses API models in a single turn. preceding_tool_calls records how many of the message's tool calls came before each item. Replayed upstream as individual message items in their original order; stripped for other providers.",
+				}),
 		}),
 	),
 	temperature: z
