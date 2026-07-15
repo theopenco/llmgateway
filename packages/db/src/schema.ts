@@ -66,6 +66,7 @@ export const user = pgTable("user", {
 	// (/profiles/:username) and is null until the user claims one.
 	username: text().unique(),
 	profilePublic: boolean().notNull().default(false),
+	profileHidePicture: boolean().notNull().default(false),
 	bio: text(),
 	githubUsername: text(),
 	xUsername: text(),

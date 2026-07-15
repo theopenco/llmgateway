@@ -1,7 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, ExternalLink, Globe, Lock } from "lucide-react";
+import {
+	Check,
+	Copy,
+	ExternalLink,
+	Globe,
+	Image as ImageIcon,
+	Lock,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -40,6 +47,9 @@ export function ProfilePageClient({
 		initialUser.username ?? "",
 	);
 	const [profilePublic, setProfilePublic] = useState(initialUser.profilePublic);
+	const [showPicture, setShowPicture] = useState(
+		!initialUser.profileHidePicture,
+	);
 	const [name, setName] = useState(initialUser.name ?? "");
 	const [bio, setBio] = useState(initialUser.bio ?? "");
 	const [github, setGithub] = useState(initialUser.githubUsername ?? "");
@@ -71,6 +81,7 @@ export function ProfilePageClient({
 					name: name.trim() || undefined,
 					username: trimmedUsername ? trimmedUsername : null,
 					profilePublic,
+					profileHidePicture: !showPicture,
 					bio: bio.trim() ? bio.trim() : null,
 					githubUsername: github.trim() ? github.trim() : null,
 					xUsername: x.trim() ? x.trim() : null,
@@ -78,6 +89,7 @@ export function ProfilePageClient({
 			});
 			setSavedUsername(result.user.username ?? "");
 			setProfilePublic(result.user.profilePublic);
+			setShowPicture(!result.user.profileHidePicture);
 			await invalidate();
 			toast.success("Profile saved");
 		} catch (error) {
@@ -132,6 +144,38 @@ export function ProfilePageClient({
 						id="profile-public"
 						checked={profilePublic}
 						onCheckedChange={setProfilePublic}
+					/>
+				</div>
+
+				<div className="flex items-start justify-between gap-4 border-b p-5">
+					<div className="flex items-start gap-3">
+						<div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
+							<ImageIcon
+								className={
+									showPicture
+										? "h-4 w-4 text-emerald-500"
+										: "h-4 w-4 text-muted-foreground"
+								}
+							/>
+						</div>
+						<div className="space-y-0.5">
+							<Label
+								htmlFor="profile-show-picture"
+								className="text-sm font-medium"
+							>
+								Show profile picture
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								{showPicture
+									? "Your profile picture is shown on your public profile."
+									: "Your initials are shown instead of your picture."}
+							</p>
+						</div>
+					</div>
+					<Switch
+						id="profile-show-picture"
+						checked={showPicture}
+						onCheckedChange={setShowPicture}
 					/>
 				</div>
 
