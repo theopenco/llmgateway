@@ -1387,6 +1387,13 @@
       "when": 1784124324554,
       "tag": "1784124324_tricky_prima",
       "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "8",
+      "when": 1784125968776,
+      "tag": "1784125968_yummy_strong_guy",
+      "breakpoints": true
     }
   ]
 }
