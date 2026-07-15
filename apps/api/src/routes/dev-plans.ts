@@ -153,21 +153,6 @@ function getInvoicePaymentIntentId(invoice: Stripe.Invoice) {
 	return getStripeId(invoiceWithPaymentIntent.payment_intent);
 }
 
-function getRemainingBillingPeriodFraction(
-	subscriptionItem: Stripe.SubscriptionItem,
-) {
-	const nowSeconds = Date.now() / 1000;
-	const periodStart = subscriptionItem.current_period_start;
-	const periodEnd = subscriptionItem.current_period_end;
-	const periodSeconds = periodEnd - periodStart;
-
-	if (periodSeconds <= 0) {
-		return 0;
-	}
-
-	return Math.min(1, Math.max(0, (periodEnd - nowSeconds) / periodSeconds));
-}
-
 // The full price of a tier charged on an upgrade. Reads the Stripe price's
 // unit amount so it stays correct for both monthly and legacy annual cadences
 // (DEV_PLAN_PRICES only tracks the monthly dollar figure).
@@ -809,9 +794,7 @@ const tierChangePreviewResponseSchema = z.object({
 	isUpgrade: z.boolean(),
 	amountDueCents: z.number().int().nonnegative(),
 	currency: z.literal("USD"),
-	remainingFraction: z.number(),
 	currentCreditsLimit: z.number(),
-	proratedCreditDelta: z.number(),
 	newCreditsLimit: z.number(),
 	billingPeriodStart: z.string(),
 	billingPeriodEnd: z.string(),
@@ -892,8 +875,6 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		});
 	}
 
-	const remainingFraction = getRemainingBillingPeriodFraction(subscriptionItem);
-
 	// Upgrades charge the full new-tier price today and start a fresh billing
 	// cycle (no proration); downgrades stay deferred to renewal, so nothing is
 	// due today. Credits reset to the new tier's full allowance on an upgrade.
@@ -919,9 +900,7 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		isUpgrade,
 		amountDueCents,
 		currency: "USD" as const,
-		remainingFraction,
 		currentCreditsLimit,
-		proratedCreditDelta: newCreditsLimit - currentCreditsLimit,
 		newCreditsLimit,
 		billingPeriodStart: new Date(
 			subscriptionItem.current_period_start * 1000,

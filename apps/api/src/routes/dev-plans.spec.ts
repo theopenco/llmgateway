@@ -135,10 +135,8 @@ describe("dev plan tier changes", () => {
 			// Full new-tier price charged today, not a prorated slice.
 			amountDueCents: 7900,
 			currency: "USD",
-			remainingFraction: 0.5,
 			currentCreditsLimit: 87,
 			// Allowance resets to the new tier's full allotment (79 * 3 = 237).
-			proratedCreditDelta: 150,
 			newCreditsLimit: 237,
 			billingPeriodStart: new Date((nowSeconds - 500) * 1000).toISOString(),
 			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
