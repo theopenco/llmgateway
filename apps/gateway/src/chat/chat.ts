@@ -1989,14 +1989,10 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	// End-user session: present the wallet balance as the organization's credits
-	// so all downstream credit-gating evaluates the wallet, not the developer's
-	// org. The real organization.credits row is never touched — the worker debits
-	// the wallet (see apps/gateway/src/lib/end-user-session.ts).
-	if (endUserWallet) {
-		organization = withWalletCredits(organization, endUserWallet);
-	}
-
+	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
+	// further below — orgs backing end-user wallets are always regular
+	// PAYG/credits orgs, never dev-plan orgs, so it cannot affect the dev-plan
+	// service-tier default applied here.
 	const isDevPlan = Boolean(
 		organization?.kind === "devpass" && organization.devPlan !== "none",
 	);
@@ -2183,6 +2179,14 @@ chat.openapi(completions, async (c) => {
 			supportsRequestedTier,
 		);
 		allModelProviders = allModelProviders.filter(supportsRequestedTier);
+	}
+
+	// End-user session: present the wallet balance as the organization's credits
+	// so all downstream credit-gating evaluates the wallet, not the developer's
+	// org. The real organization.credits row is never touched — the worker debits
+	// the wallet (see apps/gateway/src/lib/end-user-session.ts).
+	if (endUserWallet) {
+		organization = withWalletCredits(organization, endUserWallet);
 	}
 
 	// A routing strategy only has meaning for multi-provider model-id routing.
