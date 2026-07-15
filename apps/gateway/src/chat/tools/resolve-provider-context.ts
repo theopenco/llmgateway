@@ -206,13 +206,30 @@ export function assertDevPlanPremiumCapNotExceeded(
 		weekStart.getTime() + DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	);
 	const msUntilReset = Math.max(0, resetAt.getTime() - Date.now());
-	const daysUntilReset = Math.max(
-		1,
-		Math.ceil(msUntilReset / (24 * 60 * 60 * 1000)),
-	);
 	throw new HTTPException(402, {
-		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Upgrade for a higher allowance, or use any standard model now. Resets in ${daysUntilReset} day${daysUntilReset === 1 ? "" : "s"}.`,
+		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,
 	});
+}
+
+/**
+ * Formats a duration as "N days and M hours", dropping zero components and
+ * rounding up to the next hour so the wait is never understated.
+ */
+export function formatTimeUntilReset(ms: number): string {
+	if (ms < 60 * 60 * 1000) {
+		return "less than an hour";
+	}
+	const totalHours = Math.ceil(ms / (60 * 60 * 1000));
+	const days = Math.floor(totalHours / 24);
+	const hours = totalHours % 24;
+	const parts: string[] = [];
+	if (days > 0) {
+		parts.push(`${days} day${days === 1 ? "" : "s"}`);
+	}
+	if (hours > 0) {
+		parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+	}
+	return parts.join(" and ");
 }
 
 // Mirrors the initial credit gate in chat.ts so retry/fallback paths that
