@@ -22,6 +22,7 @@ export function DevPassModelsDirectory({
 		<SharedAllModels
 			{...rest}
 			modelHrefBase={uiUrl}
+			showPricingTierFilter
 			footer={<Footer />}
 			renderCta={({ size, className, iconClassName, onClick }) => (
 				<Button

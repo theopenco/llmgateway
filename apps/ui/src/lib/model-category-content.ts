@@ -316,7 +316,7 @@ export const modelCategoryContent = {
 			{
 				question: "How do I check whether a specific model is premium?",
 				answer:
-					"If it appears on this page, it's premium; otherwise it's standard. In the full models directory, premium models are marked with a gem icon, and you can filter by pricing tier. The classification is also documented in the model categories guide in our docs.",
+					"If it appears on this page, it's premium; otherwise it's standard. In the full models directory, premium models are marked with a gem icon, and the DevPass models directory offers a pricing-tier filter, since the distinction only affects DevPass fair-use limits. The classification is also documented in the model categories guide in our docs.",
 			},
 		],
 	},

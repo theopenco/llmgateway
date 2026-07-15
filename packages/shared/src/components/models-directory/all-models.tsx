@@ -110,6 +110,11 @@ interface AllModelsProps {
 		onClick?: (e: React.MouseEvent) => void;
 	}) => React.ReactNode;
 	modelHrefBase?: string;
+	/**
+	 * The premium/standard pricing tier only matters for DevPass fair-use
+	 * limits, so the filter is hidden unless the surface opts in.
+	 */
+	showPricingTierFilter?: boolean;
 }
 
 type SortField =
@@ -579,6 +584,7 @@ export function AllModels({
 	footer,
 	renderCta,
 	modelHrefBase = "",
+	showPricingTierFilter = false,
 }: AllModelsProps) {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -1637,42 +1643,48 @@ export function AllModels({
 							</SelectContent>
 						</Select>
 
-						{/* Pricing tier — stacked under Use Case to keep the filter
-						    grid on a single row */}
-						<div className="font-medium text-sm">Pricing Tier</div>
-						<Select
-							value={filters.tier}
-							onValueChange={(value) => {
-								setFilters((prev) => ({ ...prev, tier: value }));
-								updateUrlWithFilters({
-									tier: value !== "all" ? value : undefined,
-								});
-							}}
-						>
-							<SelectTrigger className="w-full">
-								<SelectValue placeholder="All Tiers" />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="all">
-									<div className="flex items-center gap-2">
-										<List className="h-4 w-4 text-muted-foreground" />
-										All Tiers
-									</div>
-								</SelectItem>
-								<SelectItem value="premium">
-									<div className="flex items-center gap-2">
-										<Gem className="h-4 w-4 text-amber-500" />
-										Premium
-									</div>
-								</SelectItem>
-								<SelectItem value="standard">
-									<div className="flex items-center gap-2">
-										<Zap className="h-4 w-4 text-emerald-500" />
-										Standard
-									</div>
-								</SelectItem>
-							</SelectContent>
-						</Select>
+						{showPricingTierFilter ? (
+							<>
+								{/* Pricing tier — stacked under Use Case to keep the
+								    filter grid on a single row */}
+								<div className="font-medium text-sm">
+									Pricing Tier (DevPass)
+								</div>
+								<Select
+									value={filters.tier}
+									onValueChange={(value) => {
+										setFilters((prev) => ({ ...prev, tier: value }));
+										updateUrlWithFilters({
+											tier: value !== "all" ? value : undefined,
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="All Tiers" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">
+											<div className="flex items-center gap-2">
+												<List className="h-4 w-4 text-muted-foreground" />
+												All Tiers
+											</div>
+										</SelectItem>
+										<SelectItem value="premium">
+											<div className="flex items-center gap-2">
+												<Gem className="h-4 w-4 text-amber-500" />
+												Premium
+											</div>
+										</SelectItem>
+										<SelectItem value="standard">
+											<div className="flex items-center gap-2">
+												<Zap className="h-4 w-4 text-emerald-500" />
+												Standard
+											</div>
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</>
+						) : null}
 					</div>
 
 					{/* Capabilities */}

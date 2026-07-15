@@ -204,7 +204,7 @@ export function Footer() {
 								</li>
 								<li>
 									<a
-										href={`${config.uiUrl}/models`}
+										href={`${config.uiUrl}/models?from=devpass`}
 										rel="noopener"
 										target="_blank"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
