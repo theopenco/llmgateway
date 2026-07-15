@@ -32,7 +32,7 @@ You can browse the full catalog on the [**Supported Models**](https://llmgateway
 	limited only by your credit balance, with no weekly cap.
 </Callout>
 
-Premium models are the most expensive to run, so DevPass plans apply a **weekly fair-use cap** on premium usage. This is a rolling 7-day window that resets continuously — it sits on top of the plan's normal monthly credit allowance. The cap scales with each plan: it's a share of that plan's total monthly credits, so higher tiers get a larger weekly premium allowance.
+Premium models are the most expensive to run, so DevPass plans apply a **weekly fair-use cap** on premium usage. The cap works on a fixed 7-day window: the window opens with your first premium-model request, all premium usage during those 7 days counts against the cap, and the full allowance resets at once when the window ends. It sits on top of the plan's normal monthly credit allowance. The cap scales with each plan: it's a share of that plan's total monthly credits, so higher tiers get a larger weekly premium allowance.
 
 | DevPass plan | Premium fair-use cap (per week) |
 | ------------ | ------------------------------- |
@@ -46,4 +46,4 @@ Premium models are the most expensive to run, so DevPass plans apply a **weekly 
 	window.
 </Callout>
 
-Once a DevPass plan reaches its weekly premium cap, premium requests are paused until the rolling window frees up, while standard models keep working normally. Upgrading the DevPass plan raises the weekly cap.
+Once a DevPass plan reaches its weekly premium cap, premium requests are paused until the current 7-day window ends — usage does not gradually free up over time. The reset countdown runs from when the window opened, not from when you hit the cap, so the full allowance can return anywhere from moments to 7 days after you reach the limit. Standard models keep working normally the whole time. Upgrading the DevPass plan raises the weekly cap.
