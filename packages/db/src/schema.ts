@@ -285,6 +285,13 @@ export const organization = pgTable(
 			.notNull()
 			.default("monthly"),
 		devPlanAllowAllModels: boolean().notNull().default(false),
+		// Default processing tier for dev-plan (DevPass) routing. "flex" opts
+		// requests into cheaper flex processing (where the selected provider
+		// supports it) to save on plan credits; "default" is standard processing.
+		// A service_tier set explicitly on the request always wins.
+		devPlanServiceTier: text({ enum: ["default", "flex"] })
+			.notNull()
+			.default("default"),
 		// When false (default), DevPass invoices use the owner's default-org
 		// billing details. When true, the DevPass org's own billing* fields below
 		// are used as a custom override for DevPass invoices.

@@ -1534,6 +1534,7 @@ const getStatus = createRoute({
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanAllowAllModels: z.boolean(),
+						devPlanServiceTier: z.enum(["default", "flex"]),
 						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
@@ -1588,6 +1589,7 @@ devPlans.openapi(getStatus, async (c) => {
 			projectId: null,
 			apiKey: null,
 			devPlanAllowAllModels: false,
+			devPlanServiceTier: "default" as const,
 			retentionLevel: "none" as const,
 			defaultRoutingStrategy: "auto" as const,
 		});
@@ -1645,6 +1647,7 @@ devPlans.openapi(getStatus, async (c) => {
 		projectId,
 		apiKey,
 		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
+		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		retentionLevel: personalOrg.retentionLevel,
 		defaultRoutingStrategy,
 	});
@@ -1660,6 +1663,10 @@ const updateSettings = createRoute({
 				"application/json": {
 					schema: z.object({
 						devPlanAllowAllModels: z.boolean().optional(),
+						// Default processing tier for DevPass routing. "flex" saves
+						// plan credits by using cheaper flex processing where the
+						// selected provider supports it.
+						devPlanServiceTier: z.enum(["default", "flex"]).optional(),
 						retentionLevel: z.enum(["retain", "none"]).optional(),
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
@@ -1676,6 +1683,7 @@ const updateSettings = createRoute({
 					schema: z.object({
 						success: z.boolean(),
 						devPlanAllowAllModels: z.boolean(),
+						devPlanServiceTier: z.enum(["default", "flex"]),
 						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
@@ -1693,8 +1701,12 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanAllowAllModels, retentionLevel, defaultRoutingStrategy } =
-		c.req.valid("json");
+	const {
+		devPlanAllowAllModels,
+		devPlanServiceTier,
+		retentionLevel,
+		defaultRoutingStrategy,
+	} = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1730,11 +1742,15 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	const updateData: {
 		devPlanAllowAllModels?: boolean;
+		devPlanServiceTier?: "default" | "flex";
 		retentionLevel?: "retain" | "none";
 	} = {};
 
 	if (devPlanAllowAllModels !== undefined) {
 		updateData.devPlanAllowAllModels = devPlanAllowAllModels;
+	}
+	if (devPlanServiceTier !== undefined) {
+		updateData.devPlanServiceTier = devPlanServiceTier;
 	}
 	if (retentionLevel !== undefined) {
 		updateData.retentionLevel = retentionLevel;
@@ -1755,6 +1771,15 @@ devPlans.openapi(updateSettings, async (c) => {
 			changes.devPlanAllowAllModels = {
 				old: personalOrg.devPlanAllowAllModels,
 				new: devPlanAllowAllModels,
+			};
+		}
+		if (
+			devPlanServiceTier !== undefined &&
+			devPlanServiceTier !== personalOrg.devPlanServiceTier
+		) {
+			changes.devPlanServiceTier = {
+				old: personalOrg.devPlanServiceTier,
+				new: devPlanServiceTier,
 			};
 		}
 		if (
@@ -1816,6 +1841,7 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanAllowAllModels:
 			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
+		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
 	});
