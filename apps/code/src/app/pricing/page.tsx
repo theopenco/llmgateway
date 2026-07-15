@@ -21,6 +21,8 @@ import {
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
 } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
@@ -48,6 +50,9 @@ interface UsageRow {
 const liteCredits = getDevPlanCreditsLimit("lite");
 const proCredits = getDevPlanCreditsLimit("pro");
 const maxCredits = getDevPlanCreditsLimit("max");
+
+const premiumInputPerM = Math.round(HIGH_COST_INPUT_PRICE * 1_000_000);
+const premiumOutputPerM = Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000);
 
 const productSchema = {
 	"@context": "https://schema.org",
@@ -136,7 +141,7 @@ const usageRows: UsageRow[] = [
 		emphasis: true,
 	},
 	{
-		label: "Frontier flagship fair-use (Opus, GPT Pro, Gemini Pro, Grok)",
+		label: `Premium model fair-use ($${premiumInputPerM}+/M input or $${premiumOutputPerM}+/M output)`,
 		lite: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite * 100)}% of credits`,
 		pro: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro * 100)}% of credits`,
 		max: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max * 100)}% of credits`,
@@ -278,7 +283,7 @@ export default function PricingPage() {
 							</h2>
 							<p className="mt-3 text-muted-foreground">
 								Every tier ships with the full model catalog. Three dials
-								change: your monthly usage allowance, the weekly frontier
+								change: your monthly usage allowance, the weekly premium-model
 								fair-use, and support.
 							</p>
 						</div>

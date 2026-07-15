@@ -150,7 +150,7 @@ export async function computeProfileData(
 	const base: ProfileData = {
 		username: userRecord.username,
 		name: userRecord.name,
-		image: userRecord.image,
+		image: userRecord.profileHidePicture ? null : userRecord.image,
 		bio: userRecord.bio,
 		githubUsername: userRecord.githubUsername,
 		xUsername: userRecord.xUsername,

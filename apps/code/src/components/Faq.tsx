@@ -9,7 +9,11 @@ import {
 	AccordionItem,
 } from "@/components/ui/accordion";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import {
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
+	MARKETING_STATS,
+} from "@llmgateway/shared";
 
 import type { ReactNode } from "react";
 
@@ -20,6 +24,9 @@ interface FaqItem {
 	answer: string;
 	content?: ReactNode;
 }
+
+const premiumInputPerM = Math.round(HIGH_COST_INPUT_PRICE * 1_000_000);
+const premiumOutputPerM = Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000);
 
 const faqData: FaqItem[] = [
 	{
@@ -89,14 +96,14 @@ const faqData: FaqItem[] = [
 	},
 	{
 		question: "Are there limits on premium models?",
-		answer:
-			"Premium frontier models — Anthropic Opus, OpenAI Pro/reasoning, Gemini Pro, and Grok 4 — are subject to a weekly fair-use allowance in addition to your monthly allowance: 12% of your monthly credits on Lite, 15% on Pro, and 18% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.",
+		answer: `Premium models — any model priced at $${premiumInputPerM}+ per million input tokens or $${premiumOutputPerM}+ per million output tokens — are subject to a weekly fair-use allowance in addition to your monthly allowance: 12% of your monthly credits on Lite, 15% on Pro, and 18% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.`,
 		content: (
 			<>
 				<p>
-					Premium frontier models — Anthropic Opus, OpenAI Pro/reasoning, Gemini
-					Pro, and Grok 4 — are subject to a weekly fair-use allowance in
-					addition to your monthly allowance:
+					Premium models — any model priced at ${premiumInputPerM}+ per million
+					input tokens or ${premiumOutputPerM}+ per million output tokens — are
+					subject to a weekly fair-use allowance in addition to your monthly
+					allowance:
 				</p>
 				<ul className="list-disc pl-6 mt-2 space-y-1">
 					<li>
@@ -111,7 +118,14 @@ const faqData: FaqItem[] = [
 				</ul>
 				<p className="mt-3">
 					Every other model draws on your full monthly allowance. The exact
-					numbers are published on the plan cards — no hidden throttling.
+					numbers are published on the plan cards — no hidden throttling. See{" "}
+					<Link
+						href="https://docs.llmgateway.io/learn/model-categories"
+						className="underline"
+					>
+						model categories &amp; fair use
+					</Link>{" "}
+					for how models are classified.
 				</p>
 			</>
 		),
