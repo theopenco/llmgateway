@@ -1,1 +1,0 @@
-ALTER TABLE "organization" ADD COLUMN "dev_plan_service_tier" text DEFAULT 'default' NOT NULL;

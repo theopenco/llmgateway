@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "profile_hide_picture" boolean DEFAULT false NOT NULL;

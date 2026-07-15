@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "7dcfaa03-dd87-4d1f-8425-c19f62156dd4",
+  "id": "917d8aa9-18a2-4aa6-8f6e-7876d6d479b0",
   "prevId": "0ffee989-1af7-40f8-9a7f-c2f2490e4120",
   "ddl": [
     {
@@ -12116,22 +12116,6 @@
       "table": "organization"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'default'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_service_tier",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
       "type": "boolean",
       "typeSchema": null,
       "notNull": true,
@@ -18337,6 +18321,22 @@
       "generated": null,
       "identity": null,
       "name": "profile_public",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "profile_hide_picture",
       "entityType": "columns",
       "schema": "public",
       "table": "user"
