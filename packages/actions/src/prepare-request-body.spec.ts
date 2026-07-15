@@ -1098,6 +1098,81 @@ describe("prepareRequestBody - Alibaba thinking", () => {
 	});
 });
 
+describe("prepareRequestBody - MiniMax thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+	}) {
+		return (await prepareRequestBody(
+			"minimax",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking adaptive and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "minimax-m3" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (M2.x family)", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking adaptive to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.extra_body).toEqual({ reasoning_split: true });
+	});
+});
+
 describe("prepareRequestBody - reasoning_effort max", () => {
 	async function prepare(options: {
 		provider: Parameters<typeof prepareRequestBody>[0];

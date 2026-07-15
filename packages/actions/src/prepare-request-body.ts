@@ -1005,10 +1005,10 @@ export async function prepareRequestBody(
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
-	// off), and Google, Moonshot, and Alibaba reason by default so they must
-	// explicitly disable thinking when asked. Every other provider treats the
-	// absence of reasoning_effort as "off" already, so normalize `none` away
-	// for them to avoid forwarding an unsupported enum value.
+	// off), and Google, Moonshot, Alibaba, and MiniMax reason by default so
+	// they must explicitly disable thinking when asked. Every other provider
+	// treats the absence of reasoning_effort as "off" already, so normalize
+	// `none` away for them to avoid forwarding an unsupported enum value.
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1018,6 +1018,7 @@ export async function prepareRequestBody(
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
 		usedProvider === "alibaba" ||
+		usedProvider === "minimax" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -2123,6 +2124,61 @@ export async function prepareRequestBody(
 					}
 					requestBody.enable_thinking = true;
 					requestBody.thinking_budget = thinkingBudget;
+				}
+			}
+			break;
+		}
+		case "minimax": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			if (supportsReasoning) {
+				requestBody.extra_body = {
+					...(requestBody.extra_body ?? {}),
+					reasoning_split: true,
+				};
+			}
+			// MiniMax doesn't recognize `reasoning_effort`; its thinking models
+			// take a binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
+			// and think by default. Map `none`/`minimal` to an explicit disable and
+			// every other tier to an explicit enable; when no effort is requested,
+			// send nothing and keep the provider default (thinking on). Only
+			// MiniMax-M3 can actually turn thinking off — the M2.x family silently
+			// ignores `"disabled"` and keeps thinking (verified live) — so mappings
+			// that can disable declare `none` in `reasoningEfforts` and disable
+			// requests collapse onto the minimum (thinking stays on) elsewhere.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				const wantsThinking =
+					reasoning_effort !== "none" && reasoning_effort !== "minimal";
+				const canDisableThinking =
+					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+					false;
+				if (wantsThinking) {
+					requestBody.thinking = { type: "adaptive" };
+				} else if (canDisableThinking) {
+					requestBody.thinking = { type: "disabled" };
 				}
 			}
 			break;
@@ -3484,12 +3540,6 @@ export async function prepareRequestBody(
 				) {
 					requestBody.reasoning_effort = reasoning_effort;
 				}
-			}
-			if (usedProvider === "minimax" && supportsReasoning) {
-				requestBody.extra_body = {
-					...(requestBody.extra_body ?? {}),
-					reasoning_split: true,
-				};
 			}
 			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
 			// Novita) ignore `reasoning_effort` and require the vLLM chat-template

@@ -20,6 +20,17 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// MiniMax thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				splitTaggedReasoning: true,
 				vision: true,
 				tools: true,
@@ -63,6 +74,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -124,6 +139,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -149,6 +168,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -261,6 +284,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -286,6 +313,10 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -311,6 +342,10 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -354,6 +389,10 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
