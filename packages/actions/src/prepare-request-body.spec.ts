@@ -996,6 +996,108 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 	});
 });
 
+describe("prepareRequestBody - Alibaba thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+		reasoningMaxTokens?: number;
+		maxTokens?: number;
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"alibaba",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			options.maxTokens, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			options.reasoningMaxTokens, // reasoning_max_tokens
+		)) as any;
+	}
+
+	test("maps reasoning_effort to enable_thinking with a native thinking_budget and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to an explicit thinking disable", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.enable_thinking).toBe(false);
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning parameter is requested", async () => {
+		const requestBody = await prepare({ model: "qwen3.7-max" });
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards reasoning.max_tokens as thinking_budget verbatim", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningMaxTokens: 1234,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(1234);
+	});
+
+	test("keeps thinking_budget below the caller's max_tokens", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningEffort: "medium",
+			maxTokens: 100,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(99);
+		expect(requestBody.max_tokens).toBe(100);
+	});
+
+	test("sends nothing for mappings without budget-controlled thinking", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - reasoning_effort max", () => {
 	async function prepare(options: {
 		provider: Parameters<typeof prepareRequestBody>[0];

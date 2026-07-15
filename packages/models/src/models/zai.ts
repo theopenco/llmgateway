@@ -124,6 +124,7 @@ export const zaiModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
