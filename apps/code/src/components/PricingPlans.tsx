@@ -12,6 +12,8 @@ import { formatUsageRatio } from "@/lib/utils";
 import {
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -209,8 +211,10 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 			</div>
 
 			<p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-muted-foreground">
-				Frontier fair-use covers Anthropic Opus, OpenAI Pro/reasoning-tier,
-				Gemini Pro, and Grok — a weekly allowance on top of your monthly usage,
+				Frontier fair-use covers premium models — any model priced at $
+				{Math.round(HIGH_COST_INPUT_PRICE * 1_000_000)}+ per million input
+				tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per million
+				output tokens — as a weekly allowance on top of your monthly usage,
 				published right on the card. Every other model draws on your full
 				monthly allowance. No hidden throttling.
 			</p>
