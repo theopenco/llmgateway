@@ -82,6 +82,13 @@ export default function UsagePage() {
 				projectId={devPlanStatus.projectId ?? null}
 				creditsUsed={creditsUsed}
 				creditsLimit={creditsLimit}
+				premiumCreditsUsed={parseFloat(
+					devPlanStatus.devPlanPremiumCreditsUsed ?? "0",
+				)}
+				premiumWeeklyLimit={parseFloat(
+					devPlanStatus.devPlanPremiumWeeklyLimit ?? "0",
+				)}
+				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
 				planName={currentPlanName}
 				planPrice={currentPlanData?.price}
 				billingCycleStart={devPlanStatus.devPlanBillingCycleStart ?? null}

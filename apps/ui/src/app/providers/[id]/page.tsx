@@ -12,6 +12,7 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { isPremiumModel } from "@llmgateway/shared";
 
 import type {
 	ApiModel,
@@ -47,6 +48,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		providerInfo: (typeof providerDefinitions)[number],
 	): ModelWithProviders => ({
 		id: def.id,
+		premium: isPremiumModel(def.id),
 		createdAt: new Date().toISOString(),
 		releasedAt: def.releasedAt?.toISOString() ?? null,
 		name: def.name ?? null,

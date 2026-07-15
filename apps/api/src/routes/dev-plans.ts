@@ -33,8 +33,11 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	getDevPlanPremiumWeeklyLimit,
+	isPremiumWeekExpired,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -1526,6 +1529,9 @@ const getStatus = createRoute({
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
+						devPlanPremiumWeeklyLimit: z.string(),
+						devPlanPremiumCreditsUsed: z.string(),
+						devPlanPremiumWeekResetsAt: z.string().nullable(),
 						devPlanBillingCycleStart: z.string().nullable(),
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
@@ -1581,6 +1587,9 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
+			devPlanPremiumWeeklyLimit: "0",
+			devPlanPremiumCreditsUsed: "0",
+			devPlanPremiumWeekResetsAt: null,
 			devPlanBillingCycleStart: null,
 			devPlanCancelled: false,
 			devPlanExpiresAt: null,
@@ -1598,6 +1607,27 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+
+	// Weekly premium fair-use allowance, computed with the same helpers the
+	// gateway uses for enforcement. An expired window reports zero usage and no
+	// reset date — the full allowance is already available again.
+	const premiumWeeklyLimit =
+		personalOrg.devPlan !== "none"
+			? getDevPlanPremiumWeeklyLimit(personalOrg.devPlan)
+			: 0;
+	const premiumWeekExpired = isPremiumWeekExpired(
+		personalOrg.devPlanPremiumWeekStart,
+	);
+	const premiumCreditsUsed = premiumWeekExpired
+		? 0
+		: parseFloat(personalOrg.devPlanPremiumCreditsUsed ?? "0");
+	const premiumWeekResetsAt =
+		!premiumWeekExpired && personalOrg.devPlanPremiumWeekStart
+			? new Date(
+					personalOrg.devPlanPremiumWeekStart.getTime() +
+						DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+				).toISOString()
+			: null;
 
 	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
@@ -1638,6 +1668,9 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
+		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
+		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
+		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,
 		devPlanBillingCycleStart:
 			personalOrg.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: personalOrg.devPlanCancelled,

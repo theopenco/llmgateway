@@ -1,7 +1,7 @@
 "use client";
 
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { Activity, Coins, Cpu, TrendingUp } from "lucide-react";
+import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
 
 import { useApi } from "@/lib/fetch-client";
 
@@ -18,6 +18,9 @@ interface UsageOverviewProps {
 	projectId: string | null;
 	creditsUsed: number;
 	creditsLimit: number;
+	premiumCreditsUsed: number;
+	premiumWeeklyLimit: number;
+	premiumWeekResetsAt: string | null;
 	planName: string;
 	planPrice?: number;
 	billingCycleStart: string | null;
@@ -53,7 +56,37 @@ function MetricCard({
 	);
 }
 
-function UsageBar({ used, limit }: { used: number; limit: number }) {
+// Mirrors the gateway's premium-cap error formatting: days + hours, rounded
+// up to the next hour so the wait is never understated.
+function formatResetTime(resetsAt: string): string {
+	const ms = Math.max(0, new Date(resetsAt).getTime() - Date.now());
+	if (ms < 60 * 60 * 1000) {
+		return "less than an hour";
+	}
+	const totalHours = Math.ceil(ms / (60 * 60 * 1000));
+	const days = Math.floor(totalHours / 24);
+	const hours = totalHours % 24;
+	const parts: string[] = [];
+	if (days > 0) {
+		parts.push(`${days} day${days === 1 ? "" : "s"}`);
+	}
+	if (hours > 0) {
+		parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+	}
+	return parts.join(" and ");
+}
+
+function UsageBar({
+	used,
+	limit,
+	lowMessage = "Above 80% of your monthly allowance. Consider upgrading or wait for the next reset.",
+	exhaustedMessage = "Allowance reached for this billing cycle. Upgrade to keep coding.",
+}: {
+	used: number;
+	limit: number;
+	lowMessage?: string;
+	exhaustedMessage?: string;
+}) {
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
 	const clamped = Math.min(100, percentage);
 	const isLow = percentage > 80;
@@ -69,7 +102,7 @@ function UsageBar({ used, limit }: { used: number; limit: number }) {
 							${remaining.toFixed(2)}
 						</span>
 						<span className="text-sm text-muted-foreground">
-							of ${limit.toFixed(0)} remaining
+							of ${limit.toFixed(limit % 1 === 0 ? 0 : 2)} remaining
 						</span>
 					</div>
 				</div>
@@ -94,14 +127,11 @@ function UsageBar({ used, limit }: { used: number; limit: number }) {
 			</div>
 			{isLow && !isExhausted && (
 				<p className="text-xs text-yellow-700 dark:text-yellow-400">
-					Above 80% of your monthly allowance. Consider upgrading or wait for
-					the next reset.
+					{lowMessage}
 				</p>
 			)}
 			{isExhausted && (
-				<p className="text-xs text-destructive">
-					Allowance reached for this billing cycle. Upgrade to keep coding.
-				</p>
+				<p className="text-xs text-destructive">{exhaustedMessage}</p>
 			)}
 		</div>
 	);
@@ -111,6 +141,9 @@ export default function UsageOverview({
 	projectId,
 	creditsUsed,
 	creditsLimit,
+	premiumCreditsUsed,
+	premiumWeeklyLimit,
+	premiumWeekResetsAt,
 	planName,
 	planPrice,
 	billingCycleStart,
@@ -226,6 +259,27 @@ export default function UsageOverview({
 			{/* Usage progress */}
 			<div className="rounded-xl border bg-card p-6">
 				<UsageBar used={creditsUsed} limit={creditsLimit} />
+				{premiumWeeklyLimit > 0 && (
+					<div className="mt-6 border-t pt-6">
+						<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+							<div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground/70">
+								<Gem className="h-3.5 w-3.5 text-amber-500" />
+								Premium models · weekly allowance
+							</div>
+							<span className="text-xs text-muted-foreground tabular-nums">
+								{premiumWeekResetsAt
+									? `Resets in ${formatResetTime(premiumWeekResetsAt)}`
+									: "Window starts with your first premium request"}
+							</span>
+						</div>
+						<UsageBar
+							used={premiumCreditsUsed}
+							limit={premiumWeeklyLimit}
+							lowMessage="Above 80% of your weekly premium allowance. Standard models stay available."
+							exhaustedMessage="Weekly premium allowance reached — premium models resume when the window resets; standard models keep working."
+						/>
+					</div>
+				)}
 			</div>
 
 			{/* Metrics strip — scoped to the current billing cycle so they
