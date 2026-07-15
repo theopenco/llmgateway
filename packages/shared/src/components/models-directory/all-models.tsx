@@ -127,7 +127,7 @@ type SortDirection = "asc" | "desc";
 
 // Capability icon type
 interface CapabilityIcon {
-	icon: React.ComponentType<{ className?: string }>;
+	icon: React.ComponentType<{ className?: string; size?: number | string }>;
 	label: string;
 	color: string;
 }
@@ -143,10 +143,12 @@ interface FlattenedModelRow {
 	ProviderIcon: React.ComponentType<{ className?: string }> | null;
 }
 
-// Helper to compute capabilities (moved outside component for performance)
+// Helper to compute capabilities (moved outside component for performance).
+// Single source of truth for capability conditions and labels in both the
+// table and grid views.
 function computeCapabilities(
 	provider: ApiModelProviderMapping,
-	model: ApiModel,
+	model?: ApiModel,
 ): CapabilityIcon[] {
 	const capabilities: CapabilityIcon[] = [];
 	if (provider.streaming) {
@@ -300,14 +302,20 @@ const ModelTableRow = React.memo(
 										.toUpperCase()}
 								</div>
 							)}
-							<span className="text-sm">
+							<Link
+								href={modelHref(
+									`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
+								)}
+								onClick={(e) => e.stopPropagation()}
+								className="text-sm hover:text-primary hover:underline"
+							>
 								{row.providerInfo?.name ?? row.provider.providerId}
 								{row.provider.region && (
 									<span className="text-muted-foreground text-xs ml-1">
 										({row.provider.region})
 									</span>
 								)}
-							</span>
+							</Link>
 							{row.provider.deactivatedAt && (
 								<Tooltip>
 									<TooltipTrigger asChild>
@@ -1432,97 +1440,7 @@ export function AllModels({
 		return `$${originalPrice}`;
 	};
 
-	const getCapabilityIcons = (
-		provider: ApiModelProviderMapping,
-		model?: ApiModel,
-	) => {
-		const capabilities = [];
-		if (provider.streaming) {
-			capabilities.push({
-				icon: Zap,
-				label: "Streaming",
-				color: "text-blue-500",
-			});
-		}
-		if (provider.vision) {
-			capabilities.push({
-				icon: Eye,
-				label: "Vision",
-				color: "text-green-500",
-			});
-		}
-		if (provider.tools) {
-			capabilities.push({
-				icon: Wrench,
-				label: "Tools",
-				color: "text-purple-500",
-			});
-		}
-		if (provider.reasoning) {
-			capabilities.push({
-				icon: MessageSquare,
-				label: "Reasoning",
-				color: "text-orange-500",
-			});
-		}
-		if (provider.reasoningMaxTokens) {
-			capabilities.push({
-				icon: Sliders,
-				label: "Reasoning Budget",
-				color: "text-amber-500",
-			});
-		}
-		if (provider.jsonOutput) {
-			capabilities.push({
-				icon: Braces,
-				label: "JSON Output",
-				color: "text-cyan-500",
-			});
-		}
-		if (provider.jsonOutputSchema) {
-			capabilities.push({
-				icon: FileJson2,
-				label: "Structured JSON Output",
-				color: "text-teal-500",
-			});
-		}
-		if (model?.output?.includes("image")) {
-			capabilities.push({
-				icon: ImagePlus,
-				label: "Image Generation",
-				color: "text-pink-500",
-			});
-		}
-		if (model?.output?.includes("video")) {
-			capabilities.push({
-				icon: Video,
-				label: "Video Generation",
-				color: "text-violet-500",
-			});
-		}
-		if (model?.output?.includes("audio")) {
-			capabilities.push({
-				icon: Volume2,
-				label: "Speech Generation",
-				color: "text-rose-500",
-			});
-		}
-		if (model?.output?.includes("embedding")) {
-			capabilities.push({
-				icon: Boxes,
-				label: "Embeddings",
-				color: "text-indigo-500",
-			});
-		}
-		if (provider.webSearch) {
-			capabilities.push({
-				icon: Globe,
-				label: "Native Web Search",
-				color: "text-sky-500",
-			});
-		}
-		return capabilities;
-	};
+	const getCapabilityIcons = computeCapabilities;
 
 	const clearFilters = () => {
 		setSearchQuery("");

@@ -43,7 +43,6 @@ import type {
 	ApiProvider,
 } from "./api-types";
 import type { StabilityLevel } from "@llmgateway/models";
-import type { LucideProps } from "lucide-react";
 
 interface ModelWithProviders extends ApiModel {
 	providerDetails: Array<{
@@ -136,9 +135,7 @@ export function ModelCard({
 		provider: ApiModelProviderMapping,
 		model?: ApiModel,
 	) => {
-		icon: React.ForwardRefExoticComponent<
-			Omit<LucideProps, "ref"> & React.RefAttributes<SVGSVGElement>
-		>;
+		icon: React.ComponentType<{ className?: string; size?: number | string }>;
 		label: string;
 		color: string;
 	}[];
