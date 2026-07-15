@@ -22,7 +22,8 @@ import { cn } from "@/lib/utils";
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
-	maximumFractionDigits: 2,
+	minimumFractionDigits: 0,
+	maximumFractionDigits: 0,
 });
 
 const numberFormatter = new Intl.NumberFormat("en-US", {

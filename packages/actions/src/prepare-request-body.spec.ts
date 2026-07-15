@@ -921,6 +921,81 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	});
 });
 
+describe("prepareRequestBody - Moonshot thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+	}) {
+		return (await prepareRequestBody(
+			"moonshot",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking enabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.6",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.6",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps minimal to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "minimal",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "kimi-k2.6" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (kimi-k2.7-code)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.7-code",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking enabled to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.7-code",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+});
+
 describe("prepareRequestBody - reasoning_effort max", () => {
 	async function prepare(options: {
 		provider: Parameters<typeof prepareRequestBody>[0];

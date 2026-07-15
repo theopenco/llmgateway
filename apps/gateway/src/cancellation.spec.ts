@@ -12,8 +12,10 @@ import { db, tables } from "@llmgateway/db";
 
 import { app } from "./app.js";
 import {
+	resetMockCheckpoints,
 	startMockServer,
 	stopMockServer,
+	waitForMockCheckpoint,
 } from "./test-utils/mock-openai-server.js";
 import { clearCache, waitForLogs } from "./test-utils/test-helpers.js";
 
@@ -112,9 +114,18 @@ describe("client cancellation logging", () => {
 	});
 
 	beforeEach(async () => {
+		resetMockCheckpoints();
 		await resetState();
 		await setupFixtures();
 	});
+
+	// Give the gateway a beat to move past the checkpoint (e.g. from the fetch
+	// settling into res.text()/res.json()) before aborting. Any earlier or later
+	// abort ordering still logs `canceled: true`, so this only biases toward the
+	// specific path each test targets — it is not load-bearing for correctness.
+	function settle() {
+		return new Promise((resolve) => setTimeout(resolve, 50));
+	}
 
 	function postChat(content: string, signal: AbortSignal) {
 		return fetch(`${gatewayUrl}/v1/chat/completions`, {
@@ -134,12 +145,16 @@ describe("client cancellation logging", () => {
 	test("abort before the upstream responds is logged as canceled, not an error", async () => {
 		const controller = new AbortController();
 		// Mock delays 5s before sending any response; abort lands while the
-		// gateway is awaiting the upstream fetch.
+		// gateway is awaiting the upstream fetch. The checkpoint resolves once
+		// the mock has received the gateway's upstream request and started its
+		// delay, so the abort verifiably lands mid-fetch instead of racing a
+		// fixed sleep against slow CI runners.
+		const upstreamRequestReceived = waitForMockCheckpoint("TRIGGER_TIMEOUT");
 		const requestPromise = postChat(
 			`TRIGGER_TIMEOUT_5000 ${Math.random()}`,
 			controller.signal,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await upstreamRequestReceived;
 		controller.abort();
 
 		await expect(requestPromise).rejects.toThrow();
@@ -157,12 +172,17 @@ describe("client cancellation logging", () => {
 		const controller = new AbortController();
 		// Mock returns 200 headers + a partial body, then hangs without
 		// finishing it. The abort lands while the gateway is awaiting
-		// res.json(), exercising the body-read cancellation path.
+		// res.json(), exercising the body-read cancellation path. The
+		// checkpoint resolves once the mock has flushed the partial body, so
+		// the gateway verifiably has the upstream request in flight before the
+		// abort fires.
+		const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_BODY_HANG");
 		const requestPromise = postChat(
 			`TRIGGER_BODY_HANG ${Math.random()}`,
 			controller.signal,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await partialBodyFlushed;
+		await settle();
 		controller.abort();
 
 		await expect(requestPromise).rejects.toThrow();
@@ -180,12 +200,17 @@ describe("client cancellation logging", () => {
 		const controller = new AbortController();
 		// Mock returns a 500 status + a partial error body, then hangs without
 		// finishing it. The abort lands while the gateway is awaiting res.text()
-		// on the error path, exercising the error-body cancellation path.
+		// on the error path, exercising the error-body cancellation path. The
+		// checkpoint resolves once the mock has flushed the partial error body,
+		// so the gateway verifiably has the upstream request in flight before
+		// the abort fires.
+		const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_5XX_BODY_HANG");
 		const requestPromise = postChat(
 			`TRIGGER_5XX_BODY_HANG ${Math.random()}`,
 			controller.signal,
 		);
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await partialBodyFlushed;
+		await settle();
 		controller.abort();
 
 		await expect(requestPromise).rejects.toThrow();

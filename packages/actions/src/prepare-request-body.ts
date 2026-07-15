@@ -1005,10 +1005,10 @@ export async function prepareRequestBody(
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
-	// off), and Google reasons by default so it must explicitly disable thinking
-	// when asked. Every other provider treats the absence of reasoning_effort as
-	// "off" already, so normalize `none` away for them to avoid forwarding an
-	// unsupported enum value.
+	// off), and Google and Moonshot reason by default so they must explicitly
+	// disable thinking when asked. Every other provider treats the absence of
+	// reasoning_effort as "off" already, so normalize `none` away for them to
+	// avoid forwarding an unsupported enum value.
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1016,6 +1016,7 @@ export async function prepareRequestBody(
 		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
+		usedProvider === "moonshot" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -1997,6 +1998,54 @@ export async function prepareRequestBody(
 			// Add sensitive_word_check if provided (Z.ai specific)
 			if (sensitive_word_check) {
 				requestBody.sensitive_word_check = sensitive_word_check;
+			}
+			break;
+		}
+		case "moonshot": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			// Moonshot's thinking models don't recognize `reasoning_effort`; they
+			// take a binary `thinking` parameter (`{ type: "enabled" | "disabled" }`)
+			// and think by default. Map `none`/`minimal` to an explicit disable and
+			// every other tier to an explicit enable; when no effort is requested,
+			// send nothing and keep the provider default (thinking on). Mappings
+			// that can turn thinking off declare `none` in `reasoningEfforts`;
+			// always-on models (kimi-k2.7-code*) reject `"disabled"` with a 400, so
+			// collapse disable requests onto their minimum (thinking stays on).
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				const wantsThinking =
+					reasoning_effort !== "none" && reasoning_effort !== "minimal";
+				const canDisableThinking =
+					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+					false;
+				if (wantsThinking) {
+					requestBody.thinking = { type: "enabled" };
+				} else if (canDisableThinking) {
+					requestBody.thinking = { type: "disabled" };
+				}
 			}
 			break;
 		}
