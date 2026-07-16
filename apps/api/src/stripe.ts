@@ -819,6 +819,16 @@ async function resolvePaymentMethodFromSetupSession(
 }
 
 /**
+ * Whether the one-card-per-DevPass-account rule is enforced. Disabled in local
+ * development so the same Stripe test card (e.g. 4242 4242 4242 4242) can be
+ * reused across dev accounts without hitting `duplicate_card`. Stays enforced
+ * in test and production.
+ */
+export function isDevPlanCardDedupeEnforced(): boolean {
+	return process.env.NODE_ENV !== "development";
+}
+
+/**
  * Finalize a DevPass setup-mode checkout session: verify the card fingerprint
  * is not already in use by another organization, then create the Stripe
  * subscription server-side. Idempotent: safe to call from both the
@@ -881,7 +891,7 @@ export async function finalizeDevPlanSetupSession(
 			? (paymentMethod.card?.fingerprint ?? null)
 			: null;
 
-	if (fingerprint) {
+	if (fingerprint && isDevPlanCardDedupeEnforced()) {
 		const conflictingOrg = await db.query.organization.findFirst({
 			where: {
 				devPlanCardFingerprint: { eq: fingerprint },

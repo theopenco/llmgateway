@@ -7,7 +7,11 @@ import {
 	executeSelfRefund,
 	isSelfRefundCandidateType,
 } from "@/lib/self-refund.js";
-import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
+import {
+	ensureStripeCustomer,
+	finalizeDevPlanSetupSession,
+	isDevPlanCardDedupeEnforced,
+} from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -2632,29 +2636,32 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 
 	// Enforce one card per DevPass account: reject a card already linked to a
 	// different org and detach it so it isn't silently left on this customer.
-	const conflictingOrg = await db.query.organization.findFirst({
-		where: {
-			devPlanCardFingerprint: { eq: fingerprint },
-			id: { ne: personalOrg.id },
-		},
-	});
-	if (conflictingOrg) {
-		try {
-			await getStripe().paymentMethods.detach(paymentMethodId);
-		} catch (err) {
-			logger.warn(
-				`Failed to detach duplicate dev plan card ${paymentMethodId}`,
-				{ error: err instanceof Error ? err.message : String(err) },
+	// Skipped in local development so the same Stripe test card can be reused.
+	if (isDevPlanCardDedupeEnforced()) {
+		const conflictingOrg = await db.query.organization.findFirst({
+			where: {
+				devPlanCardFingerprint: { eq: fingerprint },
+				id: { ne: personalOrg.id },
+			},
+		});
+		if (conflictingOrg) {
+			try {
+				await getStripe().paymentMethods.detach(paymentMethodId);
+			} catch (err) {
+				logger.warn(
+					`Failed to detach duplicate dev plan card ${paymentMethodId}`,
+					{ error: err instanceof Error ? err.message : String(err) },
+				);
+			}
+			return c.json(
+				{
+					error: "duplicate_card" as const,
+					message:
+						"This card is already associated with another DevPass account. Please use a different payment method.",
+				},
+				409,
 			);
 		}
-		return c.json(
-			{
-				error: "duplicate_card" as const,
-				message:
-					"This card is already associated with another DevPass account. Please use a different payment method.",
-			},
-			409,
-		);
 	}
 
 	// confirmCardSetup already attaches the card to the customer; attach again
