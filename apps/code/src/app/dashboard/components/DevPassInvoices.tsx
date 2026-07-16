@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
+import type { ReactNode } from "react";
 
 const PAGE_SIZE = 10;
 
@@ -40,6 +41,23 @@ function isInvoiceable(invoice: Invoice): boolean {
 		invoice.status === "completed" &&
 		invoice.amount !== null &&
 		Number(invoice.amount) > 0
+	);
+}
+
+// Invisible stand-in that reserves the exact footprint of an action button so
+// the Invoice/Refund columns stay aligned on rows missing one of the actions.
+function ActionButtonPlaceholder({ children }: { children: ReactNode }) {
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			disabled
+			aria-hidden="true"
+			tabIndex={-1}
+			className="invisible hidden sm:inline-flex"
+		>
+			{children}
+		</Button>
 	);
 }
 
@@ -139,7 +157,12 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 
 	const refund = invoice.refund;
 	if (!refund) {
-		return null;
+		return (
+			<ActionButtonPlaceholder>
+				<Undo2 className="h-4 w-4" />
+				<span className="sr-only sm:not-sr-only">Refund</span>
+			</ActionButtonPlaceholder>
+		);
 	}
 
 	if (!refund.eligible) {
@@ -254,8 +277,8 @@ export default function DevPassInvoices() {
 				usage credits granted for that billing period.
 			</p>
 
-			<div className="overflow-hidden rounded-xl border">
-				<div className="hidden grid-cols-[1fr_1fr_auto_auto_auto] gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground sm:grid">
+			<div className="overflow-hidden rounded-xl border sm:grid sm:grid-cols-[1fr_1fr_auto_auto_auto]">
+				<div className="hidden grid-cols-subgrid gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground sm:col-span-5 sm:grid">
 					<div>Date</div>
 					<div>Description</div>
 					<div className="text-right">Amount debited</div>
@@ -266,7 +289,7 @@ export default function DevPassInvoices() {
 				{pageInvoices.map((invoice) => (
 					<div
 						key={invoice.id}
-						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:grid-cols-[1fr_1fr_auto_auto_auto] sm:items-center"
+						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:col-span-5 sm:grid-cols-subgrid sm:items-center"
 					>
 						<div className="text-sm tabular-nums">
 							{format(new Date(invoice.date), "MMM d, yyyy")}
@@ -295,8 +318,13 @@ export default function DevPassInvoices() {
 							{formatCredits(invoice.creditAmount)}
 						</div>
 						<div className="col-span-2 mt-1 flex justify-end gap-2 sm:col-span-1 sm:mt-0">
-							{isInvoiceable(invoice) && (
+							{isInvoiceable(invoice) ? (
 								<InvoiceDownloadButton invoice={invoice} />
+							) : (
+								<ActionButtonPlaceholder>
+									<Download className="h-4 w-4" />
+									<span className="sr-only sm:not-sr-only">Invoice</span>
+								</ActionButtonPlaceholder>
 							)}
 							<RefundButton invoice={invoice} />
 						</div>
